@@ -827,14 +827,45 @@ def test_a_directory_reported_as_leaked_is_left_SEALED(tmp_path, monkeypatch):
     before_mode = stat.S_IMODE(os.stat(d).st_mode)
     assert before_mode == 0o500, oct(before_mode)
 
-    monkeypatch.setattr(
-        m, "_rmtree_fd",
-        lambda *a, **k: (_ for _ in ()).throw(OSError(39, "Directory not empty")))
+    # THIS TEST PASSED OVER AN EMPTY DENOMINATOR UNTIL v3.66.1154. It injected
+    # OSError(ENOTEMPTY), which the remover catches BEFORE its PermissionError
+    # arm -- so no relaxation ever happened and "the mode is unchanged" was
+    # trivially true of a code path that had not run. The seal itself is what
+    # must trigger the relaxation (the 0444 snapshot cannot be unlinked from a
+    # 0500 directory), and the failure is injected AFTER it, at the terminal
+    # rmdir. `relaxed` is asserted non-empty for exactly that reason.
+    relaxed, real_fchmod, real_rmdir = [], os.fchmod, os.rmdir
+
+    def spy_fchmod(fd, mode):
+        relaxed.append(mode)
+        return real_fchmod(fd, mode)
+
+    _doomed = os.lstat(d)
+    _doomed = (_doomed.st_dev, _doomed.st_ino)
+
+    def boom_rmdir(name, *a, dir_fd=None, **k):
+        # KEYED ON THE INODE. v3.66.1154 renames the directory to a private
+        # name before removing it, so a name-keyed injection stops firing --
+        # and an injection that never fires reads exactly like a pass.
+        if dir_fd is not None:
+            try:
+                _st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+                if (_st.st_dev, _st.st_ino) == _doomed:
+                    raise OSError(5, "injected I/O error")
+            except FileNotFoundError:
+                pass
+        return real_rmdir(name, *a, dir_fd=dir_fd, **k)
+
+    monkeypatch.setattr(os, "fchmod", spy_fchmod)
+    monkeypatch.setattr(os, "rmdir", boom_rmdir)
     got = m._discard_tempdir(d)
     monkeypatch.undo()
     after_mode = stat.S_IMODE(os.stat(d).st_mode)
     _purge(m)
 
+    assert relaxed, (
+        "the remover never relaxed anything, so there is no relaxation to "
+        "check was undone -- the fixture did not build the shape")
     assert got is False
     assert after_mode == before_mode, (
         f"a directory reported as NOT REMOVED was left at {oct(after_mode)}; "

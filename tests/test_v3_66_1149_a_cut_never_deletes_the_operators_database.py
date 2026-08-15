@@ -783,7 +783,9 @@ def test_a_failed_subject_cleanup_stays_registered_and_preserves_the_error(tmp_p
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
     real_rmtree = shutil.rmtree
-    monkeypatch.setattr(m, "_rmtree_fd", lambda fd: (_ for _ in ()).throw(OSError(39, "Directory not empty")))
+    monkeypatch.setattr(m, "_rmtree_fd",
+                        lambda fd, dev=None: (_ for _ in ()).throw(
+                            OSError(39, "Directory not empty")))
 
     def boom(self, path=None, *a, **k):
         raise RuntimeError("extraction exploded")
@@ -810,7 +812,9 @@ def test_a_failed_gate_sandbox_cleanup_is_reported(tmp_path, monkeypatch, capsys
     work = tmp_path / "w"
     work.mkdir()
     real_rmtree = shutil.rmtree
-    monkeypatch.setattr(m, "_rmtree_fd", lambda fd: (_ for _ in ()).throw(OSError(39, "Directory not empty")))
+    monkeypatch.setattr(m, "_rmtree_fd",
+                        lambda fd, dev=None: (_ for _ in ()).throw(
+                            OSError(39, "Directory not empty")))
     m.step0_gate(str(work), checker_dir=str(b))
     err = capsys.readouterr().err
     monkeypatch.undo()

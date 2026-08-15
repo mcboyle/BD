@@ -4,6 +4,170 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1154 - the object, not the name, all the way down
+
+v3.66.1153 bound the TOP of every removal to the identity recorded when it was
+created, and left everything else exactly where it was. Two independent
+adversarial reviews and one direct reproduction found fourteen escapes at
+63be0464; all fourteen reproduce deterministically from injected seams rather
+than from stress, and each fixture asserts that its seam fired before it
+asserts anything else. RED-first: 34 failed / 177 passed across the v1145-v1154
+family, 212 passed after.
+
+1. IDENTITY STOPPED AT THE TOP. `_rmtree_fd` opened and removed every CHILD by
+   NAME, with nothing carried from the moment readdir reported it. A foreign
+   directory renamed onto a child pathname mid-walk was entered and recursively
+   emptied -- measured, victim inode nlink 0, in all three tools.
+
+   Every entry is now bound to the inode readdir reported, and the destructive
+   syscall never names it: the entry is renamed to a private name that cannot
+   clobber, identified there, and only then removed. For a child directory the
+   rename happens BEFORE the recursion, so the whole subtree is unreachable by
+   its old path for the entire walk rather than only at the terminal rmdir.
+
+2. THE DESTRUCTIVE SYSCALL NAMED A WELL-KNOWN PATH. `rmdir(name, dir_fd=...)`
+   can be redirected in the window after the last verification: a foreign EMPTY
+   directory swapped onto a child name was deleted, and review measured 60
+   wrong-object deletions in 60,000 races at the top level.
+
+   The rename above moves that window onto a name generated from `os.urandom`
+   and used within the same instruction stream. A mis-targeted rename is
+   REVERSIBLE and the object is put back; a mis-targeted rmdir is not. Stated
+   honestly: an adversary who could intercept our syscalls would still win the
+   final rmdir -- Linux has no funlinkat -- and what must hold even then is that
+   `st_nlink == 0` on the held descriptor DETECTS it rather than reporting
+   success. That proof is reporting, not containment; the rename is the
+   containment.
+
+3. THE UNDO WAS ITSELF DESTRUCTIVE. Putting a foreign object back with
+   `os.rename` silently destroys an empty directory standing at the restored
+   name -- the exact act the caller has just refused to perform, reintroduced
+   inside the error handler. `renameat2(RENAME_NOREPLACE)` turns that into
+   EEXIST; it is not exposed by `os`, is reached through ctypes, and was
+   measured working here on xfs and tmpfs. Where the flag is rejected the
+   fallback is `os.rename` and the caller is told which ran. Where the undo
+   cannot happen the object is left under the private name and the refusal SAYS
+   SO, because an operator told "we refused to delete your directory" while it
+   sits under a name they have never seen has not been told anything.
+
+4. SUCCESS AND FAILURE WERE STILL READ OFF A PATHNAME, and were wrong in both
+   directions. Asked FIRST, "nothing is here" meant success -- so an owned tree
+   RENAMED AWAY, payload intact, was reported clean AND unregistered, which
+   destroys the only record that it exists. Asked LAST, "something is here"
+   meant failure -- so a correct removal whose freed name an unrelated object
+   reused was reported as a leak, and bd-cut exited EXIT_CLEANUP_FAILED for a
+   directory that did not exist.
+
+   A descriptor is now held from creation and both questions are answered by
+   `os.fstat(fd).st_nlink`, about OUR inode. Valid because the subject is a
+   DIRECTORY: `os.link` on one is EPERM, so no second link can exist to confuse
+   the count. Where nothing was held, "absent means clean" is unchanged --
+   there is no evidence either way and refusing would fail every already-clean
+   path.
+
+   THIS REVERSES A v3.66.1152 DECISION and the reversal is pinned in both
+   directions. A dangling symlink planted after a proven removal is no longer
+   our failure; a dangling symlink at a registered path with NO held descriptor
+   still refuses, which is where `os.path.exists` following a link could still
+   launder a removal that did not happen.
+
+5. THE DESCRIPTOR HAD TO BE BOUND TO A PATH, NOT ONLY TO AN IDENTITY.
+   `tests/_tmproot.install()` runs in `pytest_configure` for every process in
+   the suite, so its descriptor is live on the SESSION root at all times, while
+   four tracked tests legitimately hand-set `_ROOT` to a directory of their own.
+   A remover that trusted the descriptor because its identity matched would
+   then walk the session root and delete every other test's temporary directory
+   mid-run -- measured on a literal implementation, `live root contents: []`,
+   and in one case behind a test that stayed GREEN. The descriptor is used only
+   when it was opened on the path being asked about.
+
+   Related, and not previously on any list: `install()` could leave `_ROOT` set
+   with no identity, and `finish()` then fell through to a removal whose
+   identity check is skipped for a None identity -- an entirely UNBOUND
+   recursive deletion of whatever stood at the recorded path. Measured: a
+   foreign directory and its payload destroyed, reported as success.
+
+6. A REFUSED CLEANUP LEFT DIRECTORIES LESS PROTECTED THAN IT FOUND THEM. The
+   relaxation is `fchmod(fd, 0o700)` as a retry; the mode was restored on two of
+   four refusal returns in bd-cut, on none in `_tmproot`, and the CHILD-level
+   relaxation was restored nowhere -- its rmdir sat after `finally: os.close`,
+   so there was no descriptor left to reseal through. The rmdir moved inside the
+   descriptor's lifetime and every non-success return now reseals.
+
+7. NOTHING ESCAPES, AND NOTHING IS LOST. `RecursionError` at depth ~1400 is not
+   an OSError, so it escaped the remover, escaped `_reap`, took the whole
+   cleanup report with it, left the remaining directories unattempted, and
+   bd-cut exited 1 -- indistinguishable from die(). The walk's failures become a
+   refusal naming the exception TYPE, `_reap` is total per directory, and
+   `main()` gained an `except SystemExit` arm so a zero code cannot bypass
+   EXIT_CLEANUP_FAILED. That arm is defence in depth and is said to be: no live
+   path at 63be0464 reaches it holding a registered directory.
+
+8. bd-footguns CONVERTED A CLEANUP FAILURE INTO AN AUTHORIZATION. The failure
+   was routed through the affected DETECTOR's verdict, and escalation depends on
+   that detector's severity, so a sandbox that could not be removed under an
+   ADVISORY detector printed the OK line and exited 0 -- which bd-cut's step 0
+   reads as permission to cut. A cleanup failure is not a verdict about a
+   footgun; it is the tool failing to finish. It now has its own channel,
+   consulted at the single exit in `main()` so every subcommand inherits it.
+
+9. ONE SPELLING OF "THERE IS NO DETECTOR" AUTHORIZED A CUT. An active BLOCKING
+   footgun with `detector.kind: "none"` returned `advisory` and exit 0, while
+   the same row spelled `{"kind": "advisory"}` or with no detector key at all
+   correctly returned 2. `kind: "none"` is honoured as a declaration only where
+   the registry marks the row non-blocking. A malformed row was worse than any
+   of them: `{"kind": "tool"}` with no `cmd` raised KeyError out of `cmd_check`,
+   past the pool's fallback, and killed the tool with exit 1 -- a code that
+   means something else entirely.
+
+10. SEVERITY WAS THE ESCALATION DIAL AND WAS NEVER VALIDATED. `severity ==
+    "blocking"` is a bare equality with a permissive default, so an ABSENT
+    severity -- the archetype of a malformed row -- read as non-blocking, and so
+    did "Blocking", "BLOCKING", "critical" and a trailing space. Measured: a row
+    with no severity key printed [VIOLATION] and the process exited 0. That was
+    already wrong and item 9 makes it load-bearing, so it is validated and fails
+    closed. The registry merges a FOOTGUNS.json from the subject tree, which is
+    what makes this a trust boundary rather than a typo guard.
+
+11. THE REGISTRY LOADER CRASHED ON A SHAPE IT ADVERTISES. `ext.get(...)` ran
+    before the `isinstance` guard, so a bare-LIST FOOTGUNS.json -- the form that
+    expression exists to support -- raised AttributeError from a call site
+    outside every try.
+
+12. THE SELFTEST GRADED ITSELF OVER AN EMPTY DENOMINATOR, TWICE. Its
+    env-tranche control PRINTED its result and nothing consumed it, so a forced
+    FAIL sat above `SELFTEST PASS` and exit 0. And "consult the cleanup channel"
+    asserts nothing on a healthy machine: a mutant deleting the channel's
+    producer printed SELFTEST PASS. It now induces a REAL unremovable sandbox
+    (its parent is not writable, so the terminal rmdir gets EACCES), drives the
+    real remover, and requires the channel to have recorded it.
+
+TESTS. `tests/test_v3_66_1154_the_object_not_the_name.py` runs ONE behavioural
+matrix against ALL THREE removers, because three near-identical copies exist by
+necessity -- `_tmproot` may import nothing from the repo and the bd-* tools are
+standalone -- and a drift between them must be red rather than a fourth
+implementation nobody compares.
+
+SIX SHIPPED TESTS PASSED FOR THE WRONG REASON and are repaired here. One spied
+`os.chmod` while the retry has used `os.fchmod` only since v3.66.1153, so its
+assertion ran over an EMPTY denominator and could not fail for the fix OR for
+its removal -- and its `finally` rebound the production `_rmtree_fd` to
+`shutil.rmtree`. One injected OSError(ENOTEMPTY), which is caught before the
+PermissionError arm, so nothing was ever unsealed and "the mode is unchanged"
+was trivially true. One patched `shutil.rmtree`, which the reclaimer stopped
+calling at v3.66.1153, and passed on an identity mismatch instead. One arm of a
+parametrized test was a duplicate of another arm, two shims deep. One asserted
+that every destructive call carries `dir_fd` and no absolute path -- which
+CPython's own `shutil.rmtree` satisfies through `_rmtree_safe_fd`, so a naive
+implementation passed it; it now runs the control in the same test and REQUIRES
+the naive implementation to destroy the foreign payload, so a decayed scenario
+is red rather than reassuring.
+
+EVERY INJECTION IN THE NEW FILE IS KEYED ON AN INODE, NOT A NAME. A name-keyed
+spy stops firing the moment a remover renames before it destroys, and a spy that
+never fires reads exactly like a pass -- which is how four of the six above came
+to be green.
+
 ## v3.66.1153 - deletion is bound to the object, not to the name
 
 v3.66.1149 through v3.66.1152 moved the ownership proof nearer the deletion

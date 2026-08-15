@@ -324,7 +324,10 @@ def pytest_sessionfinish(session, exitstatus):
 """
 
 _FAIL_OVERRIDE = """
-_tmproot._force_rmtree = lambda path, ident=None: False   # cannot finish
+# (path, ident, held_fd) since v3.66.1154 -- a narrower lambda raises
+# TypeError out of finish() instead of reporting a refusal, which is a
+# different experiment wearing the same red.
+_tmproot._force_rmtree = lambda path, ident=None, held_fd=None: False
 """
 
 
@@ -336,6 +339,17 @@ def _nested(tmp_path, override, body="def test_passes():\n    assert True\n"):
     (d / "test_it.py").write_text(body)
     env = dict(os.environ)
     env.pop("KEEP_TEST_TMPDIRS", None)
+    # A PRIVATE TMPDIR FOR THE CHILD (v3.66.1154). Two of these tests exist
+    # precisely to make the child's per-run root survive -- one injects a
+    # failed reclamation, the other lets the run go red so artifacts are KEPT
+    # on purpose -- so the child leaves a bd-testrun-* root in the real /tmp by
+    # design, and nothing collected it. Measured under KEEP_TEST_TMPDIRS=1:
+    # this file leaked 2 directories per run, forever, on every host. The child
+    # resolves SYSTEM_TMP through TMPDIR, so pointing it here puts the residue
+    # inside the parent test's own tmp_path where pytest reclaims it.
+    child_tmp = d / "childtmp"
+    child_tmp.mkdir()
+    env["TMPDIR"] = str(child_tmp)
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(d)],
         cwd=str(d), capture_output=True, text=True, timeout=300, env=env)
@@ -494,13 +508,25 @@ def test_the_retry_cannot_be_swapped_to_a_symlink(tmp_path):
         attempted.append(os.path.realpath(str(path)))
         return real_chmod(path, mode, *a, **k)
 
-    m._rmtree_fd = swapping_rmtree
-    os.chmod = spy_chmod
+    # THE DENOMINATOR WAS EMPTY UNTIL v3.66.1154. This spied `os.chmod` while
+    # the retry has used `os.fchmod` on a held descriptor since v3.66.1153, so
+    # `attempted` could never be anything but [] and the assertion below could
+    # not fail -- for the fix OR for its removal. Spy the seam that actually
+    # runs, prove it ran, and only then assert what it did not do.
+    real_fchmod, relaxed = os.fchmod, []
+
+    def spy_fchmod(fd, mode):
+        relaxed.append(mode)
+        return real_fchmod(fd, mode)
+
+    real_walk = m._rmtree_fd                 # NOT shutil.rmtree -- restoring
+    m._rmtree_fd = swapping_rmtree           # that bound the wrong function
+    os.chmod, os.fchmod = spy_chmod, spy_fchmod
     try:
         got = m._discard_tempdir(d)
     finally:
-        m._rmtree_fd = real_rmtree
-        os.chmod = real_chmod
+        m._rmtree_fd = real_walk
+        os.chmod, os.fchmod = real_chmod, real_fchmod
         for _extra in (d + ".decoy",):
             if os.path.lexists(_extra):
                 os.unlink(_extra)
@@ -510,6 +536,9 @@ def test_the_retry_cannot_be_swapped_to_a_symlink(tmp_path):
             m._TEMPDIRS.remove(d)
         real_rmtree(d, ignore_errors=True)
 
+    assert relaxed, (
+        "no relaxation happened at all, so nothing here is evidence that the "
+        "relaxation cannot be redirected")
     assert os.path.realpath(str(outside)) not in attempted, (
         f"the retry chmod'd through a symlink swapped in after the identity "
         f"check: {attempted}")
@@ -518,25 +547,73 @@ def test_the_retry_cannot_be_swapped_to_a_symlink(tmp_path):
     assert got is False
 
 
-def test_a_dangling_symlink_is_not_reported_as_removed(tmp_path):
-    """`os.path.exists` follows, so a dangling symlink reads as ABSENT and the
-    helper reported the path gone while the link was still on disk. lexists is
-    the question actually being asked: is there still a NAME here?"""
+def test_a_dangling_symlink_cannot_LAUNDER_a_removal_that_did_not_happen(tmp_path):
+    """THE DEFECT v3.66.1152 CLOSED, RESTATED OVER THE OBJECT (v3.66.1154).
+
+    The original: `os.path.exists` FOLLOWS, so a dangling symlink read as
+    ABSENT and a removal that had not happened was reported as success. The
+    fix was `lexists` -- the right question about a pathname.
+
+    v3.66.1154 stops asking a pathname anything when a descriptor was held from
+    creation, so the trailing `lexists` guard is GONE and its test with it. The
+    guard survives on the no-descriptor fallback, which is exactly where it is
+    still reachable, and that is what this pins: a registered path with an
+    identity but NO held fd, a dangling symlink standing at it, and a removal
+    that must refuse.
+
+    MUTATION DIRECTION, because this is the only predicate that distinguishes
+    the two: change `lexists` to `exists` in that fallback and the symlink
+    reads absent, the helper returns True, and this test goes RED.
+    """
+    m = _load_bdcut()
+    d = str(tmp_path / "bdcut_nofd_dangle")
+    os.mkdir(d)
+    st = os.lstat(d)
+    m._TEMPDIRS.append(d)
+    m._TEMPDIR_IDENT[d] = (st.st_dev, st.st_ino)
+    assert d not in getattr(m, "_TEMPDIR_FD", {}), "fixture: no fd may be held"
+    os.rmdir(d)
+    os.symlink(str(tmp_path / "no-such-target"), d)
+    try:
+        assert os.path.lexists(d) and not os.path.exists(d), "fixture wrong"
+        got = m._discard_tempdir(d)
+        assert got is False, (
+            "a dangling symlink was left at a registered path and the helper "
+            "reported it removed -- os.path.exists follows the link, so it "
+            "answers about a target that is not there rather than about the "
+            "name, and with no descriptor held the name is all there is")
+        assert d in m._TEMPDIRS, "it unregistered a path that still has a name"
+    finally:
+        if os.path.lexists(d):
+            os.unlink(d)
+        if d in m._TEMPDIRS:
+            m._TEMPDIRS.remove(d)
+        m._TEMPDIR_IDENT.pop(d, None)
+
+
+def test_a_dangling_symlink_planted_AFTER_a_proven_removal_is_not_our_failure(tmp_path):
+    """THE REVERSAL, PINNED SO IT CANNOT BE UNDONE BY REFLEX.
+
+    This is the case v3.66.1152 got wrong in the other direction, and it was
+    measured: `_remove_owned_dir` had already returned `(True, None)` -- the
+    object's nlink was proven zero -- and `_discard_tempdir` then OVERRODE that
+    proof with a weaker observation about a pathname, reported a leak, kept the
+    path registered, and made main() exit EXIT_CLEANUP_FAILED for a directory
+    that did not exist. Refusing to unregister does not remove a third party's
+    symlink and cannot.
+
+    A future session that re-adds the trailing `lexists` guard as a "fix" turns
+    this red, which is the point of writing it down.
+    """
     m = _load_bdcut()
     d = m._owned_tempdir("bdcut_dangle_")
-    real_rmtree = shutil.rmtree
-
-    # The symlink appears AFTER the removal, which is the only way to reach the
-    # final existence check -- an identity check up front already refuses a
-    # path that is a symlink when it is asked. This is the window where
-    # os.path.exists() answers about the TARGET and the caller is asking about
-    # the NAME.
     real_remove = m._remove_owned_dir
+    fired = {"n": 0}
 
-    def remove_then_dangle(dd, ident):
-        out = real_remove(dd, ident)
-        # the window between the object going and the caller looking
-        os.symlink(str(tmp_path / "no-such-target"), dd)
+    def remove_then_dangle(dd, ident, held_fd=None):
+        out = real_remove(dd, ident, held_fd)
+        fired["n"] += 1
+        os.symlink(str(tmp_path / "no-such-target"), dd)   # a stranger's link
         return out
 
     m._remove_owned_dir = remove_then_dangle
@@ -545,12 +622,18 @@ def test_a_dangling_symlink_is_not_reported_as_removed(tmp_path):
     finally:
         m._remove_owned_dir = real_remove
     try:
+        assert fired["n"] == 1, "the link was never planted -- nothing tested"
         assert os.path.lexists(d) and not os.path.exists(d), "fixture wrong"
-        assert got is False, (
-            "a dangling symlink was left at the path and the helper reported "
-            "it removed -- os.path.exists follows the link, so it answers "
-            "about a target that is not there rather than about the name")
-        assert d in m._TEMPDIRS, "it unregistered a path that still has a name"
+        assert got is True, (
+            "our object was PROVEN removed (st_nlink == 0 on the descriptor "
+            "held since creation) and the helper still reported a leak, "
+            "because something unrelated now occupies the pathname it used to "
+            "have. CLAUDE.md section 0 counts that over-sensitivity as a "
+            "soundness bug, not a safe default")
+        assert d not in m._TEMPDIRS, (
+            "it stayed registered, so _reap will keep re-attempting a "
+            "directory that does not exist and main() will exit "
+            "EXIT_CLEANUP_FAILED for it")
     finally:
         if os.path.lexists(d):
             os.unlink(d)

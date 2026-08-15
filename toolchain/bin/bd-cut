@@ -38,10 +38,12 @@ Flags:
     --no-build         stop after step 3 (typecheck + build + inventory only)
 """
 import argparse
+import ctypes
 import errno
 import glob
 import hashlib
 import os
+import platform
 import re
 import shutil
 import stat
@@ -914,10 +916,16 @@ def _owned_tempdir(prefix):
     d = tempfile.mkdtemp(prefix=prefix)
     _TEMPDIRS.append(d)
     try:
-        _st = os.lstat(d)
-        _TEMPDIR_IDENT[d] = (_st.st_dev, _st.st_ino)
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
-        pass                      # unidentifiable: cleanup will refuse it
+        return d                  # unidentifiable: cleanup will REFUSE it
+    _TEMPDIR_FD[d] = fd
+    # THE IDENTITY COMES FROM THE DESCRIPTOR WE KEEP, not from a separate
+    # lstat of the same name. Two lookups of one path are two chances to be
+    # told about different objects, and the fd is the thing the removal will
+    # actually act through.
+    _st = os.fstat(fd)
+    _TEMPDIR_IDENT[d] = (_st.st_dev, _st.st_ino)
     return d
 
 
@@ -949,122 +957,358 @@ _OPEN_FDS = []
 # name with nothing reporting it.
 _TEMPDIR_IDENT = {}
 
+# A DESCRIPTOR HELD FROM CREATION, one per owned directory (v3.66.1154). It is
+# what makes the removal answerable about the OBJECT: `st_nlink == 0` on this
+# fd says our directory was unlinked, where `lexists(path)` only ever said
+# something about a name. Measured at 63be0464, both directions wrong at once:
+# a tree RENAMED AWAY reported success (nothing at the name), and a correct
+# removal whose freed name an unrelated object reused reported failure.
+# Closed in _reap, after the discards -- unlike _OPEN_FDS, which is closed
+# first because it serves the snapshot rather than ownership.
+_TEMPDIR_FD = {}
 
-def _rmtree_fd(fd):
-    """Delete everything UNDER an open directory descriptor.
 
-    NO PATHNAME IS RESOLVED FOR ANY CHILD. Every operation is dir_fd-relative
-    to a descriptor whose identity the caller has already proven, so renaming
-    the directory -- or any ancestor of it -- cannot redirect a single one of
-    these calls: there is no name lookup left to redirect.
+def _forget_tempdir(d):
+    """Drop every record of a directory, closing the descriptor we held."""
+    if d in _TEMPDIRS:
+        _TEMPDIRS.remove(d)
+    _TEMPDIR_IDENT.pop(d, None)
+    fd = _TEMPDIR_FD.pop(d, None)
+    if fd is not None:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
-    That is the whole difference from v3.66.1149-1152, which moved the identity
-    check ever nearer the deletion and never joined them. The act still read
-    `shutil.rmtree(d)`, which resolves `d` afresh, and a check followed by a
-    path-based act is prove-then-hope. Both seams were reproduced at 3d5f1bb8.
 
-    O_NOFOLLOW|O_DIRECTORY on each child means a symlink, or a non-directory
-    where a directory was expected, RAISES rather than redirecting; and a
-    sealed child is relaxed through ITS OWN descriptor, never by name.
+def _where(fd):
+    """Where the object behind `fd` lives NOW -- so a rename-away is
+    recoverable rather than merely reported."""
+    try:
+        return os.readlink("/proc/self/fd/%d" % fd)
+    except OSError:
+        return "its new location could not be read"
+
+
+# ---------------------------------------------------------------------------
+# DESTRUCTIVE PRIMITIVES (v3.66.1154). THREE NEAR-IDENTICAL COPIES OF THIS
+# BLOCK EXIST -- here, in tests/_tmproot.py and in toolchain/bin/bd-footguns --
+# because _tmproot may import nothing from the repo and the bd-* tools are
+# standalone scripts. tests/test_v3_66_1154_the_object_not_the_name.py runs ONE
+# behavioural matrix against ALL THREE, so a drift between the copies is red
+# rather than a fourth implementation nobody compares.
+# ---------------------------------------------------------------------------
+
+# Refusal CODES. CLAUDE.md section 10: when every refusal shares an exit code
+# or a vague phrase, a test asserting "it refused" passes whichever guard
+# fired, and four bd-jobs mutants escaped exactly that way. These name WHICH.
+R_RENAMED = "[renamed-away]"
+R_FOREIGN = "[foreign-object]"
+R_UNPROVEN = "[not-proven]"
+R_NO_IDENT = "[no-identity]"
+R_TOO_DEEP = "[too-deep]"
+
+_RENAME_NOREPLACE = 1 << 0
+_SYS_renameat2 = {"x86_64": 316, "aarch64": 276}.get(platform.machine())
+try:
+    _LIBC = ctypes.CDLL(None, use_errno=True)
+    _LIBC.syscall.restype = ctypes.c_long
+except OSError:                                    # no libc: fall back below
+    _LIBC = None
+
+
+class _Refused(Exception):
+    """A removal that must not proceed.
+
+    DELIBERATELY NOT AN OSError. The OSError handlers around the walk exist to
+    convert KERNEL failures into refusals; a refusal raised by our own identity
+    logic must not be caught by them and re-described as an errno.
     """
-    for entry in os.scandir(fd):
-        if entry.is_dir(follow_symlinks=False):
-            child = os.open(entry.name,
-                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=fd)
-            try:
-                try:
-                    _rmtree_fd(child)
-                except PermissionError:
-                    os.fchmod(child, 0o700)
-                    _rmtree_fd(child)
-            finally:
-                os.close(child)
-            os.rmdir(entry.name, dir_fd=fd)
-        else:
-            os.unlink(entry.name, dir_fd=fd)
+
+    def __init__(self, code, detail):
+        super().__init__("%s %s" % (code, detail))
+        self.code, self.detail = code, detail
+
+    @property
+    def reason(self):
+        return "%s %s" % (self.code, self.detail)
 
 
-def _remove_owned_dir(d, ident):
-    """Remove the directory whose identity is `ident`, or refuse.
+def _rename_noclobber(old, new, dir_fd):
+    """Rename inside `dir_fd`, REFUSING to replace an existing `new`.
 
-    Returns (True, None) or (False, reason). The destructive work is issued
-    through a descriptor proven to BE the created object, so a rename+recreate
-    cannot substitute another object after verification.
+    `os.rename` replaces silently, and one caller of this is the path where a
+    FOREIGN object has to be put back at a name a third party may since have
+    re-created. Measured: a plain rename undo DESTROYS an empty directory
+    standing at the restored name -- the exact act we just refused to perform,
+    reintroduced inside the error handler that exists to be safe.
 
-    THE ONE IRREDUCIBLE STEP, stated rather than hidden: unlinking the top
-    directory is `rmdir` of a NAME in its parent, and Linux has no funlinkat --
-    no call says "remove the inode I am holding". It is therefore issued
-    parent-descriptor-relative, guarded by a dir_fd lstat identity check
-    immediately before, and PROVEN afterwards by `os.fstat(fd).st_nlink == 0`,
-    which says the entry that went was the object we held open. Every earlier
-    step refuses rather than attempting, and rmdir can in any case only remove
-    an EMPTY directory.
+    `renameat2(RENAME_NOREPLACE)` turns that into EEXIST. It is reached through
+    ctypes because `os` does not expose it; measured working on this kernel for
+    xfs and tmpfs. Where the flag is rejected (ENOSYS on an old kernel, EINVAL
+    or EOPNOTSUPP on a filesystem that does not implement it) the fallback is
+    `os.rename`, and the return value says which ran -- "we guaranteed it" and
+    "we could not guarantee it" must not look the same to a caller.
+    """
+    if _LIBC is not None and _SYS_renameat2 is not None:
+        ctypes.set_errno(0)
+        rc = _LIBC.syscall(ctypes.c_long(_SYS_renameat2),
+                           ctypes.c_int(dir_fd), ctypes.c_char_p(os.fsencode(old)),
+                           ctypes.c_int(dir_fd), ctypes.c_char_p(os.fsencode(new)),
+                           ctypes.c_uint(_RENAME_NOREPLACE))
+        if rc == 0:
+            return True
+        _eno = ctypes.get_errno()
+        if _eno not in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP):
+            raise OSError(_eno, os.strerror(_eno), old)
+    os.rename(old, new, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    return False
+
+
+def _private_name(base):
+    """The name the destructive syscall uses instead of the well-known one.
+
+    KEEPS THE CALLER'S OWN PREFIX. A run killed between the rename and the
+    removal leaves this on disk, and a dot-prefixed random name would be
+    invisible to the `bdcut_*`, `bdfg_sbx_*` and `bd-testrun-*` sweeps this
+    project's whole leak accounting is built on -- turning a recognisable leak
+    into an unrecognisable one, in the cut whose subject is leaks.
+    """
+    return "%s.bdrm-%s" % (base[:180], os.urandom(8).hex())
+
+
+def _put_back(priv, name, fd):
+    """Return a foreign object to the name it was found under.
+
+    THIS CAN FAIL, and saying it cannot is how the undo became a second
+    destructive path. Measured against a re-created `name`: a non-empty
+    directory, a regular file and a symlink all make the undo raise, and an
+    EMPTY directory is silently destroyed by a plain rename. Where the object
+    cannot go back it is left under the private name and the caller SAYS SO --
+    an operator told "we refused to delete your directory" while it sits under
+    a name they have never seen has not been told anything.
     """
     try:
-        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError as e:
-        if e.errno in (errno.ELOOP, errno.ENOTDIR):
-            return False, ("path is a symlink or is not a directory -- not the "
-                           "object bd-cut created here")
-        if e.errno == errno.ENOENT:
-            return True, None
-        return False, e
+        _rename_noclobber(priv, name, fd)
+        return " (it was put back untouched)"
+    except OSError as _e:
+        return (" -- and it could NOT be put back (%s); it is now named %r in "
+                "that directory and nothing else will collect it" % (_e, priv))
+
+
+def _walk_failed(e):
+    """A walk that could not finish is INCOMPLETE, not finished-and-clean.
+
+    The reason names the exception TYPE deliberately: a broad `except
+    Exception` fails closed, which is right, but it also converts a genuine
+    remover bug (TypeError, AttributeError) into something that reads like
+    routine leakage. Naming the type is what keeps the two distinguishable.
+
+    RecursionError is the measured case at depth ~1400, and on a host with a
+    small RLIMIT_NOFILE the same walk dies of EMFILE first, so this must not be
+    narrowed to RecursionError alone.
+    """
+    return ("%s the tree could not be walked to completion (%s: %s) -- the "
+            "removal is INCOMPLETE and what remains is unknown"
+            % (R_TOO_DEEP, type(e).__name__, e))
+
+
+def _rmtree_fd(fd, dev):
+    """Delete everything UNDER an open directory descriptor.
+
+    READ ONCE, THEN ACT. Renaming entries while a readdir cursor is open is
+    unspecified, and it is not theoretical here: measured on this host's XFS,
+    renaming during the walk re-yielded 38 of 5000 entries under their new
+    names. `list()` completes the readdir before anything moves. Anything
+    created after that listing is not ours; the terminal rmdir will refuse with
+    ENOTEMPTY and that is REPORTED rather than swallowed.
+
+    EVERY ENTRY IS BOUND TO THE INODE THE READDIR REPORTED, and the destructive
+    syscall never names it. The entry is first renamed to a private name that
+    cannot clobber, then identified, and only then removed -- so an adversary
+    who swaps the well-known name costs us a REVERSIBLE rename instead of an
+    irreversible unlink, and is put back where they were found.
+
+    v3.66.1153 opened every child BY NAME with nothing carried from the entry
+    it had just read, so a directory renamed onto a child pathname mid-walk was
+    entered and recursively emptied -- measured, victim inode nlink 0.
+    """
+    for entry in list(os.scandir(fd)):
+        want = (dev, entry.inode())
+        priv = _private_name(entry.name)
+        try:
+            _rename_noclobber(entry.name, priv, fd)
+        except FileNotFoundError:
+            continue          # listed, then vanished: not ours to account for
+        st = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        if (st.st_dev, st.st_ino) != want:
+            raise _Refused(R_FOREIGN,
+                           "%r is not the object this walk listed there%s"
+                           % (entry.name, _put_back(priv, entry.name, fd)))
+        if not stat.S_ISDIR(st.st_mode):
+            os.unlink(priv, dir_fd=fd)
+            continue
+        child = os.open(priv, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=fd)
+        try:
+            cst = os.fstat(child)
+            if (cst.st_dev, cst.st_ino) != want:
+                raise _Refused(R_FOREIGN,
+                               "%r changed identity between the rename and "
+                               "the open" % entry.name)
+            was, relaxed = stat.S_IMODE(cst.st_mode), False
+            try:
+                try:
+                    _rmtree_fd(child, cst.st_dev)
+                except PermissionError:
+                    os.fchmod(child, 0o700)
+                    relaxed = True
+                    _rmtree_fd(child, cst.st_dev)
+                # INSIDE THE DESCRIPTOR'S LIFETIME. Until v3.66.1154 this rmdir
+                # sat after `finally: os.close(child)`, so when it failed there
+                # was no descriptor left to reseal through and the child stayed
+                # at 0o700 -- a directory reported as leaked, left less
+                # protected than it was found, on every path.
+                os.rmdir(priv, dir_fd=fd)
+                if os.fstat(child).st_nlink != 0:
+                    raise _Refused(R_UNPROVEN,
+                                   "the entry removed for %r was not the "
+                                   "object held open" % entry.name)
+            except BaseException:
+                if relaxed:
+                    try:
+                        os.fchmod(child, was)
+                    except OSError:
+                        pass
+                # PUT IT BACK UNDER ITS OWN NAME. The private name exists only
+                # for the duration of the destroy; a failure that leaves it in
+                # place renames a directory inside a tree we are about to
+                # report as leaked, so the report and the disk disagree.
+                _put_back(priv, entry.name, fd)
+                raise
+        finally:
+            os.close(child)
+
+
+def _remove_owned_dir(d, ident, held_fd=None):
+    """Remove the directory whose identity is `ident`, or refuse.
+
+    Returns (True, None) or (False, reason). When the caller holds a
+    descriptor from creation it is used directly, so the owned path is never
+    re-resolved at all; only the PARENT is opened, and only because a rename
+    must name a directory to move within.
+
+    THE ONE IRREDUCIBLE STEP, stated rather than hidden: unlinking a directory
+    is `rmdir` of a NAME in its parent -- Linux has no funlinkat, so no call
+    says "remove the inode I am holding". What v3.66.1154 changes is WHICH
+    name: the directory is first renamed to an unguessable private one that
+    cannot clobber an existing entry, identified there, and only then removed.
+    An adversary racing the well-known name now costs a reversible rename
+    instead of an irreversible rmdir, and `st_nlink == 0` afterwards proves the
+    entry that went was the object we held open.
+
+    That last proof is REPORTING, not containment, and the distinction matters:
+    measured at 63be0464, a third party removing our directory under its new
+    name leaves nlink 0 -- true, and useless -- while our rmdir destroyed
+    someone else's object. Only moving the destructive call off the well-known
+    name closes that.
+    """
+    fd, ours = held_fd, False
+    if fd is None:
+        try:
+            fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as e:
+            if e.errno in (errno.ELOOP, errno.ENOTDIR):
+                return False, ("%s the path is a symlink or is not a directory "
+                               "-- not the object bd-cut created here" % R_FOREIGN)
+            if e.errno == errno.ENOENT:
+                return True, None
+            return False, "%s %s" % (R_UNPROVEN, e)
+        ours = True
     try:
         st = os.fstat(fd)
         if (st.st_dev, st.st_ino) != ident:
-            return False, ("path no longer holds the directory bd-cut created "
-                           "there (renamed or replaced) -- refusing to remove a "
-                           "directory we did not make, and the original is "
-                           "unaccounted for")
-        was = stat.S_IMODE(st.st_mode)
-        try:
-            _rmtree_fd(fd)
-        except PermissionError:
-            # UNSEAL ONLY AS A RETRY, THROUGH THIS DESCRIPTOR, and put the mode
-            # back if it still will not go: a directory reported as leaked must
-            # not also be left less protected than we found it.
-            try:
-                os.fchmod(fd, 0o700)
-                _rmtree_fd(fd)
-            except OSError as e2:
+            return False, ("%s the descriptor does not hold the directory "
+                           "recorded at creation" % R_FOREIGN)
+        was, relaxed = stat.S_IMODE(st.st_mode), False
+
+        def _refuse(reason):
+            # RESEAL ON EVERY PATH THAT LEAVES THE OBJECT BEHIND. Measured at
+            # 63be0464: the mode was put back on two of four refusal returns,
+            # so a directory reported as leaked was ALSO left more open than it
+            # was found on the other two. The nlink guard is what keeps this
+            # from chmod'ing an inode that is already gone.
+            if relaxed:
                 try:
-                    os.fchmod(fd, was)
+                    if os.fstat(fd).st_nlink != 0:
+                        os.fchmod(fd, was)
                 except OSError:
                     pass
-                return False, e2
+            return False, reason
+
+        try:
+            _rmtree_fd(fd, st.st_dev)
+        except PermissionError:
+            # UNSEAL ONLY AS A RETRY, THROUGH THIS DESCRIPTOR -- never by name,
+            # because os.chmod follows symlinks and only a DIRECTORY is ever
+            # opened here, so an in-tree hard link to an outside file can never
+            # be reached by it.
+            try:
+                os.fchmod(fd, 0o700)
+                relaxed = True
+                _rmtree_fd(fd, st.st_dev)
+            except _Refused as r:
+                return _refuse(r.reason)
+            except OSError as e2:
+                return _refuse("%s %s" % (R_UNPROVEN, e2))
+            except Exception as e2:
+                return _refuse(_walk_failed(e2))
+        except _Refused as r:
+            return _refuse(r.reason)
         except OSError as e1:
-            return False, e1
+            return _refuse("%s %s" % (R_UNPROVEN, e1))
+        except Exception as e1:
+            # NOT BaseException: KeyboardInterrupt must still be able to stop a
+            # reap, and SystemExit must not be swallowed. RecursionError and
+            # MemoryError are both Exception and are both caught here, at the
+            # SHALLOW frame -- a handler inside _rmtree_fd would run with the
+            # stack still exhausted.
+            return _refuse(_walk_failed(e1))
 
         parent, name = os.path.dirname(d) or ".", os.path.basename(d)
         try:
             pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as e:
-            return False, e
+            return _refuse("%s cannot open the parent directory (%s)"
+                           % (R_UNPROVEN, e))
         try:
+            priv = _private_name(name)
             try:
-                ent = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+                _rename_noclobber(name, priv, pfd)
             except OSError as e:
-                return False, e
+                return _refuse("%s %s" % (R_UNPROVEN, e))
+            try:
+                ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
+            except OSError as e:
+                return _refuse("%s %s" % (R_UNPROVEN, e))
             if (ent.st_dev, ent.st_ino) != ident:
-                try:
-                    os.fchmod(fd, was)
-                except OSError:
-                    pass
-                return False, ("the parent entry no longer names the directory "
-                               "bd-cut created -- refusing the final rmdir")
+                return _refuse("%s the name %r held an object bd-cut did not "
+                               "create%s" % (R_FOREIGN, d,
+                                             _put_back(priv, name, pfd)))
             try:
-                os.rmdir(name, dir_fd=pfd)
+                os.rmdir(priv, dir_fd=pfd)
             except OSError as e:
-                return False, e
+                _put_back(priv, name, pfd)
+                return _refuse("%s %s" % (R_UNPROVEN, e))
         finally:
             os.close(pfd)
         if os.fstat(fd).st_nlink != 0:
-            return False, ("the entry removed was not the directory bd-cut held "
-                           "open -- another object occupied the name")
+            return _refuse("%s the entry removed was not the directory bd-cut "
+                           "held open" % R_UNPROVEN)
         return True, None
     finally:
-        os.close(fd)
+        if ours:
+            os.close(fd)
 
 
 def _same_object(path, ident):
@@ -1108,56 +1352,62 @@ def _discard_tempdir(d):
     a measurement that did not happen. Unknown is a third state and it fails.
     """
     # NEVER ACT ON A SYMLINK, AND NEVER ON A STRANGER'S DIRECTORY (v3.66.1151).
-    #
     # os.chmod FOLLOWS symlinks, so handing this function a link meant chmod'ing
-    # its target -- anywhere on the filesystem, outside anything we own.
+    # its target -- anywhere on the filesystem, outside anything we own. And a
+    # recorded path is not proof of ownership: after a rename+recreate it holds
+    # a directory this tool never made.
     #
-    # And a recorded path is not proof of ownership: after a rename+recreate it
-    # holds a directory this tool never made. v3.66.1150 deleted that imposter
-    # and let the real sealed snapshot leak under its new name, silently, and
-    # its own regression hid the leak by removing the renamed original by hand.
-    # Identity is inode + device taken at creation, because the PATH is exactly
-    # the thing that stopped being trustworthy.
-    # A MISSING IDENTITY IS UNKNOWN, AND UNKNOWN REFUSES (v3.66.1152). This
-    # read `if _ident is not None and ...`, so a creation-time lstat failure --
-    # the one case where we genuinely cannot prove ownership -- PERMITTED the
-    # deletion, while the comment beside it said it would refuse. Measured at
-    # dcf34528: returns True and removes a directory it cannot identify.
-    # NOTHING HERE AT ALL IS SUCCESS, and it is asked FIRST. A directory we
-    # created and which has since gone is the ordinary already-clean case; the
-    # identity questions below are about a path that still has something at it.
-    # Asking identity first turned "already gone" into "cannot identify" and
-    # refused it (v3.66.1152).
-    # NOTHING HERE AT ALL IS SUCCESS, asked FIRST: a directory we created and
-    # which has since gone is the ordinary already-clean case.
-    if not os.path.lexists(d):
-        if d in _TEMPDIRS:
-            _TEMPDIRS.remove(d)
-        _TEMPDIR_IDENT.pop(d, None)
-        return True
-    # A MISSING IDENTITY IS UNKNOWN, AND UNKNOWN REFUSES: a creation-time lstat
-    # failure is the one case where ownership genuinely cannot be proven.
+    # v3.66.1154 STOPS ASKING THE PATHNAME ANYTHING AT ALL when a descriptor
+    # was held from creation. Both of the questions below used to be `lexists`,
+    # and both were wrong, in opposite directions:
+    #
+    #   * asked FIRST, "nothing is here" meant success -- so a directory
+    #     RENAMED AWAY, payload intact, was reported clean and unregistered,
+    #     destroying the only record that it exists;
+    #   * asked LAST, "something is here" meant failure -- so a correct removal
+    #     whose freed name an unrelated object happened to reuse was reported
+    #     as a leak, which CLAUDE.md section 0 counts as a soundness bug rather
+    #     than a safe default.
+    #
+    # `st_nlink == 0` on the held descriptor answers both, about OUR inode.
+    # (Valid because the subject is a DIRECTORY: directories cannot be hard
+    # linked -- os.link on one is EPERM -- so there is no second link to
+    # confuse the count. Do not reuse this proof form for a file.)
+    fd = _TEMPDIR_FD.get(d)
     _ident = _TEMPDIR_IDENT.get(d)
+    if fd is not None:
+        try:
+            _gone = os.fstat(fd).st_nlink == 0
+        except OSError:
+            _gone = False
+        if _gone:
+            _forget_tempdir(d)
+            return True
+        if not os.path.lexists(d):
+            _LAST_DISCARD_ERROR[d] = (
+                "%s the directory bd-cut created here is still on disk under "
+                "another name (%s); it is unaccounted for and nothing else "
+                "will collect it" % (R_RENAMED, _where(fd)))
+            return False
+    elif not os.path.lexists(d):
+        # No descriptor was held, so there is no evidence either way and
+        # "nothing is here" stays the ordinary already-clean case.
+        _forget_tempdir(d)
+        return True
+    # A MISSING IDENTITY IS UNKNOWN, AND UNKNOWN REFUSES (v3.66.1152). This
+    # read `if _ident is not None and ...`, so a creation-time failure -- the
+    # one case where ownership genuinely cannot be proven -- PERMITTED the
+    # deletion, while the comment beside it said it would refuse.
     if _ident is None:
         _LAST_DISCARD_ERROR[d] = (
-            "no creation identity was recorded -- refusing to remove a "
-            "directory this tool cannot prove it created")
+            "%s no creation identity was recorded -- refusing to remove a "
+            "directory this tool cannot prove it created" % R_NO_IDENT)
         return False
-    _ok, _why = _remove_owned_dir(d, _ident)
+    _ok, _why = _remove_owned_dir(d, _ident, fd)
     if not _ok:
         _LAST_DISCARD_ERROR[d] = _why
         return False
-    # lexists, NOT exists: the question is whether a NAME is still here, and
-    # os.path.exists FOLLOWS -- a dangling symlink would answer about a target
-    # that was never there.
-    if os.path.lexists(d):
-        _LAST_DISCARD_ERROR[d] = (
-            "a name still exists at this path after removal (possibly a "
-            "dangling symlink)")
-        return False
-    if d in _TEMPDIRS:
-        _TEMPDIRS.remove(d)
-    _TEMPDIR_IDENT.pop(d, None)
+    _forget_tempdir(d)
     return True
 
 
@@ -1849,16 +2099,50 @@ def _reap(cleanup):
     # an unremovable leak. Note the band's BD_HOME carries the DEFAULT /tmp/tmp*
     # prefix, so a `ls /tmp/bdcut_*` sweep cannot see it and "zero leaks" from
     # that glob would be a gate blind to its own subject.
+    # TOTAL, NOT MERELY WRAPPED (v3.66.1154). One of this function's two call
+    # sites is inside main()'s `except BaseException:`, where a raise would
+    # replace the cut's real failure reason with a cleanup exception -- exactly
+    # what that handler's own comment says must not happen. Measured at
+    # 63be0464: one directory raising RecursionError took the loop, the
+    # summary, and every REMAINING directory's attempt with it, and bd-cut then
+    # exited 1, indistinguishable from die(). Exception rather than
+    # BaseException so Ctrl-C can still stop a reap.
     failed = []
     for d in list(dict.fromkeys(cleanup + _TEMPDIRS)):
-        if not _discard_tempdir(d):
+        try:
+            ok = _discard_tempdir(d)
+        except Exception as e:
+            ok = False
+            _LAST_DISCARD_ERROR[d] = (
+                "%s the reaper itself could not complete for this directory "
+                "(%s: %s)" % (R_TOO_DEEP, type(e).__name__, e))
+        if not ok:
             why = _LAST_DISCARD_ERROR.get(d)
             failed.append(f"{d}: {why if why else 'still present'}")
+    # The run is over by definition -- this IS main()'s finally -- so every
+    # ownership descriptor is released here. Section 0: creating a resource is
+    # a promise to remove it, and an fd held past the process is a leak with a
+    # different word for it.
+    for _d in list(_TEMPDIR_FD):
+        _fd = _TEMPDIR_FD.pop(_d, None)
+        if _fd is not None:
+            try:
+                os.close(_fd)
+            except OSError:
+                pass
     if failed:
         print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)
         for f in failed:
             print(f"  {f}", file=sys.stderr)
     return failed
+
+
+def _print_cleanup_verdict(failed):
+    """ONE phrasing, so both exit paths say the same thing."""
+    print(f"bd-cut: exiting {EXIT_CLEANUP_FAILED} -- the cut finished but "
+          f"cleanup did not: {len(failed)} temporary "
+          f"director{'y' if len(failed) == 1 else 'ies'} could not be "
+          f"removed (listed above).", file=sys.stderr)
 
 
 def main(argv=None):
@@ -1882,6 +2166,21 @@ def main(argv=None):
     _cleanup = []
     try:
         rc = _main_inner(argv, _cleanup)
+    except SystemExit as e:
+        # DEFENCE IN DEPTH, AND SAID TO BE (v3.66.1154). No live path at
+        # 63be0464 reaches here holding a registered directory -- die() exits
+        # 1, the bdtools_sec helpers exit 2, and argparse exits before any
+        # tempdir exists -- so this closes a shape rather than a reproduced
+        # bug. It is here because EXIT_CLEANUP_FAILED was applied on the
+        # RETURN path only, so any future sys.exit(0) would carry straight
+        # through a cleanup that did not happen. A non-integer code is a real
+        # failure with a message and is never replaced.
+        _failed = _reap(_cleanup)
+        _code = 0 if e.code is None else e.code
+        if _failed and _code == 0:
+            _print_cleanup_verdict(_failed)
+            raise SystemExit(EXIT_CLEANUP_FAILED) from None
+        raise
     except BaseException:
         # Still reap, still report -- but let the original propagate. die()
         # raises SystemExit(1) through here, and replacing that with a cleanup
@@ -1890,10 +2189,7 @@ def main(argv=None):
         raise
     _failed = _reap(_cleanup)
     if _failed and rc in (0, None):
-        print(f"bd-cut: exiting {EXIT_CLEANUP_FAILED} -- the cut finished but "
-              f"cleanup did not: {len(_failed)} temporary "
-              f"director{'y' if len(_failed) == 1 else 'ies'} could not be "
-              f"removed (listed above).", file=sys.stderr)
+        _print_cleanup_verdict(_failed)
         return EXIT_CLEANUP_FAILED
     return rc
 

@@ -145,6 +145,15 @@ _DECLARED = {
     # because bd-footguns' UNKNOWN policy decides whether bd-cut's step 0 is
     # authorized at all.
     "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
+    # @1154. Eighth "module" entry, and the one that finally binds the CHILDREN.
+    # 1153 bound the top object and left every child opened by name, so a
+    # directory renamed onto a child pathname mid-walk was entered and emptied;
+    # and success was still read off a pathname, so a tree renamed AWAY reported
+    # clean. Pinned into a shard for the reason all seven above are: the failure
+    # is a silent wrong-object deletion or a silent leak, never a red test, and
+    # the matrix runs against all THREE removers so a drift between the copies
+    # is red rather than being a fourth implementation nobody compares.
+    "tests/test_v3_66_1154_the_object_not_the_name.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

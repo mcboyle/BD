@@ -25,7 +25,8 @@ introduced it / which cut it bit), the FIX, and STATUS.
 External FOOTGUNS.json (tree root or alongside this tool) is merged over the
 embedded seed, so the registry grows with the project without editing the tool.
 """
-import argparse, json, os, re, shutil, subprocess, sys, tempfile
+import argparse, ctypes, errno, json, os, platform, re, shutil, stat
+import subprocess, sys, tempfile
 
 # v3.66.855 desandbox. AFTER the import line on purpose (sys must already be bound).
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -149,7 +150,21 @@ def _load_registry(tree):
                              "ignored\n" % (cand, exc))
             continue
         fver = ext.get("version", 0) if isinstance(ext, dict) else 0
-        for f in ext.get("footguns", ext if isinstance(ext, list) else []):
+        # `.get` BEFORE the isinstance guard raised AttributeError for the bare
+        # LIST form this very expression exists to support -- and for any
+        # scalar JSON -- from a call site outside every try, so an unreadable
+        # registry killed the tool with exit 1. Shape it first.
+        if isinstance(ext, dict):
+            rows = ext.get("footguns", [])
+        elif isinstance(ext, list):
+            rows = ext
+        else:
+            sys.stderr.write("WARN: footgun registry %s is neither an object "
+                             "nor a list -- ignored\n" % cand)
+            continue
+        for f in rows:
+            if not isinstance(f, dict):
+                continue
             fid = f.get("id")
             if not fid:
                 continue
@@ -185,11 +200,19 @@ def _sandbox():
     strictly better than both.)
     """
     d = tempfile.mkdtemp(prefix="bdfg_sbx_")
-    # THE IDENTITY OF WHAT WE JUST MADE (v3.66.1153). _discard was bound only to
-    # the PATHNAME, and measured at 3d5f1bb8 it deleted an imposter directory
-    # standing at that name while the real sandbox survived -- reporting
-    # success for a leak it had just created.
-    _st = os.lstat(d)
+    # THE IDENTITY OF WHAT WE JUST MADE (v3.66.1153), TAKEN FROM THE DESCRIPTOR
+    # WE KEEP (v3.66.1154). _discard was bound only to the PATHNAME, and
+    # measured at 3d5f1bb8 it deleted an imposter directory standing at that
+    # name while the real sandbox survived -- reporting success for a leak it
+    # had just created. A second lstat of the same path is a second chance to
+    # be told about a different object; the fd is what the removal acts through.
+    try:
+        _fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return d, dict(os.environ, BD_INSTALL_DIR=d, BD_HOME=d,
+                       BD_DISABLE_KEEPALIVE="1")   # unidentifiable: will refuse
+    _SANDBOX_FD[d] = _fd
+    _st = os.fstat(_fd)
     _SANDBOX_IDENT[d] = (_st.st_dev, _st.st_ino)
     return d, dict(os.environ, BD_INSTALL_DIR=d, BD_HOME=d,
                    BD_DISABLE_KEEPALIVE="1")
@@ -197,110 +220,382 @@ def _sandbox():
 
 _SANDBOX_IDENT = {}
 
+# A DESCRIPTOR PER SANDBOX, held from creation. Path-keyed, like the identity
+# map beside it and for the same reason: cmd_check fans the detectors out over
+# a ThreadPoolExecutor, so up to eight sandboxes are live at once and a scalar
+# would hand one detector's remover another detector's descriptor.
+_SANDBOX_FD = {}
 
-def _rmtree_fd(fd):
-    """Delete everything under an open directory descriptor -- no child
-    pathname is ever resolved, so a rename cannot redirect these calls."""
-    for entry in os.scandir(fd):
-        if entry.is_dir(follow_symlinks=False):
-            child = os.open(entry.name,
-                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=fd)
+# EVERY CLEANUP THAT DID NOT HAPPEN, INDEPENDENT OF ANY DETECTOR'S SEVERITY.
+# A sandbox we could not remove is not a verdict about a footgun -- it is this
+# tool failing to finish -- and routing it through a per-detector verdict made
+# it inherit that detector's escalation. Measured at 63be0464: a cleanup
+# failure under an ADVISORY detector printed the OK line and exited 0, which
+# bd-cut's step 0 reads as authorization to cut. Consulted in main(), at the
+# single exit, so every subcommand inherits it rather than the two that
+# happen to remember. Appends are atomic under the GIL and the pool is joined
+# before the list is read.
+_CLEANUP_FAILURES = []
+
+
+def _forget_sandbox(d):
+    """Drop every record of a sandbox, closing the descriptor we held.
+
+    POP, THEN CLOSE, in that order and in one place. A descriptor number is
+    reused the instant it is free, and `st_nlink == 0` on a reused number is a
+    confident answer about somebody else's object -- measured: a premature
+    close plus one intervening open reported nlink 0 while the owned directory
+    sat on disk with its contents.
+    """
+    _SANDBOX_IDENT.pop(d, None)
+    fd = _SANDBOX_FD.pop(d, None)
+    if fd is not None:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def _cleanup_failed(d, why):
+    _CLEANUP_FAILURES.append("%s: %s" % (d, why))
+    sys.stderr.write("bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n"
+                     % (d, why))
+    return False
+
+
+def _where(fd):
+    try:
+        return os.readlink("/proc/self/fd/%d" % fd)
+    except OSError:
+        return "its new location could not be read"
+
+
+# ---------------------------------------------------------------------------
+# DESTRUCTIVE PRIMITIVES (v3.66.1154). THREE NEAR-IDENTICAL COPIES OF THIS
+# BLOCK EXIST -- here, in tests/_tmproot.py and in toolchain/bin/bd-footguns --
+# because _tmproot may import nothing from the repo and the bd-* tools are
+# standalone scripts. tests/test_v3_66_1154_the_object_not_the_name.py runs ONE
+# behavioural matrix against ALL THREE, so a drift between the copies is red
+# rather than a fourth implementation nobody compares.
+# ---------------------------------------------------------------------------
+
+# Refusal CODES. CLAUDE.md section 10: when every refusal shares an exit code
+# or a vague phrase, a test asserting "it refused" passes whichever guard
+# fired, and four bd-jobs mutants escaped exactly that way. These name WHICH.
+R_RENAMED = "[renamed-away]"
+R_FOREIGN = "[foreign-object]"
+R_UNPROVEN = "[not-proven]"
+R_NO_IDENT = "[no-identity]"
+R_TOO_DEEP = "[too-deep]"
+
+_RENAME_NOREPLACE = 1 << 0
+_SYS_renameat2 = {"x86_64": 316, "aarch64": 276}.get(platform.machine())
+try:
+    _LIBC = ctypes.CDLL(None, use_errno=True)
+    _LIBC.syscall.restype = ctypes.c_long
+except OSError:                                    # no libc: fall back below
+    _LIBC = None
+
+
+class _Refused(Exception):
+    """A removal that must not proceed.
+
+    DELIBERATELY NOT AN OSError. The OSError handlers around the walk exist to
+    convert KERNEL failures into refusals; a refusal raised by our own identity
+    logic must not be caught by them and re-described as an errno.
+    """
+
+    def __init__(self, code, detail):
+        super().__init__("%s %s" % (code, detail))
+        self.code, self.detail = code, detail
+
+    @property
+    def reason(self):
+        return "%s %s" % (self.code, self.detail)
+
+
+def _rename_noclobber(old, new, dir_fd):
+    """Rename inside `dir_fd`, REFUSING to replace an existing `new`.
+
+    `os.rename` replaces silently, and one caller of this is the path where a
+    FOREIGN object has to be put back at a name a third party may since have
+    re-created. Measured: a plain rename undo DESTROYS an empty directory
+    standing at the restored name -- the exact act we just refused to perform,
+    reintroduced inside the error handler that exists to be safe.
+
+    `renameat2(RENAME_NOREPLACE)` turns that into EEXIST. It is reached through
+    ctypes because `os` does not expose it; measured working on this kernel for
+    xfs and tmpfs. Where the flag is rejected (ENOSYS on an old kernel, EINVAL
+    or EOPNOTSUPP on a filesystem that does not implement it) the fallback is
+    `os.rename`, and the return value says which ran -- "we guaranteed it" and
+    "we could not guarantee it" must not look the same to a caller.
+    """
+    if _LIBC is not None and _SYS_renameat2 is not None:
+        ctypes.set_errno(0)
+        rc = _LIBC.syscall(ctypes.c_long(_SYS_renameat2),
+                           ctypes.c_int(dir_fd), ctypes.c_char_p(os.fsencode(old)),
+                           ctypes.c_int(dir_fd), ctypes.c_char_p(os.fsencode(new)),
+                           ctypes.c_uint(_RENAME_NOREPLACE))
+        if rc == 0:
+            return True
+        _eno = ctypes.get_errno()
+        if _eno not in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP):
+            raise OSError(_eno, os.strerror(_eno), old)
+    os.rename(old, new, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    return False
+
+
+def _private_name(base):
+    """The name the destructive syscall uses instead of the well-known one.
+
+    KEEPS THE CALLER'S OWN PREFIX. A run killed between the rename and the
+    removal leaves this on disk, and a dot-prefixed random name would be
+    invisible to the `bdcut_*`, `bdfg_sbx_*` and `bd-testrun-*` sweeps this
+    project's whole leak accounting is built on -- turning a recognisable leak
+    into an unrecognisable one, in the cut whose subject is leaks.
+    """
+    return "%s.bdrm-%s" % (base[:180], os.urandom(8).hex())
+
+
+def _put_back(priv, name, fd):
+    """Return a foreign object to the name it was found under.
+
+    THIS CAN FAIL, and saying it cannot is how the undo became a second
+    destructive path. Measured against a re-created `name`: a non-empty
+    directory, a regular file and a symlink all make the undo raise, and an
+    EMPTY directory is silently destroyed by a plain rename. Where the object
+    cannot go back it is left under the private name and the caller SAYS SO --
+    an operator told "we refused to delete your directory" while it sits under
+    a name they have never seen has not been told anything.
+    """
+    try:
+        _rename_noclobber(priv, name, fd)
+        return " (it was put back untouched)"
+    except OSError as _e:
+        return (" -- and it could NOT be put back (%s); it is now named %r in "
+                "that directory and nothing else will collect it" % (_e, priv))
+
+
+def _walk_failed(e):
+    """A walk that could not finish is INCOMPLETE, not finished-and-clean.
+
+    The reason names the exception TYPE deliberately: a broad `except
+    Exception` fails closed, which is right, but it also converts a genuine
+    remover bug (TypeError, AttributeError) into something that reads like
+    routine leakage. Naming the type is what keeps the two distinguishable.
+
+    RecursionError is the measured case at depth ~1400, and on a host with a
+    small RLIMIT_NOFILE the same walk dies of EMFILE first, so this must not be
+    narrowed to RecursionError alone.
+    """
+    return ("%s the tree could not be walked to completion (%s: %s) -- the "
+            "removal is INCOMPLETE and what remains is unknown"
+            % (R_TOO_DEEP, type(e).__name__, e))
+
+
+def _rmtree_fd(fd, dev):
+    """Delete everything UNDER an open directory descriptor.
+
+    READ ONCE, THEN ACT. Renaming entries while a readdir cursor is open is
+    unspecified, and it is not theoretical here: measured on this host's XFS,
+    renaming during the walk re-yielded 38 of 5000 entries under their new
+    names. `list()` completes the readdir before anything moves. Anything
+    created after that listing is not ours; the terminal rmdir will refuse with
+    ENOTEMPTY and that is REPORTED rather than swallowed.
+
+    EVERY ENTRY IS BOUND TO THE INODE THE READDIR REPORTED, and the destructive
+    syscall never names it. The entry is first renamed to a private name that
+    cannot clobber, then identified, and only then removed -- so an adversary
+    who swaps the well-known name costs us a REVERSIBLE rename instead of an
+    irreversible unlink, and is put back where they were found.
+
+    v3.66.1153 opened every child BY NAME with nothing carried from the entry
+    it had just read, so a directory renamed onto a child pathname mid-walk was
+    entered and recursively emptied -- measured, victim inode nlink 0.
+    """
+    for entry in list(os.scandir(fd)):
+        want = (dev, entry.inode())
+        priv = _private_name(entry.name)
+        try:
+            _rename_noclobber(entry.name, priv, fd)
+        except FileNotFoundError:
+            continue          # listed, then vanished: not ours to account for
+        st = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        if (st.st_dev, st.st_ino) != want:
+            raise _Refused(R_FOREIGN,
+                           "%r is not the object this walk listed there%s"
+                           % (entry.name, _put_back(priv, entry.name, fd)))
+        if not stat.S_ISDIR(st.st_mode):
+            os.unlink(priv, dir_fd=fd)
+            continue
+        child = os.open(priv, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=fd)
+        try:
+            cst = os.fstat(child)
+            if (cst.st_dev, cst.st_ino) != want:
+                raise _Refused(R_FOREIGN,
+                               "%r changed identity between the rename and "
+                               "the open" % entry.name)
+            was, relaxed = stat.S_IMODE(cst.st_mode), False
             try:
                 try:
-                    _rmtree_fd(child)
+                    _rmtree_fd(child, cst.st_dev)
                 except PermissionError:
                     os.fchmod(child, 0o700)
-                    _rmtree_fd(child)
-            finally:
-                os.close(child)
-            os.rmdir(entry.name, dir_fd=fd)
-        else:
-            os.unlink(entry.name, dir_fd=fd)
+                    relaxed = True
+                    _rmtree_fd(child, cst.st_dev)
+                # INSIDE THE DESCRIPTOR'S LIFETIME. Until v3.66.1154 this rmdir
+                # sat after `finally: os.close(child)`, so when it failed there
+                # was no descriptor left to reseal through and the child stayed
+                # at 0o700 -- a directory reported as leaked, left less
+                # protected than it was found, on every path.
+                os.rmdir(priv, dir_fd=fd)
+                if os.fstat(child).st_nlink != 0:
+                    raise _Refused(R_UNPROVEN,
+                                   "the entry removed for %r was not the "
+                                   "object held open" % entry.name)
+            except BaseException:
+                if relaxed:
+                    try:
+                        os.fchmod(child, was)
+                    except OSError:
+                        pass
+                # PUT IT BACK UNDER ITS OWN NAME. The private name exists only
+                # for the duration of the destroy; a failure that leaves it in
+                # place renames a directory inside a tree we are about to
+                # report as leaked, so the report and the disk disagree.
+                _put_back(priv, entry.name, fd)
+                raise
+        finally:
+            os.close(child)
 
 
 def _discard(d):
-    """Remove a sandbox WE created. True only if that object is gone.
+    """Remove a sandbox WE created. True only if THAT OBJECT is gone.
 
-    v3.66.1152 made this report honestly; v3.66.1153 makes it act on the right
-    object. It was bound to a pathname, so a rename+recreate had it delete a
-    directory it never made -- measured -- and every caller threw the answer
-    away besides. Both halves are closed here and at the call sites.
+    v3.66.1152 made this report honestly; v3.66.1153 bound the top object;
+    v3.66.1154 binds every child and stops reading the verdict off a pathname.
+    Both pathname questions were wrong, in opposite directions: "nothing is
+    here" meant success, so a sandbox renamed away was reported clean, and
+    "something is here" meant failure, so a correct removal whose freed name an
+    unrelated object reused was reported as a leak.
+
+    Every refusal goes to _CLEANUP_FAILURES as well as returning False, because
+    the callers' `if not _discard(...)` turns the failure into that DETECTOR's
+    verdict -- and a detector's escalation depends on its severity, which is
+    how an advisory detector's leaked sandbox came to print OK and exit 0.
     """
     ident = _SANDBOX_IDENT.get(d)
-    if not os.path.lexists(d):
-        _SANDBOX_IDENT.pop(d, None)
+    fd = _SANDBOX_FD.get(d)
+    if fd is not None:
+        try:
+            gone = os.fstat(fd).st_nlink == 0
+        except OSError:
+            gone = False
+        if gone:
+            _forget_sandbox(d)
+            return True
+        if not os.path.lexists(d):
+            return _cleanup_failed(
+                d, "%s the sandbox is still on disk under another name (%s)"
+                   % (R_RENAMED, _where(fd)))
+    elif not os.path.lexists(d):
+        _forget_sandbox(d)
         return True
     if ident is None:
-        sys.stderr.write(
-            "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s "
-            "(no creation identity recorded)\n" % d)
-        return False
-    try:
-        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError as e:
-        sys.stderr.write(
-            "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
-        return False
+        return _cleanup_failed(d, "%s no creation identity recorded" % R_NO_IDENT)
+    ok, why = _remove_owned_sandbox(d, ident, fd)
+    if not ok:
+        return _cleanup_failed(d, why)
+    _forget_sandbox(d)
+    return True
+
+
+def _remove_owned_sandbox(d, ident, held_fd=None):
+    """(True, None) or (False, reason). See bd-cut's _remove_owned_dir -- this
+    is the same primitive, kept as a third copy because the bd-* tools are
+    standalone scripts, and held to it by ONE behavioural matrix in
+    tests/test_v3_66_1154_the_object_not_the_name.py."""
+    fd, ours = held_fd, False
+    if fd is None:
+        try:
+            fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as e:
+            if e.errno in (errno.ELOOP, errno.ENOTDIR):
+                return False, ("%s the path is a symlink or is not a directory"
+                               % R_FOREIGN)
+            if e.errno == errno.ENOENT:
+                return True, None
+            return False, "%s %s" % (R_UNPROVEN, e)
+        ours = True
     try:
         st = os.fstat(fd)
         if (st.st_dev, st.st_ino) != ident:
-            sys.stderr.write(
-                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (the path "
-                "now holds a different directory; refusing to delete an "
-                "object we did not create)\n" % d)
-            return False
+            return False, ("%s the path now holds a different directory; "
+                           "refusing to delete an object we did not create"
+                           % R_FOREIGN)
+        was, relaxed = stat.S_IMODE(st.st_mode), False
+
+        def _refuse(reason):
+            if relaxed:
+                try:
+                    if os.fstat(fd).st_nlink != 0:
+                        os.fchmod(fd, was)
+                except OSError:
+                    pass
+            return False, reason
+
         try:
-            _rmtree_fd(fd)
+            _rmtree_fd(fd, st.st_dev)
         except PermissionError:
             try:
                 os.fchmod(fd, 0o700)
-                _rmtree_fd(fd)
-            except OSError as e:
-                sys.stderr.write(
-                    "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n"
-                    % (d, e))
-                return False
-        except OSError as e:
-            sys.stderr.write(
-                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
-            return False
+                relaxed = True
+                _rmtree_fd(fd, st.st_dev)
+            except _Refused as r:
+                return _refuse(r.reason)
+            except OSError as e2:
+                return _refuse("%s %s" % (R_UNPROVEN, e2))
+            except Exception as e2:
+                return _refuse(_walk_failed(e2))
+        except _Refused as r:
+            return _refuse(r.reason)
+        except OSError as e1:
+            return _refuse("%s %s" % (R_UNPROVEN, e1))
+        except Exception as e1:
+            return _refuse(_walk_failed(e1))
         parent, name = os.path.dirname(d) or ".", os.path.basename(d)
         try:
             pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as e:
-            sys.stderr.write(
-                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
-            return False
+            return _refuse("%s %s" % (R_UNPROVEN, e))
         try:
+            priv = _private_name(name)
             try:
-                ent = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+                _rename_noclobber(name, priv, pfd)
             except OSError as e:
-                sys.stderr.write(
-                    "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n"
-                    % (d, e))
-                return False
+                return _refuse("%s %s" % (R_UNPROVEN, e))
+            try:
+                ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
+            except OSError as e:
+                return _refuse("%s %s" % (R_UNPROVEN, e))
             if (ent.st_dev, ent.st_ino) != ident:
-                sys.stderr.write(
-                    "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (the "
-                    "parent entry no longer names it)\n" % d)
-                return False
-            os.rmdir(name, dir_fd=pfd)
-        except OSError as e:
-            sys.stderr.write(
-                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
-            return False
+                return _refuse("%s the parent entry no longer names it%s"
+                               % (R_FOREIGN, _put_back(priv, name, pfd)))
+            try:
+                os.rmdir(priv, dir_fd=pfd)
+            except OSError as e:
+                _put_back(priv, name, pfd)
+                return _refuse("%s %s" % (R_UNPROVEN, e))
         finally:
             os.close(pfd)
         if os.fstat(fd).st_nlink != 0:
-            sys.stderr.write(
-                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (the entry "
-                "removed was not the directory we held open)\n" % d)
-            return False
+            return _refuse("%s the entry removed was not the directory we held "
+                           "open" % R_UNPROVEN)
+        return True, None
     finally:
-        os.close(fd)
-    _SANDBOX_IDENT.pop(d, None)
-    return True
+        if ours:
+            os.close(fd)
 
 
 def _run_tool(cmd, tree):
@@ -386,15 +681,63 @@ def _run_insync(test, tree):
     return ok, out
 
 
+def _severity(fg):
+    """The registry's declared blast radius, VALIDATED.
+
+    This was `fg.get("severity") == "blocking"` at the two places that decide
+    whether a verdict escalates, so an ABSENT severity -- the archetype of a
+    malformed row -- read as non-blocking, and so did "Blocking", "BLOCKING",
+    "critical" and a trailing space. Measured at 63be0464: a row with no
+    severity key printed `[VIOLATION]` and the process exited 0.
+
+    That was already wrong, and v3.66.1154 makes it load-bearing by giving
+    severity a second job (deciding whether "no mechanical detector" blocks),
+    so it is validated here. UNKNOWN FAILS CLOSED: anything not exactly
+    "blocking" or "advisory" is treated as blocking and said out loud, because
+    a registry we cannot read is not a registry that may authorize a cut.
+    """
+    sev = fg.get("severity")
+    if sev in ("blocking", "advisory"):
+        return sev
+    sys.stderr.write(
+        "bd-footguns: %s declares severity %r, which is not 'blocking' or "
+        "'advisory' -- treating it as BLOCKING\n" % (fg.get("id", "<no id>"), sev))
+    return "blocking"
+
+
 def _check_one(fg, tree):
+    # FAIL CLOSED, NEVER CRASH. A malformed row used to raise KeyError out
+    # of cmd_check -- past the pool's fallback, which re-ran every detector
+    # and re-raised -- so the tool died with exit 1, which means `die()`
+    # somewhere else entirely. UNKNOWN is the honest answer and it blocks.
+    try:
+        return _check_one_inner(fg, tree)
+    except Exception as e:
+        return "unknown", "detector raised %s: %s" % (type(e).__name__, e)
+
+
+def _check_one_inner(fg, tree):
     """Returns ('pass'|'violation'|'skip'|'advisory', detail)."""
     if fg.get("status") != "active":
         return "skip", "inactive"
-    det = fg.get("detector", {})
+    det = fg.get("detector") or {}
     kind = det.get("kind")
     if kind == "none":
+        # `kind:"none"` is a DECLARATION that no mechanical detector exists.
+        # For a row the registry marks non-blocking that is honest and
+        # documented. For an ACTIVE BLOCKING row it means nobody can evaluate a
+        # footgun the registry says must block -- and until v3.66.1154 it
+        # returned "advisory" regardless, so that row exited 0 and printed the
+        # authorization line, while the SAME row spelled {"kind":"advisory"} or
+        # with no detector key at all correctly returned 2. One spelling of
+        # "there is no detector" authorized a cut and the other two refused it.
+        if _severity(fg) == "blocking":
+            return "unknown", ("declares no mechanical detector, and this "
+                               "footgun is blocking")
         return "advisory", "documented (no mechanical detector)"
     if kind == "tool":
+        if not det.get("cmd"):
+            return "unknown", "tool detector declares no cmd"
         rc, _detail = _run_tool(det["cmd"], tree)
         if rc is None:
             # UNKNOWN, not skip. A missing executable, an exception, a timeout
@@ -433,12 +776,16 @@ def _check_one(fg, tree):
         # delegate read as a satisfied footgun.
         return "unknown", f"exit {rc} is not a declared verdict for this detector"
     if kind == "insync":
+        if not det.get("test"):
+            return "unknown", "insync detector declares no test"
         ok, _detail = _run_insync(det["test"], tree)
         if ok is None:
             return "unknown", "could not evaluate: %s" % (
                 _detail.strip().splitlines()[-1] if _detail.strip() else "no detail")
         return ("pass" if ok else "violation"), det["test"]
     if kind == "grep":
+        if not det.get("pattern"):
+            return "unknown", "grep detector declares no pattern"
         pat = re.compile(det["pattern"])
         hit = any(pat.search(open(os.path.join(dp, f), errors="ignore").read())
                   for dp, _, fs in os.walk(os.path.join(tree, det.get("root", "bulk_downloader")))
@@ -449,7 +796,16 @@ def _check_one(fg, tree):
 
 
 def cmd_check(a):
-    reg = _load_registry(a.tree)
+    # A FRESH CHANNEL PER INVOCATION. The module is imported once per pytest
+    # test module, so a second cmd_check would otherwise inherit the first's
+    # failures and refuse for a reason that had already been reported.
+    _CLEANUP_FAILURES[:] = []
+    try:
+        reg = _load_registry(a.tree)
+    except Exception as e:
+        print("CANNOT-EVALUATE -- the footgun registry could not be loaded "
+              "(%s: %s)" % (type(e).__name__, e), file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     active = [f for f in reg if f.get("status") == "active"]
     results, violations = [], []
     print(f"bd-footguns --check :: {len(active)} active footguns vs {a.tree}\n")
@@ -458,7 +814,7 @@ def cmd_check(a):
     # a gate that runs before EVERY cut. Fan them out. Output stays deterministic:
     # results are re-sorted into the same order before printing, so the report is
     # byte-identical to the serial one; only the waiting is shared.
-    ordered = sorted(active, key=lambda f: (f.get("severity") != "blocking", f["id"]))
+    ordered = sorted(active, key=lambda f: (_severity(f) != "blocking", f["id"]))
     try:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(8, len(ordered) or 1)) as ex:
@@ -468,14 +824,21 @@ def cmd_check(a):
         verdicts = [_check_one(fg, a.tree) for fg in ordered]   # fail-safe: serial
     for fg, (verdict, detail) in zip(ordered, verdicts):
         results.append({"id": fg["id"], "verdict": verdict, "detail": detail,
-                        "severity": fg.get("severity")})
+                        "severity": _severity(fg)})
+        # .get, not [] -- an exhaustive lookup performed AFTER results.append
+        # turns any newly-returned verdict string into a KeyError mid-report.
         icon = {"pass": "PASS", "violation": "VIOLATION", "skip": "skip",
-                "advisory": "note", "unknown": "UNKNOWN"}[verdict]
+                "advisory": "note", "unknown": "UNKNOWN"}.get(verdict, verdict.upper())
         print(f"  [{icon:9}] {fg['id']:34} {detail}")
-        if verdict == "violation" and fg.get("severity") == "blocking":
+        if verdict == "violation" and _severity(fg) == "blocking":
             violations.append(fg)
     if a.json:
-        print(json.dumps(results, indent=1))
+        # THE CLEANUP RECORD IS IN THE PAYLOAD. --json exists for machine
+        # consumers, and without this the JSON asserted a trustworthy verdict
+        # for a detector whose sandbox had leaked, while the fact that decided
+        # the exit code lived only on stderr.
+        print(json.dumps({"footguns": results,
+                          "cleanup_failures": list(_CLEANUP_FAILURES)}, indent=1))
     print()
     if violations:
         print(f"BLOCKED -- {len(violations)} footgun violation(s):")
@@ -496,6 +859,16 @@ def cmd_check(a):
     # printed OK and returned 0, and bd-cut's step 0 reads that as
     # authorization. A successful unrelated detector cannot stand in for a
     # blocking one nobody could run.
+    if _CLEANUP_FAILURES:
+        # AFTER violations (a real violation is the more useful verdict and
+        # both refuse), BEFORE everything else, and INDEPENDENT OF SEVERITY.
+        print("CANNOT-EVALUATE -- %d sandbox director%s could not be removed, "
+              "so this run did not complete:" % (
+                  len(_CLEANUP_FAILURES),
+                  "y" if len(_CLEANUP_FAILURES) == 1 else "ies"), file=sys.stderr)
+        for _f in _CLEANUP_FAILURES:
+            print("  * %s" % _f, file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     unknown_blocking = [r for r in results
                         if r["verdict"] == "unknown" and r["severity"] == "blocking"]
     if unknown_blocking:
@@ -512,7 +885,9 @@ def cmd_check(a):
               f"against {a.tree} (reason={sec.REASON_EMPTY}); skipped: "
               f"{', '.join(skipped) or 'none'}", file=sys.stderr)
         return sec.EXIT_CANNOT_EVALUATE
-    print(f"OK -- no active footgun violated ({len(decided)} detector(s) ran).")
+    _adv = [r for r in results if r["verdict"] == "violation"]
+    print(f"OK -- no blocking footgun violated ({len(decided)} detector(s) ran"
+          + (f", {len(_adv)} advisory violation(s)" if _adv else "") + ").")
     return 0
 
 
@@ -572,8 +947,13 @@ def selftest():
     # rather than silently as "skip". The control's subject is the DETECTOR
     # WIRING, not the delegate's availability, so every non-crash verdict is
     # acceptable here -- what it must never be is absent.
-    print(("PASS" if v in ("violation", "skip", "pass", "unknown") else "FAIL")
+    # FOLDED INTO THE VERDICT (v3.66.1154). This control PRINTED its result
+    # and nothing consumed it -- unlike the two below -- so a forced FAIL sat
+    # in the output above `SELFTEST PASS` and exit 0.
+    _wired = v in ("violation", "skip", "pass", "unknown")
+    print(("PASS" if _wired else "FAIL")
           + f"  env-tranche detector wired (verdict={v})")
+    ok = ok and _wired
     # NEGATIVE control: an inactive footgun is skipped
     v2, _ = _check_one({"id": "T", "status": "retired", "detector": {"kind": "none"}}, d)
     print(("PASS" if v2 == "skip" else "FAIL") + "  inactive footgun skipped")
@@ -584,6 +964,36 @@ def selftest():
     _cleaned = _discard(d)
     print(("PASS" if _cleaned else "FAIL") + "  selftest reclaimed its own temp tree")
     ok = ok and _cleaned
+
+    # A REAL CLEANUP FAILURE, INDUCED (v3.66.1154). "Consult _CLEANUP_FAILURES"
+    # is an assertion over an empty list on a healthy machine, so a mutant
+    # deleting the channel's producer printed SELFTEST PASS and exited 0 --
+    # a gate over an empty denominator inside the fix for a gate over an empty
+    # denominator. This builds a sandbox that genuinely cannot be removed (its
+    # PARENT is not writable, so the terminal rmdir gets EACCES), drives the
+    # real _discard, and requires the channel to have recorded it.
+    _before = len(_CLEANUP_FAILURES)
+    _par = tempfile.mkdtemp(prefix="bdfg_selftest_par_")
+    _stuck = os.path.join(_par, "sbx")
+    os.mkdir(_stuck)
+    _sfd = os.open(_stuck, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    _SANDBOX_FD[_stuck] = _sfd
+    _sst = os.fstat(_sfd)
+    _SANDBOX_IDENT[_stuck] = (_sst.st_dev, _sst.st_ino)
+    os.chmod(_par, 0o500)
+    try:
+        _refused = _discard(_stuck) is False
+        _recorded = len(_CLEANUP_FAILURES) > _before
+    finally:
+        os.chmod(_par, 0o700)
+        _forget_sandbox(_stuck)
+        shutil.rmtree(_par, ignore_errors=True)
+    print(("PASS" if (_refused and _recorded) else "FAIL")
+          + "  an unremovable sandbox is refused AND recorded"
+          + f" (refused={_refused} recorded={_recorded})")
+    ok = ok and _refused and _recorded
+    _CLEANUP_FAILURES[:] = []          # the induced failure is not the run's
+
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -605,10 +1015,23 @@ def main():
     if a.selftest:
         return selftest()
     if a.explain:
-        return cmd_explain(a)
-    if a.list:
-        return cmd_list(a)
-    return cmd_check(a)  # default
+        rc = cmd_explain(a)
+    elif a.list:
+        rc = cmd_list(a)
+    else:
+        rc = cmd_check(a)  # default
+    # ONE CONSULT, HERE. Putting it in the two commands that create sandboxes
+    # today makes every future command inherit the gap instead of the guard;
+    # bd-cut's main() already has exactly this shape for the same reason. A
+    # real violation (3) still outranks it -- both refuse, and the violation is
+    # the more useful thing to print.
+    if rc in (0, None) and _CLEANUP_FAILURES:
+        print("bd-footguns: exiting %d -- %d sandbox director%s could not be "
+              "removed, so this run did not complete."
+              % (sec.EXIT_CANNOT_EVALUATE, len(_CLEANUP_FAILURES),
+                 "y" if len(_CLEANUP_FAILURES) == 1 else "ies"), file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
+    return rc
 
 
 if __name__ == "__main__":

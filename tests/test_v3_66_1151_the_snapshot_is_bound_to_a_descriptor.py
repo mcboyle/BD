@@ -516,13 +516,27 @@ def test_finish_reports_its_own_failure_where_no_call_site_can_drop_it(tmp_path,
     saved_ident = getattr(t, '_ROOT_IDENT', None)
     saved_failure = getattr(t, "_LAST_FAILURE", None)
     real = shutil.rmtree
+    # PATCHED AT THE LIVE SEAM SINCE v3.66.1154. This injected into
+    # shutil.rmtree, which _force_rmtree stopped calling at v3.66.1153 -- so
+    # the refusal it observed came from the root's identity not matching the
+    # ambient one, not from the failure it thought it was injecting. It would
+    # have gone on passing with the report deleted. The walk is the seam now,
+    # the identity is supplied so the removal genuinely reaches it, and the
+    # injection asserts it fired.
+    fired, real_walk = {"n": 0}, t._rmtree_fd
+
+    def boom(fd, dev=None):
+        fired["n"] += 1
+        raise OSError(39, "Directory not empty")
+
     try:
         t._ROOT = str(root)
-        shutil.rmtree = lambda *a, **k: (_ for _ in ()).throw(
-            OSError(39, "Directory not empty"))
+        _st = os.lstat(str(root))
+        t._ROOT_IDENT = (_st.st_dev, _st.st_ino)
+        t._rmtree_fd = boom
         got = t.finish(0)
     finally:
-        shutil.rmtree = real
+        t._rmtree_fd = real_walk
         t._ROOT, tempfile.tempdir = saved_root, saved_tempdir
         if hasattr(t, '_ROOT_IDENT'):
             t._ROOT_IDENT = saved_ident
@@ -531,6 +545,9 @@ def test_finish_reports_its_own_failure_where_no_call_site_can_drop_it(tmp_path,
     err = capsys.readouterr().err
     real(str(root), ignore_errors=True)
 
+    assert fired["n"] == 1, (
+        "the injected failure never ran, so the refusal below was produced by "
+        "something other than the thing this test claims to be testing")
     assert got is False
     assert "NOT REMOVED" in err.upper() or "not reclaim" in err.lower(), (
         "finish() failed to remove the per-run root and said nothing; both "

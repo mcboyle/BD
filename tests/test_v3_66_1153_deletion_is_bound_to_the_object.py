@@ -188,10 +188,14 @@ def test_seam_1_a_swap_before_the_first_removal_spares_the_imposter(tmp_path):
     # the window to attack is between the proof and the walk. Inject the
     # rename+recreate exactly there. (The previous spelling patched
     # shutil.rmtree, which this path no longer calls at all.)
-    def swap_then_walk(fd):
+    def swap_then_walk(fd, dev=None):
+        # (fd, dev) since v3.66.1154: the walk carries the parent's
+        # st_dev so every entry can be bound to the inode readdir
+        # reported. A one-arg spy raises TypeError before its own body
+        # runs, so the fixture silently builds nothing.
         if not nonlocal_stash:
             nonlocal_stash.append(_stand_up_imposter(d))
-        return real_walk(fd)
+        return real_walk(fd, dev)
 
     m._rmtree_fd = swap_then_walk
     try:
@@ -251,11 +255,12 @@ def test_seam_2_a_swap_AFTER_successful_relaxation_spares_the_imposter(tmp_path)
     # at exactly that instant -- the point where v3.66.1152's
     # `_relax_owned_dir` returned, closed its descriptor, and handed the
     # pathname back to a second shutil.rmtree.
-    def swap_at_retry(fd):
+    def swap_at_retry(fd, dev=None):
+        # (fd, dev) since v3.66.1154 -- see seam 1.
         calls["n"] += 1
         if calls["n"] == 2 and not stash:
             stash.append(_stand_up_imposter(d))
-        return real_walk(fd)
+        return real_walk(fd, dev)
 
     m._rmtree_fd = swap_at_retry
     try:
@@ -287,44 +292,120 @@ def test_seam_2_a_swap_AFTER_successful_relaxation_spares_the_imposter(tmp_path)
             _force_rm(stashed)
 
 
-def test_no_child_is_removed_by_a_resolved_pathname(tmp_path):
-    """THE MECHANISM, asserted directly rather than through an outcome.
+def test_the_child_binding_is_more_than_shutil_already_did(tmp_path):
+    """THIS TEST PROVES IT DISCRIMINATES, because its predecessor did not.
 
-    A pathname-based remover resolves every child by name. A descriptor-bound
-    one resolves none. Wrapping os.unlink/os.rmdir shows which: every call must
-    carry dir_fd, and no call may pass an absolute path.
+    v3.66.1153 shipped `test_no_child_is_removed_by_a_resolved_pathname`, which
+    wrapped os.unlink/os.rmdir and required every destructive call to carry
+    `dir_fd` and no absolute path. That reads like the mechanism and asserts
+    nothing: CPython's `shutil.rmtree` uses `_rmtree_safe_fd` wherever
+    `os.supports_dir_fd` allows, so a plain rmtree SATISFIES it -- while doing
+    exactly the thing the cut exists to stop. A test a naive implementation
+    passes is not evidence about the careful one.
+
+    So the assertion is now an OUTCOME, and the control is run in the same
+    test: the same swap is played against `shutil.rmtree`, which must destroy
+    the foreign object. If the control ever stops destroying it, the scenario
+    has decayed and the real assertion below is worth nothing -- which is the
+    failure mode that produced the test this replaces.
     """
     m = _bdcut()
-    d = _owned(m)
-    os.makedirs(os.path.join(d, "sub", "deep"))
-    (pathlib.Path(d) / "sub" / "deep" / "f").write_text("x")
 
-    bad, real_unlink, real_rmdir = [], os.unlink, os.rmdir
+    def _stage():
+        """A tree with one child, plus a foreign directory holding payload."""
+        top = tempfile.mkdtemp(prefix="bdcut_disc_", dir=str(tmp_path))
+        os.mkdir(os.path.join(top, "c"))
+        (pathlib.Path(top) / "c" / "ours").write_text("x")
+        alien = tempfile.mkdtemp(prefix="ALIEN_", dir=str(tmp_path))
+        (pathlib.Path(alien) / "victim").write_text("PRECIOUS")
+        return top, alien
 
-    def spy_unlink(path, *a, dir_fd=None, **k):
-        if dir_fd is None or os.path.isabs(str(path)):
-            bad.append(("unlink", str(path), dir_fd))
-        return real_unlink(path, *a, dir_fd=dir_fd, **k)
+    class _Entries:
+        """os.scandir's result is an ITERATOR AND a context manager -- shutil's
+        `_rmtree_safe_fd` opens it with `with`, so a bare iterator raises
+        TypeError and the control would 'pass' by crashing."""
 
-    def spy_rmdir(path, *a, dir_fd=None, **k):
-        # the TERMINAL rmdir of the top directory is parent-fd relative and is
-        # allowed to name the basename; an absolute path is not.
-        if os.path.isabs(str(path)):
-            bad.append(("rmdir", str(path), dir_fd))
-        return real_rmdir(path, *a, dir_fd=dir_fd, **k)
+        def __init__(self, items):
+            self._it = iter(items)
 
-    os.unlink, os.rmdir = spy_unlink, spy_rmdir
+        def __iter__(self):
+            return self._it
+
+        def __next__(self):
+            return next(self._it)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def close(self):
+            pass
+
+    def _swapper(top, alien, fired):
+        real_scandir = os.scandir
+
+        def scandir(fd):
+            ents = list(real_scandir(fd))
+            if not fired and any(e.name == "c" for e in ents):
+                fired.append(1)
+                os.rename(os.path.join(top, "c"), os.path.join(top, "c.gone"))
+                os.rename(alien, os.path.join(top, "c"))
+            return _Entries(ents)
+        return scandir, real_scandir
+
+    # --- the CONTROL: a pathname remover destroys the foreign object ---------
+    ctop, calien = _stage()
+    cfired = []
+    spy, real_scandir = _swapper(ctop, calien, cfired)
+    os.scandir = spy
     try:
-        got = m._discard_tempdir(d)
+        shutil.rmtree(ctop, ignore_errors=True)
     finally:
-        os.unlink, os.rmdir = real_unlink, real_rmdir
-        if d in m._TEMPDIRS:
-            m._TEMPDIRS.remove(d)
-        _force_rm(d)
-    assert got is True, "the clean case must still succeed"
-    assert not bad, (
-        "destructive calls resolved a pathname instead of a descriptor: "
-        f"{bad}")
+        os.scandir = real_scandir
+    assert cfired, "the control's swap never fired -- the scenario is broken"
+    assert not os.path.exists(os.path.join(ctop, "c", "victim")) \
+        and not os.path.exists(os.path.join(calien, "victim")), (
+        "the CONTROL did not destroy the foreign payload, so this scenario no "
+        "longer distinguishes a bound remover from an unbound one and the "
+        "assertion below proves nothing")
+
+    # --- the SUBJECT: the production remover must refuse --------------------
+    top, alien = _stage()
+    st = os.lstat(top)
+    m._TEMPDIRS.append(top)
+    m._TEMPDIR_IDENT[top] = (st.st_dev, st.st_ino)
+    if hasattr(m, "_TEMPDIR_FD"):
+        m._TEMPDIR_FD[top] = os.open(
+            top, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fired = []
+    spy, real_scandir = _swapper(top, alien, fired)
+    os.scandir = spy
+    try:
+        got = m._discard_tempdir(top)
+    finally:
+        os.scandir = real_scandir
+    # OBSERVE BEFORE TEARING DOWN. The first draft removed the tree in a
+    # `finally` and then asserted the victim still existed, so it failed
+    # against a CORRECT implementation -- a fixture that destroys its own
+    # evidence is the same defect as one that never builds it.
+    survived = os.path.exists(os.path.join(top, "c", "victim"))
+    try:
+        assert fired, "the subject's swap never fired -- nothing was tested"
+        assert survived, (
+            "the production remover destroyed a foreign directory's contents "
+            "because it opened the child by name")
+        assert got is False
+    finally:
+        if top in m._TEMPDIRS:
+            m._TEMPDIRS.remove(top)
+        m._TEMPDIR_IDENT.pop(top, None)
+        if hasattr(m, "_TEMPDIR_FD"):
+            _fd = m._TEMPDIR_FD.pop(top, None)
+            if _fd is not None:
+                os.close(_fd)
+        _force_rm(top)
 
 
 def test_a_clean_owned_directory_is_still_removed(tmp_path):
@@ -350,7 +431,8 @@ def test_a_clean_owned_directory_is_still_removed(tmp_path):
         _force_rm(d)
 
 
-@pytest.mark.parametrize("case", ["missing_identity", "already_absent", "dangling"])
+@pytest.mark.parametrize("case", ["missing_identity", "already_absent",
+                                  "unremoved_under_a_dangling_name"])
 def test_the_preserved_v1152_semantics_survive(tmp_path, case):
     """These were earned in v3.66.1152 and must not regress while seam-binding
     is added. Kept in ONE parametrised test so a future edit cannot quietly
@@ -376,30 +458,40 @@ def test_the_preserved_v1152_semantics_survive(tmp_path, case):
         assert m._discard_tempdir(d) is True
         assert d not in m._TEMPDIRS
     else:
+        # THIS ARM WAS A DUPLICATE OF `missing_identity` UNTIL v3.66.1154, and
+        # it took two shims to become one. It patched `m.shutil.rmtree`, which
+        # the remover stopped calling at v3.66.1153, so the first discard
+        # SUCCEEDED and popped the identity; the branch then built the symlink
+        # itself and called the helper a second time, on a path that no longer
+        # had a recorded identity -- so what it measured was the no-identity
+        # refusal, under a different name, one arm along.
+        #
+        # The defect v3.66.1152 actually closed was `os.path.exists` FOLLOWING
+        # a dangling symlink, so a removal that did not happen read as absent
+        # and was laundered into success. That is stated here directly: the
+        # tree is intact under another name, a dangling link stands where it
+        # used to be, and `exists()` says False about both.
         d = _owned(m)
-        real_rmtree = shutil.rmtree
-
-        def rmtree_then_dangle(path, *a, **k):
-            real_rmtree(path, *a, **k)
-            os.symlink(str(tmp_path / "no-such-target"), path)
-
-        # The dangling name may be created by the production remover or by this
-        # shim, depending on implementation; either way a NAME must remain and
-        # the helper must not call that removed.
-        m.shutil.rmtree = rmtree_then_dangle
+        moved = d + ".still-here"
+        os.rename(d, moved)
+        os.symlink(str(tmp_path / "no-such-target"), d)
         try:
+            assert not os.path.exists(d), "fixture: exists() must read absent"
+            assert os.path.lexists(d), "fixture: a NAME must still be here"
+            assert os.path.isdir(moved), "fixture: the tree must be intact"
             got = m._discard_tempdir(d)
-            if not os.path.lexists(d):          # fd-bound remover never called rmtree
-                os.symlink(str(tmp_path / "no-such-target"), d)
-                got = m._discard_tempdir(d)
-        finally:
-            m.shutil.rmtree = real_rmtree
-        try:
-            assert os.path.lexists(d) and not os.path.exists(d), "fixture wrong"
-            assert got is False, "a dangling symlink was reported as removed"
+            assert got is False, (
+                "a directory that was never removed -- it is intact under "
+                "another name -- was reported as cleaned up, because the "
+                "question asked was about a pathname that a dangling symlink "
+                "answers False to")
+            assert d in m._TEMPDIRS, (
+                "and it was unregistered, so nothing will ever look for it "
+                "again")
         finally:
             if os.path.lexists(d):
                 os.unlink(d)
+            _force_rm(moved)
             if d in m._TEMPDIRS:
                 m._TEMPDIRS.remove(d)
             m._TEMPDIR_IDENT.pop(d, None)
