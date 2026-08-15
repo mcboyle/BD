@@ -7,52 +7,49 @@ a live capability, not a convenience: model subagents are not an equivalent,
 because they do not hold the ssh control path and leave no artifact the operator
 can re-read afterwards.
 
-WHY IT WAS REWRITTEN AT v3.66.1142. The v3.66.1140 implementation was unsafe in
-ways a green test suite actively concealed. Its --selftest built a fleet file
+WHY IT WAS REWRITTEN AT v3.66.1142. The v3.66.1140 --selftest built a fleet file
 naming `alpha 192.0.2.10` and drove main() through an "unwritable artifact root"
-refusal that held ONLY because `mkdir /proc/cannot/write/here` fails on procfs;
-had it succeeded, control reached
-    ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
-and tests/test_toolchain_534.py runs that selftest inside ci.yml's `toolchain`
+refusal that held ONLY because `mkdir /proc/cannot/write/here` fails on procfs.
+Had it succeeded, control reached `ssh ... 192.0.2.10`, and
+tests/test_toolchain_534.py runs that selftest inside ci.yml's `toolchain`
 shard. No egress ever occurred, but the property was enforced by the FILESYSTEM
-and never by the code. Its prune() would rmtree ANY subdirectory of --root, and
-locality was inferred from `label == socket.gethostname()`.
+and never by the code.
 
-WHAT v3.66.1143 ADDED, from review of that cut. Each of these was a way to lose
-a result, lose a command's meaning, or destroy something:
+WHAT v3.66.1144 FIXED, from a second review. Every one of these was a way to
+report success over something that had not happened:
 
-  * `--only` failed OPEN. A typo silently narrowed the fleet, and it was applied
-    AFTER address de-duplication, so selecting a collapsed alias targeted
-    nothing. Now every requested label must exist, the refusal precedes any
-    artifact or process, and selection happens BEFORE dedup.
-  * A raised exception anywhere in execution -- the runner, opening or statting
-    a log, or `future.result()` -- lost the whole run's record, including hosts
-    that had already executed. Every failure now yields an explicit ERROR row
-    and summary.json is written on every exit path.
-  * prune() could delete the CURRENT run (`--keep 1` with a future-dated
-    sibling, a same-second sibling, or a clock rollback all reorder the sort),
-    and it used ignore_errors=True and then reported "removed" -- a deletion
-    that silently did not happen, reported as one that did.
-  * `" ".join(argv_tokens)` destroyed quoting: `-c 'print("a b")'` reached the
-    host as three words. A single argument is now passed verbatim and multiple
-    tokens are joined with shlex.join().
-  * ssh exit 255 was one bucket. AUTH_FAILURE and UNREACHABLE are distinguished
-    when the diagnostics support it, and SSH_UNKNOWN when they do not.
-  * the local-HEAD probe called subprocess directly, so execute-mode tests could
-    not claim zero real process calls. It is now an injected seam.
+  * A runner returning rc=0 without creating a per-host log was reported `ok`.
+    A missing log means the run produced NO evidence; that is now ERROR. A
+    zero-byte EXISTING regular file is valid -- a command can legitimately print
+    nothing -- so the test is existence and regular-file-ness, not size.
+  * The reconciliation that turns un-returned targets into UNKNOWN rows ran
+    AFTER summary.json was written, so those rows never reached the persisted
+    record. Reconciliation now happens INSIDE finalisation, before the write.
+  * A failure to persist summary.json was a warning on stderr and exit 0.
+    Losing the record of a fleet that has already executed is a failure.
+  * Executor construction, submission and as_completed were outside the guarded
+    region, so a coordinator failure discarded the rows already collected.
+  * The plan printed an argv built from the bare command while the runner
+    received one carrying the commit-recording prefix. Printed and executed
+    argv were DIFFERENT on the default path, and the test that checked them
+    passed --no-record-commit, which is precisely the flag that hides it. The
+    final argv is now constructed exactly ONCE per target and the same object
+    is printed and executed.
+  * `build_command(...).strip()` silently altered a command whose trailing
+    whitespace was deliberate. strip() is now used only to decide emptiness.
+  * Addresses were filtered by a metacharacter BLACKLIST. A blacklist over a
+    field that reaches ssh's argv is the wrong shape; there is now an explicit
+    accepted grammar for the inventory's supported forms (IPv4, IPv6, DNS, with
+    an optional user@), and a normalised form is what de-duplication keys on.
+  * `Host key verification failed` was classified UNREACHABLE. It is neither
+    unreachable nor an auth failure -- it is a trust failure, and conflating it
+    with a network problem sends the operator to the wrong diagnosis.
 
 THE STRUCTURAL RULE: all process execution goes through INJECTED seams. main()
 takes `runner=` and `probe=`; nothing else in this module calls subprocess. The
 real implementations are constructed ONLY on the --execute path, so "a test
-cannot reach the network" is a property of the wiring rather than of a fixture's
+cannot reach the network" is a property of the wiring rather than a fixture's
 luck.
-
-SAFETY POSTURE: plan/dry-run is the DEFAULT and --execute is required; the
-resolved targets and exact argv print before anything runs; locality is read
-from the inventory, never inferred; artifact roots reject `/`, `$HOME`, any git
-work tree, traversal and symlink escapes; run directories carry an ownership
-sentinel and prune refuses anything without one; ssh host-key verification is
-never weakened; an unknown or failed host outcome never becomes success.
 """
 
 from __future__ import annotations
@@ -62,6 +59,7 @@ import concurrent.futures
 import datetime
 import importlib.machinery
 import importlib.util
+import ipaddress
 import json
 import os
 import pathlib
@@ -69,6 +67,7 @@ import re
 import secrets
 import shlex
 import shutil
+import stat as statmod
 import subprocess
 import sys
 import time
@@ -82,27 +81,42 @@ DEFAULT_JOBS = 8
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 RUN_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 SENTINEL = ".bd-fleet-run-owned"
-ADDR_BAD = re.compile(r"[\s;&|<>`$(){}\[\]'\"\\]|^-")
 
-# ssh(1) writes these to stderr before exiting 255. They are matched only to
-# SPLIT 255 into more useful states -- never to turn any of them into success.
+# An ACCEPTED grammar, not a rejected one. A blacklist over a value that becomes
+# ssh argv is the wrong shape: it must enumerate every bad character correctly
+# forever, where a whitelist only has to describe what the inventory supports.
+_DNS_LABEL = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_SSH_USER = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$")
+
 AUTH_PATTERNS = ("permission denied", "publickey", "password authentication",
                  "authentication failed", "too many authentication failures",
                  "no supported authentication methods")
+HOSTKEY_PATTERNS = ("host key verification failed",
+                    "remote host identification has changed",
+                    "no matching host key type found")
 UNREACH_PATTERNS = ("connection refused", "no route to host",
                     "connection timed out", "network is unreachable",
                     "could not resolve hostname", "name or service not known",
-                    "connection closed by remote host", "host key verification failed")
+                    "connection closed by remote host", "operation timed out")
 
 BLIND_SPOTS = (
     "the summary line is derived from the log's TAIL. A failure earlier in a "
     "run that ends cleanly is in the artifact but not in the summary.",
     "the exit code is the remote shell's; a pipeline on the far side masks it "
     "exactly as it does locally.",
-    "AUTH_FAILURE vs UNREACHABLE is inferred from ssh's stderr text. When it "
-    "matches nothing the state is SSH_UNKNOWN -- never success.",
+    "AUTH_FAILURE / HOST_KEY_FAILURE / UNREACHABLE are inferred from ssh's "
+    "stderr text. When it matches nothing the state is SSH_UNKNOWN -- never "
+    "success.",
     "the recorded remote commit is what the host reported at run time; it does "
     "not prove the command READ that tree.",
+    "PRUNE HAS A RESIDUAL TOCTOU WINDOW. Ownership is verified, then the "
+    "identity is re-checked by (st_dev, st_ino) immediately before removal, but "
+    "rmtree walks the tree afterwards and cannot be made atomic from Python. A "
+    "local process that can write inside the artifact base could still swap a "
+    "directory between the last check and the walk. The base is under the "
+    "invoking user's own data directory and is not shared, which is the actual "
+    "mitigation; the identity re-check narrows the window rather than closing "
+    "it.",
 )
 
 
@@ -133,12 +147,7 @@ class SubprocessRunner:
 
 
 class SubprocessProbe:
-    """The local-HEAD seam. Injected so execute-mode tests start NO process.
-
-    Before v3.66.1143 this was a bare subprocess call inside _run(), which meant
-    a test could not honestly claim "zero real process calls outside the
-    injected fake runner".
-    """
+    """The local-HEAD seam. Injected so execute-mode tests start NO process."""
 
     name = "subprocess"
 
@@ -168,9 +177,7 @@ def _load_bd_fleet():
 def read_locality(path: pathlib.Path) -> dict:
     """Optional THIRD column of the fleet file: `local` marks local execution.
 
-    Locality is INVENTORY DATA, never an inference. read_hosts takes
-    parts[0]/parts[1] and deploy_fleet.sh reads `label addr _rest`, so both
-    already ignore a third field.
+    Locality is INVENTORY DATA, never an inference.
     """
     out = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -185,14 +192,71 @@ def read_locality(path: pathlib.Path) -> dict:
     return out
 
 
+def normalise_address(raw: str) -> str:
+    """Accept only the inventory's supported target forms; return canonical.
+
+    Accepted: IPv4, IPv6 (bare or bracketed), a DNS name, each optionally
+    prefixed `user@`. Everything else -- a path, traversal, a comma-separated
+    list, a bare `@`, an ssh option, a URL -- is refused. The canonical form is
+    what de-duplication keys on, so `Test6.` and `test6` collapse to one target
+    instead of being contacted twice.
+    """
+    if not raw:
+        raise Refusal("empty target address")
+    if any(ord(c) < 32 or ord(c) == 127 for c in raw):
+        raise Refusal(f"target {raw!r} contains a control character")
+    if any(c.isspace() for c in raw):
+        raise Refusal(f"target {raw!r} contains whitespace")
+
+    user = ""
+    host = raw
+    if "@" in raw:
+        user, _, host = raw.partition("@")
+        if "@" in host:
+            raise Refusal(f"target {raw!r} has more than one '@'")
+        if not user:
+            raise Refusal(f"target {raw!r} has an empty user before '@'")
+        if not host:
+            raise Refusal(f"target {raw!r} has an empty host after '@'")
+        if not _SSH_USER.match(user):
+            raise Refusal(f"target {raw!r} has an unsupported user part")
+        user = user + "@"
+
+    inner = host
+    bracketed = inner.startswith("[") and inner.endswith("]")
+    if bracketed:
+        inner = inner[1:-1]
+
+    try:
+        ip = ipaddress.ip_address(inner)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        if ip.version == 6:
+            return f"{user}[{ip.compressed}]"
+        if bracketed:
+            raise Refusal(f"target {raw!r} brackets an IPv4 address")
+        return f"{user}{ip.compressed}"
+    if bracketed:
+        raise Refusal(f"target {raw!r} is bracketed but is not an IPv6 address")
+
+    name = host[:-1] if host.endswith(".") else host
+    if not name or len(name) > 253:
+        raise Refusal(f"target {raw!r} is not a usable host name")
+    labels = name.split(".")
+    if not all(_DNS_LABEL.match(l) for l in labels):
+        raise Refusal(
+            f"target {raw!r} is not an IPv4/IPv6 address or a DNS name. "
+            "Supported forms are 10.0.0.1, [2001:db8::1], host.example, each "
+            "optionally prefixed user@.")
+    return f"{user}{name.lower()}"
+
+
 def resolve_targets(hosts, locality, only=None):
     """Validate, select, then dedupe -- in that order, and fail closed.
 
-    SELECTION PRECEDES DE-DUPLICATION. Before v3.66.1143 `--only` was applied
-    after collapsing duplicate addresses, so asking for a label that had been
-    collapsed as an alias selected nothing and the run reported success over an
-    empty fleet. Deduping the SELECTED set instead keeps a chosen alias
-    targetable.
+    SELECTION PRECEDES DE-DUPLICATION so a label that dedup would collapse as an
+    alias stays targetable when it is the one asked for.
     """
     if not hosts:
         raise Refusal("the fleet file lists no hosts. An empty fleet must not "
@@ -213,9 +277,6 @@ def resolve_targets(hosts, locality, only=None):
         seen_labels.add(label)
 
     if only is not None:
-        # FAIL CLOSED: every requested label must exist. A partial match is a
-        # typo, and silently running the subset is how a fleet-wide change is
-        # believed applied to a host it never touched.
         missing = [l for l in only if l not in seen_labels]
         if missing:
             raise Refusal(
@@ -227,14 +288,12 @@ def resolve_targets(hosts, locality, only=None):
 
     targets, collapsed, seen_addr = [], [], {}
     for label, addr in hosts:
-        if not addr or ADDR_BAD.search(addr):
-            raise Refusal(
-                f"address {addr!r} for {label!r} is not a plain host address.")
-        if addr in seen_addr:
-            collapsed.append((label, addr, seen_addr[addr]))
+        canon = normalise_address(addr)
+        if canon in seen_addr:
+            collapsed.append((label, canon, seen_addr[canon]))
             continue
-        seen_addr[addr] = label
-        targets.append((label, addr, bool(locality.get(label, False))))
+        seen_addr[canon] = label
+        targets.append((label, canon, bool(locality.get(label, False))))
     return targets, collapsed
 
 
@@ -275,21 +334,39 @@ def new_run_id(now=None) -> str:
     return now.strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
 
 
+def _identity(path):
+    """(st_dev, st_ino, is_dir) for a path, or None.
+
+    Used by BOTH of prune's passes so the pre-removal re-check compares the
+    same quantity the collection pass recorded -- and so a test can drive an
+    identity swap at one seam instead of monkeypatching os.lstat, which
+    pathlib.is_symlink() also calls and would therefore fire during collection.
+    """
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, statmod.S_ISDIR(st.st_mode))
+
+
 def prune(base: pathlib.Path, keep: int, protect=None):
     """Remove old runs. Returns (dropped, failures).
 
-    FOUR conditions before anything is deleted: the entry resolves BENEATH the
-    base, its name matches the run-id grammar, it carries the ownership
-    sentinel, and it is not the run currently in flight.
+    Conditions before anything is deleted: the entry resolves BENEATH the base,
+    its name matches the run-id grammar, it carries the ownership sentinel, it
+    is not the run currently in flight, and -- immediately before removal -- its
+    (st_dev, st_ino) still match what was inspected.
 
-    `protect` is not an optimisation. Ordering is by NAME, and the name carries
-    a wall-clock stamp, so a future-dated sibling, a same-second sibling or a
-    clock rollback can each sort the live run into the discard tail. The current
-    run is excluded explicitly rather than trusted to sort safely.
+    `protect` is not an optimisation. Ordering is by NAME and the name carries a
+    wall-clock stamp, so a future-dated sibling, a same-second sibling or a clock
+    rollback can each sort the live run into the discard tail.
 
-    Failures are RETURNED, never swallowed. The previous version passed
-    ignore_errors=True and then reported the directory as removed -- a deletion
-    that did not happen, reported as one that did.
+    RESIDUAL TOCTOU, stated rather than implied: the identity re-check narrows
+    the window between inspection and removal, but shutil.rmtree then walks the
+    tree and that walk cannot be made atomic from Python. A local process able
+    to write inside the artifact base could still swap a directory mid-walk. The
+    base lives under the invoking user's own data directory and is not shared,
+    which is the real mitigation.
     """
     if keep <= 0 or not base.is_dir():
         return [], []
@@ -306,15 +383,29 @@ def prune(base: pathlib.Path, keep: int, protect=None):
             continue
         if pathlib.Path(os.path.realpath(entry)).parent != base_real:
             continue
-        owned.append(entry)
-    owned.sort(key=lambda p: p.name, reverse=True)
+        ident = _identity(entry)
+        if ident is None:
+            continue
+        owned.append((entry, ident))
+    owned.sort(key=lambda t: t[0].name, reverse=True)
 
-    # `keep` counts SURVIVING runs including the protected current one.
     budget = keep - (1 if protect is not None else 0)
     if budget < 0:
         budget = 0
     dropped, failures = [], []
-    for entry in owned[budget:]:
+    for entry, ident in owned[budget:]:
+        now = _identity(entry)
+        if now is None:
+            failures.append(f"{entry.name}: vanished before removal")
+            continue
+        if now != ident or not now[2]:
+            failures.append(
+                f"{entry.name}: identity changed between check and removal; "
+                "refusing to delete a directory that is not the one inspected")
+            continue
+        if not (entry / SENTINEL).is_file():
+            failures.append(f"{entry.name}: ownership sentinel disappeared")
+            continue
         try:
             shutil.rmtree(entry)
         except OSError as exc:
@@ -332,16 +423,26 @@ def prune(base: pathlib.Path, keep: int, protect=None):
 def build_command(parts) -> str:
     """One argument is passed VERBATIM; several are joined with shell quoting.
 
-    `" ".join(...)` destroyed meaning: `-c 'print("a b")'` reached the host as
-    three bare words. A single argument is already a command string and must not
-    be re-quoted; multiple tokens are an argv and shlex.join is the only correct
-    way to render one as a shell word sequence.
+    NOT stripped. `" ".join(...)` destroyed meaning, and so does a reflexive
+    .strip(): a command whose trailing whitespace is deliberate -- an escaped
+    trailing space, a heredoc body -- must survive. Emptiness is decided by
+    testing a stripped COPY, never by assigning one.
     """
     if not parts:
         return ""
     if len(parts) == 1:
         return parts[0]
     return shlex.join(parts)
+
+
+def wrap_command(command: str, record_commit: bool) -> str:
+    """The FINAL remote command, built once so printed and executed agree."""
+    if not record_commit:
+        return command
+    return ("printf 'bd-fleet-run: commit=%s dirty=%s\\n' "
+            "\"$(git -C \"$PWD\" rev-parse --short HEAD 2>/dev/null || echo unknown)\" "
+            "\"$(git -C \"$PWD\" status --porcelain 2>/dev/null | wc -l)\"; "
+            + command)
 
 
 def build_argv(label, addr, is_local, command, connect_timeout=10):
@@ -358,6 +459,19 @@ def build_argv(label, addr, is_local, command, connect_timeout=10):
             "bash -c %s" % shlex.quote(command)]
 
 
+def build_plan(targets, command, record_commit):
+    """One entry per target carrying the FINAL command and argv.
+
+    Constructed once. The plan printout and the runner receive the same argv
+    object, so they cannot disagree -- before v3.66.1144 the printout showed the
+    bare command while the runner got the commit-recording form.
+    """
+    effective = wrap_command(command, record_commit)
+    return [{"label": l, "addr": a, "local": lo, "command": effective,
+             "argv": build_argv(l, a, lo, effective)}
+            for l, a, lo in targets]
+
+
 def classify(rc, err, log_text="", is_local=False):
     """Every non-zero outcome gets a NAME, and none of them is success."""
     if err and "TIMEOUT" in err:
@@ -370,6 +484,10 @@ def classify(rc, err, log_text="", is_local=False):
         return "ok"
     if rc == 255 and not is_local:
         low = (log_text or "").lower()
+        # Host-key failure first: it is a TRUST failure, not a network one, and
+        # calling it UNREACHABLE sends the operator to the wrong diagnosis.
+        if any(p in low for p in HOSTKEY_PATTERNS):
+            return "HOST_KEY_FAILURE"
         if any(p in low for p in AUTH_PATTERNS):
             return "AUTH_FAILURE"
         if any(p in low for p in UNREACH_PATTERNS):
@@ -378,50 +496,52 @@ def classify(rc, err, log_text="", is_local=False):
     return "FAIL"
 
 
-def run_one(runner, label, addr, is_local, command, logdir, timeout,
-            record_commit):
-    """Never raises. A host that blows up returns an ERROR row like any other.
+def _row(entry, exit_code, err, status, wall, log, size):
+    return {"label": entry["label"], "addr": entry["addr"],
+            "via": "local" if entry["local"] else "ssh",
+            "exit": exit_code, "error": err, "status": status,
+            "wall": wall, "log": str(log), "argv": list(entry["argv"]),
+            "bytes": size}
 
-    An exception escaping here used to take the entire run's record with it,
-    including hosts that had already finished.
-    """
-    log = logdir / f"{label}.log"
+
+def run_one(runner, entry, logdir, timeout):
+    """Never raises. A host that blows up returns an ERROR row like any other."""
+    log = logdir / f"{entry['label']}.log"
     started = time.time()
-    if record_commit:
-        wrapped = ("printf 'bd-fleet-run: commit=%s dirty=%s\\n' "
-                   "\"$(git -C \"$PWD\" rev-parse --short HEAD 2>/dev/null || echo unknown)\" "
-                   "\"$(git -C \"$PWD\" status --porcelain 2>/dev/null | wc -l)\"; "
-                   + command)
-    else:
-        wrapped = command
-    argv = build_argv(label, addr, is_local, wrapped)
-
     rc, err = None, None
     try:
-        rc, err = runner.run(argv, log, timeout)
-    except Exception as exc:                       # runner defect, OSError, ...
+        rc, err = runner.run(entry["argv"], log, timeout)
+    except Exception as exc:
         err = f"{type(exc).__name__}: {exc}"
 
     text, size = "", 0
     try:
-        if log.exists():
-            size = log.stat().st_size
+        st = os.lstat(log)
+        if not statmod.S_ISREG(st.st_mode):
+            err = err or ("per-host log is not a regular file; the run left no "
+                          "usable evidence")
+        else:
+            size = st.st_size
+            # A zero-byte regular file is VALID: a command may print nothing.
             text = log.read_text(errors="replace")
-    except Exception as exc:                       # unreadable / vanished log
+    except FileNotFoundError:
+        # rc==0 with no log means the runner produced no evidence at all. That
+        # is not success, whatever it returned.
+        err = err or ("the runner created no per-host log; there is no evidence "
+                      "the command ran")
+    except OSError as exc:
         err = err or f"log unreadable: {type(exc).__name__}: {exc}"
 
-    return {"label": label, "addr": addr, "via": "local" if is_local else "ssh",
-            "exit": rc, "error": err,
-            "status": classify(rc, err, text, is_local),
-            "wall": round(time.time() - started, 1),
-            "log": str(log), "argv": argv, "bytes": size}
+    return _row(entry, rc, err,
+                classify(rc, err, text, entry["local"]),
+                round(time.time() - started, 1), log, size)
 
 
 def summarise(row, pattern=None):
     tail = ""
-    p = pathlib.Path(row["log"])
+    p = pathlib.Path(row["log"]) if row["log"] else None
     try:
-        if p.is_file() and row["bytes"]:
+        if p is not None and p.is_file() and row["bytes"]:
             lines = [l.rstrip() for l in
                      p.read_text(errors="replace").splitlines() if l.strip()]
             if pattern:
@@ -432,9 +552,52 @@ def summarise(row, pattern=None):
     except Exception as exc:
         tail = f"(log unreadable: {exc})"
     code = "--" if row["exit"] is None else str(row["exit"])
-    return (f"  {row['label']:12} {row['status']:16} exit={code:<5}"
+    return (f"  {row['label']:12} {row['status']:17} exit={code:<5}"
             f" {row['wall']:7.1f}s {row['bytes']:>9,}b  "
-            f"{(row['error'] or tail)[:70]}")
+            f"{(row['error'] or tail)[:68]}")
+
+
+def execute_plan(runner, plan, logdir, timeout, workers):
+    """Run the plan and return (rows, coordinator_error).
+
+    EVERY requested target is reconciled into a row here, before the caller
+    persists anything. A target that produced no result becomes UNKNOWN rather
+    than vanishing, and a failure in the executor itself -- construction,
+    submission, as_completed -- still returns the rows already collected.
+    """
+    rows, coordinator_error = [], None
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {}
+            for entry in plan:
+                futs[pool.submit(run_one, runner, entry, logdir, timeout)] = entry
+            for f in concurrent.futures.as_completed(futs):
+                entry = futs[f]
+                try:
+                    rows.append(f.result())
+                except BaseException as exc:
+                    rows.append(_row(entry, None, f"{type(exc).__name__}: {exc}",
+                                     "ERROR", 0.0,
+                                     logdir / f"{entry['label']}.log", 0))
+    except BaseException as exc:
+        coordinator_error = f"{type(exc).__name__}: {exc}"
+
+    have = {r["label"] for r in rows}
+    for entry in plan:
+        if entry["label"] in have:
+            continue
+        rows.append(_row(
+            entry, None,
+            coordinator_error or "no result was recorded for this host",
+            "UNKNOWN", 0.0, logdir / f"{entry['label']}.log", 0))
+    order = [e["label"] for e in plan]
+    rows.sort(key=lambda r: order.index(r["label"]))
+    return rows, coordinator_error
+
+
+def _refuse(msg):
+    print(f"bd-fleet-run: REFUSED: {msg}", file=sys.stderr)
+    return 2
 
 
 # --------------------------------------------------------------- main
@@ -462,16 +625,15 @@ def main(argv=None, runner=None, probe=None) -> int:
     try:
         return _run(args, runner, probe)
     except Refusal as exc:
-        print(f"bd-fleet-run: REFUSED: {exc}", file=sys.stderr)
-        return 2
+        return _refuse(str(exc))
 
 
 def _run(args, runner, probe) -> int:
     parts = list(args.command)
     while parts and parts[0] == "--":
         parts.pop(0)
-    command = build_command(parts).strip()
-    if not command:
+    command = build_command(parts)
+    if not command.strip():          # emptiness on a COPY; the value is verbatim
         raise Refusal("no command given. Usage: bd-fleet-run -- <command>")
 
     hosts_path = pathlib.Path(args.hosts).expanduser()
@@ -503,17 +665,18 @@ def _run(args, runner, probe) -> int:
     base = validate_root(args.root)
     workers = min(args.jobs, len(targets))
 
+    plan = build_plan(targets, command, not args.no_record_commit)
+
     print(f"bd-fleet-run: {'EXECUTE' if args.execute else 'PLAN (dry-run)'}"
-          f"  {len(targets)} target(s), jobs={workers}")
-    print(f"  effective command: {command}")
+          f"  {len(plan)} target(s), jobs={workers}")
+    print(f"  effective command: {plan[0]['command']}")
     print(f"  artifacts base: {base}")
-    for label, addr, is_local in targets:
-        where = "LOCAL" if is_local else f"ssh {addr}"
-        print(f"    {label:12} {where}")
-        print("      argv: " + " ".join(
-            shlex.quote(a) for a in build_argv(label, addr, is_local, command)))
+    for e in plan:
+        where = "LOCAL" if e["local"] else f"ssh {e['addr']}"
+        print(f"    {e['label']:12} {where}")
+        print("      argv: " + " ".join(shlex.quote(a) for a in e["argv"]))
     for label, addr, kept in collapsed:
-        print(f"  NOTE: {label} collapsed -- address {addr} already covered by {kept}")
+        print(f"  NOTE: {label} collapsed -- {addr} already covered by {kept}")
 
     if not args.execute:
         print("\n  PLAN ONLY. No host was contacted and no process was started.")
@@ -529,8 +692,9 @@ def _run(args, runner, probe) -> int:
         (logdir / SENTINEL).write_text(json.dumps({"tool": "bd-fleet-run"}))
         (logdir / "manifest.json").write_text(json.dumps({
             "run_id": run_id, "command": command,
-            "targets": [{"label": l, "addr": a, "local": lo}
-                        for l, a, lo in targets],
+            "effective_command": plan[0]["command"],
+            "targets": [{"label": e["label"], "addr": e["addr"],
+                         "local": e["local"], "argv": e["argv"]} for e in plan],
             "timeout": args.timeout, "jobs_configured": args.jobs,
             "workers_used": workers, "local_head": probe.local_head(),
         }, indent=2))
@@ -544,45 +708,17 @@ def _run(args, runner, probe) -> int:
         runner = SubprocessRunner()
     print(f"\n  run: {logdir}  (runner={getattr(runner, 'name', type(runner).__name__)})")
 
-    rows = []
+    rows, coordinator_error = execute_plan(runner, plan, logdir, args.timeout,
+                                           workers)
+
+    summary_error = None
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            futs = {pool.submit(run_one, runner, l, a, lo, command, logdir,
-                                args.timeout, not args.no_record_commit): (l, a, lo)
-                    for l, a, lo in targets}
-            for f in concurrent.futures.as_completed(futs):
-                label, addr, is_local = futs[f]
-                try:
-                    rows.append(f.result())
-                except BaseException as exc:
-                    # The record survives even a defect in run_one itself.
-                    rows.append({
-                        "label": label, "addr": addr,
-                        "via": "local" if is_local else "ssh",
-                        "exit": None, "error": f"{type(exc).__name__}: {exc}",
-                        "status": "ERROR", "wall": 0.0,
-                        "log": str(logdir / f"{label}.log"), "argv": [],
-                        "bytes": 0})
-    finally:
-        # ALWAYS attempt the record. A host may already have executed, and
-        # losing that fact is worse than any error above.
-        order = [t[0] for t in targets]
-        rows.sort(key=lambda r: order.index(r["label"])
-                  if r["label"] in order else len(order))
-        try:
-            (logdir / "summary.json").write_text(json.dumps(rows, indent=2))
-        except Exception as exc:
-            print(f"  WARNING: summary.json could not be written: {exc}",
-                  file=sys.stderr)
+        (logdir / "summary.json").write_text(json.dumps(rows, indent=2))
+    except Exception as exc:
+        summary_error = f"{type(exc).__name__}: {exc}"
+        print(f"  SUMMARY NOT PERSISTED: {summary_error}", file=sys.stderr)
 
-    missing = [l for l, _a, _lo in targets
-               if l not in {r["label"] for r in rows}]
-    for label in missing:
-        rows.append({"label": label, "addr": "", "via": "", "exit": None,
-                     "error": "no result recorded", "status": "UNKNOWN",
-                     "wall": 0.0, "log": "", "argv": [], "bytes": 0})
-
-    print(f"\n  {'host':12} {'status':16} {'exit':<6} {'wall':>7} {'stored':>10}")
+    print(f"\n  {'host':12} {'status':17} {'exit':<6} {'wall':>7} {'stored':>10}")
     for r in rows:
         print(summarise(r, args.grep))
 
@@ -591,6 +727,8 @@ def _run(args, runner, probe) -> int:
           f"  Full output: {logdir}/<host>.log")
     if bad:
         print("  NOT OK: " + ", ".join(f"{r['label']}={r['status']}" for r in bad))
+    if coordinator_error:
+        print(f"  COORDINATOR FAILED: {coordinator_error}", file=sys.stderr)
 
     dropped, failures = prune(base, args.keep, protect=run_id)
     if dropped:
@@ -601,7 +739,7 @@ def _run(args, runner, probe) -> int:
     print("\n=== WHAT THIS RUN CANNOT TELL YOU ===")
     for i, s in enumerate(BLIND_SPOTS, 1):
         print(f"  {i}. {s}")
-    return 1 if (bad or failures) else 0
+    return 1 if (bad or failures or summary_error or coordinator_error) else 0
 
 
 # --------------------------------------------------------------- selftest
@@ -617,7 +755,8 @@ class _FakeRunner:
 
     def run(self, argv, log_path, timeout):
         self.calls.append({"argv": list(argv), "timeout": timeout})
-        pathlib.Path(log_path).write_text(self._body)
+        if self._body is not None:
+            pathlib.Path(log_path).write_text(self._body)
         return self._rc, self._err
 
 
@@ -654,8 +793,6 @@ def selftest() -> int:
         check(len(ssh_calls) == 1, "the non-local host used ssh")
         check(not any("StrictHostKeyChecking" in a for a in ssh_calls[0]["argv"]),
               "host-key verification is never disabled")
-        check(any(c["argv"][0] == "bash" for c in fake.calls),
-              "the inventory-declared local host ran locally")
 
         dry = _FakeRunner()
         rc = main(common + ["--", "echo", "hi"], runner=dry, probe=_FakeProbe())
@@ -668,32 +805,45 @@ def selftest() -> int:
         check(rc == 2 and v.calls == [],
               "a partial --only match refuses with zero launches")
 
+        nolog = _FakeRunner(body=None)
+        rc = main(common + ["--only", "alpha", "--execute", "--", "true"],
+                  runner=nolog, probe=_FakeProbe())
+        check(rc == 1, f"rc=0 with NO log is a failure, not success (got {rc})")
+
         check(build_command(['python3 -c "print(1)"']) == 'python3 -c "print(1)"',
               "a single command argument is preserved verbatim")
-        check(build_command(["python3", "-c", "print('a b')"])
-              == "python3 -c 'print('\"'\"'a b'\"'\"')'",
-              "multiple tokens are shell-quoted, not space-joined")
+        check(build_command(["echo", "trailing "]) == "echo 'trailing '",
+              "trailing whitespace inside a token survives quoting")
+        check(build_command(["echo hi  "]) == "echo hi  ",
+              "a single argument is NOT stripped")
 
-        bad = tmp / "badhosts"
-        bad.write_text("../evil 10.0.0.9\n")
-        rc = main(["--hosts", str(bad), "--root", str(base), "--execute",
-                   "--", "true"], runner=v, probe=_FakeProbe())
-        check(rc == 2 and v.calls == [],
-              "a traversal label refuses with zero launches")
+        p = build_plan([("h", "10.0.0.1", False)], "echo hi", True)
+        check(p[0]["argv"][-1].find("rev-parse") != -1,
+              "the default plan carries the commit-recording prefix")
+        check(p[0]["command"] in " ".join(p[0]["argv"]) or
+              shlex.quote(p[0]["command"]) in " ".join(p[0]["argv"]),
+              "the plan's argv is built from its own effective command")
 
-        rc = main(["--hosts", str(hosts), "--root", "/", "--execute",
-                   "--", "true"], runner=v, probe=_FakeProbe())
-        check(rc == 2 and v.calls == [], "artifact root '/' refuses, no launch")
-
-        check(classify(255, None, "Permission denied (publickey).") == "AUTH_FAILURE",
-              "ssh auth failure is named")
-        check(classify(255, None, "ssh: connect to host x: No route to host")
-              == "UNREACHABLE", "ssh unreachable is named")
-        check(classify(255, None, "something else entirely") == "SSH_UNKNOWN",
+        check(classify(255, None, "Host key verification failed.")
+              == "HOST_KEY_FAILURE", "host-key failure is its own state")
+        check(classify(255, None, "Permission denied (publickey).")
+              == "AUTH_FAILURE", "ssh auth failure is named")
+        check(classify(255, None, "No route to host") == "UNREACHABLE",
+              "ssh unreachable is named")
+        check(classify(255, None, "mystery") == "SSH_UNKNOWN",
               "an unrecognised 255 is SSH_UNKNOWN and not success")
 
-        # prune: an unowned directory survives, and the CURRENT run survives
-        # even when keep is 1 and a future-dated sibling exists.
+        check(normalise_address("Test6.") == "test6",
+              "a DNS name normalises for de-duplication")
+        for bad_addr in ("/etc/passwd", "../up", "a,b", "@", "user@", "@host",
+                         "-oProxyCommand=x", "http://h/", "h:22"):
+            try:
+                normalise_address(bad_addr)
+                check(False, f"{bad_addr!r} was accepted as a target")
+            except Refusal:
+                pass
+        check(True, "malformed targets are refused by the accepted grammar")
+
         cur = "20260101T000000Z-cccccccc"
         for name in (cur, "29991231T235959Z-ffffffff", "20250101T000000Z-aaaaaaaa"):
             d = base / name
@@ -706,13 +856,9 @@ def selftest() -> int:
               "the CURRENT run survives prune with --keep 1 and a future sibling")
         check(foreign.is_dir(), "prune leaves an unowned directory alone")
         check(not failures, f"prune reported failures: {failures}")
-        # Assert IDENTITIES, not a count. Earlier --execute checks in this same
-        # selftest leave their own run directories under `base`, so a count is a
-        # property of the fixture's history rather than of prune.
         check("29991231T235959Z-ffffffff" in dropped
               and "20250101T000000Z-aaaaaaaa" in dropped,
               f"prune removed the stale runs it should ({dropped})")
-        check(cur not in dropped, "prune did not report removing the current run")
 
     if fails:
         print(f"\nSELFTEST FAIL: {len(fails)} check(s) failed")

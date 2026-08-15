@@ -24,6 +24,18 @@ unreachable into one bucket; and the local-HEAD probe calling subprocess
 directly, so execute-mode tests could not honestly claim zero real process
 calls.
 
+v3.66.1144 closes six more, found by a second review: rc=0 with no per-host
+log reported `ok` (no evidence the command ran); UNKNOWN reconciliation ran
+AFTER the summary was written so those rows were never persisted; a failed
+summary write was a warning and exit 0; executor construction/submission were
+outside the guarded region; the plan PRINTED an argv without the
+commit-recording prefix while the runner received one WITH it, and the test
+that compared them passed --no-record-commit, the flag that hides it;
+build_command(...).strip() altered a deliberate trailing space; the address
+filter was a metacharacter blacklist rather than an accepted grammar; and host
+key verification failure was classified UNREACHABLE rather than as the trust
+failure it is.
+
 WHY THESE TESTS ARE DIFFERENT IN KIND. Every process launch goes through an
 INJECTED seam -- `main(argv, runner=..., probe=...)`. The `guarded` fixture
 below replaces `subprocess.run` inside the module under test and FAILS on any
@@ -296,7 +308,13 @@ def test_one_host_exploding_preserves_the_other_hosts_record(guarded):
         assert summary["beta"]["status"] == "ERROR"
 
 
-def test_an_unreadable_log_still_produces_a_row(guarded):
+def test_rc0_with_no_log_is_an_error_not_a_success(guarded):
+    """REVERSED at v3.66.1144. A runner that returns 0 without creating a log
+    produced NO evidence the command ran; reporting `ok` was a false green.
+
+    The prior revision of this test asserted rc == 0 for exactly this case, so
+    the suite pinned the defect in place.
+    """
     m, _ = guarded
 
     class NoLog:
@@ -311,10 +329,87 @@ def test_an_unreadable_log_still_produces_a_row(guarded):
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
                      "--execute", "--", "true"],
                     runner=NoLog(), probe=m._FakeProbe())
+        assert rc == 1, "rc=0 with no log reported success"
         run = next(d for d in _base(tmp).iterdir() if d.is_dir())
         summary = json.loads((run / "summary.json").read_text())
-        assert len(summary) == 1 and summary[0]["bytes"] == 0
-        assert rc == 0
+        assert summary[0]["status"] == "ERROR"
+        assert "no per-host log" in summary[0]["error"]
+
+
+def test_an_empty_but_existing_log_is_valid(guarded):
+    """THE OVER-SENSITIVE DIRECTION. A command may legitimately print nothing;
+    the test is existence and regular-file-ness, never size."""
+    m, _ = guarded
+
+    class Silent:
+        name = "silent"
+
+        def run(self, argv, log_path, timeout):
+            pathlib.Path(log_path).write_text("")
+            return 0, None
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=Silent(), probe=m._FakeProbe())
+        assert rc == 0, "a zero-byte existing log was treated as failure"
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = json.loads((run / "summary.json").read_text())
+        assert summary[0]["status"] == "ok" and summary[0]["bytes"] == 0
+
+
+def test_a_log_that_is_not_a_regular_file_is_an_error(guarded):
+    """A directory where the log should be leaves no usable evidence."""
+    m, _ = guarded
+
+    class DirLog:
+        name = "dirlog"
+
+        def run(self, argv, log_path, timeout):
+            pathlib.Path(log_path).mkdir()
+            return 0, None
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=DirLog(), probe=m._FakeProbe())
+        assert rc == 1
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = json.loads((run / "summary.json").read_text())
+        assert summary[0]["status"] == "ERROR"
+        assert "not a regular file" in summary[0]["error"]
+
+
+def test_a_read_failure_on_the_log_is_an_error(guarded, monkeypatch):
+    """stat succeeds, read raises -- directly exercised, not inferred."""
+    m, _ = guarded
+
+    class Fine:
+        name = "fine"
+
+        def run(self, argv, log_path, timeout):
+            pathlib.Path(log_path).write_text("data\n")
+            return 0, None
+
+    real_read = pathlib.Path.read_text
+
+    def boom(self, *a, **k):
+        if self.name.endswith(".log"):
+            raise OSError(5, "Input/output error")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "read_text", boom)
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=Fine(), probe=m._FakeProbe())
+        assert rc == 1, "an unreadable log reported success"
 
 
 def test_summary_json_is_written_even_when_every_host_errors(guarded):
@@ -550,7 +645,8 @@ def test_the_printed_effective_command_matches_what_is_sent(guarded, capsys):
     ("ssh: connect to host h port 22: Connection refused", "UNREACHABLE"),
     ("ssh: connect to host h port 22: No route to host", "UNREACHABLE"),
     ("ssh: Could not resolve hostname h", "UNREACHABLE"),
-    ("Host key verification failed.", "UNREACHABLE"),
+    # HOST_KEY_FAILURE since v3.66.1144: a trust failure is not a network one.
+    ("Host key verification failed.", "HOST_KEY_FAILURE"),
     ("some unmatched diagnostic", "SSH_UNKNOWN"),
     ("", "SSH_UNKNOWN"),
 ])
@@ -851,3 +947,249 @@ def test_the_selftest_is_hermetic_and_clean(guarded):
     m, launches = guarded
     assert m.selftest() == 0
     assert launches == [], f"the selftest started a real process: {launches}"
+
+
+# ==================== v3.66.1144: durability, argv identity, grammar =========
+
+def test_an_outer_future_failure_still_records_that_host(guarded, monkeypatch):
+    """future.result() raising must not lose the host or the run."""
+    m, _ = guarded
+    real_as_completed = m.concurrent.futures.as_completed
+
+    class Poisoned:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def result(self, *a, **k):
+            raise RuntimeError("future exploded")
+
+    def poisoned_as_completed(fs, *a, **k):
+        for f in real_as_completed(fs, *a, **k):
+            fs_map = fs
+            p = Poisoned(f)
+            if isinstance(fs_map, dict):
+                fs_map[p] = fs_map[f]
+            yield p
+
+    monkeypatch.setattr(m.concurrent.futures, "as_completed", poisoned_as_completed)
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=m._FakeRunner(), probe=m._FakeProbe())
+        assert rc == 1
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = json.loads((run / "summary.json").read_text())
+        assert len(summary) == 1
+        assert summary[0]["status"] == "ERROR"
+        assert "future exploded" in summary[0]["error"]
+
+
+def test_a_coordinator_failure_preserves_partial_results(mod):
+    """execute_plan is driven directly: a failure inside the executor region
+    must still return the rows already collected, plus UNKNOWN for the rest."""
+    with tempfile.TemporaryDirectory() as td:
+        logdir = pathlib.Path(td)
+        plan = mod.build_plan([("alpha", "10.0.0.1", False),
+                               ("beta", "10.0.0.2", False)], "true", False)
+
+        class HalfThenDie:
+            name = "half"
+            n = 0
+
+            def run(self, argv, log_path, timeout):
+                HalfThenDie.n += 1
+                if HalfThenDie.n > 1:
+                    raise KeyboardInterrupt("coordinator interrupted")
+                pathlib.Path(log_path).write_text("ok\n")
+                return 0, None
+
+        rows, coord = mod.execute_plan(HalfThenDie(), plan, logdir, 30, 1)
+        by = {r["label"]: r for r in rows}
+        assert set(by) == {"alpha", "beta"}, "a requested target vanished"
+        assert by["alpha"]["status"] == "ok", "an executed host's row was lost"
+        assert by["beta"]["status"] in ("ERROR", "UNKNOWN")
+
+
+def test_unknown_rows_reach_the_persisted_summary(mod):
+    """Reconciliation happens BEFORE the write, so UNKNOWN is durable."""
+    with tempfile.TemporaryDirectory() as td:
+        logdir = pathlib.Path(td)
+        plan = mod.build_plan([("alpha", "10.0.0.1", False),
+                               ("beta", "10.0.0.2", False)], "true", False)
+
+        class OnlyAlpha:
+            name = "onlyalpha"
+
+            def run(self, argv, log_path, timeout):
+                if "10.0.0.2" in argv:
+                    raise SystemExit(9)      # not caught as a normal exception
+                pathlib.Path(log_path).write_text("ok\n")
+                return 0, None
+
+        rows, _ = mod.execute_plan(OnlyAlpha(), plan, logdir, 30, 2)
+        labels = {r["label"] for r in rows}
+        assert labels == {"alpha", "beta"}
+        beta = [r for r in rows if r["label"] == "beta"][0]
+        assert beta["status"] in ("ERROR", "UNKNOWN")
+        assert beta["error"], "the reconciled row carries no reason"
+
+
+def test_a_summary_write_failure_makes_the_run_nonzero(guarded, monkeypatch):
+    """Losing the record of a fleet that already executed is a failure."""
+    m, _ = guarded
+    real_write = pathlib.Path.write_text
+
+    def boom(self, *a, **k):
+        if self.name == "summary.json":
+            raise OSError(28, "No space left on device")
+        return real_write(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", boom)
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=m._FakeRunner(), probe=m._FakeProbe())
+        assert rc == 1, "a failed summary persist reported success"
+
+
+def test_the_default_path_prints_exactly_what_it_executes(guarded, capsys):
+    """NO --no-record-commit. The commit-recording prefix is on, and the
+    printed argv must be byte-identical to the one handed to the runner.
+
+    The earlier printed-vs-executed test passed --no-record-commit, which is
+    precisely the flag that hides this divergence.
+    """
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        fake = m._FakeRunner()
+        m.main(["--hosts", str(hosts), "--root", str(_base(tmp)), "--execute",
+                "--", "echo", "hi"], runner=fake, probe=m._FakeProbe())
+        out = capsys.readouterr().out
+        import shlex as _shlex
+        sent = fake.calls[0]["argv"]
+        printed_line = [l for l in out.splitlines() if l.strip().startswith("argv:")][0]
+        printed = _shlex.split(printed_line.strip()[len("argv:"):].strip())
+        assert printed == sent, (
+            "the printed argv is not the executed argv on the DEFAULT path\n"
+            f"  printed:  {printed}\n  executed: {sent}")
+        assert "rev-parse" in sent[-1], "fixture precondition: prefix is present"
+
+
+def test_a_single_command_argument_is_not_stripped_end_to_end(guarded):
+    """Escaped trailing whitespace is deliberate and must reach the host."""
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        fake = m._FakeRunner()
+        cmd = "printf 'x' && echo done\\ "     # trailing escaped space
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--no-record-commit", "--", cmd],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 0
+        import shlex as _shlex
+        recovered = _shlex.split(fake.calls[0]["argv"][-1])
+        assert recovered[2] == cmd, (
+            f"the command was altered in transit: {recovered[2]!r} != {cmd!r}")
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        assert json.loads((run / "manifest.json").read_text())["command"] == cmd
+
+
+@pytest.mark.parametrize("addr", [
+    "/etc/passwd", "../up", "a,b", "@", "user@", "@host", "h//x",
+    # NOTE: whitespace-bearing addresses are UNREPRESENTABLE in a
+    # whitespace-delimited inventory, so they are asserted at the validator
+    # in test_whitespace_bearing_values_are_rejected_by_the_validator instead
+    # of through a file that cannot build the shape (CLAUDE.md section 6).
+    "-oProxyCommand=x", "http://h/", "h:22", "h\x01x",
+    "user@@host", "[10.0.0.1]", "[notv6]",
+])
+def test_malformed_targets_refuse_with_zero_calls(guarded, addr):
+    """An accepted GRAMMAR, not a rejected character list."""
+    m, launches = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, f"alpha {addr}\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 2, f"target {addr!r} was accepted"
+        assert fake.calls == [] and launches == []
+
+
+@pytest.mark.parametrize("raw,canon", [
+    ("10.0.0.1", "10.0.0.1"), ("Test6.", "test6"),
+    ("host.Example.COM", "host.example.com"),
+    ("2001:db8::1", "[2001:db8::1]"), ("[2001:DB8::1]", "[2001:db8::1]"),
+    ("mboyle@test6", "mboyle@test6"),
+])
+def test_accepted_targets_normalise(mod, raw, canon):
+    assert mod.normalise_address(raw) == canon
+
+
+def test_normalisation_drives_deduplication(guarded):
+    """`Test6.` and `test6` are one host, contacted once."""
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "a Test6.\nb test6\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 0 and len(fake.calls) == 1, "the same host was contacted twice"
+
+
+def test_host_key_failure_is_its_own_state(mod):
+    """A trust failure is not a network failure."""
+    for text in ("Host key verification failed.",
+                 "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!",
+                 "no matching host key type found"):
+        assert mod.classify(255, None, text) == "HOST_KEY_FAILURE", text
+    assert mod.classify(255, None, "No route to host") == "UNREACHABLE"
+    assert mod.classify(255, None, "Permission denied (publickey).") == "AUTH_FAILURE"
+
+
+def test_prune_refuses_a_directory_whose_identity_changed(mod, monkeypatch):
+    """The TOCTOU narrowing, exercised at the one seam that decides it.
+
+    A directory that passes every ownership check and is then swapped for a
+    different inode before removal must NOT be deleted.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        base = pathlib.Path(td) / "artifacts" / "runs"
+        base.mkdir(parents=True)
+        _seeded_run(base, "20260102T000000Z-aaaaaaaa", mod)
+        victim = _seeded_run(base, "20250101T000000Z-bbbbbbbb", mod)
+
+        real_identity = mod._identity
+        seen = {"n": 0}
+
+        def swapping(path):
+            ident = real_identity(path)
+            if ident is not None and str(path).endswith("bbbbbbbb"):
+                seen["n"] += 1
+                if seen["n"] >= 2:          # the pre-removal re-check
+                    return (ident[0], ident[1] + 1, ident[2])
+            return ident
+
+        monkeypatch.setattr(mod, "_identity", swapping)
+        dropped, failures = mod.prune(base, 1)
+        assert seen["n"] >= 2, "fixture precondition: both passes must run"
+        assert victim.is_dir(), "prune deleted a directory whose identity changed"
+        assert victim.name not in dropped
+        assert any("identity changed" in f for f in failures), failures
+
+
+def test_the_blind_spots_disclose_the_residual_toctou(mod):
+    """An instrument that hides its limits is worse than none."""
+    joined = " ".join(mod.BLIND_SPOTS).upper()
+    assert "TOCTOU" in joined
+    assert "rmtree" in " ".join(mod.BLIND_SPOTS)

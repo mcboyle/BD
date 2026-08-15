@@ -4,6 +4,66 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1144 - six ways bd-fleet-run still reported success over nothing
+
+Second review pass on PR #428. Every item was a way to report `ok` for
+something that had not happened, or to lose the evidence that it had.
+
+NO LOG MEANS NO EVIDENCE. A runner returning rc=0 without creating a per-host
+log was reported `ok`. It is now ERROR and the run exits non-zero. A zero-byte
+EXISTING regular file stays valid -- a command may legitimately print nothing --
+so the test is existence and regular-file-ness, never size. The prior suite
+asserted rc == 0 for exactly the missing-log case, pinning the defect in place;
+that test is reversed. Added direct cases for a non-regular log (a directory
+where the file belongs) and for a read failure after a successful stat.
+
+THE RECORD SURVIVES THE COORDINATOR. Reconciliation of un-returned targets into
+UNKNOWN rows ran AFTER summary.json was written, so those rows were never
+persisted. Execution and reconciliation now live in execute_plan(), which
+returns a row for EVERY requested target before anything is written. Executor
+construction, submission and as_completed are inside the guarded region, so a
+coordinator failure still yields the rows already collected. A failure to
+persist summary.json is now a non-zero exit rather than a warning: losing the
+record of a fleet that has already executed is a failure, not a nuisance.
+
+PRINTED ARGV IS EXECUTED ARGV. The plan printed an argv built from the bare
+command while the runner received one carrying the commit-recording prefix --
+different values on the DEFAULT path. The test that compared them passed
+--no-record-commit, which is exactly the flag that hides the divergence.
+build_plan() now constructs the final command and argv ONCE per target and the
+same object is printed and executed; the new equality test runs on the default
+path and asserts the printed argv parses back to the executed one.
+
+A COMMAND IS NOT STRIPPED. `build_command(...).strip()` altered commands whose
+trailing whitespace was deliberate. strip() is now applied only to a copy, to
+decide emptiness. End-to-end case added for an escaped trailing space,
+asserting it survives into both the argv and the manifest.
+
+AN ACCEPTED TARGET GRAMMAR, NOT A BLACKLIST. The metacharacter filter is
+replaced by an explicit grammar for the inventory's supported forms -- IPv4,
+IPv6 (bare or bracketed), DNS names, each optionally prefixed `user@` -- built
+on `ipaddress` rather than hand-rolled regex. Addresses normalise (lowercased,
+trailing dot dropped, IPv6 compressed) and de-duplication keys on the normalised
+form, so `Test6.` and `test6` are one host contacted once. Paths, traversal,
+commas, bare `@`, `user@`, `@host`, URLs, `host:22` and ssh options all refuse
+with zero calls.
+
+HOST_KEY_FAILURE IS ITS OWN STATE. `Host key verification failed` was
+classified UNREACHABLE. It is a trust failure, not a network one, and
+conflating them sends the operator to the wrong diagnosis.
+
+PRUNE TOCTOU, NARROWED AND DOCUMENTED. A single `_identity()` helper records
+(st_dev, st_ino, is_dir) at inspection and re-checks it immediately before
+removal, refusing any directory whose identity changed and reporting it as a
+failure. The residual window is stated in the tool's printed blind spots rather
+than implied away: rmtree then walks the tree, and that walk cannot be made
+atomic from Python. The real mitigation is that the artifact base lives under
+the invoking user's own data directory and is not shared. A test drives an
+identity swap at that seam and asserts the directory survives.
+
+98 hermetic cases, up from 65. All still start zero processes: both seams are
+injected and the fixture fails on any subprocess at all.
+
 ## v3.66.1143 - six ways bd-fleet-run could still lose a result or destroy one
 
 Review follow-up to v3.66.1142, on the same PR. Each item below was a way to
