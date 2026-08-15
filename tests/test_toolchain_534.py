@@ -494,6 +494,29 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
     for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck",
                  "bd-jobs", "bd-run", "bd-ladder", "bd-ab", "bd-fleet", "bd-gc",
                  "bd-context-census", "bd-fleet-run", "bd-contract-rules"):
+    # bd-fleet-run's --selftest is HERMETIC as of v3.66.1142, and that is the
+    # condition of its presence here. Until then it built a fleet file naming
+    # `alpha 192.0.2.10` and drove main() through the "unwritable artifact
+    # root" refusal -- a refusal that held only because
+    # `mkdir /proc/cannot/write/here` fails on procfs. Had that mkdir
+    # succeeded, control fell through the manifest write into run_one(), whose
+    # `label == socket.gethostname()` test is False for "alpha", and reached
+    #     ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
+    # This file sits in ci.yml's `toolchain` shard, so that fixture ran on
+    # GitHub-hosted runners on every PR. No egress ever occurred, because
+    # procfs held on the box and on the runners -- the property was enforced by
+    # the FILESYSTEM and never by the code, which is CLAUDE.md section 0's
+    # whole subject.
+    #
+    # The selftest now injects a fake runner on every execute path and
+    # constructs SubprocessRunner nowhere, so no code path in it can reach ssh.
+    # tests/test_v3_66_1142_fleet_run_is_hermetic.py carries the deep coverage
+    # (37 cases, with a subprocess-level egress guard that FAILS on any attempt
+    # to launch ssh/scp/sftp/rsync/bash); it is module-scoped and runs in the
+    # derived band. It is deliberately NOT forced into a shard by relabelling
+    # it "repo-wide" -- test_v3_66_939's own docstring records that nothing
+    # verifies a scope answer is honest, and buying CI membership with a false
+    # declaration is the failure that gate exists to make visible.
         path = os.path.join(root, "toolchain", "bin", tool)
         assert os.path.isfile(path), "%s is missing" % tool
         r = subprocess.run([sys.executable, path, "--selftest"],

@@ -4,6 +4,91 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1142 - the fleet runner was kept off the network by procfs, not by code
+
+CUT 0 of the governance reduction programme. bd-fleet-run is a live operator
+capability -- the operator drives several test VMs over ssh and needs a command
+applied consistently with per-host output retained -- so this contains and
+hardens it. It is not deleted, and model subagents are not treated as an
+equivalent: they do not hold the ssh control path and leave no artifact the
+operator can re-read.
+
+THE DEFECT, MEASURED. The v3.66.1140 --selftest built a fleet file naming
+`alpha 192.0.2.10` and drove main() through the "unwritable artifact root"
+refusal:
+
+    bd-fleet-run:350   logdir.mkdir(...)        <- the ONLY guard
+            :351-353   manifest write           <- no further guard existed
+            :364-368   submit(run_one, "alpha", "192.0.2.10", ...)
+    run_one :94        "alpha" != socket.gethostname()
+            :98-103    ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
+
+That refusal held only because `mkdir /proc/cannot/write/here` fails on procfs.
+tests/test_toolchain_534.py runs the selftest and sits in ci.yml's `toolchain`
+shard, so the fixture executed on GitHub-hosted runners on every PR. NO EGRESS
+EVER OCCURRED -- procfs held on the box and on the runners -- but the property
+was enforced by the FILESYSTEM and never by the code. Section 0's whole
+subject. The test written to catch a bypass could not have: it asserted a LOCAL
+marker path stayed absent while the touch would have run on the REMOTE.
+
+THE STRUCTURAL FIX. All process execution now goes through an INJECTED runner.
+main(argv, runner=) is the only entry point and nothing else in the module
+touches subprocess except the local-commit probe; a structural test asserts
+that. The real SubprocessRunner is constructed only on the --execute path, so
+"a test cannot reach the network" is a property of the wiring rather than of a
+fixture's luck.
+
+HARDENING, each with a test:
+  * plan/dry-run is the DEFAULT; --execute is required to contact a host, and
+    the resolved target list and exact argv print before anything runs;
+  * locality is read from an optional third inventory column, never inferred
+    from `label == gethostname()`. A label is not a hostname -- the front
+    matter records bd-jobs refusing a real host for exactly that confusion.
+    read_hosts (parts[0]/parts[1]) and deploy_fleet.sh (`label addr _rest`)
+    already ignore a third field, so the format extends without forking the
+    parser that decides membership;
+  * labels must match a filename-safe grammar; absolute, traversal, separator,
+    control-character and duplicate labels refuse;
+  * addresses are validated and duplicates collapse with the collapse REPORTED;
+  * run ids are UTC + 4 bytes of entropy, so two runs in one second cannot
+    collide (200 ids generated at a fixed timestamp, 200 distinct);
+  * the artifact base defaults to ~/.local/share/bd-fleet-run/runs and refuses
+    /, $HOME, any git work tree, top-level directories, '..' and symlink
+    escapes, judged on the realpath;
+  * every run directory carries an ownership sentinel, and prune removes ONLY
+    directories that resolve beneath the base, match the run-id grammar and
+    carry that sentinel. The v3.66.1140 prune would rmtree ANY subdirectory of
+    --root -- `--root ~` deleted home directories, the same two-definitions
+    defect v3.66.1136 fixed in bd-run;
+  * concurrency is capped (--jobs, default 8) instead of one worker per host;
+  * ssh keeps BatchMode and host-key verification, gains -n and DEVNULL stdin,
+    and a test asserts StrictHostKeyChecking is never disabled;
+  * the run records the local HEAD and asks each host for its own commit and
+    dirty count on the SAME connection;
+  * timeout, ssh 255 (UNREACHABLE_OR_AUTH), partial failure and launcher errors
+    are distinct states and none becomes success.
+
+TESTS. tests/test_v3_66_1142_fleet_run_is_hermetic.py -- 37 cases with a
+subprocess-level egress guard that FAILS the test on any attempt to launch
+ssh/scp/sftp/rsync/bash; `git` is the only permitted launcher and is named
+explicitly. The socket recorder reports 0 non-loopback attempts across the run.
+The ssh-capable block in the v1140 test is removed and that file is now
+census-only.
+
+Two fixture cases were withdrawn rather than forced: a whitespace-bearing label
+is UNREPRESENTABLE in a whitespace-delimited inventory, so those are asserted
+against resolve_targets directly instead of through a file that cannot express
+them.
+
+CI. Fleet coverage is restored through the already-sharded path -- the hermetic
+selftest, via test_toolchain_534. The deep suite is module-scoped and runs in
+the derived band; it is deliberately NOT relabelled "repo-wide" to force it
+into a shard, because test_v3_66_939 records that nothing verifies a scope
+answer is honest and buying CI membership with a false declaration is the
+failure that gate exists to make visible.
+
+NOT TESTED AGAINST THE LIVE VMs. No ssh was issued to any host in this cut.
+
 ## v3.66.1141 - the contract may be reduced, but nothing leaves it silently
 
 CLAUDE.md is ~48k tokens: 4.8% of every window, in every session and every
