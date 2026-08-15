@@ -492,7 +492,8 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
     """
     root = str(_REPO_ROOT)
     for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck",
-                 "bd-jobs", "bd-run", "bd-ladder", "bd-ab", "bd-fleet", "bd-gc"):
+                 "bd-jobs", "bd-run", "bd-ladder", "bd-ab", "bd-fleet", "bd-gc",
+                 "bd-context-census", "bd-fleet-run"):
         path = os.path.join(root, "toolchain", "bin", tool)
         assert os.path.isfile(path), "%s is missing" % tool
         r = subprocess.run([sys.executable, path, "--selftest"],

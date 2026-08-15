@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""bd-context-census -- where did the context window actually go?
+
+WHY THIS EXISTS, MEASURED 2026-08-14. A session reached 678.9k/1.0M with no
+instrument able to say what had consumed it. Answering it by hand took a 40-line
+heredoc typed into the conversation -- which is itself the defect the answer
+found. The census said:
+
+    tool_result                 143,374 tok  476 calls   39%
+    tool_use:Bash (my OWN cmds) 102,910 tok  367 calls   28%
+    assistant_text               41,691 tok  298 blocks  11%
+    tool_use:Edit                40,828 tok   70 calls   11%
+
+The 28% was the surprise: the agent's own commands cost nearly as much as every
+tool result combined, because 45 of them were heredocs writing whole programs
+into the transcript. CLAUDE.md section 8 already says look in toolchain/bin
+before hand-rolling; this is a second, independent argument for the same rule,
+and this tool is the first thing that argument demands.
+
+WHAT IT CANNOT SEE -- printed on every run, never only here. CLAUDE.md section 1:
+an instrument's wrong answer is inherited by everything downstream of it and
+arrives wearing the authority of a measurement, so a tool must state its own
+blind spots in its OUTPUT where the reader cannot skip them.
+
+CHARS ARE MEASURED; TOKENS ARE ESTIMATED. That distinction is load-bearing and
+is why every table below prints both. The ratio was calibrated ONE way, on ONE
+corpus: 154,767 chars of memory files reported as 52.4k tokens => 2.95. That
+corpus is prose. Dense output -- paths, hex, timestamps, JSON -- tokenizes
+worse, nearer 2.2, so a log-heavy session is UNDER-reported by this tool. Treat
+every token figure as a floor and the ranking as the finding.
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import json
+import os
+import pathlib
+import re
+import sys
+
+# Calibrated 2026-08-14: 154,767 chars of memory files reported as 52.4k tokens.
+# Prose corpus. See the module docstring -- dense output runs nearer 2.2, so
+# this over-estimates chars-per-token and therefore UNDER-estimates tokens.
+DEFAULT_RATIO = 2.95
+
+PROJECTS = pathlib.Path.home() / ".claude" / "projects"
+
+BLIND_SPOTS = (
+    "chars are MEASURED; tokens are ESTIMATED at {ratio} chars/token, calibrated "
+    "on a PROSE corpus. Log-heavy content runs nearer 2.2, so these token "
+    "figures are a FLOOR, not an answer.",
+    "system-reminders are injected per request and are NOT stored in the "
+    "transcript, so they are absent from every bucket here.",
+    "the cached prompt prefix -- system prompt, tool schemas, CLAUDE.md, memory "
+    "files -- is not in the transcript either. Measure it with `wc -c`.",
+    "subagent windows are SEPARATE and are not counted. A fan-out that kept 100k "
+    "out of the caller's window shows up here as a small agent report, which is "
+    "the point, but the tokens were still spent somewhere.",
+    "a COMPACTED session replaces history with a summary, so the transcript "
+    "under-reports what was actually paid across the whole session.",
+    "thinking blocks are recorded with ZERO chars -- the transcript notes that "
+    "reasoning happened, not what it said. Those tokens are paid and are "
+    "invisible here, so a high-reasoning session is under-reported by an amount "
+    "this tool cannot bound. (Found by RUNNING this tool against a real "
+    "transcript; the synthetic selftest could not have shown it.)",
+    "this reads the transcript on disk. A session still in flight has rows not "
+    "yet flushed.",
+)
+
+
+def project_dir(work: pathlib.Path) -> pathlib.Path:
+    """Claude mangles the cwd into a flat directory name: / -> -."""
+    return PROJECTS / str(work.resolve()).replace("/", "-")
+
+
+def find_transcript(work: pathlib.Path, session: str | None) -> pathlib.Path | None:
+    d = project_dir(work)
+    if not d.is_dir():
+        return None
+    if session:
+        p = d / f"{session}.jsonl"
+        return p if p.is_file() else None
+    cands = sorted((p for p in d.glob("*.jsonl") if p.is_file()),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    return cands[0] if cands else None
+
+
+def census(path: pathlib.Path) -> dict:
+    """Walk the transcript once. Returns raw CHAR counts -- no estimation here.
+
+    Kept separate from rendering so the selftest can assert on measured bytes
+    without going through the ratio, which is the only estimated quantity in the
+    tool.
+    """
+    chars: collections.Counter = collections.Counter()
+    count: collections.Counter = collections.Counter()
+    blocks: list[tuple[int, str, str]] = []
+    bash: list[tuple[int, str]] = []
+    results: list[int] = []
+    rows = 0
+    unparsed = 0
+
+    with path.open(errors="replace") as fh:
+        for line in fh:
+            rows += 1
+            try:
+                d = json.loads(line)
+            except Exception:
+                unparsed += 1
+                continue
+            msg = d.get("message") or {}
+            role = msg.get("role")
+            content = msg.get("content")
+
+            if isinstance(content, str):
+                key = "user_text" if role == "user" else "other_text"
+                chars[key] += len(content)
+                count[key] += 1
+                continue
+            if not isinstance(content, list):
+                continue
+
+            for blk in content:
+                if not isinstance(blk, dict):
+                    continue
+                kind = blk.get("type")
+
+                if kind == "tool_result":
+                    body = blk.get("content")
+                    s = body if isinstance(body, str) else json.dumps(body)
+                    chars["tool_result"] += len(s)
+                    count["tool_result"] += 1
+                    results.append(len(s))
+                    blocks.append((len(s), "tool_result", _peek(s)))
+
+                elif kind == "tool_use":
+                    name = str(blk.get("name"))
+                    inp = blk.get("input") or {}
+                    s = json.dumps(inp)
+                    key = f"tool_use:{name}"
+                    chars[key] += len(s)
+                    count[key] += 1
+                    blocks.append((len(s), key, _peek(s)))
+                    if name == "Bash":
+                        bash.append((len(s), str(inp.get("command", ""))))
+
+                elif kind == "text":
+                    key = "user_text" if role == "user" else "assistant_text"
+                    s = blk.get("text") or ""
+                    chars[key] += len(s)
+                    count[key] += 1
+
+                elif kind == "thinking":
+                    s = blk.get("thinking") or ""
+                    chars["thinking"] += len(s)
+                    count["thinking"] += 1
+
+    return {"chars": chars, "count": count, "blocks": blocks, "bash": bash,
+            "results": results, "rows": rows, "unparsed": unparsed}
+
+
+def _peek(s: str, n: int = 110) -> str:
+    return re.sub(r"\s+", " ", s[:n]).strip()
+
+
+def render(c: dict, path: pathlib.Path, ratio: float, top: int) -> None:
+    chars, count = c["chars"], c["count"]
+    total = sum(chars.values())
+
+    def tok(n: float) -> int:
+        return int(n / ratio)
+
+    print(f"transcript : {path}")
+    print(f"rows       : {c['rows']:,}"
+          + (f"   ({c['unparsed']:,} unparsable)" if c["unparsed"] else ""))
+    print()
+    print(f"{'bucket':28} {'chars':>11} {'~tokens':>10} {'n':>6} {'%':>6}")
+    print("-" * 64)
+    for k, v in chars.most_common():
+        print(f"{k:28} {v:11,} {tok(v):10,} {count[k]:6,} {100*v/total:5.1f}%")
+    print("-" * 64)
+    print(f"{'TOTAL (messages only)':28} {total:11,} {tok(total):10,}")
+
+    if c["results"]:
+        r = sorted(c["results"], reverse=True)
+        rt = sum(r)
+        print("\n=== tool_result concentration ===")
+        for n in (10, 50):
+            if len(r) > n:
+                print(f"  top {n:3} of {len(r):4} results : {tok(sum(r[:n])):8,} tok"
+                      f"   ({100*sum(r[:n])/rt:4.0f}% of all result bytes)")
+        print(f"  a few whole-file reads dominate. Capture whole to disk and read"
+              f" a slice.")
+
+    if c["bash"]:
+        b = sorted(c["bash"], reverse=True)
+        bt = sum(n for n, _ in b)
+        print("\n=== tool_use:Bash -- the agent's OWN commands ===")
+        for lo, hi, label in ((0, 200, "terse"), (200, 500, "normal"),
+                              (500, 1500, "long"), (1500, 10**9, "very long")):
+            sel = [n for n, _ in b if lo <= n < hi]
+            if sel:
+                print(f"  {label:10} {lo:5}-{hi if hi < 10**9 else 0:<6} chars:"
+                      f" {len(sel):4} calls, {tok(sum(sel)):8,} tok")
+        here = [(n, cmd) for n, cmd in b
+                if re.search(r"<<\s*'?\w+'?|cat\s*>", cmd)]
+        if here:
+            print(f"  of which heredoc / file-writes: {len(here)} calls,"
+                  f" {tok(sum(n for n, _ in here)):,} tok")
+            print("  -> a second hand-rolled heredoc is a missing bd-* tool"
+                  " (CLAUDE.md section 8).")
+
+    if top:
+        print(f"\n=== {top} largest single blocks ===")
+        for n, kind, peek in sorted(c["blocks"], reverse=True)[:top]:
+            print(f"  {n:9,}ch ~{tok(n):7,}tok  {kind:22} {peek[:78]}")
+
+    print("\n=== WHAT THIS CENSUS CANNOT SEE ===")
+    for i, s in enumerate(BLIND_SPOTS, 1):
+        body = s.format(ratio=ratio)
+        first = True
+        for chunk in _wrap(body, 72):
+            print(("  %d. " % i if first else "     ") + chunk)
+            first = False
+
+
+def _wrap(s: str, w: int) -> list[str]:
+    out, line = [], ""
+    for word in s.split():
+        if len(line) + len(word) + 1 > w:
+            out.append(line)
+            line = word
+        else:
+            line = f"{line} {word}".strip()
+    if line:
+        out.append(line)
+    return out
+
+
+def selftest(_args) -> int:
+    """Exercise the path a user actually types, end to end.
+
+    CLAUDE.md section 10: a green battery over primitives is not coverage of the
+    command a user runs. So this builds a real transcript on disk, runs the real
+    census over it, and asserts on MEASURED chars -- never on the estimated
+    token figure, which is the one quantity here that is allowed to be wrong.
+    """
+    import tempfile
+
+    fails = []
+
+    def check(ok, msg):
+        print(("  ok   " if ok else "  FAIL ") + msg)
+        if not ok:
+            fails.append(msg)
+
+    with tempfile.TemporaryDirectory() as td:
+        t = pathlib.Path(td) / "s.jsonl"
+        rows = [
+            {"message": {"role": "assistant", "content": [
+                {"type": "text", "text": "x" * 100},
+                {"type": "tool_use", "name": "Bash",
+                 "input": {"command": "y" * 2000 + " <<'PY'"}},
+            ]}},
+            {"message": {"role": "user", "content": [
+                {"type": "tool_result", "content": "z" * 5000},
+            ]}},
+            {"message": {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "t" * 40},
+            ]}},
+            "{ not json at all",
+        ]
+        with t.open("w") as fh:
+            for r in rows:
+                fh.write((r if isinstance(r, str) else json.dumps(r)) + "\n")
+
+        c = census(t)
+        check(c["rows"] == 4, f"reads every row (got {c['rows']}, want 4)")
+        check(c["unparsed"] == 1,
+              f"counts unparsable rows rather than dying (got {c['unparsed']})")
+        check(c["chars"]["assistant_text"] == 100,
+              f"assistant_text chars measured (got {c['chars']['assistant_text']})")
+        check(c["chars"]["tool_result"] == 5000,
+              f"tool_result chars measured (got {c['chars']['tool_result']})")
+        check(c["chars"]["thinking"] == 40,
+              f"thinking chars measured (got {c['chars']['thinking']})")
+        check(c["count"]["tool_use:Bash"] == 1, "Bash calls counted by name")
+        check(len(c["bash"]) == 1 and "<<'PY'" in c["bash"][0][1],
+              "the Bash command text is retained for heredoc detection")
+
+        # The rendered output is the only thing anybody reads (section 10).
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            render(c, t, DEFAULT_RATIO, top=3)
+        out = buf.getvalue()
+        check("WHAT THIS CENSUS CANNOT SEE" in out,
+              "the verdict prints its own blind spots")
+        check(out.count("\n  %d. " % 1) == 1 and all(
+            ("  %d. " % i) in out for i in range(1, len(BLIND_SPOTS) + 1)),
+            f"all {len(BLIND_SPOTS)} blind spots are printed, not just a header")
+        check("heredoc / file-writes: 1 calls" in out,
+              "a heredoc is detected and named in the output")
+        check("tool_result" in out and "5,000" in out,
+              "measured chars reach the rendered table")
+
+        # Fails closed: an empty transcript is UNKNOWN, not "nothing was spent".
+        empty = pathlib.Path(td) / "empty.jsonl"
+        empty.write_text("")
+        ce = census(empty)
+        check(sum(ce["chars"].values()) == 0 and ce["rows"] == 0,
+              "an empty transcript measures zero rather than guessing")
+
+    # The verdict is a WORD, not just an exit code. test_toolchain_534 requires
+    # the literal because "an exit code with no verdict behind it is the shape
+    # this repo keeps finding" -- and CLAUDE.md section 10 records three defects
+    # that lived in a summary line and nowhere else.
+    if fails:
+        print(f"\nSELFTEST FAIL: {len(fails)} of {len(fails)} check(s) failed")
+        for f in fails:
+            print(f"  - {f}")
+        return 1
+    print("\nSELFTEST PASS")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Report where a session's context window went.")
+    ap.add_argument("--session", help="session id (default: newest transcript)")
+    ap.add_argument("--work", default=os.getcwd(),
+                    help="project directory the session ran in")
+    ap.add_argument("--ratio", type=float, default=DEFAULT_RATIO,
+                    help=f"chars per token (default {DEFAULT_RATIO}, prose-calibrated)")
+    ap.add_argument("--top", type=int, default=15,
+                    help="how many largest single blocks to name (0 = none)")
+    ap.add_argument("--selftest", action="store_true")
+    args = ap.parse_args()
+
+    if args.selftest:
+        return selftest(args)
+
+    if args.ratio <= 0:
+        print("BD-CENSUS-UNRUNNABLE: --ratio must be positive", file=sys.stderr)
+        return 2
+
+    path = find_transcript(pathlib.Path(args.work), args.session)
+    if path is None:
+        # UNKNOWN is a third state and it fails (CLAUDE.md section 0). Reporting
+        # "0 tokens" for a transcript we could not find would be a gate that
+        # cannot see its subject reporting clean.
+        print("BD-CENSUS-UNRUNNABLE: no transcript found under "
+              f"{project_dir(pathlib.Path(args.work))}", file=sys.stderr)
+        return 2
+
+    c = census(path)
+    if c["rows"] == 0:
+        print(f"BD-CENSUS-UNRUNNABLE: {path} has no rows", file=sys.stderr)
+        return 2
+
+    render(c, path, args.ratio, args.top)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
