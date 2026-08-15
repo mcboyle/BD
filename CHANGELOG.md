@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1141 - the contract may be reduced, but nothing leaves it silently
+
+CLAUDE.md is ~48k tokens: 4.8% of every window, in every session and every
+subagent, and it grows monotonically because every cut appends a lesson and
+nothing is ever removed. Measured at v3.66.1140: 2,349 lines, 447 rule-bearing,
+1,502 narrative, 300 paragraphs. Three sections carry half of it.
+
+Reducing it is worth doing and dangerous to do. In a diff a deleted RULE looks
+exactly like a deleted RETELLING, and nothing in this repo reads the contract
+for meaning -- bd-freshcheck resolves cited PATHS and says so itself on every
+run; bd-doc-truth resolves file-path claims. A claim about BEHAVIOUR passes both
+untouched.
+
+COMMIT 1 ships the gate that makes the rest safe, before any text moves.
+
+bd-contract-rules freezes every paragraph of CLAUDE.md into
+project-knowledge/CONTRACT_RULES.baseline and asserts each is still present
+somewhere in the corpus (CLAUDE.md plus the casebook). A MOVE therefore passes;
+a deletion or rewrite fails until it is declared, with the survivor named, in a
+file a test reads. Section 1: a deferral that lives only in prose has not been
+deferred, it has been dropped.
+
+IT FREEZES PARAGRAPHS AND NOT RULES, DELIBERATELY. Three rule-detecting
+predicates were built and measured first, and all three failed the same way:
+
+  * normative markers, line-scoped -> 229 units, mostly narrative FRAGMENTS,
+    because hard-wrapped prose puts "never" in the middle of a story. A baseline
+    full of narrative fires on exactly the extraction it exists to permit;
+  * the same predicate spelled MUST|NEVER|...|must|never|... -> blind to
+    "Never", the capitalised sentence opening this contract uses constantly.
+    Caught by the tool's own selftest, two checks failing for one root cause;
+  * bold spans -> a non-greedy regex paired one span's CLOSING `**` with the
+    next span's OPENING `**`, giving 321 "spans" beginning with `(` and `,`.
+
+A rule is a rule by virtue of what it ASSERTS, which its syntax does not record.
+v3.66.1072 reached the identical finding replacing BD_GATE_SCOPE with a derived
+predicate and caught 3 of 8. Paragraphs are objective and are exactly the unit
+an extraction moves, so conservation is checkable without judgement.
+
+Whitespace is normalised before any comparison, because an extraction re-wraps
+prose by construction and section 1 records a line-wrapped phrase defeating a
+grep three times in one session.
+
+RED-first: 10 tests failed with no tool and no baseline, 10 pass with them, and
+both directions are pinned -- deleting the longest real paragraph FAILS the
+gate, re-wrapping the entire contract to a different width does NOT.
+
 ## v3.66.1140 - the session that could not measure its own context window
 
 A session reached 678.9k/1.0M of context with no instrument able to say what
