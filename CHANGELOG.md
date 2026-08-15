@@ -4,6 +4,224 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1144 - six ways bd-fleet-run still reported success over nothing
+
+Second review pass on PR #428. Every item was a way to report `ok` for
+something that had not happened, or to lose the evidence that it had.
+
+NO LOG MEANS NO EVIDENCE. A runner returning rc=0 without creating a per-host
+log was reported `ok`. It is now ERROR and the run exits non-zero. A zero-byte
+EXISTING regular file stays valid -- a command may legitimately print nothing --
+so the test is existence and regular-file-ness, never size. The prior suite
+asserted rc == 0 for exactly the missing-log case, pinning the defect in place;
+that test is reversed. Added direct cases for a non-regular log (a directory
+where the file belongs) and for a read failure after a successful stat.
+
+THE RECORD SURVIVES THE COORDINATOR. Reconciliation of un-returned targets into
+UNKNOWN rows ran AFTER summary.json was written, so those rows were never
+persisted. Execution and reconciliation now live in execute_plan(), which
+returns a row for EVERY requested target before anything is written. Executor
+construction, submission and as_completed are inside the guarded region, so a
+coordinator failure still yields the rows already collected. A failure to
+persist summary.json is now a non-zero exit rather than a warning: losing the
+record of a fleet that has already executed is a failure, not a nuisance.
+
+PRINTED ARGV IS EXECUTED ARGV. The plan printed an argv built from the bare
+command while the runner received one carrying the commit-recording prefix --
+different values on the DEFAULT path. The test that compared them passed
+--no-record-commit, which is exactly the flag that hides the divergence.
+build_plan() now constructs the final command and argv ONCE per target and the
+same object is printed and executed; the new equality test runs on the default
+path and asserts the printed argv parses back to the executed one.
+
+A COMMAND IS NOT STRIPPED. `build_command(...).strip()` altered commands whose
+trailing whitespace was deliberate. strip() is now applied only to a copy, to
+decide emptiness. End-to-end case added for an escaped trailing space,
+asserting it survives into both the argv and the manifest.
+
+AN ACCEPTED TARGET GRAMMAR, NOT A BLACKLIST. The metacharacter filter is
+replaced by an explicit grammar for the inventory's supported forms -- IPv4,
+IPv6 (bare or bracketed), DNS names, each optionally prefixed `user@` -- built
+on `ipaddress` rather than hand-rolled regex. Addresses normalise (lowercased,
+trailing dot dropped, IPv6 compressed) and de-duplication keys on the normalised
+form, so `Test6.` and `test6` are one host contacted once. Paths, traversal,
+commas, bare `@`, `user@`, `@host`, URLs, `host:22` and ssh options all refuse
+with zero calls.
+
+HOST_KEY_FAILURE IS ITS OWN STATE. `Host key verification failed` was
+classified UNREACHABLE. It is a trust failure, not a network one, and
+conflating them sends the operator to the wrong diagnosis.
+
+PRUNE TOCTOU, NARROWED AND DOCUMENTED. A single `_identity()` helper records
+(st_dev, st_ino, is_dir) at inspection and re-checks it immediately before
+removal, refusing any directory whose identity changed and reporting it as a
+failure. The residual window is stated in the tool's printed blind spots rather
+than implied away: rmtree then walks the tree, and that walk cannot be made
+atomic from Python. The real mitigation is that the artifact base lives under
+the invoking user's own data directory and is not shared. A test drives an
+identity swap at that seam and asserts the directory survives.
+
+98 hermetic cases, up from 65. All still start zero processes: both seams are
+injected and the fixture fails on any subprocess at all.
+
+## v3.66.1143 - six ways bd-fleet-run could still lose a result or destroy one
+
+Review follow-up to v3.66.1142, on the same PR. Each item below was a way to
+lose a host's record, lose a command's meaning, or delete something that was
+not ours to delete.
+
+CORRECTION TO THE v3.66.1142 ENTRY BELOW. It ends "NOT TESTED AGAINST THE LIVE
+VMs. No ssh was issued to any host in this cut." That was true when written and
+is now false. After that commit, the operator authorized exactly one read-only
+canary and it was executed:
+
+    target     test6 / 10.0.70.249
+    command    hostname            (--no-record-commit, so nothing else ran)
+    result     exit 0, status ok, 1.1s, stdout "test6"
+    artifact   ~/.local/share/bd-fleet-run/runs/20260815T025025Z-7b95874b/
+    argv       ssh -n -o BatchMode=yes -o ConnectTimeout=10 10.0.70.249 \
+                   'bash -c hostname'
+
+The manifest recorded local_head 6d31e82 and `"local": false`, confirming
+locality came from the inventory rather than a hostname match. NO STATE-CHANGING
+LIVE COMMAND WAS RUN, on that host or any other. No fleet was widened to.
+
+FAIL CLOSED ON --only. Every requested label must now exist: `--only test5,TYPO`
+refuses, naming the missing labels and the known ones, before any artifact or
+process. Selection also now precedes address de-duplication -- previously a
+label that dedup had collapsed as an alias selected nothing and the run
+reported success over an empty fleet.
+
+NO HOST RESULT IS LOST. Exceptions from the runner, from opening or statting a
+log, and from future.result() each produce an explicit ERROR row instead of
+discarding the entire run's record -- including hosts that had already
+executed. summary.json is written from a `finally`, so it survives any of them,
+and a host with no row at all is recorded UNKNOWN rather than omitted. All are
+non-success.
+
+RETENTION. The current run can no longer be pruned: it is excluded by name
+rather than trusted to sort safely, because ordering is by a wall-clock-derived
+name and a future-dated sibling, a same-second sibling or a clock rollback each
+reorder it into the discard tail. `ignore_errors=True` is gone -- a failed
+rmtree is now reported explicitly, excluded from the "removed" list, and makes
+the run exit non-zero. The symlink test previously called prune(base, 0), which
+returns immediately, so it asserted over a no-op; it now guarantees a real
+deletion pass happens first.
+
+COMMAND SEMANTICS. `" ".join()` destroyed quoting -- `-c 'print("a b")'`
+reached the host as three bare words. A single argument is now passed verbatim
+and multiple tokens are joined with shlex.join(). Tested across spaces, quotes,
+python -c, shell metacharacters, and that the PRINTED effective command is the
+one recovered from the argv that reached the host.
+
+SSH STATES. 255 splits into AUTH_FAILURE and UNREACHABLE when ssh's diagnostics
+support it, and SSH_UNKNOWN when they do not. A local command exiting 255 is
+FAIL, not an ssh diagnostic. None is success.
+
+THE LOCAL-HEAD PROBE IS AN INJECTED SEAM. It called subprocess directly, so
+execute-mode tests could not honestly claim zero real process calls. With both
+seams injected, a correct execute run now starts NOTHING, and the test fixture
+asserts exactly that rather than allowing git.
+
+CI, WIRED HONESTLY. tests/test_v3_66_1142_fleet_run_is_hermetic.py is now in
+the `toolchain` shard and in _DECLARED. It is the only _DECLARED entry that is
+BD_GATE_SCOPE = "module", stated as such with its reason: its subject is one
+tool, so claiming "repo-wide" to buy shard membership would be the mislabelling
+test_v3_66_939's own docstring says nothing catches. It is pinned anyway
+because the property is a safety boundary that must run on every PR regardless
+of the diff.
+
+65 hermetic cases, up from 37. New coverage: concurrency capping (peak
+observed, with an assertion that the fixture actually ran two at once so the
+check cannot be vacuous), complete retention of a 20,000-line log, partial
+--only matches, generic runner exceptions, current-run prune protection, prune
+deletion failure, and quoted-command preservation.
+
+## v3.66.1142 - the fleet runner was kept off the network by procfs, not by code
+
+CUT 0 of the governance reduction programme. bd-fleet-run is a live operator
+capability -- the operator drives several test VMs over ssh and needs a command
+applied consistently with per-host output retained -- so this contains and
+hardens it. It is not deleted, and model subagents are not treated as an
+equivalent: they do not hold the ssh control path and leave no artifact the
+operator can re-read.
+
+THE DEFECT, MEASURED. The v3.66.1140 --selftest built a fleet file naming
+`alpha 192.0.2.10` and drove main() through the "unwritable artifact root"
+refusal:
+
+    bd-fleet-run:350   logdir.mkdir(...)        <- the ONLY guard
+            :351-353   manifest write           <- no further guard existed
+            :364-368   submit(run_one, "alpha", "192.0.2.10", ...)
+    run_one :94        "alpha" != socket.gethostname()
+            :98-103    ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
+
+That refusal held only because `mkdir /proc/cannot/write/here` fails on procfs.
+tests/test_toolchain_534.py runs the selftest and sits in ci.yml's `toolchain`
+shard, so the fixture executed on GitHub-hosted runners on every PR. NO EGRESS
+EVER OCCURRED -- procfs held on the box and on the runners -- but the property
+was enforced by the FILESYSTEM and never by the code. Section 0's whole
+subject. The test written to catch a bypass could not have: it asserted a LOCAL
+marker path stayed absent while the touch would have run on the REMOTE.
+
+THE STRUCTURAL FIX. All process execution now goes through an INJECTED runner.
+main(argv, runner=) is the only entry point and nothing else in the module
+touches subprocess except the local-commit probe; a structural test asserts
+that. The real SubprocessRunner is constructed only on the --execute path, so
+"a test cannot reach the network" is a property of the wiring rather than of a
+fixture's luck.
+
+HARDENING, each with a test:
+  * plan/dry-run is the DEFAULT; --execute is required to contact a host, and
+    the resolved target list and exact argv print before anything runs;
+  * locality is read from an optional third inventory column, never inferred
+    from `label == gethostname()`. A label is not a hostname -- the front
+    matter records bd-jobs refusing a real host for exactly that confusion.
+    read_hosts (parts[0]/parts[1]) and deploy_fleet.sh (`label addr _rest`)
+    already ignore a third field, so the format extends without forking the
+    parser that decides membership;
+  * labels must match a filename-safe grammar; absolute, traversal, separator,
+    control-character and duplicate labels refuse;
+  * addresses are validated and duplicates collapse with the collapse REPORTED;
+  * run ids are UTC + 4 bytes of entropy, so two runs in one second cannot
+    collide (200 ids generated at a fixed timestamp, 200 distinct);
+  * the artifact base defaults to ~/.local/share/bd-fleet-run/runs and refuses
+    /, $HOME, any git work tree, top-level directories, '..' and symlink
+    escapes, judged on the realpath;
+  * every run directory carries an ownership sentinel, and prune removes ONLY
+    directories that resolve beneath the base, match the run-id grammar and
+    carry that sentinel. The v3.66.1140 prune would rmtree ANY subdirectory of
+    --root -- `--root ~` deleted home directories, the same two-definitions
+    defect v3.66.1136 fixed in bd-run;
+  * concurrency is capped (--jobs, default 8) instead of one worker per host;
+  * ssh keeps BatchMode and host-key verification, gains -n and DEVNULL stdin,
+    and a test asserts StrictHostKeyChecking is never disabled;
+  * the run records the local HEAD and asks each host for its own commit and
+    dirty count on the SAME connection;
+  * timeout, ssh 255 (UNREACHABLE_OR_AUTH), partial failure and launcher errors
+    are distinct states and none becomes success.
+
+TESTS. tests/test_v3_66_1142_fleet_run_is_hermetic.py -- 37 cases with a
+subprocess-level egress guard that FAILS the test on any attempt to launch
+ssh/scp/sftp/rsync/bash; `git` is the only permitted launcher and is named
+explicitly. The socket recorder reports 0 non-loopback attempts across the run.
+The ssh-capable block in the v1140 test is removed and that file is now
+census-only.
+
+Two fixture cases were withdrawn rather than forced: a whitespace-bearing label
+is UNREPRESENTABLE in a whitespace-delimited inventory, so those are asserted
+against resolve_targets directly instead of through a file that cannot express
+them.
+
+CI. Fleet coverage is restored through the already-sharded path -- the hermetic
+selftest, via test_toolchain_534. The deep suite is module-scoped and runs in
+the derived band; it is deliberately NOT relabelled "repo-wide" to force it
+into a shard, because test_v3_66_939 records that nothing verifies a scope
+answer is honest and buying CI membership with a false declaration is the
+failure that gate exists to make visible.
+
+NOT TESTED AGAINST THE LIVE VMs. No ssh was issued to any host in this cut.
+
 ## v3.66.1141 - the contract may be reduced, but nothing leaves it silently
 
 CLAUDE.md is ~48k tokens: 4.8% of every window, in every session and every

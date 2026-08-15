@@ -8,6 +8,19 @@
 # deploys LOCALLY instead of over ssh, so the same file works from any host in
 # the fleet without a special case for "me".
 #
+# THAT INFERENCE IS scripts/deploy_fleet.sh's, AND bd-fleet-run DOES NOT SHARE
+# IT (v3.66.1142). A fleet label is not a hostname -- CLAUDE.md's front matter
+# records bd-jobs refusing a real host because a LABEL had no DNS entry -- so
+# deciding "run here or over there" from a name match is wrong in both
+# directions. bd-fleet-run reads locality from an explicit OPTIONAL THIRD
+# COLUMN instead:
+#
+#     master   192.0.2.10   local
+#
+# Any other value, or no third column, means remote. The column is ignored by
+# `bd-fleet` (read_hosts takes parts[0]/parts[1]) and by deploy_fleet.sh (which
+# reads `label addr _rest`), so adding it is backward compatible with both.
+#
 # scripts/deploy_fleet.sh refuses (exit 2) if this file is missing or lists no
 # hosts -- an empty fleet must never read as a successful deploy of nothing.
 
