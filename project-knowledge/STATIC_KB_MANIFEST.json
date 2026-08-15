@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-14T23:37:51+00:00",
- "version_context": "v3.66.1140",
- "file_count": 98,
+ "generated": "2026-08-15T00:17:03+00:00",
+ "version_context": "v3.66.1141",
+ "file_count": 99,
  "files": {
   "0_INDEX.md": {
    "sha256": "b6e7c92a16e6f6b728564dd7ae738279c283713e315c49ab86b1c72b5be38eca",
@@ -111,6 +111,10 @@
   "CONTRACTS.json": {
    "sha256": "4734c6adb79d75302d62747e2b0d5ec8e3e6cc9121f63e13427756b430b53379",
    "bytes": 631
+  },
+  "CONTRACT_RULES.baseline": {
+   "sha256": "89dfe03000e68d317ebe86c235bb272db1dca3e712887714c019e27bd972448c",
+   "bytes": 33092
   },
   "COVERAGE_GAPS.json": {
    "sha256": "98f863bac981bd226f608e972420be10cb111bfac6d808434be4bc2ba2f13ca5",

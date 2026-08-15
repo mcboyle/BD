@@ -2118,11 +2118,15 @@ other; removing the second contract removes the failure class the gate was
 watching for, which is the stronger fix. If you find a second agent-facing
 document, that is the defect — not a resource.
 
-**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are roughly
-240 bd-* tools -- count them (`ls toolchain/bin/bd-* | wc -l`) rather than
-trusting this sentence, which sat at "240" for releases while three
-instruments measured 238 (v3.66.1029). This block's own closing rule already
-says sizes go stale here; the tool count was the one number exempting itself. A session spent a day hand-rolling band derivation and mutation
+**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** Count them
+(`ls toolchain/bin/bd-* | wc -l`) rather than trusting this sentence. It said
+"roughly 240" from v3.66.1029 to v3.66.1141 -- first while three instruments
+measured 238, then while the real figure climbed past 250, so it was wrong in
+both directions in turn and re-read many times without being re-measured. **A
+figure written here cannot stay true and nothing warns you**, which is why this
+paragraph no longer carries one. This block's own closing rule already says
+sizes go stale here; the tool count was the one number exempting itself.
+A session spent a day hand-rolling band derivation and mutation
 harnesses that already existed, got a narrower band every time, and rebuilt the
 same defective harness repeatedly. The ones that answer questions THIS FILE
 asks you to answer:
@@ -2346,3 +2350,59 @@ outcomes had tests and passed. Enumerate the branches first, then write one test
 per branch that fails if the branch is never taken. **A branch nothing can reach
 is dead code that reads as a safety feature**, and it is read that way by the
 next person precisely because it is written in the language of safety.
+
+---
+
+## 11 | Context economy
+
+**A session that runs out of window loses the work, so the window is a
+resource like any other — and it was never measured here until v3.66.1140.**
+Run `bd-context-census` rather than guessing; it prints its own blind spots,
+including the one nothing else can see (thinking blocks are recorded with zero
+chars, so reasoning tokens are paid and invisible to it).
+
+The census that produced these rules, over 3,158 transcript rows of one
+session, chars/token calibrated at 2.95 on a prose corpus:
+
+| bucket | ~tokens | n | share |
+| --- | --- | --- | --- |
+| tool_result | 143,374 | 476 | 39% |
+| **tool_use:Bash — the agent's OWN commands** | **102,910** | 367 | **28%** |
+| assistant_text | 41,691 | 298 | 11% |
+| tool_use:Edit | 40,828 | 70 | 11% |
+
+Four rules follow from it, and the second is the one nobody expects.
+
+- **A SWEEP OVER HOSTS OR FILES GOES TO A SUBAGENT.** Its tool output never
+  enters the caller's window; only its report does. The session measured above
+  used **zero** subagents and spent 39% of its context on raw output it did not
+  need in full — the top TEN results were 31% of all result bytes. For fleet
+  work `bd-fleet-run` already does this: whole output to a per-host artifact,
+  one summary line back.
+- **A SECOND HAND-ROLLED HEREDOC IS A MISSING `bd-*` TOOL.** 45 heredocs cost
+  27,594 tokens in that session, most of them re-deriving what an earlier
+  heredoc had already derived. Section 8 says look in `toolchain/bin` first;
+  this is the same rule with a price on it. Writing a program into the
+  conversation costs the program *and* keeps costing it on every subsequent
+  turn.
+- **CAPTURE WHOLE TO DISK, READ A SLICE.** This does **not** contradict
+  section 1's NEVER FILTER AT CAPTURE TIME — that rule governs the **artifact**,
+  and this one governs the **display**. `cmd > /tmp/x.log 2>&1; echo "exit=$?";
+  tail -20 /tmp/x.log` keeps every byte recoverable and costs 200 tokens
+  instead of 10,000. A `--grep` that filters what is *shown* is fine; a `| head`
+  in the collecting command is still forbidden.
+- **ANCHOR AN EDIT ON THE SHORTEST LINE `rg -c` PROVES UNIQUE.** 70 edits cost
+  40,828 tokens, because `old_string` carried whole paragraphs of prose. Section
+  6 says never retype an anchor containing punctuation — paste it, but paste the
+  *shortest* unique one.
+
+**The counterweight, so this is not read as licence to skim.** None of the
+above permits reading less than you need: section 1's rule that audit beats
+recollection is unchanged, and a narrowed *investigation* is exactly the
+denominator failure section 0 is about. What these rules cut is **re-reading
+into the transcript what is already on disk** — not looking.
+
+**And measure before optimising.** Every figure above came from running the
+census, and the largest single item was a surprise to the agent that had just
+spent the tokens. Section 1 applies to this section as much as to any other:
+re-derive, do not quote.

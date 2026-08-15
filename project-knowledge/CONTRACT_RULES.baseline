@@ -285,7 +285,6 @@ d5c6ea499812  Corpus values in a test that asserts about credentials must theref
 77b77a8f2417  Sizes are deliberately not written here. Every count in this block has been wrong at least once,
 edabf3877314  ```bash find bulk_downloader tools -name '*.py' | wc -l # per directory as needed find tests -na
 c388fe4add28  **This is the only agent-facing contract. There is no second one.** `CODEX_HANDOFF.md` was retir
-b70cc3e3eb4a  **LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are roughly 240 bd-* tools -- c
 347a6bb0053d  | question this file makes you ask | tool | | --- | --- | | what is the band for this diff? | `b
 ff71c28899c3  Do not treat that as the list — it is a starting point, not a denominator. It is only the ones t
 ed325b22d77b  **AND READ THE DOCSTRING OF THE TOOL NEAREST YOUR PROBLEM.** Hard-won findings live there and th
@@ -317,3 +316,4 @@ b0c1d07422ef  **TEST THE SEAM, NOT ONLY THE COMPONENTS.** `bd-jobs` shipped at v
 
 ## DECLARED REMOVALS
 
+b70cc3e3eb4a  rewritten v3.66.1141: the count was deleted, not the rule. The directive 'LOOK IN toolchain/bin BEFORE YOU HAND-ROLL ANYTHING' and the `ls toolchain/bin/bd-* | wc -l` recipe both survive in section 8; only the stale figure and its history changed.

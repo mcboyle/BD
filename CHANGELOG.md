@@ -51,6 +51,43 @@ RED-first: 10 tests failed with no tool and no baseline, 10 pass with them, and
 both directions are pinned -- deleting the longest real paragraph FAILS the
 gate, re-wrapping the entire contract to a different width does NOT.
 
+COMMIT 2 adds section 11 (context economy), corrects section 8's tool count,
+and is the gate's first real exercise: rewriting the tool-count paragraph made
+it FAIL, naming exactly that paragraph and nothing else, and it went green only
+once the removal was DECLARED with the survivor named. Section 11's eight new
+paragraphs are additions and are correctly unconstrained (corpus 308 = 300
+frozen + 8 new).
+
+Section 11 is rules, not narrative: sweeps go to a subagent, a second
+hand-rolled heredoc is a missing bd-* tool, capture whole to disk and read a
+slice, anchor an edit on the shortest line `rg -c` proves unique. It states
+explicitly that capture-whole/read-slice does NOT contradict section 1's NEVER
+FILTER AT CAPTURE TIME -- that rule governs the artifact, this one the display
+-- and carries a counterweight so it is not read as licence to skim.
+
+THE PLANNED EXTRACTION IS NOT IN THIS CUT, AND THE MEASUREMENT IS WHY. The plan
+was to move worked-example narrative to a CONTRACT_CASEBOOK.md as a PROVABLE
+byte-preserving move, then dedupe. That mitigation assumed paragraphs separate
+into rule-paragraphs and narrative-paragraphs. Measured, they do not:
+
+    paragraphs >= 674 chars (non-fence)      60
+      containing a bold directive            60   (100%)
+      containing a normative word            43   (72%)
+    pure narrative, no bold, >= 400 chars     3   (1.1% of the file)
+
+Rules and their retellings are interleaved BELOW paragraph granularity, so
+there is no mechanical seam: a generated split proposed "The reason is section
+0's, applied to introspection:" as a directive to keep, and captured an entire
+table as another. Every extraction would therefore be a hand REWRITE of ~60
+rules, not a move -- which is a different risk from the one that was approved,
+so it is reported rather than performed. The gate shipped here is what makes
+that work checkable whenever it is done.
+
+Deferred with it: the baseline currently freezes a snapshot, so paragraphs
+ADDED after the freeze are unconstrained until a deliberate re-extract, and
+`--extract` rewrites the file rather than merging new rows with existing
+declarations.
+
 ## v3.66.1140 - the session that could not measure its own context window
 
 A session reached 678.9k/1.0M of context with no instrument able to say what
