@@ -565,19 +565,33 @@ def test_a_real_detector_declaring_block_on_exit_2_blocks_on_unknown(monkeypatch
     assert "2" in why
 
 
-def test_a_detector_not_declaring_2_still_treats_unknown_as_skip(monkeypatch):
-    """OVER-SENSITIVITY CONTROL. The fix must not turn every cannot-evaluate
-    into a violation -- only the ones a detector explicitly declares."""
-    m = _load_footguns()
-    det = {"id": "SYNTHETIC", "severity": "blocking", "status": "active",
-           "rule": "r", "fix": "f",
-           "detector": {"kind": "tool", "cmd": ["x"], "block_on_exit": [1]}}
-    monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (2, ""))
-    verdict, why = m._check_one(det, str(REPO))
-    assert verdict == "skip", (
-        f"an undeclared cannot-evaluate became {verdict!r}; the fix is "
-        "over-sensitive and would block on every unavailable delegate")
+def test_a_detector_not_declaring_2_now_reports_unknown(monkeypatch):
+    """SUPERSEDED AT v3.66.1153, DELIBERATELY, BY OPERATOR INSTRUCTION.
 
+    This asserted that a delegate exit of 2 -- CANNOT-EVALUATE -- became "skip"
+    unless the detector had declared 2 in block_on_exit, on the reasoning that
+    blocking otherwise would be over-sensitive. That reasoning was wrong in one
+    specific way, measured at 3d5f1bb8: `cmd_check` only refused when NOTHING
+    decided, so one PASS beside one skip returned 0, and bd-cut's step 0 reads
+    a 0 as authorization to cut. A blocking detector nobody could evaluate was
+    therefore indistinguishable from one that passed.
+
+    The Cut 1 brief states the rule directly: every CANNOT-EVALUATE outcome of
+    an ACTIVE BLOCKING detector must make the checker nonzero. So "skip" is now
+    "unknown", and the over-sensitivity guard lives where it belongs -- in
+    `cmd_check`, which still returns 0 when every blocking detector decided,
+    and still leaves inactive and advisory entries alone. Those controls are
+    asserted in tests/test_v3_66_1153_deletion_is_bound_to_the_object.py.
+    """
+    m = _load_footguns()
+    fg = {"id": "T", "severity": "blocking", "status": "active",
+          "detector": {"kind": "tool", "cmd": ["x"], "block_on_exit": [3]}}
+    monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (2, "cannot evaluate"))
+    verdict, detail = m._check_one(fg, "/tmp")
+    assert verdict == "unknown", (
+        f"a delegate that could not evaluate became {verdict!r}; UNKNOWN is a "
+        "third state and it must reach cmd_check as one")
+    assert "could not evaluate" in detail, detail
 
 def test_a_clean_delegate_still_passes(monkeypatch):
     m = _load_footguns()
@@ -1024,7 +1038,7 @@ def test_cleanup_failures_are_reported_not_swallowed(tmp_path, monkeypatch, caps
     monkeypatch.setattr(m, "band", lambda *a, **k: None)
     monkeypatch.setattr(m, "verify", lambda *a, **k: None)
     monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
-    monkeypatch.setattr(m.shutil, "rmtree",
+    monkeypatch.setattr(m, "_rmtree_fd",
                         lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
     try:
         m.main(["--work", str(work), "--out", str(tmp_path / "o"), "--resume-zip", str(z)])

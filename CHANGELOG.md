@@ -4,6 +4,85 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1153 - deletion is bound to the object, not to the name
+
+v3.66.1149 through v3.66.1152 moved the ownership proof nearer the deletion
+four times and never joined them. Every version kept the same shape -- prove
+the pathname holds our object, end the proof, then act on the PATHNAME -- so
+each cut closed one seam and left the next. Measured at 3d5f1bb8 with three
+independent reproductions. RED-first: 24 failed / 11 passed.
+
+1. bd-cut, BOTH DESTRUCTIVE SEAMS. `_same_object(d, ident)` then
+   `shutil.rmtree(d)`; and, in the retry, `_relax_owned_dir()` -- which opens a
+   no-follow descriptor, verifies, fchmods and RETURNS, closing it -- then a
+   second `shutil.rmtree(d)`. The retry seam is the one v3.66.1152 does not
+   cover, and it reproduced as: returned True, imposter deleted, original still
+   present under its new name, unregistered, two rmtree calls -- and the leaked
+   original left UNSEALED at 0700 because the reseal path had become
+   unreachable. Driven through main() it returned 0 with ZERO bytes on stderr.
+
+   Removal is now `_rmtree_fd`: `os.scandir(fd)`, `os.unlink(name, dir_fd=fd)`,
+   `os.rmdir(name, dir_fd=fd)`, `os.open(name, dir_fd=fd)`. No pathname is
+   resolved for any child, so renaming the directory or any ancestor cannot
+   redirect a single call -- there is no name lookup left to redirect. A sealed
+   child is relaxed through ITS OWN descriptor.
+
+   THE ONE IRREDUCIBLE STEP, stated rather than hidden: unlinking the top
+   directory is rmdir of a NAME in its parent and Linux has no funlinkat. It is
+   issued parent-descriptor-relative, guarded by a dir_fd lstat identity check
+   immediately before, and PROVEN afterwards by os.fstat(fd).st_nlink == 0 --
+   the entry that went was the object we held open. Everything earlier refuses
+   rather than attempting.
+
+2. tests/_tmproot HAD NO CREATION IDENTITY AT ALL. install() kept the root
+   PATHNAME, so reclamation removed whatever directory later occupied it:
+   session_exitstatus 0, imposter deleted, original still present,
+   failed_root() None. It now records (st_dev, st_ino) at creation, refuses a
+   replacement, treats a present-but-unidentifiable root as UNKNOWN, and uses
+   the same descriptor-bound walk.
+
+   shutil.rmtree is gone from that path entirely, and with it two more
+   defects: the onexc handler called `func(p)` blindly, but two of the seven
+   functions shutil can hand it (os.open, os.close) do not take that shape; and
+   the resulting TypeError was caught by an `except TypeError` meant to detect
+   an OLD rmtree signature, so rmtree ran a SECOND time on a half-modified tree
+   -- observed twice -- and on a dangling symlink the TypeError escaped finish()
+   entirely, so neither pytest hook ran at all.
+
+3. bd-footguns IGNORED ITS OWN CLEANUP FAILURES. `_discard` returned a bool and
+   all three callers discarded it, so an unremovable sandbox still produced a
+   PASS, an OK line and exit 0 -- which bd-cut's step 0 reads as authorization.
+   `_discard` is also now bound to the sandbox `_sandbox()` created: it had
+   been pathname-bound and deleted an imposter while the real sandbox survived.
+
+4. bd-footguns CONVERTED PARTIAL UNKNOWN INTO EXIT 0. One PASS plus one timeout
+   returned 0. Every cannot-evaluate outcome of an ACTIVE BLOCKING detector --
+   missing tool, missing harness, exception, timeout, malformed or absent
+   summary, zero collection, an undeclared nonzero exit, a failed cleanup --
+   is now the verdict "unknown", and any one of them makes cmd_check return
+   sec.EXIT_CANNOT_EVALUATE without printing the OK line. Inactive and advisory
+   entries keep their semantics. `_run_insync` no longer trusts a parsed
+   "Failed: 0" over the child: a nonzero exit, zero collection or an absent
+   summary are each CANNOT-EVALUATE, all three of which were PASS before.
+
+SUPERSEDED DELIBERATELY: test_a_detector_not_declaring_2_still_treats_unknown_
+as_skip encoded the opposite rule and is renamed and rewritten. Its reasoning
+-- that blocking on an undeclared exit 2 would be over-sensitive -- was wrong
+in one specific way: cmd_check only refused when NOTHING decided, so one PASS
+beside one skip returned 0. The over-sensitivity control now lives in
+cmd_check, which still returns 0 when every blocking detector decided.
+
+SOURCE ACCURACY: toolchain/bin/bd-footguns still claimed its selftest was
+CI-wired through test_v3_66_799_audit_tool_selftests, and so did the v3.66.1152
+CHANGELOG entry. Both were false -- that file's TOOLS list is exactly
+tools/bd-triage.py and tools/bd-audit-gate.py and it does not mention
+bd-footguns at all. Both corrected; 799's own subject is deliberately unchanged.
+
+Real bd-footguns --check against this checkout after the change: 8 detectors,
+all PASS, exit 0 -- unchanged, so the stricter parsing does not break the real
+detectors. IMPROVEMENT_BACKLOG row 148 (build()/frontend/dist) remains open and
+untouched.
+
 ## v3.66.1152 - a failed cleanup fails the run
 
 Three cuts made cleanup report honestly. None made the report cost anything.
@@ -278,8 +357,12 @@ CLAUDE.md section 0 warns is the highest-yield rule on the page:
 
 Also closed: bd-footguns' selftest() leaked one bare-prefix directory per
 invocation, with no cleanup anywhere in the function -- in the tool this cut is
-hardening for that exact class, on a prefix no bdfg_* sweep could see, and
-wired into CI through test_v3_66_799_audit_tool_selftests.
+hardening for that exact class, on a prefix no bdfg_* sweep could see. [The
+original text of this line claimed it was "wired into CI through
+test_v3_66_799_audit_tool_selftests". That was FALSE and is corrected here at
+v3.66.1153: that file's TOOLS list is exactly tools/bd-triage.py and
+tools/bd-audit-gate.py. The selftest is wired through
+tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py.]
 
 KNOWN AND ACCEPTED, stated rather than hidden: if bd-cut dies between the seal
 and main()'s finally (SIGKILL, OOM, a hard reap), the snapshot directory

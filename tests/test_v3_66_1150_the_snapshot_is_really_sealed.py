@@ -225,12 +225,16 @@ def test_a_sealed_snapshot_is_still_removable_by_its_owner(tmp_path):
 # =========================================================================
 
 def _rmtree_that_removes_then_raises(real_rmtree):
-    """The exact shape rmtree has in reality: it is NOT atomic, so it can
-    delete a tree and still raise on some entry. A helper that then reads
-    `exists() == False` concludes success from a call that reported failure."""
-    def fake(path, *a, **k):
-        real_rmtree(path, ignore_errors=True)      # the path really does go
-        raise OSError(39, "Directory not empty")   # ...and the call still fails
+    """A removal walk that reports failure.
+
+    v3.66.1153 repoint: the subject is now `_rmtree_fd(fd)`, a descriptor-bound
+    walk, so this can no longer "remove the path and then raise" -- there is no
+    path. What it still models is the half that mattered: rmtree is NOT atomic,
+    so a call can report failure, and a helper must not overrule that with a
+    second, weaker observation.
+    """
+    def fake(fd, *a, **k):
+        raise OSError(39, "Directory not empty")
     return fake
 
 
@@ -238,7 +242,7 @@ def test_bdcut_discard_reports_failure_when_rmtree_raises(tmp_path, monkeypatch)
     m = _load_bdcut()
     d = m._owned_tempdir("bdcut_probe_")
     real = shutil.rmtree
-    monkeypatch.setattr(m.shutil, "rmtree", _rmtree_that_removes_then_raises(real))
+    monkeypatch.setattr(m, "_rmtree_fd", _rmtree_that_removes_then_raises(real))
     got = m._discard_tempdir(d)
     monkeypatch.undo()
     assert got is False, (
@@ -257,7 +261,7 @@ def test_footguns_discard_reports_failure_when_rmtree_raises(tmp_path, monkeypat
     m = _load_footguns()
     d = tempfile.mkdtemp(prefix="bdfg_probe_")
     real = shutil.rmtree
-    monkeypatch.setattr(m.shutil, "rmtree", _rmtree_that_removes_then_raises(real))
+    monkeypatch.setattr(m, "_rmtree_fd", _rmtree_that_removes_then_raises(real))
     got = m._discard(d)
     err = capsys.readouterr().err
     monkeypatch.undo()
@@ -652,8 +656,14 @@ def test_finish_ITSELF_reclaims_a_sealed_root(tmp_path):
     root, sealed = _sealed_root(tmp_path)
     saved_root = _tmproot._ROOT
     saved_tempdir = tempfile.tempdir
+    saved_ident = getattr(_tmproot, '_ROOT_IDENT', None)
     try:
         _tmproot._ROOT = str(root)
+        # v3.66.1153: reclamation is bound to the identity install()
+        # recorded, so a hand-built root must supply one or it is
+        # correctly UNKNOWN and refused.
+        _st = os.lstat(str(root))
+        _tmproot._ROOT_IDENT = (_st.st_dev, _st.st_ino)
         got = _tmproot.finish(0)
         assert not root.exists(), (
             "finish() left a root holding a sealed directory on disk -- one "
@@ -662,6 +672,8 @@ def test_finish_ITSELF_reclaims_a_sealed_root(tmp_path):
     finally:
         _tmproot._ROOT = saved_root
         tempfile.tempdir = saved_tempdir
+        if hasattr(_tmproot, '_ROOT_IDENT'):
+            _tmproot._ROOT_IDENT = saved_ident
         _unseal(root, sealed)
 
 
@@ -680,13 +692,18 @@ def test_finish_still_keeps_artifacts_when_the_run_failed(tmp_path):
     root, sealed = _sealed_root(tmp_path)
     saved_root = _tmproot._ROOT
     saved_tempdir = tempfile.tempdir
+    saved_ident = getattr(_tmproot, '_ROOT_IDENT', None)
     try:
         _tmproot._ROOT = str(root)
+        _st = os.lstat(str(root))
+        _tmproot._ROOT_IDENT = (_st.st_dev, _st.st_ino)
         assert _tmproot.finish(1) is False
         assert root.exists(), "a FAILING run had its artifacts deleted"
     finally:
         _tmproot._ROOT = saved_root
         tempfile.tempdir = saved_tempdir
+        if hasattr(_tmproot, '_ROOT_IDENT'):
+            _tmproot._ROOT_IDENT = saved_ident
         _unseal(root, sealed)
 
 
@@ -782,7 +799,7 @@ def test_footguns_discard_reports_a_directory_that_survived_a_FileNotFoundError(
     def raiser(*a, **k):
         raise FileNotFoundError(2, "No such file or directory")
 
-    monkeypatch.setattr(m.shutil, "rmtree", raiser)
+    monkeypatch.setattr(m, "_rmtree_fd", raiser)
     got = m._discard(d)
     err = capsys.readouterr().err
     monkeypatch.undo()
@@ -811,7 +828,7 @@ def test_a_directory_reported_as_leaked_is_left_SEALED(tmp_path, monkeypatch):
     assert before_mode == 0o500, oct(before_mode)
 
     monkeypatch.setattr(
-        m.shutil, "rmtree",
+        m, "_rmtree_fd",
         lambda *a, **k: (_ for _ in ()).throw(OSError(39, "Directory not empty")))
     got = m._discard_tempdir(d)
     monkeypatch.undo()

@@ -22,6 +22,7 @@ so looked in the wrong place. Two harness defects, one green-looking test.
 """
 from __future__ import annotations
 
+import errno
 import os
 import pathlib
 import shutil
@@ -40,6 +41,10 @@ _ROOT: str | None = None
 # cleanup complaint to every red run (v3.66.1152).
 _LAST_FAILURE: str | None = None
 
+# (st_dev, st_ino) of the root install() created. None means UNKNOWN,
+# which fails: a present pathname we cannot identify is never removed.
+_ROOT_IDENT: tuple | None = None
+
 
 def install() -> str | None:
     """Point `tempfile.tempdir` at a fresh per-process root. Returns its path.
@@ -47,101 +52,116 @@ def install() -> str | None:
     Keyed by pid via mkdtemp because xdist workers are separate processes: each
     makes its own and removes its own, so there is nothing to race on.
     """
-    global _ROOT
+    global _ROOT, _LAST_FAILURE
     if _ROOT is not None:
         return _ROOT                       # already installed; do not nest
     if os.environ.get("KEEP_TEST_TMPDIRS") == "1":
         return None
+    global _ROOT_IDENT
     _ROOT = tempfile.mkdtemp(prefix="bd-testrun-", dir=str(SYSTEM_TMP))
+    # THE IDENTITY OF THE OBJECT WE JUST CREATED (v3.66.1153). Until now this
+    # kept only the pathname, so reclamation removed whatever directory later
+    # occupied that name -- measured: a foreign inode deleted, the created root
+    # leaked, failed_root() None, and the session still green.
+    _st = os.lstat(_ROOT)
+    _ROOT_IDENT = (_st.st_dev, _st.st_ino)
+    _LAST_FAILURE = None
     tempfile.tempdir = _ROOT
     return _ROOT
 
 
-def _force_rmtree(path: str) -> bool:
-    """Remove a tree even when it holds a directory we cannot write into.
+def _rmtree_fd(fd):
+    """Delete everything UNDER an open directory descriptor.
 
-    Returns True only if the path is gone -- never `ignore_errors=True`, which
-    is what made the defect below invisible.
-
-    MEASURED at v3.66.1150. `shutil.rmtree(root, ignore_errors=True)` CANNOT
-    remove a tree containing a read-only directory: unlinking a name needs the
-    write bit on its parent, so it fails inside that directory and the flag
-    swallows the error. One such directory anywhere under the root therefore
-    left the ENTIRE per-run root on disk, silently -- the 15392-entries-in-/tmp
-    problem this module exists to fix, reintroduced from three files away.
-
-    It was not hypothetical: bd-cut seals its archive snapshot to 0500 on every
-    --resume-zip run (so nothing can unlink or replace the archive the band and
-    verify agreed on), and 23 such directories had accumulated under /tmp
-    during the cut that introduced the seal.
-
-    The handler chmods the offending entry and its parent and retries once.
-    That is enough for a tree we own, and it deliberately does NOT recurse
-    forever: a path that still refuses is reported by the return value rather
-    than retried until something else breaks.
-
-    NEVER CHMOD OUTSIDE THE TREE. The first version of this handler chmod'd
-    `os.path.dirname(p)` unconditionally, and `finish()` calls it with
-    /tmp/bd-testrun-<rand> -- so when the failing entry was the ROOT ITSELF the
-    handler reached for `/tmp`. On a developer box that fails with EPERM and
-    the bare `except OSError` hides it; under CI or any container where the
-    suite runs as root, the chmod SUCCEEDS and takes /tmp from 1777 to 0700,
-    silently, breaking every other user on the machine. A cleanup helper must
-    never touch a path it was not handed.
-
-    A LEXICAL CONTAINMENT CHECK IS NOT AN ANSWER ABOUT WHAT A PATH RESOLVES TO.
-    The v3.66.1150 guard compared strings, and os.chmod FOLLOWS symlinks -- so
-    a link anywhere inside the tree was "inside" by string comparison while the
-    chmod landed on its target. Measured at 55ae94f8: a directory outside the
-    tree went 0755 -> 0700 and survived. Symlinks are never chmod'd (rmtree
-    unlinks them; their mode is irrelevant), and containment is decided on the
-    REAL path.
+    No pathname is resolved for any child, so renaming the root -- or any
+    ancestor -- cannot redirect these calls. A sealed child is relaxed through
+    ITS OWN descriptor, which is also what keeps the directories-only rule:
+    only a directory's mode can block the removal of its entries, and only
+    directories are ever opened here, so an in-tree hard link to an outside
+    FILE can never be chmodded.
     """
-    root = os.path.realpath(path)
+    for entry in os.scandir(fd):
+        if entry.is_dir(follow_symlinks=False):
+            child = os.open(entry.name,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+            try:
+                try:
+                    _rmtree_fd(child)
+                except PermissionError:
+                    os.fchmod(child, 0o700)
+                    _rmtree_fd(child)
+            finally:
+                os.close(child)
+            os.rmdir(entry.name, dir_fd=fd)
+        else:
+            os.unlink(entry.name, dir_fd=fd)
 
-    def _inside(p):
-        rp = os.path.realpath(p)
-        return rp == root or rp.startswith(root + os.sep)
 
-    def _relax(target):
-        try:
-            st = os.lstat(target)
-        except OSError:
-            return
-        # ONLY A DIRECTORY (v3.66.1152). The previous predicate was "not a
-        # symlink", which let a HARD LINK through -- and a hard link is not a
-        # symlink, shares the target's inode, and has no target to resolve, so
-        # realpath returns the IN-TREE path and the containment check says yes.
-        # Reproduced at dcf34528: an in-tree hard link to an outside file took
-        # that file from 0644 to 0700, same inode, file surviving.
-        #
-        # Only a directory's mode can block the removal of its entries, so
-        # directories are the entire population worth relaxing. This also
-        # subsumes the symlink case: a symlink is not a directory.
-        if not stat.S_ISDIR(st.st_mode):
-            return
-        if not _inside(target):
-            return                      # never touch anything we were not given
-        try:
-            os.chmod(target, 0o700)
-        except OSError:
-            pass
+def _force_rmtree(path: str, ident=None) -> bool:
+    """Remove the tree at `path`, bound to `ident` when one is supplied.
 
-    def _retry(func, p, _exc):
-        _relax(os.path.dirname(p))
-        _relax(p)
-        try:
-            func(p)
-        except OSError:
-            pass
+    Returns True only if the object identified by `ident` is gone.
 
+    WHY shutil.rmtree IS NOT USED HERE ANY MORE (v3.66.1153). Three separate
+    defects lived in that call, all measured at 3d5f1bb8:
+
+      * it acts on a PATHNAME, so it removed whatever directory occupied the
+        root's name -- a foreign inode deleted, the created root leaked, and
+        the session still green;
+      * the `onexc` handler called `func(p)` blindly, and two of the seven
+        functions shutil can hand it (os.open, os.close) do not take that
+        shape, so the handler raised TypeError;
+      * that TypeError was caught by an `except TypeError` meant to detect an
+        OLD rmtree signature, so rmtree was re-entered with the legacy
+        `onerror=` kwarg on a half-modified tree -- double invocation observed
+        twice -- and on a dangling symlink the TypeError escaped `finish()`
+        entirely, so neither pytest hook ran at all.
+
+    A descriptor-bound walk has no callback and no signature question.
+    """
     try:
-        shutil.rmtree(path, onexc=_retry)          # Python 3.12+
-    except TypeError:                              # older signature
-        shutil.rmtree(path, onerror=lambda f, p, e: _retry(f, p, e))
-    except OSError:
-        pass
-    return not os.path.exists(path)
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as e:
+        if e.errno == errno.ENOENT:
+            return True                      # nothing to remove IS success
+        return False                         # symlink, non-directory, or denied
+    try:
+        st = os.fstat(fd)
+        if ident is not None and (st.st_dev, st.st_ino) != ident:
+            return False                     # a replacement: never remove it
+        try:
+            _rmtree_fd(fd)
+        except PermissionError:
+            try:
+                os.fchmod(fd, 0o700)
+                _rmtree_fd(fd)
+            except OSError:
+                return False
+        except OSError:
+            return False
+        parent, name = os.path.dirname(path) or ".", os.path.basename(path)
+        try:
+            pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError:
+            return False
+        try:
+            try:
+                ent = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+            except OSError:
+                return False
+            if (ent.st_dev, ent.st_ino) != (st.st_dev, st.st_ino):
+                return False                 # the entry no longer names it
+            try:
+                os.rmdir(name, dir_fd=pfd)
+            except OSError:
+                return False
+        finally:
+            os.close(pfd)
+        # PROOF, not hope: the object we held open is the one that was unlinked.
+        return os.fstat(fd).st_nlink == 0
+    finally:
+        os.close(fd)
 
 
 def finish(exitstatus: int) -> bool:
@@ -153,11 +173,17 @@ def finish(exitstatus: int) -> bool:
     global _ROOT
     if _ROOT is None:
         return False
+    global _ROOT_IDENT
     root, _ROOT = _ROOT, None
+    ident, _ROOT_IDENT = _ROOT_IDENT, None
     tempfile.tempdir = None                # new allocations leave the doomed tree
     if int(exitstatus) != 0:
-        return False
-    ok = _force_rmtree(root)
+        return False                       # KEPT ON PURPOSE, not a failure
+    if ident is None and os.path.lexists(root):
+        # UNKNOWN: a name is here and we cannot prove it is the root we made.
+        ok = False
+    else:
+        ok = _force_rmtree(root, ident)
     if not ok:
         global _LAST_FAILURE
         _LAST_FAILURE = root

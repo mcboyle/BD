@@ -185,44 +185,121 @@ def _sandbox():
     strictly better than both.)
     """
     d = tempfile.mkdtemp(prefix="bdfg_sbx_")
+    # THE IDENTITY OF WHAT WE JUST MADE (v3.66.1153). _discard was bound only to
+    # the PATHNAME, and measured at 3d5f1bb8 it deleted an imposter directory
+    # standing at that name while the real sandbox survived -- reporting
+    # success for a leak it had just created.
+    _st = os.lstat(d)
+    _SANDBOX_IDENT[d] = (_st.st_dev, _st.st_ino)
     return d, dict(os.environ, BD_INSTALL_DIR=d, BD_HOME=d,
                    BD_DISABLE_KEEPALIVE="1")
 
 
+_SANDBOX_IDENT = {}
+
+
+def _rmtree_fd(fd):
+    """Delete everything under an open directory descriptor -- no child
+    pathname is ever resolved, so a rename cannot redirect these calls."""
+    for entry in os.scandir(fd):
+        if entry.is_dir(follow_symlinks=False):
+            child = os.open(entry.name,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+            try:
+                try:
+                    _rmtree_fd(child)
+                except PermissionError:
+                    os.fchmod(child, 0o700)
+                    _rmtree_fd(child)
+            finally:
+                os.close(child)
+            os.rmdir(entry.name, dir_fd=fd)
+        else:
+            os.unlink(entry.name, dir_fd=fd)
+
+
 def _discard(d):
-    """True only if the directory is gone, and NEVER silent when it is not.
+    """Remove a sandbox WE created. True only if that object is gone.
 
-    `shutil.rmtree(d, ignore_errors=True)` made a failed removal
-    indistinguishable from a successful one, which is the teardown form of
-    CLAUDE.md section 0: a check that cannot verify must say so.
-
-    v3.66.1150: and so did catching OSError and then asking os.path.exists().
-    rmtree is not atomic -- it can delete most of a tree and still raise -- so
-    a call that REPORTED FAILURE was being overruled by a second, weaker
-    observation. FileNotFoundError stays a success (there was nothing to
-    remove); every other OSError is a refusal to claim the path is gone.
+    v3.66.1152 made this report honestly; v3.66.1153 makes it act on the right
+    object. It was bound to a pathname, so a rename+recreate had it delete a
+    directory it never made -- measured -- and every caller threw the answer
+    away besides. Both halves are closed here and at the call sites.
     """
+    ident = _SANDBOX_IDENT.get(d)
+    if not os.path.lexists(d):
+        _SANDBOX_IDENT.pop(d, None)
+        return True
+    if ident is None:
+        sys.stderr.write(
+            "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s "
+            "(no creation identity recorded)\n" % d)
+        return False
     try:
-        shutil.rmtree(d)
-    except FileNotFoundError:
-        # FALL THROUGH to the exists() check -- do NOT return True here.
-        # v3.66.1150 briefly did, and it was a regression: rmtree raises
-        # FileNotFoundError with the TOP DIRECTORY STILL PRESENT whenever an
-        # entry is unlinked concurrently (reproduced 40/40), which is live at
-        # both call sites -- they run with cwd and BD_HOME inside the sandbox,
-        # after a delegate that may have left grandchildren, and after a
-        # TimeoutExpired. Returning True there reported success for a
-        # directory still on disk with contents, and printed nothing, so the
-        # "hardened" helper was quieter about a real leak than the code it
-        # replaced. bd-cut's _discard_tempdir falls through; these must agree.
-        pass
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as e:
         sys.stderr.write(
-            f"bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: {d} ({e})\n")
+            "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
         return False
-    if os.path.exists(d):
-        sys.stderr.write(f"bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: {d}\n")
-        return False
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) != ident:
+            sys.stderr.write(
+                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (the path "
+                "now holds a different directory; refusing to delete an "
+                "object we did not create)\n" % d)
+            return False
+        try:
+            _rmtree_fd(fd)
+        except PermissionError:
+            try:
+                os.fchmod(fd, 0o700)
+                _rmtree_fd(fd)
+            except OSError as e:
+                sys.stderr.write(
+                    "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n"
+                    % (d, e))
+                return False
+        except OSError as e:
+            sys.stderr.write(
+                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
+            return False
+        parent, name = os.path.dirname(d) or ".", os.path.basename(d)
+        try:
+            pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as e:
+            sys.stderr.write(
+                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
+            return False
+        try:
+            try:
+                ent = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+            except OSError as e:
+                sys.stderr.write(
+                    "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n"
+                    % (d, e))
+                return False
+            if (ent.st_dev, ent.st_ino) != ident:
+                sys.stderr.write(
+                    "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (the "
+                    "parent entry no longer names it)\n" % d)
+                return False
+            os.rmdir(name, dir_fd=pfd)
+        except OSError as e:
+            sys.stderr.write(
+                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (%s)\n" % (d, e))
+            return False
+        finally:
+            os.close(pfd)
+        if os.fstat(fd).st_nlink != 0:
+            sys.stderr.write(
+                "bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: %s (the entry "
+                "removed was not the directory we held open)\n" % d)
+            return False
+    finally:
+        os.close(fd)
+    _SANDBOX_IDENT.pop(d, None)
     return True
 
 
@@ -238,14 +315,22 @@ def _run_tool(cmd, tree):
         if os.path.isfile(local):
             cmd = [sys.executable, local] + cmd[1:]
     sbx, env = _sandbox()
+    rc, out = None, ""
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
                            cwd=sbx, env=env)
-        return r.returncode, (r.stdout + r.stderr)
+        rc, out = r.returncode, (r.stdout + r.stderr)
     except Exception as e:
-        return None, str(e)
-    finally:
-        _discard(sbx)
+        rc, out = None, str(e)
+    # A CLEANUP FAILURE IS CANNOT-EVALUATE, NOT A PASS (v3.66.1153). This used
+    # to sit in a `finally` whose value was discarded, so a sandbox that could
+    # not be removed still produced a PASS, an OK line and exit 0 -- which
+    # bd-cut's step 0 reads as authorization to cut.
+    if not _discard(sbx):
+        return None, (out + "\n[cleanup failed: the sandbox for this detector "
+                            "could not be removed, so its verdict is not "
+                            "trustworthy]")
+    return rc, out
 
 
 def _run_insync(test, tree):
@@ -273,17 +358,32 @@ def _run_insync(test, tree):
     # the thing it is judging.
     _sbx, env = _sandbox()
     env["PYTHONPATH"] = tree
+    ok, out = None, ""
     try:
         r = subprocess.run([sys.executable, "run_tests.py", test], cwd=tree, env=env,
                            capture_output=True, text=True, timeout=180)
         out = r.stdout + r.stderr
-        m = re.search(r"Failed:\s*(\d+)", out)
-        failed = int(m.group(1)) if m else (0 if r.returncode == 0 else 1)
-        return (failed == 0), out
+        # THE PARSED SUMMARY IS NOT THE VERDICT (v3.66.1153). "Failed: 0" was
+        # read as a pass even when the child exited nonzero, collected nothing,
+        # or printed no summary at all -- all three measured as PASS at
+        # 3d5f1bb8. A run over an empty denominator is section 0's exact shape.
+        if r.returncode != 0:
+            ok, out = None, out + "\n[child exited %d]" % r.returncode
+        else:
+            mf = re.search(r"Failed:\s*(\d+)", out)
+            mt = re.search(r"Total:\s*(\d+)", out)
+            if mf is None or mt is None:
+                ok, out = None, out + "\n[no recognisable summary]"
+            elif int(mt.group(1)) == 0:
+                ok, out = None, out + "\n[the child collected zero tests]"
+            else:
+                ok = int(mf.group(1)) == 0
     except Exception as e:
-        return None, str(e)
-    finally:
-        _discard(_sbx)
+        ok, out = None, str(e)
+    if not _discard(_sbx):
+        return None, (out + "\n[cleanup failed: the sandbox for this detector "
+                            "could not be removed]")
+    return ok, out
 
 
 def _check_one(fg, tree):
@@ -295,9 +395,14 @@ def _check_one(fg, tree):
     if kind == "none":
         return "advisory", "documented (no mechanical detector)"
     if kind == "tool":
-        rc, _ = _run_tool(det["cmd"], tree)
+        rc, _detail = _run_tool(det["cmd"], tree)
         if rc is None:
-            return "skip", "tool unavailable"
+            # UNKNOWN, not skip. A missing executable, an exception, a timeout
+            # or a failed sandbox cleanup all land here, and v3.66.1152 called
+            # every one of them "skip" -- which cmd_check then ignored unless
+            # NOTHING decided, so one PASS laundered them into exit 0.
+            return "unknown", "could not evaluate: %s" % (
+                _detail.strip().splitlines()[-1] if _detail.strip() else "no detail")
         # A DELEGATED GATE THAT SAYS "I CANNOT EVALUATE" IS NOT A PASS. The suite
         # exit contract reserves 2 for exactly that (bdtools_sec.EXIT_CANNOT_EVALUATE),
         # and the old else-branch swept it into "pass" -- so a detector pointed at a
@@ -320,12 +425,18 @@ def _check_one(fg, tree):
                        "declares that blocking"
             return "violation", why
         if rc == sec.EXIT_CANNOT_EVALUATE:
-            return "skip", f"delegate could not evaluate (exit {rc})"
-        return "pass", f"exit {rc}"
+            return "unknown", f"delegate could not evaluate (exit {rc})"
+        if rc == 0:
+            return "pass", "exit 0"
+        # A NONZERO EXIT THE REGISTRY DID NOT DECLARE IS NOT A PASS. This
+        # returned "pass" for every undeclared code, so `exit 1` from a broken
+        # delegate read as a satisfied footgun.
+        return "unknown", f"exit {rc} is not a declared verdict for this detector"
     if kind == "insync":
-        ok, _ = _run_insync(det["test"], tree)
+        ok, _detail = _run_insync(det["test"], tree)
         if ok is None:
-            return "skip", "harness/test missing"
+            return "unknown", "could not evaluate: %s" % (
+                _detail.strip().splitlines()[-1] if _detail.strip() else "no detail")
         return ("pass" if ok else "violation"), det["test"]
     if kind == "grep":
         pat = re.compile(det["pattern"])
@@ -334,7 +445,7 @@ def _check_one(fg, tree):
                   for f in fs if f.endswith(".py"))
         bad = hit if det.get("must_not_match") else (not hit)
         return ("violation" if bad else "pass"), det["pattern"]
-    return "skip", f"unknown detector kind {kind}"
+    return "unknown", f"unrecognised detector kind {kind}"
 
 
 def cmd_check(a):
@@ -359,7 +470,7 @@ def cmd_check(a):
         results.append({"id": fg["id"], "verdict": verdict, "detail": detail,
                         "severity": fg.get("severity")})
         icon = {"pass": "PASS", "violation": "VIOLATION", "skip": "skip",
-                "advisory": "note"}[verdict]
+                "advisory": "note", "unknown": "UNKNOWN"}[verdict]
         print(f"  [{icon:9}] {fg['id']:34} {detail}")
         if verdict == "violation" and fg.get("severity") == "blocking":
             violations.append(fg)
@@ -380,6 +491,20 @@ def cmd_check(a):
     # skipped, and the tool printed OK and exited 0. Refuse instead of certifying.
     # NOT over-sensitive: a single real pass/violation is enough to mint a verdict,
     # so a partially-instrumented tree still reports normally.
+    # ANY ACTIVE BLOCKING DETECTOR THAT COULD NOT BE EVALUATED REFUSES, even
+    # when others passed. Measured at 3d5f1bb8: one PASS plus one timeout
+    # printed OK and returned 0, and bd-cut's step 0 reads that as
+    # authorization. A successful unrelated detector cannot stand in for a
+    # blocking one nobody could run.
+    unknown_blocking = [r for r in results
+                        if r["verdict"] == "unknown" and r["severity"] == "blocking"]
+    if unknown_blocking:
+        print(f"CANNOT-EVALUATE -- {len(unknown_blocking)} active blocking "
+              f"detector(s) could not be evaluated against {a.tree} "
+              f"(reason={sec.REASON_EMPTY}):", file=sys.stderr)
+        for r in unknown_blocking:
+            print(f"  * {r['id']}: {r['detail']}", file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     decided = [r for r in results if r["verdict"] in ("pass", "violation")]
     if not decided:
         skipped = [r["id"] for r in results if r["verdict"] == "skip"]
@@ -426,20 +551,39 @@ def selftest():
     # anywhere in the function -- one leaked directory per --selftest, on the
     # DEFAULT tmp* prefix so no bdfg_* sweep could see it, in the tool this cut
     # is hardening for exactly that class. `bd-footguns --selftest` is wired
-    # into test_v3_66_799_audit_tool_selftests.py, so it ran on every CI pass.
+    # into CI through tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py.
+    # IT WAS NOT test_v3_66_799: that file's TOOLS list is exactly
+    # tools/bd-triage.py and tools/bd-audit-gate.py and it does not mention
+    # bd-footguns at all, so this comment asserted coverage that never existed.
     d = tempfile.mkdtemp(prefix="bdfg_selftest_")
+    # RECORD THE IDENTITY, as _sandbox() does: _discard is bound to the object
+    # it was told about, and a directory made outside that path has none --
+    # which it correctly refuses to remove (v3.66.1153).
+    _sst = os.lstat(d)
+    _SANDBOX_IDENT[d] = (_sst.st_dev, _sst.st_ino)
     os.makedirs(os.path.join(d, "bulk_downloader"))
     open(os.path.join(d, "bulk_downloader", "x.py"), "w").write('import os\nY=os.environ.get("BD_TOTALLY_FAKE_OPEN_VAR","")\n')
     fg = next(f for f in reg if f["id"] == "FG-ENV-TRANCHE-BD-LITERAL")
     v, _ = _check_one(fg, d)
     # (env-tranche detector runs bd-envscan which needs the real tree's csi; on a bare
     #  temp tree it will 'skip' -- so accept pass/skip, and assert the DETECTOR wiring)
-    print(("PASS" if v in ("violation", "skip", "pass") else "FAIL") + f"  env-tranche detector wired (verdict={v})")
+    # "unknown" joined the accepted set at v3.66.1153: on a bare temp tree
+    # bd-envscan is unavailable, which is now reported as CANNOT-EVALUATE
+    # rather than silently as "skip". The control's subject is the DETECTOR
+    # WIRING, not the delegate's availability, so every non-crash verdict is
+    # acceptable here -- what it must never be is absent.
+    print(("PASS" if v in ("violation", "skip", "pass", "unknown") else "FAIL")
+          + f"  env-tranche detector wired (verdict={v})")
     # NEGATIVE control: an inactive footgun is skipped
     v2, _ = _check_one({"id": "T", "status": "retired", "detector": {"kind": "none"}}, d)
     print(("PASS" if v2 == "skip" else "FAIL") + "  inactive footgun skipped")
     ok = ok and v2 == "skip"
-    _discard(d)                 # the synthetic tree above is ours to remove
+    # THE CLEANUP RESULT IS PART OF THE VERDICT (v3.66.1153). This called
+    # _discard(d) and never looked, so two unremoved directories still printed
+    # SELFTEST PASS and returned 0.
+    _cleaned = _discard(d)
+    print(("PASS" if _cleaned else "FAIL") + "  selftest reclaimed its own temp tree")
+    ok = ok and _cleaned
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 

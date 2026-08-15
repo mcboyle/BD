@@ -137,6 +137,14 @@ _DECLARED = {
     # and none made the report matter, so the regression to watch for is a
     # future edit quietly restoring "print and return 0".
     "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
+    # @1153. Seventh "module" entry. Its subject is what a destructive
+    # operation is BOUND to: v3.66.1149-1152 moved the ownership proof nearer
+    # the deletion four times and never joined them, so each cut left the same
+    # rename+recreate seam one step further along. Pinned into a shard because
+    # the failure is a silent wrong-object deletion -- never a red test -- and
+    # because bd-footguns' UNKNOWN policy decides whether bd-cut's step 0 is
+    # authorized at all.
+    "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

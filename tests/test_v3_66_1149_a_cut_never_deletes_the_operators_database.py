@@ -454,11 +454,11 @@ def test_a_failed_footguns_cleanup_is_reported_not_swallowed(tmp_path, monkeypat
     m = _load_footguns()
     tree, rec = _footgun_tree(tmp_path, m)
     monkeypatch.setenv("FG_REC", str(rec))
-    real_rmtree = m.shutil.rmtree
+    real_rmtree = shutil.rmtree
     t = pathlib.Path(tempfile.gettempdir())
     before = set(t.glob("bdfg_*"))
     monkeypatch.setattr(
-        m.shutil, "rmtree",
+        m, "_rmtree_fd",
         lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
     try:
         m._run_insync("tests/test_probe.py", str(tree))
@@ -782,10 +782,8 @@ def test_a_failed_subject_cleanup_stays_registered_and_preserves_the_error(tmp_p
     knowing the removal worked, so a failed cleanup became unreportable."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    real_rmtree = m.shutil.rmtree
-    monkeypatch.setattr(
-        m.shutil, "rmtree",
-        lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
+    real_rmtree = shutil.rmtree
+    monkeypatch.setattr(m, "_rmtree_fd", lambda fd: (_ for _ in ()).throw(OSError(39, "Directory not empty")))
 
     def boom(self, path=None, *a, **k):
         raise RuntimeError("extraction exploded")
@@ -811,10 +809,8 @@ def test_a_failed_gate_sandbox_cleanup_is_reported(tmp_path, monkeypatch, capsys
     b = _recording_checkers(tmp_path, m, rec)
     work = tmp_path / "w"
     work.mkdir()
-    real_rmtree = m.shutil.rmtree
-    monkeypatch.setattr(
-        m.shutil, "rmtree",
-        lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
+    real_rmtree = shutil.rmtree
+    monkeypatch.setattr(m, "_rmtree_fd", lambda fd: (_ for _ in ()).throw(OSError(39, "Directory not empty")))
     m.step0_gate(str(work), checker_dir=str(b))
     err = capsys.readouterr().err
     monkeypatch.undo()

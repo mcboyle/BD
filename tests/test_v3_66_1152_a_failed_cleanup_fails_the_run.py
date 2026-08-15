@@ -155,7 +155,7 @@ def test_the_driver_exits_nonzero_when_cleanup_fails(tmp_path, monkeypatch, caps
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
     monkeypatch.setattr(
-        m.shutil, "rmtree",
+        m, "_rmtree_fd",
         lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
     try:
         rc = _drive(m, monkeypatch, tmp_path, src)
@@ -177,7 +177,7 @@ def test_the_cleanup_exit_code_is_distinguishable_and_named(tmp_path, monkeypatc
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
     monkeypatch.setattr(
-        m.shutil, "rmtree",
+        m, "_rmtree_fd",
         lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
     try:
         rc = _drive(m, monkeypatch, tmp_path, src)
@@ -200,7 +200,7 @@ def test_a_real_failure_is_not_masked_by_the_cleanup_code(tmp_path, monkeypatch,
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
     monkeypatch.setattr(
-        m.shutil, "rmtree",
+        m, "_rmtree_fd",
         lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
     try:
         rc = _drive(m, monkeypatch, tmp_path, src,
@@ -324,7 +324,7 @@ def pytest_sessionfinish(session, exitstatus):
 """
 
 _FAIL_OVERRIDE = """
-_tmproot._force_rmtree = lambda path: False      # the reclamation cannot finish
+_tmproot._force_rmtree = lambda path, ident=None: False   # cannot finish
 """
 
 
@@ -479,25 +479,31 @@ def test_the_retry_cannot_be_swapped_to_a_symlink(tmp_path):
     attempted = []
     real_chmod = os.chmod
 
-    def swapping_rmtree(path, *a, **k):
+    def swapping_rmtree(fd, *a, **k):
+        # v3.66.1153 repoint. The retry is now `os.fchmod` on a descriptor this
+        # function already proved, so there is no pathname left to redirect --
+        # the swap is injected at the only remaining seam. The assertion is
+        # unchanged and is now structural: no chmod may name the outside target.
         calls["n"] += 1
         if calls["n"] == 1:
-            real_rmtree(path, ignore_errors=True)
-            os.symlink(str(outside), path)          # d is now a symlink
+            os.symlink(str(outside), d + ".decoy")
             raise OSError(13, "Permission denied")
-        return real_rmtree(path, *a, **k)
+        raise OSError(39, "Directory not empty")
 
     def spy_chmod(path, mode, *a, **k):
         attempted.append(os.path.realpath(str(path)))
         return real_chmod(path, mode, *a, **k)
 
-    m.shutil.rmtree = swapping_rmtree
+    m._rmtree_fd = swapping_rmtree
     os.chmod = spy_chmod
     try:
         got = m._discard_tempdir(d)
     finally:
-        m.shutil.rmtree = real_rmtree
+        m._rmtree_fd = real_rmtree
         os.chmod = real_chmod
+        for _extra in (d + ".decoy",):
+            if os.path.lexists(_extra):
+                os.unlink(_extra)
         if os.path.islink(d):
             os.unlink(d)
         if d in m._TEMPDIRS:
@@ -525,15 +531,19 @@ def test_a_dangling_symlink_is_not_reported_as_removed(tmp_path):
     # path that is a symlink when it is asked. This is the window where
     # os.path.exists() answers about the TARGET and the caller is asking about
     # the NAME.
-    def rmtree_then_dangle(path, *a, **k):
-        real_rmtree(path, *a, **k)
-        os.symlink(str(tmp_path / "no-such-target"), path)
+    real_remove = m._remove_owned_dir
 
-    m.shutil.rmtree = rmtree_then_dangle
+    def remove_then_dangle(dd, ident):
+        out = real_remove(dd, ident)
+        # the window between the object going and the caller looking
+        os.symlink(str(tmp_path / "no-such-target"), dd)
+        return out
+
+    m._remove_owned_dir = remove_then_dangle
     try:
         got = m._discard_tempdir(d)
     finally:
-        m.shutil.rmtree = real_rmtree
+        m._remove_owned_dir = real_remove
     try:
         assert os.path.lexists(d) and not os.path.exists(d), "fixture wrong"
         assert got is False, (
