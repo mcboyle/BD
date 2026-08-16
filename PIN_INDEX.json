@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 54,
+    "total": 56,
     "version": 1,
-    "count_dict": 53,
+    "count_dict": 55,
     "test_files_scanned": 1361,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -38,7 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
-      "tests/test_v3_66_1154_the_object_not_the_name.py": 9,
+      "tests/test_v3_66_1154_the_object_not_the_name.py": 11,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -278,7 +278,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 542,
+      "line": 546,
       "value": {
         "validated": 1,
         "substituted": 1
@@ -288,7 +288,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 893,
+      "line": 897,
       "value": {
         "owned": 1,
         "foreign": 0
@@ -298,7 +298,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 894,
+      "line": 898,
       "value": {
         "open": 0,
         "chmod": 0,
@@ -312,7 +312,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1572,
+      "line": 1579,
       "value": {
         "owned": 1,
         "foreign": 1,
@@ -323,7 +323,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1663,
+      "line": 1669,
       "value": {
         "renamed": 1,
         "substituted": 1,
@@ -334,7 +334,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1750,
+      "line": 1757,
       "value": {
         "primary": 1,
         "diagnostic": 1
@@ -344,7 +344,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1807,
+      "line": 1816,
       "value": {
         "unlinked": 1,
         "close": 1
@@ -354,7 +354,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2102,
+      "line": 2110,
       "value": {
         "walk": 1,
         "secondary": 1
@@ -364,12 +364,32 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2146,
+      "line": 2154,
       "value": {
         "primary": 1,
         "secondary": 1
       },
       "gates_what": "test_primary_memoryerror_survives_secondary_recovery_interrupt"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2195,
+      "value": {
+        "walk": 2,
+        "restore": 1
+      },
+      "gates_what": "test_top_refusal_mode_restoration_baseexception_propagates"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2238,
+      "value": {
+        "rmdir": 1,
+        "close": 1
+      },
+      "gates_what": "test_top_parent_close_baseexception_propagates_after_exact_removal"
     },
     {
       "form": "count_dict",

@@ -780,7 +780,10 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
             try:
                 os.fchmod(fd, was)
                 if stat.S_IMODE(os.fstat(fd).st_mode) != was: raise OSError(errno.EIO, "restored mode did not verify")
-            except BaseException as restore_error: reason += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
+            except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                reason += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
+                _add_note(restore_error, reason); raise
+            except Exception as restore_error: reason += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
         return False, reason
     try:
         st = os.fstat(fd)
@@ -876,6 +879,7 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
             except BaseException as close_error:
                 note = "parent descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
                 if parent_propagating is not None: _add_note(parent_propagating, note)
+                elif isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)): raise
                 elif isinstance(close_error, Exception): return _refuse("%s %s" % (R_UNPROVEN, note))
                 else: raise
         if os.fstat(fd).st_nlink != 0:
@@ -891,6 +895,7 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
             except BaseException as close_error:
                 note = "owned descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
                 if propagating is not None: _add_note(propagating, note)
+                elif isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)): raise
                 elif isinstance(close_error, Exception):
                     # The close may have succeeded and the number may already
                     # denote a foreign object. Never restore through it.

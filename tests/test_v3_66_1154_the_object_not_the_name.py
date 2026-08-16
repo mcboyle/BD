@@ -271,7 +271,11 @@ def subject(request):
         record_fd(os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW))
         return d
     s.make = make
-    s.also = lambda _path: None
+    def also(path):
+        record_fd(os.open(path, os.O_PATH | os.O_NOFOLLOW))
+        return path
+    s.also = also
+    s.observe_fd = record_fd
     s.m._rename_noclobber = rename_noclobber
     try:
         yield s
@@ -698,7 +702,6 @@ def test_a_foreign_directory_swapped_onto_the_top_name_survives(subject, tmp_pat
     foreign_id = _ident(foreign)
 
     parent = os.path.dirname(d)
-    subject.also(d + ".moved")
 
     # FIRED IN THE REAL WINDOW: at the moment the remover first reaches for the
     # well-known basename in the parent. That is the only instant an adversary
@@ -716,6 +719,7 @@ def test_a_foreign_directory_swapped_onto_the_top_name_survives(subject, tmp_pat
         if fired["n"] == 0 and str(old) == base:
             fired["n"] += 1
             os.rename(d, d + ".moved")
+            subject.also(d + ".moved")
             os.rename(foreign, d)
         return real_seam(old, new, dir_fd)
 
@@ -1463,6 +1467,7 @@ def test_private_unlink_failure_retains_exact_object(subject, kind, error_type):
         p = _payload(d, name="owned-file", body="owned bytes")
     else:
         pathlib.Path(target).write_text("outside target bytes")
+        subject.also(target)
         target_ident = _ident(target)
         p = os.path.join(d, "owned-symlink")
         os.symlink(target, p)
@@ -1524,6 +1529,7 @@ def test_terminal_unlink_substitution_is_detected_and_accounted(subject, kind):
         p = _payload(d, name="owned-file", body="owned terminal bytes")
     else:
         pathlib.Path(target).write_text("terminal target bytes")
+        subject.also(target)
         target_ident = _ident(target)
         p = os.path.join(d, "owned-symlink")
         os.symlink(target, p)
@@ -1557,6 +1563,7 @@ def test_terminal_unlink_substitution_is_detected_and_accounted(subject, kind):
         foreign = (fst.st_dev, fst.st_ino)
         foreign_fd = os.open(private, os.O_PATH | os.O_NOFOLLOW,
                              dir_fd=k["dir_fd"])
+        subject.observe_fd(foreign_fd)
         assert (os.fstat(foreign_fd).st_dev,
                 os.fstat(foreign_fd).st_ino) == foreign
         observed.update(private=private, held=held, foreign=foreign)
@@ -1588,8 +1595,6 @@ def test_terminal_unlink_substitution_is_detected_and_accounted(subject, kind):
         assert "could not be verified" in why
         assert subject.failure_is_accounted_for(d)
     finally:
-        if foreign_fd is not None:
-            os.close(foreign_fd)
         if target_ident is not None and os.path.lexists(target):
             assert _ident(target) == target_ident
             os.unlink(target)
@@ -1605,6 +1610,7 @@ def test_private_substitution_before_final_unlink_validation_never_unlinks(
         p = _payload(d, name="owned-file", body="owned prevalidation bytes")
     else:
         pathlib.Path(target).write_text("prevalidation target bytes")
+        subject.also(target)
         target_ident = _ident(target)
         p = os.path.join(d, "owned-symlink")
         os.symlink(target, p)
@@ -1691,6 +1697,7 @@ def test_ordinary_non_directory_removal_unlinks_exact_owned_inode(subject, kind)
         p = _payload(d, name="owned-file", body="ordinary owned bytes")
     else:
         pathlib.Path(target).write_text("ordinary target bytes")
+        subject.also(target)
         target_ident = _ident(target)
         p = os.path.join(d, "owned-symlink")
         os.symlink(target, p)
@@ -1768,11 +1775,13 @@ def test_successful_terminal_unlink_close_baseexception_propagates(
         p = _payload(d, name="owned-file", body="close bytes")
     else:
         pathlib.Path(target).write_text("close target bytes")
+        subject.also(target)
         target_ident = _ident(target)
         p = os.path.join(d, "owned-symlink")
         os.symlink(target, p)
     ident = _ident(p)
     observer = os.open(p, os.O_PATH | os.O_NOFOLLOW)
+    subject.observe_fd(observer)
     real_unlink, real_close = os.unlink, os.close
     phase = {"unlinked": 0, "close": 0}
 
@@ -1810,7 +1819,6 @@ def test_successful_terminal_unlink_close_baseexception_propagates(
         if target_ident is not None:
             assert _ident(target) == target_ident
     finally:
-        os.close(observer)
         if target_ident is not None and os.path.lexists(target):
             assert _ident(target) == target_ident
             os.unlink(target)
@@ -2151,6 +2159,123 @@ def test_primary_memoryerror_survives_secondary_recovery_interrupt(
     assert survivor is not None
     assert stat.S_IMODE(os.lstat(survivor).st_mode) == mode
     assert subject.failure_is_accounted_for(d)
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
+def test_top_refusal_mode_restoration_baseexception_propagates(subject,
+                                                                error_type):
+    d = subject.make(); ident = _ident(d); os.chmod(d, 0o500)
+    real_walk, real_fchmod = subject.m._rmtree_fd, os.fchmod
+    fired = {"walk": 0, "restore": 0}
+
+    def refuse_after_relaxation(fd, dev, depth=0):
+        st = os.fstat(fd)
+        assert (st.st_dev, st.st_ino) == ident
+        fired["walk"] += 1
+        if fired["walk"] == 1:
+            raise PermissionError(errno.EACCES, "force top relaxation")
+        raise OSError(errno.EIO, "injected ordinary top refusal")
+
+    def interrupt_restore(fd, mode):
+        st = os.fstat(fd)
+        result = real_fchmod(fd, mode)
+        if ((st.st_dev, st.st_ino) == ident and mode == 0o500 and
+                fired["walk"] == 2 and fired["restore"] == 0):
+            fired["restore"] += 1
+            raise error_type("injected top refusal restoration interruption")
+        return result
+
+    subject.m._rmtree_fd, os.fchmod = refuse_after_relaxation, interrupt_restore
+    try:
+        with pytest.raises(error_type,
+                           match="injected top refusal restoration interruption") as caught:
+            subject.discard(d)
+    finally:
+        subject.m._rmtree_fd, os.fchmod = real_walk, real_fchmod
+    assert fired == {"walk": 2, "restore": 1}
+    assert stat.S_IMODE(os.lstat(d).st_mode) == 0o500
+    notes = " -- ".join(getattr(caught.value, "__notes__", ()))
+    assert "injected ordinary top refusal" in notes
+    assert subject.failure_is_accounted_for(d)
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
+def test_top_parent_close_baseexception_propagates_after_exact_removal(
+        subject, error_type):
+    d = subject.make(); ident = _ident(d)
+    parent_ident = _ident(os.path.dirname(d))
+    observer = os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+    subject.observe_fd(observer)
+    real_rmdir, real_close = os.rmdir, os.close
+    fired = {"rmdir": 0, "close": 0}
+
+    def latch_rmdir(path, *a, **k):
+        st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        result = real_rmdir(path, *a, **k)
+        if (st.st_dev, st.st_ino) == ident:
+            fired["rmdir"] += 1
+        return result
+
+    def interrupt_parent_close(fd):
+        try:
+            st = os.fstat(fd); matches = (st.st_dev, st.st_ino) == parent_ident
+        except OSError:
+            matches = False
+        result = real_close(fd)
+        if fired["rmdir"] == 1 and matches and fired["close"] == 0:
+            fired["close"] += 1
+            raise error_type("injected top parent close interruption")
+        return result
+
+    os.rmdir, os.close = latch_rmdir, interrupt_parent_close
+    try:
+        with pytest.raises(error_type,
+                           match="injected top parent close interruption"):
+            subject.discard(d)
+    finally:
+        os.rmdir, os.close = real_rmdir, real_close
+    after = os.fstat(observer)
+    assert fired == {"rmdir": 1, "close": 1}
+    assert (after.st_dev, after.st_ino) == ident and after.st_nlink == 0
+    assert subject.failure_is_accounted_for(d)
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
+def test_reopened_top_owned_close_baseexception_propagates(subject, error_type):
+    d = subject.make(); ident = _ident(d)
+    observer = os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+    subject.observe_fd(observer)
+    real_close = os.close
+    fired = {"n": 0}
+
+    def interrupt_owned_close(fd):
+        try:
+            st = os.fstat(fd)
+            matches = ((st.st_dev, st.st_ino) == ident and
+                       st.st_nlink == 0 and fd != observer)
+        except OSError:
+            matches = False
+        result = real_close(fd)
+        if matches and fired["n"] == 0:
+            fired["n"] += 1
+            raise error_type("injected reopened-owned close interruption")
+        return result
+
+    os.close = interrupt_owned_close
+    try:
+        with pytest.raises(error_type,
+                           match="injected reopened-owned close interruption"):
+            if subject.name == "_tmproot":
+                subject.m._force_rmtree(d, ident, None)
+            elif subject.name == "bd-cut":
+                subject.m._remove_owned_dir(d, ident, None)
+            else:
+                subject.m._remove_owned_sandbox(d, ident, None)
+    finally:
+        os.close = real_close
+    after = os.fstat(observer)
+    assert fired["n"] == 1
+    assert (after.st_dev, after.st_ino) == ident and after.st_nlink == 0
 
 
 def test_later_readable_open_failure_restores_unreadable_child(subject):

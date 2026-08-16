@@ -622,7 +622,12 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
                 os.fchmod(fd, was)
                 if stat.S_IMODE(os.fstat(fd).st_mode) != was:
                     raise OSError(errno.EIO, "restored mode did not verify")
-            except BaseException as restore_error:
+            except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                why += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
+                _LAST_REASON = ("%s %s" % (code, why)).strip()
+                _add_note(restore_error, _LAST_REASON)
+                raise
+            except Exception as restore_error:
                 why += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
         _LAST_REASON = ("%s %s" % (code, why)).strip()
         return False
@@ -736,6 +741,9 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
                 note = "parent descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
                 if parent_propagating is not None:
                     _add_note(parent_propagating, note)
+                elif isinstance(close_error,
+                                (KeyboardInterrupt, SystemExit, MemoryError)):
+                    raise
                 elif isinstance(close_error, Exception):
                     return _refuse(R_UNPROVEN, note)
                 else:
@@ -759,6 +767,9 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
                 note = "owned descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
                 if propagating is not None:
                     _add_note(propagating, note)
+                elif isinstance(close_error,
+                                (KeyboardInterrupt, SystemExit, MemoryError)):
+                    raise
                 elif isinstance(close_error, Exception):
                     # close may have succeeded before its wrapper raised. The
                     # numeric slot can already denote a foreign object, so it
