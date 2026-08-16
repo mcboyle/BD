@@ -565,6 +565,9 @@ def parse_provenance(text: str, expected_repo: str):
     if text and not text.endswith("\n"):
         return unknown, ("provenance truncated: measurement artifact is not "
                          "newline-terminated")
+    if "\r" in text:
+        return unknown, ("provenance malformed: measurement artifact contains "
+                         "a noncanonical carriage return")
     lines = text.splitlines()
     if not lines:
         return unknown, "provenance missing: per-host log has no provenance line"
@@ -606,7 +609,7 @@ def _read_run_log(log):
         if not statmod.S_ISREG(st.st_mode):
             return "", 0, ("per-host log is not a regular file; the run left "
                             "no usable evidence")
-        return log.read_text(errors="replace"), st.st_size, None
+        return log.read_bytes().decode(errors="replace"), st.st_size, None
     except FileNotFoundError:
         return "", 0, ("the runner created no per-host log; there is no evidence "
                         "the command ran")

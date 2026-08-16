@@ -401,6 +401,36 @@ def test_measurement_missing_only_final_newline_cannot_authorize_payload(tmp_pat
     assert row["provenance"]["dirty"] == "unknown"
 
 
+def test_crlf_replacement_record_cannot_authorize_payload(tmp_path):
+    mod = _load()
+    entry = mod.build_plan(
+        [("alpha", "192.0.2.10", False)],
+        "printf payload", True, "/srv/BulkDownloader",
+    )[0]
+    complete = (
+        "bd-fleet-run: commit=" + "e" * 40
+        + " dirty=clean repo=/srv/BulkDownloader\n"
+    )
+
+    class CrlfReplacingTransport:
+        name = "crlf-replacing-transport"
+
+        def __init__(self):
+            self.calls = 0
+
+        def run(self, argv, log_path, timeout):
+            self.calls += 1
+            pathlib.Path(log_path).write_bytes(complete.replace("\n", "\r\n").encode())
+            return 0, None
+
+    runner = CrlfReplacingTransport()
+    row = mod.run_one(runner, entry, tmp_path, 10)
+    assert complete.encode() != complete.replace("\n", "\r\n").encode()
+    assert runner.calls == 1
+    assert row["status"] == "PROVENANCE_UNKNOWN"
+    assert row["provenance"]["dirty"] == "unknown"
+
+
 def test_malformed_or_unknown_provenance_cannot_be_host_success(tmp_path):
     mod = _load()
     for index, line in enumerate((

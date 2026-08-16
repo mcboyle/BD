@@ -35,7 +35,7 @@ artifact cannot accept the complete record (for example, ENOSPC), the wrapper
 reports the publication phase on stderr, exits nonzero, and never starts the
 payload.
 
-Fifteen hermetic production-path regressions execute the real wrapper locally
+Seventeen hermetic production-path regressions execute the real wrapper locally
 against disposable Git repositories or injected Git failure, and drive the
 real coordinator with injected non-network runners. The direct legacy RED
 reproduced `commit=unknown dirty=0` followed by payload execution from a
@@ -65,8 +65,8 @@ and partial removal injections with nonzero counters, fail against the old
 path. Four additional adversarial regressions caught attempt-name replacement,
 unreadable output, unsafe rename fallback, and mounted-output cleanup in the
 first candidate. Four further cases bind the published inode and fail closed on
-missing, malformed, unknown, or non-newline-terminated artifact evidence. All
-sixteen pass with the repair and assert identities, bytes,
+missing, malformed, or unknown artifact evidence. All fifteen pass with the
+repair and assert identities, bytes,
 provenance, exit behavior, diagnostics, and preservation of an outside symlink
 target. The focused production-path file is pinned into CI's toolchain shard;
 an exact-head green run therefore executes the row-148 regression itself, not
