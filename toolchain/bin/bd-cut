@@ -379,13 +379,101 @@ def vitest(work):
 
 def build(work):
     step(2, "vite build")
-    dist = os.path.join(fe(work), "dist")
-    shutil.rmtree(dist, ignore_errors=True)
-    r = run(["node_modules/.bin/vite", "build"], cwd=fe(work), timeout=600)
-    if r.returncode != 0:
-        die("vite build failed:\n" + r.stderr[-1000:])
-    js = [p for p in os.listdir(os.path.join(dist, "assets")) if p.endswith(".js")]
-    print(f"  built bundle: {js[0] if js else '??'}")
+    frontend = fe(work)
+    dist = os.path.join(frontend, "dist")
+    attempt = _owned_tempdir("bdcut_build_", directory=frontend)
+    published = False
+    try:
+        # The output directory is empty, unique to this invocation, and held by
+        # descriptor from creation.  A name surviving in the live dist can
+        # therefore never satisfy this attempt's postcondition.
+        r = run(["node_modules/.bin/vite", "build", "--outDir", attempt,
+                 "--emptyOutDir"], cwd=frontend, timeout=600)
+        if r.returncode != 0:
+            die("vite build failed; previous frontend/dist preserved:\n" +
+                ((r.stdout or "") + (r.stderr or ""))[-1000:])
+
+        held = _TEMPDIR_FD.get(attempt)
+        ident = _TEMPDIR_IDENT.get(attempt)
+        if held is None or ident is None:
+            die("current build attempt has no creation identity; refusing to "
+                "publish unbound output")
+        now = os.fstat(held)
+        if (now.st_dev, now.st_ino) != ident:
+            die("current build attempt changed identity while Vite ran; refusing "
+                "to publish foreign output")
+
+        index = os.path.join(attempt, "index.html")
+        assets = os.path.join(attempt, "assets")
+        try:
+            index_st = os.lstat(index)
+            assets_st = os.lstat(assets)
+        except OSError as e:
+            missing = "index.html" if not os.path.lexists(index) else "assets directory"
+            die(f"current build attempt produced no {missing} ({e}); previous "
+                "frontend/dist preserved")
+        if not stat.S_ISREG(index_st.st_mode) or index_st.st_size == 0:
+            die("current build attempt index.html is not a non-empty regular file; "
+                "previous frontend/dist preserved")
+        if not stat.S_ISDIR(assets_st.st_mode):
+            die("current build attempt assets is not a real directory; previous "
+                "frontend/dist preserved")
+        try:
+            js = sorted(
+                entry.name for entry in os.scandir(assets)
+                if entry.name.endswith(".js") and entry.is_file(follow_symlinks=False)
+                and entry.stat(follow_symlinks=False).st_size > 0
+            )
+        except OSError as e:
+            die(f"current build attempt assets are unreadable ({e}); previous "
+                "frontend/dist preserved")
+        if not js:
+            die("current build attempt produced no non-empty regular JavaScript "
+                "assets; previous frontend/dist preserved")
+
+        try:
+            old = os.lstat(dist)
+        except FileNotFoundError:
+            old = None
+        except OSError as e:
+            die(f"frontend/dist identity could not be read ({e}); refusing to "
+                "replace an unknown object")
+        if old is not None:
+            if not stat.S_ISDIR(old.st_mode):
+                kind = "symlink" if stat.S_ISLNK(old.st_mode) else "non-directory"
+                die(f"frontend/dist is a {kind}; refusing to touch it")
+            try:
+                old_fd = os.open(dist, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except OSError as e:
+                die(f"frontend/dist could not be bound for removal ({e})")
+            try:
+                bound = os.fstat(old_fd)
+                old_ident = (bound.st_dev, bound.st_ino)
+                if old_ident != (old.st_dev, old.st_ino):
+                    die("frontend/dist changed identity before removal; refusing "
+                        "to touch either object")
+                removed, reason = _remove_owned_dir(dist, old_ident, old_fd)
+            finally:
+                os.close(old_fd)
+            if not removed:
+                die("frontend/dist removal failed; current build was NOT published: "
+                    + str(reason))
+
+        parent_fd = os.open(frontend, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            _rename_noclobber(os.path.basename(attempt), "dist", parent_fd)
+        except OSError as e:
+            die(f"current build output could not be published without replacing "
+                f"a concurrent frontend/dist ({type(e).__name__}: {e})")
+        finally:
+            os.close(parent_fd)
+        published = True
+        _forget_tempdir(attempt)
+        print(f"  built bundle: {js[0]}")
+        return js
+    finally:
+        if not published and not _discard_tempdir(attempt):
+            _report_undeleted(attempt)
 
 
 def _inv_counts(path_or_zip, member=None):
@@ -904,7 +992,7 @@ def plan(work, version):
 _TEMPDIRS = []
 
 
-def _owned_tempdir(prefix):
+def _owned_tempdir(prefix, directory=None):
     """Every temporary directory this tool creates goes through here.
 
     CLAUDE.md section 0: creating a path is a promise to remove it, and nothing
@@ -913,7 +1001,7 @@ def _owned_tempdir(prefix):
     prefix, so a bdcut_* sweep could not even see it), and the step-0 subject.
     Registration here is what makes main()'s finally able to remove them all.
     """
-    d = tempfile.mkdtemp(prefix=prefix)
+    d = tempfile.mkdtemp(prefix=prefix, dir=directory)
     _TEMPDIRS.append(d)
     try:
         fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

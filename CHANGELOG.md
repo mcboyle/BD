@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1157 - a build output must belong to this build
+
+Row 148. `bd-cut` no longer erases `frontend/dist` with an error-swallowing
+pathname removal and then accepts whichever hashed JavaScript name is present.
+
+Vite now writes into an empty, same-filesystem directory created and held by
+the current cut. The cut verifies that directory's creation identity plus a
+non-empty regular `index.html` and JavaScript asset before it touches the live
+bundle. It then removes the prior `dist` through the existing descriptor-bound
+remover and publishes with a no-clobber rename. A failed or partial removal, a
+symlink or concurrent replacement, an unreadable output, a successful command
+that emitted no expected output, and a failed Vite command all abort with the
+previous bundle unqualified as new output. Build failure preserves the previous
+served bundle; publication happens only after the current attempt verifies.
+
+RED at `40bbdb0`: six deterministic regressions, including complete and partial
+removal injections with nonzero counters, all failed against the old path. The
+same six pass with the repair and assert identities, bytes, provenance, exit
+behavior, diagnostics, and preservation of an outside symlink target.
+
 ## v3.66.1156 - the fleet record that claimed a clean tree it never looked at
 
 Doc-only. One backlog row, 159, and the version bump that carries it.

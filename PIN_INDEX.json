@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 58,
+    "total": 65,
     "version": 1,
-    "count_dict": 57,
-    "test_files_scanned": 1361,
+    "count_dict": 64,
+    "test_files_scanned": 1362,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -39,6 +39,7 @@
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
+      "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 7,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -222,7 +223,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1156",
+      "value": "3.66.1157",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -410,6 +411,72 @@
         "close": 1
       },
       "gates_what": "test_top_parent_close_baseexception_propagates_after_exact_removal"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 108,
+      "value": {
+        "vite": 1,
+        "remove": 1
+      },
+      "gates_what": "test_complete_dist_removal_failure_cannot_become_build_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 142,
+      "value": {
+        "vite": 1,
+        "partial": 1
+      },
+      "gates_what": "test_partial_removal_that_leaves_stale_hashed_assets_is_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 159,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_success_with_no_output_from_this_attempt_rejects_old_js_candidate"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 182,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_vite_failure_preserves_the_previous_dist_and_reports_stderr"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 198,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_clean_rebuild_publishes_only_attempt_output_with_new_identity"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 224,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_a_symlink_at_dist_is_refused_without_touching_its_target"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 260,
+      "value": {
+        "vite": 1,
+        "publish": 1
+      },
+      "gates_what": "test_concurrent_dist_replacement_is_not_clobbered_at_publish"
     },
     {
       "form": "count_dict",
