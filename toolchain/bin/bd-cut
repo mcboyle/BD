@@ -1109,48 +1109,40 @@ def _private_name(base):
 
 
 def _put_back(priv, name, fd):
-    """Return a foreign object to the name it was found under.
+    """Compatibility diagnostic; automatic pathname put-back is forbidden."""
+    return (" -- automatic put-back is unsafe and was not attempted; the "
+            "private entry %r was left untouched" % priv)
 
-    THIS CAN FAIL, and saying it cannot is how the undo became a second
-    destructive path. Measured against a re-created `name`: a non-empty
-    directory, a regular file and a symlink all make the undo raise, and an
-    EMPTY directory is silently destroyed by a plain rename. Where the object
-    cannot go back it is left under the private name and the caller SAYS SO --
-    an operator told "we refused to delete your directory" while it sits under
-    a name they have never seen has not been told anything.
-    """
-    try:
-        _rename_noclobber(priv, name, fd, allow_fallback=False)
-        return " (it was put back untouched)"
-    except Exception as _e:
-        # Exception, not OSError: this runs while an error is already being
-        # handled -- including at an exhausted stack -- and a raise here would
-        # replace the reason the caller is trying to report with its own.
-        return (" -- and it could NOT be put back (%s: %s); it is now named "
-                "%r in that directory and nothing else will collect it"
-                % (type(_e).__name__, _e, priv))
+
+def _add_note(error, note):
+    add = getattr(error, "add_note", None)
+    if add is not None: add(note)
 
 
 def _recover_private(priv, name, fd, error, expected=None, held=None, extra=""):
-    """Undo a private rename, preserving both the first error and any failure
-    to restore the public name."""
-    location = repr(priv); held_path = parent_path = None
+    """Report failed private-name work without a racy pathname put-back."""
+    if getattr(error, "__notes__", None): extra += " -- " + " -- ".join(error.__notes__)
+    location = "unavailable"; held_path = parent_path = None
     if held is not None:
         try:
-            hst = os.fstat(held); expected = expected or (hst.st_dev, hst.st_ino)
-            held_path = os.readlink("/proc/self/fd/%d" % held); parent_path = os.readlink("/proc/self/fd/%d" % fd); location = repr(held_path)
+            hst = os.fstat(held); held_ident = (hst.st_dev, hst.st_ino)
+            if expected is None: expected = held_ident
+            elif held_ident != expected: extra += " -- held descriptor identity %r does not match expected %r" % (held_ident, expected)
+            else:
+                held_path = os.readlink("/proc/self/fd/%d" % held); parent_path = os.readlink("/proc/self/fd/%d" % fd); location = repr(held_path)
         except OSError as e: extra += " -- held identity/location unavailable (%s)" % e
     try: pst = os.stat(priv, dir_fd=fd, follow_symlinks=False)
     except OSError as e:
-        diagnostic = (_put_back(priv, name, fd) if expected is not None and held_path is not None and os.path.normpath(held_path) == os.path.normpath(os.path.join(parent_path, priv)) else " -- private identity could not be verified (%s); owned object remains at %s" % (e, location))
+        diagnostic = " -- private identity could not be verified (%s); owned object location is %s" % (e, location)
     else:
-        diagnostic = (_put_back(priv, name, fd) if expected is not None and (pst.st_dev, pst.st_ino) == expected else " -- private name %r is a foreign identity; it was left untouched; owned object remains at %s" % (priv, location))
+        diagnostic = (" -- verified owned object remains at private name %r" % priv if expected is not None and (pst.st_dev, pst.st_ino) == expected else " -- private name %r is a foreign identity; it was left untouched; owned object location is %s" % (priv, location))
     if not isinstance(error, Exception):
+        try: _add_note(error, "private-name recovery: %s%s" % (diagnostic.lstrip(), extra))
+        except (AttributeError, TypeError): pass
         raise error
-    if diagnostic != " (it was put back untouched)":
-        raise _Refused(R_UNPROVEN, "%s: %s%s%s" % (type(error).__name__, error, diagnostic, extra)) from error
-    if extra: raise _Refused(R_UNPROVEN, "%s: %s%s" % (type(error).__name__, error, extra)) from error
-    raise error
+    code = error.code if isinstance(error, _Refused) else R_UNPROVEN
+    detail = error.detail if isinstance(error, _Refused) else "%s: %s" % (type(error).__name__, error)
+    raise _Refused(code, "%s%s%s" % (detail, diagnostic, extra)) from error
 
 
 def _walk_failed(e):
@@ -1183,7 +1175,7 @@ def _max_walk_depth():
     return max(50, (sys.getrecursionlimit() - 100) // 3)
 
 
-def _rmtree_fd(fd, dev, depth=0):
+def _rmtree_fd_legacy_disabled(fd, dev, depth=0):
     """Delete everything UNDER an open directory descriptor.
 
     READ ONCE, THEN ACT. Renaming entries while a readdir cursor is open is
@@ -1203,6 +1195,7 @@ def _rmtree_fd(fd, dev, depth=0):
     it had just read, so a directory renamed onto a child pathname mid-walk was
     entered and recursively emptied -- measured, victim inode nlink 0.
     """
+    raise RuntimeError("superseded unsafe remover must not be called")
     if depth > _max_walk_depth():
         raise _Refused(R_TOO_DEEP,
                        "the tree is deeper than this walk may safely recurse "
@@ -1221,7 +1214,9 @@ def _rmtree_fd(fd, dev, depth=0):
             anchor = None
             try: anchor = os.open(priv, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd)
             except OSError: pass
-            _recover_private(priv, entry.name, fd, e, want, anchor)
+            try: _recover_private(priv, entry.name, fd, e, want, anchor)
+            finally:
+                if anchor is not None: os.close(anchor)
         if (st.st_dev, st.st_ino) != want:
             raise _Refused(R_FOREIGN,
                            "%r is not the object this walk listed there%s"
@@ -1306,6 +1301,125 @@ def _rmtree_fd(fd, dev, depth=0):
             os.close(child)
 
 
+def _rmtree_fd(fd, dev, depth=0):
+    """Remove children through creation-bound descriptors, failing closed."""
+    if depth > _max_walk_depth():
+        raise _Refused(R_TOO_DEEP, "the tree is deeper than this walk may safely recurse")
+    for entry in list(os.scandir(fd)):
+        want = (dev, entry.inode())
+        priv = _private_name(entry.name)
+        anchor = child = None
+        relaxed, was = False, None
+
+        def close_once(value, label):
+            if value is None: return "", None
+            try:
+                os.close(value); return "", None
+            except BaseException as error:
+                return (" -- %s close failed; descriptor state is unknown (%s: %s)" %
+                        (label, type(error).__name__, error)), error
+
+        def held_location(value):
+            if value is None: return ""
+            try:
+                hst = os.fstat(value); got = (hst.st_dev, hst.st_ino)
+                if got != want:
+                    return " -- held identity %r does not match expected %r" % (got, want)
+                return " -- held owned object location is %r" % os.readlink("/proc/self/fd/%d" % value)
+            except OSError as error:
+                return " -- held owned-object location unavailable (%s)" % error
+
+        def close_then_raise(primary, value, label):
+            note, close_error = close_once(value, label)
+            if close_error is not None:
+                if isinstance(primary, Exception): raise _Refused(R_UNPROVEN, "%s: %s%s" % (type(primary).__name__, primary, note)) from primary
+                _add_note(primary, note.strip())
+            raise primary
+
+        def abort(primary):
+            nonlocal anchor, child
+            notes = held_location(child if child is not None else anchor)
+            if relaxed:
+                restore_fd = child if child is not None else anchor
+                try:
+                    if child is not None: os.fchmod(child, was)
+                    elif anchor is not None: os.chmod("/proc/self/fd/%d" % anchor, was)
+                    if stat.S_IMODE(os.fstat(restore_fd).st_mode) != was:
+                        raise OSError(errno.EIO, "restored mode did not verify")
+                except BaseException as error:
+                    notes += " -- mode restoration failed (%s: %s)" % (type(error).__name__, error)
+            value, child = child, None
+            note, _ = close_once(value, "readable descriptor"); notes += note
+            value, anchor = anchor, None
+            note, _ = close_once(value, "anchor descriptor"); notes += note
+            _recover_private(priv, entry.name, fd, primary, want, None, notes)
+
+        try:
+            anchor = os.open(entry.name, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd)
+            ast = os.fstat(anchor)
+            if (ast.st_dev, ast.st_ino) != want:
+                raise _Refused(R_FOREIGN, "%r changed before an ownership anchor was acquired" % entry.name)
+        except FileNotFoundError:
+            continue
+        except BaseException as error:
+            value, anchor = anchor, None; close_then_raise(error, value, "anchor descriptor")
+        try:
+            _rename_noclobber(entry.name, priv, fd)
+        except FileNotFoundError:
+            value, anchor = anchor, None; note, error = close_once(value, "anchor descriptor")
+            if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
+            continue
+        except BaseException as error:
+            value, anchor = anchor, None; close_then_raise(error, value, "anchor descriptor")
+        try:
+            pst = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        except BaseException as error:
+            abort(error)
+        if (pst.st_dev, pst.st_ino) != want:
+            abort(_Refused(R_FOREIGN, "%r is not the object this walk listed there" % entry.name))
+        if not stat.S_ISDIR(ast.st_mode):
+            before_links = ast.st_nlink
+            try:
+                os.unlink(priv, dir_fd=fd); after = os.fstat(anchor)
+                if ((after.st_dev, after.st_ino) != want or
+                        after.st_nlink != before_links - 1):
+                    raise _Refused(R_UNPROVEN, "unlink did not remove the held object")
+            except BaseException as error:
+                abort(error)
+            value, anchor = anchor, None
+            note, error = close_once(value, "anchor descriptor")
+            if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
+            continue
+        was = stat.S_IMODE(ast.st_mode); bound = "/proc/self/fd/%d" % anchor
+        try:
+            try: child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            except PermissionError:
+                relaxed = True; os.chmod(bound, 0o700)
+                child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            cst = os.fstat(child)
+            if (cst.st_dev, cst.st_ino) != want:
+                raise _Refused(R_FOREIGN, "%r changed before readable acquisition" % entry.name)
+        except BaseException as error:
+            abort(error)
+        value, anchor = anchor, None
+        note, error = close_once(value, "anchor descriptor")
+        if error is not None:
+            _add_note(error, note.strip()); abort(error)
+        try:
+            try: _rmtree_fd(child, cst.st_dev, depth + 1)
+            except PermissionError:
+                relaxed = True; os.fchmod(child, 0o700)
+                _rmtree_fd(child, cst.st_dev, depth + 1)
+            os.rmdir(priv, dir_fd=fd)
+            if os.fstat(child).st_nlink != 0:
+                raise _Refused(R_UNPROVEN, "the entry removed for %r was not the object held open" % entry.name)
+        except BaseException as error:
+            abort(error)
+        value, child = child, None
+        note, error = close_once(value, "readable descriptor")
+        if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
+
+
 def _remove_owned_dir(d, ident, held_fd=None):
     """Remove the directory whose identity is `ident`, or refuse.
 
@@ -1341,30 +1455,36 @@ def _remove_owned_dir(d, ident, held_fd=None):
                 return True, None
             return False, "%s %s" % (R_UNPROVEN, e)
         ours = True
+    was, relaxed = None, False
+    propagating = None
+
+    def _refuse(reason):
+        if relaxed and was is not None:
+            try:
+                os.fchmod(fd, was)
+                if stat.S_IMODE(os.fstat(fd).st_mode) != was: raise OSError(errno.EIO, "restored mode did not verify")
+            except BaseException as restore_error: reason += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
+        return False, reason
     try:
         st = os.fstat(fd)
         if (st.st_dev, st.st_ino) != ident:
             return False, ("%s the descriptor does not hold the directory "
                            "recorded at creation" % R_FOREIGN)
         was, relaxed = stat.S_IMODE(st.st_mode), False
+        try:
+            named = os.lstat(d)
+        except FileNotFoundError:
+            return _refuse("%s the owned directory is at %r, not its recorded "
+                           "name" % (R_RENAMED, _where(fd)))
+        except OSError as error:
+            return _refuse("%s the recorded directory name could not be "
+                           "identified (%s)" % (R_UNPROVEN, error))
+        if (named.st_dev, named.st_ino) != (st.st_dev, st.st_ino):
+            return _refuse("%s the recorded directory name is foreign and was "
+                           "left untouched; the owned directory is at %r"
+                           % (R_FOREIGN, _where(fd)))
 
-        def _refuse(reason):
-            # RESEAL ON EVERY PATH THAT LEAVES THE OBJECT BEHIND. Measured at
-            # 63be0464: the mode was put back on two of four refusal returns,
-            # so a directory reported as leaked was ALSO left more open than it
-            # was found on the other two. The nlink guard is what keeps this
-            # from chmod'ing an inode that is already gone.
-            # Unconditional: fchmod on an unlinked-but-open directory
-            # descriptor succeeds, so a "only if it still exists" guard here
-            # has no observable effect and no test can see it -- section 10's
-            # dead branch in the language of safety.
-            if relaxed:
-                try:
-                    os.fchmod(fd, was)
-                except OSError:
-                    pass
-            return False, reason
-
+        parent_propagating = None
         try:
             _rmtree_fd(fd, st.st_dev)
         except PermissionError:
@@ -1373,8 +1493,8 @@ def _remove_owned_dir(d, ident, held_fd=None):
             # opened here, so an in-tree hard link to an outside file can never
             # be reached by it.
             try:
-                os.fchmod(fd, 0o700)
                 relaxed = True
+                os.fchmod(fd, 0o700)
                 _rmtree_fd(fd, st.st_dev)
             except _Refused as r:
                 return _refuse(r.reason)
@@ -1386,6 +1506,11 @@ def _remove_owned_dir(d, ident, held_fd=None):
             return _refuse(r.reason)
         except OSError as e1:
             return _refuse("%s %s" % (R_UNPROVEN, e1))
+        except (KeyboardInterrupt, SystemExit, MemoryError) as e1:
+            _, reason = _refuse("%s %s: %s" %
+                                (R_UNPROVEN, type(e1).__name__, e1))
+            _add_note(e1, reason)
+            raise
         except Exception as e1:
             # NOT BaseException: KeyboardInterrupt must still be able to stop a
             # reap, and SystemExit must not be swallowed. RecursionError and
@@ -1412,23 +1537,48 @@ def _remove_owned_dir(d, ident, held_fd=None):
                 try: _recover_private(priv, name, pfd, e, ident, fd)
                 except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
             if (ent.st_dev, ent.st_ino) != ident:
-                return _refuse("%s the name %r held an object bd-cut did not "
-                               "create%s" % (R_FOREIGN, d,
-                                             _put_back(priv, name, pfd)))
+                return _refuse("%s the private name is foreign; it was left "
+                               "untouched and the owned root location is %r"
+                               % (R_FOREIGN, _where(fd)))
             try:
                 os.rmdir(priv, dir_fd=pfd)
             except OSError as e:
                 try: _recover_private(priv, name, pfd, e, ident, fd)
                 except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
+        except BaseException as escaped:
+            parent_propagating = escaped
+            raise
         finally:
-            os.close(pfd)
+            if parent_propagating is not None and relaxed:
+                try:
+                    os.fchmod(fd, was)
+                    if stat.S_IMODE(os.fstat(fd).st_mode) != was: raise OSError(errno.EIO, "restored mode did not verify")
+                except BaseException as restore_error: _add_note(parent_propagating, "mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error))
+            try: os.close(pfd)
+            except BaseException as close_error:
+                note = "parent descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
+                if parent_propagating is not None: _add_note(parent_propagating, note)
+                elif isinstance(close_error, Exception): return _refuse("%s %s" % (R_UNPROVEN, note))
+                else: raise
         if os.fstat(fd).st_nlink != 0:
             return _refuse("%s the entry removed was not the directory bd-cut "
                            "held open" % R_UNPROVEN)
         return True, None
+    except BaseException as escaped:
+        propagating = escaped
+        raise
     finally:
         if ours:
-            os.close(fd)
+            try: os.close(fd)
+            except BaseException as close_error:
+                note = "owned descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
+                if propagating is not None: _add_note(propagating, note)
+                elif isinstance(close_error, Exception):
+                    # The close may have succeeded and the number may already
+                    # denote a foreign object. Never restore through it.
+                    relaxed = False
+                    return _refuse("%s %s" % (R_UNPROVEN, note))
+                else: raise
 
 
 def _same_object(path, ident):

@@ -124,8 +124,6 @@ class _BdCut(_Subject):
         return d in self.m._TEMPDIRS
 
     def reset(self):
-        for d in list(self.m._TEMPDIRS):
-            _force_rm(d)
         self.m._TEMPDIRS[:] = []
         self.m._TEMPDIR_IDENT.clear()
         self.m._LAST_DISCARD_ERROR.clear()
@@ -152,8 +150,6 @@ class _Footguns(_Subject):
         return d in self.m._SANDBOX_IDENT
 
     def reset(self):
-        for d in list(self.m._SANDBOX_IDENT):
-            _force_rm(d)
         self.m._SANDBOX_IDENT.clear()
         for fd in list(getattr(self.m, "_SANDBOX_FD", {}).values()):
             with contextlib.suppress(OSError):
@@ -232,35 +228,96 @@ def subject(request):
     # leaves its sibling outside anything pytest reclaims -- and a battery
     # about leaked directories that leaks directories is CLAUDE.md section 0's
     # "the fix reproduces the shape of the defect", one file from the defect.
-    made = []
+    records = []
+    renamed_records = []
+    s._ledger_fds = set()
     orig_make = s.make
+    orig_rename = s.m._rename_noclobber
+    ledger_stat = os.stat
+
+    def record_fd(fd):
+        st = os.fstat(fd)
+        records.append((fd, (st.st_dev, st.st_ino)))
+        s._ledger_fds.add(fd)
+
+    def rename_noclobber(old, new, dir_fd, *args, **kwargs):
+        result = orig_rename(old, new, dir_fd, *args, **kwargs)
+        try:
+            st = ledger_stat(new, dir_fd=dir_fd, follow_symlinks=False)
+            parent = os.fstat(dir_fd)
+            parent_path = os.readlink("/proc/self/fd/%d" % dir_fd)
+            if parent_path.endswith(" (deleted)"):
+                raise OSError(errno.ENOENT,
+                              "renamed-object parent has no linked path")
+            renamed_records.append((parent_path,
+                                    (parent.st_dev, parent.st_ino),
+                                    os.fsdecode(new), (st.st_dev, st.st_ino)))
+        except OSError as error:
+            raise AssertionError("could not record renamed-object identity: %s"
+                                 % error) from error
+        return result
 
     def make():
         d = orig_make()
-        made.extend([d, d + ".moved", d + ".hidden"])
+        record_fd(os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW))
         return d
     s.make = make
-    s.also = made.append
+    s.also = lambda _path: None
+    s.m._rename_noclobber = rename_noclobber
     try:
         yield s
     finally:
+        s.m._rename_noclobber = orig_rename
         s.reset()
-        # AND EVERY PRIVATE NAME DERIVED FROM THEM. Several tests here swap an
-        # object at the `<name>.bdrm-<hex>` the remover generates, so the
-        # residue is named after something the test never chose and cannot
-        # predict. Measured under KEEP_TEST_TMPDIRS=1: per-test isolation
-        # showed zero and the whole FILE leaked 3, which is what a
-        # per-test-only teardown looks like from the outside.
-        for d in made:
-            _force_rm(d)
-            parent, base = os.path.dirname(d), os.path.basename(d)
+        failures = []
+        for observer, expected in reversed(records):
             try:
-                siblings = os.listdir(parent)
-            except OSError:
+                st = os.fstat(observer)
+                if (st.st_dev, st.st_ino) != expected:
+                    failures.append("observer identity changed: %r != %r" %
+                                    ((st.st_dev, st.st_ino), expected))
+                    continue
+                if st.st_nlink == 0:
+                    continue
+                current = os.readlink("/proc/self/fd/%d" % observer)
+                if current.endswith(" (deleted)"):
+                    failures.append("linked object has deleted fd path: %r" % current)
+                    continue
+                now = os.lstat(current)
+                if (now.st_dev, now.st_ino) != expected:
+                    failures.append("path identity changed at %r" % current)
+                    continue
+                _force_rm(current)
+            except OSError as error:
+                failures.append("exact teardown failed: %s" % error)
+            finally:
+                with contextlib.suppress(OSError):
+                    os.close(observer)
+        for parent_path, parent_ident, name, expected in reversed(renamed_records):
+            child = os.path.join(parent_path, name)
+            try:
+                parent = os.lstat(parent_path)
+            except FileNotFoundError:
                 continue
-            for sib in siblings:
-                if sib.startswith(base) and ".bdrm-" in sib:
-                    _force_rm(os.path.join(parent, sib))
+            except OSError as error:
+                failures.append("recorded parent could not be checked: %s" % error)
+                continue
+            if (parent.st_dev, parent.st_ino) != parent_ident:
+                failures.append("recorded parent identity changed at %r" % parent_path)
+                continue
+            try:
+                now = os.lstat(child)
+            except FileNotFoundError:
+                continue
+            except OSError as error:
+                failures.append("recorded private path could not be checked: %s" % error)
+                continue
+            if (now.st_dev, now.st_ino) != expected:
+                failures.append("recorded private identity changed at %r" % child)
+                continue
+            _force_rm(child)
+        s._ledger_fds.clear()
+        assert not failures, "; ".join(failures)
 
 
 def test_tmproot_failed_path_accounting_is_exact(tmp_path):
@@ -406,6 +463,121 @@ def _find_by_ident(parent, ident):
         except OSError:
             continue
     return None
+
+
+def _fds_for_ident(ident):
+    """Open descriptor numbers currently bound to one exact object."""
+    found = set()
+    for name in os.listdir("/proc/self/fd"):
+        try:
+            fd = int(name)
+            st = os.fstat(fd)
+        except (OSError, ValueError):
+            continue
+        if (st.st_dev, st.st_ino) == ident:
+            found.add(fd)
+    return found
+
+
+def test_recovery_validation_cannot_move_a_later_foreign_replacement(subject,
+                                                                      tmp_path):
+    """A pathname check cannot authorize the later pathname rename.
+
+    The spy substitutes B only after the recovery helper has observed A at
+    the private name.  A correct implementation must not subsequently move B
+    to the public name and call that restoration of A.
+    """
+    arena = tmp_path / "recovery-race"
+    arena.mkdir()
+    public = arena / "owned"
+    private = arena / "owned.bdrm-test"
+    held = arena / "held-owned"
+    foreign_source = arena / "foreign-source"
+    public.write_text("owned")
+    foreign_source.write_text("foreign")
+    os.rename(public, private)
+    owned_ident = _ident(private)
+    foreign_ident = _ident(foreign_source)
+    owned_fd = os.open(private, os.O_PATH | os.O_NOFOLLOW)
+    parent_fd = os.open(arena, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    real_stat = os.stat
+    fired = {"validated": 0, "substituted": 0}
+
+    def stat_spy(path, *args, dir_fd=None, follow_symlinks=True, **kwargs):
+        st = real_stat(path, *args, dir_fd=dir_fd,
+                       follow_symlinks=follow_symlinks, **kwargs)
+        if (fired["validated"] == 0 and dir_fd == parent_fd and
+                str(path) == private.name and
+                (st.st_dev, st.st_ino) == owned_ident):
+            fired["validated"] += 1
+            os.rename(private.name, held.name,
+                      src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+            os.rename(foreign_source.name, private.name,
+                      src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+            fired["substituted"] += 1
+        return st
+
+    subject.m.os.stat = stat_spy
+    try:
+        with pytest.raises(Exception):
+            subject.m._recover_private(private.name, public.name, parent_fd,
+                                       OSError(errno.EIO, "injected primary"),
+                                       owned_ident, owned_fd)
+    finally:
+        subject.m.os.stat = real_stat
+        os.close(parent_fd)
+        os.close(owned_fd)
+
+    assert fired == {"validated": 1, "substituted": 1}, fired
+    assert _ident(private) == foreign_ident
+    assert private.read_text() == "foreign"
+    assert _ident(held) == owned_ident
+    assert held.read_text() == "owned"
+    assert not public.exists(), (
+        "recovery moved a replacement that arrived after validation")
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "directory"])
+def test_post_rename_stat_failure_does_not_leak_a_recovery_anchor(subject,
+                                                                  tmp_path,
+                                                                  kind):
+    """Every descriptor acquired after a private rename has one owner."""
+    d = subject.make()
+    child = os.path.join(d, "child")
+    if kind == "directory":
+        os.mkdir(child)
+    elif kind == "symlink":
+        target = tmp_path / "target"
+        target.write_text("target")
+        os.symlink(target, child)
+    else:
+        pathlib.Path(child).write_text("payload")
+    child_ident = _ident(child)
+    baseline = _fds_for_ident(child_ident)
+    real_stat = subject.m.os.stat
+    fired = {"n": 0}
+
+    def stat_spy(path, *args, dir_fd=None, follow_symlinks=True, **kwargs):
+        st = real_stat(path, *args, dir_fd=dir_fd,
+                       follow_symlinks=follow_symlinks, **kwargs)
+        if (fired["n"] == 0 and dir_fd is not None and
+                (st.st_dev, st.st_ino) == child_ident):
+            fired["n"] += 1
+            raise OSError(errno.EIO, "injected post-rename stat failure")
+        return st
+
+    subject.m.os.stat = stat_spy
+    try:
+        assert subject.discard(d) is False
+        after = _fds_for_ident(child_ident) - subject._ledger_fds
+    finally:
+        subject.m.os.stat = real_stat
+
+    assert fired["n"] == 1, "identity-keyed stat injection never fired"
+    assert after == baseline, (
+        "post-rename stat recovery leaked an object-bound descriptor: "
+        f"before={baseline}, after={after}")
+    assert "injected post-rename stat failure" in subject.reason(d)
 
 
 # ==========================================================================
@@ -580,6 +752,39 @@ def test_an_owned_directory_renamed_away_is_a_reported_failure(subject):
             "only record that it exists")
     finally:
         _force_rm(moved)
+
+
+def test_a_known_foreign_top_name_is_never_moved_by_held_root_cleanup(subject):
+    """A held owned inode does not authorize touching its stale public name."""
+    d = subject.make()
+    owned = _ident(d)
+    _payload(d, body="owned top payload")
+    moved = d + ".owned-elsewhere"
+    os.rename(d, moved)
+    os.mkdir(d)
+    foreign = _ident(d)
+    _payload(d, body="foreign top payload")
+    foreign_fd = os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        got = subject.discard(d)
+        assert got is False
+        assert _ident(d) == foreign, "the known foreign public object was moved"
+        assert pathlib.Path(d, "loot.txt").read_text() == "foreign top payload"
+        assert _ident(moved) == owned
+        assert pathlib.Path(moved, "loot.txt").read_text() == "owned top payload"
+        assert subject.failure_is_accounted_for(d)
+        why = subject.reason(d)
+        assert R_FOREIGN in why and moved in why, why[-400:]
+    finally:
+        try:
+            st = os.fstat(foreign_fd)
+            if st.st_nlink:
+                current = os.readlink("/proc/self/fd/%d" % foreign_fd)
+                now = os.lstat(current)
+                assert (now.st_dev, now.st_ino) == foreign
+                _force_rm(current)
+        finally:
+            os.close(foreign_fd)
 
 
 def test_an_unrelated_object_reusing_the_freed_name_is_not_a_failure(subject):
@@ -779,19 +984,19 @@ def test_a_directory_left_behind_is_left_no_less_protected(subject, where):
         "has no relaxation to check was undone")
     assert fired["n"] >= 1, "the failure was never injected -- nothing tested"
     assert got is False
-    after = stat.S_IMODE(os.lstat(target).st_mode) if os.path.lexists(target) else None
+    search_parent = os.path.dirname(d) if where == "top" else d
+    survivor = _find_by_ident(search_parent, doomed_id)
+    after = (stat.S_IMODE(os.lstat(survivor).st_mode)
+             if survivor is not None else None)
     assert after is not None, "the object was removed despite the injected failure"
     assert after == before, (
         f"a directory reported as NOT REMOVED was left at {oct(after)}; it was "
         f"{oct(before)} and nothing removed it, so the relaxation this "
         "remover applied as a retry was never undone")
-    subprocess.run(["chmod", "-R", "u+rwx", d], capture_output=True)
 
 
-def test_child_open_denial_restores_the_validated_private_rename(subject):
-    """A child renamed for descriptor-bound removal must be put back if its
-    descriptor cannot be acquired.  The injection follows the child's inode,
-    so the private rename cannot make the denominator disappear."""
+def test_child_open_denial_retains_the_validated_private_object(subject):
+    """A failed readable acquisition leaves an honestly reported residue."""
     d = subject.make()
     child = os.path.join(d, "child")
     payload = os.path.join(child, "payload")
@@ -802,9 +1007,9 @@ def test_child_open_denial_restores_the_validated_private_rename(subject):
     real_open, fired = os.open, {"n": 0}
 
     def deny_child_open(path, flags, mode=0o777, *, dir_fd=None):
-        if dir_fd is not None and ".bdrm-" in os.fsdecode(path):
+        if str(path).startswith("/proc/self/fd/"):
             try:
-                st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+                st = os.fstat(int(str(path).rsplit("/", 1)[1]))
             except OSError:
                 pass
             else:
@@ -823,11 +1028,11 @@ def test_child_open_denial_restores_the_validated_private_rename(subject):
     assert fired["n"] >= 1, (
         "the recorded child identity was never denied after its private rename")
     assert got is False
-    assert _ident(child) == child_ident
-    with open(payload, "rb") as f:
+    survivor = _find_by_ident(d, child_ident)
+    assert survivor is not None and survivor != child
+    with open(os.path.join(survivor, "payload"), "rb") as f:
         assert f.read() == b"child-open payload"
-    assert not any(name.startswith("child.bdrm-") for name in os.listdir(d)), (
-        "the failed descriptor acquisition stranded a private child name")
+    assert os.path.basename(survivor) in subject.reason(d)
     assert subject.failure_is_accounted_for(d)
     assert "injected child-open denial" in subject.reason(d), subject.reason(d)[-300:]
 
@@ -863,7 +1068,7 @@ def test_an_unreadable_owned_child_is_removed_by_object_identity(subject, mode):
     assert held_after.st_nlink == 0
 
 
-def test_post_rename_stat_failure_restores_the_owned_child(subject):
+def test_post_rename_stat_failure_retains_the_owned_child(subject):
     d = subject.make()
     child = os.path.join(d, "child")
     payload = os.path.join(child, "payload")
@@ -892,10 +1097,10 @@ def test_post_rename_stat_failure_restores_the_owned_child(subject):
 
     assert fired["n"] >= 1, "the recorded private child was never denied stat"
     assert got is False
-    assert _ident(child) == child_ident
-    with open(payload, "rb") as f:
+    survivor = _find_by_ident(d, child_ident)
+    assert survivor is not None and survivor != child
+    with open(os.path.join(survivor, "payload"), "rb") as f:
         assert f.read() == b"stat-denial payload"
-    assert not any(name.startswith("child.bdrm-") for name in os.listdir(d))
     assert subject.failure_is_accounted_for(d)
     assert "injected post-rename stat denial" in subject.reason(d), subject.reason(d)[-300:]
 
@@ -911,20 +1116,20 @@ def test_child_open_denial_reports_a_foreign_original_and_private_owned_child(su
     real_open, fired, foreign = os.open, {"n": 0}, {}
 
     def deny_after_foreign_arrives(path, flags, mode=0o777, *, dir_fd=None):
-        if dir_fd is not None and ".bdrm-" in os.fsdecode(path):
-            st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+        if str(path).startswith("/proc/self/fd/"):
+            st = os.fstat(int(str(path).rsplit("/", 1)[1]))
             if (st.st_dev, st.st_ino) == owned_ident:
                 fired["n"] += 1
                 if not foreign:
-                    os.mkdir("child", dir_fd=dir_fd)
-                    foreign_fd = real_open("child/foreign-payload",
+                    os.mkdir(child)
+                    foreign_fd = real_open(os.path.join(child, "foreign-payload"),
                                            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                                           0o600, dir_fd=dir_fd)
+                                           0o600)
                     try:
                         os.write(foreign_fd, b"foreign child")
                     finally:
                         os.close(foreign_fd)
-                    fst = os.stat("child", dir_fd=dir_fd, follow_symlinks=False)
+                    fst = os.stat(child, follow_symlinks=False)
                     foreign["ident"] = (fst.st_dev, fst.st_ino)
                 raise PermissionError(errno.EACCES,
                                       "injected child-open denial with foreign original")
@@ -988,13 +1193,14 @@ def test_failure_after_unreadable_child_relaxation_restores_exact_mode(subject):
     assert fired["n"] >= 1, "the relaxed child descriptor never reached the walk"
     assert all(mode == 0o700 for mode in observed_modes), observed_modes
     assert got is False
-    assert _ident(child) == child_ident
-    assert stat.S_IMODE(os.lstat(child).st_mode) == original_mode
+    survivor = _find_by_ident(d, child_ident)
+    assert survivor is not None
+    assert stat.S_IMODE(os.lstat(survivor).st_mode) == original_mode
     assert subject.failure_is_accounted_for(d)
     assert "injected failure after child relaxation" in subject.reason(d), subject.reason(d)[-300:]
 
 
-def test_top_level_post_rename_stat_failure_restores_owned_root(subject):
+def test_top_level_post_rename_stat_failure_reports_private_owned_root(subject):
     d = subject.make()
     ident = _ident(d)
     _payload(d, body="top stat payload")
@@ -1017,8 +1223,9 @@ def test_top_level_post_rename_stat_failure_restores_owned_root(subject):
         os.stat, subject.m._rmtree_fd = real_stat, real_walk
     assert fired["n"] == 1
     assert got is False
-    assert _ident(d) == ident
-    assert not any(".bdrm-" in n for n in os.listdir(os.path.dirname(d)))
+    survivor = _find_by_ident(os.path.dirname(d), ident)
+    assert survivor is not None and survivor != d
+    assert os.path.basename(survivor) in subject.reason(d)
     assert "injected top private stat failure" in subject.reason(d)
 
 
@@ -1050,7 +1257,58 @@ def test_top_level_rmdir_collision_reports_private_owned_root(subject):
     assert private[0] in subject.reason(d)
 
 
-def test_private_file_unlink_failure_restores_exact_file(subject):
+@pytest.mark.parametrize("stage", ["stat", "rmdir"])
+def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
+    d = subject.make()
+    ident = _ident(d)
+    _payload(d, body="top interrupt payload")
+    os.chmod(d, 0o500)
+    real_walk = subject.m._rmtree_fd
+    real_stat, real_rmdir = os.stat, os.rmdir
+    walked, fired = {"n": 0}, {"n": 0}
+
+    def force_relax(fd, dev, depth=0):
+        st = os.fstat(fd)
+        assert (st.st_dev, st.st_ino) == ident
+        walked["n"] += 1
+        if walked["n"] == 1:
+            raise PermissionError(errno.EACCES, "force top relaxation")
+
+    def interrupt_stat(path, *args, **kwargs):
+        st = real_stat(path, *args, **kwargs)
+        if (stage == "stat" and fired["n"] == 0 and
+                kwargs.get("dir_fd") is not None and
+                (st.st_dev, st.st_ino) == ident):
+            fired["n"] += 1
+            raise KeyboardInterrupt("injected top private stat interrupt")
+        return st
+
+    def interrupt_rmdir(path, *args, **kwargs):
+        st = real_stat(path, dir_fd=kwargs.get("dir_fd"),
+                       follow_symlinks=False)
+        if (stage == "rmdir" and fired["n"] == 0 and
+                (st.st_dev, st.st_ino) == ident):
+            fired["n"] += 1
+            raise KeyboardInterrupt("injected top private rmdir interrupt")
+        return real_rmdir(path, *args, **kwargs)
+
+    subject.m._rmtree_fd = force_relax
+    os.stat, os.rmdir = interrupt_stat, interrupt_rmdir
+    try:
+        with pytest.raises(KeyboardInterrupt, match=f"injected top private {stage} interrupt"):
+            subject.discard(d)
+    finally:
+        subject.m._rmtree_fd = real_walk
+        os.stat, os.rmdir = real_stat, real_rmdir
+    survivor = _find_by_ident(os.path.dirname(d), ident)
+    assert walked["n"] == 2 and fired["n"] == 1
+    assert survivor is not None and survivor != d
+    assert stat.S_IMODE(os.lstat(survivor).st_mode) == 0o500
+    assert pathlib.Path(survivor, "loot.txt").read_text() == "top interrupt payload"
+    assert subject.failure_is_accounted_for(d)
+
+
+def test_private_file_unlink_failure_retains_exact_file(subject):
     d = subject.make()
     p = _payload(d, name="owned-file", body="owned bytes")
     ident = _ident(p)
@@ -1069,8 +1327,9 @@ def test_private_file_unlink_failure_restores_exact_file(subject):
     finally:
         os.unlink = real_unlink
     assert fired["n"] == 1 and got is False
-    assert _ident(p) == ident and pathlib.Path(p).read_text() == "owned bytes"
-    assert not any(n.startswith("owned-file.bdrm-") for n in os.listdir(d))
+    survivor = _find_by_ident(d, ident)
+    assert survivor is not None and pathlib.Path(survivor).read_text() == "owned bytes"
+    assert os.path.basename(survivor) in subject.reason(d)
     assert "injected private file unlink failure" in subject.reason(d)
 
 
@@ -1105,7 +1364,7 @@ def test_recovery_refuses_a_foreign_replacement_of_private_name(subject):
     assert evidence["private"] in subject.reason(d) or evidence["held"] in subject.reason(d)
 
 
-def test_anchor_close_failure_recovers_and_closes_readable_descriptor(subject):
+def test_anchor_close_failure_reports_residue_and_closes_readable_descriptor(subject):
     d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
     ident = _ident(child)
     real_open, real_close, anchors, fired = os.open, os.close, set(), {"n": 0}
@@ -1134,12 +1393,133 @@ def test_anchor_close_failure_recovers_and_closes_readable_descriptor(subject):
             st = os.fstat(int(n))
             if (st.st_dev, st.st_ino) == ident: leaked.append(int(n))
     assert fired["n"] == 1 and got is False
-    assert not leaked, leaked
-    assert _ident(child) == ident
+    assert not (set(leaked) - subject._ledger_fds), leaked
+    survivor = _find_by_ident(d, ident)
+    assert survivor is not None and survivor != child
     assert "injected anchor close failure" in subject.reason(d)
 
 
-def test_interrupt_after_real_relaxation_restores_mode_and_name(subject):
+def test_anchor_close_failure_with_unknown_close_state_is_honest(subject):
+    """A close error is consumed once; its fd number is never retried."""
+    d = subject.make()
+    child = os.path.join(d, "child")
+    os.mkdir(child)
+    _payload(child)
+    ident = _ident(child)
+    real_open, real_close = os.open, os.close
+    anchors, fired = set(), {"n": 0}
+
+    def spy_open(path, flags, mode=0o777, *, dir_fd=None):
+        opened = real_open(path, flags, mode, dir_fd=dir_fd)
+        if flags & getattr(os, "O_PATH", 0):
+            st = os.fstat(opened)
+            if (st.st_dev, st.st_ino) == ident:
+                anchors.add(opened)
+        return opened
+
+    def fail_without_closing(fd):
+        if fd in anchors and fired["n"] == 0:
+            fired["n"] += 1
+            raise OSError(errno.EIO, "injected close state unknown")
+        return real_close(fd)
+
+    os.open, os.close = spy_open, fail_without_closing
+    try:
+        got = subject.discard(d)
+    finally:
+        os.open, os.close = real_open, real_close
+    still_open = sorted((anchors & _fds_for_ident(ident)) - subject._ledger_fds)
+    try:
+        assert fired["n"] == 1
+        assert got is False
+        assert len(still_open) == 1, still_open
+        why = subject.reason(d)
+        assert "injected close state unknown" in why
+        assert "descriptor state is unknown" in why
+    finally:
+        for fd in still_open:
+            real_close(fd)
+
+
+def test_reopened_root_close_failure_never_restores_mode_through_recycled_fd(subject):
+    """A close error makes its numeric fd unusable as restoration authority."""
+    d = subject.make()
+    ident, original_mode = _ident(d), 0o500
+    os.chmod(d, original_mode)
+    if subject.name == "bd-cut":
+        recorded_fd = subject.m._TEMPDIR_FD.pop(d)
+    elif subject.name == "bd-footguns":
+        recorded_fd = subject.m._SANDBOX_FD.pop(d)
+    else:
+        recorded_fd = subject.m._ROOT_FD
+        subject.m._ROOT_FD = subject.m._ROOT_FD_PATH = None
+    os.close(recorded_fd)
+
+    foreign = d + ".foreign-close-reuse"
+    os.mkdir(foreign, 0o700)
+    foreign_ident = _ident(foreign)
+    real_walk, real_close = subject.m._rmtree_fd, os.close
+    walked, closed, recycled = {"n": 0}, {"n": 0}, {"fd": None}
+
+    def force_top_relaxation(fd, dev, depth=0):
+        st = os.fstat(fd)
+        assert (st.st_dev, st.st_ino) == ident
+        walked["n"] += 1
+        if walked["n"] == 1:
+            raise PermissionError(errno.EACCES, "force reopened-root relaxation")
+
+    def close_then_recycle(fd):
+        st = os.fstat(fd)
+        if ((st.st_dev, st.st_ino) == ident and closed["n"] == 0):
+            closed["n"] += 1
+            real_close(fd)
+            replacement = os.open(
+                foreign, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            assert replacement == fd, (
+                f"fixture: descriptor {fd} was not immediately recycled; "
+                f"got {replacement}")
+            recycled["fd"] = replacement
+            os.rmdir(foreign)
+            raise OSError(errno.EIO, "injected reopened-root close failure")
+        return real_close(fd)
+
+    subject.m._rmtree_fd, os.close = force_top_relaxation, close_then_recycle
+    try:
+        got = subject.discard(d)
+    finally:
+        subject.m._rmtree_fd, os.close = real_walk, real_close
+    try:
+        assert walked["n"] == 2
+        assert closed["n"] == 1
+        assert recycled["fd"] is not None
+        after = os.fstat(recycled["fd"])
+        assert (after.st_dev, after.st_ino) == foreign_ident
+        assert stat.S_IMODE(after.st_mode) == 0o700, (
+            "cleanup restored the owned root's mode through a recycled foreign fd")
+        assert got is False
+        assert "injected reopened-root close failure" in subject.reason(d)
+        assert subject.failure_is_accounted_for(d)
+    finally:
+        if recycled["fd"] is not None:
+            real_close(recycled["fd"])
+
+
+def test_success_removes_the_exact_top_level_inode(subject):
+    d = subject.make()
+    ident = _ident(d)
+    held = os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        got = subject.discard(d)
+        after = os.fstat(held)
+    finally:
+        os.close(held)
+    assert got is True, subject.reason(d)
+    assert (after.st_dev, after.st_ino) == ident
+    assert after.st_nlink == 0
+    assert not subject.failure_is_accounted_for(d)
+
+
+def test_interrupt_after_real_relaxation_restores_mode_and_reports_name(subject):
     d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
     ident, mode = _ident(child), 0o100; os.chmod(child, mode)
     real_chmod, fired = os.chmod, {"n": 0}
@@ -1159,8 +1539,9 @@ def test_interrupt_after_real_relaxation_restores_mode_and_name(subject):
             subject.discard(d)
     finally:
         os.chmod = real_chmod
-    assert fired["n"] == 1 and _ident(child) == ident
-    assert stat.S_IMODE(os.lstat(child).st_mode) == mode
+    survivor = _find_by_ident(d, ident)
+    assert fired["n"] == 1 and survivor is not None
+    assert stat.S_IMODE(os.lstat(survivor).st_mode) == mode
 
 
 def test_mode_restoration_failure_is_reported(subject):
@@ -1206,7 +1587,8 @@ def test_later_readable_open_failure_restores_unreadable_child(subject):
     try: got = subject.discard(d)
     finally: os.open = real_open
     assert fired["n"] == 1 and got is False
-    assert _ident(child) == ident and stat.S_IMODE(os.lstat(child).st_mode) == mode
+    survivor = _find_by_ident(d, ident)
+    assert survivor is not None and stat.S_IMODE(os.lstat(survivor).st_mode) == mode
     assert "injected later readable open failure" in subject.reason(d)
 
 
@@ -1896,16 +2278,10 @@ def test_a_legal_multibyte_filename_does_not_defeat_the_removal(subject, tmp_pat
     assert not os.path.lexists(d)
 
 
-def test_a_tree_too_deep_leaves_no_private_name_behind(subject):
-    """ESCAPE 2. The walk refused correctly and then left a `<name>.bdrm-<hex>`
-    inside the tree it was reporting, because the restoring rename runs at the
-    SAME exhausted stack that caused the refusal -- measured at depth 497 in
-    all three removers, with `_put_back`'s own comment promising otherwise.
-
-    Bounding the walk below the interpreter's limit is what fixes it: the
-    refusal now happens while there is still stack for the undo.
-    """
+def test_a_tree_too_deep_reports_its_verified_private_residue(subject):
+    """Depth refusal retains the object instead of attempting racy undo."""
     d = subject.make()
+    root_ident = _ident(d)
     cur, depth = d, 0
     try:
         while depth < 1200:
@@ -1916,15 +2292,15 @@ def test_a_tree_too_deep_leaves_no_private_name_behind(subject):
         pass
     assert depth > 800, f"only built {depth} levels -- too shallow to test"
     got = subject.discard(d)
-    residue = subprocess.run(["find", d, "-name", "*.bdrm-*"],
-                             capture_output=True, text=True).stdout.split()
-    subprocess.run(["find", d, "-depth", "-type", "d", "-delete"],
-                   capture_output=True)
-    _force_rm(d)
-    assert got is False
-    assert not residue, (
-        "the refusal left the tree holding a private name the operator has "
-        f"never seen and no sweep looks for: {residue[:3]}")
+    try:
+        assert got is False
+        first = next(name for name in os.listdir(d) if ".bdrm-" in name)
+        assert first in subject.reason(d), subject.reason(d)[-400:]
+        assert R_TOO_DEEP in subject.reason(d), subject.reason(d)[-400:]
+    finally:
+        assert _ident(d) == root_ident
+        subprocess.run(["find", d, "-depth", "-type", "d", "-delete"],
+                       check=True, capture_output=True)
 
 
 def test_the_undo_refuses_rather_than_clobbering_where_it_cannot_guarantee(subject, tmp_path):
@@ -2314,12 +2690,8 @@ def test_an_unidentifiable_dangling_name_is_refused_not_forgotten(subject, tmp_p
     assert R_NO_IDENT in why, why[-200:]
 
 
-def test_the_undo_call_site_itself_refuses_to_clobber(subject, tmp_path):
-    """N26. The previous test proved `_rename_noclobber(..., allow_fallback=
-    False)` refuses; it did not prove the UNDO passes that argument. Dropping
-    it at the call site left the band green -- the guard was tested, its one
-    caller was not, which is the seam-versus-component gap CLAUDE.md section 10
-    records for bd-jobs."""
+def test_the_retired_undo_call_site_never_mutates(subject, tmp_path):
+    """The compatibility helper is diagnostic-only, never a rename seam."""
     saved = subject.m._SYS_renameat2
     arena = tempfile.mkdtemp(prefix="undosite1154_", dir=str(tmp_path))
     os.mkdir(os.path.join(arena, "victim"))
@@ -2332,7 +2704,7 @@ def test_the_undo_call_site_itself_refuses_to_clobber(subject, tmp_path):
         assert _ident(os.path.join(arena, "victim")) == victim, (
             "the undo replaced the object standing at the restored name -- "
             "the destruction this cut exists to remove, in its error handler")
-        assert "could NOT be put back" in note, note
+        assert "was not attempted" in note, note
         assert ".bdrm-" in note, (
             "the refusal does not name where the object was left, so it cannot "
             f"be recovered: {note}")
