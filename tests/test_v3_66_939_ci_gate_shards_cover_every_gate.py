@@ -154,6 +154,12 @@ _DECLARED = {
     # the matrix runs against all THREE removers so a drift between the copies
     # is red rather than being a fourth implementation nobody compares.
     "tests/test_v3_66_1154_the_object_not_the_name.py",
+    # @1157. Ninth module-scoped safety boundary. Row 148 is another silent
+    # green: stale or concurrently replaced hashed output can look like a new
+    # Vite build unless cleanup authorization and final publication identity
+    # are both bound. A diff-derived local band is not CI execution, so keep
+    # this production-path regression in the toolchain shard explicitly.
+    "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

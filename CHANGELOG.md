@@ -29,7 +29,9 @@ first candidate. Four further cases bind the published inode and fail closed on
 missing, malformed, or unknown artifact evidence. All fifteen pass with the
 repair and assert identities, bytes,
 provenance, exit behavior, diagnostics, and preservation of an outside symlink
-target.
+target. The focused production-path file is pinned into CI's toolchain shard;
+an exact-head green run therefore executes the row-148 regression itself, not
+only generic release and generated-artifact gates.
 
 ## v3.66.1156 - the fleet record that claimed a clean tree it never looked at
 
