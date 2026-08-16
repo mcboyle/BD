@@ -29,7 +29,12 @@ cannot manufacture success without the measured facts. `manifest.json` records
 the exact checkout and whether provenance was required; `summary.json` records
 the parsed commit, dirty state, and checkout per host.
 
-Thirteen hermetic production-path regressions execute the real wrapper locally
+Writing the provenance record is itself an authorization gate. If the output
+artifact cannot accept the complete record (for example, ENOSPC), the wrapper
+reports the publication phase on stderr, exits nonzero, and never starts the
+payload.
+
+Fourteen hermetic production-path regressions execute the real wrapper locally
 against disposable Git repositories or injected Git failure, and drive the
 real coordinator with injected non-network runners. The direct legacy RED
 reproduced `commit=unknown dirty=0` followed by payload execution from a

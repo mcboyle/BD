@@ -484,7 +484,9 @@ def wrap_command(command: str, record_commit: bool,
         f"|| {{ {unknown}; }}; "
         "bd_fleet_dirty=clean; [ -z \"$bd_fleet_status\" ] || bd_fleet_dirty=dirty; "
         "printf 'bd-fleet-run: commit=%s dirty=%s repo=%s\\n' "
-        "\"$bd_fleet_commit\" \"$bd_fleet_dirty\" \"$bd_fleet_repo\"; "
+        "\"$bd_fleet_commit\" \"$bd_fleet_dirty\" \"$bd_fleet_repo\" "
+        "|| { printf 'bd-fleet-run: provenance publication failed for %s\\n' "
+        "\"$bd_fleet_repo\" >&2; exit 86; }; "
         + command)
 
 

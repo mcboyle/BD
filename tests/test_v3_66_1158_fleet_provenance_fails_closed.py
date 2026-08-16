@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 
 
@@ -124,6 +125,33 @@ def test_inherited_git_repository_overrides_cannot_select_another_subject(tmp_pa
         f"bd-fleet-run: commit={intended_head} dirty=clean repo={intended}",
         "COMMAND_RAN",
     ]
+
+
+def test_unpublishable_provenance_does_not_authorize_the_payload(tmp_path):
+    mod = _load()
+    repo, _ = _repo(tmp_path)
+    marker = tmp_path / "payload-ran"
+    probe = subprocess.run(
+        ["bash", "-c", "printf probe >/dev/full"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert probe.returncode != 0
+    wrapped = mod.wrap_command(
+        f"printf ran > {shlex.quote(str(marker))}", True, str(repo)
+    )
+    with open("/dev/full", "wb", buffering=0) as full:
+        result = subprocess.run(
+            ["bash", "-c", wrapped],
+            stdout=full,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    assert result.returncode != 0
+    assert not marker.exists()
+    assert "provenance publication failed" in result.stderr
 
 
 def test_missing_checkout_reports_unknown_and_does_not_run_command(tmp_path):
