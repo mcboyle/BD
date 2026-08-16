@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1158 - fleet provenance is measured or the host is not green
+
+Row 159. `bd-fleet-run` no longer asks Git about the remote login directory
+and no longer lets a failed `git status` become `dirty=0` through `wc -l`.
+
+The default provenance gate now names the intended checkout explicitly,
+resolves it to its physical top level, records the full commit plus the distinct
+states `dirty=clean` or `dirty=dirty`, and refuses to run the operator command
+when checkout, repository, commit, or status measurement fails. Every failure
+prints `commit=unknown dirty=unknown` and exits nonzero.
+
+The coordinator independently parses the first line of every successful host
+log. A missing, malformed, unknown, truncated, or wrong-checkout record changes
+the persisted host state to `PROVENANCE_UNKNOWN`, so a runner returning zero
+cannot manufacture success without the measured facts. `manifest.json` records
+the exact checkout and whether provenance was required; `summary.json` records
+the parsed commit, dirty state, and checkout per host.
+
+Nine hermetic production-path regressions execute the real wrapper locally
+against disposable Git repositories or injected Git failure, and drive the
+real coordinator with injected non-network runners. The direct legacy RED
+reproduced `commit=unknown dirty=0` followed by payload execution from a
+non-repository login directory. Compatibility tests that intentionally exercise
+log behavior without provenance opt out explicitly rather than supplying a
+fake clean-looking prefix. The row-159 file is pinned into CI's toolchain shard.
+
 ## v3.66.1157 - a build output must belong to this build
 
 Row 148. `bd-cut` no longer erases `frontend/dist` with an error-swallowing

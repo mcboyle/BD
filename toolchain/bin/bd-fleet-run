@@ -75,6 +75,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 DEFAULT_HOSTS = pathlib.Path.home() / ".config" / "bd" / "hosts"
 DEFAULT_ROOT = pathlib.Path.home() / ".local" / "share" / "bd-fleet-run" / "runs"
+DEFAULT_REPO_DIR = "/home/mboyle/BulkDownloader"
 DEFAULT_KEEP = 20
 DEFAULT_JOBS = 8
 
@@ -435,14 +436,49 @@ def build_command(parts) -> str:
     return shlex.join(parts)
 
 
-def wrap_command(command: str, record_commit: bool) -> str:
-    """The FINAL remote command, built once so printed and executed agree."""
+def _validate_repo_dir(repo_dir: str) -> str:
+    """Return the one explicit checkout path the remote must measure."""
+    if not repo_dir or not pathlib.PurePosixPath(repo_dir).is_absolute():
+        raise Refusal("--repo-dir must be an absolute path to the intended checkout")
+    if "\n" in repo_dir or "\r" in repo_dir or "\x00" in repo_dir:
+        raise Refusal("--repo-dir contains a newline or NUL")
+    return str(pathlib.PurePosixPath(repo_dir))
+
+
+def wrap_command(command: str, record_commit: bool,
+                 repo_dir: str = DEFAULT_REPO_DIR) -> str:
+    """The FINAL remote command, built once so printed and executed agree.
+
+    Provenance is an authorization gate, not decoration.  The payload cannot
+    run unless one explicit checkout resolves to its own top level and both Git
+    measurements succeed.  Every failure emits the same parseable UNKNOWN row
+    and exits before the operator command.
+    """
     if not record_commit:
         return command
-    return ("printf 'bd-fleet-run: commit=%s dirty=%s\\n' "
-            "\"$(git -C \"$PWD\" rev-parse --short HEAD 2>/dev/null || echo unknown)\" "
-            "\"$(git -C \"$PWD\" status --porcelain 2>/dev/null | wc -l)\"; "
-            + command)
+    repo_dir = _validate_repo_dir(repo_dir)
+    qrepo = shlex.quote(repo_dir)
+    unknown = ("printf 'bd-fleet-run: commit=unknown dirty=unknown repo=%s\\n' "
+               f"{qrepo}; exit 86")
+    return (
+        f"bd_fleet_repo_input={qrepo}; "
+        f"bd_fleet_repo=$(cd -- \"$bd_fleet_repo_input\" 2>/dev/null && pwd -P) || {{ {unknown}; }}; "
+        f"[ \"$bd_fleet_repo\" = \"$bd_fleet_repo_input\" ] || {{ {unknown}; }}; "
+        "bd_fleet_top=$(git -C \"$bd_fleet_repo\" rev-parse --show-toplevel 2>/dev/null) "
+        f"|| {{ {unknown}; }}; "
+        "bd_fleet_top=$(cd -- \"$bd_fleet_top\" 2>/dev/null && pwd -P) "
+        f"|| {{ {unknown}; }}; "
+        f"[ \"$bd_fleet_top\" = \"$bd_fleet_repo\" ] || {{ {unknown}; }}; "
+        "bd_fleet_commit=$(git -C \"$bd_fleet_repo\" rev-parse --verify HEAD 2>/dev/null) "
+        f"|| {{ {unknown}; }}; "
+        f"[[ \"$bd_fleet_commit\" =~ ^[0-9a-f]{{40,64}}$ ]] || {{ {unknown}; }}; "
+        "bd_fleet_status=$(git -C \"$bd_fleet_repo\" status --porcelain=v1 "
+        "--untracked-files=normal 2>/dev/null) "
+        f"|| {{ {unknown}; }}; "
+        "bd_fleet_dirty=clean; [ -z \"$bd_fleet_status\" ] || bd_fleet_dirty=dirty; "
+        "printf 'bd-fleet-run: commit=%s dirty=%s repo=%s\\n' "
+        "\"$bd_fleet_commit\" \"$bd_fleet_dirty\" \"$bd_fleet_repo\"; "
+        + command)
 
 
 def build_argv(label, addr, is_local, command, connect_timeout=10):
@@ -459,16 +495,17 @@ def build_argv(label, addr, is_local, command, connect_timeout=10):
             "bash -c %s" % shlex.quote(command)]
 
 
-def build_plan(targets, command, record_commit):
+def build_plan(targets, command, record_commit, repo_dir=DEFAULT_REPO_DIR):
     """One entry per target carrying the FINAL command and argv.
 
     Constructed once. The plan printout and the runner receive the same argv
     object, so they cannot disagree -- before v3.66.1144 the printout showed the
     bare command while the runner got the commit-recording form.
     """
-    effective = wrap_command(command, record_commit)
+    effective = wrap_command(command, record_commit, repo_dir)
     return [{"label": l, "addr": a, "local": lo, "command": effective,
-             "argv": build_argv(l, a, lo, effective)}
+             "argv": build_argv(l, a, lo, effective),
+             "record_provenance": record_commit, "repo_dir": repo_dir}
             for l, a, lo in targets]
 
 
@@ -496,12 +533,39 @@ def classify(rc, err, log_text="", is_local=False):
     return "FAIL"
 
 
-def _row(entry, exit_code, err, status, wall, log, size):
+def _unknown_provenance(entry):
+    if not entry.get("record_provenance"):
+        return None
+    return {"commit": "unknown", "dirty": "unknown",
+            "repo": entry.get("repo_dir", "unknown")}
+
+
+def parse_provenance(text: str, expected_repo: str):
+    """Parse the first log line or return (UNKNOWN facts, actionable error)."""
+    unknown = {"commit": "unknown", "dirty": "unknown", "repo": expected_repo}
+    lines = text.splitlines()
+    if not lines:
+        return unknown, "provenance missing: per-host log has no provenance line"
+    match = re.fullmatch(
+        r"bd-fleet-run: commit=([0-9a-f]{40,64}) dirty=(clean|dirty) repo=(.+)",
+        lines[0],
+    )
+    if not match:
+        return unknown, f"provenance malformed or unknown: {lines[0]!r}"
+    commit, dirty, repo = match.groups()
+    if repo != expected_repo:
+        return unknown, (f"provenance measured unexpected checkout {repo!r}; "
+                         f"expected {expected_repo!r}")
+    return {"commit": commit, "dirty": dirty, "repo": repo}, None
+
+
+def _row(entry, exit_code, err, status, wall, log, size, provenance=None):
     return {"label": entry["label"], "addr": entry["addr"],
             "via": "local" if entry["local"] else "ssh",
             "exit": exit_code, "error": err, "status": status,
             "wall": wall, "log": str(log), "argv": list(entry["argv"]),
-            "bytes": size}
+            "bytes": size, "provenance": (provenance if provenance is not None
+                                             else _unknown_provenance(entry))}
 
 
 def run_one(runner, entry, logdir, timeout):
@@ -532,9 +596,19 @@ def run_one(runner, entry, logdir, timeout):
     except OSError as exc:
         err = err or f"log unreadable: {type(exc).__name__}: {exc}"
 
-    return _row(entry, rc, err,
-                classify(rc, err, text, entry["local"]),
-                round(time.time() - started, 1), log, size)
+    provenance = None
+    if entry.get("record_provenance") and rc == 0 and not err:
+        provenance, provenance_error = parse_provenance(
+            text, entry.get("repo_dir", "unknown"))
+        if provenance_error:
+            err = err or provenance_error
+            status = "PROVENANCE_UNKNOWN"
+        else:
+            status = classify(rc, err, text, entry["local"])
+    else:
+        status = classify(rc, err, text, entry["local"])
+    return _row(entry, rc, err, status,
+                round(time.time() - started, 1), log, size, provenance)
 
 
 def summarise(row, pattern=None):
@@ -608,6 +682,8 @@ def main(argv=None, runner=None, probe=None) -> int:
                     "--execute is required to contact a host.")
     ap.add_argument("--hosts", default=str(DEFAULT_HOSTS))
     ap.add_argument("--root", default=str(DEFAULT_ROOT))
+    ap.add_argument("--repo-dir", default=DEFAULT_REPO_DIR,
+                    help="absolute checkout measured for commit/dirty provenance")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--jobs", type=int, default=DEFAULT_JOBS)
     ap.add_argument("--keep", type=int, default=DEFAULT_KEEP)
@@ -665,7 +741,8 @@ def _run(args, runner, probe) -> int:
     base = validate_root(args.root)
     workers = min(args.jobs, len(targets))
 
-    plan = build_plan(targets, command, not args.no_record_commit)
+    repo_dir = _validate_repo_dir(args.repo_dir)
+    plan = build_plan(targets, command, not args.no_record_commit, repo_dir)
 
     print(f"bd-fleet-run: {'EXECUTE' if args.execute else 'PLAN (dry-run)'}"
           f"  {len(plan)} target(s), jobs={workers}")
@@ -693,6 +770,8 @@ def _run(args, runner, probe) -> int:
         (logdir / "manifest.json").write_text(json.dumps({
             "run_id": run_id, "command": command,
             "effective_command": plan[0]["command"],
+            "repo_dir": repo_dir,
+            "record_provenance": not args.no_record_commit,
             "targets": [{"label": e["label"], "addr": e["addr"],
                          "local": e["local"], "argv": e["argv"]} for e in plan],
             "timeout": args.timeout, "jobs_configured": args.jobs,
@@ -756,7 +835,11 @@ class _FakeRunner:
     def run(self, argv, log_path, timeout):
         self.calls.append({"argv": list(argv), "timeout": timeout})
         if self._body is not None:
-            pathlib.Path(log_path).write_text(self._body)
+            body = self._body
+            if "bd-fleet-run: commit=" in argv[-1]:
+                body = ("bd-fleet-run: commit=" + "f" * 40
+                        + f" dirty=clean repo={DEFAULT_REPO_DIR}\n" + body)
+            pathlib.Path(log_path).write_text(body)
         return self._rc, self._err
 
 

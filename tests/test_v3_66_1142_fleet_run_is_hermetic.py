@@ -298,7 +298,7 @@ def test_one_host_exploding_preserves_the_other_hosts_record(guarded):
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"],
+                     "--no-record-commit", "--execute", "--", "true"],
                     runner=Half(), probe=m._FakeProbe())
         assert rc == 1
         run = next(d for d in _base(tmp).iterdir() if d.is_dir())
@@ -352,7 +352,7 @@ def test_an_empty_but_existing_log_is_valid(guarded):
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\n")
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"],
+                     "--no-record-commit", "--execute", "--", "true"],
                     runner=Silent(), probe=m._FakeProbe())
         assert rc == 0, "a zero-byte existing log was treated as failure"
         run = next(d for d in _base(tmp).iterdir() if d.is_dir())
@@ -459,7 +459,7 @@ def test_concurrency_is_capped_by_jobs(guarded):
         body = "".join(f"h{i} 10.0.0.{i}\n" for i in range(1, 9))
         hosts = _fleet(tmp, body)
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--jobs", "2", "--execute", "--", "true"],
+                     "--no-record-commit", "--jobs", "2", "--execute", "--", "true"],
                     runner=Slow(), probe=m._FakeProbe())
         assert rc == 0
         assert state["peak"] <= 2, f"peak concurrency was {state['peak']}, cap was 2"
@@ -691,7 +691,7 @@ def test_partial_fleet_failure_is_explicit(guarded, capsys):
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"],
+                     "--no-record-commit", "--execute", "--", "true"],
                     runner=Mixed(), probe=m._FakeProbe())
         out = capsys.readouterr().out
         assert rc == 1 and "NOT OK" in out and "beta" in out
@@ -717,7 +717,7 @@ def test_a_large_log_is_retained_complete(guarded):
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\n")
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"],
+                     "--no-record-commit", "--execute", "--", "true"],
                     runner=Chatty(), probe=m._FakeProbe())
         assert rc == 0
         run = next(d for d in _base(tmp).iterdir() if d.is_dir())
