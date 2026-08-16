@@ -554,8 +554,33 @@ def test_reproducer_is_a_versioned_provenance_envelope(tmp_path: Path) -> None:
         json.dumps({"schema": 1, "cases": [{"id": "crash", "payload": {"value": 1}}]}),
         encoding="utf-8",
     )
-    context = AdapterContext(PROJECT_ROOT, tmp_path / "artifacts", tmp_path, 42, AdapterBudget(1.0, 10, 4096))
-    _, findings = run_fuzz_adapter(FixtureFuzzer(), context, reproducer_dir=tmp_path / "repro")
+    # _context's 30.0s default, NOT a hand-built 1.0s budget. This line used to
+    # inline the helper with exactly one value changed, and that 1.0s window is
+    # spent on the enumeration worker's BOOT: _receive_cases sets its deadline
+    # AFTER process.start(), so under a loaded parallel lane the child cannot
+    # answer in time, run_fuzz_adapter returns TIMEOUT carrying no findings, and
+    # a test whose subject is the reproducer envelope fails for a reason that is
+    # not its subject. Every other field here is identical to _context(tmp_path).
+    context = _context(tmp_path)
+    # Kills the one mutant this cut would otherwise leave unconstrained:
+    # re-inlining a hand-built AdapterBudget(1.0, ...). An idle box passes
+    # either way, so nothing else can see that regression. 10.0 is a floor with
+    # measured headroom -- across 26 fleet capture runs at ab4d836 the 24
+    # passes took 2.386-4.493s end to end and the 2 failures bailed at 1.290s
+    # and 1.373s.
+    assert context.budget.timeout_seconds >= 10.0, (
+        f"budget {context.budget.timeout_seconds}s is exhaustible by worker boot "
+        f"under a loaded parallel lane; this test's subject is the envelope, "
+        f"not the timeout"
+    )
+    result, findings = run_fuzz_adapter(FixtureFuzzer(), context, reproducer_dir=tmp_path / "repro")
+
+    assert findings, (
+        f"no fuzz findings to read an envelope from: the adapter returned "
+        f"state={result.state.value} ({result.summary}). Empty findings has three "
+        f"distinct causes -- enumeration timeout, invalid corpus, worker output "
+        f"error -- and indexing it directly named none of them."
+    )
 
     payload = json.loads((tmp_path / "repro" / findings[0].reproducer).read_text(encoding="utf-8"))
     assert payload["schema_name"] == "bd.fuzz-reproducer"
@@ -563,6 +588,46 @@ def test_reproducer_is_a_versioned_provenance_envelope(tmp_path: Path) -> None:
     assert len(payload["source_sha"]) == 64
     assert set(payload["input_hashes"]) == {"case_payload"}
     assert payload["case_id"] == "crash"
+
+
+def test_an_empty_findings_tuple_names_its_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty `findings` must say WHY it is empty.
+
+    run_fuzz_adapter has THREE early returns that all hand back `()`: corpus
+    enumeration TIMEOUT, corpus invalid, and a worker output error. The
+    envelope test above discarded the CheckResult and indexed `findings[0]`
+    directly, so all three surfaced as the same anonymous
+    `IndexError: tuple index out of range` -- a failure naming none of its
+    possible causes.
+
+    MEASURED, not supposed. That IndexError fired twice on test5 (2026-08-16,
+    at ab4d836 and at 8c94159), 2 of 26 capture runs across the six-host
+    fleet, and the archived junit separates the populations exactly: both
+    failures 1.290s and 1.373s against the 1.0s budget the test used to pass
+    in by hand, against 2.386-4.493s for all 24 passes. The cause was the
+    enumeration timeout every time, and the report could not say so.
+    """
+    monkeypatch.setattr(
+        "tools.code_intelligence.fuzz_service._receive_cases",
+        lambda *args, **kwargs: (ResultState.TIMEOUT, (), None),
+    )
+
+    # Discriminate the exception (CLAUDE.md 2a): an incomplete stub raises
+    # IndexError too, so matching the TYPE alone would report the defect
+    # present on a tree where it is fixed.
+    try:
+        test_reproducer_is_a_versioned_provenance_envelope(tmp_path)
+    except IndexError as exc:
+        pytest.fail(f"empty findings surfaced as an anonymous IndexError: {exc!r}")
+    except AssertionError as exc:
+        # "state=timeout", not "timeout": the budget assertion a few lines up
+        # spells the word too ("not the timeout"), so the looser probe would be
+        # satisfied by a failure that is not the one under test.
+        assert "state=timeout" in str(exc), f"the failure did not name its cause: {exc}"
+    else:
+        pytest.fail("the empty-findings path did not fail at all")
 
 
 @pytest.mark.parametrize("field", ["adapter", "case_id"])
