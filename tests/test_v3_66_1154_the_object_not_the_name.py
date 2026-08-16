@@ -798,6 +798,53 @@ def test_a_known_foreign_top_name_is_never_moved_by_held_root_cleanup(subject):
             os.close(foreign_fd)
 
 
+def test_top_substitution_at_rename_is_detected_and_exactly_reported(subject):
+    """The unavoidable source-name race is detected without later touching B."""
+    d = subject.make()
+    parent, name = os.path.dirname(d), os.path.basename(d)
+    owned = _ident(d)
+    _payload(d, body="owned after substitution")
+    held = d + ".owned-held"
+    real_walk = subject.m._rmtree_fd
+    real_rename = subject.m._rename_noclobber
+    fired, observed = {"n": 0}, {}
+
+    def substitute(old, new, dir_fd, *args, **kwargs):
+        before = os.stat(old, dir_fd=dir_fd, follow_symlinks=False)
+        if (os.fsdecode(old) == name and
+                (before.st_dev, before.st_ino) == owned and not fired["n"]):
+            os.rename(old, os.path.basename(held),
+                      src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            os.mkdir(old, dir_fd=dir_fd)
+            pathlib.Path(d, "loot.txt").write_text("foreign after validation")
+            foreign = os.stat(old, dir_fd=dir_fd, follow_symlinks=False)
+            observed.update(foreign=(foreign.st_dev, foreign.st_ino),
+                            private=os.path.join(parent, os.fsdecode(new)))
+            fired["n"] += 1
+        return real_rename(old, new, dir_fd, *args, **kwargs)
+
+    subject.m._rmtree_fd = lambda fd, dev, depth=0: None
+    subject.m._rename_noclobber = substitute
+    try:
+        got = subject.discard(d)
+    finally:
+        subject.m._rmtree_fd = real_walk
+        subject.m._rename_noclobber = real_rename
+
+    assert fired["n"] == 1 and observed, "the substitution seam never fired"
+    private = observed["private"]
+    assert got is False and subject.failure_is_accounted_for(d)
+    assert not os.path.lexists(d)
+    assert _ident(private) == observed["foreign"]
+    assert pathlib.Path(private, "loot.txt").read_text() == "foreign after validation"
+    assert _ident(held) == owned
+    assert pathlib.Path(held, "loot.txt").read_text() == "owned after substitution"
+    why = subject.reason(d)
+    assert R_FOREIGN in why
+    assert os.path.basename(private) in why, why[-400:]
+    assert held in why, why[-400:]
+
+
 def test_an_unrelated_object_reusing_the_freed_name_is_not_a_failure(subject):
     """THE OVER-SENSITIVE DIRECTION, which CLAUDE.md section 0 counts as a
     soundness bug and not a safe default. Our object is proven gone; something
@@ -1275,8 +1322,10 @@ def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
     _payload(d, body="top interrupt payload")
     os.chmod(d, 0o500)
     real_walk = subject.m._rmtree_fd
+    real_rename = subject.m._rename_noclobber
     real_stat, real_rmdir = os.stat, os.rmdir
     walked, fired = {"n": 0}, {"n": 0}
+    renamed = {"n": 0, "dir_fd": None, "priv": None}
 
     def force_relax(fd, dev, depth=0):
         st = os.fstat(fd)
@@ -1285,10 +1334,21 @@ def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
         if walked["n"] == 1:
             raise PermissionError(errno.EACCES, "force top relaxation")
 
+    def latch_top_rename(old, new, dir_fd, *args, **kwargs):
+        before = real_stat(old, dir_fd=dir_fd, follow_symlinks=False)
+        result = real_rename(old, new, dir_fd, *args, **kwargs)
+        if (before.st_dev, before.st_ino) == ident:
+            after = real_stat(new, dir_fd=dir_fd, follow_symlinks=False)
+            assert (after.st_dev, after.st_ino) == ident
+            renamed.update(n=renamed["n"] + 1,
+                           dir_fd=dir_fd, priv=os.fsdecode(new))
+        return result
+
     def interrupt_stat(path, *args, **kwargs):
         st = real_stat(path, *args, **kwargs)
-        if (stage == "stat" and fired["n"] == 0 and
-                kwargs.get("dir_fd") is not None and
+        if (stage == "stat" and renamed["n"] == 1 and fired["n"] == 0 and
+                kwargs.get("dir_fd") == renamed["dir_fd"] and
+                os.fsdecode(path) == renamed["priv"] and
                 (st.st_dev, st.st_ino) == ident):
             fired["n"] += 1
             raise KeyboardInterrupt("injected top private stat interrupt")
@@ -1297,23 +1357,32 @@ def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
     def interrupt_rmdir(path, *args, **kwargs):
         st = real_stat(path, dir_fd=kwargs.get("dir_fd"),
                        follow_symlinks=False)
-        if (stage == "rmdir" and fired["n"] == 0 and
+        if (stage == "rmdir" and renamed["n"] == 1 and fired["n"] == 0 and
+                kwargs.get("dir_fd") == renamed["dir_fd"] and
+                os.fsdecode(path) == renamed["priv"] and
                 (st.st_dev, st.st_ino) == ident):
             fired["n"] += 1
             raise KeyboardInterrupt("injected top private rmdir interrupt")
         return real_rmdir(path, *args, **kwargs)
 
     subject.m._rmtree_fd = force_relax
+    subject.m._rename_noclobber = latch_top_rename
     os.stat, os.rmdir = interrupt_stat, interrupt_rmdir
     try:
-        with pytest.raises(KeyboardInterrupt, match=f"injected top private {stage} interrupt"):
+        with pytest.raises(KeyboardInterrupt,
+                           match=f"injected top private {stage} interrupt") as caught:
             subject.discard(d)
     finally:
         subject.m._rmtree_fd = real_walk
+        subject.m._rename_noclobber = real_rename
         os.stat, os.rmdir = real_stat, real_rmdir
     survivor = _find_by_ident(os.path.dirname(d), ident)
-    assert walked["n"] == 2 and fired["n"] == 1
+    assert walked["n"] == 2 and renamed["n"] == 1 and fired["n"] == 1
     assert survivor is not None and survivor != d
+    notes = " -- ".join(getattr(caught.value, "__notes__", ()))
+    assert "private-name recovery" in notes
+    assert repr(renamed["priv"]) in notes
+    assert "verified owned object remains" in notes
     assert stat.S_IMODE(os.lstat(survivor).st_mode) == 0o500
     assert pathlib.Path(survivor, "loot.txt").read_text() == "top interrupt payload"
     assert subject.failure_is_accounted_for(d)

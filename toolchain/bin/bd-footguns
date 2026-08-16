@@ -822,16 +822,16 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
                 return _refuse("%s %s" % (R_UNPROVEN, e))
             try:
                 ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
-            except OSError as e:
+            except BaseException as e:
                 try: _recover_private(priv, name, pfd, e, ident, fd)
                 except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
             if (ent.st_dev, ent.st_ino) != ident:
-                return _refuse("%s the private name is foreign; it was left "
+                return _refuse("%s the private name %r is foreign; it was left "
                                "untouched and the owned root location is %r"
-                               % (R_FOREIGN, _where(fd)))
+                               % (R_FOREIGN, priv, _where(fd)))
             try:
                 os.rmdir(priv, dir_fd=pfd)
-            except OSError as e:
+            except BaseException as e:
                 try: _recover_private(priv, name, pfd, e, ident, fd)
                 except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
         except BaseException as escaped:

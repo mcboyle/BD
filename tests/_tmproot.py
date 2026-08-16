@@ -645,19 +645,19 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
                 return _refuse(R_UNPROVEN, str(e))
             try:
                 ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
-            except OSError as e:
+            except BaseException as e:
                 try:
                     _recover_private(priv, name, pfd, e, ident, fd)
                 except Exception as recovered:
                     return _refuse(R_UNPROVEN, str(recovered))
             if (ent.st_dev, ent.st_ino) != (st.st_dev, st.st_ino):
                 return _refuse(R_FOREIGN,
-                               "the private name is foreign; it was left "
+                               "the private name %r is foreign; it was left "
                                "untouched and the owned root location is %r"
-                               % _where(fd))
+                               % (priv, _where(fd)))
             try:
                 os.rmdir(priv, dir_fd=pfd)
-            except OSError as e:
+            except BaseException as e:
                 try:
                     _recover_private(priv, name, pfd, e, ident, fd)
                 except Exception as recovered:
