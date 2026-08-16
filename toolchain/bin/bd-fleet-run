@@ -462,6 +462,13 @@ def wrap_command(command: str, record_commit: bool,
                f"{qrepo}; exit 86")
     return (
         f"bd_fleet_repo_input={qrepo}; "
+        "unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG "
+        "GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_DIR "
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_GRAFT_FILE GIT_IMPLICIT_WORK_TREE "
+        "GIT_INDEX_FILE GIT_INTERNAL_SUPER_PREFIX GIT_NAMESPACE "
+        "GIT_NO_REPLACE_OBJECTS GIT_OBJECT_DIRECTORY GIT_PREFIX "
+        "GIT_REPLACE_REF_BASE GIT_SHALLOW_FILE GIT_WORK_TREE "
+        f"2>/dev/null || {{ {unknown}; }}; "
         f"bd_fleet_repo=$(cd -- \"$bd_fleet_repo_input\" 2>/dev/null && pwd -P) || {{ {unknown}; }}; "
         f"[ \"$bd_fleet_repo\" = \"$bd_fleet_repo_input\" ] || {{ {unknown}; }}; "
         "bd_fleet_top=$(git -C \"$bd_fleet_repo\" rev-parse --show-toplevel 2>/dev/null) "
@@ -469,7 +476,7 @@ def wrap_command(command: str, record_commit: bool,
         "bd_fleet_top=$(cd -- \"$bd_fleet_top\" 2>/dev/null && pwd -P) "
         f"|| {{ {unknown}; }}; "
         f"[ \"$bd_fleet_top\" = \"$bd_fleet_repo\" ] || {{ {unknown}; }}; "
-        "bd_fleet_commit=$(git -C \"$bd_fleet_repo\" rev-parse --verify HEAD 2>/dev/null) "
+        "bd_fleet_commit=$(git -C \"$bd_fleet_repo\" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) "
         f"|| {{ {unknown}; }}; "
         f"[[ \"$bd_fleet_commit\" =~ ^[0-9a-f]{{40,64}}$ ]] || {{ {unknown}; }}; "
         "bd_fleet_status=$(git -C \"$bd_fleet_repo\" status --porcelain=v1 "

@@ -16,6 +16,12 @@ states `dirty=clean` or `dirty=dirty`, and refuses to run the operator command
 when checkout, repository, commit, or status measurement fails. Every failure
 prints `commit=unknown dirty=unknown` and exits nonzero.
 
+The gate also clears inherited Git repository-selection and object/index
+override variables before measuring, so a caller's `GIT_DIR`, `GIT_WORK_TREE`,
+or related local-repository environment cannot substitute another repository
+while retaining the expected checkout label. Commit measurement peels and
+requires a commit object rather than accepting an arbitrary hex-named `HEAD`.
+
 The coordinator independently parses the first line of every successful host
 log. A missing, malformed, unknown, truncated, or wrong-checkout record changes
 the persisted host state to `PROVENANCE_UNKNOWN`, so a runner returning zero
@@ -23,7 +29,7 @@ cannot manufacture success without the measured facts. `manifest.json` records
 the exact checkout and whether provenance was required; `summary.json` records
 the parsed commit, dirty state, and checkout per host.
 
-Nine hermetic production-path regressions execute the real wrapper locally
+Thirteen hermetic production-path regressions execute the real wrapper locally
 against disposable Git repositories or injected Git failure, and drive the
 real coordinator with injected non-network runners. The direct legacy RED
 reproduced `commit=unknown dirty=0` followed by payload execution from a

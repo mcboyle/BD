@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 
@@ -94,6 +95,35 @@ def test_dirty_checkout_is_distinct_from_clean(tmp_path):
         f"bd-fleet-run: commit={head} dirty=dirty repo={repo}"
     )
     assert result.stdout.splitlines()[-1] == "COMMAND_RAN"
+
+
+def test_inherited_git_repository_overrides_cannot_select_another_subject(tmp_path):
+    mod = _load()
+    intended_root = tmp_path / "intended-fixture"
+    foreign_root = tmp_path / "foreign-fixture"
+    intended_root.mkdir()
+    foreign_root.mkdir()
+    intended, intended_head = _repo(intended_root)
+    foreign, _ = _repo(foreign_root)
+    (foreign / "tracked.txt").write_text("foreign\n")
+    _git(foreign, "commit", "-qam", "make foreign identity distinct")
+    foreign_head = _git(foreign, "rev-parse", "HEAD")
+    assert foreign_head != intended_head
+    env = os.environ.copy()
+    env.update({"GIT_DIR": str(foreign / ".git"), "GIT_WORK_TREE": str(intended)})
+    wrapped = mod.wrap_command("printf 'COMMAND_RAN\\n'", True, str(intended))
+    result = subprocess.run(
+        ["bash", "-c", wrapped],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        f"bd-fleet-run: commit={intended_head} dirty=clean repo={intended}",
+        "COMMAND_RAN",
+    ]
 
 
 def test_missing_checkout_reports_unknown_and_does_not_run_command(tmp_path):
