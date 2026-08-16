@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1155 - a test that raced its own budget, and a failure that named nothing
+
+test_reproducer_is_a_versioned_provenance_envelope failed on test5 with
+IndexError: tuple index out of range. It is not a regression and it is not
+specific to that tree: the same signature is in the archived record at
+8c94159, and the tree it failed on is byte-identical to the one that captured
+PASS on all six hosts.
+
+MEASURED across 26 capture runs at ab4d836, read out of archived junit rather
+than log prose, with the denominator proven (the test ran in all of them):
+
+  FAILED   2   both on test5     1.290s, 1.373s
+  PASSED  24   all six hosts     2.386s - 4.493s
+
+The populations are cleanly separated and the failures are the FAST half. The
+test hand-built an AdapterContext with AdapterBudget(1.0, 10, 4096) -- an
+inlined copy of the module's own _context() helper with exactly one value
+changed, from 30.0 to 1.0. _receive_cases sets its deadline AFTER
+process.start(), so the enumeration worker's boot is inside that 1.0s window;
+under a loaded parallel lane it cannot answer in time, run_fuzz_adapter takes
+its TIMEOUT early return, and findings comes back empty. The test then indexed
+findings[0]. That is why only test5 -- the live-service host -- has ever
+produced it, and why sixteen fleet captures called it green.
+
+The file already carried the lesson. _context()'s 30.0s default is commented
+"WIDE default on purpose: tests whose subject is not the timeout must not race
+one", and a sibling test was widened 2.0 -> 10.0 for the same reason. This one
+line was missed.
+
+Three changes, in one test file:
+
+- the context is _context(tmp_path), which is byte-identical to the hand-built
+  one in every field except the timeout
+- an empty findings tuple now names its cause. run_fuzz_adapter has THREE early
+  returns that all hand back (): enumeration timeout, invalid corpus, and
+  worker output error. The test discarded the CheckResult, so all three arrived
+  as the same anonymous IndexError, naming none of them
+- the budget is asserted at the site, floored at 10.0s
+
+That last one exists because the first mutation battery ESCAPED it: an idle box
+passes with a 1.0s budget either way, so nothing constrained the value this cut
+is entirely about. bd-mutate 2 caught / 0 escaped after closing it.
+
+RED-first: the new test reproduces the production failure deterministically by
+forcing the TIMEOUT return, and discriminates IndexError from AssertionError so
+it cannot report the defect present on a tree where it is fixed.
+
 ## v3.66.1154 - the object, not the name, all the way down
 
 v3.66.1153 bound the TOP of every removal to the identity recorded when it was
