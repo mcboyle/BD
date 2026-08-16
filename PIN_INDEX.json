@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 56,
+    "total": 58,
     "version": 1,
-    "count_dict": 55,
+    "count_dict": 57,
     "test_files_scanned": 1361,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -38,7 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
-      "tests/test_v3_66_1154_the_object_not_the_name.py": 11,
+      "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -384,7 +384,27 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2238,
+      "line": 2231,
+      "value": {
+        "walk": 2,
+        "restore": 1
+      },
+      "gates_what": "test_top_primary_memoryerror_survives_restoration_control_exception"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2263,
+      "value": {
+        "primary": 1,
+        "close": 1
+      },
+      "gates_what": "test_tmproot_release_close_cannot_replace_primary_memoryerror"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2305,
       "value": {
         "rmdir": 1,
         "close": 1

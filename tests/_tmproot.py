@@ -664,6 +664,15 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
                 return _refuse(r.code, r.detail)
             except OSError as e:
                 return _refuse(R_UNPROVEN, str(e))
+            except (KeyboardInterrupt, SystemExit, MemoryError) as e:
+                try:
+                    _refuse(R_UNPROVEN, "%s: %s" % (type(e).__name__, e))
+                except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                    if restore_error is not e:
+                        _add_note(e, "mode restoration control failure (%s: %s)" %
+                                  (type(restore_error).__name__, restore_error))
+                _add_note(e, _LAST_REASON)
+                raise
             except Exception as e:
                 return _refuse(*_walk_split(e))
         except _Refused as r:
@@ -671,7 +680,12 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
         except OSError as e:
             return _refuse(R_UNPROVEN, str(e))
         except (KeyboardInterrupt, SystemExit, MemoryError) as e:
-            _refuse(R_UNPROVEN, "%s: %s" % (type(e).__name__, e))
+            try:
+                _refuse(R_UNPROVEN, "%s: %s" % (type(e).__name__, e))
+            except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                if restore_error is not e:
+                    _add_note(e, "mode restoration control failure (%s: %s)" %
+                              (type(restore_error).__name__, restore_error))
             _add_note(e, _LAST_REASON)
             raise
         except Exception as e:
@@ -814,6 +828,7 @@ def finish(exitstatus: int) -> bool:
     # naming nothing, which is barely better than one naming the wrong thing.
     _actual = root
     tempfile.tempdir = None                # new allocations leave the doomed tree
+    propagating = None
     try:
         # A STATUS WE CANNOT READ IS NOT ZERO. `int(exitstatus)` sat outside
         # this try, so a non-integer raised TypeError after _ROOT had already
@@ -862,6 +877,7 @@ def finish(exitstatus: int) -> bool:
         else:
             ok = _force_rmtree(root, ident)
     except BaseException as error:
+        propagating = error
         _LAST_FAILURE = root
         if not _LAST_REASON:
             _mark(R_UNPROVEN, "%s: %s" % (type(error).__name__, error))
@@ -872,7 +888,14 @@ def finish(exitstatus: int) -> bool:
                 _actual = os.readlink("/proc/self/fd/%d" % fd)
             except OSError:
                 pass
-        _release_root_fd(ident)
+        try:
+            _release_root_fd(ident)
+        except BaseException as release_error:
+            if propagating is None:
+                raise
+            _add_note(propagating,
+                      "root descriptor release failed (%s: %s)" %
+                      (type(release_error).__name__, release_error))
     if not ok:
         _LAST_FAILURE = root
         # REPORTED HERE, WHERE NO CALL SITE CAN DROP IT (v3.66.1151). Both

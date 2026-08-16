@@ -2199,6 +2199,73 @@ def test_top_refusal_mode_restoration_baseexception_propagates(subject,
     assert subject.failure_is_accounted_for(d)
 
 
+@pytest.mark.parametrize("secondary_type", [KeyboardInterrupt, SystemExit])
+def test_top_primary_memoryerror_survives_restoration_control_exception(
+        subject, secondary_type):
+    d = subject.make(); ident = _ident(d); os.chmod(d, 0o500)
+    real_walk, real_fchmod = subject.m._rmtree_fd, os.fchmod
+    fired = {"walk": 0, "restore": 0}
+
+    def exhaust_after_relaxation(fd, dev, depth=0):
+        st = os.fstat(fd); assert (st.st_dev, st.st_ino) == ident
+        fired["walk"] += 1
+        if fired["walk"] == 1:
+            raise PermissionError(errno.EACCES, "force top relaxation")
+        raise MemoryError("injected primary top memory exhaustion")
+
+    def interrupt_restore(fd, mode):
+        st = os.fstat(fd); result = real_fchmod(fd, mode)
+        if ((st.st_dev, st.st_ino) == ident and mode == 0o500 and
+                fired["walk"] == 2 and fired["restore"] == 0):
+            fired["restore"] += 1
+            raise secondary_type("injected secondary top restoration control")
+        return result
+
+    subject.m._rmtree_fd, os.fchmod = exhaust_after_relaxation, interrupt_restore
+    try:
+        with pytest.raises(MemoryError,
+                           match="injected primary top memory exhaustion") as caught:
+            subject.discard(d)
+    finally:
+        subject.m._rmtree_fd, os.fchmod = real_walk, real_fchmod
+    assert fired == {"walk": 2, "restore": 1}
+    notes = " -- ".join(getattr(caught.value, "__notes__", ()))
+    assert "injected secondary top restoration control" in notes
+    assert stat.S_IMODE(os.lstat(d).st_mode) == 0o500
+    assert subject.failure_is_accounted_for(d)
+
+
+def test_tmproot_release_close_cannot_replace_primary_memoryerror(subject):
+    if subject.name != "_tmproot":
+        pytest.skip("_release_root_fd is _tmproot-specific")
+    d = subject.make(); root_fd = subject.m._ROOT_FD
+    real_remove, real_close = subject.m._force_rmtree, os.close
+    fired = {"primary": 0, "close": 0}
+
+    def primary(*a, **k):
+        fired["primary"] += 1
+        raise MemoryError("injected tmproot removal exhaustion")
+
+    def close_failure(fd):
+        result = real_close(fd)
+        if fd == root_fd and fired["close"] == 0:
+            fired["close"] += 1
+            raise OSError(errno.EIO, "injected tmproot release close failure")
+        return result
+
+    subject.m._force_rmtree, os.close = primary, close_failure
+    try:
+        with pytest.raises(MemoryError,
+                           match="injected tmproot removal exhaustion") as caught:
+            subject.discard(d)
+    finally:
+        subject.m._force_rmtree, os.close = real_remove, real_close
+    assert fired == {"primary": 1, "close": 1}
+    notes = " -- ".join(getattr(caught.value, "__notes__", ()))
+    assert "injected tmproot release close failure" in notes
+    assert subject.failure_is_accounted_for(d)
+
+
 @pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
 def test_top_parent_close_baseexception_propagates_after_exact_removal(
         subject, error_type):

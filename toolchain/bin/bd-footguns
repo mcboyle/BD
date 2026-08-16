@@ -817,6 +817,17 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
                 return _refuse(r.reason)
             except OSError as e2:
                 return _refuse("%s %s" % (R_UNPROVEN, e2))
+            except (KeyboardInterrupt, SystemExit, MemoryError) as e2:
+                try:
+                    _, reason = _refuse("%s %s: %s" %
+                                        (R_UNPROVEN, type(e2).__name__, e2))
+                except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                    if restore_error is not e2:
+                        _add_note(e2, "mode restoration control failure (%s: %s)" %
+                                  (type(restore_error).__name__, restore_error))
+                    reason = "%s %s: %s" % (R_UNPROVEN, type(e2).__name__, e2)
+                _add_note(e2, reason)
+                raise
             except Exception as e2:
                 return _refuse(_walk_failed(e2))
         except _Refused as r:
@@ -824,8 +835,14 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
         except OSError as e1:
             return _refuse("%s %s" % (R_UNPROVEN, e1))
         except (KeyboardInterrupt, SystemExit, MemoryError) as e1:
-            _, reason = _refuse("%s %s: %s" %
-                                (R_UNPROVEN, type(e1).__name__, e1))
+            try:
+                _, reason = _refuse("%s %s: %s" %
+                                    (R_UNPROVEN, type(e1).__name__, e1))
+            except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                if restore_error is not e1:
+                    _add_note(e1, "mode restoration control failure (%s: %s)" %
+                              (type(restore_error).__name__, restore_error))
+                reason = "%s %s: %s" % (R_UNPROVEN, type(e1).__name__, e1)
             _add_note(e1, reason)
             raise
         except Exception as e1:
