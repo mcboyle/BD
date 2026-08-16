@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 72,
+    "total": 73,
     "version": 1,
-    "count_dict": 71,
+    "count_dict": 72,
     "test_files_scanned": 1364,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -40,6 +40,7 @@
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
+      "tests/test_v3_66_1159_fleet_prune_is_object_bound.py": 1,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -540,6 +541,16 @@
         "mount": 2
       },
       "gates_what": "test_dist_on_another_mount_is_refused_before_removal"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
+      "line": 318,
+      "value": {
+        "remove": 1,
+        "close": 1
+      },
+      "gates_what": "test_cleanup_control_exception_takes_precedence_over_primary_control"
     },
     {
       "form": "count_dict",
