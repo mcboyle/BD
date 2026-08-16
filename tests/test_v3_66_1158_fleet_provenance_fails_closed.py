@@ -355,6 +355,52 @@ def test_truncated_measurement_is_persisted_before_payload_authorization(tmp_pat
     assert row["provenance"]["dirty"] == "unknown"
 
 
+def test_measurement_missing_only_final_newline_cannot_authorize_payload(tmp_path):
+    mod = _load()
+    hosts = tmp_path / "hosts"
+    hosts.write_text("alpha 192.0.2.10\n")
+    root = tmp_path / "runs"
+    root.mkdir()
+    marker = tmp_path / "payload-ran"
+    complete = (
+        "bd-fleet-run: commit=" + "d" * 40
+        + " dirty=clean repo=/srv/BulkDownloader\n"
+    )
+
+    class FinalByteTruncatingTransport:
+        name = "final-byte-truncating-transport"
+
+        def __init__(self):
+            self.calls = []
+
+        def run(self, argv, log_path, timeout):
+            self.calls.append(list(argv))
+            if str(marker) in " ".join(argv):
+                marker.write_text("ran\n")
+            pathlib.Path(log_path).write_bytes(complete.encode()[:-1])
+            return 0, None
+
+    runner = FinalByteTruncatingTransport()
+    rc = mod.main(
+        [
+            "--hosts", str(hosts),
+            "--root", str(root),
+            "--repo-dir", "/srv/BulkDownloader",
+            "--execute", "--", "printf", "ran", ">", str(marker),
+        ],
+        runner=runner,
+        probe=_Probe(),
+    )
+    assert len(complete.encode()) == len(complete.encode()[:-1]) + 1
+    assert len(runner.calls) == 1
+    assert rc != 0
+    assert not marker.exists()
+    run = next(p for p in root.iterdir() if p.is_dir())
+    row = json.loads((run / "summary.json").read_text())[0]
+    assert row["status"] == "PROVENANCE_UNKNOWN"
+    assert row["provenance"]["dirty"] == "unknown"
+
+
 def test_malformed_or_unknown_provenance_cannot_be_host_success(tmp_path):
     mod = _load()
     for index, line in enumerate((

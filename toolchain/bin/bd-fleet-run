@@ -562,6 +562,9 @@ def _unknown_provenance(entry):
 def parse_provenance(text: str, expected_repo: str):
     """Parse the first log line or return (UNKNOWN facts, actionable error)."""
     unknown = {"commit": "unknown", "dirty": "unknown", "repo": expected_repo}
+    if text and not text.endswith("\n"):
+        return unknown, ("provenance truncated: measurement artifact is not "
+                         "newline-terminated")
     lines = text.splitlines()
     if not lines:
         return unknown, "provenance missing: per-host log has no provenance line"
