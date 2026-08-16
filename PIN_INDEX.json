@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 69,
+    "total": 72,
     "version": 1,
-    "count_dict": 68,
+    "count_dict": 71,
     "test_files_scanned": 1362,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -39,7 +39,7 @@
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
-      "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 11,
+      "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -417,7 +417,6 @@
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
       "line": 118,
       "value": {
-        "vite": 1,
         "remove": 1
       },
       "gates_what": "test_complete_dist_removal_failure_cannot_become_build_success"
@@ -425,9 +424,8 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 161,
+      "line": 162,
       "value": {
-        "vite": 1,
         "partial": 1
       },
       "gates_what": "test_partial_removal_that_leaves_stale_hashed_assets_is_not_success"
@@ -435,7 +433,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 178,
+      "line": 179,
       "value": {
         "vite": 1
       },
@@ -448,12 +446,12 @@
       "value": {
         "vite": 1
       },
-      "gates_what": "test_vite_failure_preserves_the_previous_dist_and_reports_stderr"
+      "gates_what": "test_vite_failure_leaves_dist_absent_and_reports_stderr"
     },
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 217,
+      "line": 219,
       "value": {
         "vite": 1
       },
@@ -462,16 +460,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 243,
-      "value": {
-        "vite": 1
-      },
-      "gates_what": "test_a_symlink_at_dist_is_refused_without_touching_its_target"
-    },
-    {
-      "form": "count_dict",
-      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 280,
+      "line": 282,
       "value": {
         "vite": 1,
         "publish": 1
@@ -481,7 +470,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 318,
+      "line": 320,
       "value": {
         "vite": 1
       },
@@ -490,7 +479,45 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 351,
+      "line": 363,
+      "value": {
+        "vite": 1,
+        "publish": 1
+      },
+      "gates_what": "test_publication_rechecks_the_inode_the_kernel_actually_renamed"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 385,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_missing_artifact_evidence_is_unknown_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 408,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_malformed_artifact_evidence_is_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 433,
+      "value": {
+        "identity_removed": 1,
+        "vite": 1
+      },
+      "gates_what": "test_unknown_attempt_identity_is_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 462,
       "value": {
         "vite": 1
       },
@@ -499,7 +526,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 371,
+      "line": 482,
       "value": {
         "vite": 1
       },
@@ -508,9 +535,8 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 394,
+      "line": 505,
       "value": {
-        "vite": 1,
         "mount": 2
       },
       "gates_what": "test_dist_on_another_mount_is_refused_before_removal"

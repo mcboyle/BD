@@ -115,7 +115,8 @@ def test_complete_dist_removal_failure_cannot_become_build_success(tmp_path, cap
         module.shutil.rmtree = real_rmtree
 
     assert exc.value.code == 1
-    assert fired == {"vite": 1, "remove": 1}, "every injection must fire"
+    assert fired == {"remove": 1}, (
+        "the cleanup injection must fire once and Vite must not run afterward")
     _assert_stale_tree(dist, (before.st_dev, before.st_ino))
     out = capsys.readouterr().out
     assert "frontend/dist removal failed" in out
@@ -158,7 +159,8 @@ def test_partial_removal_that_leaves_stale_hashed_assets_is_not_success(tmp_path
         module.shutil.rmtree = real_rmtree
 
     assert exc.value.code == 1
-    assert fired == {"vite": 1, "partial": 1}
+    assert fired == {"partial": 1}, (
+        "partial cleanup must be observed before Vite can be invoked")
     _assert_stale_tree(dist, (before.st_dev, before.st_ino))
     assert "stale children remain" in capsys.readouterr().out
 
@@ -167,7 +169,6 @@ def test_success_with_no_output_from_this_attempt_rejects_old_js_candidate(tmp_p
     module = _load_cut()
     work = _work(tmp_path)
     dist = work / "frontend" / "dist"
-    before = os.lstat(dist)
     fired: dict[str, int] = {}
     _successful_vite(module, fired, emit_js=False)
 
@@ -176,17 +177,16 @@ def test_success_with_no_output_from_this_attempt_rejects_old_js_candidate(tmp_p
 
     assert exc.value.code == 1
     assert fired == {"vite": 1}
-    _assert_stale_tree(dist, (before.st_dev, before.st_ino))
+    assert not os.path.lexists(dist)
     out = capsys.readouterr().out
     assert "current build attempt produced no non-empty regular JavaScript" in out
     assert "index-STALE.js" not in out
 
 
-def test_vite_failure_preserves_the_previous_dist_and_reports_stderr(tmp_path, capsys):
+def test_vite_failure_leaves_dist_absent_and_reports_stderr(tmp_path, capsys):
     module = _load_cut()
     work = _work(tmp_path)
     dist = work / "frontend" / "dist"
-    before = os.lstat(dist)
     fired = {"vite": 0}
 
     def fail_vite(cmd, **_kwargs):
@@ -199,8 +199,10 @@ def test_vite_failure_preserves_the_previous_dist_and_reports_stderr(tmp_path, c
 
     assert exc.value.code == 1
     assert fired == {"vite": 1}
-    _assert_stale_tree(dist, (before.st_dev, before.st_ino))
-    assert "synthetic vite failure" in capsys.readouterr().out
+    assert not os.path.lexists(dist)
+    out = capsys.readouterr().out
+    assert "after verified frontend/dist removal" in out
+    assert "synthetic vite failure" in out
 
 
 def test_clean_rebuild_publishes_only_attempt_output_with_new_identity(tmp_path):
@@ -240,7 +242,7 @@ def test_a_symlink_at_dist_is_refused_without_touching_its_target(tmp_path, caps
         module.build(str(work))
 
     assert exc.value.code == 1
-    assert fired == {"vite": 1}
+    assert fired == {}, "a symlink refusal must prevent Vite authorization"
     assert dist.is_symlink()
     assert payload.read_bytes() == b"outside payload"
     assert "symlink" in capsys.readouterr().out.lower()
@@ -317,16 +319,125 @@ def test_attempt_path_replacement_cannot_publish_foreign_output(tmp_path, capsys
     assert exc.value.code == 1
     assert fired == {"vite": 1}
     assert moved["owned"].is_dir(), "the creation-bound object must still exist"
-    assert (dist / "assets" / "index-STALE.js").read_bytes() == b"stale javascript"
+    assert not os.path.lexists(dist)
     assert not (dist / "assets" / "index-FOREIGN.js").exists()
     assert "changed identity" in capsys.readouterr().out
+
+
+def test_publication_rechecks_the_inode_the_kernel_actually_renamed(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    frontend = work / "frontend"
+    dist = frontend / "dist"
+    fired: dict[str, int] = {}
+    moved: dict[str, Path] = {}
+    foreign: dict[str, tuple[int, int]] = {}
+    _successful_vite(module, fired)
+    real_publish = module._rename_noclobber
+
+    def replace_source_then_publish(old, new, parent_fd, allow_fallback=True):
+        if new != "dist" or not old.startswith("bdcut_build_"):
+            return real_publish(old, new, parent_fd, allow_fallback)
+        fired["publish"] = fired.get("publish", 0) + 1
+        assert allow_fallback is False
+        attempt = frontend / old
+        owned = attempt.with_name(attempt.name + ".owned")
+        attempt.rename(owned)
+        moved["owned"] = owned
+        assets = attempt / "assets"
+        assets.mkdir(parents=True)
+        (attempt / "index.html").write_bytes(b"foreign html")
+        (assets / "index-FOREIGN.js").write_bytes(b"foreign javascript")
+        st = os.lstat(attempt)
+        foreign["identity"] = (st.st_dev, st.st_ino)
+        return real_publish(old, new, parent_fd, allow_fallback)
+
+    module._rename_noclobber = replace_source_then_publish
+    try:
+        with pytest.raises(SystemExit) as exc:
+            module.build(str(work))
+    finally:
+        module._rename_noclobber = real_publish
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1, "publish": 1}
+    assert moved["owned"].is_dir(), "the verified build inode must be preserved"
+    now = os.lstat(dist)
+    assert (now.st_dev, now.st_ino) == foreign["identity"]
+    assert (dist / "index.html").read_bytes() == b"foreign html"
+    assert (dist / "assets" / "index-FOREIGN.js").read_bytes() == b"foreign javascript"
+    out = capsys.readouterr().out.lower()
+    assert "publication identity" in out
+    assert "frontend/dist" in out
+    assert "built bundle" not in out
+
+
+def test_missing_artifact_evidence_is_unknown_not_success(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    fired: dict[str, int] = {}
+    _successful_vite(module, fired, emit=False)
+
+    with pytest.raises(SystemExit) as exc:
+        module.build(str(work))
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1}
+    assert "missing or unreadable" in capsys.readouterr().out.lower()
+
+
+def test_malformed_artifact_evidence_is_not_success(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    fired: dict[str, int] = {}
+
+    def malformed_vite(cmd, cwd=None, **_kwargs):
+        fired["vite"] = fired.get("vite", 0) + 1
+        out = Path(cmd[cmd.index("--outDir") + 1])
+        (out / "index.html").mkdir()
+        assets = out / "assets"
+        assets.mkdir()
+        (assets / "index-MALFORMED.js").write_bytes(b"javascript")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    module.run = malformed_vite
+    with pytest.raises(SystemExit) as exc:
+        module.build(str(work))
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1}
+    assert "not a non-empty regular file" in capsys.readouterr().out.lower()
+
+
+def test_unknown_attempt_identity_is_not_success(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    fired: dict[str, int] = {}
+    _successful_vite(module, fired)
+    real_owned = module._owned_tempdir
+
+    def create_without_identity(*args, **kwargs):
+        attempt = real_owned(*args, **kwargs)
+        fired["identity_removed"] = fired.get("identity_removed", 0) + 1
+        assert module._TEMPDIR_IDENT.pop(attempt, None) is not None
+        return attempt
+
+    module._owned_tempdir = create_without_identity
+    try:
+        with pytest.raises(SystemExit) as exc:
+            module.build(str(work))
+    finally:
+        module._owned_tempdir = real_owned
+
+    assert exc.value.code == 1
+    assert fired == {"identity_removed": 1, "vite": 1}
+    assert "no creation identity" in capsys.readouterr().out.lower()
 
 
 def test_unreadable_attempt_files_are_not_published(tmp_path, capsys):
     module = _load_cut()
     work = _work(tmp_path)
     dist = work / "frontend" / "dist"
-    before = os.lstat(dist)
     fired: dict[str, int] = {}
 
     def unreadable_vite(cmd, cwd=None, **_kwargs):
@@ -349,7 +460,7 @@ def test_unreadable_attempt_files_are_not_published(tmp_path, capsys):
 
     assert exc.value.code == 1
     assert fired == {"vite": 1}
-    _assert_stale_tree(dist, (before.st_dev, before.st_ino))
+    assert not os.path.lexists(dist)
     assert "unreadable" in capsys.readouterr().out.lower()
 
 
@@ -391,6 +502,7 @@ def test_dist_on_another_mount_is_refused_before_removal(tmp_path, capsys):
         module.build(str(work))
 
     assert exc.value.code == 1
-    assert fired == {"vite": 1, "mount": 2}
+    assert fired == {"mount": 2}, (
+        "a mount-boundary refusal must prevent Vite authorization")
     _assert_stale_tree(dist, (before.st_dev, before.st_ino))
     assert "mount" in capsys.readouterr().out.lower()

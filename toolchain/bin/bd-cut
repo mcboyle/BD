@@ -391,22 +391,66 @@ def _read_nonempty_regular(fd, label):
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
         die(f"current build attempt {label} is not a non-empty regular file; "
-            "previous frontend/dist preserved")
+            "frontend/dist remains absent")
     try:
         first = os.read(fd, 1)
     except OSError as e:
-        die(f"current build attempt {label} is unreadable ({e}); previous "
-            "frontend/dist preserved")
+        die(f"current build attempt {label} is unreadable ({e}); "
+            "frontend/dist remains absent")
     if not first:
         die(f"current build attempt {label} became empty while being read; "
-            "previous frontend/dist preserved")
+            "frontend/dist remains absent")
     return st
+
+
+def _remove_previous_dist(frontend, dist):
+    """Remove the old published subject before authorizing a new build."""
+    try:
+        old = os.lstat(dist)
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        die(f"frontend/dist identity could not be read ({e}); refusing to "
+            "build against an unknown old output")
+    if not stat.S_ISDIR(old.st_mode):
+        kind = "symlink" if stat.S_ISLNK(old.st_mode) else "non-directory"
+        die(f"frontend/dist is a {kind}; refusing to touch it")
+    try:
+        old_fd = os.open(dist, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as e:
+        die(f"frontend/dist could not be bound for removal ({e})")
+    try:
+        bound = os.fstat(old_fd)
+        old_ident = (bound.st_dev, bound.st_ino)
+        if old_ident != (old.st_dev, old.st_ino):
+            die("frontend/dist changed identity before removal; refusing "
+                "to touch either object")
+        parent_check_fd = os.open(
+            frontend, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            parent_mount = _mount_id(parent_check_fd)
+            dist_mount = _mount_id(old_fd)
+            parent_st = os.fstat(parent_check_fd)
+        except OSError as e:
+            die(f"frontend/dist mount identity is unknown ({e}); refusing "
+                "removal")
+        finally:
+            os.close(parent_check_fd)
+        if dist_mount != parent_mount or bound.st_dev != parent_st.st_dev:
+            die("frontend/dist is on a different mount or device; refusing "
+                "to empty a mounted filesystem")
+        removed, reason = _remove_owned_dir(dist, old_ident, old_fd)
+    finally:
+        os.close(old_fd)
+    if not removed:
+        die("frontend/dist removal failed; Vite was NOT invoked: " + str(reason))
 
 
 def build(work):
     step(2, "vite build")
     frontend = fe(work)
     dist = os.path.join(frontend, "dist")
+    _remove_previous_dist(frontend, dist)
     attempt = _owned_tempdir("bdcut_build_", directory=frontend)
     published = False
     try:
@@ -416,7 +460,8 @@ def build(work):
         r = run(["node_modules/.bin/vite", "build", "--outDir", attempt,
                  "--emptyOutDir"], cwd=frontend, timeout=600)
         if r.returncode != 0:
-            die("vite build failed; previous frontend/dist preserved:\n" +
+            die("vite build failed after verified frontend/dist removal; "
+                "no new bundle was published:\n" +
                 ((r.stdout or "") + (r.stderr or ""))[-1000:])
 
         held = _TEMPDIR_FD.get(attempt)
@@ -458,14 +503,14 @@ def build(work):
                     js.append(entry.name)
                 except OSError as e:
                     die(f"current build attempt asset {entry.name!r} is unreadable "
-                        f"or unsafe ({e}); previous frontend/dist preserved")
+                        f"or unsafe ({e}); frontend/dist remains absent")
                 finally:
                     if asset_fd is not None:
                         os.close(asset_fd)
         except OSError as e:
             missing = "index.html" if index_fd is None else "assets directory"
             die(f"current build attempt output {missing} is missing or unreadable ({e}); "
-                "previous frontend/dist preserved")
+                "frontend/dist remains absent")
         finally:
             if assets_fd is not None:
                 os.close(assets_fd)
@@ -474,49 +519,7 @@ def build(work):
         js.sort()
         if not js:
             die("current build attempt produced no non-empty regular JavaScript "
-                "assets; previous frontend/dist preserved")
-
-        try:
-            old = os.lstat(dist)
-        except FileNotFoundError:
-            old = None
-        except OSError as e:
-            die(f"frontend/dist identity could not be read ({e}); refusing to "
-                "replace an unknown object")
-        if old is not None:
-            if not stat.S_ISDIR(old.st_mode):
-                kind = "symlink" if stat.S_ISLNK(old.st_mode) else "non-directory"
-                die(f"frontend/dist is a {kind}; refusing to touch it")
-            try:
-                old_fd = os.open(dist, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            except OSError as e:
-                die(f"frontend/dist could not be bound for removal ({e})")
-            try:
-                bound = os.fstat(old_fd)
-                old_ident = (bound.st_dev, bound.st_ino)
-                if old_ident != (old.st_dev, old.st_ino):
-                    die("frontend/dist changed identity before removal; refusing "
-                        "to touch either object")
-                parent_check_fd = os.open(
-                    frontend, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-                try:
-                    parent_mount = _mount_id(parent_check_fd)
-                    dist_mount = _mount_id(old_fd)
-                    parent_st = os.fstat(parent_check_fd)
-                except OSError as e:
-                    die(f"frontend/dist mount identity is unknown ({e}); refusing "
-                        "removal")
-                finally:
-                    os.close(parent_check_fd)
-                if dist_mount != parent_mount or bound.st_dev != parent_st.st_dev:
-                    die("frontend/dist is on a different mount or device; refusing "
-                        "to empty a mounted filesystem")
-                removed, reason = _remove_owned_dir(dist, old_ident, old_fd)
-            finally:
-                os.close(old_fd)
-            if not removed:
-                die("frontend/dist removal failed; current build was NOT published: "
-                    + str(reason))
+                "assets; frontend/dist remains absent")
 
         try:
             named_attempt = os.lstat(attempt)
@@ -535,6 +538,16 @@ def build(work):
             if guaranteed is not True:
                 die("current build output publication did not provide the required "
                     "no-clobber guarantee")
+            try:
+                published_st = os.stat(
+                    "dist", dir_fd=parent_fd, follow_symlinks=False)
+            except OSError as e:
+                die(f"frontend/dist publication identity is unknown ({e}); "
+                    "refusing build success")
+            if (not stat.S_ISDIR(published_st.st_mode) or
+                    (published_st.st_dev, published_st.st_ino) != ident):
+                die("frontend/dist publication identity does not match the "
+                    "authorized build output; refusing build success")
         except OSError as e:
             die(f"current build output could not be published without replacing "
                 f"a concurrent frontend/dist ({type(e).__name__}: {e})")
