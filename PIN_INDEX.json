@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 58,
+    "total": 72,
     "version": 1,
-    "count_dict": 57,
-    "test_files_scanned": 1361,
+    "count_dict": 71,
+    "test_files_scanned": 1362,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -39,6 +39,7 @@
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
+      "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -222,7 +223,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1156",
+      "value": "3.66.1157",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -410,6 +411,135 @@
         "close": 1
       },
       "gates_what": "test_top_parent_close_baseexception_propagates_after_exact_removal"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 118,
+      "value": {
+        "remove": 1
+      },
+      "gates_what": "test_complete_dist_removal_failure_cannot_become_build_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 162,
+      "value": {
+        "partial": 1
+      },
+      "gates_what": "test_partial_removal_that_leaves_stale_hashed_assets_is_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 179,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_success_with_no_output_from_this_attempt_rejects_old_js_candidate"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 201,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_vite_failure_leaves_dist_absent_and_reports_stderr"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 234,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_clean_rebuild_publishes_only_attempt_output_with_new_identity"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 301,
+      "value": {
+        "vite": 1,
+        "publish": 1
+      },
+      "gates_what": "test_concurrent_dist_replacement_is_not_clobbered_at_publish"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 339,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_attempt_path_replacement_cannot_publish_foreign_output"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 382,
+      "value": {
+        "vite": 1,
+        "publish": 1
+      },
+      "gates_what": "test_publication_rechecks_the_inode_the_kernel_actually_renamed"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 404,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_missing_artifact_evidence_is_unknown_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 427,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_malformed_artifact_evidence_is_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 452,
+      "value": {
+        "identity_removed": 1,
+        "vite": 1
+      },
+      "gates_what": "test_unknown_attempt_identity_is_not_success"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 481,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_unreadable_attempt_files_are_not_published"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 501,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_publish_refuses_when_kernel_no_clobber_is_unavailable"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 524,
+      "value": {
+        "mount": 2
+      },
+      "gates_what": "test_dist_on_another_mount_is_refused_before_removal"
     },
     {
       "form": "count_dict",

@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1157 - a build output must belong to this build
+
+Row 148. `bd-cut` no longer erases `frontend/dist` with an error-swallowing
+pathname removal and then accepts whichever hashed JavaScript name is present.
+
+Before Vite is authorized, the cut rejects a mounted `dist` and removes the
+prior bundle through the existing descriptor-bound remover. Vite then writes
+into an empty, same-filesystem directory created and held by the current cut.
+The cut verifies that the pathname still resolves to that creation identity,
+then opens and reads a non-empty regular `index.html` and JavaScript asset
+through the held directory descriptor. It rechecks the attempt identity,
+publishes only with a kernel-guaranteed no-clobber rename, and proves that the
+inode installed at `frontend/dist` is the creation-bound build inode. A
+failed or partial removal, a symlink or concurrent replacement, an unreadable
+output, a successful command that emitted no expected output, and a failed Vite
+command all abort without qualifying stale or foreign output as a new build.
+
+RED at `40bbdb0`: six deterministic semantic regressions, including complete
+and partial removal injections with nonzero counters, fail against the old
+path. Four additional adversarial regressions caught attempt-name replacement,
+unreadable output, unsafe rename fallback, and mounted-output cleanup in the
+first candidate. Four further cases bind the published inode and fail closed on
+missing, malformed, or unknown artifact evidence. All fifteen pass with the
+repair and assert identities, bytes,
+provenance, exit behavior, diagnostics, and preservation of an outside symlink
+target. The focused production-path file is pinned into CI's toolchain shard;
+an exact-head green run therefore executes the row-148 regression itself, not
+only generic release and generated-artifact gates.
+
 ## v3.66.1156 - the fleet record that claimed a clean tree it never looked at
 
 Doc-only. One backlog row, 159, and the version bump that carries it.
