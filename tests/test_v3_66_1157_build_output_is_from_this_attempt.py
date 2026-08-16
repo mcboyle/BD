@@ -211,19 +211,38 @@ def test_clean_rebuild_publishes_only_attempt_output_with_new_identity(tmp_path)
     dist = work / "frontend" / "dist"
     before = os.lstat(dist)
     fired: dict[str, int] = {}
+    removed_fd: dict[str, int] = {}
     _successful_vite(module, fired)
+    real_remove = module._remove_owned_dir
 
-    result = module.build(str(work))
+    def retain_removed_object(path, ident, held_fd=None):
+        assert Path(path) == dist
+        assert ident == (before.st_dev, before.st_ino)
+        assert held_fd is not None
+        removed_fd["fd"] = os.dup(held_fd)
+        return real_remove(path, ident, held_fd)
 
-    after = os.lstat(dist)
-    assert fired == {"vite": 1}
-    assert (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)
-    assert result == ["index-FRESH.js"]
-    assert (dist / "index.html").read_bytes() == b"fresh html"
-    assert (dist / "assets" / "index-FRESH.js").read_bytes() == b"fresh javascript"
-    assert (dist / "assets" / "index-FRESH.css").read_bytes() == b"fresh css"
-    assert not (dist / "assets" / "index-STALE.js").exists()
-    assert not (dist / "assets" / "index-STALE.css").exists()
+    module._remove_owned_dir = retain_removed_object
+    try:
+        result = module.build(str(work))
+    finally:
+        module._remove_owned_dir = real_remove
+
+    try:
+        removed = os.fstat(removed_fd["fd"])
+        after = os.lstat(dist)
+        assert fired == {"vite": 1}
+        assert (removed.st_dev, removed.st_ino) == (before.st_dev, before.st_ino)
+        assert removed.st_nlink == 0, "the exact old directory must be unlinked"
+        assert (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)
+        assert result == ["index-FRESH.js"]
+        assert (dist / "index.html").read_bytes() == b"fresh html"
+        assert (dist / "assets" / "index-FRESH.js").read_bytes() == b"fresh javascript"
+        assert (dist / "assets" / "index-FRESH.css").read_bytes() == b"fresh css"
+        assert not (dist / "assets" / "index-STALE.js").exists()
+        assert not (dist / "assets" / "index-STALE.css").exists()
+    finally:
+        os.close(removed_fd["fd"])
 
 
 def test_a_symlink_at_dist_is_refused_without_touching_its_target(tmp_path, capsys):
