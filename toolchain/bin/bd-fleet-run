@@ -32,9 +32,9 @@ report success over something that had not happened:
   * The plan printed an argv built from the bare command while the runner
     received one carrying the commit-recording prefix. Printed and executed
     argv were DIFFERENT on the default path, and the test that checked them
-    passed --no-record-commit, which is precisely the flag that hides it. The
-    final argv is now constructed exactly ONCE per target and the same object
-    is printed and executed.
+    passed --no-record-commit, which is precisely the flag that hides it. Each
+    phase argv is now constructed exactly ONCE per target and the same objects
+    are printed, persisted, and executed.
   * `build_command(...).strip()` silently altered a command whose trailing
     whitespace was deliberate. strip() is now used only to decide emptiness.
   * Addresses were filtered by a metacharacter BLACKLIST. A blacklist over a
@@ -505,17 +505,27 @@ def build_argv(label, addr, is_local, command, connect_timeout=10):
 
 
 def build_plan(targets, command, record_commit, repo_dir=DEFAULT_REPO_DIR):
-    """One entry per target carrying the FINAL command and argv.
+    """One entry per target carrying the exact measurement and payload argv.
 
-    Constructed once. The plan printout and the runner receive the same argv
-    object, so they cannot disagree -- before v3.66.1144 the printout showed the
-    bare command while the runner got the commit-recording form.
+    Provenance and payload are separate executions.  The coordinator must
+    persist and parse the former before it can submit the latter; an SSH pipe
+    accepting bytes is not proof that the local artifact received them.
     """
-    effective = wrap_command(command, record_commit, repo_dir)
-    return [{"label": l, "addr": a, "local": lo, "command": effective,
-             "argv": build_argv(l, a, lo, effective),
-             "record_provenance": record_commit, "repo_dir": repo_dir}
-            for l, a, lo in targets]
+    entries = []
+    for label, addr, local in targets:
+        payload_argv = build_argv(label, addr, local, command)
+        provenance_command = wrap_command("", True, repo_dir) if record_commit else None
+        provenance_argv = (build_argv(label, addr, local, provenance_command)
+                           if provenance_command is not None else None)
+        entries.append({
+            "label": label, "addr": addr, "local": local,
+            "command": command, "argv": payload_argv,
+            "payload_argv": payload_argv,
+            "provenance_command": provenance_command,
+            "provenance_argv": provenance_argv,
+            "record_provenance": record_commit, "repo_dir": repo_dir,
+        })
+    return entries
 
 
 def classify(rc, err, log_text="", is_local=False):
@@ -555,6 +565,9 @@ def parse_provenance(text: str, expected_repo: str):
     lines = text.splitlines()
     if not lines:
         return unknown, "provenance missing: per-host log has no provenance line"
+    if len(lines) != 1:
+        return unknown, ("provenance malformed: measurement artifact must contain "
+                         f"exactly one line, found {len(lines)}")
     match = re.fullmatch(
         r"bd-fleet-run: commit=([0-9a-f]{40,64}) dirty=(clean|dirty) repo=(.+)",
         lines[0],
@@ -568,54 +581,84 @@ def parse_provenance(text: str, expected_repo: str):
     return {"commit": commit, "dirty": dirty, "repo": repo}, None
 
 
-def _row(entry, exit_code, err, status, wall, log, size, provenance=None):
+def _row(entry, exit_code, err, status, wall, log, size, provenance=None,
+         provenance_log=None, provenance_size=0):
     return {"label": entry["label"], "addr": entry["addr"],
             "via": "local" if entry["local"] else "ssh",
             "exit": exit_code, "error": err, "status": status,
             "wall": wall, "log": str(log), "argv": list(entry["argv"]),
             "bytes": size, "provenance": (provenance if provenance is not None
-                                             else _unknown_provenance(entry))}
+                                             else _unknown_provenance(entry)),
+            "provenance_argv": (list(entry["provenance_argv"])
+                                if entry.get("provenance_argv") else None),
+            "provenance_log": (str(provenance_log)
+                               if provenance_log is not None else None),
+            "provenance_bytes": provenance_size}
+
+
+def _read_run_log(log):
+    """Return (text, size, error) for one runner-produced artifact."""
+    try:
+        st = os.lstat(log)
+        if not statmod.S_ISREG(st.st_mode):
+            return "", 0, ("per-host log is not a regular file; the run left "
+                            "no usable evidence")
+        return log.read_text(errors="replace"), st.st_size, None
+    except FileNotFoundError:
+        return "", 0, ("the runner created no per-host log; there is no evidence "
+                        "the command ran")
+    except OSError as exc:
+        return "", 0, f"log unreadable: {type(exc).__name__}: {exc}"
 
 
 def run_one(runner, entry, logdir, timeout):
     """Never raises. A host that blows up returns an ERROR row like any other."""
     log = logdir / f"{entry['label']}.log"
     started = time.time()
+    provenance = None
+    provenance_log = None
+    provenance_size = 0
+
+    if entry.get("record_provenance"):
+        provenance_log = logdir / f"{entry['label']}.provenance.log"
+        measure_rc, measure_err = None, None
+        try:
+            measure_rc, measure_err = runner.run(
+                entry["provenance_argv"], provenance_log, timeout)
+        except Exception as exc:
+            measure_err = f"{type(exc).__name__}: {exc}"
+        measure_text, provenance_size, artifact_error = _read_run_log(
+            provenance_log)
+        measure_err = measure_err or artifact_error
+        measure_status = classify(
+            measure_rc, measure_err, measure_text, entry["local"])
+        provenance, provenance_error = parse_provenance(
+            measure_text, entry.get("repo_dir", "unknown"))
+        if provenance_error:
+            measure_err = measure_err or provenance_error
+            if measure_status == "ok":
+                measure_status = "PROVENANCE_UNKNOWN"
+        if measure_status != "ok":
+            return _row(
+                entry, measure_rc, measure_err, measure_status,
+                round(time.time() - started, 1), provenance_log,
+                provenance_size, provenance, provenance_log, provenance_size)
+
     rc, err = None, None
     try:
-        rc, err = runner.run(entry["argv"], log, timeout)
+        remaining = timeout - (time.time() - started)
+        if remaining <= 0:
+            err = f"TIMEOUT after {timeout}s before payload authorization"
+        else:
+            rc, err = runner.run(entry["payload_argv"], log, remaining)
     except Exception as exc:
         err = f"{type(exc).__name__}: {exc}"
-
-    text, size = "", 0
-    try:
-        st = os.lstat(log)
-        if not statmod.S_ISREG(st.st_mode):
-            err = err or ("per-host log is not a regular file; the run left no "
-                          "usable evidence")
-        else:
-            size = st.st_size
-            # A zero-byte regular file is VALID: a command may print nothing.
-            text = log.read_text(errors="replace")
-    except FileNotFoundError:
-        # rc==0 with no log means the runner produced no evidence at all. That
-        # is not success, whatever it returned.
-        err = err or ("the runner created no per-host log; there is no evidence "
-                      "the command ran")
-    except OSError as exc:
-        err = err or f"log unreadable: {type(exc).__name__}: {exc}"
-
-    provenance = None
+    text, size, artifact_error = _read_run_log(log)
+    err = err or artifact_error
     status = classify(rc, err, text, entry["local"])
-    if entry.get("record_provenance"):
-        provenance, provenance_error = parse_provenance(
-            text, entry.get("repo_dir", "unknown"))
-        if provenance_error:
-            err = err or provenance_error
-            if status == "ok":
-                status = "PROVENANCE_UNKNOWN"
     return _row(entry, rc, err, status,
-                round(time.time() - started, 1), log, size, provenance)
+                round(time.time() - started, 1), log, size, provenance,
+                provenance_log, provenance_size)
 
 
 def summarise(row, pattern=None):
@@ -754,11 +797,19 @@ def _run(args, runner, probe) -> int:
     print(f"bd-fleet-run: {'EXECUTE' if args.execute else 'PLAN (dry-run)'}"
           f"  {len(plan)} target(s), jobs={workers}")
     print(f"  effective command: {plan[0]['command']}")
+    if plan[0]["record_provenance"]:
+        print(f"  provenance command: {plan[0]['provenance_command']}")
     print(f"  artifacts base: {base}")
     for e in plan:
         where = "LOCAL" if e["local"] else f"ssh {e['addr']}"
         print(f"    {e['label']:12} {where}")
-        print("      argv: " + " ".join(shlex.quote(a) for a in e["argv"]))
+        if e["record_provenance"]:
+            print("      provenance argv: " + " ".join(
+                shlex.quote(a) for a in e["provenance_argv"]))
+            print("      payload argv: " + " ".join(
+                shlex.quote(a) for a in e["payload_argv"]))
+        else:
+            print("      argv: " + " ".join(shlex.quote(a) for a in e["argv"]))
     for label, addr, kept in collapsed:
         print(f"  NOTE: {label} collapsed -- {addr} already covered by {kept}")
 
@@ -777,10 +828,13 @@ def _run(args, runner, probe) -> int:
         (logdir / "manifest.json").write_text(json.dumps({
             "run_id": run_id, "command": command,
             "effective_command": plan[0]["command"],
+            "provenance_command": plan[0]["provenance_command"],
             "repo_dir": repo_dir,
             "record_provenance": not args.no_record_commit,
             "targets": [{"label": e["label"], "addr": e["addr"],
-                         "local": e["local"], "argv": e["argv"]} for e in plan],
+                         "local": e["local"], "argv": e["argv"],
+                         "provenance_argv": e["provenance_argv"]}
+                        for e in plan],
             "timeout": args.timeout, "jobs_configured": args.jobs,
             "workers_used": workers, "local_head": probe.local_head(),
         }, indent=2))
@@ -810,7 +864,8 @@ def _run(args, runner, probe) -> int:
 
     bad = [r for r in rows if r["status"] != "ok"]
     print(f"\n  {len(rows) - len(bad)}/{len(rows)} host(s) ok."
-          f"  Full output: {logdir}/<host>.log")
+          f"  Full output: {logdir}/<host>.log"
+          f"  Provenance: {logdir}/<host>.provenance.log")
     if bad:
         print("  NOT OK: " + ", ".join(f"{r['label']}={r['status']}" for r in bad))
     if coordinator_error:
@@ -842,10 +897,11 @@ class _FakeRunner:
     def run(self, argv, log_path, timeout):
         self.calls.append({"argv": list(argv), "timeout": timeout})
         if self._body is not None:
-            body = self._body
             if "bd-fleet-run: commit=" in argv[-1]:
                 body = ("bd-fleet-run: commit=" + "f" * 40
-                        + f" dirty=clean repo={DEFAULT_REPO_DIR}\n" + body)
+                        + f" dirty=clean repo={DEFAULT_REPO_DIR}\n")
+            else:
+                body = self._body
             pathlib.Path(log_path).write_text(body)
         return self._rc, self._err
 
@@ -878,10 +934,12 @@ def selftest() -> int:
         rc = main(common + ["--execute", "--", "echo", "hi"],
                   runner=fake, probe=_FakeProbe())
         check(rc == 0, f"an execute run through the fake returns 0 (got {rc})")
-        check(len(fake.calls) == 2, f"one call per host (got {len(fake.calls)})")
+        check(len(fake.calls) == 4,
+              f"provenance and payload call per host (got {len(fake.calls)})")
         ssh_calls = [c for c in fake.calls if c["argv"][0] == "ssh"]
-        check(len(ssh_calls) == 1, "the non-local host used ssh")
-        check(not any("StrictHostKeyChecking" in a for a in ssh_calls[0]["argv"]),
+        check(len(ssh_calls) == 2, "both non-local phases used ssh")
+        check(not any("StrictHostKeyChecking" in a
+                      for c in ssh_calls for a in c["argv"]),
               "host-key verification is never disabled")
 
         dry = _FakeRunner()
@@ -908,7 +966,7 @@ def selftest() -> int:
               "a single argument is NOT stripped")
 
         p = build_plan([("h", "10.0.0.1", False)], "echo hi", True)
-        check(p[0]["argv"][-1].find("rev-parse") != -1,
+        check(p[0]["provenance_argv"][-1].find("rev-parse") != -1,
               "the default plan carries the commit-recording prefix")
         check(p[0]["command"] in " ".join(p[0]["argv"]) or
               shlex.quote(p[0]["command"]) in " ".join(p[0]["argv"]),

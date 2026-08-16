@@ -268,7 +268,10 @@ class _LogRunner:
 
     def run(self, argv, log_path, timeout):
         self.calls += 1
-        pathlib.Path(log_path).write_text(self.text)
+        if "bd-fleet-run: commit=" in argv[-1]:
+            pathlib.Path(log_path).write_text(self.text)
+            return 0, None
+        pathlib.Path(log_path).write_text("payload output\n")
         return self.rc, None
 
 
@@ -311,6 +314,47 @@ def test_missing_provenance_cannot_be_host_success(tmp_path):
     assert manifest["repo_dir"] == "/srv/BulkDownloader"
 
 
+def test_truncated_measurement_is_persisted_before_payload_authorization(tmp_path):
+    mod = _load()
+    hosts = tmp_path / "hosts"
+    hosts.write_text("alpha 192.0.2.10\n")
+    root = tmp_path / "runs"
+    root.mkdir()
+    marker = tmp_path / "payload-ran"
+
+    class TruncatingTransport:
+        name = "truncating-transport"
+
+        def __init__(self):
+            self.calls = []
+
+        def run(self, argv, log_path, timeout):
+            self.calls.append(list(argv))
+            if str(marker) in " ".join(argv):
+                marker.write_text("ran\n")
+            pathlib.Path(log_path).write_bytes(b"bd-fleet-r")
+            return 0, None
+
+    runner = TruncatingTransport()
+    rc = mod.main(
+        [
+            "--hosts", str(hosts),
+            "--root", str(root),
+            "--repo-dir", "/srv/BulkDownloader",
+            "--execute", "--", "printf", "ran", ">", str(marker),
+        ],
+        runner=runner,
+        probe=_Probe(),
+    )
+    assert len(runner.calls) == 1
+    assert rc != 0
+    assert not marker.exists()
+    run = next(p for p in root.iterdir() if p.is_dir())
+    row = json.loads((run / "summary.json").read_text())[0]
+    assert row["status"] == "PROVENANCE_UNKNOWN"
+    assert row["provenance"]["dirty"] == "unknown"
+
+
 def test_malformed_or_unknown_provenance_cannot_be_host_success(tmp_path):
     mod = _load()
     for index, line in enumerate((
@@ -332,16 +376,20 @@ def test_valid_provenance_is_persisted_as_measured_facts(tmp_path):
     head = "b" * 40
     line = (
         f"bd-fleet-run: commit={head} dirty=dirty "
-        "repo=/srv/BulkDownloader\npayload\n"
+        "repo=/srv/BulkDownloader\n"
     )
     rc, runner, row, manifest = _execute(mod, tmp_path, line)
-    assert runner.calls == 1
+    assert runner.calls == 2
     assert rc == 0
     assert row["status"] == "ok"
     assert row["provenance"] == {
         "commit": head, "dirty": "dirty", "repo": "/srv/BulkDownloader"
     }
     assert manifest["record_provenance"] is True
+    assert "rev-parse" in manifest["targets"][0]["provenance_argv"][-1]
+    assert "rev-parse" not in manifest["targets"][0]["argv"][-1]
+    assert pathlib.Path(row["provenance_log"]).read_text() == line
+    assert row["provenance_bytes"] == len(line.encode())
 
 
 def test_failed_payload_retains_valid_measured_provenance(tmp_path):
@@ -349,10 +397,10 @@ def test_failed_payload_retains_valid_measured_provenance(tmp_path):
     head = "c" * 40
     line = (
         f"bd-fleet-run: commit={head} dirty=clean "
-        "repo=/srv/BulkDownloader\npayload failed\n"
+        "repo=/srv/BulkDownloader\n"
     )
     rc, runner, row, _ = _execute(mod, tmp_path, line, runner_rc=7)
-    assert runner.calls == 1
+    assert runner.calls == 2
     assert rc != 0
     assert row["status"] == "FAIL"
     assert row["exit"] == 7

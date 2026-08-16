@@ -179,7 +179,7 @@ def test_execute_makes_no_real_process_call_at_all(guarded):
                      "--execute", "--", "echo", "hi"],
                     runner=fake, probe=m._FakeProbe())
         assert rc == 0
-        assert len(fake.calls) == 2
+        assert len(fake.calls) == 4, "each host has a provenance and payload phase"
         assert launches == [], f"a real subprocess was started: {launches}"
 
 
@@ -236,7 +236,7 @@ def test_only_is_applied_before_address_deduplication(guarded):
                      "--only", "beta", "--execute", "--", "true"],
                     runner=fake, probe=m._FakeProbe())
         assert rc == 0, "selecting a collapsed alias failed"
-        assert len(fake.calls) == 1
+        assert len(fake.calls) == 2
         run = next(d for d in _base(tmp).iterdir() if d.is_dir())
         assert (run / "beta.log").is_file(), "the selected alias was not the target"
 
@@ -251,7 +251,7 @@ def test_a_valid_only_selection_still_works(guarded):
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
                      "--only", "test6", "--execute", "--", "true"],
                     runner=fake, probe=m._FakeProbe())
-        assert rc == 0 and len(fake.calls) == 1
+        assert rc == 0 and len(fake.calls) == 2
         assert "10.0.0.2" in fake.calls[0]["argv"]
 
 
@@ -779,7 +779,7 @@ def test_duplicate_addresses_are_collapsed_not_run_twice(guarded):
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
                      "--execute", "--", "true"],
                     runner=fake, probe=m._FakeProbe())
-        assert rc == 0 and len(fake.calls) == 1
+        assert rc == 0 and len(fake.calls) == 2
 
 
 @pytest.mark.parametrize("addr", ["10.0.0.1; rm -rf /", "-oProxyCommand=x",
@@ -1072,13 +1072,20 @@ def test_the_default_path_prints_exactly_what_it_executes(guarded, capsys):
                 "--", "echo", "hi"], runner=fake, probe=m._FakeProbe())
         out = capsys.readouterr().out
         import shlex as _shlex
-        sent = fake.calls[0]["argv"]
-        printed_line = [l for l in out.splitlines() if l.strip().startswith("argv:")][0]
-        printed = _shlex.split(printed_line.strip()[len("argv:"):].strip())
-        assert printed == sent, (
-            "the printed argv is not the executed argv on the DEFAULT path\n"
-            f"  printed:  {printed}\n  executed: {sent}")
-        assert "rev-parse" in sent[-1], "fixture precondition: prefix is present"
+        sent_provenance = fake.calls[0]["argv"]
+        sent_payload = fake.calls[1]["argv"]
+        provenance_line = [l for l in out.splitlines()
+                           if l.strip().startswith("provenance argv:")][0]
+        payload_line = [l for l in out.splitlines()
+                        if l.strip().startswith("payload argv:")][0]
+        printed_provenance = _shlex.split(
+            provenance_line.strip()[len("provenance argv:"):].strip())
+        printed_payload = _shlex.split(
+            payload_line.strip()[len("payload argv:"):].strip())
+        assert printed_provenance == sent_provenance
+        assert printed_payload == sent_payload
+        assert "rev-parse" in sent_provenance[-1]
+        assert "echo hi" in sent_payload[-1]
 
 
 def test_a_single_command_argument_is_not_stripped_end_to_end(guarded):
@@ -1144,7 +1151,8 @@ def test_normalisation_drives_deduplication(guarded):
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
                      "--execute", "--", "true"],
                     runner=fake, probe=m._FakeProbe())
-        assert rc == 0 and len(fake.calls) == 1, "the same host was contacted twice"
+        assert rc == 0 and len(fake.calls) == 2, (
+            "the same host did not receive exactly one provenance and payload phase")
 
 
 def test_host_key_failure_is_its_own_state(mod):

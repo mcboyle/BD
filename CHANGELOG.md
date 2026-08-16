@@ -22,19 +22,20 @@ or related local-repository environment cannot substitute another repository
 while retaining the expected checkout label. Commit measurement peels and
 requires a commit object rather than accepting an arbitrary hex-named `HEAD`.
 
-The coordinator independently parses the first line of every successful host
-log. A missing, malformed, unknown, truncated, or wrong-checkout record changes
-the persisted host state to `PROVENANCE_UNKNOWN`, so a runner returning zero
-cannot manufacture success without the measured facts. `manifest.json` records
-the exact checkout and whether provenance was required; `summary.json` records
-the parsed commit, dirty state, and checkout per host.
+Provenance and payload are separate runner phases. The coordinator first waits
+for the measurement process to finish, reads the dedicated provenance artifact,
+requires exactly one complete valid record, and only then submits the payload.
+A missing, malformed, unknown, truncated, unpersisted, or wrong-checkout record
+therefore prevents payload launch rather than merely changing its status after
+the fact. `manifest.json` records both argv values; `summary.json` records the
+parsed commit, dirty state, checkout, and provenance-artifact identity per host.
 
 Writing the provenance record is itself an authorization gate. If the output
 artifact cannot accept the complete record (for example, ENOSPC), the wrapper
 reports the publication phase on stderr, exits nonzero, and never starts the
 payload.
 
-Fourteen hermetic production-path regressions execute the real wrapper locally
+Fifteen hermetic production-path regressions execute the real wrapper locally
 against disposable Git repositories or injected Git failure, and drive the
 real coordinator with injected non-network runners. The direct legacy RED
 reproduced `commit=unknown dirty=0` followed by payload execution from a
