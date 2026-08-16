@@ -2200,7 +2200,8 @@ def test_top_refusal_mode_restoration_baseexception_propagates(subject,
     assert subject.failure_is_accounted_for(d)
 
 
-@pytest.mark.parametrize("secondary_type", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("secondary_type", [OSError, KeyboardInterrupt,
+                                              SystemExit, MemoryError])
 def test_top_primary_memoryerror_survives_restoration_control_exception(
         subject, secondary_type):
     d = subject.make(); ident = _ident(d); os.chmod(d, 0o500)
