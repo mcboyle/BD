@@ -511,16 +511,22 @@ def prune(base: pathlib.Path, keep: int, protect=None):
         for name, error in cleanup_errors:
             note = (f"{name}: retained descriptor close failed during unwind "
                     f"({type(error).__name__}: {error})")
-            if primary is not None and hasattr(primary, "add_note"):
-                primary.add_note(note)
-            elif isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)):
+            if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)):
                 if control_error is None:
                     control_error = error
+                    if primary is not None and hasattr(control_error, "add_note"):
+                        control_error.add_note(
+                            "descriptor cleanup control exception superseded "
+                            f"active {type(primary).__name__}: {primary}")
                 elif hasattr(control_error, "add_note"):
                     control_error.add_note(note)
+            elif primary is not None and hasattr(primary, "add_note"):
+                primary.add_note(note)
             else:
                 failures.append(note)
-        if primary is None and control_error is not None:
+        if control_error is not None:
+            if primary is not None:
+                raise control_error from primary
             raise control_error
 
 

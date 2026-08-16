@@ -283,6 +283,45 @@ def test_descriptor_close_control_exception_is_not_swallowed(tmp_path, mod, monk
     assert _open_directory_fds_beneath(base) == {}
 
 
+def test_cleanup_control_exception_takes_precedence_over_primary_control(
+        tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    pending = _run(base, "20240101T000000Z-cccccccc", mod)
+    real_close = os.close
+    fired = {"remove": 0, "close": 0}
+
+    class InterruptingRemover:
+        @staticmethod
+        def _remove_owned_dir(path, identity, held_fd):
+            fired["remove"] += 1
+            raise KeyboardInterrupt("injected primary remover control")
+
+    def interrupt_pending_close(fd):
+        try:
+            target = os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            target = ""
+        if target == str(pending) and fired["close"] == 0:
+            fired["close"] += 1
+            real_close(fd)
+            raise SystemExit("injected cleanup close control")
+        return real_close(fd)
+
+    monkeypatch.setattr(mod, "_owned_remover_module", lambda: InterruptingRemover)
+    monkeypatch.setattr(mod.os, "close", interrupt_pending_close)
+    with pytest.raises(SystemExit, match="injected cleanup close control") as caught:
+        mod.prune(base, 1)
+
+    assert fired == {"remove": 1, "close": 1}, (
+        "both primary and cleanup control-exception seams must fire")
+    assert isinstance(caught.value.__cause__, KeyboardInterrupt)
+    assert "injected primary remover control" in str(caught.value.__cause__)
+    assert _open_directory_fds_beneath(base) == {}
+
+
 def test_ordinary_loader_failure_is_actionable_and_closes_descriptors(tmp_path, mod, monkeypatch):
     base = tmp_path / "runs"
     base.mkdir()

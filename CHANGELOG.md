@@ -14,14 +14,15 @@ directory, delegates destruction to `bd-cut`'s established object-bound
 remover, and records a dropped run only after `fstat` proves the held inode has
 `st_nlink == 0`.
 
-Nine production-path regressions prove ordinary terminal unlink, foreign name
+Ten production-path regressions prove ordinary terminal unlink, foreign name
 replacement survival, refusal of a false remover-success claim, and refusal of
 a dangling-symlink or ownership-sentinel replacement. Every adversarial
 injection has a nonzero counter and checks the held inode and foreign object,
 not only diagnostics. Control-exception regressions also prove closure of the
 current and every pending descriptor, including when remover loading fails,
 without swallowing the original exception or a control exception raised by
-descriptor close itself.
+descriptor close itself. If both occur, the cleanup control exception takes
+precedence and preserves the active primary exception as its explicit cause.
 An ordinary shared-remover load failure returns a per-run actionable failure
 and closes every retained descriptor; it cannot become success or a traceback-
 only operator result.
