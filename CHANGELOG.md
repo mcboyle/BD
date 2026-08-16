@@ -9,7 +9,8 @@ archive is not present in this repository; consult source-control history.
 Row 159. `bd-fleet-run` no longer asks Git about the remote login directory
 and no longer lets a failed `git status` become `dirty=0` through `wc -l`.
 
-The default provenance gate now names the intended checkout explicitly,
+The default provenance gate now names the checkout containing the running tool
+explicitly (with `--repo-dir` for a different common remote path),
 resolves it to its physical top level, records the full commit plus the distinct
 states `dirty=clean` or `dirty=dirty`, and refuses to run the operator command
 when checkout, repository, commit, or status measurement fails. Every failure

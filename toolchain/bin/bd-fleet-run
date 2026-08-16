@@ -75,7 +75,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 DEFAULT_HOSTS = pathlib.Path.home() / ".config" / "bd" / "hosts"
 DEFAULT_ROOT = pathlib.Path.home() / ".local" / "share" / "bd-fleet-run" / "runs"
-DEFAULT_REPO_DIR = "/home/mboyle/BulkDownloader"
+DEFAULT_REPO_DIR = str(HERE.parents[1])
 DEFAULT_KEEP = 20
 DEFAULT_JOBS = 8
 
