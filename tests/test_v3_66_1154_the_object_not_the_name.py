@@ -839,6 +839,7 @@ def test_an_unreadable_owned_child_is_removed_by_object_identity(subject, mode):
     os.mkdir(child)
     _payload(child)
     child_ident = _ident(child)
+    held = os.open(child, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
     os.chmod(child, mode)
     try:
         fd = os.open(child, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -848,12 +849,18 @@ def test_an_unreadable_owned_child_is_removed_by_object_identity(subject, mode):
         os.close(fd)
         pytest.fail(f"ordinary directory open was not denied at mode {mode:#05o}")
 
-    got = subject.discard(d)
+    try:
+        got = subject.discard(d)
+        held_after = os.fstat(held)
+    finally:
+        os.close(held)
 
     assert got is True, subject.reason(d)[-300:]
     assert not os.path.lexists(child)
     assert not subject.failure_is_accounted_for(d)
     assert child_ident is not None
+    assert (held_after.st_dev, held_after.st_ino) == child_ident
+    assert held_after.st_nlink == 0
 
 
 def test_post_rename_stat_failure_restores_the_owned_child(subject):
@@ -985,6 +992,222 @@ def test_failure_after_unreadable_child_relaxation_restores_exact_mode(subject):
     assert stat.S_IMODE(os.lstat(child).st_mode) == original_mode
     assert subject.failure_is_accounted_for(d)
     assert "injected failure after child relaxation" in subject.reason(d), subject.reason(d)[-300:]
+
+
+def test_top_level_post_rename_stat_failure_restores_owned_root(subject):
+    d = subject.make()
+    ident = _ident(d)
+    _payload(d, body="top stat payload")
+    real_walk, real_stat, fired = subject.m._rmtree_fd, os.stat, {"n": 0}
+    subject.m._rmtree_fd = lambda fd, dev, depth=0: None
+
+    def fail_stat(path, *a, **k):
+        st = real_stat(path, *a, **k)
+        if (not fired["n"] and k.get("dir_fd") is not None and
+                ".bdrm-" in os.fsdecode(path) and
+                (st.st_dev, st.st_ino) == ident):
+            fired["n"] += 1
+            raise OSError(errno.EIO, "injected top private stat failure")
+        return st
+
+    os.stat = fail_stat
+    try:
+        got = subject.discard(d)
+    finally:
+        os.stat, subject.m._rmtree_fd = real_stat, real_walk
+    assert fired["n"] == 1
+    assert got is False
+    assert _ident(d) == ident
+    assert not any(".bdrm-" in n for n in os.listdir(os.path.dirname(d)))
+    assert "injected top private stat failure" in subject.reason(d)
+
+
+def test_top_level_rmdir_collision_reports_private_owned_root(subject):
+    d = subject.make()
+    ident = _ident(d)
+    real_walk, real_rmdir, fired, foreign = subject.m._rmtree_fd, os.rmdir, {"n": 0}, {}
+    subject.m._rmtree_fd = lambda fd, dev, depth=0: None
+
+    def fail_rmdir(path, *a, **k):
+        st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        if ".bdrm-" in os.fsdecode(path) and (st.st_dev, st.st_ino) == ident:
+            fired["n"] += 1
+            os.mkdir(os.path.basename(d), dir_fd=k["dir_fd"])
+            fst = os.stat(os.path.basename(d), dir_fd=k["dir_fd"], follow_symlinks=False)
+            foreign["ident"] = (fst.st_dev, fst.st_ino)
+            raise OSError(errno.EIO, "injected top rmdir failure")
+        return real_rmdir(path, *a, **k)
+
+    os.rmdir = fail_rmdir
+    try:
+        got = subject.discard(d)
+    finally:
+        os.rmdir, subject.m._rmtree_fd = real_rmdir, real_walk
+    assert fired["n"] == 1 and got is False
+    assert _ident(d) == foreign["ident"]
+    private = [n for n in os.listdir(os.path.dirname(d)) if n.startswith(os.path.basename(d) + ".bdrm-")]
+    assert len(private) == 1 and _ident(os.path.join(os.path.dirname(d), private[0])) == ident
+    assert private[0] in subject.reason(d)
+
+
+def test_private_file_unlink_failure_restores_exact_file(subject):
+    d = subject.make()
+    p = _payload(d, name="owned-file", body="owned bytes")
+    ident = _ident(p)
+    real_unlink, fired = os.unlink, {"n": 0}
+
+    def fail_unlink(path, *a, **k):
+        st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        if ".bdrm-" in os.fsdecode(path) and (st.st_dev, st.st_ino) == ident:
+            fired["n"] += 1
+            raise OSError(errno.EIO, "injected private file unlink failure")
+        return real_unlink(path, *a, **k)
+
+    os.unlink = fail_unlink
+    try:
+        got = subject.discard(d)
+    finally:
+        os.unlink = real_unlink
+    assert fired["n"] == 1 and got is False
+    assert _ident(p) == ident and pathlib.Path(p).read_text() == "owned bytes"
+    assert not any(n.startswith("owned-file.bdrm-") for n in os.listdir(d))
+    assert "injected private file unlink failure" in subject.reason(d)
+
+
+def test_recovery_refuses_a_foreign_replacement_of_private_name(subject):
+    d = subject.make()
+    p = _payload(d, name="owned-file", body="owned bytes")
+    owned = _ident(p)
+    real_unlink, fired, evidence = os.unlink, {"n": 0}, {}
+
+    def replace_then_fail(path, *a, **k):
+        st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        if ".bdrm-" in os.fsdecode(path) and (st.st_dev, st.st_ino) == owned:
+            fired["n"] += 1
+            held = os.fsdecode(path) + ".owned"
+            os.rename(path, held, src_dir_fd=k["dir_fd"], dst_dir_fd=k["dir_fd"])
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=k["dir_fd"])
+            os.write(fd, b"foreign bytes"); os.close(fd)
+            fst = os.stat(path, dir_fd=k["dir_fd"], follow_symlinks=False)
+            evidence.update(private=os.fsdecode(path), held=held, foreign=(fst.st_dev, fst.st_ino))
+            raise OSError(errno.EIO, "injected replaced-private failure")
+        return real_unlink(path, *a, **k)
+
+    os.unlink = replace_then_fail
+    try:
+        got = subject.discard(d)
+    finally:
+        os.unlink = real_unlink
+    assert fired["n"] == 1 and got is False
+    assert _ident(os.path.join(d, evidence["private"])) == evidence["foreign"]
+    assert pathlib.Path(d, evidence["private"]).read_bytes() == b"foreign bytes"
+    assert _ident(os.path.join(d, evidence["held"])) == owned
+    assert evidence["private"] in subject.reason(d) or evidence["held"] in subject.reason(d)
+
+
+def test_anchor_close_failure_recovers_and_closes_readable_descriptor(subject):
+    d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
+    ident = _ident(child)
+    real_open, real_close, anchors, fired = os.open, os.close, set(), {"n": 0}
+
+    def spy_open(path, flags, mode=0o777, *, dir_fd=None):
+        fd = real_open(path, flags, mode, dir_fd=dir_fd)
+        if flags & getattr(os, "O_PATH", 0):
+            st = os.fstat(fd)
+            if (st.st_dev, st.st_ino) == ident: anchors.add(fd)
+        return fd
+
+    def fail_close(fd):
+        if fd in anchors and not fired["n"]:
+            fired["n"] += 1; real_close(fd)
+            raise OSError(errno.EIO, "injected anchor close failure")
+        return real_close(fd)
+
+    os.open, os.close = spy_open, fail_close
+    try:
+        got = subject.discard(d)
+    finally:
+        os.open, os.close = real_open, real_close
+    leaked = []
+    for n in os.listdir("/proc/self/fd"):
+        with contextlib.suppress(OSError):
+            st = os.fstat(int(n))
+            if (st.st_dev, st.st_ino) == ident: leaked.append(int(n))
+    assert fired["n"] == 1 and got is False
+    assert not leaked, leaked
+    assert _ident(child) == ident
+    assert "injected anchor close failure" in subject.reason(d)
+
+
+def test_interrupt_after_real_relaxation_restores_mode_and_name(subject):
+    d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
+    ident, mode = _ident(child), 0o100; os.chmod(child, mode)
+    real_chmod, fired = os.chmod, {"n": 0}
+
+    def interrupt(path, new_mode, *a, **k):
+        result = real_chmod(path, new_mode, *a, **k)
+        if str(path).startswith("/proc/self/fd/") and new_mode == 0o700:
+            fd = int(str(path).rsplit("/", 1)[1]); st = os.fstat(fd)
+            if (st.st_dev, st.st_ino) == ident:
+                fired["n"] += 1
+                raise KeyboardInterrupt("injected after real relaxation")
+        return result
+
+    os.chmod = interrupt
+    try:
+        with pytest.raises(KeyboardInterrupt, match="injected after real relaxation"):
+            subject.discard(d)
+    finally:
+        os.chmod = real_chmod
+    assert fired["n"] == 1 and _ident(child) == ident
+    assert stat.S_IMODE(os.lstat(child).st_mode) == mode
+
+
+def test_mode_restoration_failure_is_reported(subject):
+    d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
+    ident, mode = _ident(child), 0o100; os.chmod(child, mode)
+    real_scan, real_fchmod, walked, restore = os.scandir, os.fchmod, {"n": 0}, {"n": 0}
+
+    def fail_walk(fd):
+        if isinstance(fd, int):
+            st = os.fstat(fd)
+            if (st.st_dev, st.st_ino) == ident:
+                walked["n"] += 1; raise OSError(errno.EIO, "primary walk failure")
+        return real_scan(fd)
+
+    def fail_restore(fd, new_mode):
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) == ident and new_mode == mode:
+            restore["n"] += 1; raise OSError(errno.EACCES, "injected mode restore failure")
+        return real_fchmod(fd, new_mode)
+
+    os.scandir, os.fchmod = fail_walk, fail_restore
+    try: got = subject.discard(d)
+    finally: os.scandir, os.fchmod = real_scan, real_fchmod
+    assert walked["n"] and restore["n"] and got is False
+    why = subject.reason(d)
+    assert "primary walk failure" in why and "injected mode restore failure" in why
+
+
+def test_later_readable_open_failure_restores_unreadable_child(subject):
+    d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
+    ident, mode = _ident(child), 0o100; os.chmod(child, mode)
+    real_open, fired = os.open, {"n": 0}
+
+    def fail_later(path, flags, open_mode=0o777, *, dir_fd=None):
+        if str(path).startswith("/proc/self/fd/"):
+            anchor = int(str(path).rsplit("/", 1)[1]); st = os.fstat(anchor)
+            if (st.st_dev, st.st_ino) == ident and stat.S_IMODE(st.st_mode) == 0o700:
+                fired["n"] += 1
+                raise OSError(errno.EIO, "injected later readable open failure")
+        return real_open(path, flags, open_mode, dir_fd=dir_fd)
+
+    os.open = fail_later
+    try: got = subject.discard(d)
+    finally: os.open = real_open
+    assert fired["n"] == 1 and got is False
+    assert _ident(child) == ident and stat.S_IMODE(os.lstat(child).st_mode) == mode
+    assert "injected later readable open failure" in subject.reason(d)
 
 
 # ==========================================================================
