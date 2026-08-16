@@ -461,7 +461,14 @@ def prune(base: pathlib.Path, keep: int, protect=None):
         for _entry, _ident, _sentinel_ident, held in owned[:budget]:
             close_now(held, "retained")
         candidates = owned[budget:]
-        remover = _owned_remover_module() if candidates else None
+        try:
+            remover = _owned_remover_module() if candidates else None
+        except Exception as error:
+            for entry, _ident, _sentinel_ident, _held in candidates:
+                failures.append(
+                    f"{entry.name}: object-bound remover unavailable "
+                    f"({type(error).__name__}: {error})")
+            return dropped, failures
         for entry, ident, sentinel_ident, held in candidates:
             removed = False
             try:

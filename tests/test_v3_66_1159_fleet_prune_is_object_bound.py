@@ -281,3 +281,27 @@ def test_descriptor_close_control_exception_is_not_swallowed(tmp_path, mod, monk
 
     assert fired["count"] == 1, "the close control-exception seam did not fire"
     assert _open_directory_fds_beneath(base) == {}
+
+
+def test_ordinary_loader_failure_is_actionable_and_closes_descriptors(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    doomed = _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    fired = {"count": 0}
+
+    def fail_loader():
+        fired["count"] += 1
+        assert _open_directory_fds_beneath(base)
+        raise OSError(5, "injected remover load failure")
+
+    monkeypatch.setattr(mod, "_owned_remover_module", fail_loader)
+    dropped, failures = mod.prune(base, 1)
+
+    assert fired["count"] == 1, "the ordinary loader-failure seam did not fire"
+    assert dropped == []
+    assert doomed.is_dir()
+    assert any(doomed.name in failure and "remover unavailable" in failure
+               and "injected remover load failure" in failure
+               for failure in failures), failures
+    assert _open_directory_fds_beneath(base) == {}
