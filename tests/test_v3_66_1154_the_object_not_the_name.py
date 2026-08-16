@@ -807,35 +807,97 @@ def test_top_substitution_at_rename_is_detected_and_exactly_reported(subject):
     held = d + ".owned-held"
     real_walk = subject.m._rmtree_fd
     real_rename = subject.m._rename_noclobber
+    real_open, real_chmod, real_fchmod = os.open, os.chmod, os.fchmod
+    real_unlink, real_rmdir, real_os_rename = os.unlink, os.rmdir, os.rename
     fired, observed = {"n": 0}, {}
+    walked = {"owned": 0, "foreign": 0}
+    foreign_effects = {"open": 0, "chmod": 0, "fchmod": 0,
+                       "unlink": 0, "rmdir": 0, "rename": 0}
+
+    def matches_foreign(path, dir_fd=None):
+        if not observed.get("armed"):
+            return False
+        try:
+            st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+        except (OSError, TypeError, ValueError):
+            return False
+        return (st.st_dev, st.st_ino) == observed["foreign"]
+
+    def watch_open(path, flags, mode=0o777, *, dir_fd=None):
+        if matches_foreign(path, dir_fd): foreign_effects["open"] += 1
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    def watch_chmod(path, mode, *a, **k):
+        if matches_foreign(path, k.get("dir_fd")): foreign_effects["chmod"] += 1
+        return real_chmod(path, mode, *a, **k)
+
+    def watch_fchmod(fd, mode):
+        if matches_foreign("/proc/self/fd/%d" % fd): foreign_effects["fchmod"] += 1
+        return real_fchmod(fd, mode)
+
+    def watch_unlink(path, *a, **k):
+        if matches_foreign(path, k.get("dir_fd")): foreign_effects["unlink"] += 1
+        return real_unlink(path, *a, **k)
+
+    def watch_rmdir(path, *a, **k):
+        if matches_foreign(path, k.get("dir_fd")): foreign_effects["rmdir"] += 1
+        return real_rmdir(path, *a, **k)
+
+    def watch_os_rename(src, dst, *a, **k):
+        if matches_foreign(src, k.get("src_dir_fd")): foreign_effects["rename"] += 1
+        return real_os_rename(src, dst, *a, **k)
+
+    def observe_walk(fd, dev, depth=0):
+        st = os.fstat(fd)
+        got = (st.st_dev, st.st_ino)
+        if got == owned:
+            walked["owned"] += 1
+        elif got == observed.get("foreign"):
+            walked["foreign"] += 1
+        else:
+            pytest.fail("the top walk received an unrecorded object")
 
     def substitute(old, new, dir_fd, *args, **kwargs):
         before = os.stat(old, dir_fd=dir_fd, follow_symlinks=False)
         if (os.fsdecode(old) == name and
                 (before.st_dev, before.st_ino) == owned and not fired["n"]):
-            os.rename(old, os.path.basename(held),
-                      src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            real_os_rename(old, os.path.basename(held),
+                           src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
             os.mkdir(old, dir_fd=dir_fd)
             pathlib.Path(d, "loot.txt").write_text("foreign after validation")
+            real_chmod(d, 0o510)
             foreign = os.stat(old, dir_fd=dir_fd, follow_symlinks=False)
             observed.update(foreign=(foreign.st_dev, foreign.st_ino),
                             private=os.path.join(parent, os.fsdecode(new)))
             fired["n"] += 1
+            result = real_rename(old, new, dir_fd, *args, **kwargs)
+            observed["armed"] = True
+            return result
         return real_rename(old, new, dir_fd, *args, **kwargs)
 
-    subject.m._rmtree_fd = lambda fd, dev, depth=0: None
+    subject.m._rmtree_fd = observe_walk
     subject.m._rename_noclobber = substitute
+    os.open, os.chmod, os.fchmod = watch_open, watch_chmod, watch_fchmod
+    os.unlink, os.rmdir, os.rename = watch_unlink, watch_rmdir, watch_os_rename
     try:
         got = subject.discard(d)
     finally:
         subject.m._rmtree_fd = real_walk
         subject.m._rename_noclobber = real_rename
+        os.open, os.chmod, os.fchmod = real_open, real_chmod, real_fchmod
+        os.unlink, os.rmdir, os.rename = real_unlink, real_rmdir, real_os_rename
 
-    assert fired["n"] == 1 and observed, "the substitution seam never fired"
+    assert fired["n"] == 1 and observed, (
+        "the substitution seam never fired: got=%r walked=%r reason=%r" %
+        (got, walked, subject.reason(d)))
+    assert walked == {"owned": 1, "foreign": 0}, walked
+    assert foreign_effects == {"open": 0, "chmod": 0, "fchmod": 0,
+                               "unlink": 0, "rmdir": 0, "rename": 0}
     private = observed["private"]
     assert got is False and subject.failure_is_accounted_for(d)
     assert not os.path.lexists(d)
     assert _ident(private) == observed["foreign"]
+    assert stat.S_IMODE(os.lstat(private).st_mode) == 0o510
     assert pathlib.Path(private, "loot.txt").read_text() == "foreign after validation"
     assert _ident(held) == owned
     assert pathlib.Path(held, "loot.txt").read_text() == "owned after substitution"
@@ -1316,7 +1378,9 @@ def test_top_level_rmdir_collision_reports_private_owned_root(subject):
 
 
 @pytest.mark.parametrize("stage", ["stat", "rmdir"])
-def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
+def test_top_private_baseexception_restores_mode_and_propagates(subject, stage,
+                                                                error_type):
     d = subject.make()
     ident = _ident(d)
     _payload(d, body="top interrupt payload")
@@ -1351,7 +1415,7 @@ def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
                 os.fsdecode(path) == renamed["priv"] and
                 (st.st_dev, st.st_ino) == ident):
             fired["n"] += 1
-            raise KeyboardInterrupt("injected top private stat interrupt")
+            raise error_type("injected top private stat interrupt")
         return st
 
     def interrupt_rmdir(path, *args, **kwargs):
@@ -1362,14 +1426,14 @@ def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
                 os.fsdecode(path) == renamed["priv"] and
                 (st.st_dev, st.st_ino) == ident):
             fired["n"] += 1
-            raise KeyboardInterrupt("injected top private rmdir interrupt")
+            raise error_type("injected top private rmdir interrupt")
         return real_rmdir(path, *args, **kwargs)
 
     subject.m._rmtree_fd = force_relax
     subject.m._rename_noclobber = latch_top_rename
     os.stat, os.rmdir = interrupt_stat, interrupt_rmdir
     try:
-        with pytest.raises(KeyboardInterrupt,
+        with pytest.raises(error_type,
                            match=f"injected top private {stage} interrupt") as caught:
             subject.discard(d)
     finally:
@@ -1388,29 +1452,368 @@ def test_top_private_baseexception_restores_mode_and_propagates(subject, stage):
     assert subject.failure_is_accounted_for(d)
 
 
-def test_private_file_unlink_failure_retains_exact_file(subject):
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt,
+                                         SystemExit, MemoryError])
+def test_private_unlink_failure_retains_exact_object(subject, kind, error_type):
     d = subject.make()
-    p = _payload(d, name="owned-file", body="owned bytes")
+    target = d + ".exact-symlink-target"
+    target_ident = None
+    if kind == "file":
+        p = _payload(d, name="owned-file", body="owned bytes")
+    else:
+        pathlib.Path(target).write_text("outside target bytes")
+        target_ident = _ident(target)
+        p = os.path.join(d, "owned-symlink")
+        os.symlink(target, p)
     ident = _ident(p)
-    real_unlink, fired = os.unlink, {"n": 0}
+    baseline = _fds_for_ident(ident)
+    real_unlink, fired, observed = os.unlink, {"n": 0}, {}
 
     def fail_unlink(path, *a, **k):
         st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
-        if ".bdrm-" in os.fsdecode(path) and (st.st_dev, st.st_ino) == ident:
+        if (st.st_dev, st.st_ino) == ident:
             fired["n"] += 1
-            raise OSError(errno.EIO, "injected private file unlink failure")
+            observed["private"] = os.fsdecode(path)
+            if error_type is OSError:
+                raise OSError(errno.EIO, "injected private unlink failure")
+            raise error_type("injected private unlink interruption")
         return real_unlink(path, *a, **k)
 
     os.unlink = fail_unlink
     try:
+        if error_type is OSError:
+            got = subject.discard(d)
+            diagnostic = subject.reason(d)
+        else:
+            with pytest.raises(error_type, match="injected private unlink") as caught:
+                subject.discard(d)
+            got = False
+            diagnostic = " -- ".join(getattr(caught.value, "__notes__", ()))
+    finally:
+        os.unlink = real_unlink
+    try:
+        assert fired["n"] == 1 and observed and got is False
+        survivor = _find_by_ident(d, ident)
+        assert survivor is not None
+        if kind == "file":
+            assert pathlib.Path(survivor).read_text() == "owned bytes"
+        else:
+            assert os.path.islink(survivor)
+            assert os.readlink(survivor) == target
+            assert _ident(target) == target_ident
+            assert pathlib.Path(target).read_text() == "outside target bytes"
+        assert os.path.basename(survivor) == observed["private"]
+        assert repr(ident) in diagnostic
+        assert observed["private"] in diagnostic
+        assert _fds_for_ident(ident) == baseline
+        assert subject.failure_is_accounted_for(d)
+    finally:
+        if target_ident is not None and os.path.lexists(target):
+            assert _ident(target) == target_ident
+            os.unlink(target)
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_terminal_unlink_substitution_is_detected_and_accounted(subject, kind):
+    """Exercise, and bound, Linux's accepted final stat-to-unlink window."""
+    d = subject.make()
+    target = d + ".terminal-target"
+    target_ident = None
+    if kind == "file":
+        p = _payload(d, name="owned-file", body="owned terminal bytes")
+    else:
+        pathlib.Path(target).write_text("terminal target bytes")
+        target_ident = _ident(target)
+        p = os.path.join(d, "owned-symlink")
+        os.symlink(target, p)
+    owned = _ident(p)
+    real_unlink, real_rename = os.unlink, os.rename
+    fired = {"owned": 0, "foreign": 0, "later": 0}
+    observed = {}
+    foreign_fd = None
+
+    def substitute_at_terminal(path, *a, **k):
+        nonlocal foreign_fd
+        if fired["foreign"]:
+            fired["later"] += 1
+            return real_unlink(path, *a, **k)
+        st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        if (st.st_dev, st.st_ino) != owned:
+            return real_unlink(path, *a, **k)
+        fired["owned"] += 1
+        private = os.fsdecode(path)
+        held = private + ".owned-held"
+        real_rename(private, held, src_dir_fd=k["dir_fd"],
+                    dst_dir_fd=k["dir_fd"])
+        if kind == "file":
+            fd = os.open(private, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                         0o640, dir_fd=k["dir_fd"])
+            os.write(fd, b"foreign terminal bytes"); os.close(fd)
+        else:
+            os.symlink("foreign-terminal-target", private,
+                       dir_fd=k["dir_fd"])
+        fst = os.stat(private, dir_fd=k["dir_fd"], follow_symlinks=False)
+        foreign = (fst.st_dev, fst.st_ino)
+        foreign_fd = os.open(private, os.O_PATH | os.O_NOFOLLOW,
+                             dir_fd=k["dir_fd"])
+        assert (os.fstat(foreign_fd).st_dev,
+                os.fstat(foreign_fd).st_ino) == foreign
+        observed.update(private=private, held=held, foreign=foreign)
+        fired["foreign"] += 1
+        return real_unlink(path, *a, **k)
+
+    os.unlink = substitute_at_terminal
+    try:
         got = subject.discard(d)
     finally:
         os.unlink = real_unlink
-    assert fired["n"] == 1 and got is False
+    try:
+        assert fired == {"owned": 1, "foreign": 1, "later": 0}
+        assert got is False and observed
+        held_path = os.path.join(d, observed["held"])
+        assert _ident(held_path) == owned
+        if kind == "file":
+            assert pathlib.Path(held_path).read_bytes() == b"owned terminal bytes"
+        else:
+            assert os.path.islink(held_path) and os.readlink(held_path) == target
+            assert _ident(target) == target_ident
+        foreign_after = os.fstat(foreign_fd)
+        assert (foreign_after.st_dev, foreign_after.st_ino) == observed["foreign"]
+        assert foreign_after.st_nlink == 0
+        why = subject.reason(d)
+        assert "unlink did not remove the held object" in why
+        assert repr(owned) in why
+        assert observed["private"] in why
+        assert "could not be verified" in why
+        assert subject.failure_is_accounted_for(d)
+    finally:
+        if foreign_fd is not None:
+            os.close(foreign_fd)
+        if target_ident is not None and os.path.lexists(target):
+            assert _ident(target) == target_ident
+            os.unlink(target)
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_private_substitution_before_final_unlink_validation_never_unlinks(
+        subject, kind):
+    d = subject.make()
+    target = d + ".prevalidation-target"
+    target_ident = None
+    if kind == "file":
+        p = _payload(d, name="owned-file", body="owned prevalidation bytes")
+    else:
+        pathlib.Path(target).write_text("prevalidation target bytes")
+        target_ident = _ident(target)
+        p = os.path.join(d, "owned-symlink")
+        os.symlink(target, p)
+    owned = _ident(p)
+    real_stat, real_unlink = os.stat, os.unlink
+    real_os_rename = os.rename
+    real_private_rename = subject.m._rename_noclobber
+    fired = {"renamed": 0, "substituted": 0, "unlink": 0}
+    observed = {}
+
+    def latch_rename(old, new, dir_fd, *a, **k):
+        before = real_stat(old, dir_fd=dir_fd, follow_symlinks=False)
+        result = real_private_rename(old, new, dir_fd, *a, **k)
+        if ((before.st_dev, before.st_ino) == owned and
+                fired["renamed"] == 0):
+            fired["renamed"] += 1
+            observed.update(private=os.fsdecode(new), dir_fd=dir_fd)
+        return result
+
+    def substitute_on_validation(path, *a, **k):
+        st = real_stat(path, *a, **k)
+        if (fired["renamed"] == 1 and fired["substituted"] == 0 and
+                k.get("dir_fd") == observed["dir_fd"] and
+                os.fsdecode(path) == observed["private"] and
+                (st.st_dev, st.st_ino) == owned):
+            held = observed["private"] + ".owned-held"
+            real_os_rename(path, held, src_dir_fd=k["dir_fd"],
+                           dst_dir_fd=k["dir_fd"])
+            if kind == "file":
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                             0o640, dir_fd=k["dir_fd"])
+                os.write(fd, b"foreign prevalidation bytes"); os.close(fd)
+            else:
+                os.symlink("foreign-prevalidation-target", path,
+                           dir_fd=k["dir_fd"])
+            foreign = real_stat(path, dir_fd=k["dir_fd"],
+                                follow_symlinks=False)
+            observed.update(held=held,
+                            foreign=(foreign.st_dev, foreign.st_ino))
+            fired["substituted"] += 1
+            return foreign
+        return st
+
+    def reject_unlink(path, *a, **k):
+        fired["unlink"] += 1
+        return real_unlink(path, *a, **k)
+
+    subject.m._rename_noclobber = latch_rename
+    os.stat, os.unlink = substitute_on_validation, reject_unlink
+    try:
+        got = subject.discard(d)
+    finally:
+        subject.m._rename_noclobber = real_private_rename
+        os.stat, os.unlink = real_stat, real_unlink
+    try:
+        assert fired == {"renamed": 1, "substituted": 1, "unlink": 0}
+        assert got is False
+        private_path = os.path.join(d, observed["private"])
+        held_path = os.path.join(d, observed["held"])
+        assert _ident(private_path) == observed["foreign"]
+        assert _ident(held_path) == owned
+        if kind == "file":
+            assert pathlib.Path(private_path).read_bytes() == b"foreign prevalidation bytes"
+            assert pathlib.Path(held_path).read_bytes() == b"owned prevalidation bytes"
+        else:
+            assert os.readlink(private_path) == "foreign-prevalidation-target"
+            assert os.readlink(held_path) == target
+            assert _ident(target) == target_ident
+        why = subject.reason(d)
+        assert R_FOREIGN in why and observed["private"] in why
+        assert subject.failure_is_accounted_for(d)
+    finally:
+        if target_ident is not None and os.path.lexists(target):
+            assert _ident(target) == target_ident
+            os.unlink(target)
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_ordinary_non_directory_removal_unlinks_exact_owned_inode(subject, kind):
+    d = subject.make()
+    target = d + ".ordinary-target"
+    target_ident = None
+    if kind == "file":
+        p = _payload(d, name="owned-file", body="ordinary owned bytes")
+    else:
+        pathlib.Path(target).write_text("ordinary target bytes")
+        target_ident = _ident(target)
+        p = os.path.join(d, "owned-symlink")
+        os.symlink(target, p)
+    ident = _ident(p)
+    held = os.open(p, os.O_PATH | os.O_NOFOLLOW)
+    try:
+        got = subject.discard(d)
+        after = os.fstat(held)
+    finally:
+        os.close(held)
+    try:
+        assert got is True, subject.reason(d)
+        assert (after.st_dev, after.st_ino) == ident
+        assert after.st_nlink == 0
+        assert not subject.failure_is_accounted_for(d)
+        if kind == "symlink":
+            assert _ident(target) == target_ident
+            assert pathlib.Path(target).read_text() == "ordinary target bytes"
+    finally:
+        if target_ident is not None and os.path.lexists(target):
+            assert _ident(target) == target_ident
+            os.unlink(target)
+
+
+def test_primary_memoryerror_survives_recovery_diagnostic_systemexit(subject):
+    d = subject.make()
+    p = _payload(d, name="owned-file", body="diagnostic primary bytes")
+    ident = _ident(p)
+    real_stat, real_unlink = os.stat, os.unlink
+    fired = {"primary": 0, "diagnostic": 0}
+    private = {"name": None}
+
+    def interrupt_unlink(path, *a, **k):
+        st = real_stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        if (st.st_dev, st.st_ino) == ident:
+            private["name"] = os.fsdecode(path)
+            fired["primary"] += 1
+            raise MemoryError("injected primary unlink exhaustion")
+        return real_unlink(path, *a, **k)
+
+    def interrupt_recovery_stat(path, *a, **k):
+        st = real_stat(path, *a, **k)
+        if (fired["primary"] == 1 and fired["diagnostic"] == 0 and
+                os.fsdecode(path) == private["name"] and
+                (st.st_dev, st.st_ino) == ident):
+            fired["diagnostic"] += 1
+            raise SystemExit("injected recovery diagnostic exit")
+        return st
+
+    os.unlink, os.stat = interrupt_unlink, interrupt_recovery_stat
+    try:
+        with pytest.raises(MemoryError,
+                           match="injected primary unlink exhaustion") as caught:
+            subject.discard(d)
+    finally:
+        os.unlink, os.stat = real_unlink, real_stat
+    assert fired == {"primary": 1, "diagnostic": 1}
+    notes = " -- ".join(getattr(caught.value, "__notes__", ()))
+    assert "injected recovery diagnostic exit" in notes
+    assert "private-name recovery" in notes
     survivor = _find_by_ident(d, ident)
-    assert survivor is not None and pathlib.Path(survivor).read_text() == "owned bytes"
-    assert os.path.basename(survivor) in subject.reason(d)
-    assert "injected private file unlink failure" in subject.reason(d)
+    assert survivor is not None
+    assert pathlib.Path(survivor).read_text() == "diagnostic primary bytes"
+    assert subject.failure_is_accounted_for(d)
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
+def test_successful_terminal_unlink_close_baseexception_propagates(
+        subject, kind, error_type):
+    d = subject.make()
+    target = d + ".close-target"
+    target_ident = None
+    if kind == "file":
+        p = _payload(d, name="owned-file", body="close bytes")
+    else:
+        pathlib.Path(target).write_text("close target bytes")
+        target_ident = _ident(target)
+        p = os.path.join(d, "owned-symlink")
+        os.symlink(target, p)
+    ident = _ident(p)
+    observer = os.open(p, os.O_PATH | os.O_NOFOLLOW)
+    real_unlink, real_close = os.unlink, os.close
+    phase = {"unlinked": 0, "close": 0}
+
+    def latch_unlink(path, *a, **k):
+        st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
+        result = real_unlink(path, *a, **k)
+        if (st.st_dev, st.st_ino) == ident:
+            phase["unlinked"] += 1
+        return result
+
+    def interrupt_close(fd):
+        try:
+            st = os.fstat(fd)
+            matches = (st.st_dev, st.st_ino) == ident
+        except OSError:
+            matches = False
+        result = real_close(fd)
+        if phase["unlinked"] == 1 and matches and phase["close"] == 0:
+            phase["close"] += 1
+            raise error_type("injected successful-unlink close interruption")
+        return result
+
+    os.unlink, os.close = latch_unlink, interrupt_close
+    try:
+        with pytest.raises(error_type,
+                           match="injected successful-unlink close interruption"):
+            subject.discard(d)
+    finally:
+        os.unlink, os.close = real_unlink, real_close
+    try:
+        after = os.fstat(observer)
+        assert phase == {"unlinked": 1, "close": 1}
+        assert (after.st_dev, after.st_ino) == ident and after.st_nlink == 0
+        assert subject.failure_is_accounted_for(d)
+        if target_ident is not None:
+            assert _ident(target) == target_ident
+    finally:
+        os.close(observer)
+        if target_ident is not None and os.path.lexists(target):
+            assert _ident(target) == target_ident
+            os.unlink(target)
 
 
 def test_recovery_refuses_a_foreign_replacement_of_private_name(subject):
@@ -1421,7 +1824,7 @@ def test_recovery_refuses_a_foreign_replacement_of_private_name(subject):
 
     def replace_then_fail(path, *a, **k):
         st = os.stat(path, dir_fd=k.get("dir_fd"), follow_symlinks=False)
-        if ".bdrm-" in os.fsdecode(path) and (st.st_dev, st.st_ino) == owned:
+        if (st.st_dev, st.st_ino) == owned:
             fired["n"] += 1
             held = os.fsdecode(path) + ".owned"
             os.rename(path, held, src_dir_fd=k["dir_fd"], dst_dir_fd=k["dir_fd"])
@@ -1648,6 +2051,106 @@ def test_mode_restoration_failure_is_reported(subject):
     assert walked["n"] and restore["n"] and got is False
     why = subject.reason(d)
     assert "primary walk failure" in why and "injected mode restore failure" in why
+
+
+@pytest.mark.parametrize("stage", ["restore", "close"])
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, MemoryError])
+def test_recovery_baseexception_is_propagated_after_primary_failure(
+        subject, stage, error_type):
+    d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
+    ident, mode = _ident(child), 0o100; os.chmod(child, mode)
+    real_scan, real_fchmod, real_close = os.scandir, os.fchmod, os.close
+    fired = {"walk": 0, "secondary": 0}
+    baseline = _fds_for_ident(ident)
+
+    def fail_walk(fd):
+        if isinstance(fd, int):
+            st = os.fstat(fd)
+            if (st.st_dev, st.st_ino) == ident:
+                fired["walk"] += 1
+                raise OSError(errno.EIO, "injected primary walk failure")
+        return real_scan(fd)
+
+    def interrupt_restore(fd, new_mode):
+        st = os.fstat(fd)
+        result = real_fchmod(fd, new_mode)
+        if (stage == "restore" and (st.st_dev, st.st_ino) == ident and
+                new_mode == mode and fired["secondary"] == 0):
+            fired["secondary"] += 1
+            raise error_type("injected recovery restoration interrupt")
+        return result
+
+    def interrupt_close(fd):
+        try:
+            st = os.fstat(fd)
+            matches = (st.st_dev, st.st_ino) == ident
+        except OSError:
+            matches = False
+        result = real_close(fd)
+        if (stage == "close" and matches and fired["walk"] == 1 and
+                fired["secondary"] == 0):
+            fired["secondary"] += 1
+            raise error_type("injected recovery close interrupt")
+        return result
+
+    os.scandir, os.fchmod, os.close = fail_walk, interrupt_restore, interrupt_close
+    try:
+        with pytest.raises(error_type, match="injected recovery") as caught:
+            subject.discard(d)
+    finally:
+        os.scandir, os.fchmod, os.close = real_scan, real_fchmod, real_close
+    assert fired == {"walk": 1, "secondary": 1}
+    notes = " -- ".join(getattr(caught.value, "__notes__", []))
+    assert "injected primary walk failure" in notes
+    assert "private-name recovery" in notes
+    survivor = _find_by_ident(d, ident)
+    assert survivor is not None
+    assert stat.S_IMODE(os.lstat(survivor).st_mode) == mode
+    assert pathlib.Path(survivor, "loot.txt").read_text() == "DO NOT DELETE"
+    assert _fds_for_ident(ident) == baseline
+    assert subject.failure_is_accounted_for(d)
+
+
+@pytest.mark.parametrize("secondary_type", [KeyboardInterrupt, SystemExit])
+def test_primary_memoryerror_survives_secondary_recovery_interrupt(
+        subject, secondary_type):
+    d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
+    ident, mode = _ident(child), 0o100; os.chmod(child, mode)
+    real_scan, real_fchmod = os.scandir, os.fchmod
+    fired = {"primary": 0, "secondary": 0}
+
+    def fail_walk(fd):
+        if isinstance(fd, int):
+            st = os.fstat(fd)
+            if (st.st_dev, st.st_ino) == ident:
+                fired["primary"] += 1
+                raise MemoryError("injected primary memory exhaustion")
+        return real_scan(fd)
+
+    def interrupt_restore(fd, new_mode):
+        st = os.fstat(fd)
+        result = real_fchmod(fd, new_mode)
+        if ((st.st_dev, st.st_ino) == ident and new_mode == mode and
+                fired["secondary"] == 0):
+            fired["secondary"] += 1
+            raise secondary_type("injected secondary recovery interruption")
+        return result
+
+    os.scandir, os.fchmod = fail_walk, interrupt_restore
+    try:
+        with pytest.raises(MemoryError,
+                           match="injected primary memory exhaustion") as caught:
+            subject.discard(d)
+    finally:
+        os.scandir, os.fchmod = real_scan, real_fchmod
+    assert fired == {"primary": 1, "secondary": 1}
+    notes = " -- ".join(getattr(caught.value, "__notes__", ()))
+    assert "mode restoration failed" in notes
+    assert "injected secondary recovery interruption" in notes
+    survivor = _find_by_ident(d, ident)
+    assert survivor is not None
+    assert stat.S_IMODE(os.lstat(survivor).st_mode) == mode
+    assert subject.failure_is_accounted_for(d)
 
 
 def test_later_readable_open_failure_restores_unreadable_child(subject):
@@ -2939,11 +3442,9 @@ def test_the_walk_never_meets_an_entry_it_renamed(subject):
         # before this teardown existed: 4 leaked per run. It is also the
         # clearest evidence the retained prefix works, since a dot-prefixed
         # name would not have shown up in that sweep at all.
-        _force_rm(d)
-        _parent = os.path.dirname(d)
-        for _sib in os.listdir(_parent):
-            if _sib.startswith(os.path.basename(d)) and ".bdrm-" in _sib:
-                _force_rm(os.path.join(_parent, _sib))
+        # Exact private identities are recorded by the subject fixture's
+        # `_rename_noclobber` ledger and reclaimed there. Discovering siblings
+        # by basename here would let teardown delete a foreign lookalike.
 
     assert bases, "the walk never ran -- nothing was tested"
     recycled = [b for b in bases if ".bdrm-" in b]

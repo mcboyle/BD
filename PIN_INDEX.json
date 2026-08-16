@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 46,
+    "total": 54,
     "version": 1,
-    "count_dict": 45,
+    "count_dict": 53,
     "test_files_scanned": 1361,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -38,7 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
-      "tests/test_v3_66_1154_the_object_not_the_name.py": 1,
+      "tests/test_v3_66_1154_the_object_not_the_name.py": 9,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -284,6 +284,92 @@
         "substituted": 1
       },
       "gates_what": "test_recovery_validation_cannot_move_a_later_foreign_replacement — A pathname check cannot authorize the later pathname rename."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 893,
+      "value": {
+        "owned": 1,
+        "foreign": 0
+      },
+      "gates_what": "test_top_substitution_at_rename_is_detected_and_exactly_reported — The unavoidable source-name race is detected without later touching B."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 894,
+      "value": {
+        "open": 0,
+        "chmod": 0,
+        "fchmod": 0,
+        "unlink": 0,
+        "rmdir": 0,
+        "rename": 0
+      },
+      "gates_what": "test_top_substitution_at_rename_is_detected_and_exactly_reported — The unavoidable source-name race is detected without later touching B."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1572,
+      "value": {
+        "owned": 1,
+        "foreign": 1,
+        "later": 0
+      },
+      "gates_what": "test_terminal_unlink_substitution_is_detected_and_accounted — Exercise, and bound, Linux's accepted final stat-to-unlink window."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1663,
+      "value": {
+        "renamed": 1,
+        "substituted": 1,
+        "unlink": 0
+      },
+      "gates_what": "test_private_substitution_before_final_unlink_validation_never_unlinks"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1750,
+      "value": {
+        "primary": 1,
+        "diagnostic": 1
+      },
+      "gates_what": "test_primary_memoryerror_survives_recovery_diagnostic_systemexit"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1807,
+      "value": {
+        "unlinked": 1,
+        "close": 1
+      },
+      "gates_what": "test_successful_terminal_unlink_close_baseexception_propagates"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2102,
+      "value": {
+        "walk": 1,
+        "secondary": 1
+      },
+      "gates_what": "test_recovery_baseexception_is_propagated_after_primary_failure"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2146,
+      "value": {
+        "primary": 1,
+        "secondary": 1
+      },
+      "gates_what": "test_primary_memoryerror_survives_secondary_recovery_interrupt"
     },
     {
       "form": "count_dict",

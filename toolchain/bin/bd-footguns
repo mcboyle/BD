@@ -401,6 +401,8 @@ def _add_note(error, note):
 
 def _recover_private(priv, name, fd, error, expected=None, held=None, extra=""):
     """Report failed private-name work without a racy pathname put-back."""
+    controls = (KeyboardInterrupt, SystemExit, MemoryError)
+    propagating = error if isinstance(error, controls) else None
     if getattr(error, "__notes__", None): extra += " -- " + " -- ".join(error.__notes__)
     location = "unavailable"; held_path = parent_path = None
     if held is not None:
@@ -410,16 +412,23 @@ def _recover_private(priv, name, fd, error, expected=None, held=None, extra=""):
             elif held_ident != expected: extra += " -- held descriptor identity %r does not match expected %r" % (held_ident, expected)
             else:
                 held_path = os.readlink("/proc/self/fd/%d" % held); parent_path = os.readlink("/proc/self/fd/%d" % fd); location = repr(held_path)
-        except OSError as e: extra += " -- held identity/location unavailable (%s)" % e
+        except BaseException as e:
+            extra += " -- held identity/location unavailable (%s: %s)" % (type(e).__name__, e)
+            if propagating is None and isinstance(e, controls): propagating = e
     try: pst = os.stat(priv, dir_fd=fd, follow_symlinks=False)
-    except OSError as e:
-        diagnostic = " -- private identity could not be verified (%s); owned object location is %s" % (e, location)
+    except BaseException as e:
+        diagnostic = " -- expected owned identity %r; private identity could not be verified (%s); owned object location is %s" % (expected, e, location)
+        if propagating is None and isinstance(e, controls): propagating = e
     else:
-        diagnostic = (" -- verified owned object remains at private name %r" % priv if expected is not None and (pst.st_dev, pst.st_ino) == expected else " -- private name %r is a foreign identity; it was left untouched; owned object location is %s" % (priv, location))
-    if not isinstance(error, Exception):
-        try: _add_note(error, "private-name recovery: %s%s" % (diagnostic.lstrip(), extra))
-        except (AttributeError, TypeError): pass
-        raise error
+        diagnostic = (" -- expected owned identity %r; verified owned object remains at private name %r" % (expected, priv) if expected is not None and (pst.st_dev, pst.st_ino) == expected else " -- expected owned identity %r; private name %r is a foreign identity; it was left untouched; owned object location is %s" % (expected, priv, location))
+    if propagating is not None:
+        try:
+            if propagating is not error: _add_note(propagating, "primary cleanup failure (%s: %s)" % (type(error).__name__, error))
+            _add_note(propagating, "private-name recovery: %s%s" % (diagnostic.lstrip(), extra))
+        except BaseException:
+            if isinstance(error, controls): raise error
+            raise
+        raise propagating
     code = error.code if isinstance(error, _Refused) else R_UNPROVEN
     detail = error.detail if isinstance(error, _Refused) else "%s: %s" % (type(error).__name__, error)
     raise _Refused(code, "%s%s%s" % (detail, diagnostic, extra)) from error
@@ -468,8 +477,11 @@ def _rmtree_fd_legacy_disabled(fd, dev, depth=0):
     EVERY ENTRY IS BOUND TO THE INODE THE READDIR REPORTED, and the destructive
     syscall never names it. The entry is first renamed to a private name that
     cannot clobber, then identified, and only then removed -- so an adversary
-    who swaps the well-known name costs us a REVERSIBLE rename instead of an
-    irreversible unlink, and is put back where they were found.
+    who swaps the well-known name is detected after the no-clobber private
+    rename and cleanup refuses without further pathname mutation. Linux has
+    no inode-bound unlinkat: substitution after the final private-name identity
+    check remains a terminal namespace race, and the held descriptor proves
+    only whether our inode reached its required postcondition.
 
     v3.66.1153 opened every child BY NAME with nothing carried from the entry
     it had just read, so a directory renamed onto a child pathname mid-walk was
@@ -606,6 +618,10 @@ def _rmtree_fd(fd, dev, depth=0):
         def close_then_raise(primary, value, label):
             note, close_error = close_once(value, label)
             if close_error is not None:
+                if isinstance(primary, (KeyboardInterrupt, SystemExit, MemoryError)):
+                    _add_note(primary, note.strip()); raise primary
+                if isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)):
+                    _add_note(close_error, "primary cleanup failure (%s: %s)" % (type(primary).__name__, primary)); raise close_error
                 if isinstance(primary, Exception): raise _Refused(R_UNPROVEN, "%s: %s%s" % (type(primary).__name__, primary, note)) from primary
                 _add_note(primary, note.strip())
             raise primary
@@ -613,16 +629,24 @@ def _rmtree_fd(fd, dev, depth=0):
         def abort(primary):
             nonlocal anchor, child
             notes = held_location(child if child is not None else anchor)
+            propagating = (primary if isinstance(
+                primary, (KeyboardInterrupt, SystemExit, MemoryError)) else None)
             if relaxed:
                 restore_fd = child if child is not None else anchor
                 try:
                     if child is not None: os.fchmod(child, was)
                     elif anchor is not None: os.chmod("/proc/self/fd/%d" % anchor, was)
                     if stat.S_IMODE(os.fstat(restore_fd).st_mode) != was: raise OSError(errno.EIO, "restored mode did not verify")
-                except BaseException as error: notes += " -- mode restoration failed (%s: %s)" % (type(error).__name__, error)
-            value, child = child, None; note, _ = close_once(value, "readable descriptor"); notes += note
-            value, anchor = anchor, None; note, _ = close_once(value, "anchor descriptor"); notes += note
-            _recover_private(priv, entry.name, fd, primary, want, None, notes)
+                except BaseException as error:
+                    notes += " -- mode restoration failed (%s: %s)" % (type(error).__name__, error)
+                    if propagating is None and isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): propagating = error
+            value, child = child, None; note, close_error = close_once(value, "readable descriptor"); notes += note
+            if propagating is None and isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)): propagating = close_error
+            value, anchor = anchor, None; note, close_error = close_once(value, "anchor descriptor"); notes += note
+            if propagating is None and isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)): propagating = close_error
+            if propagating is not None and propagating is not primary:
+                notes += " -- primary cleanup failure (%s: %s)" % (type(primary).__name__, primary)
+            _recover_private(priv, entry.name, fd, propagating or primary, want, None, notes)
 
         try:
             anchor = os.open(entry.name, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd); ast = os.fstat(anchor)
@@ -633,6 +657,7 @@ def _rmtree_fd(fd, dev, depth=0):
         try: _rename_noclobber(entry.name, priv, fd)
         except FileNotFoundError:
             value, anchor = anchor, None; note, error = close_once(value, "anchor descriptor")
+            if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): raise error
             if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
             continue
         except BaseException as error:
@@ -647,6 +672,7 @@ def _rmtree_fd(fd, dev, depth=0):
                 if (after.st_dev, after.st_ino) != want or after.st_nlink != before_links - 1: raise _Refused(R_UNPROVEN, "unlink did not remove the held object")
             except BaseException as error: abort(error)
             value, anchor = anchor, None; note, error = close_once(value, "anchor descriptor")
+            if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): raise error
             if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
             continue
         was = stat.S_IMODE(ast.st_mode); bound = "/proc/self/fd/%d" % anchor
@@ -668,6 +694,7 @@ def _rmtree_fd(fd, dev, depth=0):
             if os.fstat(child).st_nlink != 0: raise _Refused(R_UNPROVEN, "the entry removed for %r was not the object held open" % entry.name)
         except BaseException as error: abort(error)
         value, child = child, None; note, error = close_once(value, "readable descriptor")
+        if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): raise error
         if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
 
 
@@ -824,6 +851,7 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
                 ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
             except BaseException as e:
                 try: _recover_private(priv, name, pfd, e, ident, fd)
+                except (KeyboardInterrupt, SystemExit, MemoryError): raise
                 except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
             if (ent.st_dev, ent.st_ino) != ident:
                 return _refuse("%s the private name %r is foreign; it was left "
@@ -833,6 +861,7 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
                 os.rmdir(priv, dir_fd=pfd)
             except BaseException as e:
                 try: _recover_private(priv, name, pfd, e, ident, fd)
+                except (KeyboardInterrupt, SystemExit, MemoryError): raise
                 except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
         except BaseException as escaped:
             parent_propagating = escaped
