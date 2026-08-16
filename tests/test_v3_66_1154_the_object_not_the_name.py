@@ -214,27 +214,6 @@ class _TmpRoot(_Subject):
         self._saved = None
 
 
-@pytest.fixture(autouse=True)
-def _reclaim_footgun_sandboxes():
-    """Some tests here make a sandbox removal FAIL on purpose, so bd-footguns
-    correctly refuses it and the residue is THIS FILE'S to collect.
-
-    Measured under KEEP_TEST_TMPDIRS=1 -- the only mode that can see it, since
-    the redirection erases everything on a green run: this file leaked one
-    bdfg_sbx_* per run before the sweep. No assertion in this file reads
-    bdfg_* residue, so sweeping it cannot mask a production leak.
-    """
-    t = pathlib.Path(tempfile.gettempdir())
-
-    def snap():
-        return set(t.glob("bdfg_sbx_*")) | set(t.glob("bdfg_selftest_*"))
-
-    before = snap()
-    yield
-    for leftover in snap() - before:
-        _force_rm(leftover)
-
-
 @pytest.fixture(params=["bd-cut", "_tmproot", "bd-footguns"])
 def subject(request):
     if request.param == "bd-cut":
@@ -1317,7 +1296,7 @@ def test_an_identity_without_a_descriptor_cannot_claim_the_object_went(subject, 
         m._SANDBOX_IDENT.pop(d, None)
     else:
         saved = (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
-                 m._LAST_FAILURE)
+                 m._LAST_FAILURE, tempfile.tempdir)
         try:
             m._ROOT, m._ROOT_IDENT = d, ident
             m._ROOT_FD, m._ROOT_FD_PATH = None, None
@@ -1328,7 +1307,7 @@ def test_an_identity_without_a_descriptor_cannot_claim_the_object_went(subject, 
             why = err.getvalue()
         finally:
             (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
-             m._LAST_FAILURE) = saved
+             m._LAST_FAILURE, tempfile.tempdir) = saved
 
     _force_rm(d + ".moved")
     assert got is False, (
@@ -1353,7 +1332,7 @@ def test_a_path_the_tool_never_created_is_still_absent_and_clean(subject, tmp_pa
             got = m._discard(d)
     else:
         saved = (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
-                 m._LAST_FAILURE)
+                 m._LAST_FAILURE, tempfile.tempdir)
         try:
             m._ROOT, m._ROOT_IDENT = d, None
             m._ROOT_FD, m._ROOT_FD_PATH = None, None
@@ -1361,7 +1340,7 @@ def test_a_path_the_tool_never_created_is_still_absent_and_clean(subject, tmp_pa
                 got = m.finish(0)
         finally:
             (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
-             m._LAST_FAILURE) = saved
+             m._LAST_FAILURE, tempfile.tempdir) = saved
         # _tmproot has no "never created" caller: an unidentifiable root is
         # UNKNOWN and refuses, which is the v3.66.1152 semantics preserved.
         assert got is False
