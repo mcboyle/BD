@@ -969,16 +969,18 @@ _TEMPDIR_FD = {}
 
 
 def _forget_tempdir(d):
-    """Drop every record of a directory, closing the descriptor we held."""
+    """Drop every record, closing only a descriptor still bound to our inode."""
     if d in _TEMPDIRS:
         _TEMPDIRS.remove(d)
-    _TEMPDIR_IDENT.pop(d, None)
+    ident = _TEMPDIR_IDENT.pop(d, None)
     fd = _TEMPDIR_FD.pop(d, None)
     if fd is not None:
         try:
-            os.close(fd)
+            st = os.fstat(fd)
         except OSError:
-            pass
+            return
+        if ident is not None and (st.st_dev, st.st_ino) == ident:
+            os.close(fd)
 
 
 def _where(fd):
@@ -1431,9 +1433,20 @@ def _discard_tempdir(d):
     _ident = _TEMPDIR_IDENT.get(d)
     if fd is not None:
         try:
-            _gone = os.fstat(fd).st_nlink == 0
+            _fd_stat = os.fstat(fd)
         except OSError:
-            _gone = False
+            _fd_stat = None
+        if (_ident is None or _fd_stat is None or
+                (_fd_stat.st_dev, _fd_stat.st_ino) != _ident):
+            # The number is stale or recycled. It is not ours to close or use;
+            # detach only the bookkeeping and let the safe pathname reopen
+            # below re-establish the real owned directory from its identity.
+            if _TEMPDIR_FD.get(d) == fd:
+                _TEMPDIR_FD.pop(d, None)
+            fd = None
+        else:
+            _gone = _fd_stat.st_nlink == 0
+    if fd is not None:
         if _gone:
             _forget_tempdir(d)
             return True
@@ -2186,9 +2199,13 @@ def _reap(cleanup):
         _fd = _TEMPDIR_FD.pop(_d, None)
         if _fd is not None:
             try:
-                os.close(_fd)
+                _st = os.fstat(_fd)
             except OSError:
-                pass
+                continue
+            _ident = _TEMPDIR_IDENT.get(_d)
+            if (_ident is not None and
+                    (_st.st_dev, _st.st_ino) == _ident):
+                os.close(_fd)
     if failed:
         print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)
         for f in failed:

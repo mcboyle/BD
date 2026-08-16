@@ -247,13 +247,15 @@ def _forget_sandbox(d):
     close plus one intervening open reported nlink 0 while the owned directory
     sat on disk with its contents.
     """
-    _SANDBOX_IDENT.pop(d, None)
+    ident = _SANDBOX_IDENT.pop(d, None)
     fd = _SANDBOX_FD.pop(d, None)
     if fd is not None:
         try:
-            os.close(fd)
+            st = os.fstat(fd)
         except OSError:
-            pass
+            return
+        if ident is not None and (st.st_dev, st.st_ino) == ident:
+            os.close(fd)
 
 
 def _cleanup_failed(d, why):
@@ -540,9 +542,20 @@ def _discard(d):
     fd = _SANDBOX_FD.get(d)
     if fd is not None:
         try:
-            gone = os.fstat(fd).st_nlink == 0
+            fd_stat = os.fstat(fd)
         except OSError:
-            gone = False
+            fd_stat = None
+        if (ident is None or fd_stat is None or
+                (fd_stat.st_dev, fd_stat.st_ino) != ident):
+            # A stale/recycled descriptor is foreign. Detach its number
+            # without closing it, then let the existing safe reopen path
+            # validate the real sandbox against its creation identity.
+            if _SANDBOX_FD.get(d) == fd:
+                _SANDBOX_FD.pop(d, None)
+            fd = None
+        else:
+            gone = fd_stat.st_nlink == 0
+    if fd is not None:
         if gone:
             _forget_sandbox(d)
             return True

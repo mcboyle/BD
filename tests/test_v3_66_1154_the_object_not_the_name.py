@@ -287,6 +287,69 @@ def test_tmproot_failed_path_accounting_is_exact(tmp_path):
         t._LAST_FAILURE = saved
 
 
+def test_a_recycled_descriptor_cannot_authorize_cleanup_success(subject,
+                                                                  tmp_path):
+    """A saved fd number is not ownership proof after that number is reused."""
+    d = subject.make()
+    if subject.name == "bd-cut":
+        owned_fd = subject.m._TEMPDIR_FD[d]
+        recorded = subject.m._TEMPDIR_IDENT[d]
+    elif subject.name == "bd-footguns":
+        owned_fd = subject.m._SANDBOX_FD[d]
+        recorded = subject.m._SANDBOX_IDENT[d]
+    else:
+        owned_fd = subject.m._ROOT_FD
+        recorded = subject.m._ROOT_IDENT
+
+    foreign_path = str(tmp_path / "foreign-unlinked-directory")
+    os.mkdir(foreign_path)
+    foreign_ident = _ident(foreign_path)
+    os.close(owned_fd)
+    foreign_fd = os.open(foreign_path,
+                         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    os.rmdir(foreign_path)
+    try:
+        foreign_before = os.fstat(foreign_fd)
+        assert foreign_fd == owned_fd, (
+            f"fixture: descriptor {owned_fd} was not reused; got {foreign_fd}")
+        assert foreign_ident != recorded, (
+            "fixture: the foreign object unexpectedly has the owned root's "
+            "identity")
+        assert (foreign_before.st_dev, foreign_before.st_ino) == foreign_ident
+        assert foreign_before.st_nlink == 0, (
+            "fixture: the foreign descriptor is not an unlinked object")
+        assert os.path.isdir(d), (
+            "fixture: the real owned root is absent before discard")
+
+        got = subject.discard(d)
+        root_removed = not os.path.lexists(d)
+        try:
+            foreign_after = os.fstat(foreign_fd)
+            foreign_open = ((foreign_after.st_dev, foreign_after.st_ino)
+                            == foreign_ident)
+        except OSError:
+            foreign_open = False
+        accounted = subject.failure_is_accounted_for(d)
+        assert got is root_removed, (
+            "the cleanup verdict disagrees with the real owned root: "
+            f"got={got} root_removed={root_removed} "
+            f"foreign_open={foreign_open} accounted={accounted}")
+        assert root_removed, "the real owned root was reported removed but remains"
+        assert foreign_open, (
+            "cleanup closed the unrelated descriptor whose number was recycled")
+        assert not accounted, (
+            "a successfully removed root remains in failure accounting")
+    finally:
+        try:
+            current = os.fstat(foreign_fd)
+        except OSError:
+            current = None
+        if (current is not None and
+                (current.st_dev, current.st_ino) == foreign_ident):
+            os.close(foreign_fd)
+        _force_rm(d)
+
+
 def _payload(d, name="loot.txt", body="DO NOT DELETE"):
     p = os.path.join(str(d), name)
     with open(p, "w") as fh:

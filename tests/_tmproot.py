@@ -71,8 +71,8 @@ _ROOT_FD: int | None = None
 _ROOT_FD_PATH: str | None = None
 
 
-def _release_root_fd():
-    """Pop, then close -- never the other way round.
+def _release_root_fd(ident):
+    """Pop first, then close only while the descriptor still identifies root.
 
     A descriptor number is REUSED the moment it is free, and `st_nlink == 0` on
     a reused number is a confident answer about somebody else's object.
@@ -84,9 +84,11 @@ def _release_root_fd():
     fd, _ROOT_FD, _ROOT_FD_PATH = _ROOT_FD, None, None
     if fd is not None:
         try:
-            os.close(fd)
+            st = os.fstat(fd)
         except OSError:
-            pass
+            return
+        if ident is not None and (st.st_dev, st.st_ino) == ident:
+            os.close(fd)
 
 
 def _root_fd_for(root):
@@ -519,7 +521,22 @@ def finish(exitstatus: int) -> bool:
     global _ROOT_IDENT
     root, _ROOT = _ROOT, None
     ident, _ROOT_IDENT = _ROOT_IDENT, None
-    fd = _root_fd_for(root)                # None unless it belongs to `root`
+    fd = _root_fd_for(root)                # None unless recorded for `root`
+    fd_stat = None
+    if fd is not None:
+        try:
+            fd_stat = os.fstat(fd)
+        except OSError:
+            pass
+        if (ident is None or fd_stat is None or
+                (fd_stat.st_dev, fd_stat.st_ino) != ident):
+            # The saved number is stale or recycled. It is foreign: do not
+            # close it or pass it to the remover. Detach only the bookkeeping;
+            # the existing no-fd path safely reopens and validates `root`.
+            global _ROOT_FD, _ROOT_FD_PATH
+            if _ROOT_FD == fd and _ROOT_FD_PATH == root:
+                _ROOT_FD, _ROOT_FD_PATH = None, None
+            fd, fd_stat = None, None
     # WHERE THE ROOT ACTUALLY IS, read while the descriptor is still open.
     # The report below runs AFTER the finally that releases it, so resolving
     # it there produced "its new location could not be read" -- a remedy line
@@ -553,10 +570,7 @@ def finish(exitstatus: int) -> bool:
             ok = False
         elif fd is not None:
             # THE OBJECT, NOT THE NAME (v3.66.1154).
-            try:
-                dead = os.fstat(fd).st_nlink == 0
-            except OSError:
-                dead = False
+            dead = fd_stat.st_nlink == 0
             if dead:
                 ok = True                  # truly gone, whatever holds the name
             elif not os.path.lexists(root):
@@ -582,7 +596,7 @@ def finish(exitstatus: int) -> bool:
                 _actual = os.readlink("/proc/self/fd/%d" % fd)
             except OSError:
                 pass
-        _release_root_fd()
+        _release_root_fd(ident)
     if not ok:
         global _LAST_FAILURE
         _LAST_FAILURE = root
