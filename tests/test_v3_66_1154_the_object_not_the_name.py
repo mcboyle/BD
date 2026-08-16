@@ -1364,6 +1364,7 @@ def test_top_level_rmdir_collision_reports_private_owned_root(subject):
         if ".bdrm-" in os.fsdecode(path) and (st.st_dev, st.st_ino) == ident:
             fired["n"] += 1
             os.mkdir(os.path.basename(d), dir_fd=k["dir_fd"])
+            subject.also(d)
             fst = os.stat(os.path.basename(d), dir_fd=k["dir_fd"], follow_symlinks=False)
             foreign["ident"] = (fst.st_dev, fst.st_ino)
             raise OSError(errno.EIO, "injected top rmdir failure")

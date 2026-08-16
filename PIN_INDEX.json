@@ -312,7 +312,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1579,
+      "line": 1580,
       "value": {
         "owned": 1,
         "foreign": 1,
@@ -323,7 +323,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1669,
+      "line": 1670,
       "value": {
         "renamed": 1,
         "substituted": 1,
@@ -334,7 +334,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1757,
+      "line": 1758,
       "value": {
         "primary": 1,
         "diagnostic": 1
@@ -344,7 +344,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1816,
+      "line": 1817,
       "value": {
         "unlinked": 1,
         "close": 1
@@ -354,7 +354,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2110,
+      "line": 2111,
       "value": {
         "walk": 1,
         "secondary": 1
@@ -364,7 +364,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2155,
+      "line": 2156,
       "value": {
         "primary": 1,
         "secondary": 1
@@ -374,7 +374,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2196,
+      "line": 2197,
       "value": {
         "walk": 2,
         "restore": 1
@@ -384,7 +384,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2233,
+      "line": 2234,
       "value": {
         "walk": 2,
         "restore": 1
@@ -394,7 +394,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2268,
+      "line": 2269,
       "value": {
         "primary": 1,
         "close": 1
@@ -404,7 +404,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2310,
+      "line": 2311,
       "value": {
         "rmdir": 1,
         "close": 1
