@@ -219,12 +219,12 @@ class _Probe:
         return "local-head"
 
 
-def _execute(mod, tmp_path: pathlib.Path, log_text: str):
+def _execute(mod, tmp_path: pathlib.Path, log_text: str, runner_rc: int = 0):
     hosts = tmp_path / "hosts"
     hosts.write_text("alpha 192.0.2.10\n")
     root = tmp_path / "runs"
     root.mkdir()
-    runner = _LogRunner(log_text)
+    runner = _LogRunner(log_text, rc=runner_rc)
     rc = mod.main(
         [
             "--hosts", str(hosts),
@@ -284,3 +284,20 @@ def test_valid_provenance_is_persisted_as_measured_facts(tmp_path):
         "commit": head, "dirty": "dirty", "repo": "/srv/BulkDownloader"
     }
     assert manifest["record_provenance"] is True
+
+
+def test_failed_payload_retains_valid_measured_provenance(tmp_path):
+    mod = _load()
+    head = "c" * 40
+    line = (
+        f"bd-fleet-run: commit={head} dirty=clean "
+        "repo=/srv/BulkDownloader\npayload failed\n"
+    )
+    rc, runner, row, _ = _execute(mod, tmp_path, line, runner_rc=7)
+    assert runner.calls == 1
+    assert rc != 0
+    assert row["status"] == "FAIL"
+    assert row["exit"] == 7
+    assert row["provenance"] == {
+        "commit": head, "dirty": "clean", "repo": "/srv/BulkDownloader"
+    }

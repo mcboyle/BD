@@ -597,16 +597,14 @@ def run_one(runner, entry, logdir, timeout):
         err = err or f"log unreadable: {type(exc).__name__}: {exc}"
 
     provenance = None
-    if entry.get("record_provenance") and rc == 0 and not err:
+    status = classify(rc, err, text, entry["local"])
+    if entry.get("record_provenance"):
         provenance, provenance_error = parse_provenance(
             text, entry.get("repo_dir", "unknown"))
         if provenance_error:
             err = err or provenance_error
-            status = "PROVENANCE_UNKNOWN"
-        else:
-            status = classify(rc, err, text, entry["local"])
-    else:
-        status = classify(rc, err, text, entry["local"])
+            if status == "ok":
+                status = "PROVENANCE_UNKNOWN"
     return _row(entry, rc, err, status,
                 round(time.time() - started, 1), log, size, provenance)
 
