@@ -63,7 +63,7 @@ def _successful_vite(
             out = Path(cwd) / "dist"
         if emit:
             assets = out / "assets"
-            assets.mkdir(parents=True)
+            assets.mkdir(parents=True, exist_ok=True)
             if emit_js:
                 (assets / "index-FRESH.js").write_bytes(b"fresh javascript")
             (assets / "index-FRESH.css").write_bytes(b"fresh css")
@@ -293,6 +293,13 @@ def test_attempt_path_replacement_cannot_publish_foreign_output(tmp_path, capsys
 
     def swapping_vite(cmd, cwd=None, **_kwargs):
         fired["vite"] += 1
+        if "--outDir" not in cmd:
+            out = Path(cwd) / "dist"
+            (out / "assets").mkdir(parents=True, exist_ok=True)
+            (out / "index.html").write_bytes(b"foreign html")
+            (out / "assets" / "index-FOREIGN.js").write_bytes(
+                b"foreign javascript")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
         out = Path(cmd[cmd.index("--outDir") + 1])
         owned = out.with_name(out.name + "-moved")
         out.rename(owned)
@@ -324,9 +331,10 @@ def test_unreadable_attempt_files_are_not_published(tmp_path, capsys):
 
     def unreadable_vite(cmd, cwd=None, **_kwargs):
         fired["vite"] = fired.get("vite", 0) + 1
-        out = Path(cmd[cmd.index("--outDir") + 1])
+        out = (Path(cmd[cmd.index("--outDir") + 1]) if "--outDir" in cmd
+               else Path(cwd) / "dist")
         assets = out / "assets"
-        assets.mkdir(parents=True)
+        assets.mkdir(parents=True, exist_ok=True)
         index = out / "index.html"
         js = assets / "index-LOCKED.js"
         index.write_bytes(b"html")

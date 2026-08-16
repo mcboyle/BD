@@ -481,7 +481,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 311,
+      "line": 318,
       "value": {
         "vite": 1
       },
@@ -490,7 +490,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 343,
+      "line": 351,
       "value": {
         "vite": 1
       },
@@ -499,7 +499,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 363,
+      "line": 371,
       "value": {
         "vite": 1
       },
@@ -508,7 +508,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 386,
+      "line": 394,
       "value": {
         "vite": 1,
         "mount": 2
