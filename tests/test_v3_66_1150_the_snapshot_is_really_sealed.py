@@ -874,6 +874,7 @@ def test_a_directory_reported_as_leaked_is_left_SEALED(tmp_path, monkeypatch):
 
     _doomed = os.lstat(d)
     _doomed = (_doomed.st_dev, _doomed.st_ino)
+    observer = os.open(d, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
 
     def boom_rmdir(name, *a, dir_fd=None, **k):
         # KEYED ON THE INODE. v3.66.1154 renames the directory to a private
@@ -892,13 +893,17 @@ def test_a_directory_reported_as_leaked_is_left_SEALED(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "rmdir", boom_rmdir)
     got = m._discard_tempdir(d)
     monkeypatch.undo()
-    after_mode = stat.S_IMODE(os.stat(d).st_mode)
+    after = os.fstat(observer)
+    after_mode = stat.S_IMODE(after.st_mode)
     _purge(m)
+    os.close(observer)
 
     assert relaxed, (
         "the remover never relaxed anything, so there is no relaxation to "
         "check was undone -- the fixture did not build the shape")
     assert got is False
+    assert (after.st_dev, after.st_ino) == _doomed
+    assert after.st_nlink != 0, "the remover lost the owned leaked directory"
     assert after_mode == before_mode, (
         f"a directory reported as NOT REMOVED was left at {oct(after_mode)}; "
         f"it was {oct(before_mode)} and nothing removed it, so the seal must "

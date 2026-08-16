@@ -245,8 +245,17 @@ def subject(request):
         try:
             st = ledger_stat(new, dir_fd=dir_fd, follow_symlinks=False)
             parent = os.fstat(dir_fd)
-            parent_path = os.readlink("/proc/self/fd/%d" % dir_fd)
-            if parent_path.endswith(" (deleted)"):
+            try:
+                parent_path = os.readlink("/proc/self/fd/%d" % dir_fd)
+            except OSError as error:
+                if error.errno != errno.ENAMETOOLONG:
+                    raise
+                # Deep-tree tests can exceed PATH_MAX even though the parent
+                # descriptor and renamed child remain exactly identified.
+                # Record those identities, but leave path cleanup to the
+                # enclosing exact root observer rather than inventing a path.
+                parent_path = None
+            if parent_path is not None and parent_path.endswith(" (deleted)"):
                 raise OSError(errno.ENOENT,
                               "renamed-object parent has no linked path")
             renamed_records.append((parent_path,
@@ -294,6 +303,8 @@ def subject(request):
                 with contextlib.suppress(OSError):
                     os.close(observer)
         for parent_path, parent_ident, name, expected in reversed(renamed_records):
+            if parent_path is None:
+                continue
             child = os.path.join(parent_path, name)
             try:
                 parent = os.lstat(parent_path)

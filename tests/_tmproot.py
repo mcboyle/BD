@@ -631,6 +631,15 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
         try:
             priv = _private_name(name)
             try:
+                named = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+            except OSError as e:
+                return _refuse(R_UNPROVEN,
+                               "the recorded root name could not be revalidated (%s)" % e)
+            if (named.st_dev, named.st_ino) != (st.st_dev, st.st_ino):
+                return _refuse(R_FOREIGN,
+                               "the recorded root name became foreign and was left "
+                               "untouched; the owned root is at %r" % _where(fd))
+            try:
                 _rename_noclobber(name, priv, pfd)
             except OSError as e:
                 return _refuse(R_UNPROVEN, str(e))

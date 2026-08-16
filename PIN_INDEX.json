@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 45,
+    "total": 46,
     "version": 1,
-    "count_dict": 44,
+    "count_dict": 45,
     "test_files_scanned": 1361,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -38,6 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
+      "tests/test_v3_66_1154_the_object_not_the_name.py": 1,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -273,6 +274,16 @@
         "app.reptyle.com": 62
       },
       "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs — Capture counts per host, because that is how the operator recognises the"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 542,
+      "value": {
+        "validated": 1,
+        "substituted": 1
+      },
+      "gates_what": "test_recovery_validation_cannot_move_a_later_foreign_replacement — A pathname check cannot authorize the later pathname rename."
     },
     {
       "form": "count_dict",

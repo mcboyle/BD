@@ -808,6 +808,15 @@ def _remove_owned_sandbox(d, ident, held_fd=None):
         try:
             priv = _private_name(name)
             try:
+                named = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+            except OSError as e:
+                return _refuse("%s the recorded sandbox name could not be "
+                               "revalidated (%s)" % (R_UNPROVEN, e))
+            if (named.st_dev, named.st_ino) != ident:
+                return _refuse("%s the recorded sandbox name became foreign "
+                               "and was left untouched; the owned sandbox is "
+                               "at %r" % (R_FOREIGN, _where(fd)))
+            try:
                 _rename_noclobber(name, priv, pfd)
             except OSError as e:
                 return _refuse("%s %s" % (R_UNPROVEN, e))
