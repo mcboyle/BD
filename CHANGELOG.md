@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1158 - fleet provenance is measured or the host is not green
+
+Row 159. `bd-fleet-run` no longer asks Git about the remote login directory
+and no longer lets a failed `git status` become `dirty=0` through `wc -l`.
+
+The default provenance gate now names the checkout containing the running tool
+explicitly (with `--repo-dir` for a different common remote path),
+resolves it to its physical top level, records the full commit plus the distinct
+states `dirty=clean` or `dirty=dirty`, and refuses to run the operator command
+when checkout, repository, commit, or status measurement fails. Every failure
+prints `commit=unknown dirty=unknown` and exits nonzero.
+
+The gate also clears inherited Git repository-selection and object/index
+override variables before measuring, so a caller's `GIT_DIR`, `GIT_WORK_TREE`,
+or related local-repository environment cannot substitute another repository
+while retaining the expected checkout label. Commit measurement peels and
+requires a commit object rather than accepting an arbitrary hex-named `HEAD`.
+
+Provenance and payload are separate runner phases. The coordinator first waits
+for the measurement process to finish, reads the dedicated provenance artifact,
+requires exactly one complete valid record, and only then submits the payload.
+A missing, malformed, unknown, truncated, unpersisted, or wrong-checkout record
+therefore prevents payload launch rather than merely changing its status after
+the fact. `manifest.json` records both argv values; `summary.json` records the
+parsed commit, dirty state, checkout, and provenance-artifact identity per host.
+
+Writing the provenance record is itself an authorization gate. If the output
+artifact cannot accept the complete record (for example, ENOSPC), the wrapper
+reports the publication phase on stderr, exits nonzero, and never starts the
+payload.
+
+Seventeen hermetic production-path regressions execute the real wrapper locally
+against disposable Git repositories or injected Git failure, and drive the
+real coordinator with injected non-network runners. The direct legacy RED
+reproduced `commit=unknown dirty=0` followed by payload execution from a
+non-repository login directory. Compatibility tests that intentionally exercise
+log behavior without provenance opt out explicitly rather than supplying a
+fake clean-looking prefix. The row-159 file is pinned into CI's toolchain shard.
+
 ## v3.66.1157 - a build output must belong to this build
 
 Row 148. `bd-cut` no longer erases `frontend/dist` with an error-swallowing
