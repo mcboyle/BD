@@ -38,11 +38,15 @@ Flags:
     --no-build         stop after step 3 (typecheck + build + inventory only)
 """
 import argparse
+import ctypes
+import errno
 import glob
 import hashlib
 import os
+import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -140,7 +144,12 @@ def python_for(work):
     return sys.executable
 
 
-def run(cmd, cwd=None, env=None, timeout=None):
+def run(cmd, cwd=None, env=None, timeout=None, pass_fds=()):
+    # pass_fds (v3.66.1151): keep a descriptor open, at the same number, in the
+    # child. That is what lets a SUBPROCESS consumer be bound to the snapshot's
+    # inode too -- it reads its own /proc/self/fd/N, which resolves to the same
+    # file however the directory entry is renamed or replaced meanwhile.
+    # subprocess clears CLOEXEC for these, so no extra handling is needed here.
     # timeout bounds the hang-prone steps (vitest / vite / build_release / band /
     # verify). On expiry we return a synthetic rc=124 result carrying the partial
     # output + a clear TIMEOUT line, so the caller's `if r.returncode != 0: die`
@@ -172,7 +181,7 @@ def run(cmd, cwd=None, env=None, timeout=None):
             env["PYTHONPATH"] = _pp
     try:
         return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
-                              text=True, timeout=timeout)
+                              text=True, timeout=timeout, pass_fds=pass_fds)
     except subprocess.TimeoutExpired as e:
         out, err = e.stdout or "", e.stderr or ""
         if isinstance(out, bytes): out = out.decode("utf-8", "replace")
@@ -543,9 +552,24 @@ def approved_frontend(work, baseline):
 
 def check_runtime_db(work, auto_rm):
     """Refuse to build with regenerable runtime DBs in the tree -- they trip
-    diff_release_zips' forbidden-artifact gate (v3.66.364). Non-destructive by
-    default: die with the exact rm. --rm-runtime-db opts into auto-clean (these
-    are runtime artifacts, safe to remove from a source tree)."""
+    diff_release_zips' forbidden-artifact gate (v3.66.364).
+
+    NON-DESTRUCTIVE BY DEFAULT -- and that exact sentence sat in this docstring
+    from v3.66.702 to v3.66.1149 while `--rm-runtime-db` defaulted to True, so
+    the prose described the opposite of the shipped behaviour and was read as
+    authority. RUNTIME_DB_GLOBS names downloader_history.db and its
+    -wal/-shm/-journal companions. The service's DB_PATH is RELATIVE and
+    systemd's WorkingDirectory is the checkout, so on test5 -- where the
+    deployed tree and the working tree are the same directory -- that glob
+    resolves to the LIVE database. An ordinary cut deleted production state by
+    default, with no backup, no prompt, and a `git status` that stayed clean
+    because the file is gitignored.
+
+    Now the default DIES with the exact rm, and --rm-runtime-db is an explicit
+    opt-in that names every file it destroyed ON STDERR before destroying it.
+    A deletion nobody can prove happened is indistinguishable from one that did
+    not, which is the same argument --no-gate's banner rests on.
+    """
     hits = []
     for pat in RUNTIME_DB_GLOBS:
         hits += glob.glob(os.path.join(work, pat))
@@ -553,6 +577,13 @@ def check_runtime_db(work, auto_rm):
         return
     rels = [os.path.relpath(h, work) for h in hits]
     if auto_rm:
+        _banner = ("!!! --rm-runtime-db: DELETING RUNTIME DATABASE(S) FROM THE "
+                   "WORK TREE !!!")
+        print("\n" + "!" * len(_banner), file=sys.stderr)
+        print(_banner, file=sys.stderr)
+        for _r in rels:
+            print(f"!!!   {os.path.join(work, _r)}", file=sys.stderr)
+        print("!" * len(_banner) + "\n", file=sys.stderr)
         for h in hits:
             os.remove(h)
         print(f"  {Y}removed runtime DB(s){RST} from tree: {', '.join(rels)}")
@@ -560,7 +591,9 @@ def check_runtime_db(work, auto_rm):
     die("runtime DB artifact(s) in work tree would trip the diff-gate (NO-CUT): "
         f"{', '.join(rels)}\n"
         f"      clear them first:  rm {' '.join('/'.join([work, r]) for r in rels)}\n"
-        f"      (or re-run bd-cut with --rm-runtime-db to auto-clean)")
+        f"      (or re-run bd-cut with --rm-runtime-db, which DELETES them --\n"
+        f"       on a host where the service runs from this checkout, "
+        f"downloader_history.db is the LIVE database)")
 
 
 def build_release(work, out, baseline):
@@ -631,8 +664,10 @@ def _tree_vs_zip_source_hash(work, zippath):
             sorted(set(wt_names) ^ set(zp.keys())))
 
 
-def band(zippath, suites, work):
+def band(zippath, suites, work, extracted=None):
     step(7, "extract built zip to a pristine dir")
+    # Decided FIRST: the stale-zip handler below branches on it.
+    _preextracted = extracted is not None
     # STALE-ZIP GATE (702->703 lesson): the band runs from the ZIP, which is correct
     # -- but --resume/--resume-zip can hand it a zip built BEFORE the current edits, so
     # the band tests OLD code and reports GREEN while the tree has the fix. That is a
@@ -651,10 +686,23 @@ def band(zippath, suites, work):
     except SystemExit:
         raise
     except Exception as e:
+        # FAIL CLOSED when the subject came from an archive (v3.66.1148). A
+        # "skipped" stale-zip check converts UNKNOWN into continuation, which is
+        # the same defect as step 0's old exit-2-is-a-pass. On a plain build the
+        # work tree IS the subject and the check is advisory, so it stays a note.
+        if _preextracted:
+            raise RuntimeError(
+                f"stale-zip check could not evaluate ({type(e).__name__}: {e}) "
+                "-- refusing rather than banding an unverified archive")
         print(f"  {Y}(stale-zip check skipped: {e}){RST}")
-    d = tempfile.mkdtemp(prefix="bdcut_verify_")
+    # SINGLE EXTRACTION (v3.66.1147). When the caller has already extracted and
+    # ATTESTED the archive, band runs against that exact directory -- the same
+    # object step 0 certified. Extracting a second copy here would recreate the
+    # certify-one-tree-test-another split this cut exists to remove.
+    d = extracted if _preextracted else _owned_tempdir("bdcut_verify_")
     with zipfile.ZipFile(zippath) as zf:
-        zf.extractall(d)
+        if not _preextracted:
+            zf.extractall(d)
     print(f"  extracted -> {d}")
     # PRE-FLIGHT: a --suites entry that doesn't exist in the extracted zip is a
     # stale/typo'd suite name. Left unchecked, run_tests.py falls back to a broad
@@ -710,7 +758,7 @@ def band(zippath, suites, work):
     # chromium revisions is already a live confounder. Absent in the environment ==
     # playwright's own default, which is the correct fallback.
     env = dict(os.environ)
-    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1")
+    env.update(BD_HOME=_owned_tempdir("bdcut_bdhome_"), BD_DISABLE_KEEPALIVE="1")
     # The band runs the EXTRACTED ZIP's tests, but under the WORK TREE's interpreter:
     # the zip carries no venv, and bare python3 has no deps -- the band would collapse
     # into import errors that read as source failures.
@@ -730,10 +778,14 @@ def band(zippath, suites, work):
     return d
 
 
-def verify(work, zippath):
+def verify(work, zippath, pass_fds=()):
     step(9, "verify_release --zip (gate on true $?)")
+    # pass_fds carries the snapshot's descriptor into the child, so a
+    # /proc/self/fd/N zippath resolves there to the same inode this process
+    # holds -- the subprocess consumer is bound like the in-process ones
+    # rather than trusting a name for the length of a 300s verify.
     r = run([python_for(work), "tools/verify_release.py", "--zip", zippath],
-            cwd=work, timeout=300)
+            cwd=work, timeout=300, pass_fds=pass_fds)
     print(r.stdout[-900:])
     if r.returncode != 0:
         die(f"verify_release exit {r.returncode} -- NO-CUT")
@@ -849,7 +901,1132 @@ def plan(work, version):
     return 0
 
 
-def main(argv=None):
+_TEMPDIRS = []
+
+
+def _owned_tempdir(prefix):
+    """Every temporary directory this tool creates goes through here.
+
+    CLAUDE.md section 0: creating a path is a promise to remove it, and nothing
+    gates that promise. Before v3.66.1148 bd-cut leaked THREE families -- the
+    band's bdcut_verify_*, the BD_HOME it hands the band (default /tmp/tmp*
+    prefix, so a bdcut_* sweep could not even see it), and the step-0 subject.
+    Registration here is what makes main()'s finally able to remove them all.
+    """
+    d = tempfile.mkdtemp(prefix=prefix)
+    _TEMPDIRS.append(d)
+    try:
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return d                  # unidentifiable: cleanup will REFUSE it
+    _TEMPDIR_FD[d] = fd
+    # THE IDENTITY COMES FROM THE DESCRIPTOR WE KEEP, not from a separate
+    # lstat of the same name. Two lookups of one path are two chances to be
+    # told about different objects, and the fd is the thing the removal will
+    # actually act through.
+    _st = os.fstat(fd)
+    _TEMPDIR_IDENT[d] = (_st.st_dev, _st.st_ino)
+    return d
+
+
+# Why a map and not a return value: _discard_tempdir answers a yes/no question
+# and every caller branches on that, but the ERRNO is what tells an operator
+# whether they are looking at "Directory not empty" (a stray process still
+# writing) or "Permission denied" (a mode problem). v3.66.1150's first
+# implementation dropped it and main() printed a bare "not removed", which is
+# CLAUDE.md section 0's "say so" honoured in form only -- and that exact
+# distinction is what parked test4's service in the v3.66.1035 deploy failure.
+# bd-cut answers 1 for every die() and 3 for every step-0 refusal, so a cleanup
+# failure needs a code of its own -- a test asserting merely "nonzero" passes
+# when any other guard fires (CLAUDE.md section 10: four mutants escaped that
+# way in bd-jobs and bd-ab).
+EXIT_CLEANUP_FAILED = 4
+
+_LAST_DISCARD_ERROR = {}
+
+# Descriptors held open so a consumer is bound to an inode rather than to a
+# directory entry (v3.66.1151). main()'s finally closes them; an fd held for
+# the life of the process is a leak with a different name.
+_OPEN_FDS = []
+
+# (st_dev, st_ino) of every directory _owned_tempdir created, so cleanup can
+# tell OUR directory from a stranger's that now sits at the same path. The
+# PATH is precisely the thing that stopped being trustworthy: after a
+# rename+recreate the recorded name holds someone else's directory, and
+# v3.66.1150 deleted THAT while the real sealed snapshot leaked under its new
+# name with nothing reporting it.
+_TEMPDIR_IDENT = {}
+
+# A DESCRIPTOR HELD FROM CREATION, one per owned directory (v3.66.1154). It is
+# what makes the removal answerable about the OBJECT: `st_nlink == 0` on this
+# fd says our directory was unlinked, where `lexists(path)` only ever said
+# something about a name. Measured at 63be0464, both directions wrong at once:
+# a tree RENAMED AWAY reported success (nothing at the name), and a correct
+# removal whose freed name an unrelated object reused reported failure.
+# Closed in _reap, after the discards -- unlike _OPEN_FDS, which is closed
+# first because it serves the snapshot rather than ownership.
+_TEMPDIR_FD = {}
+
+
+def _forget_tempdir(d):
+    """Drop every record, closing only a descriptor still bound to our inode."""
+    if d in _TEMPDIRS:
+        _TEMPDIRS.remove(d)
+    ident = _TEMPDIR_IDENT.pop(d, None)
+    fd = _TEMPDIR_FD.pop(d, None)
+    if fd is not None:
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            return
+        if ident is not None and (st.st_dev, st.st_ino) == ident:
+            os.close(fd)
+
+
+def _where(fd):
+    """Where the object behind `fd` lives NOW -- so a rename-away is
+    recoverable rather than merely reported."""
+    try:
+        return os.readlink("/proc/self/fd/%d" % fd)
+    except OSError:
+        return "its new location could not be read"
+
+
+# ---------------------------------------------------------------------------
+# DESTRUCTIVE PRIMITIVES (v3.66.1154). THREE NEAR-IDENTICAL COPIES OF THIS
+# BLOCK EXIST -- here, in tests/_tmproot.py and in toolchain/bin/bd-footguns --
+# because _tmproot may import nothing from the repo and the bd-* tools are
+# standalone scripts. tests/test_v3_66_1154_the_object_not_the_name.py runs ONE
+# behavioural matrix against ALL THREE, so a drift between the copies is red
+# rather than a fourth implementation nobody compares.
+# ---------------------------------------------------------------------------
+
+# Refusal CODES. CLAUDE.md section 10: when every refusal shares an exit code
+# or a vague phrase, a test asserting "it refused" passes whichever guard
+# fired, and four bd-jobs mutants escaped exactly that way. These name WHICH.
+R_RENAMED = "[renamed-away]"
+R_FOREIGN = "[foreign-object]"
+R_UNPROVEN = "[not-proven]"
+R_NO_IDENT = "[no-identity]"
+R_TOO_DEEP = "[too-deep]"
+
+_RENAME_NOREPLACE = 1 << 0
+_SYS_renameat2 = {"x86_64": 316, "aarch64": 276}.get(platform.machine())
+try:
+    _LIBC = ctypes.CDLL(None, use_errno=True)
+    _LIBC.syscall.restype = ctypes.c_long
+except OSError:                                    # no libc: fall back below
+    _LIBC = None
+
+
+class _Refused(Exception):
+    """A removal that must not proceed.
+
+    DELIBERATELY NOT AN OSError. The OSError handlers around the walk exist to
+    convert KERNEL failures into refusals; a refusal raised by our own identity
+    logic must not be caught by them and re-described as an errno.
+    """
+
+    def __init__(self, code, detail):
+        super().__init__("%s %s" % (code, detail))
+        self.code, self.detail = code, detail
+
+    @property
+    def reason(self):
+        return "%s %s" % (self.code, self.detail)
+
+
+def _rename_noclobber(old, new, dir_fd, allow_fallback=True):
+    """Rename inside `dir_fd`, REFUSING to replace an existing `new`.
+
+    `os.rename` replaces silently, and one caller of this is the path where a
+    FOREIGN object has to be put back at a name a third party may since have
+    re-created. Measured: a plain rename undo DESTROYS an empty directory
+    standing at the restored name -- the exact act we just refused to perform,
+    reintroduced inside the error handler that exists to be safe.
+
+    `renameat2(RENAME_NOREPLACE)` turns that into EEXIST. It is reached through
+    ctypes because `os` does not expose it; measured working on this kernel for
+    xfs and tmpfs. Where the flag is rejected (ENOSYS on an old kernel, EINVAL
+    or EOPNOTSUPP on a filesystem that does not implement it) the fallback is
+    `os.rename`, and the return value says which ran -- "we guaranteed it" and
+    "we could not guarantee it" must not look the same to a caller.
+    """
+    if _LIBC is not None and _SYS_renameat2 is not None:
+        ctypes.set_errno(0)
+        rc = _LIBC.syscall(ctypes.c_long(_SYS_renameat2),
+                           ctypes.c_int(dir_fd), ctypes.c_char_p(os.fsencode(old)),
+                           ctypes.c_int(dir_fd), ctypes.c_char_p(os.fsencode(new)),
+                           ctypes.c_uint(_RENAME_NOREPLACE))
+        if rc == 0:
+            return True
+        _eno = ctypes.get_errno()
+        if _eno not in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP):
+            raise OSError(_eno, os.strerror(_eno), old)
+    if not allow_fallback:
+        # THE UNDO MAY NOT FALL BACK. `os.rename` replaces silently, and the
+        # only caller that passes allow_fallback=False is the one restoring a
+        # FOREIGN object to a name a third party may have re-created -- where
+        # replacing is exactly the destruction being refused. The syscall table
+        # here has two architectures in it and any filesystem may answer
+        # EINVAL, so this is reachable, and leaving the object under its
+        # private name with a report is strictly better than destroying
+        # something to tidy up.
+        raise OSError(errno.EOPNOTSUPP,
+                      "cannot rename without replacing on this platform", old)
+    os.rename(old, new, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    return False
+
+
+def _private_name(base):
+    """The name the destructive syscall uses instead of the well-known one.
+
+    KEEPS THE CALLER'S OWN PREFIX. A run killed between the rename and the
+    removal leaves this on disk, and a dot-prefixed random name would be
+    invisible to the `bdcut_*`, `bdfg_sbx_*` and `bd-testrun-*` sweeps this
+    project's whole leak accounting is built on -- turning a recognisable leak
+    into an unrecognisable one, in the cut whose subject is leaks.
+
+    TRUNCATED IN BYTES, NOT CHARACTERS (v3.66.1154, found by adversarial
+    review). NAME_MAX is 255 BYTES; a character slice let 117 two-byte UTF-8
+    characters (234 bytes) plus the 22-byte suffix reach 256, so the rename
+    got ENAMETOOLONG and the remover REFUSED a removal it had to perform --
+    a green pytest run turned red and leaked its whole per-run root, on a
+    filename any program is free to create. Over-sensitivity is a soundness
+    bug (CLAUDE.md section 0), and this one was a regression against the
+    version it replaced.
+
+    A byte slice can split a multi-byte sequence; `os.fsdecode` keeps the
+    stray bytes as surrogates and `os.fsencode` puts them back unchanged, so
+    the name round-trips to the same bytes the kernel sees. Two long names can
+    therefore truncate to the same prefix -- which is why the 64 random bits
+    are appended AFTER the truncation, and why every rename that uses this
+    name refuses to clobber rather than replacing.
+    """
+    suffix = ".bdrm-%s" % os.urandom(8).hex()
+    raw = os.fsencode(base)[:255 - len(suffix)]
+    return os.fsdecode(raw) + suffix
+
+
+def _put_back(priv, name, fd):
+    """Compatibility diagnostic; automatic pathname put-back is forbidden."""
+    return (" -- automatic put-back is unsafe and was not attempted; the "
+            "private entry %r was left untouched" % priv)
+
+
+def _add_note(error, note):
+    add = getattr(error, "add_note", None)
+    if add is not None: add(note)
+
+
+def _recover_private(priv, name, fd, error, expected=None, held=None, extra=""):
+    """Report failed private-name work without a racy pathname put-back."""
+    controls = (KeyboardInterrupt, SystemExit, MemoryError)
+    propagating = error if isinstance(error, controls) else None
+    if getattr(error, "__notes__", None): extra += " -- " + " -- ".join(error.__notes__)
+    location = "unavailable"; held_path = parent_path = None
+    if held is not None:
+        try:
+            hst = os.fstat(held); held_ident = (hst.st_dev, hst.st_ino)
+            if expected is None: expected = held_ident
+            elif held_ident != expected: extra += " -- held descriptor identity %r does not match expected %r" % (held_ident, expected)
+            else:
+                held_path = os.readlink("/proc/self/fd/%d" % held); parent_path = os.readlink("/proc/self/fd/%d" % fd); location = repr(held_path)
+        except BaseException as e:
+            extra += " -- held identity/location unavailable (%s: %s)" % (type(e).__name__, e)
+            if propagating is None and isinstance(e, controls): propagating = e
+    try: pst = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+    except BaseException as e:
+        diagnostic = " -- expected owned identity %r; private identity could not be verified (%s); owned object location is %s" % (expected, e, location)
+        if propagating is None and isinstance(e, controls): propagating = e
+    else:
+        diagnostic = (" -- expected owned identity %r; verified owned object remains at private name %r" % (expected, priv) if expected is not None and (pst.st_dev, pst.st_ino) == expected else " -- expected owned identity %r; private name %r is a foreign identity; it was left untouched; owned object location is %s" % (expected, priv, location))
+    if propagating is not None:
+        try:
+            if propagating is not error: _add_note(propagating, "primary cleanup failure (%s: %s)" % (type(error).__name__, error))
+            _add_note(propagating, "private-name recovery: %s%s" % (diagnostic.lstrip(), extra))
+        except BaseException:
+            if isinstance(error, controls): raise error
+            raise
+        raise propagating
+    code = error.code if isinstance(error, _Refused) else R_UNPROVEN
+    detail = error.detail if isinstance(error, _Refused) else "%s: %s" % (type(error).__name__, error)
+    raise _Refused(code, "%s%s%s" % (detail, diagnostic, extra)) from error
+
+
+def _walk_failed(e):
+    """A walk that could not finish is INCOMPLETE, not finished-and-clean.
+
+    The reason names the exception TYPE deliberately: a broad `except
+    Exception` fails closed, which is right, but it also converts a genuine
+    remover bug (TypeError, AttributeError) into something that reads like
+    routine leakage. Naming the type is what keeps the two distinguishable.
+
+    RecursionError is the measured case at depth ~1400, and on a host with a
+    small RLIMIT_NOFILE the same walk dies of EMFILE first, so this must not be
+    narrowed to RecursionError alone.
+    """
+    return ("%s the tree could not be walked to completion (%s: %s) -- the "
+            "removal is INCOMPLETE and what remains is unknown"
+            % (R_TOO_DEEP, type(e).__name__, e))
+
+
+def _max_walk_depth():
+    """How deep this walk may go before it refuses.
+
+    NOT a taste question: at the interpreter's own recursion limit the
+    UNWINDING calls fail too, so the handler that puts a foreign object back
+    under its real name cannot run and the tree is left holding a private
+    `.bdrm-*` name -- measured by review at depth 497 in all three removers,
+    with `_put_back`'s own comment promising it could not happen. Refusing
+    early leaves the stack the recovery needs.
+    """
+    return max(50, (sys.getrecursionlimit() - 100) // 3)
+
+
+def _rmtree_fd_legacy_disabled(fd, dev, depth=0):
+    """Delete everything UNDER an open directory descriptor.
+
+    READ ONCE, THEN ACT. Renaming entries while a readdir cursor is open is
+    unspecified, and it is not theoretical here: measured on this host's XFS,
+    renaming during the walk re-yielded 38 of 5000 entries under their new
+    names. `list()` completes the readdir before anything moves. Anything
+    created after that listing is not ours; the terminal rmdir will refuse with
+    ENOTEMPTY and that is REPORTED rather than swallowed.
+
+    EVERY ENTRY IS BOUND TO THE INODE THE READDIR REPORTED, and the destructive
+    syscall never names it. The entry is first renamed to a private name that
+    cannot clobber, then identified, and only then removed -- so an adversary
+    who swaps the well-known name is detected after the no-clobber private
+    rename and cleanup refuses without further pathname mutation. Linux has
+    no inode-bound unlinkat: substitution after the final private-name identity
+    check remains a terminal namespace race, and the held descriptor proves
+    only whether our inode reached its required postcondition.
+
+    v3.66.1153 opened every child BY NAME with nothing carried from the entry
+    it had just read, so a directory renamed onto a child pathname mid-walk was
+    entered and recursively emptied -- measured, victim inode nlink 0.
+    """
+    raise RuntimeError("superseded unsafe remover must not be called")
+    if depth > _max_walk_depth():
+        raise _Refused(R_TOO_DEEP,
+                       "the tree is deeper than this walk may safely recurse "
+                       "(%d levels); refusing while there is still stack to "
+                       "undo with" % depth)
+    for entry in list(os.scandir(fd)):
+        want = (dev, entry.inode())
+        priv = _private_name(entry.name)
+        try:
+            _rename_noclobber(entry.name, priv, fd)
+        except FileNotFoundError:
+            continue          # listed, then vanished: not ours to account for
+        try:
+            st = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        except BaseException as e:
+            anchor = None
+            try: anchor = os.open(priv, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd)
+            except OSError: pass
+            try: _recover_private(priv, entry.name, fd, e, want, anchor)
+            finally:
+                if anchor is not None: os.close(anchor)
+        if (st.st_dev, st.st_ino) != want:
+            raise _Refused(R_FOREIGN,
+                           "%r is not the object this walk listed there%s"
+                           % (entry.name, _put_back(priv, entry.name, fd)))
+        if not stat.S_ISDIR(st.st_mode):
+            anchor = os.open(priv, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd)
+            try: os.unlink(priv, dir_fd=fd)
+            except BaseException as e: _recover_private(priv, entry.name, fd, e, want, anchor)
+            finally: os.close(anchor)
+            continue
+        anchor = child = None
+        relaxed = False
+        try:
+            anchor = os.open(priv, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW,
+                             dir_fd=fd)
+            ast = os.fstat(anchor)
+            if (ast.st_dev, ast.st_ino) != want:
+                raise _Refused(R_FOREIGN,
+                               "%r changed identity between the rename and "
+                               "the anchor" % entry.name)
+            was = stat.S_IMODE(ast.st_mode)
+            bound = "/proc/self/fd/%d" % anchor
+            try:
+                child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            except PermissionError:
+                relaxed = True
+                os.chmod(bound, 0o700)
+                child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            cst = os.fstat(child)
+            if (cst.st_dev, cst.st_ino) != want:
+                raise _Refused(R_FOREIGN,
+                               "%r changed identity between the anchor and "
+                               "the readable descriptor" % entry.name)
+        except BaseException as e:
+            if relaxed and anchor is not None:
+                try:
+                    os.chmod("/proc/self/fd/%d" % anchor, was)
+                except OSError:
+                    pass
+            notes = ""
+            for close_fd in (child, anchor):
+                if close_fd is not None:
+                    try: os.close(close_fd)
+                    except OSError as ce: notes += " -- close failed (%s)" % ce
+            _recover_private(priv, entry.name, fd, e, want, child or anchor, notes)
+        try: os.close(anchor)
+        except BaseException as e:
+            notes = ""
+            try: os.close(child)
+            except OSError as ce: notes = " -- readable close failed (%s)" % ce
+            _recover_private(priv, entry.name, fd, e, want, child, notes)
+        try:
+            try:
+                try:
+                    _rmtree_fd(child, cst.st_dev, depth + 1)
+                except PermissionError:
+                    os.fchmod(child, 0o700)
+                    relaxed = True
+                    _rmtree_fd(child, cst.st_dev, depth + 1)
+                # INSIDE THE DESCRIPTOR'S LIFETIME. Until v3.66.1154 this rmdir
+                # sat after `finally: os.close(child)`, so when it failed there
+                # was no descriptor left to reseal through and the child stayed
+                # at 0o700 -- a directory reported as leaked, left less
+                # protected than it was found, on every path.
+                os.rmdir(priv, dir_fd=fd)
+                if os.fstat(child).st_nlink != 0:
+                    raise _Refused(R_UNPROVEN,
+                                   "the entry removed for %r was not the "
+                                   "object held open" % entry.name)
+            except BaseException as e:
+                restore_note = ""
+                if relaxed:
+                    try:
+                        os.fchmod(child, was)
+                    except OSError as re: restore_note = " -- mode restoration failed (%s)" % re
+                # PUT IT BACK UNDER ITS OWN NAME. The private name exists only
+                # for the duration of the destroy; a failure that leaves it in
+                # place renames a directory inside a tree we are about to
+                # report as leaked, so the report and the disk disagree.
+                _recover_private(priv, entry.name, fd, e, want, child, restore_note)
+        finally:
+            os.close(child)
+
+
+def _rmtree_fd(fd, dev, depth=0):
+    """Remove children through creation-bound descriptors, failing closed."""
+    if depth > _max_walk_depth():
+        raise _Refused(R_TOO_DEEP, "the tree is deeper than this walk may safely recurse")
+    for entry in list(os.scandir(fd)):
+        want = (dev, entry.inode())
+        priv = _private_name(entry.name)
+        anchor = child = None
+        relaxed, was = False, None
+
+        def close_once(value, label):
+            if value is None: return "", None
+            try:
+                os.close(value); return "", None
+            except BaseException as error:
+                return (" -- %s close failed; descriptor state is unknown (%s: %s)" %
+                        (label, type(error).__name__, error)), error
+
+        def held_location(value):
+            if value is None: return ""
+            try:
+                hst = os.fstat(value); got = (hst.st_dev, hst.st_ino)
+                if got != want:
+                    return " -- held identity %r does not match expected %r" % (got, want)
+                return " -- held owned object location is %r" % os.readlink("/proc/self/fd/%d" % value)
+            except OSError as error:
+                return " -- held owned-object location unavailable (%s)" % error
+
+        def close_then_raise(primary, value, label):
+            note, close_error = close_once(value, label)
+            if close_error is not None:
+                if isinstance(primary, (KeyboardInterrupt, SystemExit, MemoryError)):
+                    _add_note(primary, note.strip()); raise primary
+                if isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)):
+                    _add_note(close_error, "primary cleanup failure (%s: %s)" % (type(primary).__name__, primary)); raise close_error
+                if isinstance(primary, Exception): raise _Refused(R_UNPROVEN, "%s: %s%s" % (type(primary).__name__, primary, note)) from primary
+                _add_note(primary, note.strip())
+            raise primary
+
+        def abort(primary):
+            nonlocal anchor, child
+            notes = held_location(child if child is not None else anchor)
+            propagating = (primary if isinstance(
+                primary, (KeyboardInterrupt, SystemExit, MemoryError)) else None)
+            if relaxed:
+                restore_fd = child if child is not None else anchor
+                try:
+                    if child is not None: os.fchmod(child, was)
+                    elif anchor is not None: os.chmod("/proc/self/fd/%d" % anchor, was)
+                    if stat.S_IMODE(os.fstat(restore_fd).st_mode) != was:
+                        raise OSError(errno.EIO, "restored mode did not verify")
+                except BaseException as error:
+                    notes += " -- mode restoration failed (%s: %s)" % (type(error).__name__, error)
+                    if (propagating is None and isinstance(
+                            error, (KeyboardInterrupt, SystemExit, MemoryError))):
+                        propagating = error
+            value, child = child, None
+            note, close_error = close_once(value, "readable descriptor"); notes += note
+            if (propagating is None and isinstance(
+                    close_error, (KeyboardInterrupt, SystemExit, MemoryError))):
+                propagating = close_error
+            value, anchor = anchor, None
+            note, close_error = close_once(value, "anchor descriptor"); notes += note
+            if (propagating is None and isinstance(
+                    close_error, (KeyboardInterrupt, SystemExit, MemoryError))):
+                propagating = close_error
+            if propagating is not None and propagating is not primary:
+                notes += " -- primary cleanup failure (%s: %s)" % (
+                    type(primary).__name__, primary)
+            _recover_private(priv, entry.name, fd,
+                             propagating or primary, want, None, notes)
+
+        try:
+            anchor = os.open(entry.name, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd)
+            ast = os.fstat(anchor)
+            if (ast.st_dev, ast.st_ino) != want:
+                raise _Refused(R_FOREIGN, "%r changed before an ownership anchor was acquired" % entry.name)
+        except FileNotFoundError:
+            continue
+        except BaseException as error:
+            value, anchor = anchor, None; close_then_raise(error, value, "anchor descriptor")
+        try:
+            _rename_noclobber(entry.name, priv, fd)
+        except FileNotFoundError:
+            value, anchor = anchor, None; note, error = close_once(value, "anchor descriptor")
+            if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): raise error
+            if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
+            continue
+        except BaseException as error:
+            value, anchor = anchor, None; close_then_raise(error, value, "anchor descriptor")
+        try:
+            pst = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        except BaseException as error:
+            abort(error)
+        if (pst.st_dev, pst.st_ino) != want:
+            abort(_Refused(R_FOREIGN, "%r is not the object this walk listed there" % entry.name))
+        if not stat.S_ISDIR(ast.st_mode):
+            before_links = ast.st_nlink
+            try:
+                os.unlink(priv, dir_fd=fd); after = os.fstat(anchor)
+                if ((after.st_dev, after.st_ino) != want or
+                        after.st_nlink != before_links - 1):
+                    raise _Refused(R_UNPROVEN, "unlink did not remove the held object")
+            except BaseException as error:
+                abort(error)
+            value, anchor = anchor, None
+            note, error = close_once(value, "anchor descriptor")
+            if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): raise error
+            if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
+            continue
+        was = stat.S_IMODE(ast.st_mode); bound = "/proc/self/fd/%d" % anchor
+        try:
+            try: child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            except PermissionError:
+                relaxed = True; os.chmod(bound, 0o700)
+                child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            cst = os.fstat(child)
+            if (cst.st_dev, cst.st_ino) != want:
+                raise _Refused(R_FOREIGN, "%r changed before readable acquisition" % entry.name)
+        except BaseException as error:
+            abort(error)
+        value, anchor = anchor, None
+        note, error = close_once(value, "anchor descriptor")
+        if error is not None:
+            _add_note(error, note.strip()); abort(error)
+        try:
+            try: _rmtree_fd(child, cst.st_dev, depth + 1)
+            except PermissionError:
+                relaxed = True; os.fchmod(child, 0o700)
+                _rmtree_fd(child, cst.st_dev, depth + 1)
+            os.rmdir(priv, dir_fd=fd)
+            if os.fstat(child).st_nlink != 0:
+                raise _Refused(R_UNPROVEN, "the entry removed for %r was not the object held open" % entry.name)
+        except BaseException as error:
+            abort(error)
+        value, child = child, None
+        note, error = close_once(value, "readable descriptor")
+        if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)): raise error
+        if error is not None: raise _Refused(R_UNPROVEN, note.strip()) from error
+
+
+def _remove_owned_dir(d, ident, held_fd=None):
+    """Remove the directory whose identity is `ident`, or refuse.
+
+    Returns (True, None) or (False, reason). When the caller holds a
+    descriptor from creation it is used directly, so the owned path is never
+    re-resolved at all; only the PARENT is opened, and only because a rename
+    must name a directory to move within.
+
+    THE ONE IRREDUCIBLE STEP, stated rather than hidden: unlinking a directory
+    is `rmdir` of a NAME in its parent -- Linux has no funlinkat, so no call
+    says "remove the inode I am holding". What v3.66.1154 changes is WHICH
+    name: the directory is first renamed to an unguessable private one that
+    cannot clobber an existing entry, identified there, and only then removed.
+    A mismatch observed after the private rename is reported without further
+    mutation. Linux has no inode-bound rmdir: substitution after the final
+    private-name identity check remains a terminal namespace race, and
+    `st_nlink == 0` afterwards proves only that the held owned inode reached its
+    required postcondition, not which inode a pathname syscall targeted.
+
+    That last proof is REPORTING, not containment, and the distinction matters:
+    measured at 63be0464, a third party removing our directory under its new
+    name leaves nlink 0 -- true, and useless -- while our rmdir destroyed
+    someone else's object. Only moving the destructive call off the well-known
+    name closes that.
+    """
+    fd, ours = held_fd, False
+    if fd is None:
+        try:
+            fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as e:
+            if e.errno in (errno.ELOOP, errno.ENOTDIR):
+                return False, ("%s the path is a symlink or is not a directory "
+                               "-- not the object bd-cut created here" % R_FOREIGN)
+            if e.errno == errno.ENOENT:
+                return True, None
+            return False, "%s %s" % (R_UNPROVEN, e)
+        ours = True
+    was, relaxed = None, False
+    propagating = None
+
+    def _refuse(reason):
+        if relaxed and was is not None:
+            try:
+                os.fchmod(fd, was)
+                if stat.S_IMODE(os.fstat(fd).st_mode) != was: raise OSError(errno.EIO, "restored mode did not verify")
+            except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                reason += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
+                _add_note(restore_error, reason); raise
+            except Exception as restore_error: reason += " -- mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error)
+        return False, reason
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) != ident:
+            return False, ("%s the descriptor does not hold the directory "
+                           "recorded at creation" % R_FOREIGN)
+        was, relaxed = stat.S_IMODE(st.st_mode), False
+        try:
+            named = os.lstat(d)
+        except FileNotFoundError:
+            return _refuse("%s the owned directory is at %r, not its recorded "
+                           "name" % (R_RENAMED, _where(fd)))
+        except OSError as error:
+            return _refuse("%s the recorded directory name could not be "
+                           "identified (%s)" % (R_UNPROVEN, error))
+        if (named.st_dev, named.st_ino) != (st.st_dev, st.st_ino):
+            return _refuse("%s the recorded directory name is foreign and was "
+                           "left untouched; the owned directory is at %r"
+                           % (R_FOREIGN, _where(fd)))
+
+        parent_propagating = None
+        try:
+            _rmtree_fd(fd, st.st_dev)
+        except PermissionError:
+            # UNSEAL ONLY AS A RETRY, THROUGH THIS DESCRIPTOR -- never by name,
+            # because os.chmod follows symlinks and only a DIRECTORY is ever
+            # opened here, so an in-tree hard link to an outside file can never
+            # be reached by it.
+            try:
+                relaxed = True
+                os.fchmod(fd, 0o700)
+                _rmtree_fd(fd, st.st_dev)
+            except _Refused as r:
+                return _refuse(r.reason)
+            except OSError as e2:
+                return _refuse("%s %s" % (R_UNPROVEN, e2))
+            except (KeyboardInterrupt, SystemExit, MemoryError) as e2:
+                try:
+                    _, reason = _refuse("%s %s: %s" %
+                                        (R_UNPROVEN, type(e2).__name__, e2))
+                except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                    if restore_error is not e2:
+                        _add_note(e2, "mode restoration control failure (%s: %s)" %
+                                  (type(restore_error).__name__, restore_error))
+                    reason = "%s %s: %s" % (R_UNPROVEN, type(e2).__name__, e2)
+                _add_note(e2, reason)
+                raise
+            except Exception as e2:
+                return _refuse(_walk_failed(e2))
+        except _Refused as r:
+            return _refuse(r.reason)
+        except OSError as e1:
+            return _refuse("%s %s" % (R_UNPROVEN, e1))
+        except (KeyboardInterrupt, SystemExit, MemoryError) as e1:
+            try:
+                _, reason = _refuse("%s %s: %s" %
+                                    (R_UNPROVEN, type(e1).__name__, e1))
+            except (KeyboardInterrupt, SystemExit, MemoryError) as restore_error:
+                if restore_error is not e1:
+                    _add_note(e1, "mode restoration control failure (%s: %s)" %
+                              (type(restore_error).__name__, restore_error))
+                reason = "%s %s: %s" % (R_UNPROVEN, type(e1).__name__, e1)
+            _add_note(e1, reason)
+            raise
+        except Exception as e1:
+            # NOT BaseException: KeyboardInterrupt must still be able to stop a
+            # reap, and SystemExit must not be swallowed. RecursionError is
+            # converted here at the shallow frame; MemoryError is handled above
+            # and propagated after accounting.
+            return _refuse(_walk_failed(e1))
+
+        parent, name = os.path.dirname(d) or ".", os.path.basename(d)
+        try:
+            pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as e:
+            return _refuse("%s cannot open the parent directory (%s)"
+                           % (R_UNPROVEN, e))
+        try:
+            priv = _private_name(name)
+            try:
+                named = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+            except OSError as e:
+                return _refuse("%s the recorded directory name could not be "
+                               "revalidated (%s)" % (R_UNPROVEN, e))
+            if (named.st_dev, named.st_ino) != ident:
+                return _refuse("%s the recorded directory name became foreign "
+                               "and was left untouched; the owned directory is "
+                               "at %r" % (R_FOREIGN, _where(fd)))
+            try:
+                _rename_noclobber(name, priv, pfd)
+            except OSError as e:
+                return _refuse("%s %s" % (R_UNPROVEN, e))
+            try:
+                ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
+            except BaseException as e:
+                try: _recover_private(priv, name, pfd, e, ident, fd)
+                except (KeyboardInterrupt, SystemExit, MemoryError): raise
+                except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
+            if (ent.st_dev, ent.st_ino) != ident:
+                return _refuse("%s the private name %r is foreign; it was left "
+                               "untouched and the owned root location is %r"
+                               % (R_FOREIGN, priv, _where(fd)))
+            try:
+                os.rmdir(priv, dir_fd=pfd)
+            except BaseException as e:
+                try: _recover_private(priv, name, pfd, e, ident, fd)
+                except (KeyboardInterrupt, SystemExit, MemoryError): raise
+                except Exception as recovered: return _refuse("%s %s" % (R_UNPROVEN, recovered))
+        except BaseException as escaped:
+            parent_propagating = escaped
+            raise
+        finally:
+            if parent_propagating is not None and relaxed:
+                try:
+                    os.fchmod(fd, was)
+                    if stat.S_IMODE(os.fstat(fd).st_mode) != was: raise OSError(errno.EIO, "restored mode did not verify")
+                except BaseException as restore_error: _add_note(parent_propagating, "mode restoration failed (%s: %s)" % (type(restore_error).__name__, restore_error))
+            try: os.close(pfd)
+            except BaseException as close_error:
+                note = "parent descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
+                if parent_propagating is not None: _add_note(parent_propagating, note)
+                elif isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)): raise
+                elif isinstance(close_error, Exception): return _refuse("%s %s" % (R_UNPROVEN, note))
+                else: raise
+        if os.fstat(fd).st_nlink != 0:
+            return _refuse("%s the entry removed was not the directory bd-cut "
+                           "held open" % R_UNPROVEN)
+        return True, None
+    except BaseException as escaped:
+        propagating = escaped
+        raise
+    finally:
+        if ours:
+            try: os.close(fd)
+            except BaseException as close_error:
+                note = "owned descriptor close failed; state unknown (%s: %s)" % (type(close_error).__name__, close_error)
+                if propagating is not None: _add_note(propagating, note)
+                elif isinstance(close_error, (KeyboardInterrupt, SystemExit, MemoryError)): raise
+                elif isinstance(close_error, Exception):
+                    # The close may have succeeded and the number may already
+                    # denote a foreign object. Never restore through it.
+                    relaxed = False
+                    return _refuse("%s %s" % (R_UNPROVEN, note))
+                else: raise
+
+
+def _same_object(path, ident):
+    """True only if `path` is still the exact directory we created there."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        return False                       # a symlink or a file is not ours
+    return (st.st_dev, st.st_ino) == ident
+
+
+def _discard_tempdir(d):
+    """Remove a directory we own and say HONESTLY whether it went.
+
+    Returns True only if the path is gone. On failure the directory STAYS
+    registered in _TEMPDIRS, so main()'s finally still reports it.
+
+    v3.66.1149. The three cleanup paths this replaces all called
+    `shutil.rmtree(d, ignore_errors=True)` and then forgot the path --
+    extract_and_attest went further and removed it from _TEMPDIRS *before*
+    knowing whether the removal had worked. So a cleanup that FAILED became a
+    leak nothing could see or report: the flag suppresses the error, and the
+    unregistration destroys the only record that the directory ever existed.
+    CLAUDE.md section 0's rule that a check which cannot verify must SAY SO,
+    applied to teardown rather than to a gate.
+
+    v3.66.1150 fixes two things this function got wrong on its first outing.
+
+    UNSEAL FIRST. snapshot_archive seals its directory so nothing can unlink or
+    replace the snapshot at its pathname; removing it is the one legitimate
+    exception and it is ours to make. Without this, every --resume-zip run
+    ended by reporting its own snapshot as an unremovable leak.
+
+    A RAISED OSError IS NOT A SUCCESSFUL CLEANUP. This used to swallow it and
+    then consult os.path.exists(), so a removal that FAILED but happened to
+    leave nothing behind returned True and unregistered the directory. rmtree
+    is not atomic -- it can delete most of a tree and raise on one entry -- so
+    reading "gone" from a call that reported failure is a conclusion drawn from
+    a measurement that did not happen. Unknown is a third state and it fails.
+    """
+    # NEVER ACT ON A SYMLINK, AND NEVER ON A STRANGER'S DIRECTORY (v3.66.1151).
+    # os.chmod FOLLOWS symlinks, so handing this function a link meant chmod'ing
+    # its target -- anywhere on the filesystem, outside anything we own. And a
+    # recorded path is not proof of ownership: after a rename+recreate it holds
+    # a directory this tool never made.
+    #
+    # v3.66.1154 STOPS ASKING THE PATHNAME ANYTHING AT ALL when a descriptor
+    # was held from creation. Both of the questions below used to be `lexists`,
+    # and both were wrong, in opposite directions:
+    #
+    #   * asked FIRST, "nothing is here" meant success -- so a directory
+    #     RENAMED AWAY, payload intact, was reported clean and unregistered,
+    #     destroying the only record that it exists;
+    #   * asked LAST, "something is here" meant failure -- so a correct removal
+    #     whose freed name an unrelated object happened to reuse was reported
+    #     as a leak, which CLAUDE.md section 0 counts as a soundness bug rather
+    #     than a safe default.
+    #
+    # `st_nlink == 0` on the held descriptor answers both, about OUR inode.
+    # (Valid because the subject is a DIRECTORY: directories cannot be hard
+    # linked -- os.link on one is EPERM -- so there is no second link to
+    # confuse the count. Do not reuse this proof form for a file.)
+    fd = _TEMPDIR_FD.get(d)
+    _ident = _TEMPDIR_IDENT.get(d)
+    if fd is not None:
+        try:
+            _fd_stat = os.fstat(fd)
+        except OSError:
+            _fd_stat = None
+        if (_ident is None or _fd_stat is None or
+                (_fd_stat.st_dev, _fd_stat.st_ino) != _ident):
+            # The number is stale or recycled. It is not ours to close or use;
+            # detach only the bookkeeping and let the safe pathname reopen
+            # below re-establish the real owned directory from its identity.
+            if _TEMPDIR_FD.get(d) == fd:
+                _TEMPDIR_FD.pop(d, None)
+            fd = None
+        else:
+            _gone = _fd_stat.st_nlink == 0
+    if fd is not None:
+        if _gone:
+            _forget_tempdir(d)
+            return True
+        if not os.path.lexists(d):
+            _LAST_DISCARD_ERROR[d] = (
+                "%s the directory bd-cut created here is still on disk under "
+                "another name (%s); it is unaccounted for and nothing else "
+                "will collect it" % (R_RENAMED, _where(fd)))
+            return False
+    elif not os.path.lexists(d):
+        if _ident is not None:
+            # A RECORDED IDENTITY WITH NO DESCRIPTOR IS UNKNOWN (v3.66.1154). Knowing enough to have owned it and not enough to prove it went are different states, and 'nothing is at the path' cannot tell removal from a rename-away without the descriptor. Reported clean before this -- measured on a hand-registered root, payload intact under its new name. Where NEITHER an identity nor a descriptor was recorded the answer stays success: that is a caller asking about a path this tool never created, and refusing it would fail every already-clean path.
+            _LAST_DISCARD_ERROR[d] = (
+                "%s an identity was recorded for this path but no descriptor, "
+                "so a removal and a rename-away cannot be told apart"
+                % R_RENAMED)
+            return False
+        _forget_tempdir(d)
+        return True
+    # A MISSING IDENTITY IS UNKNOWN, AND UNKNOWN REFUSES (v3.66.1152). This
+    # read `if _ident is not None and ...`, so a creation-time failure -- the
+    # one case where ownership genuinely cannot be proven -- PERMITTED the
+    # deletion, while the comment beside it said it would refuse.
+    if _ident is None:
+        _LAST_DISCARD_ERROR[d] = (
+            "%s no creation identity was recorded -- refusing to remove a "
+            "directory this tool cannot prove it created" % R_NO_IDENT)
+        return False
+    _ok, _why = _remove_owned_dir(d, _ident, fd)
+    if not _ok:
+        _LAST_DISCARD_ERROR[d] = _why
+        return False
+    _forget_tempdir(d)
+    return True
+
+
+def _report_undeleted(d):
+    """One phrasing for every site, so a grep for it finds them all."""
+    print(f"bd-cut: TEMPORARY DIRECTORY NOT REMOVED: {d}", file=sys.stderr)
+
+
+def snapshot_archive(zippath):
+    """One OWNED, READ-ONLY copy of the archive, taken from ONE opened source.
+
+    Returns (path, identity). Everything downstream -- extraction, the
+    stale-zip source hash, the band, verify_release and the MAX summary --
+    consumes THIS path, so no later re-open of the operator's mutable file can
+    change what any of them saw.
+
+    WHY. Until v3.66.1149 --resume-zip re-opened the external archive five
+    separate times and identity-checked only the first. One check at the start
+    binds nothing about the later opens: a swap in between made the band test A
+    while verify reported on B, and an ABA swap that restored the original size
+    and mtime was invisible to any stat-based comparison. Owning the bytes
+    removes the window rather than narrowing it.
+
+    The identity comes from the SAME file descriptor the bytes are read through
+    (os.fstat, never os.stat on the path), so it cannot end up describing a
+    different inode than the one that was copied, and a short read against the
+    stat size is a refusal rather than a truncated snapshot.
+    """
+    d = _owned_tempdir("bdcut_archive_")
+    dst = os.path.join(d, os.path.basename(zippath) or "archive.zip")
+    h = hashlib.sha256()
+    try:
+        n = 0
+        with open(zippath, "rb") as src:
+            st = os.fstat(src.fileno())
+            with open(dst, "wb") as out:
+                for chunk in iter(lambda: src.read(1 << 20), b""):
+                    h.update(chunk)
+                    out.write(chunk)
+                    n += len(chunk)
+        if n != st.st_size:
+            raise RuntimeError(
+                f"{zippath} changed size while it was being copied "
+                f"({st.st_size} bytes at open, {n} read) -- refusing to "
+                "snapshot a file that is being written")
+        # Read-only: the snapshot is the one object the gate, the band and
+        # verify agree on, so nothing -- including this tool -- may edit it.
+        os.chmod(dst, 0o444)
+        # AND SEAL THE DIRECTORY (v3.66.1150). 0444 on the file was not the
+        # guarantee this code claimed. On POSIX the right to unlink or rename a
+        # NAME comes from the write bit on the directory that holds it, not
+        # from the mode of the file it points at -- so with the parent left
+        # 0700 anything running as this user could os.unlink the snapshot and
+        # os.replace a different archive at the same pathname. That is exactly
+        # the swap the snapshot exists to make impossible: 0444 prevents a
+        # rewrite THROUGH the path and says nothing about replacing the path.
+        #
+        # 0500 removes create/unlink/rename while keeping the directory
+        # readable and traversable, which the band, verify_release and the MAX
+        # summary all need. _discard_tempdir unseals (as a retry) before
+        # removing.
+        #
+        # WHAT THE SEAL DOES NOT DO, stated because the first version of this
+        # comment claimed otherwise. It does not bind the PATHNAME: this
+        # directory's own parent is still writable by the same uid, so the
+        # whole directory can be renamed away and a fresh one created at the
+        # same path holding an imposter. No mode bit can close that. The
+        # mechanism that does is `_snapshot_moved`, which re-hashes the
+        # snapshot against the identity recorded here before verify and again
+        # after the summary, and catches rename+recreate, unlink+replace and an
+        # in-place rewrite alike. The seal is defence in depth, not the proof.
+        #
+        # AND IT LEAVES RESIDUE AN ORDINARY SWEEP CANNOT CLEAR. If this process
+        # dies between here and main()'s finally -- SIGKILL, OOM, a hard reap --
+        # the directory survives at 0500 and `rm -rf /tmp/bdcut_*` fails on it.
+        # Recover with `chmod -R u+w <dir> && rm -rf <dir>`. This is a real
+        # cost and it is accepted deliberately: the in-suite half is handled by
+        # tests/_tmproot._force_rmtree, and a signal handler was NOT added,
+        # because CLAUDE.md section 6 records that a trap converts a reliable
+        # failure into a rare silent one and SIGKILL would defeat it anyway.
+        os.chmod(d, 0o500)
+        # BIND THE CONSUMERS TO AN INODE, NOT TO A NAME (v3.66.1151).
+        #
+        # v3.66.1150 answered the rename+recreate swap with a hash taken after
+        # the band and again after the summary. That cannot see a swap which is
+        # UNDONE: a consumer renames the real directory away, works against an
+        # imposter at the same pathname, and puts the original back before
+        # returning -- both post-stage hashes then sample the original and
+        # report clean, and the verdict is about bytes nobody judged. A hash
+        # samples a pathname at an instant; only an open descriptor names an
+        # inode for as long as it is held.
+        #
+        # So the path handed downstream is /proc/self/fd/N. Every in-process
+        # open of it resolves to THIS inode no matter what happens to the
+        # directory entry, and the subprocess consumer gets the same guarantee
+        # because run() passes the descriptor through (pass_fds) and the child
+        # reads its own /proc/self/fd/N. Verified: it survives unlinking the
+        # original name, and zipfile opens it in both processes.
+        fd = os.open(dst, os.O_RDONLY)
+        _OPEN_FDS.append(fd)
+    except BaseException:
+        if not _discard_tempdir(d):
+            _report_undeleted(d)
+        raise
+    return (f"/proc/self/fd/{fd}",
+            {"sha256": h.hexdigest(), "size": st.st_size,
+             "mtime_ns": st.st_mtime_ns},
+            fd)
+
+
+def archive_identity(zippath):
+    """sha256 + size + mtime of the ARCHIVE ITSELF.
+
+    Recorded at extraction and re-checked before verify/summary so an archive
+    swapped underneath the run cannot make the band test A while verify reports
+    on B. The extract is attested against the archive; this attests the archive
+    against itself over time.
+    """
+    st = os.stat(zippath)
+    h = hashlib.sha256()
+    with open(zippath, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return {"sha256": h.hexdigest(), "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+
+def extract_and_attest(zippath):
+    """Extract the archive ONCE and prove the bytes on disk are the archive's.
+
+    Returns the directory. Raises RuntimeError on any mismatch, so the caller
+    fails CLOSED -- an extract we cannot vouch for is not a subject.
+
+    WHY. Until v3.66.1147 --resume-zip extracted TWICE: into bdcut_step0_* for
+    the gate and again into bdcut_verify_* inside band(). The thing CERTIFIED
+    and the thing TESTED were different objects, which is CLAUDE.md section 0's
+    core failure even when both come from one archive. And nothing checked what
+    landed on disk: the only hash compared the work tree against ZIP MEMBERS,
+    before extraction, over two directories, and failed open.
+    """
+    d = _owned_tempdir("bdcut_subject_")
+    try:
+        with zipfile.ZipFile(zippath) as archive:
+            archive.extractall(d)
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                target = os.path.join(d, info.filename)
+                if not os.path.isfile(target):
+                    raise RuntimeError(f"member not extracted: {info.filename}")
+                want = hashlib.sha256(archive.read(info)).hexdigest()
+                with open(target, "rb") as fh:
+                    got = hashlib.sha256(fh.read()).hexdigest()
+                if got != want:
+                    raise RuntimeError(
+                        f"extracted bytes differ from the archive for "
+                        f"{info.filename} (archive {want[:12]}, disk {got[:12]})")
+    except BaseException:
+        # BaseException, not Exception: KeyboardInterrupt and SystemExit are not
+        # Exception subclasses, and this runs before the caller has registered
+        # the directory anywhere, so an interrupt here would leak it silently.
+        #
+        # _discard_tempdir, not rmtree(ignore_errors=True) + unconditional
+        # unregister (v3.66.1149): the old pair removed `d` from _TEMPDIRS
+        # whether or not the directory had actually gone, so a failed cleanup
+        # left a directory on disk that main()'s finally could no longer see.
+        # The bare `raise` still re-raises the ORIGINAL exception, unchanged.
+        if not _discard_tempdir(d):
+            _report_undeleted(d)
+        raise
+    return d
+
+
+STEP0_TIMEOUT = 900
+STEP0_CHECKERS = ("bd-footguns", "bd-ratchet")
+# Named remedies, because a refusal without one gets overridden rather than fixed.
+STEP0_REMEDY = {
+    "bd-ratchet": "run `bd-ratchet --baseline` on this host "
+                  "(~/.bd_metrics_baseline.json is untracked and absent by default)",
+    "bd-footguns": "run `bd-footguns --check --tree <work>` and clear the violation",
+}
+
+
+def step0_gate(subject, checker_dir=None, timeout=STEP0_TIMEOUT):
+    """Run the step-0 checkers against `subject`. Return a list of refusals.
+
+    EMPTY LIST MEANS PROCEED, and only a measured exit 0 from every checker
+    produces one. Missing binary, exception, timeout, and every non-zero code
+    are refusals that name themselves -- all of them share the caller's exit 3,
+    so a test asserting the CODE alone would pass when any of them fires
+    (CLAUDE.md section 10: four mutants escaped exactly that way).
+    """
+    here = checker_dir or os.path.dirname(os.path.realpath(__file__))
+    out = []
+    # RESOLVE THE SUBJECT BEFORE ANY CHECKER LAUNCHES (v3.66.1149).
+    #
+    # This function chdirs into a sandbox it has just created, and it used to
+    # pass `subject` through unchanged. `bd-cut --work .` is the ordinary
+    # spelling, so the checker resolved "." against the SANDBOX and certified an
+    # empty directory of the gate's own making -- reporting clean, truthfully,
+    # about the wrong tree. CLAUDE.md section 0: a gate whose denominator
+    # structurally excludes its subject reports OK, and that is worse than no
+    # gate. The sandboxing fix at v3.66.1147 is what introduced this: before
+    # then the checker inherited the caller's cwd and "." happened to work.
+    #
+    # UNKNOWN is a third state and it fails: a subject that does not resolve to
+    # a directory is refused here rather than handed to a checker that would
+    # resolve it somewhere else.
+    resolved = os.path.realpath(os.path.expanduser(str(subject)))
+    if not os.path.isdir(resolved):
+        return [f"NO-CUT: step-0 subject {subject!r} does not resolve to a "
+                f"directory (tried {resolved}) -- there is nothing to certify, "
+                f"so this cut is not authorized."]
+    subject = resolved
+    for name in STEP0_CHECKERS:
+        exe = os.path.join(here, name)
+        hint = STEP0_REMEDY.get(name, "")
+        if not os.path.isfile(exe):
+            out.append(f"NO-CUT: step-0 checker {name} is MISSING from {here} "
+                       f"-- cannot verify, so this cut is not authorized.")
+            continue
+        # ISOLATE THE CHECKER'S RUNTIME (v3.66.1147). MEASURED: bd-footguns
+        # --check with BD_INSTALL_DIR unset and cwd inside the repo wrote a
+        # 7.5MB downloader_history.db into the WORKING TREE -- db._resolve_db_path
+        # falls back to a relative path resolved against CWD, and step 0 inherits
+        # whatever cwd the operator ran bd-cut from. The same run with a neutral
+        # cwd produced zero artifacts and an identical verdict. A gate must not
+        # modify the thing it judges, nor the tree the operator is standing in.
+        # OWNED (v3.66.1149). A bare mkdtemp is invisible to main()'s finally,
+        # so a removal that failed could not be reported by anything.
+        sandbox = _owned_tempdir("bdcut_gate_")
+        env = dict(os.environ)
+        # BOTH, because they govern different paths: BD_INSTALL_DIR decides
+        # where db._resolve_db_path lands, BD_HOME decides where a checker's
+        # own state goes. Setting one and not the other still lets the checker
+        # write somewhere we do not own.
+        env["BD_INSTALL_DIR"] = sandbox
+        env["BD_HOME"] = sandbox
+        try:
+            rc = subprocess.run([sys.executable, exe, "--check", "--tree", subject],
+                                timeout=timeout, cwd=sandbox, env=env).returncode
+        except subprocess.TimeoutExpired:
+            out.append(f"NO-CUT: step-0 {name} TIMED OUT after {timeout}s "
+                       f"-- the gate did not complete, so it proved nothing.")
+            continue
+        except Exception as e:
+            out.append(f"NO-CUT: step-0 {name} RAISED {type(e).__name__}: {e} "
+                       f"-- the gate could not run.")
+            continue
+        finally:
+            if not _discard_tempdir(sandbox):
+                _report_undeleted(sandbox)
+        if rc == 0:
+            continue
+        if rc == 2:
+            out.append(f"NO-CUT: step-0 {name} could not evaluate (exit 2) "
+                       f"-- UNKNOWN is not OK. {hint}")
+        elif rc in (1, 3):
+            out.append(f"NO-CUT: step-0 {name} reported a VIOLATION (exit {rc}). {hint}")
+        else:
+            out.append(f"NO-CUT: step-0 {name} exited {rc}, which is not a "
+                       f"recognised verdict -- refusing rather than guessing.")
+    return out
+
+
+def _main_inner(argv, _cleanup):
     ap = argparse.ArgumentParser()
     ap.add_argument("--version")
     ap.add_argument("--baseline")
@@ -872,16 +2049,26 @@ def main(argv=None):
                          "to build without re-bumping/re-prepending CHANGELOG. Safe to "
                          "run after a compaction or a post-bump abort -- it inspects "
                          "__version__ + CHANGELOG + out/ and does the right thing.")
-    # Tier-1 (702): runtime DB/log artifacts are REGENERABLE STATE, never source --
-    # yet a stray downloader_history.db ABORTED the cut (twice this session), and the
-    # remedy was always the same rm. Cleaning is now the DEFAULT.
-    # --keep-runtime-db restores the pre-702 abort-and-tell-you behaviour.
-    ap.add_argument("--rm-runtime-db", action="store_true", default=True,
-                    help="(DEFAULT) auto-remove video_hashes.db / downloader_history.db* "
-                         "from the work tree before build")
+    # v3.66.1149: THE DEFAULT IS NON-DESTRUCTIVE, and it was not.
+    #
+    # 702 made auto-clean the default because "a stray downloader_history.db
+    # aborted the cut twice this session and the remedy was always the same rm".
+    # That reasoning holds only where the file is a stray. It is not: DB_PATH is
+    # relative, the unit's WorkingDirectory is the checkout, and on test5 the
+    # deployed tree IS the working tree -- so the glob resolves to live service
+    # state and an ordinary cut deleted it, silently, by default.
+    #
+    # Convenience that defaults to deleting the operator's database is not a
+    # default anyone would have chosen if asked. Deleting is now opt-in and loud.
+    ap.add_argument("--rm-runtime-db", action="store_true", default=False,
+                    help="EXPLICIT OPT-IN: DELETE video_hashes.db / "
+                         "downloader_history.db* (and -wal/-shm/-journal) from "
+                         "the work tree before build. On a host where the "
+                         "service runs from this checkout these are LIVE state. "
+                         "Names every file it removes on stderr.")
     ap.add_argument("--keep-runtime-db", dest="rm_runtime_db", action="store_false",
-                    help="abort instead of cleaning if a runtime DB artifact is present "
-                         "(pre-702 behaviour)")
+                    help="(DEFAULT, and the explicit spelling of it) abort with "
+                         "the exact rm instead of deleting anything")
     ap.add_argument("--skip-fe", action="store_true",
                     help="skip tsc + vitest + vite build and REUSE the existing "
                          "frontend/dist. Use ONLY for a backend-only cut (no "
@@ -899,8 +2086,17 @@ def main(argv=None):
                     help="surface sub-tool stderr even when a step SUCCEEDS "
                          "(footgun #16: it used to be swallowed entirely)")
     ap.add_argument("--no-gate", action="store_true",
-                    help="skip the step-0 bd-precut --gate pre-flight (footguns/ratchet/stale-doc)")
+                    help="skip the step-0 release gate (bd-footguns + bd-ratchet). LOUD: prints a "
+              "banner to stderr and writes STEP0_SKIPPED.txt into --out")
     a = ap.parse_args(argv)
+    # ABSOLUTE ONCE, AT THE BOUNDARY (v3.66.1149). `--work .` is the ordinary
+    # spelling, and step0_gate chdirs into a sandbox before launching its
+    # checkers, so a relative work would resolve against that sandbox. The gate
+    # also resolves defensively -- both, deliberately: the gate's copy is what
+    # protects every OTHER caller of step0_gate, and this one is what keeps the
+    # rest of the driver (precut, band, verify, the runtime-DB glob) talking
+    # about the same directory the gate certified.
+    a.work = os.path.realpath(os.path.expanduser(a.work))
     # @807: REFUSE over a tree that is not there -- the same hole bd-band-derive
     # had. Both entered the lint's corpus-guard population when the R1 sec import
     # landed, and both came back UNGUARDED. Measured before: --work /nonexistent
@@ -926,6 +2122,106 @@ def main(argv=None):
     # So: detach the WHOLE cut. Under bd-job it has unlimited wall time and the FE chain
     # runs INLINE, unchanged. --skip-fe goes back to meaning what it says (a backend-only
     # cut) instead of "the gate does not fit".
+    os.makedirs(a.out, exist_ok=True)
+
+    # --- STEP 0: the release gate. FAILS CLOSED as of v3.66.1145.
+    #
+    # It used to fail OPEN, and the measurement is the argument. Three
+    # independent harnesses, one clean-room, drove a stub checker through every
+    # outcome at 8cea48c:
+    #
+    #   outcome   0   1   2   3   4  127  crash  missing  exception  timeout
+    #   result   go  go  go  STOP go   go     go       go         go       go
+    #
+    # Only exit 3 blocked. `bdtools_sec.EXIT_CANNOT_EVALUATE = 2` is minted by
+    # bd-footguns and bd-ratchet precisely to REFUSE to certify blindness --
+    # bd-footguns' own comment reads "UNKNOWN IS A THIRD STATE AND IT FAILS
+    # (CLAUDE.md s0) ... Refuse instead of certifying" -- and step 0 converted
+    # that refusal into authorization. That was live, not theoretical:
+    # bd-ratchet --check exits 2 on every fleet host because its baseline is an
+    # untracked $HOME-relative file that does not exist.
+    #
+    # Now: ONLY exit 0 authorizes a cut. Every other outcome names itself and
+    # blocks. --no-gate still overrides, loudly, because an override you cannot
+    # prove happened is indistinguishable from a gate that ran.
+    # --resume-zip WITH --detach IS INCOHERENT AND IS REFUSED (v3.66.1148),
+    # before anything is extracted and before bd-job is touched. The parent would
+    # extract, attest and gate subject A, then hand the child an argv that makes
+    # it extract, attest, gate and band its OWN subject B. Two subjects again --
+    # the exact split this cut removed -- and the parent's certification would
+    # describe a directory the child never sees.
+    if getattr(a, "resume_zip", None) and getattr(a, "detach", False):
+        print("\nNO-CUT: --resume-zip cannot be combined with --detach. The "
+              "parent would certify one extract and the detached child would "
+              "band a different one. Run the resume in the foreground.",
+              file=sys.stderr)
+        return 3
+
+    # ONE SUBJECT, EXTRACTED ONCE, ATTESTED, SHARED BY THE GATE AND THE BAND.
+    # v3.66.1147. Previously the gate extracted to bdcut_step0_* and band()
+    # extracted again to bdcut_verify_*, so the directory that was CERTIFIED and
+    # the directory that was TESTED were different objects -- section 0's core
+    # failure even when both came from one archive. `_subject` below is the only
+    # extract, its bytes are verified against the archive member-by-member, and
+    # it is removed on every exit path by the finally at the end of main().
+    _gate_subject = a.work
+    _subject = None
+    _snapshot = None
+    _snapfd = None
+    if getattr(a, "resume_zip", None) and os.path.exists(a.resume_zip):
+        try:
+            # SNAPSHOT FIRST. From here on the operator's mutable file is
+            # touched exactly once more -- to ask, at the end, whether it moved.
+            # Every consumer reads the owned copy instead (v3.66.1149).
+            _snapshot, _archive_id, _snapfd = snapshot_archive(a.resume_zip)
+            _subject = extract_and_attest(_snapshot)
+            _cleanup.append(_subject)
+        except Exception as _e:
+            print(f"\nNO-CUT: step-0 could not snapshot, extract or attest "
+                  f"{a.resume_zip} ({type(_e).__name__}: {_e}) -- the gate has "
+                  f"no subject it can vouch for.", file=sys.stderr)
+            return 3
+        _gate_subject = _subject
+
+    if a.no_gate:
+        # LOUD. stderr, unmissable, and repeated in the summary.
+        _banner = ("!!! STEP-0 GATE SKIPPED BY OPERATOR (--no-gate) -- this cut "
+                   "was NOT verified by bd-footguns/bd-ratchet !!!")
+        print("\n" + "!" * len(_banner), file=sys.stderr)
+        print(_banner, file=sys.stderr)
+        print("!" * len(_banner) + "\n", file=sys.stderr)
+        try:
+            os.makedirs(a.out, exist_ok=True)
+            with open(os.path.join(a.out, "STEP0_SKIPPED.txt"), "w") as _fh:
+                _fh.write("--no-gate: step-0 was skipped by explicit operator "
+                          "override.\nsubject: %s\n" % _gate_subject)
+        except Exception:
+            pass          # the banner is the contract; the artifact is a bonus
+    else:
+        _refusals = step0_gate(_gate_subject)
+        if _refusals:
+            print()
+            for _r in _refusals:
+                print(_r, file=sys.stderr)
+            print("\n       Fix it, or re-run with --no-gate to override "
+                  "deliberately (it will say so, loudly).", file=sys.stderr)
+            return 3
+
+
+    # --- DETACH HAPPENS *AFTER* STEP 0 as of v3.66.1145.
+    #
+    # It used to run BEFORE the gate and `return 0` unconditionally once bd-job
+    # accepted the job. That 0 meant only "child launched", but nothing in the
+    # exit code said so: a cut whose gate would have BLOCKED still launched, and
+    # an operator or a script reading the parent's 0 could not tell it apart
+    # from an authorized cut. Gating first means a blocked cut never launches at
+    # all, so there is no unauthorized child to misread. The child re-runs the
+    # same gate (it re-execs bd-cut without --detach), which is belt and braces,
+    # not redundancy: the parent's copy is the one that prevents the launch.
+    #
+    # The gate here is the CHEAP pair (bd-footguns + bd-ratchet), not the FE
+    # chain --detach exists to escape, so this costs seconds inside the parent's
+    # exec window rather than minutes.
     if getattr(a, "detach", False):
         # v3.66.855 port: the fallback was /home/claude/bin/bd-job, which cannot
         # exist here -- so --detach could only ever die. bd-job ships in this
@@ -947,43 +2243,19 @@ def main(argv=None):
         if r.returncode != 0:
             sys.stdout.write(r.stderr)
             return 2
-        print(f"\n{G}cut running detached -- the FULL FE chain (tsc+vitest+vite) will run,"
+        print(f"\n{G}cut LAUNCHED detached -- the FULL FE chain (tsc+vitest+vite) will run,"
               f" not be skipped.{RST}")
+        # This process's exit code means "the child was launched", NEVER "the cut
+        # succeeded". Say so in words as well as in the code, because a caller
+        # that reads only the exit status has no other way to learn it.
+        print(f"{Y}  NOT A CUT VERDICT: step 0 passed and the job started; the "
+              f"cut itself is still running.{RST}")
+        print(f"{Y}  Ask `bd-job status cut` for running|done|failed before "
+              f"treating this cut as complete.{RST}")
         print(f"  {DIM}bd-job tail cut     # progress")
         print(f"  bd-job status cut   # running | done | failed")
         print(f"  bd-job wait cut     # block to completion{RST}")
         return 0
-
-    os.makedirs(a.out, exist_ok=True)
-
-    # --- STEP 0 (Plan D): bd-precut --gate pre-flight. Blocks a cut on a live
-    #     footgun / metric-ratchet regression / stale derived doc BEFORE the
-    #     ~3-min build chain. FAIL-OPEN on any gate ERROR (a broken harness must
-    #     never block a legitimate cut); FAIL-CLOSED only on an actual violation
-    #     (exit 3). Opt out with --no-gate. Skipped on resume/no-build paths.
-    if not a.no_gate and not getattr(a, "resume_zip", None) and not getattr(a, "resume", False) and not getattr(a, "no_build", False):
-        # Only the two FAST, currently-unenforced blocking checks -- footgun
-        # registry + metric ratchet. (In-sync staleness is already caught by
-        # build_release, and bd-cut's own step-0 precut prediction covers the
-        # rest, so we don't double-run the slow in-sync suite here.)
-        _here = os.path.dirname(os.path.realpath(__file__))
-        _blocked = []
-        for _name, _args in (("bd-footguns", ["--check", "--tree", a.work]),
-                             ("bd-ratchet", ["--check", "--tree", a.work])):
-            _exe = os.path.join(_here, _name)
-            if not os.path.isfile(_exe):
-                continue
-            try:
-                _rc = subprocess.run([sys.executable, _exe, *_args], timeout=900).returncode
-            except Exception as _e:
-                print(f"  [step-0 {_name}: skipped -- {_e}]"); _rc = 0
-            if _rc == 3:
-                _blocked.append(_name)
-        if _blocked:
-            print(f"\nABORT: step-0 gate blocked this cut ({', '.join(_blocked)} above).")
-            print("       Fix it, or re-run with --no-gate to override deliberately.")
-            return 3
-
 
     # --- fast retry path: band+verify+summary on an already-built zip, skipping
     #     the whole tsc->vitest->vite->build_release chain. For when the band
@@ -999,9 +2271,72 @@ def main(argv=None):
         for s in VERSION_COUPLED_SUITES:
             if s not in suites:
                 suites.append(s)
-        band(a.resume_zip, suites, a.work)
-        verify(a.work, a.resume_zip)
-        max_summary(a.resume_zip, a.baseline)
+        # THE SAME DIRECTORY step 0 certified, out of the SAME owned snapshot.
+        # Not a second extract, and not the mutable external path.
+        assert _subject is not None and _snapshot is not None, (
+            "resume-zip reached the band without an attested subject")
+        band(_snapshot, suites, a.work, extracted=_subject)
+        # THE OPERATOR'S ARCHIVE MUST NOT HAVE MOVED.
+        #
+        # Everything this run judged was the owned snapshot, so a swap can no
+        # longer make the band and verify disagree -- that hole is closed by
+        # construction rather than by this check. What remains is a DIFFERENT
+        # claim, and it is why the check stays: the operator SHIPS the external
+        # file, so a verdict about an artifact that has since changed describes
+        # something they no longer hold. Asked twice, because the window did not
+        # end at the band: verify and the summary take real time.
+        def _snapshot_moved(stage):
+            """Re-hash the OWNED snapshot against the identity recorded when it
+            was taken.
+
+            THE SEAL DOES NOT BIND THE PATHNAME, and v3.66.1150's first
+            implementation claimed it did. chmod(d, 0o500) removes write INSIDE
+            the directory, but that directory's own parent is still writable by
+            the same uid -- so the whole sealed directory can be renamed away
+            and a fresh one created at the same path holding an imposter, and
+            band/verify/max_summary all re-open the snapshot BY PATH. The
+            external-archive check cannot see it, because the external archive
+            never moved.
+
+            A mode bit cannot close that; content can. This detects rename +
+            recreate, unlink + replace, and an in-place rewrite alike, which is
+            the whole class. Compared on sha256 alone: `_archive_id` carries the
+            EXTERNAL file's mtime_ns, which the copy legitimately does not share.
+            """
+            try:
+                now = archive_identity(_snapshot)
+            except OSError as _e:
+                print(f"\nNO-CUT: the owned snapshot could not be re-read "
+                      f"({stage}: {_e}) -- this run can no longer vouch for "
+                      "what it judged.", file=sys.stderr)
+                return True
+            if now["sha256"] == _archive_id["sha256"]:
+                return False
+            print(f"\nNO-CUT: the owned snapshot at {_snapshot} was replaced "
+                  f"during this run ({stage}: sha "
+                  f"{_archive_id['sha256'][:12]} -> {now['sha256'][:12]}). The "
+                  "directory is sealed, but its parent is not, so the pathname "
+                  "can still be renamed away and recreated.", file=sys.stderr)
+            return True
+
+        def _source_moved(stage):
+            _now = archive_identity(a.resume_zip)
+            if _now == _archive_id:
+                return False
+            print(f"\nNO-CUT: {a.resume_zip} changed during this run "
+                  f"({stage}: sha {_archive_id['sha256'][:12]} -> "
+                  f"{_now['sha256'][:12]}). This run's verdict is about the "
+                  "snapshot taken at the start, which is no longer the file "
+                  "you would ship.", file=sys.stderr)
+            return True
+
+        if _snapshot_moved("after the band") or _source_moved("after the band"):
+            return 3
+        verify(a.work, _snapshot, pass_fds=(_snapfd,) if _snapfd is not None else ())
+        max_summary(_snapshot, a.baseline)
+        if _snapshot_moved("during verify/summary") \
+                or _source_moved("during verify/summary"):
+            return 3
         print(f"\n{G}bd-cut --resume complete{RST} -> {a.resume_zip}")
         print(f"{DIM}re-verified an existing zip; deploy is a separate human gate.{RST}")
         return 0
@@ -1093,6 +2428,128 @@ def main(argv=None):
     print(f"\n{G}bd-cut complete{RST} -> {z}")
     print(f"{DIM}present_files it; regenerate the next-session pack; deploy is a separate human gate.{RST}")
     return 0
+
+
+def _reap(cleanup):
+    """Close every descriptor and remove every directory this run created.
+
+    Returns the list of failures, already reported on stderr. Split out of
+    main()'s finally at v3.66.1152 so the caller can ACT on the result -- the
+    finally could only print, and printing was all it did.
+    """
+    # CLOSE THE DESCRIPTORS FIRST (v3.66.1151). They are held so consumers bind
+    # to an inode rather than a name; held past the run they are a leak with a
+    # different word for it, and on the sealed snapshot they also keep the
+    # inode alive after its directory entry has gone.
+    for fd in list(_OPEN_FDS):
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        _OPEN_FDS.remove(fd)
+    # ONE REMOVAL PATH (v3.66.1150). This used to inline its own rmtree, which
+    # meant it did NOT unseal -- so once snapshot_archive began sealing its
+    # directory, every --resume-zip run ended by reporting its own snapshot as
+    # an unremovable leak. Note the band's BD_HOME carries the DEFAULT /tmp/tmp*
+    # prefix, so a `ls /tmp/bdcut_*` sweep cannot see it and "zero leaks" from
+    # that glob would be a gate blind to its own subject.
+    # TOTAL, NOT MERELY WRAPPED (v3.66.1154). One of this function's two call
+    # sites is inside main()'s `except BaseException:`, where a raise would
+    # replace the cut's real failure reason with a cleanup exception -- exactly
+    # what that handler's own comment says must not happen. Measured at
+    # 63be0464: one directory raising RecursionError took the loop, the
+    # summary, and every REMAINING directory's attempt with it, and bd-cut then
+    # exited 1, indistinguishable from die(). Exception rather than
+    # BaseException so Ctrl-C can still stop a reap.
+    failed = []
+    for d in list(dict.fromkeys(cleanup + _TEMPDIRS)):
+        try:
+            ok = _discard_tempdir(d)
+        except Exception as e:
+            ok = False
+            _LAST_DISCARD_ERROR[d] = (
+                "%s the reaper itself could not complete for this directory "
+                "(%s: %s)" % (R_TOO_DEEP, type(e).__name__, e))
+        if not ok:
+            why = _LAST_DISCARD_ERROR.get(d)
+            failed.append(f"{d}: {why if why else 'still present'}")
+    # The run is over by definition -- this IS main()'s finally -- so every
+    # ownership descriptor is released here. Section 0: creating a resource is
+    # a promise to remove it, and an fd held past the process is a leak with a
+    # different word for it.
+    for _d in list(_TEMPDIR_FD):
+        _fd = _TEMPDIR_FD.pop(_d, None)
+        if _fd is not None:
+            try:
+                _st = os.fstat(_fd)
+            except OSError:
+                continue
+            _ident = _TEMPDIR_IDENT.get(_d)
+            if (_ident is not None and
+                    (_st.st_dev, _st.st_ino) == _ident):
+                os.close(_fd)
+    if failed:
+        print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)
+        for f in failed:
+            print(f"  {f}", file=sys.stderr)
+    return failed
+
+
+def _print_cleanup_verdict(failed):
+    """ONE phrasing, so both exit paths say the same thing."""
+    print(f"bd-cut: exiting {EXIT_CLEANUP_FAILED} -- the cut finished but "
+          f"cleanup did not: {len(failed)} temporary "
+          f"director{'y' if len(failed) == 1 else 'ies'} could not be "
+          f"removed (listed above).", file=sys.stderr)
+
+
+def main(argv=None):
+    """Wrapper whose only job is that the attested subject cannot leak -- and,
+    since v3.66.1152, that failing to remove it COSTS SOMETHING.
+
+    CLAUDE.md section 0: creating a path is a promise to remove it, and nothing
+    gates that promise. Three cuts made the breach of that promise loud; none
+    made it cost anything. main() returned whatever _main_inner returned while
+    its finally merely printed, so a run that leaked two directories exited 0 --
+    measured at dcf34528. An exit code is the only part of a tool's output a
+    caller cannot ignore by accident, and section 10 records that the last line
+    a tool prints is exercised by nobody.
+
+    A REAL FAILURE IS NEVER MASKED. If the cut itself failed -- die()'s exit 1,
+    a step-0 refusal's exit 3, or any exception -- that verdict is what the
+    caller gets. EXIT_CLEANUP_FAILED replaces only a SUCCESS, because "the cut
+    was not authorized" is more important than "and also a directory is still
+    there".
+    """
+    _cleanup = []
+    try:
+        rc = _main_inner(argv, _cleanup)
+    except SystemExit as e:
+        # DEFENCE IN DEPTH, AND SAID TO BE (v3.66.1154). No live path at
+        # 63be0464 reaches here holding a registered directory -- die() exits
+        # 1, the bdtools_sec helpers exit 2, and argparse exits before any
+        # tempdir exists -- so this closes a shape rather than a reproduced
+        # bug. It is here because EXIT_CLEANUP_FAILED was applied on the
+        # RETURN path only, so any future sys.exit(0) would carry straight
+        # through a cleanup that did not happen. A non-integer code is a real
+        # failure with a message and is never replaced.
+        _failed = _reap(_cleanup)
+        _code = 0 if e.code is None else e.code
+        if _failed and _code == 0:
+            _print_cleanup_verdict(_failed)
+            raise SystemExit(EXIT_CLEANUP_FAILED) from None
+        raise
+    except BaseException:
+        # Still reap, still report -- but let the original propagate. die()
+        # raises SystemExit(1) through here, and replacing that with a cleanup
+        # code would hide the reason the cut stopped.
+        _reap(_cleanup)
+        raise
+    _failed = _reap(_cleanup)
+    if _failed and rc in (0, None):
+        _print_cleanup_verdict(_failed)
+        return EXIT_CLEANUP_FAILED
+    return rc
 
 
 if __name__ == "__main__":

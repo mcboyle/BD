@@ -4,6 +4,822 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1154 - the object, not the name, all the way down
+
+v3.66.1153 bound the TOP of every removal to the identity recorded when it was
+created, and left everything else exactly where it was. Two independent
+adversarial reviews and one direct reproduction found fourteen escapes at
+63be0464; all fourteen reproduce deterministically from injected seams rather
+than from stress, and each fixture asserts that its seam fired before it
+asserts anything else. RED-first: 34 failed / 177 passed across the v1145-v1154
+family, 212 passed after.
+
+1. IDENTITY STOPPED AT THE TOP. `_rmtree_fd` opened and removed every CHILD by
+   NAME, with nothing carried from the moment readdir reported it. A foreign
+   directory renamed onto a child pathname mid-walk was entered and recursively
+   emptied -- measured, victim inode nlink 0, in all three tools.
+
+   Every entry is now bound to the inode readdir reported, and the destructive
+   syscall never names it: the entry is renamed to a private name that cannot
+   clobber, identified there, and only then removed. For a child directory the
+   rename happens BEFORE the recursion, so the whole subtree is unreachable by
+   its old path for the entire walk rather than only at the terminal rmdir.
+
+2. THE DESTRUCTIVE SYSCALL NAMED A WELL-KNOWN PATH. `rmdir(name, dir_fd=...)`
+   can be redirected in the window after the last verification: a foreign EMPTY
+   directory swapped onto a child name was deleted, and review measured 60
+   wrong-object deletions in 60,000 races at the top level.
+
+   The rename above moves that window onto a name generated from `os.urandom`
+   and used within the same instruction stream. A mis-targeted rename is
+   REVERSIBLE and the object is put back; a mis-targeted rmdir is not. Stated
+   honestly: an adversary who could intercept our syscalls would still win the
+   final rmdir -- Linux has no funlinkat -- and what must hold even then is that
+   `st_nlink == 0` on the held descriptor DETECTS it rather than reporting
+   success. That proof is reporting, not containment; the rename is the
+   containment.
+
+3. THE UNDO WAS ITSELF DESTRUCTIVE. Putting a foreign object back with
+   `os.rename` silently destroys an empty directory standing at the restored
+   name -- the exact act the caller has just refused to perform, reintroduced
+   inside the error handler. `renameat2(RENAME_NOREPLACE)` turns that into
+   EEXIST; it is not exposed by `os`, is reached through ctypes, and was
+   measured working here on xfs and tmpfs. Where the flag is rejected the
+   fallback is `os.rename` and the caller is told which ran. Where the undo
+   cannot happen the object is left under the private name and the refusal SAYS
+   SO, because an operator told "we refused to delete your directory" while it
+   sits under a name they have never seen has not been told anything.
+
+4. SUCCESS AND FAILURE WERE STILL READ OFF A PATHNAME, and were wrong in both
+   directions. Asked FIRST, "nothing is here" meant success -- so an owned tree
+   RENAMED AWAY, payload intact, was reported clean AND unregistered, which
+   destroys the only record that it exists. Asked LAST, "something is here"
+   meant failure -- so a correct removal whose freed name an unrelated object
+   reused was reported as a leak, and bd-cut exited EXIT_CLEANUP_FAILED for a
+   directory that did not exist.
+
+   A descriptor is now held from creation and both questions are answered by
+   `os.fstat(fd).st_nlink`, about OUR inode. Valid because the subject is a
+   DIRECTORY: `os.link` on one is EPERM, so no second link can exist to confuse
+   the count. Where nothing was held, "absent means clean" is unchanged --
+   there is no evidence either way and refusing would fail every already-clean
+   path.
+
+   THIS REVERSES A v3.66.1152 DECISION and the reversal is pinned in both
+   directions. A dangling symlink planted after a proven removal is no longer
+   our failure; a dangling symlink at a registered path with NO held descriptor
+   still refuses, which is where `os.path.exists` following a link could still
+   launder a removal that did not happen.
+
+5. THE DESCRIPTOR HAD TO BE BOUND TO A PATH, NOT ONLY TO AN IDENTITY.
+   `tests/_tmproot.install()` runs in `pytest_configure` for every process in
+   the suite, so its descriptor is live on the SESSION root at all times, while
+   four tracked tests legitimately hand-set `_ROOT` to a directory of their own.
+   A remover that trusted the descriptor because its identity matched would
+   then walk the session root and delete every other test's temporary directory
+   mid-run -- measured on a literal implementation, `live root contents: []`,
+   and in one case behind a test that stayed GREEN. The descriptor is used only
+   when it was opened on the path being asked about.
+
+   Related, and not previously on any list: `install()` could leave `_ROOT` set
+   with no identity, and `finish()` then fell through to a removal whose
+   identity check is skipped for a None identity -- an entirely UNBOUND
+   recursive deletion of whatever stood at the recorded path. Measured: a
+   foreign directory and its payload destroyed, reported as success.
+
+6. A REFUSED CLEANUP LEFT DIRECTORIES LESS PROTECTED THAN IT FOUND THEM. The
+   relaxation is `fchmod(fd, 0o700)` as a retry; the mode was restored on two of
+   four refusal returns in bd-cut, on none in `_tmproot`, and the CHILD-level
+   relaxation was restored nowhere -- its rmdir sat after `finally: os.close`,
+   so there was no descriptor left to reseal through. The rmdir moved inside the
+   descriptor's lifetime and every non-success return now reseals.
+
+7. NOTHING ESCAPES, AND NOTHING IS LOST. `RecursionError` at depth ~1400 is not
+   an OSError, so it escaped the remover, escaped `_reap`, took the whole
+   cleanup report with it, left the remaining directories unattempted, and
+   bd-cut exited 1 -- indistinguishable from die(). The walk's failures become a
+   refusal naming the exception TYPE, `_reap` is total per directory, and
+   `main()` gained an `except SystemExit` arm so a zero code cannot bypass
+   EXIT_CLEANUP_FAILED. That arm is defence in depth and is said to be: no live
+   path at 63be0464 reaches it holding a registered directory.
+
+8. bd-footguns CONVERTED A CLEANUP FAILURE INTO AN AUTHORIZATION. The failure
+   was routed through the affected DETECTOR's verdict, and escalation depends on
+   that detector's severity, so a sandbox that could not be removed under an
+   ADVISORY detector printed the OK line and exited 0 -- which bd-cut's step 0
+   reads as permission to cut. A cleanup failure is not a verdict about a
+   footgun; it is the tool failing to finish. It now has its own channel,
+   consulted at the single exit in `main()` so every subcommand inherits it.
+
+9. ONE SPELLING OF "THERE IS NO DETECTOR" AUTHORIZED A CUT. An active BLOCKING
+   footgun with `detector.kind: "none"` returned `advisory` and exit 0, while
+   the same row spelled `{"kind": "advisory"}` or with no detector key at all
+   correctly returned 2. `kind: "none"` is honoured as a declaration only where
+   the registry marks the row non-blocking. A malformed row was worse than any
+   of them: `{"kind": "tool"}` with no `cmd` raised KeyError out of `cmd_check`,
+   past the pool's fallback, and killed the tool with exit 1 -- a code that
+   means something else entirely.
+
+10. SEVERITY WAS THE ESCALATION DIAL AND WAS NEVER VALIDATED. `severity ==
+    "blocking"` is a bare equality with a permissive default, so an ABSENT
+    severity -- the archetype of a malformed row -- read as non-blocking, and so
+    did "Blocking", "BLOCKING", "critical" and a trailing space. Measured: a row
+    with no severity key printed [VIOLATION] and the process exited 0. That was
+    already wrong and item 9 makes it load-bearing, so it is validated and fails
+    closed. The registry merges a FOOTGUNS.json from the subject tree, which is
+    what makes this a trust boundary rather than a typo guard.
+
+11. THE REGISTRY LOADER CRASHED ON A SHAPE IT ADVERTISES. `ext.get(...)` ran
+    before the `isinstance` guard, so a bare-LIST FOOTGUNS.json -- the form that
+    expression exists to support -- raised AttributeError from a call site
+    outside every try.
+
+12. THE SELFTEST GRADED ITSELF OVER AN EMPTY DENOMINATOR, TWICE. Its
+    env-tranche control PRINTED its result and nothing consumed it, so a forced
+    FAIL sat above `SELFTEST PASS` and exit 0. And "consult the cleanup channel"
+    asserts nothing on a healthy machine: a mutant deleting the channel's
+    producer printed SELFTEST PASS. It now induces a REAL unremovable sandbox
+    (its parent is not writable, so the terminal rmdir gets EACCES), drives the
+    real remover, and requires the channel to have recorded it.
+
+TESTS. `tests/test_v3_66_1154_the_object_not_the_name.py` runs ONE behavioural
+matrix against ALL THREE removers, because three near-identical copies exist by
+necessity -- `_tmproot` may import nothing from the repo and the bd-* tools are
+standalone -- and a drift between them must be red rather than a fourth
+implementation nobody compares.
+
+SIX SHIPPED TESTS PASSED FOR THE WRONG REASON and are repaired here. One spied
+`os.chmod` while the retry has used `os.fchmod` only since v3.66.1153, so its
+assertion ran over an EMPTY denominator and could not fail for the fix OR for
+its removal -- and its `finally` rebound the production `_rmtree_fd` to
+`shutil.rmtree`. One injected OSError(ENOTEMPTY), which is caught before the
+PermissionError arm, so nothing was ever unsealed and "the mode is unchanged"
+was trivially true. One patched `shutil.rmtree`, which the reclaimer stopped
+calling at v3.66.1153, and passed on an identity mismatch instead. One arm of a
+parametrized test was a duplicate of another arm, two shims deep. One asserted
+that every destructive call carries `dir_fd` and no absolute path -- which
+CPython's own `shutil.rmtree` satisfies through `_rmtree_safe_fd`, so a naive
+implementation passed it; it now runs the control in the same test and REQUIRES
+the naive implementation to destroy the foreign payload, so a decayed scenario
+is red rather than reassuring.
+
+EVERY INJECTION IN THE NEW FILE IS KEYED ON AN INODE, NOT A NAME. A name-keyed
+spy stops firing the moment a remover renames before it destroys, and a spy that
+never fires reads exactly like a pass -- which is how four of the six above came
+to be green.
+
+## v3.66.1153 - deletion is bound to the object, not to the name
+
+v3.66.1149 through v3.66.1152 moved the ownership proof nearer the deletion
+four times and never joined them. Every version kept the same shape -- prove
+the pathname holds our object, end the proof, then act on the PATHNAME -- so
+each cut closed one seam and left the next. Measured at 3d5f1bb8 with three
+independent reproductions. RED-first: 24 failed / 11 passed.
+
+1. bd-cut, BOTH DESTRUCTIVE SEAMS. `_same_object(d, ident)` then
+   `shutil.rmtree(d)`; and, in the retry, `_relax_owned_dir()` -- which opens a
+   no-follow descriptor, verifies, fchmods and RETURNS, closing it -- then a
+   second `shutil.rmtree(d)`. The retry seam is the one v3.66.1152 does not
+   cover, and it reproduced as: returned True, imposter deleted, original still
+   present under its new name, unregistered, two rmtree calls -- and the leaked
+   original left UNSEALED at 0700 because the reseal path had become
+   unreachable. Driven through main() it returned 0 with ZERO bytes on stderr.
+
+   Removal is now `_rmtree_fd`: `os.scandir(fd)`, `os.unlink(name, dir_fd=fd)`,
+   `os.rmdir(name, dir_fd=fd)`, `os.open(name, dir_fd=fd)`. No pathname is
+   resolved for any child, so renaming the directory or any ancestor cannot
+   redirect a single call -- there is no name lookup left to redirect. A sealed
+   child is relaxed through ITS OWN descriptor.
+
+   THE ONE IRREDUCIBLE STEP, stated rather than hidden: unlinking the top
+   directory is rmdir of a NAME in its parent and Linux has no funlinkat. It is
+   issued parent-descriptor-relative, guarded by a dir_fd lstat identity check
+   immediately before, and PROVEN afterwards by os.fstat(fd).st_nlink == 0 --
+   the entry that went was the object we held open. Everything earlier refuses
+   rather than attempting.
+
+2. tests/_tmproot HAD NO CREATION IDENTITY AT ALL. install() kept the root
+   PATHNAME, so reclamation removed whatever directory later occupied it:
+   session_exitstatus 0, imposter deleted, original still present,
+   failed_root() None. It now records (st_dev, st_ino) at creation, refuses a
+   replacement, treats a present-but-unidentifiable root as UNKNOWN, and uses
+   the same descriptor-bound walk.
+
+   shutil.rmtree is gone from that path entirely, and with it two more
+   defects: the onexc handler called `func(p)` blindly, but two of the seven
+   functions shutil can hand it (os.open, os.close) do not take that shape; and
+   the resulting TypeError was caught by an `except TypeError` meant to detect
+   an OLD rmtree signature, so rmtree ran a SECOND time on a half-modified tree
+   -- observed twice -- and on a dangling symlink the TypeError escaped finish()
+   entirely, so neither pytest hook ran at all.
+
+3. bd-footguns IGNORED ITS OWN CLEANUP FAILURES. `_discard` returned a bool and
+   all three callers discarded it, so an unremovable sandbox still produced a
+   PASS, an OK line and exit 0 -- which bd-cut's step 0 reads as authorization.
+   `_discard` is also now bound to the sandbox `_sandbox()` created: it had
+   been pathname-bound and deleted an imposter while the real sandbox survived.
+
+4. bd-footguns CONVERTED PARTIAL UNKNOWN INTO EXIT 0. One PASS plus one timeout
+   returned 0. Every cannot-evaluate outcome of an ACTIVE BLOCKING detector --
+   missing tool, missing harness, exception, timeout, malformed or absent
+   summary, zero collection, an undeclared nonzero exit, a failed cleanup --
+   is now the verdict "unknown", and any one of them makes cmd_check return
+   sec.EXIT_CANNOT_EVALUATE without printing the OK line. Inactive and advisory
+   entries keep their semantics. `_run_insync` no longer trusts a parsed
+   "Failed: 0" over the child: a nonzero exit, zero collection or an absent
+   summary are each CANNOT-EVALUATE, all three of which were PASS before.
+
+SUPERSEDED DELIBERATELY: test_a_detector_not_declaring_2_still_treats_unknown_
+as_skip encoded the opposite rule and is renamed and rewritten. Its reasoning
+-- that blocking on an undeclared exit 2 would be over-sensitive -- was wrong
+in one specific way: cmd_check only refused when NOTHING decided, so one PASS
+beside one skip returned 0. The over-sensitivity control now lives in
+cmd_check, which still returns 0 when every blocking detector decided.
+
+SOURCE ACCURACY: toolchain/bin/bd-footguns still claimed its selftest was
+CI-wired through test_v3_66_799_audit_tool_selftests, and so did the v3.66.1152
+CHANGELOG entry. Both were false -- that file's TOOLS list is exactly
+tools/bd-triage.py and tools/bd-audit-gate.py and it does not mention
+bd-footguns at all. Both corrected; 799's own subject is deliberately unchanged.
+
+Real bd-footguns --check against this checkout after the change: 8 detectors,
+all PASS, exit 0 -- unchanged, so the stricter parsing does not break the real
+detectors. IMPROVEMENT_BACKLOG row 148 (build()/frontend/dist) remains open and
+untouched.
+
+## v3.66.1152 - a failed cleanup fails the run
+
+Three cuts made cleanup report honestly. None made the report cost anything.
+Measured at dcf34528 on test5. RED-first: 11 failed / 7 passed.
+
+1. bd-cut REPORTED AND RETURNED SUCCESS. main() handed back whatever
+   _main_inner returned while its finally merely printed, so a run that leaked
+   two directories exited 0 -- measured, with both the subject and the archive
+   snapshot named on stderr. An exit code is the only part of a tool's output
+   a caller cannot ignore by accident, and CLAUDE.md section 10 records that
+   the last line a tool prints is exercised by nobody. EXIT_CLEANUP_FAILED (4)
+   is its own code, distinct from die()'s 1 and a step-0 refusal's 3, and it
+   replaces ONLY a success: "this cut was not authorized" outranks "and also a
+   directory is still there".
+
+2. _tmproot.finish() DID THE SAME, one level up. It wrote to stderr and
+   returned False, and BOTH session-finish hooks -- this repo's conftest and
+   _tmproot's own -- discarded that value, while pytest computes its exit
+   status from test outcomes alone. So a leaked per-run root, which holds every
+   mkdtemp in the session and which nothing else will ever collect, left the
+   run GREEN. finish_session() now owns both the report and the exit status in
+   one place both hooks call, and it distinguishes a root KEPT deliberately
+   after a failing run from one that could not be removed -- conflating those
+   would add a false cleanup complaint to every red run.
+
+3. THE RECLAIMER STILL CHMOD'D AN EXTERNAL INODE, THROUGH A HARD LINK. The
+   v3.66.1151 guard skipped symlinks and relaxed everything else; a hard link
+   is not a symlink, shares the target's inode, and has no target to resolve,
+   so realpath returns the IN-TREE path and containment says yes. Reproduced:
+   an in-tree hard link to an outside file took it from 0644 to 0700, same
+   inode, file surviving. Only a DIRECTORY's mode can block the removal of its
+   entries, so relaxation is now restricted to directories -- which subsumes
+   the symlink case rather than enumerating exceptions.
+
+4. THREE OWNERSHIP HOLES IN _discard_tempdir:
+   * a creation-time lstat failure left no recorded identity, and the missing
+     entry PERMITTED deletion while the comment beside it said it would refuse;
+   * the retry re-stated and chmod'd through FOLLOWING calls after the identity
+     check, so a swap to a symlink in that window reached its target. It now
+     opens with O_NOFOLLOW|O_DIRECTORY and proves identity through the same
+     descriptor it then fchmods, leaving nothing between the check and the act;
+   * the final os.path.exists() FOLLOWS, so a dangling symlink at the path read
+     as absent and the helper reported success. lexists is the question
+     actually being asked: is there still a NAME here?
+
+   A directory we created and which has since vanished is asked about FIRST and
+   is still a success -- the identity questions are about a path that still has
+   something at it.
+
+AND FOUR PROOFS RE-STATED AS MEASUREMENTS:
+
+   * the imposter case now drives main(): production must refuse the imposter,
+     leave the real directory under its new name, name it, and exit nonzero.
+     The old test called the helper directly and deleted the renamed original
+     by hand, so it never showed what production does with the leak;
+   * the subprocess binding now runs verify -> run -> subprocess.run(pass_fds=)
+     against a real child that reports the bytes it read, with a control
+     proving the child CANNOT read the path when the descriptor is withheld.
+     The old test mocked verify();
+   * the fstat proof now requires that every fstat landing on the source inode
+     used the single descriptor that supplied the bytes. A non-empty
+     intersection is also satisfied by a second open of the same file;
+   * the partial-copy proof now observes the destination's size at the moment
+     of failure. Asserting only that it is gone afterwards is also true when
+     nothing was ever written.
+
+PR-BODY CORRECTION, and the gap behind it is closed here: the claim that
+`bd-footguns --selftest` was CI-wired through test_v3_66_799 was FALSE. That
+file's TOOLS list is exactly tools/bd-triage.py and tools/bd-audit-gate.py, and
+nothing in the suite ran bd-footguns' selftest. It now runs here, asserting the
+verdict line as well as the exit code, and that it leaks nothing.
+
+Verified: 31 of 31 mutants caught, 0 escaped, across eight bd-mutate batteries
+covering v3.66.1149 through this cut. The escape found here is worth recording:
+deleting the missing-identity branch still REFUSES, because _same_object(d,
+None) is False for any real directory -- only the REPORTED REASON changes, from
+"no identity recorded" to a specific and false "renamed or replaced". The test
+now asserts the words, not the outcome.
+
+## v3.66.1151 - bound to a descriptor, not to a name
+
+Four escapes v3.66.1150 left open and two claims it asserted without proving.
+Measured at 55ae94f8 on test5. RED-first: 8 failed / 5 passed against that tree.
+
+1. THE SNAPSHOT ABA STILL ESCAPED. v3.66.1150 answered the rename+recreate swap
+   with a hash taken after the band and again after the summary. An
+   after-the-fact hash cannot see a swap that is UNDONE: a consumer renames the
+   real directory away, works against an imposter at the same pathname, and
+   restores the original before returning -- both post-stage hashes then sample
+   the original and report clean, and the verdict is about bytes nobody judged.
+   A hash samples a pathname at an instant; only an open descriptor names an
+   inode for as long as it is held. snapshot_archive now keeps the snapshot
+   open and hands every consumer /proc/self/fd/N, including the SUBPROCESS one
+   -- run() gained pass_fds, so verify_release resolves the same inode in the
+   child. Verified: the path survives unlinking the original name, and the
+   consumer reads the original bytes through an ABA window that is undone
+   before any hash could sample it.
+
+2. `_force_rmtree` CHMOD'D OUTSIDE ITS TREE THROUGH A SYMLINK. v3.66.1150's
+   guard is LEXICAL -- it compares strings -- while os.chmod FOLLOWS symlinks,
+   so a link anywhere inside the tree was "inside" by string comparison and the
+   chmod landed on its target. Reproduced: a directory outside the tree went
+   0755 -> 0700 and survived. Containment is now decided on the REAL path, and
+   symlinks are never chmod'd at all.
+
+3. `_discard_tempdir` HAD THE SAME FOLLOWING BEHAVIOUR AND COULD NOT TELL ITS
+   OWN DIRECTORY FROM A STRANGER'S. After a rename+recreate the recorded path
+   holds a directory this tool never made: v3.66.1150 deleted THAT, while the
+   real sealed snapshot leaked under its new name with nothing reporting it --
+   and its own regression hid the leak by removing the renamed original by
+   hand. Identity is now (st_dev, st_ino) recorded at creation, because the
+   PATH is precisely the thing that stopped being trustworthy.
+
+4. NOTHING LOOKED AT `finish()`'s RETURN VALUE. Both session-finish call sites
+   -- tests/_tmproot's own hook and tests/conftest.py -- discard it, and
+   `_ROOT` is cleared before the removal is attempted, so a failed reclamation
+   was unrecoverable AND unreported and the run stayed green. The report now
+   lives INSIDE finish(), which is the only placement a caller cannot forget,
+   and names the path plus the chmod-and-rm recovery.
+
+AND THE TWO PROOFS THAT WERE NOT PROOFS:
+
+5. The fstat test rejected os.stat on the archive PATH, which an implementation
+   opening the file TWICE would also satisfy. It now records which descriptor
+   supplied the bytes and which descriptor fstat was asked about and requires
+   them to be the same one.
+
+6. The failed-snapshot test made the DESTINATION open raise, so the copy died
+   before a single byte was written and the partial-file case was never
+   reached. It now fails after the first chunk, with the destination already on
+   disk, and asserts the partial file is gone.
+
+CONSEQUENCE WORTH STATING: the seal from v3.66.1150 is retained but is no
+longer load-bearing. A swap of the directory entry can no longer reach a
+consumer at all, so the regression that used to assert a REFUSAL now asserts
+that the swap is unobservable -- being unreachable is better than being
+detected, and refusing there would have been over-sensitivity rather than
+safety.
+
+DELIBERATELY NOT IN THIS CUT, carried as IMPROVEMENT_BACKLOG row 148:
+bd-cut's build() still uses rmtree(dist, ignore_errors=True). Same defect
+class, different subsystem -- widening Cut 1 to the frontend build path would
+make its blast radius the whole release chain.
+
+Verified: 24 of 24 mutants caught, 0 escaped, across six bd-mutate batteries
+covering v3.66.1149 through this cut. Two escaped on first attempt and both are
+recorded: asserting a reclaim helper EXISTS does not assert finish() CALLS it,
+and the symlink guard was invisible to the outside-escape test because the
+realpath containment check already covered that case -- an in-tree symlink is
+where the two guards disagree, and it needed its own test.
+
+## v3.66.1150 - the seal that was only on the file
+
+Four defects v3.66.1149's own fixes left behind, plus four claims it made and
+never tested. Measured at 4f48fc95 on test5. RED-first: 6 failed / 12 passed
+against that tree.
+
+1. THE SNAPSHOT WAS NOT SEALED. snapshot_archive chmod'd the FILE to 0444 and
+   called it immutable. On POSIX the right to unlink or rename a NAME comes
+   from the write bit on the parent DIRECTORY, not from the mode of the file
+   it points at, and the parent was left 0700 -- so anything running as this
+   user could os.unlink the snapshot and os.replace a different archive at the
+   same pathname, which is the exact swap the snapshot exists to prevent. 0444
+   stops a rewrite THROUGH the path and says nothing about replacing the path.
+   The directory is now 0500 (readable and traversable, no create/unlink/
+   rename) and _discard_tempdir unseals before removing.
+
+2. BOTH DISCARD HELPERS TREATED A RAISED OSError AS POSSIBLE SUCCESS. They
+   caught it, fell through, and consulted os.path.exists(), so a removal that
+   FAILED but happened to leave nothing behind returned True and unregistered
+   the directory. shutil.rmtree is not atomic -- it can delete most of a tree
+   and raise on one entry -- so that is a conclusion drawn from a measurement
+   which reported failure. FileNotFoundError remains success; every other
+   OSError is now an immediate refusal to claim the path is gone.
+
+3. THE SWAP-DURING-VERIFY TEST ASSERTED THE WRONG HALF. It proved the summary
+   read the snapshot's bytes -- which the snapshot guarantees structurally, so
+   the assertion could not fail once the snapshot existed -- and never asserted
+   the run REFUSED. Deleting the post-summary check left it green. Both the
+   exit code and the distinctive words of the refusal are now asserted, for
+   both windows, so the two refusals are distinguishable from each other and
+   not merely from success.
+
+4. TWO TESTS IN 1145 LEAKED, AND THE HARNESS HID IT. tests/_tmproot points
+   tempfile.tempdir at a per-run root and removes that root when the run exits
+   0, so on a GREEN run the residue is deleted before anything can observe it.
+   Measured with KEEP_TEST_TMPDIRS=1, which disables the redirection: 1145
+   alone left 3 directories, 1149 alone 0, the combined suite the same 3. The
+   review named one leaker; the second was found by measuring -- it calls
+   band() directly, so main()'s finally, the only thing that removes the band's
+   BD_HOME, never runs. Both now reclaim what they allocate.
+
+   This is also why v3.66.1149's "zero leaks" line was worth nothing: it came
+   from `ls -d /tmp/bdcut_*` in a shell, and inside a pytest process that
+   family lives under /tmp/bd-testrun-<rand>. The instrument's denominator
+   structurally excluded its subject and it reported clean -- section 0, in the
+   verification rather than in the code.
+
+Also pinned, having been claimed in v3.66.1149 docstrings and tested by
+nothing: the short-read refusal, that the identity comes from os.fstat on the
+same descriptor the bytes were read through rather than os.stat on the path,
+that extraction consumes the snapshot rather than the external archive, and
+that a snapshot failing mid-copy removes its own directory.
+
+main()'s cleanup finally now routes through _discard_tempdir instead of an
+inline rmtree: two copies of "how to remove a directory we own" is one too
+many, and the inline copy did not unseal, so every --resume-zip run would have
+ended by reporting its own snapshot as an unremovable leak.
+
+The seal also exposed a latent defect in v3.66.1149's OWN test teardown, which
+used rmtree(ignore_errors=True) and began failing silently against a 0500
+directory -- two unremovable directories per run of that file. That flag is
+the defect this cut is about, found once more inside the fix for it.
+
+5. THE SEAL DEFEATED THE SUITE'S OWN TEMP RECLAMATION, and that was found by
+   measuring rather than by reasoning: 23 sealed directories had accumulated
+   under /tmp during this cut's development. `shutil.rmtree(root,
+   ignore_errors=True)` CANNOT remove a tree containing a read-only directory
+   -- unlinking a name needs the write bit on its parent, so it fails inside
+   that directory and the flag swallows the error -- and that call is exactly
+   what tests/_tmproot.finish() runs at session end. One 0500 snapshot
+   anywhere under the per-run root therefore left the ENTIRE root on disk,
+   silently: the 15392-entries-in-/tmp problem _tmproot exists to fix,
+   reintroduced from three files away by a hardening change. _tmproot now
+   reclaims through a handler that chmods and retries, and reports honestly
+   whether the path is gone. The non-zero-exit contract is unchanged --
+   artifacts still survive a failing run.
+
+FOUR MORE, FOUND BY ADVERSARIAL REVIEW OF THIS CUT'S OWN FIRST IMPLEMENTATION.
+Every one was in the FIX rather than in the subject, which is the shape
+CLAUDE.md section 0 warns is the highest-yield rule on the page:
+
+6. THE RECLAIMER CHMOD'D OUTSIDE ITS TREE, and this was the worst thing this
+   cut produced. _force_rmtree's retry handler chmod'd os.path.dirname(p)
+   unconditionally, and finish() calls it with /tmp/bd-testrun-<rand> -- so
+   when the failing entry was the ROOT ITSELF the handler reached for /tmp.
+   On a developer box that fails with EPERM and the bare `except OSError`
+   hides it; under CI or any container where the suite runs as root, the chmod
+   SUCCEEDS and takes /tmp from 1777 to 0700, silently, breaking every other
+   user on the machine. Confirmed by measurement: _force_rmtree('/proc/self')
+   attempted chmod('/proc', 0o700). It now refuses to touch any path not
+   strictly under the tree it was handed.
+
+7. A REGRESSION IN bd-footguns' _discard: this cut turned
+   `except FileNotFoundError: pass` into `... return True`, skipping the
+   os.path.exists() verification. shutil.rmtree raises FileNotFoundError with
+   the TOP DIRECTORY STILL PRESENT whenever an entry is unlinked concurrently
+   (reproduced 40/40), which is live at both call sites. So the "hardened"
+   helper returned success, and printed nothing, for a directory still on disk
+   with contents -- quieter about a real leak than the code it replaced, and
+   inconsistent with its own twin in bd-cut, which falls through correctly.
+
+8. A DIRECTORY REPORTED AS LEAKED WAS LEFT UNSEALED. _discard_tempdir chmod'd
+   0700 unconditionally, before even attempting removal, so a directory it
+   went on to report as NOT REMOVED had lost its protection too. Unsealing is
+   now a retry taken only when something actually blocked the removal, and the
+   original mode is restored if the retry also fails. main()'s report also
+   carries the errno again -- it had been reduced to a bare "not removed",
+   which loses exactly the Directory-not-empty vs Permission-denied
+   distinction that parked test4's service at v3.66.1035.
+
+9. THE SEAL DOES NOT BIND THE PATHNAME, and the comment claimed it did.
+   chmod(d, 0500) removes write INSIDE d, but d's own parent is still writable
+   by the same uid, so the sealed directory can be renamed away and recreated
+   with an imposter at the same path; band, verify and max_summary all re-open
+   by path, and the external-archive check cannot see it because the external
+   archive never moved. No mode bit closes that. `_snapshot_moved` now
+   re-hashes the OWNED snapshot against the identity recorded at snapshot
+   time, before verify and again after the summary, catching rename+recreate,
+   unlink+replace and in-place rewrite alike. The seal is defence in depth;
+   the hash is the proof.
+
+Also closed: bd-footguns' selftest() leaked one bare-prefix directory per
+invocation, with no cleanup anywhere in the function -- in the tool this cut is
+hardening for that exact class, on a prefix no bdfg_* sweep could see. [The
+original text of this line claimed it was "wired into CI through
+test_v3_66_799_audit_tool_selftests". That was FALSE and is corrected here at
+v3.66.1153: that file's TOOLS list is exactly tools/bd-triage.py and
+tools/bd-audit-gate.py. The selftest is wired through
+tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py.]
+
+KNOWN AND ACCEPTED, stated rather than hidden: if bd-cut dies between the seal
+and main()'s finally (SIGKILL, OOM, a hard reap), the snapshot directory
+survives at 0500 and `rm -rf /tmp/bdcut_*` fails on it. Recover with
+`chmod -R u+w <dir> && rm -rf <dir>`. The in-suite half is handled by
+_force_rmtree; no signal handler was added, because CLAUDE.md section 6 records
+that a trap converts a reliable failure into a rare silent one and SIGKILL
+defeats it anyway.
+
+Verified: 16 of 16 mutants caught, 0 escaped, across four bd-mutate batteries
+covering every fix above. One escaped on the first attempt and is worth
+recording: the reclaim test asserted that the new helper EXISTED and worked,
+which does not assert that finish() CALLS it -- a mutant restoring the old
+rmtree inside finish(), with the helper left correct and unused, kept the band
+green. bd-mutate caught it; review had not.
+
+## v3.66.1149 - the cut that would have deleted the operators database
+
+Five findings, one sentence: a gate must not mutate its subject. All measured
+on test5 at 8c94159, where the deployed tree and the working tree are the same
+directory.
+
+1. `bd-cut --rm-runtime-db` defaulted to **True**. RUNTIME_DB_GLOBS names
+   downloader_history.db plus its -wal/-shm/-journal companions;
+   `check_runtime_db()` does an unconditional `os.remove` on every hit. The
+   service's DB_PATH is relative and the unit's WorkingDirectory is the
+   checkout, so that glob resolves to the LIVE database -- an ordinary cut
+   would have deleted production state by default, with no backup, no prompt,
+   and a clean `git status` because the file is gitignored. The function's own
+   docstring read "Non-destructive by default" while the parser said the
+   opposite. Both lines arrived together at this repository's initial import
+   (v3.66.805) so git cannot date the divergence; the comment beside the option
+   attributes the flip to v3.66.702, which predates version control here.
+   Deleting is now an explicit opt-in that names every
+   file it destroys on stderr before destroying it; the default dies with the
+   exact rm. Regression drives main() through real argparse and compares
+   sha256 of all five globs -- a unit test on check_runtime_db(auto_rm=False)
+   passes on the defective tree and proves nothing.
+
+2. bd-footguns did not sandbox the delegates it launches. `_run_tool` inherited
+   the caller's cwd and environment; `_run_insync` ran run_tests.py with
+   cwd=<the subject tree> and BD_INSTALL_DIR unset, so db._resolve_db_path fell
+   through to a relative path resolved against cwd and could write
+   downloader_history.db INTO the tree being judged. This is step 0's own
+   printed remedy, run by hand from the checkout at the moment something is
+   already wrong. Both seams now run against an owned BD_INSTALL_DIR + BD_HOME,
+   with the subject resolved absolute. Measured after: 8 detectors reach a
+   verdict, exit 0, verdicts byte-identical to before, sentinel databases in
+   both the caller cwd and the subject tree unchanged, zero sandbox leaks.
+
+3. `step0_gate` chdirs into its sandbox and passed the subject through
+   unchanged, so `bd-cut --work .` certified the sandbox instead of the tree --
+   a gate reporting clean over a denominator that excludes its subject. The
+   subject is now resolved and validated before any checker launches, and a
+   subject that is not a directory is a refusal rather than a silent
+   substitution. `--work` is also normalised at the parse boundary.
+
+4. `--resume-zip` re-opened the mutable external archive five times and
+   identity-checked only the first, which binds nothing about the later opens.
+   The run now takes one OWNED, READ-ONLY snapshot from a single opened source
+   (identity from os.fstat on that same descriptor, short reads refused), and
+   extraction, the stale-zip hash, the band, verify and the MAX summary all
+   consume it. Swap-during-band, swap-during-verify and an ABA swap that
+   preserves size and mtime are covered. The external archive is still checked
+   for movement, because the operator ships that file.
+
+5. Three cleanup paths used rmtree(ignore_errors=True) and then forgot the
+   path; extract_and_attest unregistered the directory from _TEMPDIRS before
+   knowing the removal had worked, so a failed cleanup became an unreportable
+   leak. Both tools now have one discard helper that returns whether the path
+   is actually gone, leaves failures registered so the owner can report them,
+   and preserves the original exception.
+
+Also: the v3.66.1148 swap test could no longer overwrite the archive the band
+was handed, because that object is now read-only. It was updated to swap the
+external file, which is what it always meant.
+
+## v3.66.1148 - subject integrity, every leak, and the DB that was never residue
+
+Fourth and final review pass on PR #429.
+
+RESUME-ZIP SUBJECT GAPS CLOSED. --resume-zip with --detach is REFUSED before
+anything is extracted and before bd-job is touched: the parent would certify one
+extract and the detached child would band its own. The stale-zip check now FAILS
+CLOSED when the subject came from an archive -- "stale-zip check skipped" was
+still converting UNKNOWN into continuation. The archive's sha256/size/mtime are
+recorded at extraction and re-checked before verify/summary, so an archive
+replaced mid-run cannot make the band test A while verify reports on B.
+
+EVERY TEMPORARY DIRECTORY IS NOW OWNED. Three leaks, all real: band()'s
+bdcut_verify_* on normal and resume paths; the BD_HOME band hands its child; and
+one BD_HOME per in-sync detector inside bd-footguns, six per --check. The last
+two used the DEFAULT /tmp/tmp* prefix, so a `ls /tmp/bdcut_*` sweep could not see
+them -- claiming "zero leaks" from that glob would have been a gate blind to its
+own subject, which is why the leak test snapshots bdcut_* AND bdfg_*.
+extract_and_attest now cleans up on BaseException and re-raises, because
+KeyboardInterrupt and SystemExit are not Exception subclasses and the directory
+is not yet registered when extraction runs. Cleanup failures are printed, never
+swallowed.
+
+ISOLATION PROVEN BY BYTES, NOT FILENAMES. The checker sandbox now sets BOTH
+BD_INSTALL_DIR and BD_HOME, and tests assert the subprocess's cwd and both
+variables are inside the owned sandbox, and that it is removed after success,
+timeout and refusal. The decisive test pre-creates a sentinel
+downloader_history.db and compares its sha256 before and after: a
+directory-listing check sees the same filename either way and reports clean,
+which is exactly the measured defect -- the real checker OVERWROTE an existing
+ignored database.
+
+THE EXISTING downloader_history.db IS NOT RESIDUE. Read-only diagnosis:
+DB_PATH = "downloader_history.db" (relative), the service's systemd
+WorkingDirectory AND live /proc cwd are /home/mboyle/BulkDownloader, and
+BD_INSTALL_DIR is unset in its environment -- so db._resolve_db_path resolves it
+against the repo root. This IS the production database: 7,467,008 bytes, 60
+tables, 244 history rows, 1 queue row, PRAGMA integrity_check ok, WAL mode, and
+no process holding it open at rest. It was NOT moved or deleted. It is backed up
+to ~/bd-db-recovery/<UTC timestamp>/ with a matching sha256. The v3.66.1147
+diagnostic run DID modify it (mtime 11:08) before the isolation fix landed --
+recorded here rather than quietly corrected.
+
+CI WIRED. tests/test_v3_66_1145_step0_fails_closed.py was in no shard, so the
+12/12 GitHub result on this PR never executed the release-gate contract it
+adds. It now sits in the toolchain shard and in _DECLARED, updated in the same
+commit.
+
+RED at 61e3c4cf: 6 failed, 39 passed. GREEN: 45 passed. One of those six passed
+at 61e3c4cf for the WRONG reason until it was strengthened -- it returned exit 3
+because the real checkers refused a synthetic extract, not because the
+detach/resume-zip conflict was rejected. All step-0 refusals share exit 3; only
+the words discriminate.
+
+## v3.66.1147 - one subject, extracted once, and a gate that stops writing to the tree
+
+Third review pass on PR #429.
+
+--resume-zip NOW EXTRACTS EXACTLY ONCE. Until now the gate extracted to
+bdcut_step0_* and band() extracted AGAIN to bdcut_verify_*, so the directory
+that was CERTIFIED and the directory that was TESTED were different objects --
+CLAUDE.md section 0's core failure even when both came from one archive. The
+previous cut deferred unification, citing a signature-pinning test; the test is
+migrated instead. band() now takes `extracted=` and honours it, extract_and_attest()
+is the single extraction, and step 0 and the band are handed the same path.
+
+THE BYTES ON DISK ARE NOW VERIFIED. Nothing previously checked what landed:
+the only hash compared the work tree against ZIP MEMBERS, before extraction,
+over two directories (bulk_downloader/ and tests/ only), and failed open on any
+exception. extract_and_attest() re-reads every extracted member and compares its
+sha256 to the archive's. A missing member or a byte difference raises, the cut
+returns 3, and the partial directory is removed -- an extract we cannot vouch
+for is not a subject.
+
+THE SUBJECT IS REMOVED ON EVERY EXIT PATH. main() is now a thin wrapper whose
+only job is a finally that deletes it, so return, die() and exception are all
+covered. The old code leaked both extracts: band() returned its directory and
+the caller discarded it, and nothing anywhere removed bdcut_verify_*.
+
+THE GATE STOPPED WRITING INTO THE OPERATOR'S TREE. MEASURED: bd-footguns
+--check with BD_INSTALL_DIR unset and cwd inside the repo wrote a 7,467,008-byte
+downloader_history.db into the WORKING TREE. db._resolve_db_path falls back to a
+relative path resolved against CWD, and step 0 inherits whatever cwd the
+operator ran bd-cut from. The identical run with a neutral cwd produced ZERO
+artifacts and the same verdict (exit 0, 8 detectors). Each checker now runs in a
+disposable directory with BD_INSTALL_DIR pointed at it, removed afterwards. A
+gate must not modify the thing it judges, nor the tree the operator is standing
+in. This was found by running the real checker in a disposable checkout, exactly
+as the review asked -- the defect appeared on the CALLER, not the subject, which
+is the harder half to see.
+
+THE DETACH CONTROL IS NO LONGER SATISFIABLE BY A KILL. "any bd-job call" was
+insufficient because production calls `bd-job kill cut` first. The test now
+asserts a recorded invocation beginning `start --name cut --`, records the
+COMPLETE argv, and proves the child command omits --detach (it would otherwise
+re-detach forever) and still carries --work. Mutation-proven: a bd-cut that
+kills but never starts FAILS the tightened test and PASSED the old one.
+
+RED at 5975a4ef: 7 failed, 24 passed. GREEN: 31 passed.
+
+## v3.66.1146 - two more ways step 0 could be told a lie
+
+Review follow-up on PR #429, same branch. Both findings were paths by which a
+BLOCKED or UNKNOWN verdict could still be presented as an authorized cut.
+
+--detach LAUNCHED BEFORE IT GATED. The parent ran the detach block ahead of
+step 0 and returned 0 as soon as bd-job accepted the job. That 0 meant only
+"child launched", but nothing in the exit code said so -- a cut whose gate would
+have BLOCKED still launched, and an operator or a script reading the parent's
+status could not tell it from an authorized cut. No tracked consumer treats it
+as authorization, but "no tracked consumer" is not evidence about automation, so
+this is fixed rather than argued: the gate now runs BEFORE the detach, so a
+blocked cut never launches and there is no unauthorized child to misread. The
+child re-runs the same gate when it re-execs without --detach; the parent's copy
+is the one that prevents the launch. The gate is the cheap pair
+(bd-footguns + bd-ratchet), not the FE chain --detach exists to escape, so this
+costs seconds inside the parent's exec window rather than minutes.
+
+The parent's success line also no longer reads as a verdict: it says LAUNCHED,
+prints "NOT A CUT VERDICT", and names `bd-job status cut` as the place the real
+answer lives.
+
+bd-footguns TURNED A DECLARED BLOCK INTO A SKIP. `_check_one`'s
+cannot-evaluate shortcut ran BEFORE `block_on_exit` was consulted, which made a
+declared 2 unreachable. FG-GUARD-SHA-BYTE-IDENTICAL declares
+`block_on_exit: [1, 2]` precisely so a bd-guardcheck BD-GATE-UNRUNNABLE blocks
+-- CLAUDE.md section 2 says an unverified guard pin must not proceed -- and it
+became "skip" instead. If any other detector then decided, the run printed OK
+and exited 0, so bd-cut's step 0 received 0 while a configured blocking detector
+had returned UNKNOWN. The registry's declaration is the contract; it is now
+consulted before any generic shortcut.
+
+NOT over-sensitive, and a control proves it: a detector that does NOT declare 2
+still treats cannot-evaluate as "skip". Turning every unavailable delegate into
+a violation would block on every partially-instrumented tree.
+
+RED-first at the PR head (727a7993, which already carries the step-0 fix):
+4 failed, 20 passed. With these fixes: 24 passed. The regression test drives the
+REAL registry entry and the REAL _check_one, asserting first that the detector
+genuinely declares 2 -- otherwise the test would be vacuous.
+
+OPERATOR DECISIONS RECORDED. bd-cut stays FAIL-CLOSED when
+~/.bd_metrics_baseline.json is absent; the gate is not weakened and --no-gate is
+not a routine tool. The baseline is existing per-host OPERATIONAL state and will
+be initialized after this PR merges and 1145 deploys -- test2 first, inspected
+and verified with bd-ratchet --check returning 0, then generated independently
+on the other five hosts, with hashes and artifacts recorded. --resume-zip is
+RETAINED and hardened: the absence of artifacts in the repository is not
+evidence about external use. Its possible retirement is carried as an explicit
+later operator decision and a separate cut.
+
+## v3.66.1145 - the gate that turned a refusal into authorization
+
+CUT 1. bd-cut's step-0 release gate failed OPEN. Three independent harnesses --
+one a clean-room checkout that never read the others -- drove a stub checker
+through every outcome at 8cea48c:
+
+    outcome   0   1   2   3   4  127  crash  missing  exception  timeout
+    result   go  go  go  STOP go   go     go       go         go       go
+
+Only exit 3 blocked. `toolchain/bin/bd-cut:959-985`: a missing checker hit a
+bare `continue` with no message; any Exception including TimeoutExpired was
+coerced to `_rc = 0`; only `_rc == 3` blocked; and the whole gate was skipped on
+--resume, --resume-zip and --no-build.
+
+THE SHARPEST INSTANCE. `bdtools_sec.EXIT_CANNOT_EVALUATE = 2` is minted by
+bd-footguns when zero detectors reached a verdict, under its own comment
+"UNKNOWN IS A THIRD STATE AND IT FAILS (CLAUDE.md s0) ... Refuse instead of
+certifying", and by bd-ratchet at three sites. Step 0 converted that deliberate
+refusal into authorization: the checker one level down refuses to certify
+blindness and the consumer certifies it anyway.
+
+AND IT WAS LIVE. `bd-ratchet --check` exits 2 on every fleet host because its
+baseline is ~/.bd_metrics_baseline.json -- untracked, $HOME-relative, absent.
+Half of step 0 has been a measured no-op, silently.
+
+NOTHING PINNED IT. Confirmed three independent ways over tracked files: no test
+asserted the ABORT message, `_rc == 3`, --no-gate, or bd-cut's return under
+--no-build/--resume. The defect was invisible to every gate for its whole life,
+which is why this cut adds a file rather than editing one.
+
+NOW: only a measured exit 0 authorizes a cut. Missing checker, exception,
+timeout, and every non-zero code block, each naming ITSELF -- all six causes
+share exit 3, so a test asserting the code alone would pass when any of them
+fires (section 10: four mutants escaped exactly that way).
+
+REFUSALS NAME THEIR REMEDY. Blocking without one is how a gate gets switched
+off. bd-ratchet's exit 2 names `bd-ratchet --baseline`, which is the actual fix
+for the live fleet condition above.
+
+--no-gate SURVIVES AND IS LOUD: a banner to stderr and a STEP0_SKIPPED.txt in
+--out. An override you cannot later prove happened is indistinguishable from a
+gate that ran.
+
+--resume AND --no-build ARE NO LONGER EXEMPT. Both continue to a real build, so
+neither was a defensible exemption. --resume-zip is gated against the EXTRACT,
+not the work tree: certifying one tree while banding another is section 0's core
+failure.
+
+FALSE OPERATOR TEXT CORRECTED. --help said "skip the step-0 bd-precut --gate
+pre-flight (footguns/ratchet/stale-doc)". Step 0 invokes bd-footguns and
+bd-ratchet directly and there is no stale-doc check. A false help string is how
+an operator learns the wrong model of the gate they are overriding.
+
+RED-first, both directions on the same tree: 14 failed against pristine bd-cut,
+16 pass with the fix. The two that pass on pristine are the harness precondition
+(proving the stub is what step 0 actually invokes) and the over-sensitivity
+control (a clean checker must still proceed) -- a gate that blocks everything
+passes every other assertion and is useless.
+
+DEFERRED, DELIBERATELY: --resume-zip may be a DEAD path. There is no zip
+anywhere in the tree, no out/, STATE.json is untracked, and both
+bd-release-attestation and bd-evidence-pack declare the release zip retired per
+section 7. band() still makes its own extract from the same archive; unifying
+the two is a separate concern. Deleting the path is a later cut, not this one.
+
 ## v3.66.1144 - six ways bd-fleet-run still reported success over nothing
 
 Second review pass on PR #428. Every item was a way to report `ok` for

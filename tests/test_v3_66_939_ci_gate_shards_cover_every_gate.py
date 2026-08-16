@@ -85,8 +85,12 @@ _DECLARED = {
     "tests/test_gui_parity.py",
     "tests/test_pk_mirrors_stay_retired.py",
     "tests/test_toolchain_534.py",
-    # @1143. The ONLY entry here that is BD_GATE_SCOPE = "module", and that is
-    # deliberate. Its subject is one tool, so calling it "repo-wide" would be
+    # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
+    # deliberate. (This comment read "the ONLY entry" while the entry directly
+    # below it was a second one -- stale within five releases of being written,
+    # in the file whose whole subject is a hand-pinned set going stale. Count
+    # the entries carrying this reason rather than trusting a word here.)
+    # Its subject is one tool, so calling it "repo-wide" would be
     # the mislabelling this file's own docstring says nothing catches. It is
     # pinned into a shard anyway because the property it guards is a SAFETY
     # BOUNDARY that must run on every PR regardless of what the diff touched:
@@ -95,6 +99,61 @@ _DECLARED = {
     # procfs. The failure mode is someone reintroducing a network-capable
     # fixture, which no diff-derived band would necessarily catch.
     "tests/test_v3_66_1142_fleet_run_is_hermetic.py",
+    # @1148. Also BD_GATE_SCOPE = "module" and also deliberately so: its subject
+    # is bd-cut's release gate, not the tree. It is pinned into a shard because
+    # the contract it holds -- only a measured exit 0 authorizes a cut -- is the
+    # thing that decides whether ANY other gate's verdict is honoured. Until
+    # v3.66.1145 the gate failed open and no test anywhere pinned it; the 12/12
+    # GitHub result on that PR did not execute this contract at all.
+    "tests/test_v3_66_1145_step0_fails_closed.py",
+    # @1149. Third "module" entry, same reasoning one step further out. Its
+    # subject is what the two release-gating tools DO TO THE TREE: bd-cut's
+    # --rm-runtime-db defaulted to deleting downloader_history.db and its WAL,
+    # which on test5 is the live service database, and bd-footguns wrote into
+    # the tree it was judging. Neither is diff-derivable -- the destructive
+    # default is one argparse keyword and the write happens in a delegate
+    # subprocess -- so no band would necessarily run this, and the failure mode
+    # is silent data loss on the box rather than a red test.
+    "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",
+    # @1150. Fourth "module" entry. Its subject is the integrity of the ONE
+    # archive object a --resume-zip cut judges, and the honesty of the two
+    # discard helpers. Pinned into a shard for the same reason as 1149: none of
+    # it is diff-derivable -- the seal is one chmod, the cleanup defect is an
+    # `except OSError: pass`, and the leak it closes is invisible to the default
+    # test harness, which erases residue on a green run. The failure mode is a
+    # silent swap or a silent leak, never a red test.
+    "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",
+    # @1151. Fifth "module" entry, same subject one layer deeper: what a
+    # --resume-zip cut's consumers are BOUND to. A pathname can be renamed out
+    # from under them between two hashes; a descriptor cannot. Pinned into a
+    # shard because none of it is diff-derivable -- the binding is one os.open
+    # and a pass_fds, the symlink escape is a chmod that follows a link, and
+    # the failure mode of every one is silent rather than red.
+    "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",
+    # @1152. Sixth "module" entry, and the one that makes the other five cost
+    # something: a cleanup failure now sets an exit code in bd-cut and a
+    # session exit status in _tmproot. Pinned into a shard because the failure
+    # it guards is a SILENT GREEN -- three cuts made cleanup report honestly
+    # and none made the report matter, so the regression to watch for is a
+    # future edit quietly restoring "print and return 0".
+    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
+    # @1153. Seventh "module" entry. Its subject is what a destructive
+    # operation is BOUND to: v3.66.1149-1152 moved the ownership proof nearer
+    # the deletion four times and never joined them, so each cut left the same
+    # rename+recreate seam one step further along. Pinned into a shard because
+    # the failure is a silent wrong-object deletion -- never a red test -- and
+    # because bd-footguns' UNKNOWN policy decides whether bd-cut's step 0 is
+    # authorized at all.
+    "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
+    # @1154. Eighth "module" entry, and the one that finally binds the CHILDREN.
+    # 1153 bound the top object and left every child opened by name, so a
+    # directory renamed onto a child pathname mid-walk was entered and emptied;
+    # and success was still read off a pathname, so a tree renamed AWAY reported
+    # clean. Pinned into a shard for the reason all seven above are: the failure
+    # is a silent wrong-object deletion or a silent leak, never a red test, and
+    # the matrix runs against all THREE removers so a drift between the copies
+    # is red rather than being a fourth implementation nobody compares.
+    "tests/test_v3_66_1154_the_object_not_the_name.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 45,
+    "total": 58,
     "version": 1,
-    "count_dict": 44,
-    "test_files_scanned": 1354,
+    "count_dict": 57,
+    "test_files_scanned": 1361,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -38,6 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
+      "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -221,7 +222,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1144",
+      "value": "3.66.1154",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -273,6 +274,142 @@
         "app.reptyle.com": 62
       },
       "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs — Capture counts per host, because that is how the operator recognises the"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 546,
+      "value": {
+        "validated": 1,
+        "substituted": 1
+      },
+      "gates_what": "test_recovery_validation_cannot_move_a_later_foreign_replacement — A pathname check cannot authorize the later pathname rename."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 897,
+      "value": {
+        "owned": 1,
+        "foreign": 0
+      },
+      "gates_what": "test_top_substitution_at_rename_is_detected_and_exactly_reported — The unavoidable source-name race is detected without later touching B."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 898,
+      "value": {
+        "open": 0,
+        "chmod": 0,
+        "fchmod": 0,
+        "unlink": 0,
+        "rmdir": 0,
+        "rename": 0
+      },
+      "gates_what": "test_top_substitution_at_rename_is_detected_and_exactly_reported — The unavoidable source-name race is detected without later touching B."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1580,
+      "value": {
+        "owned": 1,
+        "foreign": 1,
+        "later": 0
+      },
+      "gates_what": "test_terminal_unlink_substitution_is_detected_and_accounted — Exercise, and bound, Linux's accepted final stat-to-unlink window."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1670,
+      "value": {
+        "renamed": 1,
+        "substituted": 1,
+        "unlink": 0
+      },
+      "gates_what": "test_private_substitution_before_final_unlink_validation_never_unlinks"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1758,
+      "value": {
+        "primary": 1,
+        "diagnostic": 1
+      },
+      "gates_what": "test_primary_memoryerror_survives_recovery_diagnostic_systemexit"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 1817,
+      "value": {
+        "unlinked": 1,
+        "close": 1
+      },
+      "gates_what": "test_successful_terminal_unlink_close_baseexception_propagates"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2111,
+      "value": {
+        "walk": 1,
+        "secondary": 1
+      },
+      "gates_what": "test_recovery_baseexception_is_propagated_after_primary_failure"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2156,
+      "value": {
+        "primary": 1,
+        "secondary": 1
+      },
+      "gates_what": "test_primary_memoryerror_survives_secondary_recovery_interrupt"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2197,
+      "value": {
+        "walk": 2,
+        "restore": 1
+      },
+      "gates_what": "test_top_refusal_mode_restoration_baseexception_propagates"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2234,
+      "value": {
+        "walk": 2,
+        "restore": 1
+      },
+      "gates_what": "test_top_primary_memoryerror_survives_restoration_control_exception"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2269,
+      "value": {
+        "primary": 1,
+        "close": 1
+      },
+      "gates_what": "test_tmproot_release_close_cannot_replace_primary_memoryerror"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
+      "line": 2311,
+      "value": {
+        "rmdir": 1,
+        "close": 1
+      },
+      "gates_what": "test_top_parent_close_baseexception_propagates_after_exact_removal"
     },
     {
       "form": "count_dict",
