@@ -409,33 +409,45 @@ def prune(base: pathlib.Path, keep: int, protect=None):
         except OSError:
             os.close(fd)
             continue
-        owned.append((entry, (st.st_dev, st.st_ino), fd))
+        owned.append((entry, (st.st_dev, st.st_ino),
+                      (sentinel.st_dev, sentinel.st_ino), fd))
     owned.sort(key=lambda t: t[0].name, reverse=True)
 
     budget = keep - (1 if protect is not None else 0)
     if budget < 0:
         budget = 0
     dropped, failures = [], []
-    for entry, _ident, fd in owned[:budget]:
+    for entry, _ident, _sentinel_ident, fd in owned[:budget]:
         try:
             os.close(fd)
         except OSError as exc:
             failures.append(f"{entry.name}: retained descriptor close failed: {exc}")
     remover = _owned_remover_module()
-    for entry, ident, fd in owned[budget:]:
+    for entry, ident, sentinel_ident, fd in owned[budget:]:
         removed = False
         try:
-            ok, reason = remover._remove_owned_dir(str(entry), ident, fd)
-            held = os.fstat(fd)
-            if (held.st_dev, held.st_ino) != ident:
-                failures.append(f"{entry.name}: held removal identity became unknown")
-            elif not ok:
-                failures.append(f"{entry.name}: {reason or 'object-bound removal failed'}")
-            elif held.st_nlink != 0:
-                failures.append(
-                    f"{entry.name}: owned directory was not proved unlinked")
+            current_sentinel = os.stat(
+                SENTINEL, dir_fd=fd, follow_symlinks=False)
+            if ((current_sentinel.st_dev, current_sentinel.st_ino) !=
+                    sentinel_ident or
+                    not statmod.S_ISREG(current_sentinel.st_mode)):
+                failures.append(f"{entry.name}: ownership sentinel changed "
+                                "before removal")
             else:
-                removed = True
+                ok, reason = remover._remove_owned_dir(str(entry), ident, fd)
+                held = os.fstat(fd)
+                if (held.st_dev, held.st_ino) != ident:
+                    failures.append(
+                        f"{entry.name}: held removal identity became unknown")
+                elif not ok:
+                    failures.append(
+                        f"{entry.name}: "
+                        f"{reason or 'object-bound removal failed'}")
+                elif held.st_nlink != 0:
+                    failures.append(
+                        f"{entry.name}: owned directory was not proved unlinked")
+                else:
+                    removed = True
         except Exception as exc:
             failures.append(
                 f"{entry.name}: object-bound removal failed "

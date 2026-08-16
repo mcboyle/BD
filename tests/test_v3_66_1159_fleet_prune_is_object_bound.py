@@ -154,3 +154,36 @@ def test_dangling_symlink_replacement_cannot_become_success(tmp_path, mod, monke
     assert links != 0, "the renamed owned directory was laundered into success"
     assert doomed.name not in dropped
     assert any("foreign" in failure.lower() for failure in failures), failures
+
+
+def test_replaced_ownership_sentinel_blocks_destructive_removal(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    doomed = _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    real_loader = mod._owned_remover_module
+    fired = {"loader": 0, "remove": 0}
+
+    class ForbiddenRemover:
+        @staticmethod
+        def _remove_owned_dir(path, identity, held_fd):
+            fired["remove"] += 1
+            return True, None
+
+    def replace_sentinel_after_inspection():
+        fired["loader"] += 1
+        sentinel = doomed / mod.SENTINEL
+        sentinel.unlink()
+        sentinel.write_text("foreign replacement\n", encoding="utf-8")
+        assert real_loader() is not None
+        return ForbiddenRemover
+
+    monkeypatch.setattr(mod, "_owned_remover_module", replace_sentinel_after_inspection)
+    dropped, failures = mod.prune(base, 1)
+
+    assert fired["loader"] == 1, "the post-inspection injection did not fire"
+    assert fired["remove"] == 0, "removal ran after ownership proof was replaced"
+    assert doomed.is_dir()
+    assert doomed.name not in dropped
+    assert any("sentinel" in failure.lower() and "changed" in failure.lower()
+               for failure in failures), failures
