@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1156 - the fleet record that claimed a clean tree it never looked at
+
+Doc-only. One backlog row, 159, and the version bump that carries it.
+
+Found while measuring v3.66.1155 across the fleet, and deliberately kept out of
+that cut so it stayed one subject.
+
+bd-fleet-run prepends a provenance line to every fleet command, built from
+
+  git -C "$PWD" rev-parse --short HEAD 2>/dev/null || echo unknown
+  git -C "$PWD" status --porcelain 2>/dev/null | wc -l
+
+An ssh login lands in $HOME, not the checkout, so on every fleet host $PWD is
+not a repository. The two halves then degrade in OPPOSITE directions. The
+commit half has a fallback and reports "unknown", honestly. The dirty half has
+none: git writes nothing, its error is swallowed, wc -l counts zero lines, and
+the record reads "dirty=0" -- the same string a genuinely clean tree produces.
+A failed measurement laundered into a positive claim of cleanliness.
+
+MEASURED 2026-08-16 at ab4d836: all five remote hosts returned
+"commit=unknown dirty=0" while every one of them did have a clean checkout at a
+known commit. The record was right by accident and could not have been
+wrong-detectably. Reproduced at f5d9e4a with one variable differing:
+
+  git -C /tmp        -> commit=unknown dirty=0
+  git -C <checkout>  -> commit=f5d9e4a dirty=0
+
+The tool's own printed caveat 4 covers the commit half and says nothing about
+the dirty half, so the reader is warned about the honest column and not the
+dishonest one. Filed rather than fixed: the repair belongs with open row 149,
+which is against the same file, and widening a doc cut into the fleet runner is
+exactly the blast radius this shape is meant to avoid.
+
 ## v3.66.1155 - a test that raced its own budget, and a failure that named nothing
 
 test_reproducer_is_a_versioned_provenance_envelope failed on test5 with
