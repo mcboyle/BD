@@ -254,3 +254,30 @@ def test_loader_control_exception_closes_every_retained_descriptor(tmp_path, mod
     assert fired["count"] == 1, "the loader exception seam did not fire"
     assert _open_directory_fds_beneath(base) == {}, (
         "loader failure leaked a retained removal descriptor")
+
+
+def test_descriptor_close_control_exception_is_not_swallowed(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    retained = _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    real_close = os.close
+    fired = {"count": 0}
+
+    def interrupt_after_close(fd):
+        try:
+            target = os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            target = ""
+        if target == str(retained) and fired["count"] == 0:
+            fired["count"] += 1
+            real_close(fd)
+            raise KeyboardInterrupt("injected close exception")
+        return real_close(fd)
+
+    monkeypatch.setattr(mod.os, "close", interrupt_after_close)
+    with pytest.raises(KeyboardInterrupt, match="injected close exception"):
+        mod.prune(base, 1)
+
+    assert fired["count"] == 1, "the close control-exception seam did not fire"
+    assert _open_directory_fds_beneath(base) == {}
