@@ -498,19 +498,22 @@ def test_prune_reports_failures_and_never_claims_a_removal_it_did_not_make(mod):
         _seeded_run(base, "20260101T000000Z-aaaaaaaa", mod)
         doomed = _seeded_run(base, "20250101T000000Z-bbbbbbbb", mod)
 
-        real_rmtree = mod.shutil.rmtree
+        remover = mod._owned_remover_module()
+        fired = {"count": 0}
 
-        def failing(path, *a, **k):
-            if pathlib.Path(path).name == doomed.name:
-                raise OSError(13, "Permission denied")
-            return real_rmtree(path, *a, **k)
+        def failing(path, identity, held_fd):
+            fired["count"] += 1
+            assert os.fstat(held_fd).st_nlink != 0
+            return False, "[unproven-removal] Permission denied"
 
-        mod.shutil.rmtree = failing
+        original = remover._remove_owned_dir
+        remover._remove_owned_dir = failing
         try:
             dropped, failures = mod.prune(base, 1)
         finally:
-            mod.shutil.rmtree = real_rmtree
+            remover._remove_owned_dir = original
 
+        assert fired["count"] == 1, "the object-bound failure seam did not fire"
         assert doomed.is_dir(), "fixture precondition: the doomed dir survives"
         assert doomed.name not in dropped, (
             "prune reported removing a directory that is still on disk")
@@ -1165,39 +1168,30 @@ def test_host_key_failure_is_its_own_state(mod):
     assert mod.classify(255, None, "Permission denied (publickey).") == "AUTH_FAILURE"
 
 
-def test_prune_refuses_a_directory_whose_identity_changed(mod, monkeypatch):
-    """The TOCTOU narrowing, exercised at the one seam that decides it.
-
-    A directory that passes every ownership check and is then swapped for a
-    different inode before removal must NOT be deleted.
-    """
+def test_prune_refuses_when_the_held_identity_cannot_be_proved(mod, monkeypatch):
+    """An unknown descriptor result cannot become a claimed removal."""
     with tempfile.TemporaryDirectory() as td:
         base = pathlib.Path(td) / "artifacts" / "runs"
         base.mkdir(parents=True)
         _seeded_run(base, "20260102T000000Z-aaaaaaaa", mod)
         victim = _seeded_run(base, "20250101T000000Z-bbbbbbbb", mod)
 
-        real_identity = mod._identity
+        remover = mod._owned_remover_module()
         seen = {"n": 0}
 
-        def swapping(path):
-            ident = real_identity(path)
-            if ident is not None and str(path).endswith("bbbbbbbb"):
-                seen["n"] += 1
-                if seen["n"] >= 2:          # the pre-removal re-check
-                    return (ident[0], ident[1] + 1, ident[2])
-            return ident
+        def unknown(path, identity, held_fd):
+            seen["n"] += 1
+            return False, "[unproven-removal] descriptor state unknown"
 
-        monkeypatch.setattr(mod, "_identity", swapping)
+        monkeypatch.setattr(remover, "_remove_owned_dir", unknown)
         dropped, failures = mod.prune(base, 1)
-        assert seen["n"] >= 2, "fixture precondition: both passes must run"
-        assert victim.is_dir(), "prune deleted a directory whose identity changed"
+        assert seen["n"] == 1, "fixture precondition: removal seam must run"
+        assert victim.is_dir(), "prune deleted a directory with unknown identity"
         assert victim.name not in dropped
-        assert any("identity changed" in f for f in failures), failures
+        assert any("unknown" in f for f in failures), failures
 
 
-def test_the_blind_spots_disclose_the_residual_toctou(mod):
-    """An instrument that hides its limits is worse than none."""
+def test_the_blind_spots_do_not_claim_the_repaired_pathname_remover(mod):
     joined = " ".join(mod.BLIND_SPOTS).upper()
-    assert "TOCTOU" in joined
-    assert "rmtree" in " ".join(mod.BLIND_SPOTS)
+    assert "RESIDUAL TOCTOU" not in joined
+    assert "RMTREE WALKS" not in joined

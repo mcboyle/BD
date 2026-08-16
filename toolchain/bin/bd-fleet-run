@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import datetime
 import importlib.machinery
 import importlib.util
@@ -66,7 +67,6 @@ import pathlib
 import re
 import secrets
 import shlex
-import shutil
 import stat as statmod
 import subprocess
 import sys
@@ -110,14 +110,10 @@ BLIND_SPOTS = (
     "success.",
     "the recorded remote commit is what the host reported at run time; it does "
     "not prove the command READ that tree.",
-    "PRUNE HAS A RESIDUAL TOCTOU WINDOW. Ownership is verified, then the "
-    "identity is re-checked by (st_dev, st_ino) immediately before removal, but "
-    "rmtree walks the tree afterwards and cannot be made atomic from Python. A "
-    "local process that can write inside the artifact base could still swap a "
-    "directory between the last check and the walk. The base is under the "
-    "invoking user's own data directory and is not shared, which is the actual "
-    "mitigation; the identity re-check narrows the window rather than closing "
-    "it.",
+    "retention holds the inspected run directory open, uses bd-cut's "
+    "object-bound remover, and reports success only after fstat proves that "
+    "held inode unlinked. Rename, replacement, dangling-link and unknown "
+    "outcomes fail closed.",
 )
 
 
@@ -171,6 +167,28 @@ def _load_bd_fleet():
     mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
     return mod
+
+
+_OWNED_REMOVER = None
+
+
+def _owned_remover_module():
+    """Load bd-cut's established descriptor-bound directory remover.
+
+    Retention and cut cleanup share one destructive implementation.  Loading
+    the executable as a module is safe: bd-cut's command entry point remains
+    behind its ``__main__`` guard.
+    """
+    global _OWNED_REMOVER
+    if _OWNED_REMOVER is None:
+        path = HERE / "bd-cut"
+        loader = importlib.machinery.SourceFileLoader(
+            "bd_cut_owned_remover_for_fleet", str(path))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        _OWNED_REMOVER = module
+    return _OWNED_REMOVER
 
 
 # --------------------------------------------------------------- inventory
@@ -354,69 +372,162 @@ def prune(base: pathlib.Path, keep: int, protect=None):
     """Remove old runs. Returns (dropped, failures).
 
     Conditions before anything is deleted: the entry resolves BENEATH the base,
-    its name matches the run-id grammar, it carries the ownership sentinel, it
-    is not the run currently in flight, and -- immediately before removal -- its
-    (st_dev, st_ino) still match what was inspected.
+    its name matches the run-id grammar, it carries the ownership sentinel, and
+    it is not the run currently in flight.  Inspection retains a descriptor for
+    the owned directory.  Removal is performed by bd-cut's object-bound remover
+    and success additionally requires that descriptor's ``st_nlink == 0``.
 
     `protect` is not an optimisation. Ordering is by NAME and the name carries a
     wall-clock stamp, so a future-dated sibling, a same-second sibling or a clock
     rollback can each sort the live run into the discard tail.
 
-    RESIDUAL TOCTOU, stated rather than implied: the identity re-check narrows
-    the window between inspection and removal, but shutil.rmtree then walks the
-    tree and that walk cannot be made atomic from Python. A local process able
-    to write inside the artifact base could still swap a directory mid-walk. The
-    base lives under the invoking user's own data directory and is not shared,
-    which is the real mitigation.
+    Linux has no inode-bound rmdir, so the shared remover first moves the held
+    root to a no-clobber private name, revalidates it there, and proves terminal
+    unlink on the held inode.  Rename, replacement, dangling-link and unknown
+    outcomes are failures, never successful retention.
     """
     if keep <= 0 or not base.is_dir():
         return [], []
     base_real = pathlib.Path(os.path.realpath(base))
-    owned = []
-    for entry in base.iterdir():
-        if entry.is_symlink() or not entry.is_dir():
-            continue
-        if not RUN_RE.match(entry.name):
-            continue
-        if protect is not None and entry.name == protect:
-            continue
-        if not (entry / SENTINEL).is_file():
-            continue
-        if pathlib.Path(os.path.realpath(entry)).parent != base_real:
-            continue
-        ident = _identity(entry)
-        if ident is None:
-            continue
-        owned.append((entry, ident))
-    owned.sort(key=lambda t: t[0].name, reverse=True)
-
-    budget = keep - (1 if protect is not None else 0)
-    if budget < 0:
-        budget = 0
     dropped, failures = [], []
-    for entry, ident in owned[budget:]:
-        now = _identity(entry)
-        if now is None:
-            failures.append(f"{entry.name}: vanished before removal")
-            continue
-        if now != ident or not now[2]:
-            failures.append(
-                f"{entry.name}: identity changed between check and removal; "
-                "refusing to delete a directory that is not the one inspected")
-            continue
-        if not (entry / SENTINEL).is_file():
-            failures.append(f"{entry.name}: ownership sentinel disappeared")
-            continue
+    cleanup = contextlib.ExitStack()
+    cleanup_errors = []
+
+    class HeldDirectory:
+        def __init__(self, fd, name):
+            self.fd, self.name, self.closed = fd, name, False
+
+        def close(self):
+            if self.closed:
+                return None
+            # Mark first: close(2) may report an error after releasing the
+            # number, so retrying could close an unrelated reused descriptor.
+            self.closed = True
+            try:
+                os.close(self.fd)
+            except BaseException as error:
+                return error
+            return None
+
+    def cleanup_held(held):
+        error = held.close()
+        if error is not None:
+            cleanup_errors.append((held.name, error))
+
+    def close_now(held, phase):
+        error = held.close()
+        if error is None:
+            return True
+        if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)):
+            raise error
+        failures.append(
+            f"{held.name}: {phase} descriptor close failed "
+            f"({type(error).__name__}: {error})")
+        return False
+
+    try:
+        owned = []
+        for entry in base.iterdir():
+            if not RUN_RE.match(entry.name):
+                continue
+            if protect is not None and entry.name == protect:
+                continue
+            if pathlib.Path(os.path.realpath(entry)).parent != base_real:
+                continue
+            try:
+                fd = os.open(
+                    entry, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except OSError:
+                continue
+            held = HeldDirectory(fd, entry.name)
+            cleanup.callback(cleanup_held, held)
+            try:
+                st = os.fstat(fd)
+                sentinel = os.stat(
+                    SENTINEL, dir_fd=fd, follow_symlinks=False)
+                if not statmod.S_ISREG(sentinel.st_mode):
+                    close_now(held, "unowned")
+                    continue
+            except OSError:
+                close_now(held, "unowned")
+                continue
+            owned.append((entry, (st.st_dev, st.st_ino),
+                          (sentinel.st_dev, sentinel.st_ino), held))
+        owned.sort(key=lambda t: t[0].name, reverse=True)
+
+        budget = keep - (1 if protect is not None else 0)
+        if budget < 0:
+            budget = 0
+        for _entry, _ident, _sentinel_ident, held in owned[:budget]:
+            close_now(held, "retained")
+        candidates = owned[budget:]
         try:
-            shutil.rmtree(entry)
-        except OSError as exc:
-            failures.append(f"{entry.name}: {exc}")
-            continue
-        if entry.exists():
-            failures.append(f"{entry.name}: still present after rmtree")
-            continue
-        dropped.append(entry.name)
-    return dropped, failures
+            remover = _owned_remover_module() if candidates else None
+        except Exception as error:
+            for entry, _ident, _sentinel_ident, _held in candidates:
+                failures.append(
+                    f"{entry.name}: object-bound remover unavailable "
+                    f"({type(error).__name__}: {error})")
+            return dropped, failures
+        for entry, ident, sentinel_ident, held in candidates:
+            removed = False
+            try:
+                current_sentinel = os.stat(
+                    SENTINEL, dir_fd=held.fd, follow_symlinks=False)
+                if ((current_sentinel.st_dev, current_sentinel.st_ino) !=
+                        sentinel_ident or
+                        not statmod.S_ISREG(current_sentinel.st_mode)):
+                    failures.append(
+                        f"{entry.name}: ownership sentinel changed before removal")
+                else:
+                    ok, reason = remover._remove_owned_dir(
+                        str(entry), ident, held.fd)
+                    terminal = os.fstat(held.fd)
+                    if (terminal.st_dev, terminal.st_ino) != ident:
+                        failures.append(
+                            f"{entry.name}: held removal identity became unknown")
+                    elif not ok:
+                        failures.append(
+                            f"{entry.name}: "
+                            f"{reason or 'object-bound removal failed'}")
+                    elif terminal.st_nlink != 0:
+                        failures.append(
+                            f"{entry.name}: owned directory was not proved unlinked")
+                    else:
+                        removed = True
+            except Exception as exc:
+                failures.append(
+                    f"{entry.name}: object-bound removal failed "
+                    f"({type(exc).__name__}: {exc})")
+            if not close_now(held, "owned"):
+                removed = False
+            if removed:
+                dropped.append(entry.name)
+        return dropped, failures
+    finally:
+        primary = sys.exception()
+        cleanup.close()
+        control_error = None
+        for name, error in cleanup_errors:
+            note = (f"{name}: retained descriptor close failed during unwind "
+                    f"({type(error).__name__}: {error})")
+            if isinstance(error, (KeyboardInterrupt, SystemExit, MemoryError)):
+                if control_error is None:
+                    control_error = error
+                    if primary is not None and hasattr(control_error, "add_note"):
+                        control_error.add_note(
+                            "descriptor cleanup control exception superseded "
+                            f"active {type(primary).__name__}: {primary}")
+                elif hasattr(control_error, "add_note"):
+                    control_error.add_note(note)
+            elif primary is not None and hasattr(primary, "add_note"):
+                primary.add_note(note)
+            else:
+                failures.append(note)
+        if control_error is not None:
+            if primary is not None:
+                raise control_error from primary
+            raise control_error
 
 
 # --------------------------------------------------------------- execution
