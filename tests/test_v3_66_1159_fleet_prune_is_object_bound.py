@@ -192,3 +192,27 @@ def test_replaced_ownership_sentinel_blocks_destructive_removal(tmp_path, mod, m
     assert doomed.name not in dropped
     assert any("sentinel" in failure.lower() and "changed" in failure.lower()
                for failure in failures), failures
+
+
+def test_control_exception_propagates_after_owned_descriptor_is_closed(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    observed = {"calls": 0, "fd": None}
+
+    class InterruptingRemover:
+        @staticmethod
+        def _remove_owned_dir(path, identity, held_fd):
+            observed["calls"] += 1
+            observed["fd"] = held_fd
+            raise KeyboardInterrupt("injected control exception")
+
+    monkeypatch.setattr(mod, "_owned_remover_module", lambda: InterruptingRemover)
+    with pytest.raises(KeyboardInterrupt, match="injected control exception"):
+        mod.prune(base, 1)
+
+    assert observed["calls"] == 1, "the control-exception seam did not fire"
+    assert observed["fd"] is not None
+    with pytest.raises(OSError):
+        os.fstat(observed["fd"])

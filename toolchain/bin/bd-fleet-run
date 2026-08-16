@@ -452,6 +452,15 @@ def prune(base: pathlib.Path, keep: int, protect=None):
             failures.append(
                 f"{entry.name}: object-bound removal failed "
                 f"({type(exc).__name__}: {exc})")
+        except BaseException as exc:
+            try:
+                os.close(fd)
+            except BaseException as close_error:
+                if hasattr(exc, "add_note"):
+                    exc.add_note(
+                        "owned descriptor close failed while propagating "
+                        f"({type(close_error).__name__}: {close_error})")
+            raise
         try:
             os.close(fd)
         except OSError as exc:
