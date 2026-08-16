@@ -14,12 +14,13 @@ directory, delegates destruction to `bd-cut`'s established object-bound
 remover, and records a dropped run only after `fstat` proves the held inode has
 `st_nlink == 0`.
 
-Six production-path regressions prove ordinary terminal unlink, foreign name
+Seven production-path regressions prove ordinary terminal unlink, foreign name
 replacement survival, refusal of a false remover-success claim, and refusal of
 a dangling-symlink or ownership-sentinel replacement. Every adversarial
 injection has a nonzero counter and checks the held inode and foreign object,
-not only diagnostics. A control-exception regression also proves descriptor
-closure without swallowing the exception.
+not only diagnostics. Control-exception regressions also prove closure of the
+current and every pending descriptor, including when remover loading fails,
+without swallowing the original exception.
 The focused row-149 file is pinned into CI's toolchain shard.
 
 ## v3.66.1158 - fleet provenance is measured or the host is not green

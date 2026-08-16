@@ -30,6 +30,19 @@ def _run(base, name, module, payload="owned"):
     return path
 
 
+def _open_directory_fds_beneath(root):
+    root = str(root.resolve()) + os.sep
+    found = {}
+    for item in pathlib.Path("/proc/self/fd").iterdir():
+        try:
+            target = os.readlink(item)
+        except OSError:
+            continue
+        if target.startswith(root):
+            found[int(item.name)] = target
+    return found
+
+
 @pytest.fixture()
 def mod():
     return _load()
@@ -199,6 +212,7 @@ def test_control_exception_propagates_after_owned_descriptor_is_closed(tmp_path,
     base.mkdir()
     _run(base, "20260102T000000Z-aaaaaaaa", mod)
     _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    _run(base, "20240101T000000Z-cccccccc", mod)
     observed = {"calls": 0, "fd": None}
 
     class InterruptingRemover:
@@ -216,3 +230,27 @@ def test_control_exception_propagates_after_owned_descriptor_is_closed(tmp_path,
     assert observed["fd"] is not None
     with pytest.raises(OSError):
         os.fstat(observed["fd"])
+    assert _open_directory_fds_beneath(base) == {}, (
+        "a later removal candidate descriptor leaked")
+
+
+def test_loader_control_exception_closes_every_retained_descriptor(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    fired = {"count": 0}
+
+    def interrupt_loader():
+        fired["count"] += 1
+        assert _open_directory_fds_beneath(base), (
+            "fixture did not observe the retained removal descriptor")
+        raise KeyboardInterrupt("injected loader exception")
+
+    monkeypatch.setattr(mod, "_owned_remover_module", interrupt_loader)
+    with pytest.raises(KeyboardInterrupt, match="injected loader exception"):
+        mod.prune(base, 1)
+
+    assert fired["count"] == 1, "the loader exception seam did not fire"
+    assert _open_directory_fds_beneath(base) == {}, (
+        "loader failure leaked a retained removal descriptor")

@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import datetime
 import importlib.machinery
 import importlib.util
@@ -388,87 +389,122 @@ def prune(base: pathlib.Path, keep: int, protect=None):
     if keep <= 0 or not base.is_dir():
         return [], []
     base_real = pathlib.Path(os.path.realpath(base))
-    owned = []
-    for entry in base.iterdir():
-        if not RUN_RE.match(entry.name):
-            continue
-        if protect is not None and entry.name == protect:
-            continue
-        if pathlib.Path(os.path.realpath(entry)).parent != base_real:
-            continue
-        try:
-            fd = os.open(entry, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        except OSError:
-            continue
-        try:
-            st = os.fstat(fd)
-            sentinel = os.stat(SENTINEL, dir_fd=fd, follow_symlinks=False)
-            if not statmod.S_ISREG(sentinel.st_mode):
-                os.close(fd)
-                continue
-        except OSError:
-            os.close(fd)
-            continue
-        owned.append((entry, (st.st_dev, st.st_ino),
-                      (sentinel.st_dev, sentinel.st_ino), fd))
-    owned.sort(key=lambda t: t[0].name, reverse=True)
-
-    budget = keep - (1 if protect is not None else 0)
-    if budget < 0:
-        budget = 0
     dropped, failures = [], []
-    for entry, _ident, _sentinel_ident, fd in owned[:budget]:
-        try:
-            os.close(fd)
-        except OSError as exc:
-            failures.append(f"{entry.name}: retained descriptor close failed: {exc}")
-    remover = _owned_remover_module()
-    for entry, ident, sentinel_ident, fd in owned[budget:]:
-        removed = False
-        try:
-            current_sentinel = os.stat(
-                SENTINEL, dir_fd=fd, follow_symlinks=False)
-            if ((current_sentinel.st_dev, current_sentinel.st_ino) !=
-                    sentinel_ident or
-                    not statmod.S_ISREG(current_sentinel.st_mode)):
-                failures.append(f"{entry.name}: ownership sentinel changed "
-                                "before removal")
-            else:
-                ok, reason = remover._remove_owned_dir(str(entry), ident, fd)
-                held = os.fstat(fd)
-                if (held.st_dev, held.st_ino) != ident:
-                    failures.append(
-                        f"{entry.name}: held removal identity became unknown")
-                elif not ok:
-                    failures.append(
-                        f"{entry.name}: "
-                        f"{reason or 'object-bound removal failed'}")
-                elif held.st_nlink != 0:
-                    failures.append(
-                        f"{entry.name}: owned directory was not proved unlinked")
-                else:
-                    removed = True
-        except Exception as exc:
-            failures.append(
-                f"{entry.name}: object-bound removal failed "
-                f"({type(exc).__name__}: {exc})")
-        except BaseException as exc:
+    cleanup = contextlib.ExitStack()
+    cleanup_errors = []
+
+    class HeldDirectory:
+        def __init__(self, fd, name):
+            self.fd, self.name, self.closed = fd, name, False
+
+        def close(self):
+            if self.closed:
+                return None
+            # Mark first: close(2) may report an error after releasing the
+            # number, so retrying could close an unrelated reused descriptor.
+            self.closed = True
             try:
-                os.close(fd)
-            except BaseException as close_error:
-                if hasattr(exc, "add_note"):
-                    exc.add_note(
-                        "owned descriptor close failed while propagating "
-                        f"({type(close_error).__name__}: {close_error})")
-            raise
-        try:
-            os.close(fd)
-        except OSError as exc:
+                os.close(self.fd)
+            except BaseException as error:
+                return error
+            return None
+
+    def cleanup_held(held):
+        error = held.close()
+        if error is not None:
+            cleanup_errors.append((held.name, error))
+
+    def close_now(held, phase):
+        error = held.close()
+        if error is None:
+            return True
+        failures.append(
+            f"{held.name}: {phase} descriptor close failed "
+            f"({type(error).__name__}: {error})")
+        return False
+
+    try:
+        owned = []
+        for entry in base.iterdir():
+            if not RUN_RE.match(entry.name):
+                continue
+            if protect is not None and entry.name == protect:
+                continue
+            if pathlib.Path(os.path.realpath(entry)).parent != base_real:
+                continue
+            try:
+                fd = os.open(
+                    entry, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except OSError:
+                continue
+            held = HeldDirectory(fd, entry.name)
+            cleanup.callback(cleanup_held, held)
+            try:
+                st = os.fstat(fd)
+                sentinel = os.stat(
+                    SENTINEL, dir_fd=fd, follow_symlinks=False)
+                if not statmod.S_ISREG(sentinel.st_mode):
+                    close_now(held, "unowned")
+                    continue
+            except OSError:
+                close_now(held, "unowned")
+                continue
+            owned.append((entry, (st.st_dev, st.st_ino),
+                          (sentinel.st_dev, sentinel.st_ino), held))
+        owned.sort(key=lambda t: t[0].name, reverse=True)
+
+        budget = keep - (1 if protect is not None else 0)
+        if budget < 0:
+            budget = 0
+        for _entry, _ident, _sentinel_ident, held in owned[:budget]:
+            close_now(held, "retained")
+        candidates = owned[budget:]
+        remover = _owned_remover_module() if candidates else None
+        for entry, ident, sentinel_ident, held in candidates:
             removed = False
-            failures.append(f"{entry.name}: owned descriptor close failed: {exc}")
-        if removed:
-            dropped.append(entry.name)
-    return dropped, failures
+            try:
+                current_sentinel = os.stat(
+                    SENTINEL, dir_fd=held.fd, follow_symlinks=False)
+                if ((current_sentinel.st_dev, current_sentinel.st_ino) !=
+                        sentinel_ident or
+                        not statmod.S_ISREG(current_sentinel.st_mode)):
+                    failures.append(
+                        f"{entry.name}: ownership sentinel changed before removal")
+                else:
+                    ok, reason = remover._remove_owned_dir(
+                        str(entry), ident, held.fd)
+                    terminal = os.fstat(held.fd)
+                    if (terminal.st_dev, terminal.st_ino) != ident:
+                        failures.append(
+                            f"{entry.name}: held removal identity became unknown")
+                    elif not ok:
+                        failures.append(
+                            f"{entry.name}: "
+                            f"{reason or 'object-bound removal failed'}")
+                    elif terminal.st_nlink != 0:
+                        failures.append(
+                            f"{entry.name}: owned directory was not proved unlinked")
+                    else:
+                        removed = True
+            except Exception as exc:
+                failures.append(
+                    f"{entry.name}: object-bound removal failed "
+                    f"({type(exc).__name__}: {exc})")
+            if not close_now(held, "owned"):
+                removed = False
+            if removed:
+                dropped.append(entry.name)
+        return dropped, failures
+    finally:
+        primary = sys.exception()
+        cleanup.close()
+        for name, error in cleanup_errors:
+            note = (f"{name}: retained descriptor close failed during unwind "
+                    f"({type(error).__name__}: {error})")
+            if primary is not None and hasattr(primary, "add_note"):
+                primary.add_note(note)
+            else:
+                failures.append(note)
 
 
 # --------------------------------------------------------------- execution
