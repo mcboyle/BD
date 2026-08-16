@@ -364,7 +364,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2154,
+      "line": 2155,
       "value": {
         "primary": 1,
         "secondary": 1
@@ -374,7 +374,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2195,
+      "line": 2196,
       "value": {
         "walk": 2,
         "restore": 1
@@ -384,7 +384,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2231,
+      "line": 2232,
       "value": {
         "walk": 2,
         "restore": 1
@@ -394,7 +394,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2263,
+      "line": 2267,
       "value": {
         "primary": 1,
         "close": 1
@@ -404,7 +404,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2305,
+      "line": 2309,
       "value": {
         "rmdir": 1,
         "close": 1

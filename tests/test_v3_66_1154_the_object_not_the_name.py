@@ -2119,7 +2119,8 @@ def test_recovery_baseexception_is_propagated_after_primary_failure(
     assert subject.failure_is_accounted_for(d)
 
 
-@pytest.mark.parametrize("secondary_type", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("secondary_type", [OSError, KeyboardInterrupt,
+                                              SystemExit, MemoryError])
 def test_primary_memoryerror_survives_secondary_recovery_interrupt(
         subject, secondary_type):
     d = subject.make(); child = os.path.join(d, "child"); os.mkdir(child); _payload(child)
@@ -2235,7 +2236,10 @@ def test_top_primary_memoryerror_survives_restoration_control_exception(
     assert subject.failure_is_accounted_for(d)
 
 
-def test_tmproot_release_close_cannot_replace_primary_memoryerror(subject):
+@pytest.mark.parametrize("secondary_type", [OSError, KeyboardInterrupt,
+                                              SystemExit, MemoryError])
+def test_tmproot_release_close_cannot_replace_primary_memoryerror(
+        subject, secondary_type):
     if subject.name != "_tmproot":
         pytest.skip("_release_root_fd is _tmproot-specific")
     d = subject.make(); root_fd = subject.m._ROOT_FD
@@ -2250,7 +2254,7 @@ def test_tmproot_release_close_cannot_replace_primary_memoryerror(subject):
         result = real_close(fd)
         if fd == root_fd and fired["close"] == 0:
             fired["close"] += 1
-            raise OSError(errno.EIO, "injected tmproot release close failure")
+            raise secondary_type("injected tmproot release close failure")
         return result
 
     subject.m._force_rmtree, os.close = primary, close_failure
