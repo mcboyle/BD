@@ -788,6 +788,50 @@ def test_a_directory_left_behind_is_left_no_less_protected(subject, where):
     subprocess.run(["chmod", "-R", "u+rwx", d], capture_output=True)
 
 
+def test_child_open_denial_restores_the_validated_private_rename(subject):
+    """A child renamed for descriptor-bound removal must be put back if its
+    descriptor cannot be acquired.  The injection follows the child's inode,
+    so the private rename cannot make the denominator disappear."""
+    d = subject.make()
+    child = os.path.join(d, "child")
+    payload = os.path.join(child, "payload")
+    os.mkdir(child)
+    with open(payload, "wb") as f:
+        f.write(b"child-open payload")
+    child_ident = _ident(child)
+    real_open, fired = os.open, {"n": 0}
+
+    def deny_child_open(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is not None and ".bdrm-" in os.fsdecode(path):
+            try:
+                st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+            except OSError:
+                pass
+            else:
+                if (st.st_dev, st.st_ino) == child_ident:
+                    fired["n"] += 1
+                    raise PermissionError(errno.EACCES,
+                                          "injected child-open denial")
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    os.open = deny_child_open
+    try:
+        got = subject.discard(d)
+    finally:
+        os.open = real_open
+
+    assert fired["n"] >= 1, (
+        "the recorded child identity was never denied after its private rename")
+    assert got is False
+    assert _ident(child) == child_ident
+    with open(payload, "rb") as f:
+        assert f.read() == b"child-open payload"
+    assert not any(name.startswith("child.bdrm-") for name in os.listdir(d)), (
+        "the failed descriptor acquisition stranded a private child name")
+    assert subject.failure_is_accounted_for(d)
+    assert "injected child-open denial" in subject.reason(d), subject.reason(d)[-300:]
+
+
 # ==========================================================================
 # NOTHING ESCAPES, AND NOTHING IS LOST.
 # ==========================================================================

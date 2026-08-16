@@ -1201,8 +1201,12 @@ def _rmtree_fd(fd, dev, depth=0):
         if not stat.S_ISDIR(st.st_mode):
             os.unlink(priv, dir_fd=fd)
             continue
-        child = os.open(priv, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                        dir_fd=fd)
+        try:
+            child = os.open(priv, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+        except BaseException:
+            _put_back(priv, entry.name, fd)
+            raise
         try:
             cst = os.fstat(child)
             if (cst.st_dev, cst.st_ino) != want:
