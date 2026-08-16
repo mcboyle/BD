@@ -173,8 +173,13 @@ def test_replaced_ownership_sentinel_blocks_destructive_removal(tmp_path, mod, m
     def replace_sentinel_after_inspection():
         fired["loader"] += 1
         sentinel = doomed / mod.SENTINEL
-        sentinel.unlink()
+        original = doomed / "sentinel-owned-original"
+        sentinel.rename(original)
         sentinel.write_text("foreign replacement\n", encoding="utf-8")
+        old_st = os.lstat(original)
+        new_st = os.lstat(sentinel)
+        assert (old_st.st_dev, old_st.st_ino) != (new_st.st_dev, new_st.st_ino), (
+            "fixture did not create a distinct sentinel identity")
         assert real_loader() is not None
         return ForbiddenRemover
 
