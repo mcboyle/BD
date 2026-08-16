@@ -1,0 +1,156 @@
+"""Row 149: fleet retention removes the inspected object, never a pathname heir."""
+
+import importlib.machinery
+import importlib.util
+import os
+import pathlib
+
+import pytest
+
+
+BD_GATE_SCOPE = "module"
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+TOOL = REPO / "toolchain" / "bin" / "bd-fleet-run"
+
+
+def _load():
+    loader = importlib.machinery.SourceFileLoader("bd_fleet_run_1159", str(TOOL))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def _run(base, name, module, payload="owned"):
+    path = base / name
+    path.mkdir()
+    (path / module.SENTINEL).write_text("owned\n", encoding="utf-8")
+    (path / "payload").write_text(payload, encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def mod():
+    return _load()
+
+
+def test_success_is_proved_on_the_inspected_directory_descriptor(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    doomed = _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    expected = os.lstat(doomed)
+    remover = mod._owned_remover_module()
+    real_remove = remover._remove_owned_dir
+    observed = {"calls": 0, "identity": None, "links": None}
+
+    def recording_remove(path, identity, held_fd):
+        observed["calls"] += 1
+        held = os.fstat(held_fd)
+        observed["identity"] = (held.st_dev, held.st_ino)
+        answer = real_remove(path, identity, held_fd)
+        observed["links"] = os.fstat(held_fd).st_nlink
+        return answer
+
+    monkeypatch.setattr(remover, "_remove_owned_dir", recording_remove)
+    dropped, failures = mod.prune(base, 1)
+
+    assert observed["calls"] == 1, "the object-bound removal seam did not fire"
+    assert observed["identity"] == (expected.st_dev, expected.st_ino)
+    assert observed["links"] == 0, "success was not proved on the held inode"
+    assert dropped == [doomed.name]
+    assert failures == []
+
+
+def test_name_replacement_cannot_delete_foreign_or_claim_owned_removal(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    doomed = _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    displaced = base / "displaced-owned"
+    expected = os.lstat(doomed)
+    held_fd = os.open(doomed, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    remover = mod._owned_remover_module()
+    real_walk = remover._rmtree_fd
+    fired = {"count": 0}
+
+    def replace_before_bound_walk(fd, device, depth=0):
+        if depth == 0:
+            fired["count"] += 1
+            os.rename(doomed, displaced)
+            doomed.mkdir()
+            (doomed / "foreign").write_text("must survive", encoding="utf-8")
+        return real_walk(fd, device, depth)
+
+    monkeypatch.setattr(remover, "_rmtree_fd", replace_before_bound_walk)
+    try:
+        dropped, failures = mod.prune(base, 1)
+        links = os.fstat(held_fd).st_nlink
+    finally:
+        os.close(held_fd)
+
+    assert fired["count"] == 1, "the replacement injection did not fire"
+    assert (expected.st_dev, expected.st_ino) == (
+        os.lstat(displaced).st_dev, os.lstat(displaced).st_ino)
+    assert links != 0, "the retained owned directory was unexpectedly removed"
+    assert (doomed / "foreign").read_text(encoding="utf-8") == "must survive"
+    assert doomed.name not in dropped
+    assert any(doomed.name in failure and "foreign" in failure.lower()
+               for failure in failures), failures
+
+
+def test_a_remover_success_claim_without_terminal_unlink_is_unknown(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    doomed = _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    remover = mod._owned_remover_module()
+    fired = {"count": 0}
+
+    def lying_remove(path, identity, held_fd):
+        fired["count"] += 1
+        assert pathlib.Path(path) == doomed
+        assert os.fstat(held_fd).st_nlink != 0
+        return True, None
+
+    monkeypatch.setattr(remover, "_remove_owned_dir", lying_remove)
+    dropped, failures = mod.prune(base, 1)
+
+    assert fired["count"] == 1, "the false-success injection did not fire"
+    assert doomed.is_dir()
+    assert doomed.name not in dropped
+    assert any(doomed.name in failure and "unlinked" in failure.lower()
+               for failure in failures), failures
+
+
+def test_dangling_symlink_replacement_cannot_become_success(tmp_path, mod, monkeypatch):
+    base = tmp_path / "runs"
+    base.mkdir()
+    _run(base, "20260102T000000Z-aaaaaaaa", mod)
+    doomed = _run(base, "20250101T000000Z-bbbbbbbb", mod)
+    displaced = base / "displaced-owned"
+    held_fd = os.open(doomed, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    remover = mod._owned_remover_module()
+    real_walk = remover._rmtree_fd
+    fired = {"count": 0}
+
+    def replace_with_dangling_link(fd, device, depth=0):
+        if depth == 0:
+            fired["count"] += 1
+            os.rename(doomed, displaced)
+            os.symlink(base / "absent-target", doomed)
+        return real_walk(fd, device, depth)
+
+    monkeypatch.setattr(remover, "_rmtree_fd", replace_with_dangling_link)
+    try:
+        dropped, failures = mod.prune(base, 1)
+        links = os.fstat(held_fd).st_nlink
+    finally:
+        os.close(held_fd)
+
+    assert fired["count"] == 1, "the dangling-link injection did not fire"
+    assert doomed.is_symlink(), "the foreign dangling symlink was mutated"
+    assert links != 0, "the renamed owned directory was laundered into success"
+    assert doomed.name not in dropped
+    assert any("foreign" in failure.lower() for failure in failures), failures
