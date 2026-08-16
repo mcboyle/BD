@@ -106,7 +106,7 @@ class _Subject:
     def make(self):        raise NotImplementedError
     def discard(self, d):  raise NotImplementedError
     def reason(self, d):   raise NotImplementedError
-    def registered(self, d): raise NotImplementedError
+    def failure_is_accounted_for(self, d): raise NotImplementedError
     def reset(self):       pass
 
 
@@ -120,7 +120,7 @@ class _BdCut(_Subject):
     def reason(self, d):
         return str(self.m._LAST_DISCARD_ERROR.get(d) or "")
 
-    def registered(self, d):
+    def failure_is_accounted_for(self, d):
         return d in self.m._TEMPDIRS
 
     def reset(self):
@@ -148,7 +148,7 @@ class _Footguns(_Subject):
     def reason(self, d):
         return getattr(self, "_err", io.StringIO()).getvalue()
 
-    def registered(self, d):
+    def failure_is_accounted_for(self, d):
         return d in self.m._SANDBOX_IDENT
 
     def reset(self):
@@ -190,8 +190,8 @@ class _TmpRoot(_Subject):
     def reason(self, d):
         return getattr(self, "_err", io.StringIO()).getvalue()
 
-    def registered(self, d):
-        return self.m.failed_root() is not None
+    def failure_is_accounted_for(self, d):
+        return self.m.failed_root() == d
 
     def reset(self):
         saved = getattr(self, "_saved", None)
@@ -261,6 +261,30 @@ def subject(request):
             for sib in siblings:
                 if sib.startswith(base) and ".bdrm-" in sib:
                     _force_rm(os.path.join(parent, sib))
+
+
+def test_tmproot_failed_path_accounting_is_exact(tmp_path):
+    """A failure recorded for one root must not account for another path."""
+    sys.path.insert(0, str(REPO / "tests"))
+    try:
+        import _tmproot as t
+    finally:
+        sys.path.pop(0)
+    recorded = str(tmp_path / "recorded-root")
+    unrelated = str(tmp_path / "unrelated-root")
+    saved = t._LAST_FAILURE
+    try:
+        t._LAST_FAILURE = recorded
+        adapter = _TmpRoot("_tmproot", t)
+        assert t.failed_root() == recorded, (
+            "fixture: no exact failed root was recorded, so the adapter "
+            "assertions have an empty denominator")
+        assert adapter.failure_is_accounted_for(recorded)
+        assert not adapter.failure_is_accounted_for(unrelated), (
+            "an unrelated path matched merely because some _tmproot failure "
+            "was recorded")
+    finally:
+        t._LAST_FAILURE = saved
 
 
 def _payload(d, name="loot.txt", body="DO NOT DELETE"):
@@ -488,7 +512,7 @@ def test_an_owned_directory_renamed_away_is_a_reported_failure(subject):
             "nothing at the recorded path -- was reported as successfully "
             "removed")
         assert R_RENAMED in subject.reason(d), subject.reason(d)[-300:]
-        assert subject.registered(d), (
+        assert subject.failure_is_accounted_for(d), (
             "an unaccounted-for directory was unregistered, destroying the "
             "only record that it exists")
     finally:
@@ -542,7 +566,7 @@ def test_a_clean_owned_directory_is_still_removed(subject):
     got = subject.discard(d)
     assert got is True, subject.reason(d)[-300:]
     assert not os.path.lexists(d)
-    assert not subject.registered(d)
+    assert not subject.failure_is_accounted_for(d)
 
 
 def test_a_removal_that_took_the_wrong_object_refuses(subject):
