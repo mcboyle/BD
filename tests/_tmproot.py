@@ -282,6 +282,18 @@ def _put_back(priv, name, fd):
                 % (type(_e).__name__, _e, priv))
 
 
+def _recover_private(priv, name, fd, error):
+    """Undo a private rename, preserving both the first error and any failure
+    to restore the public name."""
+    diagnostic = _put_back(priv, name, fd)
+    if not isinstance(error, Exception):
+        raise error
+    if diagnostic != " (it was put back untouched)":
+        raise _Refused(R_UNPROVEN, "%s: %s%s" %
+                       (type(error).__name__, error, diagnostic)) from error
+    raise error
+
+
 def _walk_failed(e):
     """A walk that could not finish is INCOMPLETE, not finished-and-clean.
 
@@ -344,7 +356,10 @@ def _rmtree_fd(fd, dev, depth=0):
             _rename_noclobber(entry.name, priv, fd)
         except FileNotFoundError:
             continue          # listed, then vanished: not ours to account for
-        st = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        try:
+            st = os.stat(priv, dir_fd=fd, follow_symlinks=False)
+        except BaseException as e:
+            _recover_private(priv, entry.name, fd, e)
         if (st.st_dev, st.st_ino) != want:
             raise _Refused(R_FOREIGN,
                            "%r is not the object this walk listed there%s"
@@ -352,19 +367,42 @@ def _rmtree_fd(fd, dev, depth=0):
         if not stat.S_ISDIR(st.st_mode):
             os.unlink(priv, dir_fd=fd)
             continue
+        anchor = child = None
+        relaxed = False
         try:
-            child = os.open(priv, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=fd)
-        except BaseException:
-            _put_back(priv, entry.name, fd)
-            raise
-        try:
+            anchor = os.open(priv, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW,
+                             dir_fd=fd)
+            ast = os.fstat(anchor)
+            if (ast.st_dev, ast.st_ino) != want:
+                raise _Refused(R_FOREIGN,
+                               "%r changed identity between the rename and "
+                               "the anchor" % entry.name)
+            was = stat.S_IMODE(ast.st_mode)
+            bound = "/proc/self/fd/%d" % anchor
+            try:
+                child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
+            except PermissionError:
+                os.chmod(bound, 0o700)
+                relaxed = True
+                child = os.open(bound, os.O_RDONLY | os.O_DIRECTORY)
             cst = os.fstat(child)
             if (cst.st_dev, cst.st_ino) != want:
                 raise _Refused(R_FOREIGN,
-                               "%r changed identity between the rename and "
-                               "the open" % entry.name)
-            was, relaxed = stat.S_IMODE(cst.st_mode), False
+                               "%r changed identity between the anchor and "
+                               "the readable descriptor" % entry.name)
+        except BaseException as e:
+            if relaxed and anchor is not None:
+                try:
+                    os.chmod("/proc/self/fd/%d" % anchor, was)
+                except OSError:
+                    pass
+            if child is not None:
+                os.close(child)
+            if anchor is not None:
+                os.close(anchor)
+            _recover_private(priv, entry.name, fd, e)
+        os.close(anchor)
+        try:
             try:
                 try:
                     _rmtree_fd(child, cst.st_dev, depth + 1)
@@ -382,7 +420,7 @@ def _rmtree_fd(fd, dev, depth=0):
                     raise _Refused(R_UNPROVEN,
                                    "the entry removed for %r was not the "
                                    "object held open" % entry.name)
-            except BaseException:
+            except BaseException as e:
                 if relaxed:
                     try:
                         os.fchmod(child, was)
@@ -392,8 +430,7 @@ def _rmtree_fd(fd, dev, depth=0):
                 # for the duration of the destroy; a failure that leaves it in
                 # place renames a directory inside a tree we are about to
                 # report as leaked, so the report and the disk disagree.
-                _put_back(priv, entry.name, fd)
-                raise
+                _recover_private(priv, entry.name, fd, e)
         finally:
             os.close(child)
 

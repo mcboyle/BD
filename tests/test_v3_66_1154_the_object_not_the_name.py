@@ -832,6 +832,161 @@ def test_child_open_denial_restores_the_validated_private_rename(subject):
     assert "injected child-open denial" in subject.reason(d), subject.reason(d)[-300:]
 
 
+@pytest.mark.parametrize("mode", [0o000, 0o100, 0o200])
+def test_an_unreadable_owned_child_is_removed_by_object_identity(subject, mode):
+    d = subject.make()
+    child = os.path.join(d, "child")
+    os.mkdir(child)
+    _payload(child)
+    child_ident = _ident(child)
+    os.chmod(child, mode)
+    try:
+        fd = os.open(child, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except PermissionError as e:
+        assert e.errno == errno.EACCES
+    else:
+        os.close(fd)
+        pytest.fail(f"ordinary directory open was not denied at mode {mode:#05o}")
+
+    got = subject.discard(d)
+
+    assert got is True, subject.reason(d)[-300:]
+    assert not os.path.lexists(child)
+    assert not subject.failure_is_accounted_for(d)
+    assert child_ident is not None
+
+
+def test_post_rename_stat_failure_restores_the_owned_child(subject):
+    d = subject.make()
+    child = os.path.join(d, "child")
+    payload = os.path.join(child, "payload")
+    os.mkdir(child)
+    with open(payload, "wb") as f:
+        f.write(b"stat-denial payload")
+    child_ident = _ident(child)
+    real_stat, fired = os.stat, {"n": 0}
+
+    def deny_private_stat(path, *args, **kwargs):
+        dir_fd = kwargs.get("dir_fd")
+        if dir_fd is not None and ".bdrm-" in os.fsdecode(path):
+            st = real_stat(path, *args, **kwargs)
+            if (st.st_dev, st.st_ino) == child_ident:
+                fired["n"] += 1
+                raise PermissionError(errno.EACCES,
+                                      "injected post-rename stat denial")
+            return st
+        return real_stat(path, *args, **kwargs)
+
+    os.stat = deny_private_stat
+    try:
+        got = subject.discard(d)
+    finally:
+        os.stat = real_stat
+
+    assert fired["n"] >= 1, "the recorded private child was never denied stat"
+    assert got is False
+    assert _ident(child) == child_ident
+    with open(payload, "rb") as f:
+        assert f.read() == b"stat-denial payload"
+    assert not any(name.startswith("child.bdrm-") for name in os.listdir(d))
+    assert subject.failure_is_accounted_for(d)
+    assert "injected post-rename stat denial" in subject.reason(d), subject.reason(d)[-300:]
+
+
+def test_child_open_denial_reports_a_foreign_original_and_private_owned_child(subject):
+    d = subject.make()
+    child = os.path.join(d, "child")
+    owned_payload = os.path.join(child, "owned-payload")
+    os.mkdir(child)
+    with open(owned_payload, "wb") as f:
+        f.write(b"owned child")
+    owned_ident = _ident(child)
+    real_open, fired, foreign = os.open, {"n": 0}, {}
+
+    def deny_after_foreign_arrives(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is not None and ".bdrm-" in os.fsdecode(path):
+            st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+            if (st.st_dev, st.st_ino) == owned_ident:
+                fired["n"] += 1
+                if not foreign:
+                    os.mkdir("child", dir_fd=dir_fd)
+                    foreign_fd = real_open("child/foreign-payload",
+                                           os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                           0o600, dir_fd=dir_fd)
+                    try:
+                        os.write(foreign_fd, b"foreign child")
+                    finally:
+                        os.close(foreign_fd)
+                    fst = os.stat("child", dir_fd=dir_fd, follow_symlinks=False)
+                    foreign["ident"] = (fst.st_dev, fst.st_ino)
+                raise PermissionError(errno.EACCES,
+                                      "injected child-open denial with foreign original")
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    os.open = deny_after_foreign_arrives
+    try:
+        got = subject.discard(d)
+    finally:
+        os.open = real_open
+
+    assert fired["n"] >= 1, "the recorded private child was never denied open"
+    assert foreign, "the foreign replacement was never created"
+    assert got is False
+    assert _ident(child) == foreign["ident"]
+    with open(os.path.join(child, "foreign-payload"), "rb") as f:
+        assert f.read() == b"foreign child"
+    private = [name for name in os.listdir(d) if name.startswith("child.bdrm-")]
+    assert len(private) == 1, private
+    private_path = os.path.join(d, private[0])
+    assert _ident(private_path) == owned_ident
+    with open(os.path.join(private_path, "owned-payload"), "rb") as f:
+        assert f.read() == b"owned child"
+    assert subject.failure_is_accounted_for(d)
+    why = subject.reason(d)
+    assert "injected child-open denial with foreign original" in why, why[-400:]
+    assert private[0] in why, why[-400:]
+
+
+def test_failure_after_unreadable_child_relaxation_restores_exact_mode(subject):
+    d = subject.make()
+    child = os.path.join(d, "child")
+    os.mkdir(child)
+    _payload(child)
+    child_ident, original_mode = _ident(child), 0o100
+    os.chmod(child, original_mode)
+    try:
+        fd = os.open(child, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except PermissionError as e:
+        assert e.errno == errno.EACCES
+    else:
+        os.close(fd)
+        pytest.fail("ordinary directory open was not denied before relaxation")
+    real_scandir, fired, observed_modes = os.scandir, {"n": 0}, []
+
+    def fail_object_bound_walk(path):
+        if isinstance(path, int):
+            st = os.fstat(path)
+            if (st.st_dev, st.st_ino) == child_ident:
+                fired["n"] += 1
+                observed_modes.append(stat.S_IMODE(st.st_mode))
+                raise OSError(errno.EIO, "injected failure after child relaxation")
+        return real_scandir(path)
+
+    os.scandir = fail_object_bound_walk
+    try:
+        got = subject.discard(d)
+    finally:
+        os.scandir = real_scandir
+
+    assert fired["n"] >= 1, "the relaxed child descriptor never reached the walk"
+    assert all(mode == 0o700 for mode in observed_modes), observed_modes
+    assert got is False
+    assert _ident(child) == child_ident
+    assert stat.S_IMODE(os.lstat(child).st_mode) == original_mode
+    assert subject.failure_is_accounted_for(d)
+    assert "injected failure after child relaxation" in subject.reason(d), subject.reason(d)[-300:]
+
+
 # ==========================================================================
 # NOTHING ESCAPES, AND NOTHING IS LOST.
 # ==========================================================================
