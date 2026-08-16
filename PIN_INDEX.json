@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 65,
+    "total": 69,
     "version": 1,
-    "count_dict": 64,
+    "count_dict": 68,
     "test_files_scanned": 1362,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -39,7 +39,7 @@
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
-      "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 7,
+      "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 11,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -415,7 +415,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 108,
+      "line": 118,
       "value": {
         "vite": 1,
         "remove": 1
@@ -425,7 +425,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 142,
+      "line": 161,
       "value": {
         "vite": 1,
         "partial": 1
@@ -435,7 +435,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 159,
+      "line": 178,
       "value": {
         "vite": 1
       },
@@ -444,7 +444,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 182,
+      "line": 201,
       "value": {
         "vite": 1
       },
@@ -453,7 +453,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 198,
+      "line": 217,
       "value": {
         "vite": 1
       },
@@ -462,7 +462,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 224,
+      "line": 243,
       "value": {
         "vite": 1
       },
@@ -471,12 +471,49 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-      "line": 260,
+      "line": 280,
       "value": {
         "vite": 1,
         "publish": 1
       },
       "gates_what": "test_concurrent_dist_replacement_is_not_clobbered_at_publish"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 311,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_attempt_path_replacement_cannot_publish_foreign_output"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 343,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_unreadable_attempt_files_are_not_published"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 363,
+      "value": {
+        "vite": 1
+      },
+      "gates_what": "test_publish_refuses_when_kernel_no_clobber_is_unavailable"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
+      "line": 386,
+      "value": {
+        "vite": 1,
+        "mount": 2
+      },
+      "gates_what": "test_dist_on_another_mount_is_refused_before_removal"
     },
     {
       "form": "count_dict",

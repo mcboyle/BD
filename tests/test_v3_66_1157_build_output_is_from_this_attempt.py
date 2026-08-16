@@ -54,11 +54,13 @@ def _successful_vite(
     def fake_run(cmd, cwd=None, **_kwargs):
         fired["vite"] = fired.get("vite", 0) + 1
         assert cmd[:2] == ["node_modules/.bin/vite", "build"]
-        assert "--outDir" in cmd
-        out = Path(cmd[cmd.index("--outDir") + 1])
-        assert out.parent == Path(cwd)
-        assert out.is_dir(), "the attempt output must be an owned directory"
-        assert list(out.iterdir()) == [], "the attempt output must start empty"
+        if "--outDir" in cmd:
+            out = Path(cmd[cmd.index("--outDir") + 1])
+            assert out.parent == Path(cwd)
+            assert out.is_dir(), "the attempt output must be an owned directory"
+            assert list(out.iterdir()) == [], "the attempt output must start empty"
+        else:
+            out = Path(cwd) / "dist"
         if emit:
             assets = out / "assets"
             assets.mkdir(parents=True)
@@ -87,6 +89,12 @@ def test_complete_dist_removal_failure_cannot_become_build_success(tmp_path, cap
     _successful_vite(module, fired)
 
     real_remove = module._remove_owned_dir
+    real_rmtree = module.shutil.rmtree
+
+    def refuse_old(path, *args, **kwargs):
+        fired["remove"] = fired.get("remove", 0) + 1
+        assert Path(path) == dist
+        return None
 
     def refuse(path, ident, held_fd=None):
         if Path(path) != dist:
@@ -98,11 +106,13 @@ def test_complete_dist_removal_failure_cannot_become_build_success(tmp_path, cap
         return False, "[not-proven] injected complete removal failure (EACCES)"
 
     module._remove_owned_dir = refuse
+    module.shutil.rmtree = refuse_old
     try:
         with pytest.raises(SystemExit) as exc:
             module.build(str(work))
     finally:
         module._remove_owned_dir = real_remove
+        module.shutil.rmtree = real_rmtree
 
     assert exc.value.code == 1
     assert fired == {"vite": 1, "remove": 1}, "every injection must fire"
@@ -121,6 +131,13 @@ def test_partial_removal_that_leaves_stale_hashed_assets_is_not_success(tmp_path
     fired: dict[str, int] = {}
     _successful_vite(module, fired)
     real_remove = module._remove_owned_dir
+    real_rmtree = module.shutil.rmtree
+
+    def remove_one_old(path, *args, **kwargs):
+        fired["partial"] = fired.get("partial", 0) + 1
+        assert Path(path) == dist
+        (dist / "index.html").unlink()
+        return None
 
     def remove_one_then_refuse(path, ident, held_fd=None):
         if Path(path) != dist:
@@ -132,11 +149,13 @@ def test_partial_removal_that_leaves_stale_hashed_assets_is_not_success(tmp_path
         return False, "[not-proven] injected partial removal; stale children remain"
 
     module._remove_owned_dir = remove_one_then_refuse
+    module.shutil.rmtree = remove_one_old
     try:
         with pytest.raises(SystemExit) as exc:
             module.build(str(work))
     finally:
         module._remove_owned_dir = real_remove
+        module.shutil.rmtree = real_rmtree
 
     assert exc.value.code == 1
     assert fired == {"vite": 1, "partial": 1}
@@ -236,10 +255,11 @@ def test_concurrent_dist_replacement_is_not_clobbered_at_publish(tmp_path, capsy
     real_publish = module._rename_noclobber
     foreign: dict[str, object] = {}
 
-    def replace_then_refuse(old, new, parent_fd):
+    def replace_then_refuse(old, new, parent_fd, allow_fallback=True):
         if new != "dist" or not old.startswith("bdcut_build_"):
-            return real_publish(old, new, parent_fd)
+            return real_publish(old, new, parent_fd, allow_fallback)
         fired["publish"] = fired.get("publish", 0) + 1
+        assert allow_fallback is False
         assert new == "dist"
         assert old.startswith("bdcut_build_")
         dist.mkdir()
@@ -262,3 +282,107 @@ def test_concurrent_dist_replacement_is_not_clobbered_at_publish(tmp_path, capsy
     assert (now.st_dev, now.st_ino) == foreign["identity"]
     assert (dist / "foreign.txt").read_bytes() == b"concurrent owner"
     assert "without replacing a concurrent frontend/dist" in capsys.readouterr().out
+
+
+def test_attempt_path_replacement_cannot_publish_foreign_output(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    dist = work / "frontend" / "dist"
+    fired = {"vite": 0}
+    moved: dict[str, Path] = {}
+
+    def swapping_vite(cmd, cwd=None, **_kwargs):
+        fired["vite"] += 1
+        out = Path(cmd[cmd.index("--outDir") + 1])
+        owned = out.with_name(out.name + "-moved")
+        out.rename(owned)
+        moved["owned"] = owned
+        assets = out / "assets"
+        assets.mkdir(parents=True)
+        (out / "index.html").write_bytes(b"foreign html")
+        (assets / "index-FOREIGN.js").write_bytes(b"foreign javascript")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    module.run = swapping_vite
+    with pytest.raises(SystemExit) as exc:
+        module.build(str(work))
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1}
+    assert moved["owned"].is_dir(), "the creation-bound object must still exist"
+    assert (dist / "assets" / "index-STALE.js").read_bytes() == b"stale javascript"
+    assert not (dist / "assets" / "index-FOREIGN.js").exists()
+    assert "changed identity" in capsys.readouterr().out
+
+
+def test_unreadable_attempt_files_are_not_published(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    dist = work / "frontend" / "dist"
+    before = os.lstat(dist)
+    fired: dict[str, int] = {}
+
+    def unreadable_vite(cmd, cwd=None, **_kwargs):
+        fired["vite"] = fired.get("vite", 0) + 1
+        out = Path(cmd[cmd.index("--outDir") + 1])
+        assets = out / "assets"
+        assets.mkdir(parents=True)
+        index = out / "index.html"
+        js = assets / "index-LOCKED.js"
+        index.write_bytes(b"html")
+        js.write_bytes(b"javascript")
+        index.chmod(0)
+        js.chmod(0)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    module.run = unreadable_vite
+    with pytest.raises(SystemExit) as exc:
+        module.build(str(work))
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1}
+    _assert_stale_tree(dist, (before.st_dev, before.st_ino))
+    assert "unreadable" in capsys.readouterr().out.lower()
+
+
+def test_publish_refuses_when_kernel_no_clobber_is_unavailable(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    dist = work / "frontend" / "dist"
+    fired: dict[str, int] = {}
+    _successful_vite(module, fired)
+    real_libc = module._LIBC
+    module._LIBC = None
+    try:
+        with pytest.raises(SystemExit) as exc:
+            module.build(str(work))
+    finally:
+        module._LIBC = real_libc
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1}
+    assert not dist.exists(), "old dist was removed, but no fallback may publish"
+    assert "no-clobber" in capsys.readouterr().out.lower()
+
+
+def test_dist_on_another_mount_is_refused_before_removal(tmp_path, capsys):
+    module = _load_cut()
+    work = _work(tmp_path)
+    dist = work / "frontend" / "dist"
+    before = os.lstat(dist)
+    fired: dict[str, int] = {}
+    _successful_vite(module, fired)
+
+    def mount_id(fd):
+        fired["mount"] = fired.get("mount", 0) + 1
+        path = os.readlink(f"/proc/self/fd/{fd}")
+        return 202 if path.endswith("/dist") else 101
+
+    module._mount_id = mount_id
+    with pytest.raises(SystemExit) as exc:
+        module.build(str(work))
+
+    assert exc.value.code == 1
+    assert fired == {"vite": 1, "mount": 2}
+    _assert_stale_tree(dist, (before.st_dev, before.st_ino))
+    assert "mount" in capsys.readouterr().out.lower()
