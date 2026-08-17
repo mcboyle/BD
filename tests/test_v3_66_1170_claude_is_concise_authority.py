@@ -203,6 +203,9 @@ def test_helpers_fail_closed_on_duplicate_missing_renamed_and_dangling(tmp_path:
 
     tracked = _tracked_paths(root)
     assert len(tracked) == 4
+    assert os.path.lexists(dangling) and not dangling.exists()
+    assert "toolchain/bin/bd-contract-rules" in invocation.read_text(encoding="utf-8")
+    assert "Read this first in a fresh conversation" in renamed.read_text(encoding="utf-8")
     assert RETIRED[1] in _retired_residue(root, tracked)
     assert _retired_references(root, tracked)[RETIRED[0]] == ["README.md"]
     assert _current_agent_surfaces(root, tracked) == ["AGENT_START.txt"]
