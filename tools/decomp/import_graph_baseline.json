@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3844,
+  "edge_count": 3843,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2139,9 +2139,6 @@
     ],
     "tests/test_app_semantic_search.py": [
       "bulk_downloader/app_semantic_search.py"
-    ],
-    "tests/test_architecture_inventory.py": [
-      "tools/architecture_inventory.py"
     ],
     "tests/test_audit_f2_p13a.py": [
       "bulk_downloader/template_manager.py",

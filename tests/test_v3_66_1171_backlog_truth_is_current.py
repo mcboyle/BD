@@ -211,6 +211,9 @@ def test_audit_completion_ledger_is_an_exact_non_circular_census() -> None:
     assert len(scanned) == 72
     recorded = set(payload["finding_ids"])
     assert recorded == scanned
+    assigned = [finding for row in batches for finding in row["finding_ids"]]
+    assert len(assigned) == len(set(assigned)) == 72
+    assert set(assigned) == recorded
     assert payload["legacy_finding_ids"] == ["F0001"]
 
     aliases = payload["batch_aliases"]
@@ -227,6 +230,16 @@ def test_audit_completion_ledger_is_an_exact_non_circular_census() -> None:
     assert all(row["completion_verdict"] in {"unknown", "partial_unknown"} for row in batches)
     assert sum(row["evidence_class"] == "artifact_backed" for row in batches) == 2
     assert sum(row["evidence_class"] == "no_surviving_evidence" for row in batches) == 19
+    for row in batches:
+        if row["evidence_class"] == "artifact_backed":
+            assert row["artifacts"] and row["finding_ids"]
+            assert all((ROOT / artifact).is_file() for artifact in row["artifacts"])
+        elif row["evidence_class"] == "finding_citations_only":
+            assert not row["artifacts"] and row["finding_ids"]
+        else:
+            assert row["evidence_class"] == "no_surviving_evidence"
+            assert not row["artifacts"] and not row["finding_ids"]
+            assert row["completion_verdict"] == "unknown"
 
 
 def test_strict_json_rejects_duplicate_machine_evidence(tmp_path: Path) -> None:
@@ -249,7 +262,12 @@ def test_code_intelligence_documents_describe_current_tools() -> None:
     assert "bd-coverage-map remains\n`[PLANNED]`" not in program
     assert "differential_oracle.py` `[PLANNED]`" not in architecture
     assert "differential_oracle` above remain genuinely\n  unbuilt" not in architecture
-    assert "differential_oracle` is the\n  live standalone frontend" in architecture
+    assert "**`differential_oracle`** `[LIVE as tools/differential_oracle.py]`" in architecture
+    assert "bd-finding` and `bd-invariant` command names are absent" in architecture
+    assert "auto-emits a RED-test stub" not in architecture
+    assert "`bd-audit-gate`** `[BUILT, STANDALONE]`" in architecture
+    assert "blocks the build" not in architecture
+    assert "does not run `semantic_diff`" in architecture
     for absent in ("bd-review-next", "bd-finding", "bd-invariant", "bd-dup"):
         assert absent in program
     assert "standalone" in frontends.lower()
