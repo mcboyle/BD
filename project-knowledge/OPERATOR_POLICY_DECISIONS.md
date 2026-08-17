@@ -16,16 +16,14 @@
 
 ---
 
-## Consequence 1 — A0 (verified backup) becomes the FIRST build item
+## Consequence 1 — autonomous writes remain backup-and-restore gated
 
-L2 "act" = an autonomous write, and the standing rule is *every autonomous write must be
-backed-up-and-restorable first*. A0 is currently PARTIAL, so **L2 is the target but not yet safe to
-run**; BD operates effectively at L1 (stage + confirm) until A0 lands.
-
-- The L0–L4 autonomy dial is set to L2. A0 is the explicit unlock for L2;
-  auto-refresh and auto-promote remain A0-gated.
-- **Action:** build **A0+ verified backup** (restore-and-assert into scratch before the write) first.
-  Nothing at L2 runs before it.
+L2 "act" means an autonomous write, so every write must remain recoverable.
+The gold backup/restore keystone, drift-gated refresh and repair, quarantine,
+promotion, and supervised controller are implemented and default OFF. The
+master off-switch dominates every controller run. Auto-refresh and
+auto-promote may run only for already-approved hosts after the keystone proves
+the current gold can be restored; an unknown or failed proof routes to review.
 
 ## Consequence 2 — local redaction = floor-only → scrubber mandatory on share; Phase C parked
 

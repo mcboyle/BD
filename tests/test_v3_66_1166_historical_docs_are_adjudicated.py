@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
 
 BD_GATE_SCOPE = "repo-wide"
 ROOT = Path(__file__).resolve().parents[1]
+_ROW = re.compile(r"^\|\s*\d+\s*\|\s*(?P<status>[A-Z]+)[^|]*\|\s*(?P<text>.+?)\s*\|\s*$")
 
 HISTORICAL_KEEP = {
     "docs/archive/2026-07-22-doc-hygiene/README.md",
@@ -78,25 +80,53 @@ def test_removed_document_names_cannot_survive_as_dangling_paths():
     assert not returned_archive, f"retired archive paths returned: {returned_archive}"
 
 
-def test_live_residuals_are_owned_by_the_canonical_backlog():
+def _open_label_counts(text: str, labels: set[str]) -> dict[str, int]:
+    counts = {label: 0 for label in labels}
+    for line in text.splitlines():
+        match = _ROW.match(line)
+        if not match or match.group("status") != "OPEN":
+            continue
+        subject = match.group("text")
+        for label in labels:
+            if subject.startswith(label + " --"):
+                counts[label] += 1
+    return counts
+
+
+def test_live_residuals_are_owned_by_exactly_one_open_backlog_row_each():
     backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
     required = {
         "AUTH-SCENE",
         "AI-BOOT-OBS",
         "CI-GOVERNANCE",
+        "AUDIT-KNOWLEDGE-HYGIENE",
+        "CI-FRONTENDS",
         "DEFECT-SUPPRESS",
-        "rows=",
-        "open=",
     }
-    missing = sorted(token for token in required if token not in backlog)
-    assert not missing, f"historical work escaped the canonical backlog: {missing}"
+    assert _open_label_counts(backlog, required) == {label: 1 for label in required}
+
+
+def test_closed_rows_and_free_prose_cannot_launder_a_live_residual():
+    labels = {"AUTH-SCENE", "AI-BOOT-OBS"}
+    adversary = "\n".join(
+        (
+            "AUTH-SCENE -- prose is not a row",
+            "| 1 | CLOSED @1 | AUTH-SCENE -- closed is not live |",
+            "| 2 | MOOT @1 | AI-BOOT-OBS -- moot is not live |",
+            "| 3 | OPEN | AI-BOOT-OBS -- exactly one live row |",
+        )
+    )
+    assert _open_label_counts(adversary, labels) == {
+        "AUTH-SCENE": 0,
+        "AI-BOOT-OBS": 1,
+    }
 
 
 def test_current_policy_is_self_contained_after_archive_pruning():
     policy = (ROOT / "project-knowledge/OPERATOR_POLICY_DECISIONS.md").read_text()
     assert "AUTOMATION_PROGRAM_PLAN.md" not in policy
     assert "PLUGIN_V3_PLAN.md" not in policy
-    assert "A0+ verified backup" in policy
+    assert "gold backup/restore" in policy
     assert "AR4" in policy and "rate" in policy.lower()
     assert "operator-pinned key" in policy
     assert "never auto-apply" in policy
