@@ -251,7 +251,6 @@ _KNOWN_SANDBOX_DEFAULT_CARRIERS = {
     "tools/bd-scan.py",
     "tools/bd_decomp_lib.py",
     "tools/decomp_regen.py",
-    "tools/invariants.py",
     "tools/review_merge.py",
     "tools/risk_score.py",
     "tools/seed_review_state.py",

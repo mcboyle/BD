@@ -22,12 +22,10 @@ static/version.zip model** (historical; the checkout is now the handoff):
 
 | Card | Value |
 |------|-------|
-| `GATE_AUTHORITY.md` | the 7 guards, the 4 in-sync regen targets + G12, and the deploy-excluded files -- one source |
 | `TOUCHED_FILE_TO_TEST.md` | source surface -> the tests that MUST be banded when it changes (band-coverage map) |
 | `ADVANCED_PROJECT_KNOWLEDGE.md` | the consolidated @464-validated "what bites and why" reference (9 sections A-I) |
-| `DANGER_MAPv2.md` | full numbered runner/db/session load-bearing-invariant registry (backs ADVANCED section I) |
 | `GLOSSARY.md` | the project jargon decode ring (capture/recognizer/release/decomp/process terms) |
-| `ARCHITECTURE_MAP.md` | source topology: capture->template->download pipeline + 169 blueprints by domain + runner mixins + guard boundary |
+| `ARCHITECTURE_MAP.md` | sole live architecture map; links the machine safety authorities and generated topology |
 | `KB_SYNC_WORKFLOW.md` | how `bd-kb-sync` keeps the static set fresh (manifest loop; static=cache, pack=live edge) |
 
 ## Version-specific -- travel in the per-session `version.zip`

@@ -491,22 +491,10 @@ been wrong. Every figure obtained by *running the tool* was right.
 1. **RED-first TDD.** Tests proven failing on pristine source *before*
    implementation. A test that passes the moment you write it has proven nothing.
 2. **Seven SHA-pinned guard files** must stay byte-identical unless the operator
-   explicitly declares a new SHA:
-
-   | File | sha256 (16) |
-   | --- | --- |
-   | `bulk_downloader/extraction_core.py` | `5b6248a5c9e664ab` |
-   | `bulk_downloader/session_capture.py` | `547d70c95cde9377` |
-   | `bulk_downloader/dom_capture.py` | `0559903d0b159162` |
-   | `bulk_downloader/dom_recorder.py` | `1657d0a0e39917ae` |
-   | `bulk_downloader/capture_bodies.py` | `6c7f5c9a87510cca` |
-   | `tools/capture_session.py` | `27be68b965689317` |
-   | `tools/build_release.py` | `be25241eb867b85a` |
-
-   *(Pinned at v3.66.805. Re-derive with `bd-guardcheck`, which reads
-   `guards.json` — the single source of truth, hashed from the files. A
+   explicitly declares a new SHA. `guards.json` is the only roster and digest
+   authority; re-derive and verify it with `bd-guardcheck`. A
    `BD-GATE-UNRUNNABLE` message or exit 2 means the pins were **not** verified;
-   do not proceed on it. Do not trust this table after the next cut.)*
+   do not proceed on it. Do not copy its digests into prose or CI.
 
    Until v3.66.818 `bd-guardcheck` reported `0 ok, 0 drifted, 7 missing` and
    **exited 0** on a clean tree — it could not see the files it certifies, and
@@ -1700,7 +1688,7 @@ existed to detect can no longer occur. **Both paths are GONE** --
 go looking for them and do not re-add one. Two consequences are
 **not** improvements: `git reset --hard` has no equivalent of `unzip -x`, so it
 discards operator live-edits that the overlay was configured to preserve (see
-`project-knowledge/GATE_AUTHORITY.md` section C); and it moves files without making the running
+`docs/repo/FRESH_HOST_BRINGUP.md`); and it moves files without making the running
 system match them, which is the first item below.
 
 **Unchanged — do not assume git fixed these:**

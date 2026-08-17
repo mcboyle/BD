@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1167 - consolidate safety authorities
+
+Cut 7 makes `guards.json`, root `FOOTGUNS.json`, and root `INVARIANTS.json`
+the single machine authorities for their distinct safety concepts. CI and
+cloud setup now invoke the production guard checker instead of embedding
+digest copies; the footgun runtime and package consume one reconciled 42-row
+registry; all 11 invariants are guarded. The stale `DANGER_MAPv2.md` and
+`GATE_AUTHORITY.md` prose registries are retired after their live routing and
+deploy facts move to `ARCHITECTURE_MAP.md`, `FRESH_HOST_BRINGUP.md`, and
+point-of-use tests. The defect catalog is explicitly an exact 18-class view of
+the executable detectors, and a directly wired repo-wide gate prevents the
+duplicate authorities, retired absolute defaults, or stale readers returning.
+
 ## v3.66.1166 - adjudicate historical documentation
 
 Cut 6 classifies every tracked archive, implementation plan, design spec, and

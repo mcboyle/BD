@@ -666,19 +666,8 @@ if [ "$HAVE_REPO" = 1 ]; then
     echo "[FAIL] import check"; CORE_FAILED=1
   fi
 
-  step "guard files" optional ./venv/bin/python - <<'PY2'
-import hashlib,sys
-G={"bulk_downloader/extraction_core.py":"5b6248a5c9e664ab",
-   "bulk_downloader/session_capture.py":"547d70c95cde9377",
-   "bulk_downloader/dom_capture.py":"0559903d0b159162",
-   "bulk_downloader/dom_recorder.py":"1657d0a0e39917ae",
-   "bulk_downloader/capture_bodies.py":"6c7f5c9a87510cca",
-   "tools/capture_session.py":"27be68b965689317",
-   "tools/build_release.py":"be25241eb867b85a"}
-bad=[f for f,w in G.items() if hashlib.sha256(open(f,'rb').read()).hexdigest()[:16]!=w]
-print(f"{len(G)-len(bad)}/{len(G)} guard files match")
-sys.exit(1 if bad else 0)
-PY2
+  step "guard files" optional env -u BD_INSTALL_DIR ./venv/bin/python \
+    toolchain/bin/bd-guardcheck --tree "$PWD"
 
   # `pip install -r` exiting 0 is not proof that every requirement is present:
   # this container reported "runtime deps OK" while beautifulsoup4 and

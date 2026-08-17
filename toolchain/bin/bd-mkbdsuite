@@ -14,6 +14,7 @@ Exit 0 on build, 1 if the toolchain source is missing.
 """
 import argparse
 import glob
+import json
 import os
 import re
 import shutil
@@ -31,6 +32,31 @@ def _safe_add(z, full, arc):
     zi.compress_type = zipfile.ZIP_DEFLATED
     with open(full, "rb") as f:
         z.writestr(zi, f.read())
+
+
+def _validated_footguns(raw):
+    def reject_duplicates(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError("duplicate JSON key: %s" % key)
+            out[key] = value
+        return out
+    doc = json.loads(raw, object_pairs_hook=reject_duplicates)
+    if not isinstance(doc, dict) or not isinstance(doc.get("footguns"), list):
+        raise ValueError("expected an object with a footguns list")
+    ids = set()
+    for row in doc["footguns"]:
+        if not isinstance(row, dict) or not row.get("id") or row["id"] in ids:
+            raise ValueError("missing or duplicate footgun id")
+        if row.get("status") not in {"active", "retired"}:
+            raise ValueError("invalid footgun status")
+        if row.get("status") == "active" and row.get("severity") not in {"blocking", "advisory"}:
+            raise ValueError("invalid footgun severity")
+        ids.add(row["id"])
+    if not ids:
+        raise ValueError("empty footgun authority")
+    return doc
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -250,6 +276,24 @@ def main():
         if os.path.isfile(c):
             changelog = c
             break
+    footgun_candidates = [p for p in (
+        os.path.join(a.bin, "FOOTGUNS.json"),
+        os.path.join(os.path.dirname(a.bin), "FOOTGUNS.json"),
+        os.path.join(os.path.dirname(os.path.dirname(a.bin)), "FOOTGUNS.json"),
+    ) if os.path.isfile(p)]
+    if not footgun_candidates:
+        print(f"{R}REFUSED: canonical FOOTGUNS.json is absent beside or above {a.bin}{RST}")
+        return 1
+    footgun_bytes = {open(p, "rb").read() for p in footgun_candidates}
+    if len(footgun_bytes) != 1:
+        print(f"{R}REFUSED: conflicting FOOTGUNS.json authorities: {footgun_candidates}{RST}")
+        return 1
+    try:
+        _validated_footguns(next(iter(footgun_bytes)))
+    except (ValueError, UnicodeDecodeError) as exc:
+        print(f"{R}REFUSED: malformed FOOTGUNS.json authority: {exc}{RST}")
+        return 1
+    footguns = footgun_candidates[0]
     os.makedirs(a.out, exist_ok=True)
     zpath = os.path.join(a.out, f"bdsuite_v3_66_{ver.split('.')[-1]}.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
@@ -261,18 +305,16 @@ def main():
             _safe_add(z, env, "bdenv.sh")
         if changelog:
             _safe_add(z, changelog, "CHANGELOG.md")
-        # Phase C-C1 (702): the executable footgun registry + ratchet baseline
-        # are load-bearing sidecars the reconciled suite ships. bd-footguns loads
-        # FOOTGUNS.json from the tree root OR alongside itself (bin/), so ship
-        # both copies -- otherwise a newly-added detector (e.g. the 702
-        # count-pin footgun) would not arm on a fresh install.
-        for side, arc in (
+        # The canonical footgun authority ships exactly once, beside the
+        # standalone bd-footguns executable. Source-tree runs read the root
+        # file; installed bdsuite runs read this immutable packaged copy.
+        sidecars = [
             (os.path.join(a.bin, "BDSUITE_TOOL_BUDGET"), "bin/BDSUITE_TOOL_BUDGET"),
-            (os.path.join(a.bin, "FOOTGUNS.json"), "bin/FOOTGUNS.json"),
-            (os.path.join(os.path.dirname(a.bin), "FOOTGUNS.json"), "FOOTGUNS.json"),
             (os.path.join(os.path.dirname(a.bin), "bd_metrics_baseline.json"),
              "bd_metrics_baseline.json"),
-        ):
+        ]
+        sidecars.append((footguns, "bin/FOOTGUNS.json"))
+        for side, arc in sidecars:
             if os.path.isfile(side):
                 _safe_add(z, side, arc)
     print(f"{G}built{RST} {zpath}")

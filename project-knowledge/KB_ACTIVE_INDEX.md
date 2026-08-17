@@ -26,9 +26,7 @@ checkout and `CLAUDE.md` are authoritative.
    reference: sandbox/shell footguns, build/release discipline, the failure taxonomy,
    secrets/vault invariants, bulk-ops, automation posture + declined scope, the tracker
    method, capture/redaction footguns, and the runner/db/blueprint load-bearing invariants
-   (section I; full registry in `DANGER_MAPv2.md`). The working "what bites and why" layer.
-1. `DANGER_MAPv2.md` -- the full numbered runner/db/session load-bearing-invariant registry
-   (deep backing for ADVANCED section I; use `tools/explain_invariant.py INV-NNN`).
+   (section I; machine guards live in root `INVARIANTS.json`).
 1. `GLOSSARY.md` -- the project's jargon decode ring (capture/redaction, recognizer,
    release, decomposition, tracker/process terms). Read when a handoff/tracker term is opaque.
 1. `ARCHITECTURE_MAP.md` -- source topology (the capture->template->download pipeline, the
@@ -51,7 +49,7 @@ checkout and `CLAUDE.md` are authoritative.
 `README_KB.md`, `KB_ACTIVE_INDEX.md`,
 `PROJECT_CHARTER.md`, `PROJECT_GOALS.md`, `AUTOMATION_POLICY.md`,
 `PROJECT_KNOWLEDGE_IS_STATIC.md`,
-`KB_JUDGMENT.md`, `ADVANCED_PROJECT_KNOWLEDGE.md`, `DANGER_MAPv2.md`, `GLOSSARY.md`, `ARCHITECTURE_MAP.md`, `SANDBOX.md`, `SCHEMAS.md`, `REPTYLE_CAPTURE_RUNBOOK.md`, `BDKIT_FIXES.md`,
+`KB_JUDGMENT.md`, `ADVANCED_PROJECT_KNOWLEDGE.md`, `GLOSSARY.md`, `ARCHITECTURE_MAP.md`, `SANDBOX.md`, `SCHEMAS.md`, `REPTYLE_CAPTURE_RUNBOOK.md`, `BDKIT_FIXES.md`,
 `bdkit_HANDOFF.md`, `KNOWN_FLAKES.md`, `CONTINUATION_TEMPLATE.md`,
 `STATE.schema.json`, `Manifest.md`, the kit scripts (`setup.sh`, `bd-install`,
 `bd-status`, `bd`, `bdenv.sh`, `bd-preflight`, `bd-state`, `bd-cut`, `bd-pack`,

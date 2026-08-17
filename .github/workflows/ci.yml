@@ -142,27 +142,7 @@ jobs:
           PY
 
       - name: Guard files unchanged
-        run: |
-          python - <<'PY'
-          import hashlib,sys
-          GUARDS={
-            "bulk_downloader/extraction_core.py":"5b6248a5c9e664ab",
-            "bulk_downloader/session_capture.py":"547d70c95cde9377",
-            "bulk_downloader/dom_capture.py":"0559903d0b159162",
-            "bulk_downloader/dom_recorder.py":"1657d0a0e39917ae",
-            "bulk_downloader/capture_bodies.py":"6c7f5c9a87510cca",
-            "tools/capture_session.py":"27be68b965689317",
-            "tools/build_release.py":"be25241eb867b85a",
-          }
-          bad=[]
-          for f,want in GUARDS.items():
-              got=hashlib.sha256(open(f,'rb').read()).hexdigest()[:16]
-              print(("ok   " if got==want else "DRIFT"),f,got)
-              if got!=want: bad.append(f)
-          if bad:
-              print("::error::guard drift — an operator must explicitly declare a new SHA (CLAUDE.md §2)")
-              sys.exit(1)
-          PY
+        run: env -u BD_INSTALL_DIR python toolchain/bin/bd-guardcheck --tree "$PWD"
 
       # ── The step that makes a green tick mean something ────────────────────
       #
@@ -273,6 +253,7 @@ jobs:
               tests/test_v3_66_1164_one_task_authority.py
               tests/test_v3_66_1165_one_agent_contract.py
               tests/test_v3_66_1166_historical_docs_are_adjudicated.py
+              tests/test_v3_66_1167_safety_authorities_are_single_source.py
               tests/test_v3_66_1141_no_paragraph_leaves_undeclared.py
               tests/test_v3_66_1145_step0_fails_closed.py
               tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py

@@ -202,8 +202,8 @@ Graph version: 1
 
 ## Config stores → reader / writer modules
 
-- **app_settings_center** — readers 8, writers 0
+- **app_settings_center** — readers 7, writers 0
 - **global_config** — readers 70, writers 1
-- **site_editor** — readers 24, writers 0
+- **site_editor** — readers 23, writers 0
 - **vpn_config** — readers 17, writers 1
 - **widgets_config** — readers 4, writers 1

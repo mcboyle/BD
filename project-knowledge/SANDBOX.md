@@ -424,7 +424,7 @@ and the kit-build rows are gone with the kits.
 | Template pipeline schemas (draft/candidate/reviewed) | `project-knowledge/SCHEMAS.md` |
 | Project scope, ethics, in-code guardrails | `project-knowledge/PROJECT_CHARTER.md` |
 | Project goals / direction | `project-knowledge/PROJECT_GOALS.md` |
-| BulkDL invariants and load-bearing lines | `project-knowledge/DANGER_MAPv2.md` + `INV_TAGS.md` + `# INV-` inline tags |
+| BulkDL invariants and load-bearing lines | root `INVARIANTS.json` + `INV_TAGS.md` + `# INV-` inline tags |
 | Known flaky / environmental test failures | `project-knowledge/KNOWN_FLAKES.md` |
 | What's open / current state | `project-knowledge/IMPROVEMENT_BACKLOG.md` |
 | How to work in the project | `CLAUDE.md` |

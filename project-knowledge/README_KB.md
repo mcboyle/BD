@@ -19,5 +19,5 @@ attached. None of those artifacts exist in this tree; the git checkout IS the ha
 for one -- but do not read this static set as current state either: re-derive every figure at
 decision time (CLAUDE.md section 1).
 
-Key cards: `GATE_AUTHORITY.md` (guards / in-sync gates / deploy-excluded), `TOUCHED_FILE_TO_TEST.md`
+Key cards: `ARCHITECTURE_MAP.md` (architecture and safety-authority routing), `TOUCHED_FILE_TO_TEST.md`
 (band-coverage map), `0_INDEX.md` (the reference-card index), `KNOWN_FLAKES.md`.

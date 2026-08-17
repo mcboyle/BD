@@ -448,8 +448,8 @@ through Matt** — but the collisions that actually hurt are preventable:
 
 ## 18. Footgun taxonomy
 
-`KB_JUDGMENT.md` §1 is the failure-shape registry — read it. `FOOTGUNS.json` (**40
-entries — measured v3.66.805; this line previously said 19**) is the *mechanical*
+`KB_JUDGMENT.md` §1 is the failure-shape registry — read it. Root
+`FOOTGUNS.json` (**42 entries, adjudicated v3.66.1167**) is the *mechanical*
 registry, enforced by `bd-footguns --check` and `bd-precut --gate`.
 Most shapes now have a tool that immunizes them: stale-copy-of-derived-fact →
 `bd-factcheck`; string-grep-not-decorator → `bd-route`; equality-pin-whack-a-mole →

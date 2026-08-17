@@ -1,13 +1,13 @@
-<!-- verified-against: v3.66.520 -->
+<!-- verified-against: v3.66.1167 -->
 <!-- version-agnostic; re-derive every count/SHA/version from source each session -->
 # Defect-Pattern Catalog
 
-The seed for `defect_patterns.py` `[PLANNED]` — every confirmed bug-class, codified
-as a detectable AST/grep pattern so the *next* instance is caught for free. Built
-from the v3.66.520 parallel-verify pass (16 deduped code defects) + `F0001`. Each
-pattern: the generalized rule, a detection signature, severity, and the finding it
-came from. **Add a row whenever a new bug-class is confirmed** — this is the
-flywheel.
+This generated view documents the executable detector classes in
+`tools/defect_patterns.py` and packaged `bd-defect-scan`. It began with the
+v3.66.520 parallel-verify pass (16 deduped code defects) plus `F0001`. Each row
+records the generalized rule, detection signature, severity, and provenance.
+The executable detector set is authoritative; update it and this exact 18-row
+view together whenever a new bug-class is confirmed.
 
 > Detection notes use `ast` node shapes where precise, `grep -nE` where a regex is
 > enough. A pattern is "high-precision" (auto-finding) or "triage" (candidate list).

@@ -109,7 +109,7 @@ documentation:
 - **`invariant_probe` `[PLANNED]`** turns the `probe` field into an executable
   assertion run against the live app — an invariant that can't be probed is a wish.
 
-This extends `DANGER_MAPv2.md` from prose to gated data.
+This converts safety claims from prose into gated data in root `INVARIANTS.json`.
 
 ---
 
