@@ -309,7 +309,7 @@ else
   # Two tests then fail and neither names the cause:
   #   test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree
   #       -> "declared data dir does not exist: frontend/dist"
-  #   test_phase1_root_flip::test_missing_asset_is_404_not_spa_html
+  #   test_spa_root_routing_contract::test_missing_asset_is_404_not_spa_html
   #       -> 503, because bulk_downloader/app.py cannot serve an absent bundle
   # Measured here: both fail before this step and pass after it, nothing else
   # changed. They were the last two failures a session had to wave away as

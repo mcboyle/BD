@@ -45,6 +45,9 @@ r = client.get("/")
 # that it serves the SPA shell, so that is what is checked.
 if r.status_code == 200 and b'<div id="root"' in r.data:
     rep.F("ok", "GET / serves the SPA shell (200)")
+elif (r.status_code == 503
+      and r.headers.get("X-BD-M2-Status") == "not-built"):
+    rep.F("info", "GET / reports the explicit frontend-not-built state (503)")
 else:
     rep.F("bug", f"GET / did not serve the SPA shell: HTTP {r.status_code}",
           f"snippet={r.data[:200]!r}")

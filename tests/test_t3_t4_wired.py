@@ -1,24 +1,17 @@
-"""T3+T4 batched tranche — migration pins (v3.66.207, amended pacing).
+"""Current library, tags, sites, and runner SPA contract.
 
-Proves the 23 legacy-only families (T3: library 4 · tags 6 · scene_score 1 ·
+Proves the 23 endpoint families (library 4 · tags 6 · scene_score 1 ·
 storage_rebalance 1; T4: sites-bulk 3 · runners 2 · concurrent 1 · rate_limit 1
-· retry_policy 1 · crash_recovery 2 · file 1) are now SPA-wired and drop out
-of the legacy_parity legacy-only set, the dangerous-selection writes carry
-TYPED confirm tokens (never one-click), and the ratchet baseline committed the
-94 -> 71 shrink. RED on pristine v3.66.206 (none of these were wired; baseline
-was 94).
-
-Ratchet pins here use MONOTONIC semantics (<= ceiling + own-endpoints-absent)
-so they stay green when later tranches shrink the baseline further — the
-lesson from the T1 == 106 pin failing on-stash after T2 landed.
+· retry_policy 1 · crash_recovery 2 · file 1) remain SPA-wired, and
+dangerous-selection writes carry typed confirmation tokens.
 
 run_tests.py conventions: zero-arg test functions; repo root from __file__;
 no pytest builtins.
 """
-import importlib.util
-import json
 import re
 from pathlib import Path
+
+BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -50,27 +43,6 @@ T4_ENDPOINTS = [
     "/api/crash_recovery/*",
     "/api/file/reveal",
 ]
-
-
-def _load_legacy_parity():
-    spec = importlib.util.spec_from_file_location(
-        "legacy_parity", REPO / "tools" / "legacy_parity.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _norm(endpoints):
-    return {re.sub(r"\{[^}]+\}", "*", e) for e in endpoints}
-
-
-def test_all_23_t3_t4_endpoints_are_spa_wired():
-    """None of the 23 batched families may remain in the legacy-only set."""
-    lp = _load_legacy_parity()
-    legacy_only = _norm(lp.measure()["legacy_only"])
-    still = [ep for ep in T3_ENDPOINTS + T4_ENDPOINTS if ep in legacy_only]
-    assert not still, (
-        "T3/T4 endpoints still legacy-only (not SPA-wired): " + repr(still))
 
 
 def test_t3_full_literals_present_in_spa_source():
@@ -144,16 +116,3 @@ def test_dangerous_selection_writes_are_confirm_tiered():
     imports = (REPO / "frontend" / "src" / "routes" / "ImportsCenter.tsx").read_text(
         encoding="utf-8")
     assert 'kind: "bulkSites"' in imports, "bulk site import not confirm-armed"
-
-
-def test_ratchet_baseline_committed_at_or_below_71():
-    """The legacy_parity baseline must carry the T3+T4 shrink. MONOTONIC pin:
-    <= 71 (may shrink further in later tranches, may never grow), and none of
-    this cut's endpoints may remain in it."""
-    b = json.loads((REPO / "reports" / "legacy_parity_baseline.json").read_text(
-        encoding="utf-8"))
-    assert b["legacy_only_count"] <= 71, (
-        f"baseline count {b['legacy_only_count']} > 71 — T3/T4 shrink not committed")
-    assert b["legacy_only_count"] == len(b["legacy_only"])
-    leftovers = _norm(b["legacy_only"]) & set(T3_ENDPOINTS + T4_ENDPOINTS)
-    assert not leftovers, "T3/T4 endpoints still in baseline: " + repr(sorted(leftovers))

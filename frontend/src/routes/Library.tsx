@@ -160,8 +160,8 @@ export function Library() {
     Error,
     number
   >({
-    // T9a: FULL /api/ literal (inline ${hid} path param) so legacy_parity
-    // credits it spa_wired — the earlier string-concat form worked at runtime
+    // Full /api/ literal (inline ${hid} path param) so the parity inventory
+    // sees the SPA consumer; the earlier string-concat form worked at runtime
     // but the static scanner never counted it, leaving
     // /api/stream/token/{x} stranded in legacy_only.
     mutationFn: (hid) => apiPost(`/api/stream/token/${hid}`, { ttl_seconds: 3600 }),

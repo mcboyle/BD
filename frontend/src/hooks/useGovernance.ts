@@ -2,8 +2,8 @@
 //
 // Carries ALL 12 T5 legacy-parity literals (retention 3 · rights 3 ·
 // scheduled_exports 4 · diagnostics_bundle 2) as FULL /api/ literals so
-// tools/legacy_parity.py credits them spa_wired. Inline ${x} only on true
-// path params (normalises to the baseline's {x}).
+// gui_parity_inventory.py sees the SPA consumers. Inline ${x} only on true
+// path parameters.
 //
 // Handler-correct shapes (re-derived from bulk_downloader/app.py at 207):
 //   GET  /api/retention/preview/<sid>     {site_id, candidate_count, total_bytes,

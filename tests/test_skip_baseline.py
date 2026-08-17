@@ -1,19 +1,12 @@
-"""Tests for tools/check_skip_baseline.py (PT9).
-
-Pinned because v3.63.9 shipped a parser that recognised only
-"Skipped: N" while the runner's SUMMARY.txt writes "N skipped".
-On a fresh deploy, the first `--update` call failed with
-"could not read Skipped count from SUMMARY.txt", silently breaking
-the release-time skip-count gate. v3.63.10's parser accepts both
-shapes; these tests pin that the actual runner output round-trips.
-"""
+"""Current skip-governance contract for canonical real-pytest JUnit."""
 import importlib.util
-import io
+import json
 import sys
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
+
+BD_GATE_SCOPE = "repo-wide"
 
 
 # ── Load the tool as a module via importlib so we can call the parser
@@ -31,190 +24,257 @@ def _load_tool():
 _TOOL = _load_tool()
 
 
-# ── Real-runner shape: `N total | N passed | N failed | N skipped` ──
-
-def test_parser_reads_real_runner_summary(tmp_path):
-    """The exact shape run_tests.py writes to SUMMARY.txt. Pinned
-    verbatim — if this shape ever changes the parser must keep up."""
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "BulkDownloader test summary\n"
-        "version : 3.63.10\n"
-        "run at  : 2026-05-22T00:14:07\n"
-        "result  : 4443 total | 4443 passed | 0 failed | 0 skipped\n"
-        "\n"
-        "FAILURES: none\n",
-        encoding="utf-8",
-    )
-    assert _TOOL._read_summary_skipped(summary) == 0
+def _load_runtime_report():
+    repo_root = Path(__file__).resolve().parents[1]
+    src = repo_root / "tools" / "test_runtime_report.py"
+    spec = importlib.util.spec_from_file_location("test_runtime_report", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def test_parser_handles_nonzero_skipped(tmp_path):
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "result  : 100 total | 95 passed | 0 failed | 5 skipped\n",
-        encoding="utf-8",
-    )
-    assert _TOOL._read_summary_skipped(summary) == 5
+def _junit(tmp_path, body: str) -> Path:
+    path = tmp_path / "result.xml"
+    path.write_text(body, encoding="utf-8")
+    return path
 
 
-def test_parser_handles_large_count(tmp_path):
-    """Pre-empt any 'small int regex' assumption."""
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "result  : 99999 total | 99000 passed | 0 failed | 999 skipped\n",
-        encoding="utf-8",
-    )
-    assert _TOOL._read_summary_skipped(summary) == 999
+def test_junit_reader_returns_exact_skip_identities_and_reasons(tmp_path):
+    path = _junit(tmp_path, '''<?xml version="1.0"?>
+<testsuites><testsuite name="pytest" tests="3" failures="0" errors="0" skipped="2">
+  <testcase classname="tests.test_alpha" name="test_runs" />
+  <testcase classname="tests.test_alpha" name="test_parked">
+    <skipped message="parked by operator">detail</skipped>
+  </testcase>
+  <testcase classname="tests.test_beta.TestMode" name="test_external[x]">
+    <skipped message="fixture unavailable">detail</skipped>
+  </testcase>
+</testsuite></testsuites>''')
+
+    result = _TOOL._read_junit(path)
+
+    assert result["executed"] == 3
+    assert result["skipped"] == {
+        "tests.test_alpha::test_parked": "parked by operator",
+        "tests.test_beta.TestMode::test_external[x]": "fixture unavailable",
+    }
 
 
-# ── Stdout one-liner shape: `... | Skipped: N` ──
-
-def test_parser_falls_back_to_label_colon_shape(tmp_path):
-    """The shape the runner prints to stdout. Used to be the only
-    shape the parser recognised; kept as a fallback."""
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "  Total: 4443 | Passed: 4443 | Failed: 0 | Skipped: 0\n",
-        encoding="utf-8",
-    )
-    assert _TOOL._read_summary_skipped(summary) == 0
-
-
-def test_parser_label_colon_nonzero(tmp_path):
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "  Total: 100 | Passed: 92 | Failed: 0 | Skipped: 8\n",
-        encoding="utf-8",
-    )
-    assert _TOOL._read_summary_skipped(summary) == 8
-
-
-# ── Negative cases ──
-
-def test_parser_returns_none_for_missing_file(tmp_path):
-    assert _TOOL._read_summary_skipped(tmp_path / "nope.txt") is None
+@pytest.mark.parametrize("xml, message", [
+    ("<testsuites/>", "summary"),
+    ("<testsuites><testsuite tests='0' failures='0' errors='0' skipped='0'/></testsuites>",
+     "zero"),
+    ("<testsuites><testsuite tests='2' failures='0' errors='0' skipped='0'>"
+     "<testcase classname='tests.x' name='test_one'/></testsuite></testsuites>",
+     "testcase"),
+    ("<testsuites><testsuite tests='1' failures='0' errors='0' skipped='1'>"
+     "<testcase classname='tests.x' name='test_one'><skipped/></testcase>"
+     "</testsuite></testsuites>", "reason"),
+    ("<testsuites><testsuite tests='1' failures='1' errors='0' skipped='0'>"
+     "<testcase classname='tests.x' name='test_one'><failure/></testcase>"
+     "</testsuite></testsuites>", "failure"),
+    ("<testsuites><testsuite tests='1' failures='0' errors='1' skipped='0'>"
+     "<testcase classname='tests.x' name='test_one'><error/></testcase>"
+     "</testsuite></testsuites>", "error"),
+    ("<testsuites><testsuite tests='1' failures='0' errors='0' skipped='0'>"
+     "<testcase classname='tests.x' name='test_one'><skipped message='parked'/>"
+     "</testcase></testsuite></testsuites>", "skip summary"),
+])
+def test_junit_reader_fails_closed_on_incomplete_or_vacuous_evidence(
+        tmp_path, xml, message):
+    with pytest.raises(_TOOL.EvidenceError, match=message):
+        _TOOL._read_junit(_junit(tmp_path, xml))
 
 
-def test_parser_returns_none_when_no_skip_count(tmp_path):
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "BulkDownloader test summary\n"
-        "version : 3.63.10\n"
-        "(crashed before writing the result line)\n",
-        encoding="utf-8",
-    )
-    assert _TOOL._read_summary_skipped(summary) is None
+def test_skip_comparison_is_identity_and_reason_exact():
+    expected = {
+        "tests.test_alpha::test_parked": "parked by operator",
+        "tests.test_beta::test_external": "fixture unavailable",
+    }
+    assert _TOOL._compare_skips(expected, dict(expected)) == []
+    assert _TOOL._compare_skips(expected, {
+        "tests.test_alpha::test_parked": "different reason",
+        "tests.test_gamma::test_new": "fixture unavailable",
+    }) == [
+        "missing: tests.test_beta::test_external",
+        "unexpected: tests.test_gamma::test_new",
+        "reason changed: tests.test_alpha::test_parked",
+    ]
 
 
-# ── End-to-end: write a real SUMMARY.txt by invoking the runner's
-# own formatter, then parse it. This is the regression that v3.63.9
-# missed — no test ever round-tripped runner output through this
-# tool. The runner's summary-writing code is at run_tests.py around
-# line 929; we reproduce the line shape here so a runner-format
-# change that we miss in this test still gets caught the next time
-# someone updates SUMMARY.txt by hand.
+def test_main_checks_a_complete_junit_against_exact_json_baseline(
+        tmp_path, monkeypatch, capsys):
+    junit = _junit(tmp_path, '''<testsuites><testsuite tests="2" failures="0"
+errors="0" skipped="1"><testcase classname="tests.alpha" name="test_runs"/>
+<testcase classname="tests.alpha" name="test_parked"><skipped
+message="parked by operator">detail</skipped></testcase></testsuite></testsuites>''')
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    baseline.write_text(json.dumps({
+        "schema": "bd-skip-baseline/1",
+        "skips": [{
+            "identity": "tests.alpha::test_parked",
+            "reason": "parked by operator",
+        }],
+    }), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--junit", str(junit),
+        "--baseline", str(baseline),
+    ])
 
-def test_runner_summary_line_shape_unchanged():
-    """Pin the exact line the runner writes. If the runner format
-    changes, this test fails and a maintainer must update the
-    parser (or the runner) together — they can't drift again."""
-    # Verbatim from run_tests.py L934-L935:
-    expected_template = (
-        "result  : {total} total | {passed} passed | "
-        "{failed} failed | {skipped} skipped"
-    )
-    # Use real values; the parser must extract `skipped`.
-    line = expected_template.format(
-        total=4443, passed=4443, failed=0, skipped=0)
-    assert "skipped" in line and "Skipped:" not in line
-    # And the parser pulls the right number from it.
-    import tempfile
-    with tempfile.NamedTemporaryFile(
-            "w", suffix=".txt", delete=False, encoding="utf-8") as fh:
-        fh.write(line + "\n")
-        p = Path(fh.name)
-    try:
-        assert _TOOL._read_summary_skipped(p) == 0
-    finally:
-        p.unlink(missing_ok=True)
+    assert _TOOL.main() == 0
+    assert "1 exact skip identity" in capsys.readouterr().out
 
 
-# ── --update path against real summary ──
-
-def test_update_initialises_baseline(tmp_path, monkeypatch):
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "result  : 4443 total | 4443 passed | 0 failed | 0 skipped\n",
-        encoding="utf-8",
-    )
-    baseline = tmp_path / "SKIP_BASELINE.txt"
-    monkeypatch.setattr(
-        sys, "argv",
-        ["check_skip_baseline.py",
-         "--summary", str(summary),
-         "--baseline", str(baseline),
-         "--update"])
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        rc = _TOOL.main()
-    assert rc == 0, buf.getvalue()
-    assert baseline.is_file()
-    content = baseline.read_text(encoding="utf-8")
-    # The int must be present on a non-comment line.
-    nums = [int(ln.strip()) for ln in content.splitlines()
-            if ln.strip() and not ln.strip().startswith("#")]
-    assert nums == [0]
+def test_main_refuses_missing_summary_and_zero_collection(
+        tmp_path, monkeypatch, capsys):
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    baseline.write_text(json.dumps({
+        "schema": "bd-skip-baseline/1", "skips": []}), encoding="utf-8")
+    for xml in ("<testsuites/>",
+                "<testsuites><testsuite tests='0' failures='0' errors='0' "
+                "skipped='0'/></testsuites>"):
+        junit = _junit(tmp_path, xml)
+        monkeypatch.setattr(sys, "argv", [
+            "check_skip_baseline.py", "--junit", str(junit),
+            "--baseline", str(baseline),
+        ])
+        assert _TOOL.main() == 2
+    assert "REFUSED" in capsys.readouterr().err
 
 
-def test_update_then_check_roundtrips(tmp_path, monkeypatch):
-    """Initialise, then re-run without --update; should report match."""
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "result  : 100 total | 93 passed | 0 failed | 7 skipped\n",
-        encoding="utf-8",
-    )
-    baseline = tmp_path / "SKIP_BASELINE.txt"
+def test_update_writes_observed_identities_and_reasons_atomically(
+        tmp_path, monkeypatch):
+    junit = _junit(tmp_path, '''<testsuites><testsuite tests="1" failures="0"
+errors="0" skipped="1"><testcase classname="tests.alpha" name="test_parked">
+<skipped message="parked by operator">detail</skipped></testcase>
+</testsuite></testsuites>''')
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--junit", str(junit),
+        "--baseline", str(baseline), "--update",
+    ])
 
-    monkeypatch.setattr(
-        sys, "argv",
-        ["check_skip_baseline.py",
-         "--summary", str(summary),
-         "--baseline", str(baseline),
-         "--update"])
-    with redirect_stdout(io.StringIO()):
-        assert _TOOL.main() == 0
-
-    # Now re-run without --update; should pass.
-    monkeypatch.setattr(
-        sys, "argv",
-        ["check_skip_baseline.py",
-         "--summary", str(summary),
-         "--baseline", str(baseline)])
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        rc = _TOOL.main()
-    assert rc == 0
-    assert "matches baseline (7)" in buf.getvalue()
+    assert _TOOL.main() == 0
+    payload = json.loads(baseline.read_text(encoding="utf-8"))
+    assert payload == {
+        "schema": "bd-skip-baseline/1",
+        "skips": [{
+            "identity": "tests.alpha::test_parked",
+            "reason": "parked by operator",
+        }],
+    }
 
 
-def test_check_fails_on_skip_drift(tmp_path, monkeypatch):
-    """The whole point of PT9: a drift in skip count must fail."""
-    baseline = tmp_path / "SKIP_BASELINE.txt"
-    baseline.write_text("# header\n5\n", encoding="utf-8")
-    summary = tmp_path / "SUMMARY.txt"
-    summary.write_text(
-        "result  : 100 total | 88 passed | 0 failed | 12 skipped\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        sys, "argv",
-        ["check_skip_baseline.py",
-         "--summary", str(summary),
-         "--baseline", str(baseline)])
-    err_buf = io.StringIO()
-    with redirect_stdout(io.StringIO()), redirect_stderr(err_buf):
-        rc = _TOOL.main()
-    assert rc == 1
-    err = err_buf.getvalue()
-    assert "UP" in err and "5" in err and "12" in err
+def test_baseline_rejects_duplicate_json_keys(tmp_path):
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    baseline.write_text(
+        '{"schema":"bd-skip-baseline/1","schema":"wrong","skips":[]}',
+        encoding="utf-8")
+    with pytest.raises(_TOOL.EvidenceError, match="duplicate JSON key"):
+        _TOOL._read_identity_baseline(baseline)
+
+
+def test_runtime_report_counts_the_canonical_identity_baseline(tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "SKIP_BASELINE.json").write_text(json.dumps({
+        "schema": "bd-skip-baseline/1",
+        "skips": [
+            {"identity": "tests.a::test_one", "reason": "parked"},
+            {"identity": "tests.b::test_two", "reason": "external"},
+        ],
+    }), encoding="utf-8")
+    assert _load_runtime_report()._skip_baseline(str(tmp_path)) == 2
+
+
+@pytest.mark.parametrize("contents, match", [
+    ("{not-json", "malformed"),
+    (json.dumps({"schema": "wrong", "skips": []}), "schema"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": {}}), "list"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": [{}]}),
+     "fields"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": [
+        {"identity": "tests.a::test_one", "reason": ""}]}), "reason"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": [
+        {"identity": "tests.a::test_one", "reason": "one"},
+        {"identity": "tests.a::test_one", "reason": "two"}]}), "duplicate"),
+])
+def test_runtime_report_refuses_invalid_skip_authority(tmp_path, contents, match):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "SKIP_BASELINE.json").write_text(contents, encoding="utf-8")
+    report = _load_runtime_report()
+    with pytest.raises(report.ReportEvidenceError, match=match):
+        report._skip_baseline(str(tmp_path))
+
+
+def test_skip_baseline_update_turns_write_failure_into_refusal(
+        tmp_path, monkeypatch, capsys):
+    junit = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='1'><testcase classname='tests.alpha'
+      name='test_parked'><skipped message='parked'/></testcase>
+      </testsuite></testsuites>""")
+    baseline = tmp_path / "blocked" / "SKIP_BASELINE.json"
+
+    def denied(*_args, **_kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(_TOOL.Path, "mkdir", denied)
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--junit", str(junit),
+        "--baseline", str(baseline), "--update",
+    ])
+    assert _TOOL.main() == 2
+    assert "REFUSED" in capsys.readouterr().err
+
+
+def test_junit_reader_reconciles_each_result_state(tmp_path):
+    mismatch = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='1' errors='0' skipped='0'><testcase classname='tests.alpha'
+      name='test_failed'/></testsuite></testsuites>""")
+    with pytest.raises(_TOOL.EvidenceError, match="failure summary disagrees"):
+        _TOOL._read_junit(mismatch)
+
+    multiple = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='1' errors='0' skipped='1'><testcase classname='tests.alpha'
+      name='test_impossible'><failure/><skipped message='parked'/></testcase>
+      </testsuite></testsuites>""")
+    with pytest.raises(_TOOL.EvidenceError, match="multiple result states"):
+        _TOOL._read_junit(multiple)
+
+
+def test_junit_reader_rejects_duplicate_same_result_state(tmp_path):
+    duplicate = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='2'><testcase classname='tests.alpha'
+      name='test_impossible'><skipped message='first'/>
+      <skipped message='second'/></testcase></testsuite></testsuites>""")
+
+    with pytest.raises(_TOOL.EvidenceError, match="multiple result states"):
+        _TOOL._read_junit(duplicate)
+
+
+def test_junit_reader_rejects_unknown_result_state(tmp_path):
+    unknown = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='0'><testcase classname='tests.alpha'
+      name='test_impossible'><passed/></testcase></testsuite></testsuites>""")
+
+    with pytest.raises(_TOOL.EvidenceError,
+                       match="unknown testcase result element"):
+        _TOOL._read_junit(unknown)
+
+
+def test_written_skip_baseline_is_read_back_before_success(tmp_path, monkeypatch):
+    target = tmp_path / "SKIP_BASELINE.json"
+    original = _TOOL.Path.replace
+
+    def corrupt_after_replace(source, destination):
+        result = original(source, destination)
+        destination.write_text(
+            '{"schema":"bd-skip-baseline/1","skips":[]}\n',
+            encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(_TOOL.Path, "replace", corrupt_after_replace)
+    with pytest.raises(_TOOL.EvidenceError, match="did not verify"):
+        _TOOL._write_identity_baseline(
+            target, {"tests.alpha::test_parked": "parked"})

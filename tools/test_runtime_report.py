@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """test_runtime_report.py — test health report (G). Read-only except the report.
-Composes test_inventory + test_coverage_catalog + the pinned skip baseline, and
+Composes test_inventory + test_coverage_catalog + the exact skip-identity baseline, and
 parses a SUMMARY.txt (from `run_tests.py --summary`) if one is present — it does
 NOT run the suite itself. Writes reports/test_health.md.
 CLI: --root, --summary PATH, --outdir
@@ -9,7 +9,7 @@ import os as _os_rc, sys as _sys_rc
 _sys_rc.path.insert(0, _os_rc.path.dirname(_os_rc.path.abspath(__file__)))
 import report_core as _RC  # shared write/render helpers
 
-import argparse, os, re, sys
+import argparse, json, os, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_inventory as TI  # type: ignore
@@ -18,16 +18,51 @@ import test_coverage_catalog as TC  # type: ignore
 _SUM = re.compile(r"Total:\s*(\d+)\s*\|\s*Passed:\s*(\d+)\s*\|\s*Failed:\s*(\d+)\s*\|\s*Skipped:\s*(\d+)")
 
 
+class ReportEvidenceError(ValueError):
+    """The report cannot truthfully render its skip authority."""
+
+
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ReportEvidenceError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def _skip_baseline(root):
-    p = os.path.join(root, "tests", "SKIP_BASELINE.txt")
+    p = os.path.join(root, "tests", "SKIP_BASELINE.json")
     try:
-        for ln in open(p):
-            ln = ln.strip()
-            if ln and not ln.startswith("#"):
-                return int(ln)
-    except (OSError, ValueError):
-        pass
-    return None
+        payload = json.loads(
+            Path(p).read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys)
+    except OSError as exc:
+        raise ReportEvidenceError(f"skip authority is unreadable: {p}") from exc
+    except (ValueError, AttributeError) as exc:
+        raise ReportEvidenceError(f"skip authority is malformed: {p}") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != "bd-skip-baseline/1":
+        raise ReportEvidenceError(f"skip authority has the wrong schema: {p}")
+    rows = payload.get("skips")
+    if not isinstance(rows, list):
+        raise ReportEvidenceError(f"skip authority skips must be a list: {p}")
+    identities = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"identity", "reason"}:
+            raise ReportEvidenceError(
+                f"skip authority row has unknown or missing fields: {p}")
+        identity = row.get("identity")
+        reason = row.get("reason")
+        if not isinstance(identity, str) or not identity.strip():
+            raise ReportEvidenceError(f"skip authority row has no identity: {p}")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ReportEvidenceError(
+                f"skip authority row has no reason: {identity}")
+        if identity in identities:
+            raise ReportEvidenceError(
+                f"skip authority has duplicate identity: {identity}")
+        identities.add(identity)
+    return len(rows)
 
 
 def build(root=".", summary=None):

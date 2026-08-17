@@ -105,10 +105,12 @@ so a verifier never re-learns them the hard way.
 
 5. **Expected network/display skips.** With the network off, browser/noVNC/live
    suites skip; that is expected, not failure. The skip *count* is gated
-   separately by `tools/check_skip_baseline.py` against `tests/SKIP_BASELINE.txt`
-   — a mass-skip regression (broken conftest, import error) shows up as a
-   baseline mismatch even though the runner reports `Failed: 0`. Run
-   `python3 run_tests.py --summary` then `python3 tools/check_skip_baseline.py`.
+   separately by `tools/check_skip_baseline.py` against
+   `tests/SKIP_BASELINE.json`. It compares exact collected test identities and
+   reasons, so a mass-skip regression or changed justification cannot hide
+   behind an unchanged aggregate count. Run the sanctioned real-pytest suite
+   with `--junitxml=<path>` and then run
+   `python3 tools/check_skip_baseline.py --junit <path>`.
 
 ## Release-checklist mapping
 

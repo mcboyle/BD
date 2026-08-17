@@ -1,26 +1,24 @@
-"""T7 notify/tg/alerts tranche — migration pins (v3.66.210).
+"""Current notifications, Telegram, and alerts SPA contract.
 
-Proves the 7 legacy-only notify/tg/alerts families are now SPA-wired
-(they drop out of the legacy_parity legacy-only set), the /notifications
+Proves the 7 endpoint families remain SPA-wired, the /notifications
 route is lazy-loaded with an inbound nav link, the secret inputs are
 write-only ((R) rule: GET masks them, the matching capture redaction
 ships the same cut), writes are never one-click (they arm a Pending),
-and the ratchet baseline committed the 41 -> 34 shrink. RED on pristine
-v3.66.209 (none of these were wired; baseline was 41; capture_redact had
-no code/k key).
+and dispatch happens only from the confirmation dialog.
 
 run_tests.py conventions: zero-arg test functions; repo root from
 __file__; no pytest builtins.
 """
-import importlib.util
 import json
 import re
 from pathlib import Path
 
+BD_GATE_SCOPE = "repo-wide"
+
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "frontend" / "src"
 
-# The 7 legacy-only families T7 ports into the SPA /notifications route.
+# The 7 endpoint families consumed by the SPA /notifications route.
 T7_ENDPOINTS = [
     "/api/notify/apprise/settings",
     "/api/notify/apprise/validate",
@@ -30,24 +28,6 @@ T7_ENDPOINTS = [
     "/api/tg/test",
     "/api/alerts/active",
 ]
-
-
-def _load_legacy_parity():
-    spec = importlib.util.spec_from_file_location(
-        "legacy_parity", REPO / "tools" / "legacy_parity.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def test_all_7_t7_endpoints_are_spa_wired():
-    """None of the 7 T7 families may remain in the legacy-only set."""
-    lp = _load_legacy_parity()
-    legacy_only = set(lp.measure()["legacy_only"])
-    norm = {re.sub(r"\{[^}]+\}", "*", e) for e in legacy_only}
-    still_legacy = [ep for ep in T7_ENDPOINTS if ep in norm]
-    assert not still_legacy, (
-        "T7 endpoints still legacy-only (not SPA-wired): " + repr(still_legacy))
 
 
 def test_t7_full_literals_present_in_hook():
@@ -121,18 +101,3 @@ def test_t7_sensitive_qs_key_covers_code_and_k():
     assert not R.search("geocode")
     assert not R.search("zipcode")
     assert not R.search("kind")
-
-
-def test_t7_ratchet_committed_34():
-    """The ratchet baseline committed the 41 -> 34 shrink.
-
-    Pin the T7 ceiling, not the snapshot: T7 committed 34, but the ratchet is
-    monotonic-down and later tranches (T8/T10 -> 10, T9 -> 1) drive it lower.
-    A hard `== 34` re-breaks on every future migration; `<= 34` stays a real
-    "T7 did not regress" guard. (Stale-magnitude-floor footgun: matches the
-    test_legacy_parity floor relax 20 -> 0.)
-    """
-    base = json.loads((REPO / "reports" / "legacy_parity_baseline.json").read_text())
-    assert base["legacy_only_count"] <= 34, base["legacy_only_count"]
-    for ep in T7_ENDPOINTS:
-        assert ep not in base["legacy_only"], f"{ep} still in baseline"

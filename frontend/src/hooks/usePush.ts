@@ -2,8 +2,8 @@
 // unsubscribe. The LAST wireable legacy-parity tranche. Replaces the legacy
 // static/app.js push button (refreshPushStatus/togglePush) + static/pwa.js.
 //
-// Carries all 4 push legacy-parity literals as FULL /api/ literals so
-// tools/legacy_parity.py credits them spa_wired. Shapes re-derived from
+// Carries all four push endpoint families as full /api/ literals so
+// gui_parity_inventory.py sees the SPA consumers. Shapes re-derived from
 // bulk_downloader/app.py :: /api/push/* and bulk_downloader/push.py at 212:
 //
 //   GET  /api/push/info        {available, public_key, error?}. available is

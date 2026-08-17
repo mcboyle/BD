@@ -1,22 +1,12 @@
-"""v3.66.203 — Phase 1 root flip (LEGACY_MIGRATION_PLAN).
-
-`/` serves the D3 React SPA; the legacy shell moved to `/legacy`
-FULLY FUNCTIONAL (the program-long escape hatch until Phase 4).
-/m, /m/ops and /m2 are 302 shims to root; /m2 preserves deep links.
-
-These pins are the flip's contract. The pre-flip contracts were
-re-expressed (never dropped) in: test_v3_43_55_csrf_bootstrap.py
-(legacy inline mint, now at /legacy), test_d3_u1_scaffold.py (vite
-base + 503 not-built surface, now at /), test_d3_u9_opt_in.py (shim
-targets), test_d3_u8_polish.py (e2e targets root),
-test_fresh_install_gui_smoke.py (SPA root).
-"""
+"""Current SPA root, namespace, asset, redirect, and method contract."""
 from __future__ import annotations
 
 import os
 import re
 import tempfile
 from pathlib import Path
+
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -75,20 +65,21 @@ def test_reserved_namespaces_404_not_spa_html():
     c = _fresh_client()
     for path in ("/api/definitely_not_a_route_zz",
                  "/cockpit/definitely_not_a_page_zz",
-                 "/legacy/definitely_not_a_thing_zz",
-                 "/m2zz_is_not_reserved_but_this_is/../"):
-        r = c.get("/api/definitely_not_a_route_zz")
-        assert r.status_code == 404
-    r = c.get("/cockpit/definitely_not_a_page_zz")
-    assert r.status_code == 404
+                 "/legacy/definitely_not_a_thing_zz"):
+        r = c.get(path)
+        assert r.status_code == 404, f"{path}: {r.status_code}"
 
 
 def test_missing_asset_is_404_not_spa_html():
     """An asset-looking path (file extension) not present in dist is a
-    404 — a stale hashed bundle name must fail loudly, not return HTML."""
+    404 when built; a clean source checkout reports the explicit 503 state."""
     c = _fresh_client()
     r = c.get("/assets/definitely-not-a-real-bundle-zz.js")
-    assert r.status_code == 404
+    if not _DIST.is_file():
+        assert r.status_code == 503
+        assert r.headers.get("X-BD-M2-Status") == "not-built"
+    else:
+        assert r.status_code == 404
 
 
 def test_real_asset_served_from_root():

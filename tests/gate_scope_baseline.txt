@@ -146,7 +146,6 @@ tests/test_code_intelligence_adapters.py
 tests/test_code_intelligence_foundation.py
 tests/test_code_intelligence_frontend_docs.py
 tests/test_codex_handoff_stays_retired.py
-tests/test_config_parity_ratchet.py
 tests/test_config_snapshot_diff.py
 tests/test_confirm_tiers_209.py
 tests/test_consolidation.py
@@ -175,8 +174,6 @@ tests/test_curl_cffi_api.py
 tests/test_curl_cffi_response_context.py
 tests/test_cut25b_history_filename_resolves_under_download_dir.py
 tests/test_cut31_done_today_iso.py
-tests/test_cut35_csrf_meta_contract_retired.py
-tests/test_cut35_csrf_meta_premise_retired_in_tools.py
 tests/test_cut3_import_preview_routes.py
 tests/test_cut3_marketplace_preview.py
 tests/test_cut3_user_templates_preview.py
@@ -329,8 +326,6 @@ tests/test_l34_wall_fits_the_harness_timeout.py
 tests/test_l36_checks_the_spa_where_it_actually_is.py
 tests/test_learn_ancestor.py
 tests/test_learn_surface_lock.py
-tests/test_legacy_parity.py
-tests/test_legacy_pin_scan.py
 tests/test_library_audit_panel_contract.py
 tests/test_library_forward_path_records_an_absolute_path.py
 tests/test_lifecycle_automation.py
@@ -377,7 +372,6 @@ tests/test_o5_plugin_install.py
 tests/test_ollama_boot_probe.py
 tests/test_ollama_keepalive_warmup.py
 tests/test_ollama_unknown_model.py
-tests/test_p01_csrf_bootstrap.py
 tests/test_p1_release_tooling.py
 tests/test_p3_t12_callsite.py
 tests/test_p3_t12_challenge_handoff.py
@@ -385,7 +379,6 @@ tests/test_p3_t12_challenge_scrub.py
 tests/test_p3_t12_challenge_statemachine.py
 tests/test_p3_t12_wire.py
 tests/test_p3_template_manager_ui.py
-tests/test_p4_cockpit_home.py
 tests/test_p7_openapi.py
 tests/test_p8_queue_intelligence.py
 tests/test_p9_analytics.py
@@ -401,11 +394,9 @@ tests/test_phase1_cut12_index_backed_consumers.py
 tests/test_phase1_cut12b_captures_helpers_ensure.py
 tests/test_phase1_cut13_capture_store_root.py
 tests/test_phase1_cut14_capture_retention.py
-tests/test_phase1_root_flip.py
 tests/test_phase2_cut21_deadletter_routes.py
 tests/test_phase2_cut21_queue_lanes_deps_deadletter.py
 tests/test_phase3_coverage_fills.py
-tests/test_phase4_retired.py
 tests/test_phase9_0_exec_contract.py
 tests/test_phase9_10_ai_chat.py
 tests/test_phase9_11_doc_drift.py
@@ -514,7 +505,6 @@ tests/test_settings_center_wiring.py
 tests/test_shell_python_resolver.py
 tests/test_shim_reexport_completeness.py
 tests/test_sites_config_honours_the_install_dir.py
-tests/test_skip_baseline.py
 tests/test_source_windows_do_not_shift.py
 tests/test_stale_locks_check_is_gone.py
 tests/test_storage_capture.py
@@ -522,9 +512,7 @@ tests/test_supplemental_recognizers_197.py
 tests/test_sweep_n3_success_url_boundary.py
 tests/test_sweep_n4_csv_injection.py
 tests/test_sweep_n6_regex_redos_guard.py
-tests/test_t10_devtools_wired.py
 tests/test_t10_pipeline_inspectors.py
-tests/test_t11_approval_wired.py
 tests/test_t11_dedup_partials.py
 tests/test_t11_pending_approvals.py
 tests/test_t12_filename_template.py
@@ -533,10 +521,8 @@ tests/test_t14_vpn_probe_egress.py
 tests/test_t15_network_health.py
 tests/test_t16_stealth_audit.py
 tests/test_t17_filesystem_audit.py
-tests/test_t1_dashboard_wired.py
 tests/test_t1_test_meta_tools.py
 tests/test_t2_fixture_controller.py
-tests/test_t2_history_wired.py
 tests/test_t34_dead_css.py
 tests/test_t35_storage_tier_status.py
 tests/test_t36_maintenance_mode.py
@@ -544,7 +530,6 @@ tests/test_t37_token_estimate.py
 tests/test_t38_i18n_coverage.py
 tests/test_t39_model_pull_check.py
 tests/test_t3_db_inspectors.py
-tests/test_t3_t4_wired.py
 tests/test_t40_feature_flags.py
 tests/test_t41_window_simulate.py
 tests/test_t42_golden_files.py
@@ -561,15 +546,10 @@ tests/test_t54_env_probe_timeout.py
 tests/test_t55_live_test_harness_timeout.py
 tests/test_t56_systemd_missing_unit.py
 tests/test_t5_runner_inspectors.py
-tests/test_t5_t6_wired.py
 tests/test_t6_login_security.py
 tests/test_t7_ai_inspection.py
-tests/test_t7_notifications_wired.py
 tests/test_t8_ai_metrics.py
-tests/test_t8_cluster_wired.py
 tests/test_t9_vision_test.py
-tests/test_t9a_live_stream_wired.py
-tests/test_t9b_push_wired.py
 tests/test_task_tracker_stays_retired.py
 tests/test_template_assist_reptyle.py
 tests/test_template_extractor_surface_lock.py

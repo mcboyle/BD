@@ -1,4 +1,4 @@
-"""T11 — approval_ui SPA port (Tier-A SAFETY) migration pins.
+"""Current approval UI SPA safety contract.
 
 Ports the legacy per-site auto-submit / post-reveal approval gate
 (bulk_downloader/static/approval_ui.js, 233 lines) into the React SPA.
@@ -6,24 +6,12 @@ The BACKEND DOES NOT CHANGE — the two decision endpoints already exist and
 are pinned by tests/test_auto_submit_approval.py. The only new risk is an
 SPA-side gate BYPASS, which these tests pin.
 
-RED on pristine v3.66.263 (proven before implementing):
-  * test_decision_endpoints_spa_wired  — both endpoints are spa_wired=False
-    in the parity inventory until useApproval.ts + the SiteDetail gate land
-    with FULL /api/ literals.  (NOTE: these two endpoints were NEVER in the
-    legacy_parity legacy_only set — that scanner only globs static/*.js +
-    index.html, and approval_ui.js's refs don't surface there — so the
-    correct wiring gate is the INVENTORY spa_wired flip, not a legacy_only
-    drop.  Same intent as the T5/T6 wired test, correct mechanism here.)
-  * test_useapproval_full_literals_present — useApproval.ts does not exist
-    yet.
-
-GREEN on pristine (regression pins, NOT red — the backend already
-interposes; they guarantee the SPA-surfaced path can't bypass the gate):
+The tests guarantee the SPA-surfaced path cannot bypass the backend gate:
   * test_endpoint_interposition_auto_submit / _post_reveal — drive the real
     Flask routes the SPA will call; a challenge-marked candidate stays
     do_not_auto_submit=True / approval_status="pending" until an operator
     approve, and a decline keeps it closed.
-  * test_no_raw_mutating_fetch_to_decision_paths — guardrail: the decision
+  * test_no_raw_mutating_fetch_to_decision_paths — the decision
     POSTs must ride apiPost (CSRF), never a raw fetch().
 
 run_tests.py conventions: zero-arg test functions; repo root from
@@ -32,6 +20,8 @@ Path(__file__).resolve().parent.parent; no pytest builtins.
 import importlib.util
 import re
 from pathlib import Path
+
+BD_GATE_SCOPE = "repo-wide"
 import sys
 
 import pytest

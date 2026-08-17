@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1168 - make tests state current contracts
+
+Cut 8 retires the completed legacy-SPA parity and deletion-pin machinery after
+its routing, CSRF, navigation, safety, and physical-absence protections are
+reframed as directly CI-wired present-tense contracts. Historical filenames and
+magnitude ceilings no longer decide whether the current SPA is safe.
+
+Skip governance now consumes complete real-pytest JUnit and pins every skipped
+test identity with its reason. Missing, malformed, failed, errored, zero-test,
+truncated, duplicate, or internally inconsistent evidence refuses a verdict.
+The explicitly parked config-parity checks report SKIP rather than silently
+returning PASS, and the gate-scope baseline shrinks as these contracts receive
+honest scope declarations and direct CI ownership.
+
 ## v3.66.1167 - consolidate safety authorities
 
 Cut 7 makes `guards.json`, root `FOOTGUNS.json`, and root `INVARIANTS.json`

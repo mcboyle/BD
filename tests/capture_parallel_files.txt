@@ -172,7 +172,7 @@ test_curl_cffi_api.py
 test_curl_cffi_response_context.py
 test_cut25b_history_filename_resolves_under_download_dir.py
 test_cut31_done_today_iso.py
-test_cut35_csrf_meta_contract_retired.py
+test_csrf_contract_reachability.py
 test_cut3_import_preview_routes.py
 test_cut3_marketplace_preview.py
 test_cut3_user_templates_preview.py
@@ -304,7 +304,6 @@ test_l34_wall_fits_the_harness_timeout.py
 test_l36_checks_the_spa_where_it_actually_is.py
 test_learn_ancestor.py
 test_learn_surface_lock.py
-test_legacy_pin_scan.py
 test_library_forward_path_records_an_absolute_path.py
 test_lifecycle_drift.py
 test_lint_kb.py
@@ -360,7 +359,7 @@ test_phase1_cut12_index_backed_consumers.py
 test_phase1_cut12b_captures_helpers_ensure.py
 test_phase1_cut13_capture_store_root.py
 test_phase1_cut14_capture_retention.py
-test_phase1_root_flip.py
+test_spa_root_routing_contract.py
 test_phase2_cut21_deadletter_routes.py
 test_phase2_cut21_queue_lanes_deps_deadletter.py
 test_phase9_0_exec_contract.py
@@ -1128,14 +1127,14 @@ test_library_audit_panel_contract.py
 test_lifecycle_automation.py
 test_login_surface_lock.py
 test_nav_probe.py
-test_p01_csrf_bootstrap.py
+test_csrf_session_bootstrap.py
 test_p1_release_tooling.py
 test_p3_template_manager_ui.py
-test_p4_cockpit_home.py
+test_cockpit_navigation_contract.py
 test_p8_queue_intelligence.py
 test_p9_analytics.py
 test_phase3_coverage_fills.py
-test_phase4_retired.py
+test_cockpit_route_contract.py
 test_recognition_cockpit_display.py
 test_release_hygiene_gates.py
 test_settings_center_secret_classifier.py
@@ -1258,12 +1257,11 @@ test_zip_era_tools_stay_retired.py
 # vpn_runtime consumers derived by bd-band-derive, so the importlib.reload in
 # vpn_ui had a chance to surface: 524 passed at every width, zero failures.
 test_ct2_capture_bodies.py
-test_cut35_csrf_meta_premise_retired_in_tools.py
+test_csrf_tool_contracts.py
 test_dom_overlay.py
 test_import_graph_gate_fails_closed.py
 test_import_graph_no_new_edges.py
 test_import_graph_sees_package_form.py
-test_legacy_parity.py
 test_macro_replay.py
 test_novnc_url_defaults.py
 test_secret_display_never.py

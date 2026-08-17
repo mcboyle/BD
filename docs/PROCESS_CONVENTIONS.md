@@ -44,11 +44,8 @@ nowhere the bootstrap can find it is a latent gap. Plans anchor code references 
 **symbols**, never line numbers (they drift ~130 lines across ~60 versions).
 
 ## 5. Generated > hand-maintained for safety-relevant lists
-The Phase-4 retirement §C test-pin list is **generated** by
-`tools/legacy_pin_scan.py`, not hand-written — hand-maintenance is how it went
-both stale (already-migrated entries) and incomplete (missed live pins). The
-scanner errs toward over-reporting so it can never miss a pin the deletion would
-break; the operator confirms each. Run it at the deletion cut, not from memory.
+Current inventories and direct behavioral tests own live surfaces. Historical
+retirement lists and count ratchets are not standing authorities.
 
 ## 6. In-zip STATE is not authoritative; the pack STATE is
 `build_release` stamps the in-zip `STATE.json` (built_version, file_count, name)

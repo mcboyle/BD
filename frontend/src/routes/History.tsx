@@ -51,7 +51,7 @@ import { formatBytes } from "@/lib/format";
 // ── T2 history/logs/search (v3.66.206) ──────────────────────────────
 //
 // One lazy SPA route consolidating the 12 legacy-only history/logs/
-// search families as four tabs, per docs/LEGACY_MIGRATION_PLAN.md
+// search families as four tabs under the current history route
 // Phase 2 / T2. First confirm-gated writes of Phase 2: history vacuum,
 // log clear, and saved-search delete take a TYPED confirmation; saved-
 // search add and run take a one-step confirm. Nothing fires on a

@@ -1,7 +1,7 @@
 // useCluster — T8 (v3.66.211) cluster wiring: fed · edge_deploy · pair.
 //
-// Carries ALL 8 T8 legacy-parity literals as FULL /api/ literals so
-// tools/legacy_parity.py credits them spa_wired (inline ${x} only on a
+// Carries all eight endpoint families as full /api/ literals so
+// gui_parity_inventory.py sees the SPA consumers (inline ${x} only on a
 // true path param). Handler-correct shapes re-derived from
 // bulk_downloader/app.py at 210:
 //

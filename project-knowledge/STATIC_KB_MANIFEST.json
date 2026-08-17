@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T13:16:47+00:00",
- "version_context": "v3.66.1167",
+ "generated": "2026-08-17T14:40:35+00:00",
+ "version_context": "v3.66.1168",
  "file_count": 84,
  "files": {
   "0_INDEX.md": {
@@ -113,8 +113,8 @@
    "bytes": 631
   },
   "CONTRACT_RULES.baseline": {
-   "sha256": "2f30dab23d58f4b2c3cb2b4b0a5e5c6436c73ec9bec94e40bc1bbdbf988818f5",
-   "bytes": 34958
+   "sha256": "471a19dbbbfb669785db19b4205b3b1f76f03a46276c2a4dd7892151de6e7355",
+   "bytes": 35064
   },
   "COVERAGE_GAPS.json": {
    "sha256": "98f863bac981bd226f608e972420be10cb111bfac6d808434be4bc2ba2f13ca5",
@@ -157,8 +157,8 @@
    "bytes": 6409
   },
   "KB_JUDGMENT.md": {
-   "sha256": "97748cef09c23e281dfaad551a6e3ca171490fe88798fc606b8bf22f62662a6f",
-   "bytes": 95151
+   "sha256": "f7b05d4da30f12ac4c15be4bbee8f5c04facb5f1e1f84a671c0285adcd70ef71",
+   "bytes": 95143
   },
   "KB_RECOGNIZER_COVERAGE_METHOD.md": {
    "sha256": "0be8eb27ebf64d12901d51b96ef7f39bd99fc0fea5a255805ad2da0eae91eba5",
@@ -225,8 +225,8 @@
    "bytes": 1292
   },
   "RELEASE_DISCIPLINE_TIERS.md": {
-   "sha256": "3661f68fb121a9c90776fdf01d035459661751ac954b2d4ea9f589f42a5c30bb",
-   "bytes": 7866
+   "sha256": "cc705858b4efb2d99825618f966ff0dfa73b4d6b559a01b01a02ae919a2925a2",
+   "bytes": 7818
   },
   "RENDER_CAPTURE_AUDIT_GUIDE.md": {
    "sha256": "25e5b218eb113613b40b6af306fc569dfd1e00d9e78ecf03d5cd1ea36b9085cc",
@@ -309,8 +309,8 @@
    "bytes": 14990
   },
   "round.sh": {
-   "sha256": "074302ab7746872aae9dc24c5b74d1f65f2371e7785f23b3943daa9bce8b5335",
-   "bytes": 3937
+   "sha256": "7a6872586a8f964300080d7b2f3926b5e1f27f02c6e65501f7bf092ffa13a3aa",
+   "bytes": 3918
   },
   "spa_render.sh": {
    "sha256": "97c08a3191acb5813b8a5d3baa5713c2d31396493e5160310db559bc5f84a2af",

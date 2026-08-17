@@ -41,7 +41,7 @@ _ORDER = ("info", "ok", "warn", "bug", "crit")
 #
 # Two consumers read this constant and must not be able to disagree:
 #   * Report.exit_code() below -- the process exit status of tools/*_probe.py
-#   * tests/test_cut35_csrf_meta_premise_retired_in_tools.py -- builds the
+#   * tests/test_csrf_tool_contracts.py -- builds the
 #     pattern deciding whether a probe section graded a defect
 #
 # It used to exist only as an inline expression inside exit_code(), with the

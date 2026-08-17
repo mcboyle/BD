@@ -19,13 +19,12 @@ import type {
   RouteUrlsResult,
 } from "@/lib/api-types";
 
-// ── T1 read-only dashboard tranche (v3.66.205) ──────────────────────
+// ── Current read-only dashboard API consumers ───────────────────────
 //
-// One hook per legacy-only read endpoint ported into the SPA. Each
+// One hook per dashboard read endpoint. Each
 // queryFn uses the FULL "/api/…" string literal (NOT a concatenated
-// base var) so tools/legacy_parity.py + gui_parity_inventory.py count
-// the endpoint as spa_wired and it drops out of the legacy-only set.
-// See docs/LEGACY_MIGRATION_PLAN.md (Phase 2, T1).
+// base var) so gui_parity_inventory.py can verify the SPA consumer.
+// The direct dashboard contract is CI-wired in test_t1_dashboard_wired.py.
 //
 // Cadence: live operational panels poll adaptively (fast while the
 // queue is busy, slow when idle); reference panels (changelog, weather,

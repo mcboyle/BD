@@ -1,8 +1,8 @@
 // useLive — T9a (v3.66.212) live-recorder wiring: status · recordings ·
 // watch · unwatch. Replaces the legacy static/live_recorder.js pill/panel.
 //
-// Carries ALL 4 live legacy-parity literals as FULL /api/ literals so
-// tools/legacy_parity.py credits them spa_wired. Handler-correct shapes
+// Carries all four live endpoint families as full /api/ literals so
+// gui_parity_inventory.py sees the SPA consumers. Handler-correct shapes
 // re-derived from bulk_downloader/app_live_recorder.py at 211:
 //
 //   GET  /api/live/status      {ok,available,preferred_backend,backends,

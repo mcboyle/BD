@@ -16,10 +16,9 @@ import type {
 // ── T7 notifications tranche (v3.66.210) ────────────────────────────
 //
 // Ports the 7 legacy-only notify/tg/alerts families into the SPA
-// /notifications route, per docs/LEGACY_MIGRATION_PLAN.md Phase 7 / T7.
+// /notifications route.
 // Every call uses the FULL "/api/…" string literal (NOT a concatenated
-// base var) so tools/legacy_parity.py + gui_parity_inventory.py credit
-// the endpoint spa_wired and it drops out of the legacy-only baseline
+// base var) so gui_parity_inventory.py sees the SPA endpoint consumer
 // (ratchet 41 → 34).
 //
 // SECRETS ARE WRITE-ONLY ((R) rule): the apprise URLs and the tg bot

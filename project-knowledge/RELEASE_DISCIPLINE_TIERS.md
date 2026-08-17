@@ -69,7 +69,7 @@ If you cannot satisfy the floor, you are not in a lighter tier — you stop.
 ## Tier A — heavy (full ritual; announce depth first)
 
 **Trigger:** a guard edit, a route change, an `app.py`/`runner.py` edit, a SPA
-*write* tranche, or anything that moves `legacy_parity`. (Migration tranches like
+*write* tranche, or anything that changes API-to-SPA routing. (Migration tranches like
 **T11/T12**, `app.py` decomposition F5.1, any new `/api/` route.) **A safety gate
 (e.g. T11) is Tier A and gets full rigor — announced, then done thoroughly, never
 rushed.**
@@ -124,15 +124,14 @@ this: `tests/test_recognizer_scorecard.py::test_no_tell_markup_skin_scored_nativ
 **Trigger:** a pure documentation or living-file edit, no code, no build.
 
 **Do:** make the edit; bump STATE's pointer if a shipped doc changed; no build, no
-band, no pack regen beyond the touched file. (Example: `LEGACY_MIGRATION_PLAN.md`
-errata, this doc.)
+band, no pack regen beyond the touched file.
 
 ---
 
 ## Picking the tier (decision order)
 
 1. Touches a **guard**, a **route**, `app.py`/`runner.py`, a **SPA write**, or
-   `legacy_parity`? → **Tier A.**
+   API-to-SPA routing? → **Tier A.**
 2. Else, is it a **code/logic** change in a non-guard file? → **Tier B.**
 3. Else (docs/living files only)? → **Tier C.**
 

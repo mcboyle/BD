@@ -254,6 +254,7 @@ jobs:
               tests/test_v3_66_1165_one_agent_contract.py
               tests/test_v3_66_1166_historical_docs_are_adjudicated.py
               tests/test_v3_66_1167_safety_authorities_are_single_source.py
+              tests/test_v3_66_1168_tests_are_current_contracts.py
               tests/test_v3_66_1141_no_paragraph_leaves_undeclared.py
               tests/test_v3_66_1145_step0_fails_closed.py
               tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py
@@ -266,6 +267,24 @@ jobs:
           - name: parity-graph
             suites: >-
               tests/test_gui_parity.py
+              tests/test_t1_dashboard_wired.py
+              tests/test_t2_history_wired.py
+              tests/test_t3_t4_wired.py
+              tests/test_t5_t6_wired.py
+              tests/test_t7_notifications_wired.py
+              tests/test_t8_cluster_wired.py
+              tests/test_t9a_live_stream_wired.py
+              tests/test_t9b_push_wired.py
+              tests/test_t10_devtools_wired.py
+              tests/test_t11_approval_wired.py
+              tests/test_config_parity_ratchet.py
+              tests/test_skip_baseline.py
+              tests/test_csrf_session_bootstrap.py
+              tests/test_csrf_contract_reachability.py
+              tests/test_csrf_tool_contracts.py
+              tests/test_spa_root_routing_contract.py
+              tests/test_cockpit_route_contract.py
+              tests/test_cockpit_navigation_contract.py
               tests/test_import_graph_no_new_edges.py
               tests/test_v3_66_653_dep_freshness.py
               tests/test_route_index_in_sync.py

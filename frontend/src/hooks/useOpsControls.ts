@@ -17,7 +17,7 @@ import type {
 // Ports the 11 legacy-only sites-bulk/runners/concurrent/rate_limit/
 // retry_policy/crash_recovery/file families into the EXISTING SPA
 // routes (Maintenance gains the Operations sections; ImportsCenter
-// gains bulk site import), per docs/LEGACY_MIGRATION_PLAN.md Phase 2 /
+// gains bulk site import), as required by the current operations contract /
 // T4. FULL "/api/…" literals throughout; the crash-recovery action and
 // concurrency setter use inline `${…}` path params, which normalise to
 // the same parameterised endpoints the legacy baseline carries.

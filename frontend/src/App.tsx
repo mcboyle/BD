@@ -37,7 +37,7 @@ import { CaptureWorkflow } from "./routes/CaptureWorkflow";
 // v3.66.205 (T1): route-level code-splitting starts here. The read-only
 // dashboard is the first lazily-loaded route — App.tsx wraps <Routes> in
 // <Suspense> so subsequent Phase 2 tranches can convert their routes to
-// lazy() without further shell changes. See docs/LEGACY_MIGRATION_PLAN.md.
+// lazy() without further shell changes.
 const Dashboard = lazy(() => import("./routes/Dashboard"));
 const Tools = lazy(() => import("./routes/Tools"));
 // v3.66.206 (T2): history/logs/search tranche — second lazy route.

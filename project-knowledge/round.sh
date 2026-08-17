@@ -8,16 +8,14 @@ PWP=/home/claude/.cache/ms-playwright
 
 # --- suite battery, grouped by migration phase --------------------------------
 SUITES="
-P0:test_p01_csrf_bootstrap.py
+P0:test_csrf_session_bootstrap.py
 P0:test_csrf_origin_guard.py
-P1:test_phase1_root_flip.py
+P1:test_spa_root_routing_contract.py
 P3:test_phase3_coverage_fills.py
 P3:test_v3_50_phase3.py
-P4:test_phase4_retired.py
+P4:test_cockpit_route_contract.py
 P4:test_v3_51_phase4.py
-P4:test_p4_cockpit_home.py
-P4:test_legacy_parity.py
-P4:test_legacy_pin_scan.py
+P4:test_cockpit_navigation_contract.py
 P6:test_v3_53_phase6.py
 P6:test_settings_center_slice4.py
 P6:test_global_config_defaults.py

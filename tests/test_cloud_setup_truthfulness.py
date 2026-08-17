@@ -307,7 +307,7 @@ def test_missing_repo_does_not_exit_zero():
 #
 #   test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree
 #       -> "declared data dir does not exist: frontend/dist"
-#   test_phase1_root_flip::test_missing_asset_is_404_not_spa_html
+#   test_spa_root_routing_contract::test_missing_asset_is_404_not_spa_html
 #       -> 503, because bulk_downloader/app.py cannot serve an absent bundle
 #
 # Measured in this container: both fail before `npm run build` and pass after,

@@ -1,8 +1,7 @@
 """GUI-parity ratchet gate (Phase 4 of the CLI->GUI parity program).
 
 `config_surface_inventory.py --check` is the durable win: it fails if the count of
-runtime-tunable settings NOT yet gui_exposure=full exceeds a pinned baseline — the
-same ratchet mechanism as legacy_parity. As each Phase-4 cut lands a GUI control it
+runtime-tunable settings NOT yet gui_exposure=full exceeds a pinned baseline. As each UI cut lands a GUI control it
 adds the key to reports/config_gui_manifest.json and the open count shrinks.
 
 RED-first: the pristine tool has no _check / _open_settings / _apply_manifest and
@@ -15,6 +14,10 @@ import sys
 import json
 import tempfile
 from pathlib import Path
+
+import pytest
+
+BD_GATE_SCOPE = "module"
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / "tools"
@@ -39,7 +42,7 @@ def test_check_passes_against_pinned_baseline():
     """The committed baseline matches the current open set -> --check is green.
     Stands down while the ratchet is parked (v3.66.468 operator directive)."""
     if not csi._RATCHET_ACTIVE:
-        return  # ratchet parked: open-count not enforced
+        pytest.skip("config parity is parked by operator; activation is not authorized")
     d = csi.build(str(ROOT))
     assert csi._check(str(ROOT), d) == 0
     base = json.loads((ROOT / "reports/config_parity_baseline.json").read_text())
@@ -85,7 +88,7 @@ def test_check_fails_when_open_exceeds_baseline():
     baseline -> --check returns 1 (the regression catch). Stands down while the
     ratchet is parked (v3.66.468 operator directive) -- _check is inert then."""
     if not csi._RATCHET_ACTIVE:
-        return  # ratchet parked: _check no longer enforces
+        pytest.skip("config parity is parked by operator; activation is not authorized")
     d = csi.build(str(ROOT))
     # pin a temp baseline one BELOW the current open count, simulating that a new
     # setting was added without a GUI control after the baseline was last pinned.

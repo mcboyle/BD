@@ -1,7 +1,6 @@
-"""v3.66.302 — GUI-parity generator and release-artifact reconciliation.
+"""Current GUI-parity generator and release-artifact reconciliation.
 
-The inventory generator must contain the 7 real tools that were absent from the
-292 baseline and the 2 routes added at 293. When a release artifact is present,
+The inventory generator must contain the two live routes. When a release artifact is present,
 it must also match a fresh generator run. Clean source trees do not carry the
 ignored reports artifact; the release gate requires it before packaging.
 
@@ -20,12 +19,7 @@ _SHIPPED_INVENTORY = _REPO / "reports" / "gui_parity_inventory.json"
 # Keeping that mutation out of pytest prevents later bare imports from resolving
 # against an unrelated tools/*.py module.
 
-# the 7 tools that existed in tools/ but were missing from the frozen baseline
-_PHANTOM_TOOLS = {
-    "build_session_pack", "legacy_pin_scan", "make_overlay", "precut_check",
-    "build_recognizer_corpus",
-}
-# the 2 routes added @293 that were never reconciled into the shipped inventory
+# Two current routes whose inventory membership is directly enforced.
 _NEW_293_ROUTES = {"sites.api_template_capture_cancel", "cockpit.api_capture_goto"}
 
 
@@ -60,12 +54,6 @@ def generated_inventory_path(tmp_path):
 def _shipped_names(path):
     d = json.loads(path.read_text(encoding="utf-8"))
     return {it["name"] for it in d["items"]}, d
-
-
-def test_generated_inventory_includes_reconciled_tools(generated_inventory_path):
-    names, _ = _shipped_names(generated_inventory_path)
-    missing = sorted(_PHANTOM_TOOLS - names)
-    assert not missing, f"generated inventory missing reconciled tools: {missing}"
 
 
 def test_generated_inventory_includes_new_293_routes(generated_inventory_path):

@@ -1,31 +1,9 @@
-"""P0.1 (v3.66.202) — CSRF bootstrap extracted from the legacy render.
-
-LEGACY_MIGRATION_PLAN Phase 0, P0.1: the session/CSRF bootstrap must be
-an app-level mechanism, independent of the legacy template render. The
-blocking proof: a client that NEVER loads the legacy shell (never GETs
-"/") can complete a CSRF-protected POST.
-
-Before this change, sessions were minted only on GET / (serve_index
-inline mint + the path-gated _bootstrap_session after_request hook);
-/api/csrf refused with {"ok": false, "error": "no session — ..."} when
-no session cookie was present. The SPA's api-client then held a null
-token and every protected POST 403'd for any client whose first contact
-wasn't the legacy shell.
-
-After: GET /api/csrf mints the session itself (same anonymous
-source="csrf_bootstrap" session a cookie-less GET / receives) and sets
-the bd_session cookie on its own response.
-
-Contract re-expression note: test_security.py::TestPhase40CSRFAndPairing
-::test_csrf_endpoint_no_session pinned the old refusal; it is updated in
-the same cut to pin the new mint behavior (re-expressed, not dropped).
-
-Runner notes: custom run_tests.py — zero-arg test functions, no pytest
-builtins; repo root via Path(__file__).resolve().parent.parent.
-"""
+"""Current cookie-less CSRF session bootstrap contract."""
 
 from pathlib import Path
 import sys
+
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
@@ -73,8 +51,9 @@ def test_protected_post_succeeds_without_legacy_shell():
     sid = body.get("id")
     assert sid is not None, f"site create did not return an id: {body}"
     # cleanup so repeated runs / later tests don't accrete sites
-    c.delete(f"/api/sites/{sid}",
-             headers={"X-CSRF-Token": d["csrf_token"]})
+    cleanup = c.delete(f"/api/sites/{sid}",
+                       headers={"X-CSRF-Token": d["csrf_token"]})
+    assert cleanup.status_code == 200, cleanup.get_json()
 
 
 def test_existing_session_path_unchanged():

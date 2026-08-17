@@ -2352,7 +2352,7 @@ def _start_watcher():
 _start_watcher()
 
 
-# ── Phase 1 root flip (v3.66.203, LEGACY_MIGRATION_PLAN) ────────────────
+# ── SPA root routing contract ────────────────────────────────────────────
 # `/` now serves the D3 React SPA (Vite base "/" + router basename "/").
 # The legacy shell was deleted in Phase 4 (v3.66.334); "legacy" stays a
 # reserved prefix below so /legacy is a 404, not SPA HTML. The catch-all
