@@ -187,6 +187,12 @@ Use real pytest through the repository interpreter. Derive affected tests with
 `toolchain/bin/bd-band-derive`; its output is a floor, never a ceiling. Add
 tree-wide denominators, deleted-file consumers, docs/freshness gates, generated
 gates, release gates, and adversarial tests that the changed subject requires.
+For a documentation or canonical-backlog edit, run the repository freshness
+gate directly as well:
+
+```bash
+venv/bin/python toolchain/bin/bd-freshcheck --repo-only
+```
 
 For ordinary focused/affected pytest, remove ambient install-directory state:
 
@@ -197,7 +203,7 @@ env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest 
 The only sanctioned canonical local full-suite command is:
 
 ```bash
-env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ -n 24 --dist loadfile --timeout=240 --timeout-method=thread -p no:randomly'
+env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ -n 24 --dist loadfile --timeout=240 --timeout-method=thread -p no:randomly
 ```
 
 Every token is load-bearing. `-n 24` is fixed; host capacity does not rewrite
@@ -257,6 +263,9 @@ A version bump is three source edits together:
 Then regenerate and inspect `PIN_INDEX.json`; do not assume the number or
 location of version pins. Run version, changelog, generated, release, frontend,
 and packaging gates against the final candidate.
+
+The repository environment is `venv`, not the dot-prefixed `.venv`; use
+`venv/bin/python` and do not fall through to a different system interpreter.
 
 Release packaging must include required gitignored generated artifacts and
 `frontend/dist`, prove the archive member set matches the intended source tree,
@@ -363,6 +372,7 @@ and selftest before hand-writing a replacement.
 | What work remains? | `project-knowledge/IMPROVEMENT_BACKLOG.md` |
 | Which tests does a changed path require? | `project-knowledge/TOUCHED_FILE_TO_TEST.md` and `toolchain/bin/bd-band-derive` |
 | How is a cloud/session environment prepared? | `docs/repo/ENVIRONMENT_PROVISIONING.md` |
+| How is a test host provisioned? | `scripts/provision_test_host.sh` |
 | How is a fresh host or deployment prepared? | `docs/repo/FRESH_HOST_BRINGUP.md` and `scripts/deploy.sh` |
 | What are the guarded files? | root `guards.json` and `toolchain/bin/bd-guardcheck` |
 | What safety declarations exist? | root `FOOTGUNS.json` and `INVARIANTS.json` |
@@ -382,6 +392,10 @@ Before a broad scan, identify the exact population and use `rg`/`git ls-files`
 or the existing purpose-built tool. Preserve complete logs outside the repository
 and summarize results rather than flooding the working context. This does not
 permit skimming: read every instruction or source needed for the current claim.
+
+CAPTURE WHOLE TO DISK, READ A SLICE. A SECOND HAND-ROLLED HEREDOC IS A MISSING `bd-*` TOOL.
+And measure before optimising: use the complete captured denominator,
+then inspect bounded slices and promote repeated logic into the existing toolchain.
 
 Prefer parallel read-only discovery for independent populations when explicitly
 authorized, but retain one integrator and one writer. Local-model or worker
