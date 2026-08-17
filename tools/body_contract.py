@@ -41,6 +41,8 @@ HOW THIS ONE DOES NOT REPEAT THE MISTAKE:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import copy
 import glob
 import json
 import os
@@ -51,6 +53,26 @@ WORK = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.abspath
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
 
 MUTATORS = ("apiPost", "apiPut", "apiPatch", "apiDelete")
+
+
+@contextlib.contextmanager
+def _preserve_vpn_kill_switch_state():
+    """Restore the exact process singleton after mutating endpoint probes."""
+    from bulk_downloader import vpn_kill_switch as kill_switch
+
+    with kill_switch._state_lock:
+        states = copy.deepcopy(kill_switch._states)
+        auto_recover = kill_switch._auto_recover_enabled
+    try:
+        yield
+    finally:
+        # Do not call _reset_for_tests(): it also erases callbacks registered by
+        # the surrounding application process.  The probes mutate only these
+        # two fields, so restore only these two fields under their owning lock.
+        with kill_switch._state_lock:
+            kill_switch._states.clear()
+            kill_switch._states.update(states)
+            kill_switch._auto_recover_enabled = auto_recover
 
 # An FE call site: the route template + the literal body keys it sends.
 CALL = re.compile(
@@ -162,7 +184,8 @@ def probe_typed(work, tcalls):
     prev = os.getcwd()
     os.chdir(scratch)
     try:
-        return _probe_typed_inner(work, tcalls)
+        with _preserve_vpn_kill_switch_state():
+            return _probe_typed_inner(work, tcalls)
     finally:
         os.chdir(prev)
 
@@ -267,7 +290,8 @@ def probe(work, calls, verbose=False):
     prev_cwd = os.getcwd()
     os.chdir(scratch)
     try:
-        return _probe_inner(work, calls)
+        with _preserve_vpn_kill_switch_state():
+            return _probe_inner(work, calls)
     finally:
         os.chdir(prev_cwd)
 

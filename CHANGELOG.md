@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1160 - body-contract probes preserve kill-switch state
+
+Bridge Cut A found that the full suite's result depended on xdist scheduling:
+the literal body-contract probe exercises the VPN kill-trigger endpoint and
+left its synthetic `_probe` kill in the process singleton. A later L29
+integration test then read that inherited state and failed at worker counts
+that placed both files on one worker.
+
+Both literal and type-aware body-contract probes now snapshot and restore the
+exact kill-state and auto-recovery values under the singleton's owning lock.
+They deliberately retain application callback registrations. Two
+production-path regressions prove the mutating endpoint fired with nonzero
+denominators and that preexisting state is restored exactly. The original
+cross-file order that exposed the leak is also green.
+
 ## v3.66.1159 - fleet retention proves removal of the owned run
 
 Row 149. `bd-fleet-run` no longer rechecks a run directory by pathname,
