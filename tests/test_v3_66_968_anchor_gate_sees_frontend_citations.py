@@ -125,3 +125,6 @@ def test_a_bare_basename_frontend_anchor_still_resolves(tmp_path):
     assert res["status"] == "OK", (
         "a bare-basename .tsx anchor was reported %r: %s"
         % (res["status"], res["detail"]))
+
+
+BD_GATE_SCOPE = "repo-wide"

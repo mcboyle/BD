@@ -129,3 +129,6 @@ def test_the_SURVIVING_missing_producers_are_untouched():
         assert fn in names, (
             "%s() vanished from %s -- the retirement took a LIVE producer with "
             "it. Three of the four 'missing' producers are on screen." % (fn, path))
+
+
+BD_GATE_SCOPE = "repo-wide"

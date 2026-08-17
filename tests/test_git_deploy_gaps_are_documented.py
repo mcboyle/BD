@@ -173,3 +173,6 @@ def test_the_gap_list_has_not_silently_shrunk():
         f"closed -- for example the deploy now restarts the service itself -- "
         f"say so here and in the runbook. If one was added, add it to both."
     )
+
+
+BD_GATE_SCOPE = "repo-wide"

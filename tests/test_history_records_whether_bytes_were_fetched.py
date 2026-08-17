@@ -341,3 +341,6 @@ def test_the_transferred_count_travels_by_return_not_by_self():
             )
             return
     pytest.fail("_http_download not found in runner_transport.py")
+
+
+BD_GATE_SCOPE = "repo-wide"

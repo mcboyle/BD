@@ -172,3 +172,6 @@ def test_the_ledger_records_it(monkeypatch):
         f"migration v{target} added the column but the schema_migrations "
         f"ledger does not record it: applied={sorted(applied)}"
     )
+
+
+BD_GATE_SCOPE = "repo-wide"

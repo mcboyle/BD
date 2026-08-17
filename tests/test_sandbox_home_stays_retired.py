@@ -240,3 +240,6 @@ def test_the_population_guard_refuses_an_empty_scan():
     with pytest.raises(AssertionError, match="BD-GATE-UNRUNNABLE"):
         _require_population(set())
     _require_population({"a.py"})  # and does not fire when the scan found work
+
+
+BD_GATE_SCOPE = "repo-wide"

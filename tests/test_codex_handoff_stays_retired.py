@@ -162,3 +162,6 @@ def test_nothing_still_executes_against_the_handoff():
         "CODEX_HANDOFF.md is retired but these still reference it executably:\n  "
         + "\n  ".join(offenders)
     )
+
+
+BD_GATE_SCOPE = "repo-wide"

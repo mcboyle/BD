@@ -90,3 +90,6 @@ def test_nothing_invokes_a_retired_tool():
     assert not bad, (
         "something still invokes a retired zip-era tool by path:\n  "
         + "\n  ".join(bad[:10]))
+
+
+BD_GATE_SCOPE = "repo-wide"

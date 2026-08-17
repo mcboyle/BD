@@ -147,3 +147,6 @@ def test_an_unreadable_denominator_is_not_a_pass():
     """
     empty = tracked_source_files(Path("/nonexistent-repo-for-918"))
     assert empty == [], empty
+
+
+BD_GATE_SCOPE = "repo-wide"

@@ -323,3 +323,6 @@ def test_policy_requires_canonical_regeneration_before_review():
 # of the executable toolchain left to compare against; tests/
 # test_pk_mirrors_stay_retired.py asserts the stronger property that no such
 # duplicate exists at all.
+
+
+BD_GATE_SCOPE = "repo-wide"

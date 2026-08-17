@@ -615,3 +615,6 @@ def test_tagged_copies_no_longer_group_in_dedup_pass_1(tmp_path):
         f"{sb} bytes on disk. If pass 1 grouped them anyway, its key is no "
         f"longer the exact file_size this test was written against: {after}"
     )
+
+
+BD_GATE_SCOPE = "repo-wide"
