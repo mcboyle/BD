@@ -28,8 +28,6 @@ def _isolate_kill_switch_without_erasing_callbacks():
         auto_recover = ks._auto_recover_enabled
         ks._states.clear()
         ks._auto_recover_enabled = True
-    with ks._callbacks_lock:
-        callbacks = list(ks._callbacks)
     try:
         yield
     finally:
@@ -37,11 +35,9 @@ def _isolate_kill_switch_without_erasing_callbacks():
             ks._states.clear()
             ks._states.update(states)
             ks._auto_recover_enabled = auto_recover
-        with ks._callbacks_lock:
-            ks._callbacks[:] = callbacks
 
 
-def test_typed_body_probe_restores_vpn_kill_switch_state(monkeypatch):
+def test_typed_body_probe_restores_vpn_kill_switch_state(monkeypatch, request):
     """A mutating probe may observe the singleton, but may not retain its writes."""
     from bulk_downloader import vpn_kill_switch as ks
     from tools import body_contract as bc
@@ -57,6 +53,7 @@ def test_typed_body_probe_restores_vpn_kill_switch_state(monkeypatch):
         callback_events.append((tunnel_id, state))
 
     ks.register_kill_callback(callback)
+    request.addfinalizer(lambda: ks.unregister_kill_callback(callback))
 
     def counted_kill(tunnel_id, reason=""):
         if tunnel_id == "_probe":
