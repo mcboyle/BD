@@ -56,7 +56,7 @@ def test_contract_and_executable_bind_the_same_exact_fixed_command():
     tool = _load_tool()
 
     contract = tool.contract_tokens_from_claude_md(str(ROOT / "CLAUDE.md"))
-    expected = tool.section5_tokens(24)
+    expected = tool.suite_command(24)
 
     assert contract is not None
     assert contract == expected

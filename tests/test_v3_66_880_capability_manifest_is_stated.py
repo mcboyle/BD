@@ -131,23 +131,22 @@ def test_the_contract_bands_doc_edits_to_the_freshness_gates():
     still went red: `bd-freshcheck` -- reached through
     tests/test_toolchain_534.py -- is in the blast radius of a SESSION_CARRY
     edit, and no module-derived band reaches a gate whose subject is a DOCUMENT.
-    CLAUDE.md section 4 documented this for test files (the axis-6 gates) but
-    said nothing about doc edits, which have their own gate family.
+    CLAUDE.md now owns this in its concise A5 verification section.
     """
     contract = (REPO / "CLAUDE.md").read_text()
-    section = contract[contract.find("## 4 |"):contract.find("## 5 |")]
-    assert section, "CLAUDE.md section 4 could not be located"
+    section = contract[contract.find("## A5 |"):contract.find("## A6 |")]
+    assert section, "CLAUDE.md section A5 could not be located"
     low = section.lower()
-    assert "session_carry" in low or "register" in low, (
-        "section 4 does not say that editing a register bands anything")
+    assert "documentation" in low or "backlog" in low, (
+        "section A5 does not say that editing a current document bands freshness")
     # The RUNNABLE block, not the prose. Asserting only that the section
     # mentions the tool ESCAPED its mutant: the command was swapped for a
     # different tool while the surrounding paragraph still said the name, so
     # the reader who copies the block runs the wrong check. This is the
     # prose-vs-code conflation again, in a document rather than a script.
     blocks = re.findall(r"```bash\n(.*?)```", section, re.S)
-    assert blocks, "section 4 gives no runnable block for a doc/register edit"
+    assert blocks, "section A5 gives no runnable block for a doc/backlog edit"
     assert any("bd-freshcheck" in b for b in blocks), (
-        "no runnable block in section 4 invokes bd-freshcheck, so the stated "
+        "no runnable block in section A5 invokes bd-freshcheck, so the stated "
         "band for a doc or register edit cannot be copied and run. blocks=%r"
         % blocks)

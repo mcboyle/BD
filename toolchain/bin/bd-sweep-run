@@ -224,7 +224,7 @@ def require_attrs(mod, name, attrs):
 # the command (pure)
 # ---------------------------------------------------------------------------
 def section5_tokens(workers):
-    """CLAUDE.md section 5's ONE permitted whole-suite form, verbatim:
+    """CLAUDE.md section A5's inner pytest form, verbatim:
 
         BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
             -n 24 --dist loadfile --timeout=240 --timeout-method=thread \\
@@ -280,7 +280,7 @@ def contract_tokens_from_claude_md(path):
         text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-    anchor = text.find("SO THE SWEEP IS PERMITTED")
+    anchor = text.find("The only sanctioned canonical local full-suite command is:")
     if anchor < 0:
         return None
     fence = text.find("```bash", anchor)
@@ -1625,16 +1625,17 @@ def selftest(repo_src=None):                                # noqa: C901
     bdfleet = require_attrs(load_sibling(repo_src, "bd-fleet"), "bd-fleet",
                             ["read_hosts", "parse_probe"])
 
-    # --- 1. the command IS section 5's, re-derived from CLAUDE.md ---------
-    built = section5_tokens(CANONICAL_WORKERS)
-    expected = ["BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
+    # --- 1. the command IS section A5's, re-derived from CLAUDE.md --------
+    built = suite_command(CANONICAL_WORKERS)
+    expected = ["env", "-u", "BD_INSTALL_DIR",
+                "BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
                 "venv/bin/python", "-m", "pytest",
                 "tests/", "-n", "24", "--dist", "loadfile", "--timeout=240",
                 "--timeout-method=thread", "-p", "no:randomly"]
     check(built == expected, "the built command is not the sanctioned form: %s" % built)
     contract = contract_tokens_from_claude_md(os.path.join(repo_src, "CLAUDE.md"))
     if contract is None:
-        notes.append("contract cross-check UNKNOWN: CLAUDE.md section 5's fenced "
+        notes.append("contract cross-check UNKNOWN: CLAUDE.md section A5's fenced "
                      "block could not be read from %s. That is NOT a pass -- the "
                      "form was compared only against this file's own constant."
                      % repo_src)
