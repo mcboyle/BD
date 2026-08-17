@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import ast
 import json
 import os
 import re
@@ -84,9 +85,9 @@ def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
         cwd=root,
     ).decode().split("\0")
     names = "|".join(map(re.escape, sorted(RETIRED)))
-    invocation = re.compile(
-        rf"(?:toolchain/bin/|BIN\s*/\s*|join\([^\n]*|subprocess[^\n]*|"
-        rf"(?:^|[;&|])\s*)(?:['\"])?(?:{names})(?![A-Za-z0-9_-])"
+    token = re.compile(rf"(?<![A-Za-z0-9_-])(?:{names})(?![A-Za-z0-9_-])")
+    shell_invocation = re.compile(
+        rf"(?:toolchain/bin/|(?:^|[;&|])\s*)(?:['\"])?(?:{names})(?![A-Za-z0-9_-])"
     )
     offenders = []
     denominator = 0
@@ -97,10 +98,28 @@ def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
         if not path.is_file():
             continue
         denominator += 1
-        for line_no, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        text = path.read_text(errors="replace")
+        lines = text.splitlines()
+        is_python = path.suffix == ".py" or (lines and "python" in lines[0])
+        if is_python:
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                tree = None
+            if tree is not None:
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    for child in ast.walk(node):
+                        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                            if token.search(child.value):
+                                offenders.append(
+                                    f"{rel}:{getattr(child, 'lineno', 0)}:{child.value}"
+                                )
+        for line_no, line in enumerate(lines, 1):
             if line.lstrip().startswith("#"):
                 continue
-            if invocation.search(line):
+            if not is_python and shell_invocation.search(line):
                 offenders.append(f"{rel}:{line_no}:{line.strip()}")
     return denominator, offenders
 
@@ -270,11 +289,17 @@ def test_retired_executable_consumer_scan_has_a_positive_control(tmp_path: Path)
     (tmp_path / "scripts" / "new-close.sh").write_text(
         "#!/bin/sh\nbd-pack --out /tmp/result\n", encoding="utf-8"
     )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "new_close.py").write_text(
+        'import subprocess\nsubprocess.run([\n    "bd-pack",\n    "--out",\n])\n',
+        encoding="utf-8",
+    )
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "add", ".")
     denominator, offenders = _retired_code_invocations(tmp_path)
-    assert denominator == 1
-    assert len(offenders) == 1 and "bd-pack" in offenders[0]
+    assert denominator == 2
+    assert len(offenders) == 2
+    assert all("bd-pack" in offender for offender in offenders)
 
 
 def test_coretest_refuses_to_certify_a_missing_tool(tmp_path: Path):
