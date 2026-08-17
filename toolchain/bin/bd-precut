@@ -189,7 +189,7 @@ def main(argv=None):
 
     # 4. TOOL INTEGRITY (702): the gates above are only as trustworthy as the
     #    tools that run them. bd-coretest fault-injects the release-gating
-    #    mutators (bd-cut/bd-bump/bd-regen/bd-guardcheck/bd-handoff/bd-pack/...)
+    #    mutators (bd-cut/bd-bump/bd-regen/bd-guardcheck/...)
     #    and asserts each CATCHES an injected fault. It existed but NOTHING RAN IT
     #    -- a check that never runs is prose, not a gate (the whole thesis of the
     #    footgun registry). This program has already been bitten: bd-band-derive

@@ -2,7 +2,7 @@
 """bd-tool-smoke -- does the tool actually RUN? The check nothing else makes.
 
 WHEN: before packaging a bdsuite; after adopting a helper into several tools; any time
-a tool is edited. Run it in bd-precut / bd-mkbdsuite alongside bd-tool-lint.
+a tool is edited. Run it in bd-precut alongside bd-tool-lint.
 
 THE HOLE THIS FILLS (found @726, by reconciling a parallel session):
 bd-guardcheck -- a RELEASE-GATING guard tool -- shipped with a `_bd_pick_newest()` helper
@@ -31,7 +31,7 @@ executing a single line.
 
     bd-tool-smoke                  # scan every bd-* tool in bin/
     bd-tool-smoke --bin DIR
-    bd-tool-smoke --gate           # exit 3 if any tool would crash (for bd-mkbdsuite)
+    bd-tool-smoke --gate           # exit 3 if any tool would crash
     bd-tool-smoke --run            # ALSO really invoke each tool (slow; see --run notes)
     bd-tool-smoke --json / --selftest
 
@@ -396,7 +396,7 @@ def main():
     ap = argparse.ArgumentParser(prog="bd-tool-smoke")
     ap.add_argument("--bin", default=BIN)
     ap.add_argument("--gate", action="store_true",
-                    help="exit 3 if any tool would crash (for bd-mkbdsuite / bd-precut)")
+                    help="exit 3 if any tool would crash (for bd-precut)")
     ap.add_argument("--run", action="store_true",
                     help="ALSO really invoke each tool (slow, ~10min; snapshots + RESTORES "
                          "the work tree; run it under bd-job)")

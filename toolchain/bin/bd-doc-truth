@@ -42,7 +42,7 @@ documents and reported clean -- inside a CI gate. Both halves had to be fixed:
 aiming it at real docs while main() still returned 0 would have left it equally
 blind, because check_delegate maps rc0 -> OK.
 """
-import argparse, glob, os, re, sys
+import argparse, glob, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 import os as _oscli, sys as _syscli
@@ -81,16 +81,17 @@ def contract_docs(work):
     return included, excluded
 
 
-def scan(docs, work, extra=()):
+def scan(docs, work, extra=(), files=None, historical_excluded=0):
     cur=current_version(work)
     stale=[]
     # docs_scanned is not cosmetic: it is the DENOMINATOR, and reporting a
     # count without it is exactly how "0 stale claims" over zero documents read
     # as clean for as long as it did.
-    files=sorted(glob.glob(os.path.join(docs,"*.md")))+list(extra)
+    files=(sorted(glob.glob(os.path.join(docs,"*.md")))+list(extra)
+           if files is None else list(files))
     # file-path claims: `some/path.py` references that don't exist
     for f in files:
-        name=os.path.basename(f)
+        name=os.path.relpath(f,work).replace(os.sep,"/")
         txt=open(f,errors="ignore").read()
         for m in re.finditer(r'`(bulk_downloader/[a-zA-Z0-9_/]+\.py)`',txt):
             path=m.group(1)
@@ -98,6 +99,8 @@ def scan(docs, work, extra=()):
                 stale.append({"doc":name,"kind":"missing-file","claim":path})
     return {"current_version":cur,"stale":stale[:60],"stale_count":len(stale),
             "docs_dir":docs,"docs_scanned":len(files),
+            "current_docs":len(files),
+            "historical_excluded":historical_excluded,
             "docs_dir_exists":os.path.isdir(docs)}
 
 def selftest():
@@ -191,9 +194,20 @@ def main():
     # That keeps @850's empty/absent-corpus controls meaningful.
     explicit=a.docs is not None
     docs=a.docs if explicit else default_docs(a.work)
-    included,excluded=((),()) if explicit else contract_docs(a.work)
-    r=scan(docs,a.work,extra=included)
-    r["contract_scanned"]=len(included)
+    if explicit:
+        included,excluded=(),()
+        r=scan(docs,a.work)
+    else:
+        try:
+            current,historical=sec.tracked_markdown_corpus(a.work)
+        except (OSError,RuntimeError,subprocess.SubprocessError) as exc:
+            print("BD-DOC-TRUTH UNEVALUABLE -- %s"%exc,file=sys.stderr)
+            return sec.EXIT_CANNOT_EVALUATE
+        included=[os.path.join(a.work,p) for p in current]
+        excluded=[(os.path.join(a.work,p),"tracked historical evidence") for p in historical]
+        r=scan(docs,a.work,files=included,historical_excluded=len(excluded))
+    r["contract_scanned"]=sum(
+        1 for f in included if len(os.path.relpath(f,a.work).split(os.sep)) == 1)
     r["excluded"]=[{"doc":os.path.basename(f),"why":w} for f,w in excluded]
     rc=verdict(r)
     # The verdict is computed BEFORE emit(), because emit() returns True for

@@ -245,7 +245,7 @@ def precut(work, baseline):
     # It printed "(skipped)" on every run for cuts on end -- a check that always skips is
     # a check that lies by omission. It now says NOT CHECKED and says WHY, because an
     # unverified thing is UNKNOWN, not OK. Making it real needs an operator decision:
-    # ship a KNOWLEDGE_GRAPH.db.sha256 pin from bd-mkauditstate, then decide gate-or-advise.
+    # provide a KNOWLEDGE_GRAPH.db.sha256 pin, then decide gate-or-advise.
     gtool = os.path.join(work, "tools", "graph_build.py")
     gdb = gpin = None
     # v3.66.855 port: the four /home/claude/{review,audit_state,as,audit_carry}
@@ -280,7 +280,7 @@ def precut(work, baseline):
               f"{DIM}.sha256{RST}{Y} pin ships beside it, so there is nothing to compare "
               f"against.{RST}")
         print(f"  {DIM}    -> generate one (graph_build.py --write-hash) and have "
-              f"bd-mkauditstate ship it. UNKNOWN, not OK.{RST}")
+              f"the graph producer write it. UNKNOWN, not OK.{RST}")
     else:
         print(f"  {Y}graph content pin: NOT CHECKED{RST} -- no KNOWLEDGE_GRAPH.db present "
               f"(it lives in the audit_state pack; extract it to enable).")

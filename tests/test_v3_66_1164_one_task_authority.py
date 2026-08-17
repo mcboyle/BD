@@ -104,12 +104,14 @@ def test_the_backlog_publishes_and_matches_its_exact_denominator():
     )
 
 
-def test_the_two_surviving_pending_spec_obligations_are_atomic_backlog_rows():
+def test_surviving_pending_spec_obligations_are_atomic_backlog_rows():
     rows = _rows()
     open_text = {text for _, status, text in rows if status == "OPEN"}
-    for token in ("RECON-7", "S5-RESIDUE", "NESTED-PART"):
+    for token in ("S5-RESIDUE", "NESTED-PART"):
         matches = [text for text in open_text if text.startswith(token + " --")]
         assert len(matches) == 1, f"{token} must resolve to one OPEN canonical row: {matches}"
+    recon = [(status, text) for _, status, text in rows if text.startswith("RECON-7 ")]
+    assert len(recon) == 1 and recon[0][0] == "CLOSED", recon
 
     by_id = {row_id: status for row_id, status, _ in rows}
     for row_id in range(119, 129):

@@ -12,14 +12,13 @@ verdict = {r["tool"]: r for r in json.load(open("/tmp/toolchain_verdict.json"))}
 FIX = {
  "bd-decomp": ("RUNS-DEGRADED", "exit 2 'no lens produced output for bulk_downloader/app.py' -- engaged this tree but produced nothing (missing lens dep)"),
  "bd-docstale": ("RUNS-DEGRADED", "'no verified-against markers found' -- PK/docs here carry them; scanned the wrong place"),
- "bd-since": ("RUNS-DEGRADED", "'no source zip found' -- needs the release zip; git diff replaces it (redundant)"),
  "bd-surface-census": ("RUNS-DEGRADED", "all zeros (0 env vars / 0 config / 0 modules) -- scanned an empty denominator"),
  # home-port batch: --work default -> sec.DEFAULT_WORK / DEFAULT_BIN -> this file's dir.
  "bd-ascii": ("RUNS", "PORTED: --work default -> sec.DEFAULT_WORK; scans the clone CHANGELOG (exit 0 == ASCII-clean)"),
  "bd-changelog": ("RUNS", "PORTED: --work default -> sec.DEFAULT_WORK; reads the clone top entry (v3.66.805)"),
  "bd-sweep": ("RUNS", "PORTED: DEFAULT_BIN -> this file's dir; now smoke-tests the real toolchain/bin"),
 }
-GITRED = {"bd-since", "bd-snapshot", "bd-checkpoint"}
+GITRED = set()
 for name, (cls, why) in FIX.items():
     if name in verdict:
         verdict[name]["class"], verdict[name]["why"] = cls, why

@@ -17,8 +17,8 @@ THE MODEL.
     has the latest durable docs even before Matt re-pastes static. Static is a snapshot
     Matt refreshes when convenient; the pack is the live edge; the manifest is the truth.
 
-ENFORCEMENT. bd-handoff calls `--check` at session close; on drift it auto-runs
-`--stage` and prints an unmissable "STATIC KB UPDATE REQUIRED" banner, and bd-pack
+ENFORCEMENT. The release gates call `--check`; on drift they print an
+unmissable "STATIC KB UPDATE REQUIRED" banner, and the release builder
 carries the update zip. bd-boot calls `--verify` on the pasted static set (integrity)
 and compares it to the pack's manifest (freshness), so a stale or botched paste is
 caught at bootstrap and the pack's newer copies win.

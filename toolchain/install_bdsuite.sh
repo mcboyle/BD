@@ -14,7 +14,7 @@ for f in "$DEST"/*; do
 done
 echo "bdsuite installed: $(ls "$DEST" | wc -l) tools in $DEST; $n /usr/local/bin symlinks${fail:+ ($fail failed)}"
 command -v bd-cut >/dev/null 2>&1 || { echo "WARN: bd-cut not on PATH -- add $DEST to PATH: export PATH=$DEST:\$PATH"; }
-command -v bd-boot >/dev/null 2>&1 && echo "  ready: bd-boot, bd-cut, bd-handoff, bd-pack, bd-kb-sync, bd-opv, ..."
+command -v bd-boot >/dev/null 2>&1 && echo "  ready: bd-boot, bd-cut, bd-kb-sync, bd-opv, ..."
 command -v bd-tools >/dev/null 2>&1 && echo "  run 'bd-tools' for the categorized toolchain map ($(ls "$DEST"/bd* 2>/dev/null | wc -l) tools)"
 
 # v605: install bdenv.sh so `bd` sources it (fixes the "file not found" noise).

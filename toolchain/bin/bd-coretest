@@ -283,13 +283,13 @@ def test_factcheck(BIN):
 TESTS = [test_state, test_versync, test_treecheck,
          test_factcheck,
          test_guardcheck, test_regen, test_bump, test_band_engine,
-         test_checkpoint, test_pack, test_cut]
+         test_cut]
 
 # 702: the three band derivers were RETIRED (bd-equiv certified the engine a
 # SUPERSET of each, 0 regressions over 40/25/diff-mode real inputs). The engine
 # they all became is what must now have teeth.
-CORE_TOOLS = ["bd-cut", "bd-bump", "bd-pack", "bd-regen",
-              "bd-guardcheck", "bd-checkpoint", "bd-band-derive",
+CORE_TOOLS = ["bd-cut", "bd-bump", "bd-regen",
+              "bd-guardcheck", "bd-band-derive",
               # I-5: gating tools that had NO selftest at all
               "bd-state", "bd-versync", "bd-treecheck",
               "bd-factcheck"]
@@ -317,6 +317,21 @@ def main():
         return x.lower().replace("-", "_").replace("bd_", "").replace("test_", "")
     selected = [t for t in TESTS
                 if not a.only or _norm(a.only) in _norm(t.__name__)]
+
+    # A missing subject is not a successful refusal.  This preflight occurs
+    # before any fault predicate can mistake Python's "can't open file" rc=2
+    # for the tool correctly rejecting the injected fault.
+    required = list(CORE_TOOLS)
+    if a.only:
+        aliases = {"band_engine": "bd-band-derive"}
+        required = [aliases.get(_norm(t.__name__), "bd-" + _norm(t.__name__))
+                    for t in selected]
+    missing = sorted(t for t in required
+                     if not os.path.isfile(os.path.join(a.bin, t)))
+    if missing:
+        print("bd-coretest: required tool(s) missing; denominator is UNKNOWN: %s"
+              % ", ".join(missing), file=sys.stderr)
+        return 2
 
     # A3/Tier-1 (702): this harness fault-injects all 10 gating tools on EVERY
     # bd-precut --gate (11.8s) -- even when not one tool byte changed since the

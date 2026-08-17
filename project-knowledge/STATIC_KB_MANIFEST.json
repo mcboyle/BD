@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T18:42:16+00:00",
- "version_context": "v3.66.1171",
- "file_count": 82,
+ "generated": "2026-08-17T19:32:59+00:00",
+ "version_context": "v3.66.1172",
+ "file_count": 81,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -47,10 +47,6 @@
   "ARCHITECTURE_MAP.md": {
    "sha256": "743b95dacc2270fe44d720cc4979dc8e49e8eb61e72a1fa2b4c3110accf4418e",
    "bytes": 7940
-  },
-  "AUDIT_2026_07_29.md": {
-   "sha256": "e99640efaf1a66d750546ccfd1d755042ba26488c8017259f8b77b4a8d8776f0",
-   "bytes": 36685
   },
   "AUDIT_COMPLETION_LEDGER.json": {
    "sha256": "a90bb5b2ae544b8842383941ea5dbc9d6c396f9bfe9bb46a8ba150476ae9db0e",
@@ -133,24 +129,24 @@
    "bytes": 8111
   },
   "EXTRACTION_CORE_DECISION_CONFIDENCE_DECISION.md": {
-   "sha256": "040e32ffe47deb224cc9b38acfed7b851d7024c4127ebc04289bbb7cfd4b839c",
-   "bytes": 4896
+   "sha256": "4b1864426672da45137eb1bc1bbc01ed545ef3f7917c8d47bc92f0f30054b5ec",
+   "bytes": 4918
   },
   "GLOSSARY.md": {
    "sha256": "bd6a78b6173e557b857296dc2aa63455d75cc45e08a13790d60d1c85426bcb37",
    "bytes": 9880
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "e75db06ae25d7084670b281fd13554ff22683f77f1464c537784331227d70aaa",
-   "bytes": 105678
+   "sha256": "fe3eaaa0ced0de94b20c884d8b08ec4b797615ae0b2f610b801a8aeae08aab0e",
+   "bytes": 106646
   },
   "KB_ACTIVE_INDEX.md": {
    "sha256": "5a37debcee4703aabb8448a3e0434776e31a74f05a84d1b60fc3810703bf02e6",
    "bytes": 6409
   },
   "KB_JUDGMENT.md": {
-   "sha256": "1dbb0b8dbb113e36a4af3e2893bddb7b7ea39e9985f5c2b7a54a33e11bf2b5ce",
-   "bytes": 95193
+   "sha256": "2c4d202b796b8e55792d27beeaa7c13b657ad5332eb77b038b27d264370e3a1c",
+   "bytes": 95215
   },
   "KB_RECOGNIZER_COVERAGE_METHOD.md": {
    "sha256": "0be8eb27ebf64d12901d51b96ef7f39bd99fc0fea5a255805ad2da0eae91eba5",

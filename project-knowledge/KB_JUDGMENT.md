@@ -441,7 +441,7 @@ The durable models that, once internalized, prevent a class of mistakes. (Anchor
   *mandatory* cockpit gates, not optional.
 - **the runtime auto-applies enabled templates.** A stale *enabled* reviewed template silently
   drives a broken flow — the long-parked reptyle "nav blocker" was template-drift
-  (`app.py:11667`), not a `page.goto` problem. Suspect the template before the browser/network;
+  (the runner's template injection path), not a `page.goto` problem. Suspect the template before the browser/network;
   disable a site's enabled template before re-capturing it.
 
 ---

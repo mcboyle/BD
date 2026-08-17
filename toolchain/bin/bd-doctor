@@ -82,8 +82,8 @@ def main(argv=None):
 
     print("== bd-doctor :: read-only triage\n-- tools on PATH")
     core = ["bd", "bd-install", "bd-status"]
-    extras = ["bd-preflight", "bd-state", "bd-cut", "bd-handoff", "bd-pack",
-              "bd-band", "bd-ship", "bd-touched", "bd-render", "bd-verify-live",
+    extras = ["bd-preflight", "bd-state", "bd-cut",
+              "bd-band", "bd-render", "bd-verify-live",
               "bd-curl", "bd-lsp", "bd-reconcile", "bd-precut", "bd-boot"]
     for t in core:
         if which(t):

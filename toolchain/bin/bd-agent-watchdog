@@ -5,7 +5,7 @@ Compares the work tree to the pinned source zip and flags scope violations in
 the diff: touched GUARD files (must be byte-identical unless a new SHA is
 declared), risky text added (eval/exec/subprocess/shell=True/os.system/hardcoded
 secrets), source changes with NO matching test change, and version-pin edits.
-The immune-system gate for an agent-produced change. Reuses bd-since-style diff.
+The immune-system gate for an agent-produced change. Uses the current Git diff.
 Read-only.
 
 Usage: bd-agent-watchdog [--work DIR] [--home DIR] [--json] [--selftest]

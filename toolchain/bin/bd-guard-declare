@@ -288,12 +288,12 @@ def main(argv=None):
     print()
     # v3.66.762: the checkers (bd-guardcheck / bd-precut / bd-state) read the guard
     # baseline from STATE.json INSIDE the version zip, not this loose file. This
-    # write reaches them ONLY after the version zip is repacked (bd-handoff -> bd-pack
+    # write reaches them only after the candidate is committed and deployed
     # at session close). Written to one channel, read from another -- say so loudly,
     # or the guard gate stays RED against the old sha until the repack lands.
     print(f"{Y}NOTE: this updated the loose STATE.json ({os.path.basename(state_path)}).{RST}")
     print(f"{Y}The guard CHECKERS read the baseline from STATE inside the version zip --{RST}")
-    print(f"{Y}this declaration takes effect only after the zip is REPACKED (bd-handoff -> bd-pack).{RST}")
+    print(f"{Y}this declaration takes effect only after the candidate is committed and deployed.{RST}")
     print()
     print(f"{Y}NOW paste this into the newest KB_HANDOFF guard baseline (prose half):{RST}")
     print(f"  - {rel}: {live8}  (was {old8}) -- {a.reason}")
