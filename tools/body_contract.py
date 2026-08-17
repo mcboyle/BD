@@ -41,6 +41,8 @@ HOW THIS ONE DOES NOT REPEAT THE MISTAKE:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import copy
 import glob
 import json
 import os
@@ -51,6 +53,28 @@ WORK = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.abspath
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
 
 MUTATORS = ("apiPost", "apiPut", "apiPatch", "apiDelete")
+
+
+@contextlib.contextmanager
+def _preserve_vpn_kill_switch_state():
+    """Restore the exact process singleton after mutating endpoint probes."""
+    from bulk_downloader import vpn_kill_switch as kill_switch
+
+    with kill_switch._state_lock:
+        states = copy.deepcopy(kill_switch._states)
+        auto_recover = kill_switch._auto_recover_enabled
+        try:
+            # The lock is an RLock: endpoint calls in this thread can still use
+            # the singleton, while another thread cannot add legitimate state
+            # between our snapshot and restore and then have it erased.
+            yield
+        finally:
+            # Do not call _reset_for_tests(): it also erases callbacks registered
+            # by the surrounding application process.  The probes mutate only
+            # these two fields, so restore only them under their owning lock.
+            kill_switch._states.clear()
+            kill_switch._states.update(states)
+            kill_switch._auto_recover_enabled = auto_recover
 
 # An FE call site: the route template + the literal body keys it sends.
 CALL = re.compile(
@@ -162,7 +186,8 @@ def probe_typed(work, tcalls):
     prev = os.getcwd()
     os.chdir(scratch)
     try:
-        return _probe_typed_inner(work, tcalls)
+        with _preserve_vpn_kill_switch_state():
+            return _probe_typed_inner(work, tcalls)
     finally:
         os.chdir(prev)
 
@@ -267,7 +292,8 @@ def probe(work, calls, verbose=False):
     prev_cwd = os.getcwd()
     os.chdir(scratch)
     try:
-        return _probe_inner(work, calls)
+        with _preserve_vpn_kill_switch_state():
+            return _probe_inner(work, calls)
     finally:
         os.chdir(prev_cwd)
 
@@ -412,48 +438,54 @@ def probe_fixtures(work, tcalls):
     # world, one level up -- a verdict that depends on what ran first is not a verdict.
     #
     # So snapshot the app's module-level state, wipe it, and restore it afterwards.
-    _saved = None
-    _saved_app_cfg = None
     try:
-        import bulk_downloader.app as _A
-        _saved = ({k: dict(v) if isinstance(v, dict) else v
-                   for k, v in _A.s_cfg.items()},
-                  dict(_A.s_meta), dict(_A.runners))
-        # v3.66.750 -- _app_cfg is module-level state exactly like s_cfg,
-        # and a replayed settings probe mutates it (path_allowlist -> ["x"]).
-        # Without this restore, the SECOND probe_fixtures() call in a
-        # process inherits the first call's poisoned config and setup_site
-        # flaps OK -> UNKNOWN (the ratchet's old +1 tolerance).
-        _saved_app_cfg = dict(getattr(_A, "_app_cfg", {}) or {})
-        _A.s_cfg.clear()
-        _A.s_meta.clear()
-        _A.runners.clear()
-    except Exception:
-        pass
-    try:
-        return _probe_fixtures_inner(work, tcalls, scratch)
+        with _preserve_vpn_kill_switch_state():
+            # App import itself mutates kill-switch policy.  It belongs inside
+            # the preservation window just as much as the endpoint replay does;
+            # otherwise a cold probe snapshots the import's value as baseline.
+            _saved = None
+            _saved_app_cfg = None
+            try:
+                import bulk_downloader.app as _A
+                _saved = ({k: dict(v) if isinstance(v, dict) else v
+                           for k, v in _A.s_cfg.items()},
+                          dict(_A.s_meta), dict(_A.runners))
+                # v3.66.750 -- _app_cfg is module-level state exactly like s_cfg,
+                # and a replayed settings probe mutates it (path_allowlist -> ["x"]).
+                # Without this restore, the SECOND probe_fixtures() call in a
+                # process inherits the first call's poisoned config and setup_site
+                # flaps OK -> UNKNOWN (the ratchet's old +1 tolerance).
+                _saved_app_cfg = dict(getattr(_A, "_app_cfg", {}) or {})
+                _A.s_cfg.clear()
+                _A.s_meta.clear()
+                _A.runners.clear()
+            except Exception:
+                pass
+            try:
+                return _probe_fixtures_inner(work, tcalls, scratch)
+            finally:
+                if _saved is not None:
+                    try:
+                        import bulk_downloader.app as _A
+                        _A.s_cfg.clear()
+                        _A.s_cfg.update(_saved[0])
+                        _A.s_meta.clear()
+                        _A.s_meta.update(_saved[1])
+                        _A.runners.clear()
+                        _A.runners.update(_saved[2])
+                        if _saved_app_cfg is not None:
+                            _cfg = getattr(_A, "_app_cfg", None)
+                            if _cfg is not None:
+                                _cfg.clear()
+                                _cfg.update(_saved_app_cfg)
+                    except Exception:
+                        pass
     finally:
         os.chdir(prev)
         if prev_home is None:
             os.environ.pop("BD_HOME", None)
         else:
             os.environ["BD_HOME"] = prev_home
-        if _saved is not None:
-            try:
-                import bulk_downloader.app as _A
-                _A.s_cfg.clear()
-                _A.s_cfg.update(_saved[0])
-                _A.s_meta.clear()
-                _A.s_meta.update(_saved[1])
-                _A.runners.clear()
-                _A.runners.update(_saved[2])
-                if _saved_app_cfg is not None:
-                    _cfg = getattr(_A, "_app_cfg", None)
-                    if _cfg is not None:
-                        _cfg.clear()
-                        _cfg.update(_saved_app_cfg)
-            except Exception:
-                pass
 
 
 # A 400 whose message names a RESOURCE or a VALUE cannot prove a dead control.

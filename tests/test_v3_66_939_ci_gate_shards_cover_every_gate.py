@@ -101,6 +101,7 @@ _DECLARED = {
     "tests/test_v3_66_1142_fleet_run_is_hermetic.py",
     "tests/test_v3_66_1158_fleet_provenance_fails_closed.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
+    "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     # @1148. Also BD_GATE_SCOPE = "module" and also deliberately so: its subject
     # is bd-cut's release gate, not the tree. It is pinned into a shard because
     # the contract it holds -- only a measured exit 0 authorizes a cut -- is the

@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1160 - body-contract probes preserve kill-switch state
+
+Bridge Cut A found that the full suite's result depended on xdist scheduling:
+the literal body-contract probe exercises the VPN kill-trigger endpoint and
+left its synthetic `_probe` kill in the process singleton. A later L29
+integration test then read that inherited state and failed at worker counts
+that placed both files on one worker.
+
+Literal, type-aware, and fixture-backed body-contract probes now snapshot and
+restore the exact kill-state and auto-recovery values while retaining the
+singleton's owning re-entrant lock for the complete mutation window. That
+serializes legitimate concurrent state changes behind restoration instead of
+erasing them, and deliberately retains application callback registrations.
+Six production-path regressions prove each mutating endpoint fired with a
+nonzero denominator, preexisting state is restored exactly, and concurrent
+real state and auto-recovery mutations resume and survive. Auto-recovery reads,
+writes, and test reset now obey the same owning lock. Fixture probing enters
+the preservation window before a cold app import, and the regression harness
+preserves callbacks owned by surrounding tests. The original cross-file order
+that exposed the leak is also green.
+
 ## v3.66.1159 - fleet retention proves removal of the owned run
 
 Row 149. `bd-fleet-run` no longer rechecks a run directory by pathname,

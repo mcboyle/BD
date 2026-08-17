@@ -2334,7 +2334,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1634,
+    "edge_count": 1635,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4657,7 +4657,8 @@
       "bulk_downloader/vpn_kill_switch.py": [
         "bulk_downloader/app_vpn_api.py",
         "bulk_downloader/vpn_leak_tests.py",
-        "bulk_downloader/vpn_runtime.py"
+        "bulk_downloader/vpn_runtime.py",
+        "tools/body_contract.py"
       ],
       "bulk_downloader/vpn_kill_switch_system.py": [
         "bulk_downloader/app_data_layer.py",
@@ -7277,6 +7278,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/db.py",
         "bulk_downloader/migrations.py",
+        "bulk_downloader/vpn_kill_switch.py",
         "tools/body_contract_fixtures.py"
       ],
       "tools/body_contract_fixtures.py": [

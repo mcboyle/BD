@@ -179,7 +179,7 @@ def kill_tunnel(tunnel_id: str, reason: str = "") -> None:
     except Exception:
         pass
 
-    if _auto_recover_enabled:
+    if get_auto_recover():
         _schedule_auto_cycle(tunnel_id)
 
 
@@ -217,11 +217,13 @@ def unregister_kill_callback(fn: Callable[[str, str], None]) -> None:
 
 def set_auto_recover(enabled: bool) -> None:
     global _auto_recover_enabled
-    _auto_recover_enabled = bool(enabled)
+    with _state_lock:
+        _auto_recover_enabled = bool(enabled)
 
 
 def get_auto_recover() -> bool:
-    return _auto_recover_enabled
+    with _state_lock:
+        return _auto_recover_enabled
 
 
 # ─── Internals ──────────────────────────────────────────────────────
@@ -319,12 +321,12 @@ def _attempt_count(tunnel_id: str) -> int:
 # ─── Test/introspection helpers ─────────────────────────────────────
 
 def _reset_for_tests() -> None:
+    global _auto_recover_enabled
     with _state_lock:
         _states.clear()
+        _auto_recover_enabled = True
     with _callbacks_lock:
         _callbacks.clear()
-    global _auto_recover_enabled
-    _auto_recover_enabled = True
 
 
 __all__ = [
