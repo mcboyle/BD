@@ -817,14 +817,40 @@ def _pid_is_running(pid: int) -> bool:
     except PermissionError:
         return True
     status = Path(f"/proc/{pid}/stat")
-    if status.is_file():
-        try:
+    try:
+        if status.is_file():
             after_name = status.read_text(encoding="utf-8").rpartition(")")[2]
             if after_name.split()[0] == "Z":
                 return False
-        except (IndexError, OSError):
-            pass
+    except ProcessLookupError:
+        return False
+    except (IndexError, OSError):
+        pass
     return True
+
+
+def test_pid_is_running_treats_proc_stat_disappearance_as_exit(monkeypatch):
+    pid = 2_147_483_000
+    proc_stat = Path(f"/proc/{pid}/stat")
+    real_stat = Path.stat
+    fired = {"kill": 0, "stat": 0}
+
+    def fake_kill(observed_pid, signal):
+        assert observed_pid == pid
+        assert signal == 0
+        fired["kill"] += 1
+
+    def disappearing_stat(path, *args, **kwargs):
+        if path == proc_stat:
+            fired["stat"] += 1
+            raise ProcessLookupError(3, "No such process", str(path))
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "kill", fake_kill)
+    monkeypatch.setattr(Path, "stat", disappearing_stat)
+
+    assert _pid_is_running(pid) is False
+    assert fired == {"kill": 1, "stat": 1}
 
 
 def _wait_for_pid_exit(pid: int, timeout: float = 30.0) -> bool:
