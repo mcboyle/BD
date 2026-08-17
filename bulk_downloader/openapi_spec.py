@@ -176,11 +176,10 @@ def generate(app, *, title: str = "BulkDownloader API",
                     "type": "apiKey",
                     "in": "header",
                     "name": "X-CSRF-Token",
-                    "description": ("Required for all state-mutating "
-                                     "endpoints (POST/PUT/PATCH/DELETE). "
-                                     "Token is rendered inline in the "
-                                     "/index page and auto-injected by "
-                                     "the bundled JS."),
+                    "description": ("Required only where the production "
+                                     "csrf_fires_for policy marks an operation. "
+                                     "Consult each operation's "
+                                     "x-csrf-required value."),
                 }
             },
             "schemas": {

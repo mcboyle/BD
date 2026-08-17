@@ -24,16 +24,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import build_endpoint_catalog as BEC  # type: ignore  # noqa: E402
-from bulk_downloader.openapi_spec import generate  # noqa: E402
+
+
+def _dependencies():
+    """Load both dependencies inside the CLI's fail-closed boundary."""
+    import build_endpoint_catalog as endpoint_catalog  # type: ignore
+    from bulk_downloader.openapi_spec import generate as canonical_generate
+    return endpoint_catalog, canonical_generate
 
 
 def _spec() -> dict:
+    endpoint_catalog, canonical_generate = _dependencies()
     # Some optional blueprint registrations narrate to stdout at import time.
     # Keep stdout machine-readable by routing that narration to stderr.
     with contextlib.redirect_stdout(sys.stderr):
-        app = BEC._import_app()
-    return generate(app)
+        app = endpoint_catalog._import_app()
+    return canonical_generate(app)
 
 
 def main(argv=None) -> int:

@@ -34,7 +34,8 @@ RETIRED_TOKENS = {
 
 def _tracked() -> set[str]:
     run = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True)
+        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True,
+        timeout=15)
     paths = {p.decode() for p in run.stdout.split(b"\0") if p}
     assert len(paths) > 1000
     return paths
@@ -67,7 +68,7 @@ def test_live_route_cli_and_package_share_one_exact_versioned_spec(tmp_path):
     run = subprocess.run(
         [sys.executable, "tools/build_openapi.py", "--stdout"],
         cwd=ROOT, env={**os.environ, "BD_DISABLE_KEEPALIVE": "1"},
-        text=True, capture_output=True)
+        text=True, capture_output=True, timeout=60)
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == live
 
@@ -75,12 +76,25 @@ def test_live_route_cli_and_package_share_one_exact_versioned_spec(tmp_path):
     write = subprocess.run(
         [sys.executable, "tools/build_openapi.py", "--out", str(out)],
         cwd=ROOT, env={**os.environ, "BD_DISABLE_KEEPALIVE": "1"},
-        text=True, capture_output=True)
+        text=True, capture_output=True, timeout=60)
     assert write.returncode == 0, write.stderr
     assert json.loads(out.read_text(encoding="utf-8")) == live
 
     tool = _tool_module()
-    assert tool.generate is openapi_spec.generate
+    assert tool._dependencies()[1] is openapi_spec.generate
+
+
+def test_cli_import_failure_is_an_actionable_refusal(tmp_path):
+    isolated = tmp_path / "build_openapi.py"
+    isolated.write_bytes((ROOT / "tools/build_openapi.py").read_bytes())
+
+    run = subprocess.run(
+        [sys.executable, str(isolated), "--stdout"], cwd=tmp_path,
+        text=True, capture_output=True, timeout=15)
+
+    assert run.returncode == 2
+    assert "REFUSED: could not export OpenAPI" in run.stderr
+    assert "Traceback" not in run.stderr
 
 
 def test_canonical_generation_is_repeatable_and_does_not_mutate_metadata():
