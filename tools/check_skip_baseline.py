@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check exact skip identities and reasons in complete real-pytest JUnit.
 
-Usage: ``python tools/check_skip_baseline.py --junit result.xml``.
+Usage: ``venv/bin/python tools/check_skip_baseline.py --junit result.xml``.
 Use ``--update`` only after every changed skip has been adjudicated.
 
 Exit 0 means exact match, 1 means identity/reason drift, and 2 means the
@@ -44,11 +44,6 @@ def _read_junit(path: Path) -> dict:
         raise EvidenceError("missing or malformed test summary") from exc
     if declared <= 0:
         raise EvidenceError("zero tests executed")
-    if failures:
-        raise EvidenceError(f"JUnit reports {failures} failure(s)")
-    if errors:
-        raise EvidenceError(f"JUnit reports {errors} error(s)")
-
     cases = [case for suite in suites for case in suite.findall("testcase")]
     if len(cases) != declared:
         raise EvidenceError(
@@ -57,6 +52,8 @@ def _read_junit(path: Path) -> dict:
 
     skipped = {}
     identities = set()
+    observed_failures = 0
+    observed_errors = 0
     for case in cases:
         classname = (case.get("classname") or "").strip()
         name = (case.get("name") or "").strip()
@@ -66,17 +63,33 @@ def _read_junit(path: Path) -> dict:
         if identity in identities:
             raise EvidenceError(f"duplicate testcase identity: {identity}")
         identities.add(identity)
+        failure = case.find("failure")
+        error = case.find("error")
         skip = case.find("skipped")
+        states = sum(node is not None for node in (failure, error, skip))
+        if states > 1:
+            raise EvidenceError(
+                f"testcase has multiple result states: {identity}")
+        observed_failures += failure is not None
+        observed_errors += error is not None
         if skip is None:
             continue
         reason = (skip.get("message") or "").strip()
         if not reason:
             raise EvidenceError(f"skip reason missing for {identity}")
         skipped[identity] = reason
-    if len(skipped) != declared_skips:
-        raise EvidenceError(
-            f"skip summary disagrees: declared {declared_skips}, "
-            f"observed {len(skipped)}")
+    for label, declared_count, observed_count in (
+            ("failure", failures, observed_failures),
+            ("error", errors, observed_errors),
+            ("skip", declared_skips, len(skipped))):
+        if declared_count != observed_count:
+            raise EvidenceError(
+                f"{label} summary disagrees: declared {declared_count}, "
+                f"observed {observed_count}")
+    if observed_failures:
+        raise EvidenceError(f"JUnit reports {observed_failures} failure(s)")
+    if observed_errors:
+        raise EvidenceError(f"JUnit reports {observed_errors} error(s)")
     return {"executed": declared, "skipped": skipped}
 
 
@@ -118,6 +131,8 @@ def _read_identity_baseline(path: Path) -> dict[str, str]:
     for row in rows:
         if not isinstance(row, dict):
             raise EvidenceError("skip baseline row is not an object")
+        if set(row) != {"identity", "reason"}:
+            raise EvidenceError("skip baseline row has unknown or missing fields")
         identity = row.get("identity")
         reason = row.get("reason")
         if not isinstance(identity, str) or not identity.strip():
@@ -144,6 +159,8 @@ def _write_identity_baseline(path: Path, skips: dict[str, str]) -> None:
         temporary.write_text(
             json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         temporary.replace(path)
+        if _read_identity_baseline(path) != skips:
+            raise EvidenceError(f"written skip baseline did not verify: {path}")
     except OSError as exc:
         raise EvidenceError(f"cannot write skip baseline: {path}") from exc
 

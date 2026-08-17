@@ -46,17 +46,15 @@ a hint that is entirely correct. A gate that fires on a truthful re-wording gets
 switched off, and this project treats that as a soundness bug, not a safe
 default.
 
-UNKNOWN IS A THIRD STATE. The 200 branch is measured against the real
-`frontend/dist/index.html` when one is built. When it is not, the vite SOURCE
-index stands in, and that is only faithful if the build has no HTML-injection
-hook -- so `_dist_standin_is_faithful` proves that from `vite.config.ts` and
-FAILS when it cannot.
+UNKNOWN IS A THIRD STATE. The 200 branch is measured only against the real
+`frontend/dist/index.html` when one is built. A clean source checkout measures
+only its explicit frontend-not-built 503 branch; it never fabricates a built
+artifact from Vite source inputs.
 """
 from __future__ import annotations
 
 import os
 import re
-import shutil
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
@@ -109,13 +107,9 @@ def _root_bodies() -> dict[str, bytes]:
                 out["dist-absent-503"] = c.get("/").data
             built = REPO / "frontend" / "dist" / "index.html"
             if built.is_file():
-                A._M2_DIST_ROOT, label = built.parent, "built-dist"
-            else:
-                d = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-                shutil.copy(REPO / "frontend" / "index.html", d / "index.html")
-                A._M2_DIST_ROOT, label = d, "vite-source-index-standin"
-            with A.app.test_client() as c:
-                out[label] = c.get("/").data
+                A._M2_DIST_ROOT = built.parent
+                with A.app.test_client() as c:
+                    out["built-dist"] = c.get("/").data
         return out
     finally:
         if "A" in locals() and "saved" in locals():
@@ -126,15 +120,10 @@ def _root_bodies() -> dict[str, bytes]:
             os.environ["BD_DISABLE_KEEPALIVE"] = previous
 
 
-def _dist_standin_is_faithful() -> tuple[bool, str]:
+def _root_evidence_is_complete() -> tuple[bool, str]:
     if (REPO / "frontend" / "dist" / "index.html").is_file():
         return True, "measured the real built dist/index.html"
-    cfg = REPO / "frontend" / "vite.config.ts"
-    if not cfg.is_file():
-        return False, "frontend/vite.config.ts is missing"
-    if "transformIndexHtml" in cfg.read_text(encoding="utf-8"):
-        return False, "vite.config.ts declares a transformIndexHtml hook"
-    return True, "no built dist; vite declares no HTML-transform hook"
+    return True, "measured only the explicit frontend-not-built branch; no built artifact claimed"
 
 
 def _reachable(probe: str) -> list[str]:
@@ -162,7 +151,7 @@ def _csrf_403_hint() -> str:
 
 @pytest.mark.parametrize("probe", [META_PROBE, JINJA_PROBE])
 def test_step3_probes_only_contracts_the_root_can_actually_serve(probe):
-    ok, why = _dist_standin_is_faithful()
+    ok, why = _root_evidence_is_complete()
     assert ok, f"cannot establish what GET / can serve, so UNKNOWN and FAIL: {why}"
     reachable = _reachable(probe)
     probed = probe in _step3_program()
@@ -204,7 +193,7 @@ def test_csrf_403_hint_names_a_token_source_that_actually_works():
 
 
 def test_csrf_403_hint_does_not_point_at_an_unservable_html_contract():
-    ok, why = _dist_standin_is_faithful()
+    ok, why = _root_evidence_is_complete()
     assert ok, f"cannot establish what GET / can serve, so UNKNOWN and FAIL: {why}"
     hint = _csrf_403_hint()
     # An HTML-meta SHAPE, not the letters "meta": "metadata" is a truthful word

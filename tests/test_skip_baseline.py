@@ -191,6 +191,13 @@ def test_runtime_report_counts_the_canonical_identity_baseline(tmp_path):
     ("{not-json", "malformed"),
     (json.dumps({"schema": "wrong", "skips": []}), "schema"),
     (json.dumps({"schema": "bd-skip-baseline/1", "skips": {}}), "list"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": [{}]}),
+     "fields"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": [
+        {"identity": "tests.a::test_one", "reason": ""}]}), "reason"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": [
+        {"identity": "tests.a::test_one", "reason": "one"},
+        {"identity": "tests.a::test_one", "reason": "two"}]}), "duplicate"),
 ])
 def test_runtime_report_refuses_invalid_skip_authority(tmp_path, contents, match):
     tests = tmp_path / "tests"
@@ -219,3 +226,35 @@ def test_skip_baseline_update_turns_write_failure_into_refusal(
     ])
     assert _TOOL.main() == 2
     assert "REFUSED" in capsys.readouterr().err
+
+
+def test_junit_reader_reconciles_each_result_state(tmp_path):
+    mismatch = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='1' errors='0' skipped='0'><testcase classname='tests.alpha'
+      name='test_failed'/></testsuite></testsuites>""")
+    with pytest.raises(_TOOL.EvidenceError, match="failure summary disagrees"):
+        _TOOL._read_junit(mismatch)
+
+    multiple = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='1' errors='0' skipped='1'><testcase classname='tests.alpha'
+      name='test_impossible'><failure/><skipped message='parked'/></testcase>
+      </testsuite></testsuites>""")
+    with pytest.raises(_TOOL.EvidenceError, match="multiple result states"):
+        _TOOL._read_junit(multiple)
+
+
+def test_written_skip_baseline_is_read_back_before_success(tmp_path, monkeypatch):
+    target = tmp_path / "SKIP_BASELINE.json"
+    original = _TOOL.Path.replace
+
+    def corrupt_after_replace(source, destination):
+        result = original(source, destination)
+        destination.write_text(
+            '{"schema":"bd-skip-baseline/1","skips":[]}\n',
+            encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(_TOOL.Path, "replace", corrupt_after_replace)
+    with pytest.raises(_TOOL.EvidenceError, match="did not verify"):
+        _TOOL._write_identity_baseline(
+            target, {"tests.alpha::test_parked": "parked"})

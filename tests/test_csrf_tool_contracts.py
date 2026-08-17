@@ -46,9 +46,9 @@ anything about its spelling, which is also why it catches a defect no literal
 ban would (that arm tests `csrf-token`, a fragment that is legitimate in the
 X-CSRF-Token header name and so cannot be banned by spelling at all).
 
-UNKNOWN IS A THIRD STATE: reachability is only established when the standin for
-GET /'s 200 branch is proven faithful; when it cannot be, these tests FAIL
-rather than certify an unmeasured tree.
+UNKNOWN IS A THIRD STATE: GET /'s 200 branch is measured only when a real built
+artifact exists. A clean source checkout measures its explicit not-built 503
+branch and does not certify a fabricated Vite stand-in.
 
 AN EMPTY LIST IS NOT A CLEAN BILL. Both verdicts here rest on a list being
 empty -- `not offenders` and `not graded_bug` -- and emptiness cannot tell
@@ -97,7 +97,6 @@ import contextlib
 import io
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -142,13 +141,9 @@ def _root_bodies() -> dict[str, bytes]:
                 out["dist-absent-503"] = c.get("/").data
             built = REPO / "frontend" / "dist" / "index.html"
             if built.is_file():
-                A._M2_DIST_ROOT, label = built.parent, "built-dist"
-            else:
-                d = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-                shutil.copy(REPO / "frontend" / "index.html", d / "index.html")
-                A._M2_DIST_ROOT, label = d, "vite-source-index-standin"
-            with A.app.test_client() as c:
-                out[label] = c.get("/").data
+                A._M2_DIST_ROOT = built.parent
+                with A.app.test_client() as c:
+                    out["built-dist"] = c.get("/").data
         return out
     finally:
         if "A" in locals() and "saved" in locals():
@@ -159,17 +154,10 @@ def _root_bodies() -> dict[str, bytes]:
             os.environ["BD_DISABLE_KEEPALIVE"] = previous
 
 
-def _standin_is_faithful() -> tuple[bool, str]:
+def _root_evidence_is_complete() -> tuple[bool, str]:
     if (REPO / "frontend" / "dist" / "index.html").is_file():
         return True, "measured the real built dist/index.html"
-    if not (REPO / "frontend" / "index.html").is_file():
-        return False, "no built dist and frontend/index.html is missing"
-    cfg = REPO / "frontend" / "vite.config.ts"
-    if not cfg.is_file():
-        return False, "frontend/vite.config.ts is missing"
-    if "transformIndexHtml" in cfg.read_text(encoding="utf-8"):
-        return False, "vite.config.ts declares a transformIndexHtml hook"
-    return True, "no built dist; vite declares no HTML-transform hook"
+    return True, "measured only the explicit frontend-not-built branch; no built artifact claimed"
 
 
 def _tool_sources() -> list[Path]:
@@ -252,7 +240,7 @@ def _graded_defect_lines(section: str) -> list[str]:
 
 def test_no_tool_probes_a_root_contract_that_cannot_be_served():
     """A tools/ probe for the meta contract is allowed IFF a body can carry it."""
-    ok, why = _standin_is_faithful()
+    ok, why = _root_evidence_is_complete()
     assert ok, f"cannot establish what GET / can serve, so UNKNOWN and FAIL: {why}"
 
     assert RETIRED_PROBES, (

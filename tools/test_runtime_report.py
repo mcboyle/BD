@@ -22,10 +22,21 @@ class ReportEvidenceError(ValueError):
     """The report cannot truthfully render its skip authority."""
 
 
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ReportEvidenceError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def _skip_baseline(root):
     p = os.path.join(root, "tests", "SKIP_BASELINE.json")
     try:
-        payload = json.loads(Path(p).read_text(encoding="utf-8"))
+        payload = json.loads(
+            Path(p).read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys)
     except OSError as exc:
         raise ReportEvidenceError(f"skip authority is unreadable: {p}") from exc
     except (ValueError, AttributeError) as exc:
@@ -35,6 +46,22 @@ def _skip_baseline(root):
     rows = payload.get("skips")
     if not isinstance(rows, list):
         raise ReportEvidenceError(f"skip authority skips must be a list: {p}")
+    identities = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"identity", "reason"}:
+            raise ReportEvidenceError(
+                f"skip authority row has unknown or missing fields: {p}")
+        identity = row.get("identity")
+        reason = row.get("reason")
+        if not isinstance(identity, str) or not identity.strip():
+            raise ReportEvidenceError(f"skip authority row has no identity: {p}")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ReportEvidenceError(
+                f"skip authority row has no reason: {identity}")
+        if identity in identities:
+            raise ReportEvidenceError(
+                f"skip authority has duplicate identity: {identity}")
+        identities.add(identity)
     return len(rows)
 
 
