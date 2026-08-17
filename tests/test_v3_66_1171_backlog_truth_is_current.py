@@ -312,11 +312,14 @@ def test_template_health_document_matches_current_route_index() -> None:
         for row in routes
         if row["path"] in expected
     )
+    text = (ROOT / "docs/template_health_cockpit.md").read_text()
     documented = set(re.findall(
         r"`(/cockpit/api/template/[a-z0-9-]+)`",
-        (ROOT / "docs/template_health_cockpit.md").read_text(),
+        text,
     ))
     assert documented == expected
+    assert "never submits\n  credentials and never reads or echoes credential values" in text
+    assert "permitted only through the existing approved login path" in text
 
 
 def test_cut_a_gate_is_directly_wired_once() -> None:

@@ -34,7 +34,8 @@ operator document to move with it.
 
 - Suggested updates remain data until an operator approves and promotes them.
 - Displayed URLs are query-stripped; credentials and signing values are absent.
-- A login dry-run may identify fields and confidence but never submits credentials
-  outside the existing approved login path.
+- A login dry-run may identify fields and confidence, but it never submits
+  credentials and never reads or echoes credential values. A live page-open is
+  permitted only through the existing approved login path.
 - Capture-derived evidence follows the repository capture-sharing and redaction
   policy before it leaves its authorized host.

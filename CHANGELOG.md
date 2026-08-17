@@ -10,8 +10,8 @@ Cut A re-derives nine stale OPEN backlog rows against the current tree. It
 retires false or superseded program plans, replaces the unverifiable v539 audit
 plan with an exact 58-batch evidence ledger that preserves UNKNOWN honestly,
 updates current operating documents, and makes the focused regression gate a
-direct CI subject. One concrete remainder discovered during adjudication—the
-simultaneous-capture vault collision—is preserved as new OPEN backlog row 165.
+direct CI subject. One concrete remainder discovered during adjudication -- the
+simultaneous-capture vault collision -- is preserved as new OPEN backlog row 165.
 
 The canonical register now contains 161 rows and 34 OPEN items. This is an
 authority-cleanup cut: it does not implement the remaining capture, safety,
