@@ -248,6 +248,8 @@ def test_code_intelligence_documents_describe_current_tools() -> None:
     assert "toolchain/bin/bd-coverage-map" in program
     assert "bd-coverage-map remains\n`[PLANNED]`" not in program
     assert "differential_oracle.py` `[PLANNED]`" not in architecture
+    assert "differential_oracle` above remain genuinely\n  unbuilt" not in architecture
+    assert "differential_oracle` is the\n  live standalone frontend" in architecture
     for absent in ("bd-review-next", "bd-finding", "bd-invariant", "bd-dup"):
         assert absent in program
     assert "standalone" in frontends.lower()

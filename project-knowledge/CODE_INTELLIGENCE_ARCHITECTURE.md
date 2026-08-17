@@ -130,8 +130,8 @@ Every artifact carries its own `--check`, mirroring the in-sync gates:
   gate the analysis is a library nobody runs — *this* is the robustness multiplier.
   Ships as `bd-audit-gate.py` in BOTH the static PK and `work/tools/`; `graph_build.py`
   is likewise present in `work/tools/`. The `[PLANNED]` marker this line previously
-  carried was stale. (`invariant_probe` and `differential_oracle` above remain genuinely
-  unbuilt — verify each before trusting its marker.)
+  carried was stale. `invariant_probe` remains absent; `differential_oracle` is the
+  live standalone frontend named above. Verify each path before trusting a marker.
 
 ---
 
