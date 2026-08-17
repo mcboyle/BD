@@ -63,13 +63,15 @@ def _preserve_vpn_kill_switch_state():
     with kill_switch._state_lock:
         states = copy.deepcopy(kill_switch._states)
         auto_recover = kill_switch._auto_recover_enabled
-    try:
-        yield
-    finally:
-        # Do not call _reset_for_tests(): it also erases callbacks registered by
-        # the surrounding application process.  The probes mutate only these
-        # two fields, so restore only these two fields under their owning lock.
-        with kill_switch._state_lock:
+        try:
+            # The lock is an RLock: endpoint calls in this thread can still use
+            # the singleton, while another thread cannot add legitimate state
+            # between our snapshot and restore and then have it erased.
+            yield
+        finally:
+            # Do not call _reset_for_tests(): it also erases callbacks registered
+            # by the surrounding application process.  The probes mutate only
+            # these two fields, so restore only them under their owning lock.
             kill_switch._states.clear()
             kill_switch._states.update(states)
             kill_switch._auto_recover_enabled = auto_recover
@@ -455,7 +457,8 @@ def probe_fixtures(work, tcalls):
     except Exception:
         pass
     try:
-        return _probe_fixtures_inner(work, tcalls, scratch)
+        with _preserve_vpn_kill_switch_state():
+            return _probe_fixtures_inner(work, tcalls, scratch)
     finally:
         os.chdir(prev)
         if prev_home is None:

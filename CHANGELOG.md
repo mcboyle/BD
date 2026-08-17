@@ -12,12 +12,15 @@ left its synthetic `_probe` kill in the process singleton. A later L29
 integration test then read that inherited state and failed at worker counts
 that placed both files on one worker.
 
-Both literal and type-aware body-contract probes now snapshot and restore the
-exact kill-state and auto-recovery values under the singleton's owning lock.
-They deliberately retain application callback registrations. Two
-production-path regressions prove the mutating endpoint fired with nonzero
-denominators and that preexisting state is restored exactly. The original
-cross-file order that exposed the leak is also green.
+Literal, type-aware, and fixture-backed body-contract probes now snapshot and
+restore the exact kill-state and auto-recovery values while retaining the
+singleton's owning re-entrant lock for the complete mutation window. That
+serializes legitimate concurrent state changes behind restoration instead of
+erasing them, and deliberately retains application callback registrations.
+Four production-path regressions prove each mutating endpoint fired with a
+nonzero denominator, preexisting state is restored exactly, and a concurrent
+real mutation resumes and survives. The original cross-file order that exposed
+the leak is also green.
 
 ## v3.66.1159 - fleet retention proves removal of the owned run
 
