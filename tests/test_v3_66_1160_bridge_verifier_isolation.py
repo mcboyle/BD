@@ -20,7 +20,7 @@ ROOT = str(Path(__file__).resolve().parent.parent)
 
 @pytest.fixture(autouse=True)
 def _isolate_kill_switch_without_erasing_callbacks():
-    """Give each case clean state, then restore every singleton it observed."""
+    """Restore state and policy without replacing the shared callback list."""
     from bulk_downloader import vpn_kill_switch as ks
 
     with ks._state_lock:
