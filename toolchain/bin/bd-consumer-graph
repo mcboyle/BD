@@ -205,7 +205,7 @@ def cmd_dead_tools(a):
 
     DENOMINATOR BUG, caught and fixed: the first version of this counted ANY file that
     named a tool as a reference. But bd-tools IS the category map -- it names all 237 --
-    and BD_TOOLCHAIN_WHEN_TO_USE.md names 222. So every tool was "referenced" BY
+    and the retired generated catalog named nearly every tool. So every tool was "referenced" BY
     CONSTRUCTION, and the check reported 1 unreferenced out of 241: clean, truthful, and
     useless. That is the exact shape this project hunts (a denominator that structurally
     excludes the thing being asked about), committed inside the tool built to find it.
@@ -234,8 +234,6 @@ def cmd_dead_tools(a):
     files["evidence"] = evidence
     catalogs = {os.path.abspath(p) for p in (
         os.path.join(BIN, "bd-tools"),
-        os.path.join(PK, "BD_TOOLCHAIN_REFERENCE.md"),
-        os.path.join(PK, "BD_TOOLCHAIN_WHEN_TO_USE.md"),
         os.path.join(PK, "README.md"),
         os.path.join(PK, "BDSUITE_CHANGELOG.md"),
         os.path.join(PK, "BUNDLE_MANIFEST.md"),

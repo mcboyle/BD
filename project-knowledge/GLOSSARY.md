@@ -128,7 +128,7 @@ in `project-knowledge/IMPROVEMENT_BACKLOG.md`, not here.
   `cd frontend && npm ci && npm run build` whenever SPA source changed. Treat that as a
   condition to re-derive, not a fixed-length checklist.
 - **bd-* toolchain** -- the session scripts (`bd-boot`, `bd-install`, `bd-preflight`, `bd-state`,
-  `bd-cut`, `bd-band`, `bd-render`, `bd-handoff`, `bd-pack`, ...). `bd <cmd>` runs anything with
+  `bd-cut`, `bd-band`, `bd-render`, ...). `bd <cmd>` runs anything with
   full env + background services.
 - **STATE.json / version.zip / pack** -- the machine-readable pin (`STATE.json`) + the per-session
   bundle of volatile current-state docs (`version.zip` / "the pack"), regenerated at session close.

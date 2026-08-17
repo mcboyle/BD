@@ -135,7 +135,11 @@ def check_anchors(root: pathlib.Path) -> dict:
                 broken.append(f"{d}: {rel}:{lo} -- no tracked file of that name")
                 continue
             if len(cands) > 1:
-                ambiguous += 1        # cannot judge; not counted as broken
+                ambiguous += 1
+                broken.append(
+                    f"{d}: {rel}:{lo} -- ambiguous basename resolves to "
+                    + ", ".join(cands[:6])
+                )
                 continue
             n = len((root / cands[0]).read_text(encoding="utf-8", errors="replace").splitlines())
             top = int(hi) if hi else lo

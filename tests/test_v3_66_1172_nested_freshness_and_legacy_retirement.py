@@ -11,6 +11,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,16 @@ MIGRATED_AUDIT_LABELS = {
     "PYTEST-CAPTURE-DIAGNOSTICS",
     "SKIP-BASELINE-ENFORCEMENT",
     "AI-BOOT-OBS",
+}
+
+AUDIT_OWNER_ROWS = {
+    "#6": (110, "CLOSED"),
+    "#17": (111, "CLOSED"),
+    "#19d": (166, "OPEN"),
+    "#19e": (167, "OPEN"),
+    "#21": (168, "OPEN"),
+    "#22": (169, "OPEN"),
+    "#24": (164, "OPEN"),
 }
 
 
@@ -126,6 +137,23 @@ def test_freshcheck_anchor_denominator_includes_nested_docs(tmp_path: Path):
     assert "3 document(s)" in result["detail"]
 
 
+def test_freshcheck_refuses_an_ambiguous_basename_anchor(tmp_path: Path):
+    _source_tree(tmp_path)
+    for parent in ("one", "two"):
+        target = tmp_path / parent / "same.py"
+        target.parent.mkdir()
+        target.write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text("See same.py:1.\n", encoding="utf-8")
+    for i in range(100):
+        (tmp_path / f"filler-{i:03d}.txt").write_text("x\n", encoding="utf-8")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    fresh = _load("bd_freshcheck_ambiguous_v1172", BIN / "bd-freshcheck")
+    result = fresh.check_anchors(tmp_path)
+    assert result["status"] == fresh.STALE
+    assert "ambiguous basename" in result["detail"]
+
+
 def test_current_markdown_denominator_is_explicit_and_nonzero():
     sec = _load("bdtools_sec_v1172", BIN / "bdtools_sec.py")
     current, historical = sec.tracked_markdown_corpus(REPO)
@@ -133,7 +161,7 @@ def test_current_markdown_denominator_is_explicit_and_nonzero():
         subprocess.check_output(["git", "ls-files", "--deleted"], cwd=REPO, text=True).splitlines()
     )
     current = [p for p in current if p not in deleted]
-    assert len(current) == 135
+    assert len(current) == 132
     assert len(historical) == 14
     assert len(current) == len(set(current))
 
@@ -147,6 +175,17 @@ def test_the_audit_is_retired_only_after_every_live_finding_has_an_owner():
         assert "| OPEN |" in rows[0], rows[0]
     row114 = [line for line in text.splitlines() if line.startswith("| 114 |")]
     assert len(row114) == 1 and "| CLOSED @1172 |" in row114[0]
+    assert "#23 and #25 are fixed" in row114[0]
+    rows = {
+        int(parts[1].strip()): parts
+        for line in text.splitlines()
+        if line.startswith("|") and len(parts := line.split("|")) >= 4
+        and parts[1].strip().isdigit()
+    }
+    assert len(AUDIT_OWNER_ROWS) + 2 == 9
+    for finding, (row_id, status) in AUDIT_OWNER_ROWS.items():
+        assert rows[row_id][2].strip().startswith(status), (finding, rows[row_id])
+        assert finding in row114[0], finding
 
 
 def test_all_twelve_reconstructed_legacy_tools_are_physically_retired():
@@ -165,6 +204,44 @@ def test_all_twelve_reconstructed_legacy_tools_are_physically_retired():
             if rel in tracked or os.path.lexists(path):
                 offenders.append(rel)
     assert not offenders, offenders
+
+
+def test_retired_tools_have_no_live_operator_or_executable_consumers():
+    token = re.compile(
+        r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, sorted(RETIRED)))
+        + r")(?![A-Za-z0-9_-])"
+    )
+    current_docs = (
+        "project-knowledge/README.md",
+        "project-knowledge/KB_SYNC_WORKFLOW.md",
+        "project-knowledge/RELEASE_DISCIPLINE_TIERS.md",
+        "project-knowledge/CODE_REVIEW_INDEX.md",
+        "project-knowledge/PROJECT_KNOWLEDGE_IS_STATIC.md",
+        "project-knowledge/GLOSSARY.md",
+        "project-knowledge/KB_ACTIVE_INDEX.md",
+        "docs/repo/ENVIRONMENT_PROVISIONING.md",
+    )
+    live_code = (
+        "toolchain/bin/bd-coretest",
+        "toolchain/bin/bd-consumer-graph",
+        "tools/build_pin_index.py",
+        ".github/workflows/ci.yml",
+    )
+    offenders = {}
+    for rel in current_docs + live_code:
+        matches = sorted(set(token.findall((REPO / rel).read_text(encoding="utf-8"))))
+        if matches:
+            offenders[rel] = matches
+    assert not offenders, offenders
+    for rel in (
+        "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
+        "project-knowledge/BD_TOOLCHAIN_WHEN_TO_USE.md",
+        "docs/repo/TOOLCHAIN_PORTABILITY.md",
+    ):
+        assert rel not in subprocess.check_output(
+            ["git", "ls-files"], cwd=REPO, text=True
+        ).splitlines()
+        assert not os.path.lexists(REPO / rel)
 
 
 def test_coretest_refuses_to_certify_a_missing_tool(tmp_path: Path):
@@ -186,3 +263,7 @@ def test_tool_lint_refuses_a_shrunken_critical_core_denominator():
     assert result["critical_core"]["present"] == len(lint.CRITICAL_CORE)
     assert result["critical_core"]["missing"] == []
     assert not result["critical_core"]["regressed"]
+    lint.CRITICAL_CORE = [*lint.CRITICAL_CORE, "bd-intentionally-missing-control"]
+    negative = lint.run(str(BIN), do_runtime=False)
+    assert negative["critical_core"]["missing"] == ["bd-intentionally-missing-control"]
+    assert negative["critical_core"]["regressed"]

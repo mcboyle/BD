@@ -92,7 +92,7 @@ the rigor that applies (RED-first, guards byte-identical, verify_release) is sti
 done in full; only the ceremony that doesn't fit the risk is dropped.*
 
 **Do:**
-- Bootstrap (`bd-boot` → `bd-prestage` loop → `bd-install` → `bd-venv` →
+- Bootstrap (`bd-boot` → `bd-install` → `bd-venv` →
   `bd-preflight` → `bd-state` → `bd-status`) and confirm the guard SHAs against
   STATE. (`setup.sh` FAILS BY DESIGN — do not run it; corrected @805.)
 - **RED-first** test for the change.

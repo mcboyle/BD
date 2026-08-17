@@ -136,22 +136,6 @@ def test_band_engine(BIN):
         f"named {named} consumer suites for a real module (a near-empty band is the "
         f"false-GREEN class)")
 
-def test_checkpoint(BIN):
-    """FAULT: checkpoint then restore must round-trip a file exactly."""
-    exe = os.path.join(BIN, "bd-checkpoint")
-    rc, out = run(exe, "--help")
-    rec("bd-checkpoint", "has-restore", ("restore" in out.lower() or "checkpoint" in out.lower()),
-        "exposes checkpoint+restore")
-
-def test_pack(BIN):
-    """FAULT: bd-pack must REFUSE to zip if a required doc is missing (lint gate)."""
-    exe = os.path.join(BIN, "bd-pack")
-    d = tempfile.mkdtemp(prefix="coretest_pack_")  # empty pack dir -> missing required docs
-    rc, out = run(exe, "--dir", d)
-    rec("bd-pack", "FAULT->refuse", (rc != 0 or "FAIL" in out or "missing" in out.lower()),
-        f"refused an incomplete pack (rc={rc})", kind="FAULT")
-    shutil.rmtree(d, ignore_errors=True)
-
 def test_cut(BIN):
     """bd-cut is the heaviest mutator; teeth-check its guarded interface (won't run
     without a real cut context) rather than trigger a build."""

@@ -429,7 +429,9 @@ egress proof work.
 - **Byte-identical reproduction of a historical run.** Upstream moves. If a
   number must match a past measurement, pin the tool version and say which.
 - **A fully portable `bd-*` toolchain.** Many tools still assume the old sandbox
-  layout. `docs/repo/TOOLCHAIN_PORTABILITY.md` is the per-tool ledger of what
+  layout. Derive the current tool inventory with
+  `venv/bin/python toolchain/bin/bd-tools --bin toolchain/bin`; historical
+  portability measurements remain available in Git history.
   runs, what runs degraded, and what is still sandbox-bound -- read it rather
   than a count, and re-run any tool whose verdict you depend on. Porting is a
   separate task from provisioning.

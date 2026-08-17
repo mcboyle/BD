@@ -17,8 +17,7 @@ in another doc, this points there. If this doc and the source ever disagree,
 ```
 UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
             →  cut-readiness (bd-ready)  →  bd-cut  →  band the right tests
-            →  present the release zip  →  [STOP: wait for Matt's stash GREEN]
-            →  bd-handoff (repins STATE + builds bdsuite + audit_state)  →  bd-pack
+            →  exact-head tests/review/CI  →  merge  →  git deployment transition
 ```
 `bd-tools` prints the live categorized index of the whole toolchain at any time.
 
@@ -40,8 +39,8 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
    *(Note v3.66.805: the 805 stash-green was reported as `--workers=60` —
    12466 / 12391 pass / 0 fail / 75 skip. The worker count is operator practice and
    varies; treat the GREEN, not the number, as the binding fact.)*
-4. **Close order is fixed** (see §11): build + verify + present the zip → **STOP**
-   for Matt's stash GREEN → `bd-handoff` → `bd-pack`. Never handoff before GREEN.
+4. **Close order is fixed** (see §11): build and verify exact HEAD, obtain
+   independent review and CI, merge, then perform the Git deployment transition.
 5. **Never run the whole `tests/` dir** — it hangs (see §9).
 6. **The 7 guard files stay byte-identical** unless Matt declares a new SHA (§8).
 7. **Report honestly.** Results-first, no aspirational docs, divergence stated
@@ -117,18 +116,6 @@ stale it, not just `requirements-cloak.txt`) · the source zip · `version.zip`
 - **pack_D** = `bulkdl_dev_kit` (pytest + pyinstaller wheelhouse). Kit→pack
   distribution is arbitrary — don't assume "pack_B = chromium".
 - **Skip for read-only audit sessions:** the cloak/sbcap packs.
-- **Optional expansion tier `pack_E–H`** (install-on-demand; `bd-install` indexes
-  them but has NO handler → **zero bootstrap cost until used**). Managed by
-  **`bd-optpack`**:
-  - `bd-optpack list` / `--brief` — detect + installed-state.
-  - `pack_E` browsers (playwright firefox+webkit; base ships chromium only) →
-    `bd-optpack install E` (extracts into `$PLAYWRIGHT_BROWSERS_PATH`).
-  - `pack_F` pyext wheels (gallery-dl/streamlink/m3u8/lxml/…) →
-    `bd-optpack install F --pip`.
-  - `pack_G` system debs (wireguard/nftables/aria2/jellyfin/…) →
-    `bd-optpack install G --apt` (dpkg -i as root).
-  - `pack_H` audit venv (semgrep/bandit/vulture/… + a11y stack) →
-    `bd-optpack install H`.
 - **`bd-packs`** = presence + zip-integrity of every pack in one glance.
 
 ---
@@ -138,8 +125,8 @@ stale it, not just `requirements-cloak.txt`) · the source zip · `version.zip`
 `bd-tools` is the live index; `bd-tools <term>` filters. Read-only unless noted.
 
 ### Bootstrap / provisioning
-`bd-boot` (re-run until READY) · `bd-prestage` · `bd-install` · `bd-venv` · `bd-preflight` ·
-`bd-state` · `bd-status` · `bd-doctor` · `bd-intake` · `bd-optpack` · `bd-fetch`
+`bd-boot` (re-run until READY) · `bd-install` · `bd-venv` · `bd-preflight` ·
+`bd-state` · `bd-status` · `bd-doctor` · `bd-intake` · `bd-fetch`
 (live wheel fetch) · `bd-packs`.
 
 ### Cut-readiness / gates  — run before every cut
@@ -161,15 +148,14 @@ bd-route (`bd-route /api/x` → owning blueprint; `--grep`) · bd-deps (blueprin
 graph; `bd-deps <module.py>` reverse) · bd-pin (`bd-pin <pkg>` all sites; `--all`) ·
 bd-envscan (BD_* env-var opt-ins) · bd-sym (`bd-sym <symbol> [--py-only]`, all N
 sites) · bd-kb (`bd-kb <term>` over PK docs) · bd-capsweep (prove a capability
-isn't already built: LIKELY BUILT/WEAK/ABSENT) · bd-freshest (newest authoritative
-doc + stray-zip flags).
+isn't already built: LIKELY BUILT/WEAK/ABSENT).
 
 ### Impact / change
-bd-since (work tree vs pinned zip: MODIFIED/ADDED/REMOVED + band/regen hints) ·
-bd-band-derive (`bd-band-derive --file <path>` → tests + blueprint dependents +
+`git diff --name-status <base>...HEAD` (exact changed paths) · bd-band-derive
+(`bd-band-derive --file <path>` → tests + blueprint dependents +
 regen/guard rules; `--files a b c` for a changed set). Supersedes the
 retired bd-blast / bd-suites / bd-touched (merged at rev-702). For the changed
-set itself, pipe from `bd-since`.
+set itself, pass the paths from Git.
 
 ### Quality / security / docs
 bd-ssrf (fetch sites w/o an in-file SSRF guard) · bd-secrets (committed-secret scan;
@@ -182,10 +168,9 @@ bd-precut (predicts the cut) · bd-cut (**`--skip-fe`** backend-only) · bd-band
 bd-bump (`bd-bump 3.66.N --title "…"` → **`--check` default**, `--write` applies).
 
 ### Close / package
-bd-ship (bd-precut → bd-cut → bd-handoff → bd-pack, one command) · bd-handoff ·
-bd-pack · bd-kb-sync (stage static-PK update) ·
-bd-mkbdsuite · bd-mkauditstate · bd-zipcheck (is a release zip shippable, no
-extract) · bd-repin-dist (FE-rebuilding cuts; **`--skip-fe`** backend-only).
+`scripts/build_release.sh` builds the release tree; `tools/verify_release.py`
+validates it; bd-kb-sync stages static-PK updates; bd-repin-dist is used only for
+frontend-rebuilding cuts. Exact-head evidence, not a session ZIP, authorizes merge.
 
 ### Deploy / verify
 bd-verify-live (confirm a deploy landed on stash) · bd-rollback · bd-reconcile.
@@ -300,29 +285,17 @@ Regenerate (generators support `--check`; `bd-regen` wraps them):
   `tests/test_import_graph_no_new_edges.py`)
 
 `bd-regen --check` is read-only (only runs generators that have a real `--check`);
-`bd-regen --write` regenerates. `bd-since` shows what changed vs the pinned zip.
+`bd-regen --write` regenerates. Git shows the exact changed set.
 
 ---
 
 ## 11. The close sequence (fixed order)
 
-1. **Build + verify + present the release zip.** `verify_release --zip` — gate on
-   the **true `$?`, never through a pipe**. `bd-zipcheck <zip>` for a fast local
-   "is it shippable?" (version, 7 guards vs `guards.json`, CHANGELOG) before you
-   hand it over.
-2. **STOP. Wait for Matt's stash test + deploy confirmation (`capture.sh
-   --workers=180` GREEN).** Do not proceed on your own.
-3. **`bd-handoff --version 3.66.N --zip <built.zip>`** — mechanically repins the
-   byte-derivable STATE fields (full-zip sha256, file_count, version, the 7 guard
-   SHAs, generated_at), drops any stale `KB_HANDOFF` (newest-only), self-checks via
-   `bd-state`, **and regenerates `bdsuite_v3_66_<N>.zip` + `audit_state_v3_66_<N>.zip`**
-   so one run yields the whole upload set. Flags: `--no-pack` (repin + self-check +
-   artifacts only), `--no-bdsuite` / `--no-audit` (skip those), `--kb-dir <dir>`
-   (stage a paste-ready static-PK update via `bd-kb-sync`). *You still author the
-   prose (deploy_status, validation, next, footguns) into STATE + KB_HANDOFF by hand.*
-4. **`bd-pack --dir <pack-dir> --out <dir>`** — lints (newest-handoff / stale-banner
-   / tracker-drift) and **refuses to zip** on any lint failure, else zips the
-   `version.zip`. `bd-ship` runs precut → cut → handoff → pack as one command.
+1. Build and verify the release against the exact candidate SHA; preserve raw status.
+2. Run the canonical full suite, affected band, guards, generated checks, packaging,
+   independent reviews, and exact-head GitHub CI.
+3. Merge only the reviewed exact head, then deploy with the Git-based procedure in
+   `docs/repo/FRESH_HOST_BRINGUP.md` and verify `/api/health` reports the merge.
 
 ---
 
@@ -361,7 +334,7 @@ overlay so tool changes win at boot (if absent, updated tools ride the PK + bdsu
 
 ---
 
-## 13. Packs deep-dive → see §4 + `bd-optpack --brief` + `bd-packs`.
+## 13. Packs deep-dive → see §4 and re-derive installed package state.
 
 ---
 
@@ -410,9 +383,9 @@ through Matt** — but the collisions that actually hurt are preventable:
   and updated in the background. Never the source of truth for version/guards/counts.
 - **Static PK** (`/mnt/project`, this bundle): the always-on cache of durable docs
   (this README, `KB_JUDGMENT.md`, `CLAUDE.md`,
-  `BD_TOOLCHAIN_REFERENCE.md`, `Manifest.md`, `SANDBOX_CAPABILITY_LAYER.md`, the
+  `Manifest.md`, `SANDBOX_CAPABILITY_LAYER.md`, the
   audit battery, …). When these change mid-session they must be re-pasted —
-  `bd-handoff --kb-dir` stages a paste-ready update via `bd-kb-sync`. The live
+  `bd-kb-sync` stages a paste-ready update. The live
   `/mnt/project` only reflects a change once Matt overlays the new
   `bd_project_files.zip`.
 - **Version pack** (`BulkDL_next_session_*`): carries per-session `STATE.json` +
@@ -455,10 +428,10 @@ Most shapes now have a tool that immunizes them: stale-copy-of-derived-fact →
 `bd-factcheck`; string-grep-not-decorator → `bd-route`; equality-pin-whack-a-mole →
 `bd-pinscan`; fixture-looks-like-a-pin → `bd-versync`; env-var-opt-in →
 `bd-envscan`; duplicate-pin-sites → `bd-pin`; test-function-mistaken-for-file →
-`bd-bandcheck`; scope-from-oldest-catalog → `bd-freshest`; catalog-id-not-shipped-
+`bd-bandcheck`; stale scope → derive from Git and the canonical backlog; catalog-id-not-shipped-
 module → `bd-capsweep`; guard byte-drift → `bd-guardcheck`; CHANGELOG-emoji →
 `bd-changelog`/`bd-ascii`; core-req-stales-cloak-pack → watch `requirements.txt`;
-optional-pack-invisible-to-tools → `bd-optpack`.
+optional-package state → inspect the installed environment directly.
 
 ### Added @729 — three that BITE, and one law
 
@@ -503,15 +476,12 @@ bd-bump 3.66.N --title "…" --write ; venv/bin/python tools/build_pin_index.py
 # cut
 bd-cut [--skip-fe]             # backend-only -> --skip-fe
 bd-repin-dist                  # FE-changing cuts only
-bd-since ; bd-band-derive --files <changed> ; bd-bandcheck <list> ; bd-band <files>
+git diff --name-only <base>...HEAD ; bd-band-derive --files <changed> ; bd-bandcheck <list> ; bd-band <files>
 
-# close (only AFTER Matt's stash GREEN)
-bd-zipcheck <zip>              # local shippable check
-bd-handoff --version 3.66.N --zip <zip>   # +bdsuite +audit_state ; --no-pack/--no-bdsuite/--no-audit
-bd-pack --dir <pack> --out <out>          # or: bd-ship for the whole close
+# close
+scripts/build_release.sh ; venv/bin/python tools/verify_release.py --help
 
 # situational
-bd-optpack list ; bd-optpack install H     # audit venv, etc.
 bd-audit ; bd-audit promote <name>
 bd-parallel claim --version 3.66.N --item "…" ; bd-parallel check *.json
 ```
@@ -519,7 +489,7 @@ bd-parallel claim --version 3.66.N --item "…" ; bd-parallel check *.json
 ---
 
 *Authoritative pointers: `KB_JUDGMENT.md` (§1 failure taxonomy) ·
-`CLAUDE.md` · `BD_TOOLCHAIN_REFERENCE.md` (full per-tool
-reference) · `SANDBOX_CAPABILITY_LAYER.md`
+`CLAUDE.md` · live `bd-tools --bin toolchain/bin` inventory ·
+`SANDBOX_CAPABILITY_LAYER.md`
 (what the sandbox can/can't do). When any doc disagrees with the source tree,
 the source wins.*

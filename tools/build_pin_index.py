@@ -16,7 +16,7 @@ v1 scope (honest, non-over-capturing, non-forking):
       version    : assert __version__ == "X"
       count_dict : assert <expr> == {<str>: <int>, ...}    (the 302 class)
   - HANDLED ELSEWHERE (coverage-mapped, not re-indexed):
-      guard_sha   : STATE.json (7 SHAs, auto-repinned by bd-handoff; gated by verify_release)
+      guard_sha   : guards.json (7 SHAs; gated by bd-guardcheck and verify_release)
       route_count : tools/check_route_counts.py G12 (source == inventory == test_wave2_backlog pins)
 
 Per-pin schema: {form, file, line, value, gates_what}
@@ -169,9 +169,8 @@ def build_index() -> dict:
         "coverage": {
             "covers": ["version", "count_dict"],
             "handled_elsewhere": {
-                "guard_sha": ("STATE.json — the 7 byte-identical guard SHAs, re-derived from "
-                              "the built zip and auto-repinned by bd-handoff; gated by "
-                              "verify_release / bd-state. Not a hand-typed tree pin."),
+                "guard_sha": ("guards.json — the 7 byte-identical guard SHAs, gated by "
+                              "bd-guardcheck and verify_release. Not a hand-typed tree pin."),
                 "route_count": ("tools/check_route_counts.py (G12) — source-decorator count == "
                                 "gui_parity inventory count == the integer pins in "
                                 "tests/test_wave2_backlog.py."),
