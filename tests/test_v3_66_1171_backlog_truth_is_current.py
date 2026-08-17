@@ -225,6 +225,28 @@ def test_audit_completion_ledger_is_an_exact_non_circular_census() -> None:
         "TOOLSO": "TOOLS_OTHER",
         "TOOLS_OTHER": "TOOLS_OTHER",
     }
+    for row in batches:
+        namespace, number = row["batch"].rsplit("-", 1)
+        accepted_namespaces = {namespace}
+        accepted_namespaces.update(
+            alias for alias, canonical in aliases.items() if canonical == namespace
+        )
+        accepted_prefixes = {
+            spelling + number
+            for alias in accepted_namespaces
+            for spelling in {alias, alias.replace("_", "")}
+        }
+        for finding in row["finding_ids"]:
+            token = finding.removeprefix("F-").split("-", 1)[0]
+            assert token in accepted_prefixes, (row["batch"], finding)
+
+    exact_artifacts = {
+        "CAP-01": ["docs/audit/AUDIT_CAP-01_v3_66_532.json"],
+        "RUN-01": ["docs/audit/AUDIT_RUN-01_v3_66_532.json"],
+    }
+    assert {
+        row["batch"]: row["artifacts"] for row in batches if row["artifacts"]
+    } == exact_artifacts
     allowed = {"artifact_backed", "finding_citations_only", "no_surviving_evidence"}
     assert {row["evidence_class"] for row in batches} <= allowed
     assert all(row["completion_verdict"] in {"unknown", "partial_unknown"} for row in batches)
