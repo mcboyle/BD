@@ -16,10 +16,11 @@ Git history retains its implementation and historical measurements.
 The agent contract keeps the measured context-economy lessons but no longer
 instructs operators to run a local transcript estimate. A repo-wide retirement
 contract proves the executable and census-only tests remain physically absent,
-the tracked-source denominator is nonempty, no live source still names the
-command, and the surviving context-economy guidance remains present. Packaging
-inherits the deletion from the source tree; no exclusion, redirect, registry,
-or successor census is introduced.
+the tracked-path denominator is nonempty, no live tracked text still names the
+command, no dangling retired path or context/transcript census successor can be
+laundered into success, and the surviving context-economy guidance remains
+present. Packaging inherits the deletion from the source tree; no exclusion,
+redirect, registry, or successor census is introduced.
 
 ## v3.66.1160 - body-contract probes preserve kill-switch state
 
