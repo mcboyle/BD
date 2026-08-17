@@ -7,8 +7,8 @@ v3.66.302 miss is impossible to ship stale undetected.
 v1 scope (deliberately honest, non-over-capturing, non-forking):
   - DIRECTLY indexed: `version` (assert __version__ == "X") and `count_dict`
     (assert <expr> == {<str>: <int>, ...}, the 302 class).
-  - HANDLED ELSEWHERE (coverage-mapped, not re-indexed): guard SHAs live in STATE.json
-    (auto-repinned by bd-handoff, gated by verify_release/bd-state); route-count pins are
+  - HANDLED ELSEWHERE (coverage-mapped, not re-indexed): guard SHAs live in guards.json
+    (gated by bd-guardcheck and verify_release); route-count pins are
     gated by tools/check_route_counts.py (G12). PIN_INDEX points at them rather than
     forking those gates.
 
