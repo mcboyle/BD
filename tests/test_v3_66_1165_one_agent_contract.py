@@ -1,7 +1,7 @@
 """Cut 5 leaves one agent contract without losing the live deploy runbook.
 
-The three retired documents are distinct failure shapes: two explicitly tell a
-fresh session what to do, and one is a pasteable standing agent prompt.  Merely
+The six retired documents include fresh-session bootstraps and pasteable
+standing or task execution prompts. Merely
 removing their links would leave the competing authorities packaged and ready
 to be rediscovered.  Conversely, deleting them before moving the four live
 post-checkout requirements would make the repository simpler by losing an
@@ -21,6 +21,9 @@ RETIRED = (
     "project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md",
     "project-knowledge/NEXT_SESSION_BOOTSTRAP.md",
     "docs/repo/CLAUDE_CODE_PROMPT.md",
+    "project-knowledge/bd_starting_message.txt",
+    "project-knowledge/OPV_COWORK_EXECUTION_PROMPT.txt",
+    "project-knowledge/OPV_EXECUTION_PROMPT_CODEX.txt",
 )
 
 
@@ -44,7 +47,11 @@ def _physical_offenders(root: Path, tracked: set[str]) -> list[str]:
 
 
 def _reference_offenders(root: Path) -> dict[str, list[str]]:
-    allowed = {"CHANGELOG.md", Path(__file__).relative_to(REPO).as_posix()}
+    allowed = {
+        "CHANGELOG.md",
+        "docs/repo/DOC_HYGIENE_AUDIT_v3_66_811.md",
+        Path(__file__).relative_to(REPO).as_posix(),
+    }
     offenders: dict[str, list[str]] = {}
     for rel in RETIRED:
         hits = set()
@@ -67,6 +74,9 @@ _SECOND_CONTRACT_MARKERS = (
     "# Claude Code — BulkDownloader session prompt",
     "paste it at the top of every session",
     "read this first in a fresh conversation",
+    "fresh sandbox -- please bootstrap it",
+    "cowork execution prompt",
+    "codex execution prompt",
 )
 
 
@@ -74,7 +84,7 @@ def _renamed_contracts(root: Path, tracked: set[str]) -> list[str]:
     """Find the retired contracts even when their pathname was changed."""
     offenders = []
     for rel in sorted(tracked):
-        if not rel.endswith(".md") or rel in {"CLAUDE.md", "CHANGELOG.md"}:
+        if not rel.endswith((".md", ".txt")) or rel in {"CLAUDE.md", "CHANGELOG.md"}:
             continue
         if rel.startswith(("docs/archive/", "tests/")):
             continue
@@ -135,6 +145,6 @@ def test_adversarial_repository_exposes_symlink_reference_and_rename(tmp_path: P
 
 
 def test_the_retirement_denominator_is_exact():
-    assert len(RETIRED) == 3
-    assert len(set(RETIRED)) == 3
+    assert len(RETIRED) == 6
+    assert len(set(RETIRED)) == 6
     assert (REPO / "CLAUDE.md").is_file(), "the sole surviving agent contract is absent"

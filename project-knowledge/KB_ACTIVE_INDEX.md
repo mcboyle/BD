@@ -11,19 +11,14 @@ planning docs are **not** in static project knowledge -- they arrive in the
 per-session **`version.zip`**. This is historical workflow context; the current
 checkout and `CLAUDE.md` are authoritative.
 
-**Halt guard:** if no `KB_HANDOFF_v3_66_*.md` is in uploads, the version.zip wasn't
-attached -- STOP and request it (per `bd_starting_message.txt` Step 0). Do not
-proceed from static project knowledge alone.
-
 ## Reading order
 
-1. `bd_starting_message.txt` -- bootstrap prompt (run first; Step 0 is the halt
-   guard).
+1. `CLAUDE.md` -- the sole agent-facing contract: working style, release
+   checklist, verification, and footguns.
 1. `PROJECT_CHARTER.md` -- purpose, scope, ethics, in-code guardrails.
 1. `PROJECT_GOALS.md` -- durable direction.
 1. `AUTOMATION_POLICY.md` -- canonical automation doc (what may be automated, where
    approval is required, IMPLEMENTED / PARTIAL / PLANNED state).
-1. `CLAUDE.md` -- working style, release checklist, verification, and footguns.
 1. `KB_JUDGMENT.md` -- the durable why/how layer: named failure shapes, system
    mental-models, decision criteria, and how Matt works (judgment, not facts;
    changes only when judgment changes, never on a routine release).
@@ -53,7 +48,7 @@ proceed from static project knowledge alone.
 
 ## Static project knowledge (this set -- change only when a static doc changes)
 
-`README_KB.md`, `KB_ACTIVE_INDEX.md`, `bd_starting_message.txt`,
+`README_KB.md`, `KB_ACTIVE_INDEX.md`,
 `PROJECT_CHARTER.md`, `PROJECT_GOALS.md`, `AUTOMATION_POLICY.md`,
 `PROJECT_KNOWLEDGE_IS_STATIC.md`,
 `KB_JUDGMENT.md`, `ADVANCED_PROJECT_KNOWLEDGE.md`, `DANGER_MAPv2.md`, `GLOSSARY.md`, `ARCHITECTURE_MAP.md`, `SANDBOX.md`, `SCHEMAS.md`, `REPTYLE_CAPTURE_RUNBOOK.md`, `BDKIT_FIXES.md`,

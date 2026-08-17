@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T09:30:44+00:00",
+ "generated": "2026-08-17T09:39:30+00:00",
  "version_context": "v3.66.1165",
- "file_count": 91,
+ "file_count": 88,
  "files": {
   "0_INDEX.md": {
    "sha256": "53d9219246d1d224c0bfdf593d5033d0f6dd28756d2a11899b7672926799b825",
@@ -169,8 +169,8 @@
    "bytes": 3818
   },
   "KB_ACTIVE_INDEX.md": {
-   "sha256": "cdd27ed874244f11328f46aa858526b4fc68aa88db409da9c6adf0048d6ac00e",
-   "bytes": 6925
+   "sha256": "90011e10fc7e3d51fb2ab622b7b1e153a5f77562efbae16ed7ec251f5a383353",
+   "bytes": 6633
   },
   "KB_JUDGMENT.md": {
    "sha256": "97748cef09c23e281dfaad551a6e3ca171490fe88798fc606b8bf22f62662a6f",
@@ -208,14 +208,6 @@
    "sha256": "ebfb549ffa20666212606829825732352458feb8f47edd6c39f1e9c11daeb8af",
    "bytes": 33351
   },
-  "OPV_COWORK_EXECUTION_PROMPT.txt": {
-   "sha256": "840f45329aa9830e694335ba174b4f6fd8111f39931017b1ebcb0393a432998d",
-   "bytes": 5157
-  },
-  "OPV_EXECUTION_PROMPT_CODEX.txt": {
-   "sha256": "2b310166313dbf8c24537da3a97d20dd95512ba53463d4bb2eda074ac0cebd10",
-   "bytes": 6267
-  },
   "PHASE_C_HARDENING_PLAN.md": {
    "sha256": "b3b4be0aa84fac73dbca0fc522b5af9392e7b58e7fed1ad28464ecb5cca88074",
    "bytes": 10535
@@ -245,8 +237,8 @@
    "bytes": 27825
   },
   "README_KB.md": {
-   "sha256": "ca0c9e384a9318bd5ceb3b5e9edd8e8ebe0ab07a15c54fea7e36cff3c31e1e57",
-   "bytes": 1331
+   "sha256": "bbf8902889a480a6d02030401da63a1503d6b55928322bcaba4db601c5cbd0c9",
+   "bytes": 1289
   },
   "RELEASE_DISCIPLINE_TIERS.md": {
    "sha256": "3661f68fb121a9c90776fdf01d035459661751ac954b2d4ea9f589f42a5c30bb",
@@ -299,10 +291,6 @@
   "audit_partition.py": {
    "sha256": "3067d27d9fc9670828644e4aecbf80e9c62b6891d7716b9c47bf2ef1d1d85262",
    "bytes": 3658
-  },
-  "bd_starting_message.txt": {
-   "sha256": "cc2a3ffb00755859a0c236b5f06f6fb646d31920837298a34a913c6ffd8c8eba",
-   "bytes": 6570
   },
   "build_montage.py": {
    "sha256": "e49129f660f96e4ceb16b019a09deb27e9f5853cf63abb4f86eeb9fc44da8c47",

@@ -73,7 +73,6 @@ ALLOWLIST: frozenset[str] = frozenset({
     "project-knowledge/SANDBOX.md",
     "project-knowledge/SANDBOX_CAPABILITY_LAYER.md",
     "project-knowledge/IMPROVEMENT_BACKLOG.md",
-    "project-knowledge/bd_starting_message.txt",
     "project-knowledge/build_montage.py",
     "project-knowledge/build_navigator.py",
     "project-knowledge/capture_all.py",
