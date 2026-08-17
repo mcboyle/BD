@@ -101,10 +101,10 @@ Med / low:
 
 ### GITIGNORE -- none
 
-Deliberately zero. `ARCHITECTURE_INVENTORY.md`, `DEPENDENCY_GRAPH.md`,
-`ENDPOINT_CATALOG.md`, `FUNCTION_INDEX.md` LOOK like gitignore bait but are
-`--check`-gated by `build_release.py` and MUST stay tracked. Gitignoring them
-would blind the build gate (the section-0 "gate that cannot see its subject" trap).
+Deliberately zero at capture time. Cut 1171 later retired the hand-maintained
+`ARCHITECTURE_INVENTORY.md` and its dedicated generator/gate after re-deriving
+the live architecture authorities. `DEPENDENCY_GRAPH.md`, `ENDPOINT_CATALOG.md`,
+and `FUNCTION_INDEX.md` remain generated, tracked, and `--check`-gated.
 
 ### KEEP but content-stale -- refresh, do NOT remove
 
@@ -119,8 +119,10 @@ would blind the build gate (the section-0 "gate that cannot see its subject" tra
 
 - `project-knowledge/PHASE_C_HARDENING_PLAN.md` -- DORMANT, not stale:
   `capture_bodies.py` guard SHA unchanged (6c7f5c9a...) proves the work never landed.
-- `project-knowledge/AUDIT_PLAN_v3_66_539.md` -- UNVERIFIED: no audit artifacts in
-  tree, but parent program maintained @805. Honest unknown -> keep.
+- `project-knowledge/AUDIT_PLAN_v3_66_539.md` -- this capture-time UNKNOWN was
+  adjudicated at Cut 1171. The stale plan was retired and its exact 58-batch /
+  72-finding denominator moved to `project-knowledge/AUDIT_COMPLETION_LEDGER.json`,
+  where absent evidence remains explicitly UNKNOWN rather than being called done.
 
 ---
 

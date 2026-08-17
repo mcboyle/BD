@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T17:06:33+00:00",
- "version_context": "v3.66.1170",
- "file_count": 83,
+ "generated": "2026-08-17T18:42:16+00:00",
+ "version_context": "v3.66.1171",
+ "file_count": 82,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -52,9 +52,9 @@
    "sha256": "e99640efaf1a66d750546ccfd1d755042ba26488c8017259f8b77b4a8d8776f0",
    "bytes": 36685
   },
-  "AUDIT_PLAN_v3_66_539.md": {
-   "sha256": "af72915386ff15b9a5466e63ed23ae89f2cd1acb975cd0d59786278223c05a25",
-   "bytes": 12025
+  "AUDIT_COMPLETION_LEDGER.json": {
+   "sha256": "a90bb5b2ae544b8842383941ea5dbc9d6c396f9bfe9bb46a8ba150476ae9db0e",
+   "bytes": 14652
   },
   "AUTOMATION_POLICY.md": {
    "sha256": "3d3288a0e1a401b70483544aec068af6c4bb3627215e6db37e6c6cd075ac3fd6",
@@ -67,10 +67,6 @@
   "BDSUITE_TOOL_BUDGET": {
    "sha256": "f27a03251cd3b16edaa8634f04a6345043d56b67ee0a503aab65cfdfa19b43be",
    "bytes": 560
-  },
-  "BD_IMPROVEMENT_PROGRAM_PLAN.md": {
-   "sha256": "0d838108a6647c8516485b7f0703a4938cd8734133ff06dd45aea475b44b0b77",
-   "bytes": 13905
   },
   "BD_TOOLCHAIN_REFERENCE.md": {
    "sha256": "81b6d2cead722bcc43cbd94e75c7bce107289cd325d95d0ce34b5cb5acb61086",
@@ -89,12 +85,12 @@
    "bytes": 24729
   },
   "CODE_INTELLIGENCE_ARCHITECTURE.md": {
-   "sha256": "c2a59035db3da10e1e5812eb81c696356d10520d72daca437e81f16069b4fa4c",
-   "bytes": 8072
+   "sha256": "5e6510ae048eab0f5a3fe0a631eb9f4c84893206faf5562b647be3ab1ef17c3d",
+   "bytes": 7960
   },
   "CODE_INTELLIGENCE_PROGRAM.md": {
-   "sha256": "986f7bac5beb218f81363182da8b367a2aa33b831f8bbdf25df62c0ba8d7725c",
-   "bytes": 10741
+   "sha256": "9a74b69b0ffe544553598c6480a2bd39923859672a9f49f5c18e4ead2e8bdaa0",
+   "bytes": 2392
   },
   "CODE_INTELLIGENCE_SCHEMAS.md": {
    "sha256": "f87ee42227160fa17e7484cc5b6449ac35161eb1487056865fa31dd2677597b4",
@@ -125,8 +121,8 @@
    "bytes": 496
   },
   "DECOMP_HAZARD_REGISTER.md": {
-   "sha256": "6ef550afda7e4697ec2ccd17eb0642d101b9dce9c110aac589077378bf32cf34",
-   "bytes": 6887
+   "sha256": "07764f9cf2d64a2618dcd4620311b0f8d19b6f18b6d8cf449c05833370dff120",
+   "bytes": 6941
   },
   "DEFECT_PATTERN_CATALOG.md": {
    "sha256": "8823a5fbd12e32369bdb1da5c6417cd735f7aefe8dad47df95cddcd9f254411f",
@@ -145,16 +141,16 @@
    "bytes": 9880
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "deaf250a145d2d80614f53fa795e56be8ef7149fd57411a21b35c9d3ae613e0e",
-   "bytes": 143604
+   "sha256": "e75db06ae25d7084670b281fd13554ff22683f77f1464c537784331227d70aaa",
+   "bytes": 105678
   },
   "KB_ACTIVE_INDEX.md": {
    "sha256": "5a37debcee4703aabb8448a3e0434776e31a74f05a84d1b60fc3810703bf02e6",
    "bytes": 6409
   },
   "KB_JUDGMENT.md": {
-   "sha256": "f7b05d4da30f12ac4c15be4bbee8f5c04facb5f1e1f84a671c0285adcd70ef71",
-   "bytes": 95143
+   "sha256": "1dbb0b8dbb113e36a4af3e2893bddb7b7ea39e9985f5c2b7a54a33e11bf2b5ce",
+   "bytes": 95193
   },
   "KB_RECOGNIZER_COVERAGE_METHOD.md": {
    "sha256": "0be8eb27ebf64d12901d51b96ef7f39bd99fc0fea5a255805ad2da0eae91eba5",
@@ -165,8 +161,8 @@
    "bytes": 4623
   },
   "KNOWN_FLAKES.md": {
-   "sha256": "e3425f575da47de1f7a68bd3da7a51f7eb9cf10e2f09dc90a92e6f2f4f7f32b1",
-   "bytes": 5373
+   "sha256": "ec564baad2bf241560241be58c87426334ece47ff6355487bc89b56ca789fe6b",
+   "bytes": 2240
   },
   "LESSONS_LEARNED_v3_66_811.md": {
    "sha256": "308b4c0a69dd7dc17548b356e8c0834c179f1ce7c73303371f70db616ec152be",
@@ -177,8 +173,8 @@
    "bytes": 14837
   },
   "OPERATOR_POLICY_DECISIONS.md": {
-   "sha256": "6c32872d059583833f3e309408ff930b483553f4e0f5e02acf52eb0217d07753",
-   "bytes": 8972
+   "sha256": "d04b95f050b6761439db672a017fb3d6a0f9d747129e0e02e1af881bfa6f4351",
+   "bytes": 8958
   },
   "OPV_CHECK_REFERENCE.md": {
    "sha256": "78bca4cab532c35a9337bdb1f408875906b41998c1ed0f29eb05ef1230f89e53",

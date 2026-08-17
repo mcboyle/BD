@@ -41,7 +41,6 @@ test_api_token_admin_reserved.py
 test_app06_reveal_path_scope.py
 test_app_auth.py
 test_app_semantic_search.py
-test_architecture_inventory.py
 test_audit_f2_p13a.py
 test_audit_p3a.py
 test_auth02_01_cookie_jar_isolation.py

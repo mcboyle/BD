@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1171 - adjudicate backlog truth before execution
+
+Cut A re-derives nine stale OPEN backlog rows against the current tree. It
+retires false or superseded program plans, replaces the unverifiable v539 audit
+plan with an exact 58-batch evidence ledger that preserves UNKNOWN honestly,
+updates current operating documents, and makes the focused regression gate a
+direct CI subject. One concrete remainder discovered during adjudication -- the
+simultaneous-capture vault collision -- is preserved as new OPEN backlog row 165.
+
+The canonical register now contains 161 rows and 34 OPEN items. This is an
+authority-cleanup cut: it does not implement the remaining capture, safety,
+operator, or product work merely because stale prose once grouped it together.
+
 ## v3.66.1170 - reduce the standing agent contract
 
 Cut 10 replaces the sprawling `CLAUDE.md` transcript with a concise, eight-part

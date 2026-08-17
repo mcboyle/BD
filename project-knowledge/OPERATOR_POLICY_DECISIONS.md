@@ -47,11 +47,11 @@ captures contain **live signed URLs**, so:
 operation" wording. **Operator approved @593; the edit below is now APPLIED in `PROJECT_CHARTER.md`
 (this bundle).** The before→after is retained for the record.
 
-**CURRENT (charter, Guardrails section):**
+**BEFORE (retired):**
 > - **Targeted operation.** The tool acts on operator-provided URLs and approved candidates. It is
 >   not a whole-site crawler.
 
-**PROPOSED (level 4 — full enumeration of approved hosts):**
+**APPLIED/CURRENT (level 4 — full enumeration of approved hosts):**
 > - **Scoped operation.** The tool operates on operator-provided URLs and **autonomously discovers,
 >   enumerates, and queues candidates on already-approved hosts to any depth** (e.g. a performer's
 >   whole library or a whole category on a host the operator has approved). Discovering or

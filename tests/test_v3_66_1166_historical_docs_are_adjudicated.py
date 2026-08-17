@@ -98,12 +98,21 @@ def test_live_residuals_are_owned_by_exactly_one_open_backlog_row_each():
     required = {
         "AUTH-SCENE",
         "AI-BOOT-OBS",
-        "CI-GOVERNANCE",
-        "AUDIT-KNOWLEDGE-HYGIENE",
-        "CI-FRONTENDS",
         "DEFECT-SUPPRESS",
     }
     assert _open_label_counts(backlog, required) == {label: 1 for label in required}
+
+
+def test_cut_1171_terminally_adjudicated_the_three_program_rows():
+    backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
+    expected = {136: "MOOT", 137: "MOOT", 138: "CLOSED"}
+    for row_id, status in expected.items():
+        matches = re.findall(
+            rf"^\|\s*{row_id}\s*\|\s*({status})\s+@1171\s*\|",
+            backlog,
+            flags=re.MULTILINE,
+        )
+        assert matches == [status], (row_id, matches)
 
 
 def test_closed_rows_and_free_prose_cannot_launder_a_live_residual():

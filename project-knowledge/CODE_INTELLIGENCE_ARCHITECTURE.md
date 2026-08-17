@@ -27,7 +27,7 @@ are single queries, not greps across files.
                                       │ upsert
    L0 extract ──► KNOWLEDGE_GRAPH.db ◄┴─ L1 graph_build (calls/imports/taint/guards)
    (battery)         │   ▲
-                     │   └── bd-audit-gate queries it on every cut
+                     │   └── bd-audit-gate queries it when explicitly invoked
                      ▼
    projections: MODULE_CATALOG · CALL_GRAPH · TAINT_MAP · SECURITY_SURFACE
                 INVARIANTS · CONTRACTS · ERROR_CATALOG · CONFIG_LINEAGE
@@ -104,10 +104,11 @@ must never exist`; fail-closed redaction floors; `_process_one` dispatch orderin
 keeper nested-playwright pause) is a row: `{id, statement, file:line,
 why_load_bearing, guard_test | UNGUARDED, probe}`. Two mechanisms make it more than
 documentation:
-- **`UNGUARDED` generates work** — an unguarded invariant auto-emits a RED-test stub
-  (`bd-finding`/`bd-invariant`), so the registry produces hardening, not just a list.
-- **`invariant_probe` `[PLANNED]`** turns the `probe` field into an executable
-  assertion run against the live app — an invariant that can't be probed is a wish.
+- **`UNGUARDED` is visible, not auto-fixed** — `tools/invariants.py --check`
+  reports the state and fails under the current root authority. The historical
+  `bd-finding` and `bd-invariant` command names are absent; no stub emitter is implied.
+- **`invariant_probe` is absent**. A future executable live-app probe would require
+  its own backlog decision and direct test contract.
 
 This converts safety claims from prose into gated data in root `INVARIANTS.json`.
 
@@ -121,17 +122,15 @@ Every artifact carries its own `--check`, mirroring the in-sync gates:
 - **`semantic_diff`** `[LIVE-capable via libcst]`: flags when a function's
   signature/raises/return-contract/call-edges change even across a "pure refactor" —
   catches the caller/callee signature-drift class the moment it lands.
-- **`differential_oracle`** `[PLANNED]`: cross-checks redundant implementations of
+- **`differential_oracle`** `[LIVE as tools/differential_oracle.py]`: cross-checks redundant implementations of
   one contract (the two IP classifiers, the two `sites_config` resolvers, `_mask`
   vs `_is_secret` pairs); divergence = latent bug.
-- **`bd-audit-gate`** `[BUILT — corrected v3.66.805]`: runs `defect_patterns` +
-  `semantic_diff` + `invariant_probe` + reachability + contract-check + ledger-staleness
-  on every cut, and **blocks the build** like the in-sync gates. Without this single wired
-  gate the analysis is a library nobody runs — *this* is the robustness multiplier.
-  Ships as `bd-audit-gate.py` in BOTH the static PK and `work/tools/`; `graph_build.py`
-  is likewise present in `work/tools/`. The `[PLANNED]` marker this line previously
-  carried was stale. (`invariant_probe` and `differential_oracle` above remain genuinely
-  unbuilt — verify each before trusting its marker.)
+- **`bd-audit-gate`** `[BUILT, STANDALONE]`: the two tracked copies run the
+  available defect-pattern, invariant, review-state, witness, emit, topology, and
+  consumer-agreement checks with three-state failure semantics. It is not wired
+  into CI or the canonical cut gate, and it does not run `semantic_diff`,
+  `differential_oracle`, `fuzz_harness`, or an absent `invariant_probe`. Those
+  frontends remain standalone until a separate product decision wires them.
 
 ---
 
