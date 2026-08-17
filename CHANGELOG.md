@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1170 - reduce the standing agent contract
+
+Cut 10 replaces the sprawling `CLAUDE.md` transcript with a concise, eight-part
+standing authority covering scope, authorization, lifecycle, writer discipline,
+verification, release and deployment, invariants, and focused references. An
+exact 306-paragraph semantic map records every prior paragraph's disposition and
+is preserved with the cut evidence rather than becoming another repository
+authority.
+
+The temporary paragraph-conservation subsystem is retired after the reduced
+contract is approved: `bd-contract-rules`, its frozen baseline, dedicated tests,
+and CI wiring are removed. Point-of-use tests and focused runbooks retain the
+durable behavior, while the approved temporary design and execution plan remain
+hashed outside the product repository.
+
 ## v3.66.1169 - canonicalize OpenAPI and retire unused integration residue
 
 Cut 9 makes `bulk_downloader.openapi_spec.generate` the sole OpenAPI producer.
