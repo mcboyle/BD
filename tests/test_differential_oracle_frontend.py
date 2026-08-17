@@ -818,11 +818,11 @@ def _pid_is_running(pid: int) -> bool:
         return True
     status = Path(f"/proc/{pid}/stat")
     try:
-        if status.is_file():
-            after_name = status.read_text(encoding="utf-8").rpartition(")")[2]
-            if after_name.split()[0] == "Z":
-                return False
-    except ProcessLookupError:
+        status.stat()
+        after_name = status.read_text(encoding="utf-8").rpartition(")")[2]
+        if after_name.split()[0] == "Z":
+            return False
+    except (FileNotFoundError, ProcessLookupError):
         return False
     except (IndexError, OSError):
         pass
@@ -843,7 +843,7 @@ def test_pid_is_running_treats_proc_stat_disappearance_as_exit(monkeypatch):
     def disappearing_stat(path, *args, **kwargs):
         if path == proc_stat:
             fired["stat"] += 1
-            raise ProcessLookupError(3, "No such process", str(path))
+            raise FileNotFoundError(2, "No such file or directory", str(path))
         return real_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "kill", fake_kill)
