@@ -2357,9 +2357,10 @@ next person precisely because it is written in the language of safety.
 
 **A session that runs out of window loses the work, so the window is a
 resource like any other — and it was never measured here until v3.66.1140.**
-Run `bd-context-census` rather than guessing; it prints its own blind spots,
-including the one nothing else can see (thinking blocks are recorded with zero
-chars, so reasoning tokens are paid and invisible to it).
+Measure visible costs from durable command and result artifacts rather than
+guessing, while stating the boundary honestly: no local transcript estimate can
+observe the provider's complete context, and recorded thinking blocks may carry
+zero visible characters while still consuming reasoning tokens.
 
 The census that produced these rules, over 3,158 transcript rows of one
 session, chars/token calibrated at 2.95 on a prose corpus:

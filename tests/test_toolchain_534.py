@@ -493,7 +493,7 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
     root = str(_REPO_ROOT)
     for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck",
                  "bd-jobs", "bd-run", "bd-ladder", "bd-ab", "bd-fleet", "bd-gc",
-                 "bd-context-census", "bd-fleet-run", "bd-contract-rules"):
+                 "bd-fleet-run", "bd-contract-rules"):
     # bd-fleet-run's --selftest is HERMETIC as of v3.66.1142, and that is the
     # condition of its presence here. Until then it built a fleet file naming
     # `alpha 192.0.2.10` and drove main() through the "unwritable artifact
