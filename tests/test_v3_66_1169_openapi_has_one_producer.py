@@ -154,7 +154,7 @@ def test_no_current_tracked_reader_names_a_retired_surface():
 def test_current_sandbox_guidance_does_not_restore_retired_spa(path):
     text = (ROOT / path).read_text(encoding="utf-8")
     assert "BulkDownloader/spa/node_modules" not in text
-    assert "/home/claude/spa/" not in text
+    assert "| `spa` | standalone" not in text
 
 
 def test_release_walk_contains_dynamic_producer_but_no_static_or_retired_copy():
