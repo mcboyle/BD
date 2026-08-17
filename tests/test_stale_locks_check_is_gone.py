@@ -25,7 +25,7 @@ WHAT THIS FILE DOES NOT CLAIM. An earlier draft of the rationale said
 v3.66.843: overstated. That check uses a NON-recursive `base.glob(pat)`
 (selftest.py), while crash_recovery.py:141 rglobs `*.part` precisely because
 those nest. So a nested `.part` is missed. That gap is real, is filed
-separately in SESSION_CARRY, and is NOT what this deletion fixes -- deleting a
+separately as canonical backlog row 162, and is NOT what this deletion fixes -- deleting a
 check with no subject is right on its own terms, and conflating the two would
 let a real gap ride along as though it had been addressed.
 
@@ -61,7 +61,7 @@ def test_the_symbol_is_gone():
         "bulk_downloader.selftest.check_stale_locks is back. It has no "
         "producer -- nothing in this tree writes a *.lock file -- so it can "
         "only report OK forever or WARN about another program's files. Read "
-        "the module docstring here and SESSION_CARRY 15.9 before restoring it."
+        "the module docstring here and backlog row 162 before restoring it."
     )
 
 
@@ -91,7 +91,7 @@ def test_no_selftest_function_globs_for_dot_lock():
         "selftest.py names a .lock pattern outside a docstring:\n  "
         + "\n  ".join(offenders)
         + "\n\nNothing in this tree writes one. If a producer now exists, say "
-          "so in the docstring above and in SESSION_CARRY before adding a "
+          "so in the docstring above and the canonical backlog before adding a "
           "check that looks for it."
     )
 

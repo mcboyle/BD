@@ -33,6 +33,8 @@ CURRENT_SURFACES = (
     "project-knowledge/bd_starting_message.txt",
     "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
     "project-knowledge/BD_TOOLCHAIN_WHEN_TO_USE.md",
+    "tests/test_stale_locks_check_is_gone.py",
+    "tests/test_zip_era_tools_stay_retired.py",
 )
 
 _ROW = re.compile(
@@ -106,7 +108,7 @@ def test_the_backlog_publishes_and_matches_its_exact_denominator():
 def test_the_two_surviving_pending_spec_obligations_are_atomic_backlog_rows():
     rows = _rows()
     open_text = {text for _, status, text in rows if status == "OPEN"}
-    for token in ("RECON-7", "S5-RESIDUE"):
+    for token in ("RECON-7", "S5-RESIDUE", "NESTED-PART"):
         matches = [text for text in open_text if text.startswith(token + " --")]
         assert len(matches) == 1, f"{token} must resolve to one OPEN canonical row: {matches}"
 

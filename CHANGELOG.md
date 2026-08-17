@@ -9,10 +9,10 @@ archive is not present in this repository; consult source-control history.
 Cut 4 makes `project-knowledge/IMPROVEMENT_BACKLOG.md` the sole live task
 register. The superseded session ledger, its promise-accounting test, the
 retired STATE reconciliation tool, the advisory per-user session queue, and
-five adjudicated pending-spec artifacts are removed. The two genuinely open
-pending-spec residuals are preserved as atomic backlog rows RECON-7 and
-S5-RESIDUE; the earlier session item 31 subwork remains visible in rows
-119-128 rather than being copied as another checklist.
+five adjudicated pending-spec artifacts are removed. Genuinely open residuals
+are preserved as atomic backlog rows RECON-7, S5-RESIDUE, and NESTED-PART; the
+earlier session item 31 subwork remains visible in rows 119-128 rather than
+being copied as another checklist.
 
 Current operator tools and documentation now read or name the canonical
 backlog. The backlog publishes an exact machine-checked row, open-row, and ID
