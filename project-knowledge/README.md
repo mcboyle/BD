@@ -183,7 +183,7 @@ bd-bump (`bd-bump 3.66.N --title "…"` → **`--check` default**, `--write` app
 
 ### Close / package
 bd-ship (bd-precut → bd-cut → bd-handoff → bd-pack, one command) · bd-handoff ·
-bd-pack · bd-session (multi-cut ledger) · bd-kb-sync (stage static-PK update) ·
+bd-pack · bd-kb-sync (stage static-PK update) ·
 bd-mkbdsuite · bd-mkauditstate · bd-zipcheck (is a release zip shippable, no
 extract) · bd-repin-dist (FE-rebuilding cuts; **`--skip-fe`** backend-only).
 

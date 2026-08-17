@@ -1235,7 +1235,6 @@ tests/test_v3_66_87_temporal_harness.py
 tests/test_v3_66_880_capability_manifest_is_stated.py
 tests/test_v3_66_881_stale_base_is_surfaced.py
 tests/test_v3_66_882_restart_without_the_hook.py
-tests/test_v3_66_884_freshcheck_shallow_boundary.py
 tests/test_v3_66_885_runner_fixture_resolution.py
 tests/test_v3_66_888_session_pack_final_gates_run.py
 tests/test_v3_66_889_import_graph_sees_tests.py

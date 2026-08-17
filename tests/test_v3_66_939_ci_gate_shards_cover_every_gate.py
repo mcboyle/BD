@@ -104,6 +104,7 @@ _DECLARED = {
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
     "tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py",
+    "tests/test_v3_66_1164_one_task_authority.py",
     "tests/test_v3_66_1141_no_paragraph_leaves_undeclared.py",
     # @1148. Also BD_GATE_SCOPE = "module" and also deliberately so: its subject
     # is bd-cut's release gate, not the tree. It is pinned into a shard because
@@ -215,7 +216,6 @@ _DECLARED = {
     # register still READS fine. A 2026-08-13 audit found the cost: one row
     # CLOSED for a cut that did not touch it, one closed without the PARTIAL
     # its own text needed, and four ids that never existed.
-    "tests/test_register_promises_resolve.py",
     "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
     # @1082, backlog 99. Twenty-four suites that enumerate the tree and
     # ran on no PR -- tombstones, anti-duplication ratchets and

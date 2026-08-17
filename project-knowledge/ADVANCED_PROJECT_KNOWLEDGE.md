@@ -220,7 +220,7 @@ persisting secrets/signed-URLs in templates.
   the authoritative *shipped* record; every entry <= live version is "completed", but grep
   the `work/` tree to validate each claim (module/route/function exists) -- don't trust the
   doc.
-- **The tracker is data-driven:** `TASK_TRACKER_DATA.json` -> `tasktracker_gen.py` renders
+- **The tracker is data-driven:** `project-knowledge/IMPROVEMENT_BACKLOG.md` records
   MD + XLSX, `--check` gates drift. Adding a classification bucket (e.g. `decided_against`)
   is a `tasktracker_gen.py` change (RED-first, re-pin its `--check`), not just a JSON edit
   -- the renderer only emits the buckets it hard-codes.

@@ -116,7 +116,7 @@ VOLATILE = ["Backlog.md", "Roadmap.md"]
 # subject's disappearance. That guidance ("regenerate, or formally kill the
 # tracker and remove it from TRACKER_FILES -- do NOT let it silently
 # disappear again") is now satisfied by the second branch: the ledger was
-# folded into project-knowledge/SESSION_CARRY.md 15.15 and removed here
+# folded into project-knowledge/IMPROVEMENT_BACKLOG.md 15.15 and removed here
 # deliberately. tests/test_task_tracker_stays_retired.py is the gate that
 # keeps the removal honest, so absence is still policed -- by a test that
 # asserts it, rather than by a lint that skipped over it.

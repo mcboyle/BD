@@ -78,7 +78,7 @@ def test_the_backlog_file_exists():
     )
 
 
-def test_the_parser_finds_a_substantial_number_of_rows():
+def test_the_parser_finds_at_least_one_row():
     """NON-EMPTY DENOMINATOR, asserted before any per-row verdict.
 
     Every assertion below iterates the parsed rows, so a regex that stopped
@@ -87,13 +87,13 @@ def test_the_parser_finds_a_substantial_number_of_rows():
     worse than no gate (CLAUDE.md section 0), and this is the shape that
     produces it.
 
-    The floor is deliberately well below the current count rather than equal to
-    it: a gate pinned to the exact size fires on every ordinary addition, and a
-    gate that cries wolf gets switched off.
+    Exact identity and OPEN denominators are published and checked by the
+    one-task-authority gate.  This local parser assertion only prevents an
+    empty-regex false pass; it must not create a second count authority.
     """
     rows = _rows()
-    assert len(rows) >= 60, (
-        f"parsed only {len(rows)} backlog rows from {BACKLOG}; the row format "
+    assert rows, (
+        f"parsed zero backlog rows from {BACKLOG}; the row format "
         "and the parser have diverged, so every check in this file would be "
         "asserting over nothing"
     )
@@ -164,8 +164,7 @@ def test_every_row_has_text():
 
 
 def test_the_file_is_ascii():
-    """SESSION_CARRY and the CHANGELOG are both ASCII-only and a gate on the box
-    enforces it for one of them; this file is read in the same places."""
+    """The canonical backlog is ASCII-only for every machine reader."""
     raw = BACKLOG.read_bytes()
     try:
         raw.decode("ascii")

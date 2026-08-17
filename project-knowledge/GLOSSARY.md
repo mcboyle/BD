@@ -4,7 +4,7 @@
 The project's working vocabulary. The handoffs, tracker, and CHANGELOG are jargon-dense;
 this is the decode ring so a fresh session can parse them fast. Static (version-agnostic);
 definitions reflect the @464 codebase. Where a term names a tracker item, the live status is
-in `TASK_TRACKER`, not here.
+in `project-knowledge/IMPROVEMENT_BACKLOG.md`, not here.
 
 ## Capture & redaction
 
@@ -102,8 +102,8 @@ in `TASK_TRACKER`, not here.
 
 ## Tracker, process & operations
 
-- **the tracker (TASK_TRACKER)** -- the authoritative, drift-gated work registry
-  (`TASK_TRACKER_DATA.json` -> `tasktracker_gen.py`). Buckets: incomplete / completed /
+- **the backlog** -- the authoritative, drift-gated work registry
+  (`project-knowledge/IMPROVEMENT_BACKLOG.md`). Statuses: OPEN / CLOSED / MOOT /
   awaiting_operator / decided_against.
 - **OPV (OPV-*)** -- Operator Verification: tasks that need live on-stash operator action with
   screenshot proof (historical guide archived at

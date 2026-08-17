@@ -54,8 +54,8 @@ def _fixture_repo(tmp_path, claude_body):
         (root / ("ballast_%03d.py" % i)).write_text("x = 1\n", encoding="utf-8")
 
     (root / "CLAUDE.md").write_text(claude_body, encoding="utf-8")
-    (root / "project-knowledge" / "SESSION_CARRY.md").write_text(
-        "### 15.1 | fixture\n\nbody\n", encoding="utf-8")
+    (root / "project-knowledge" / "IMPROVEMENT_BACKLOG.md").write_text(
+        "# fixture backlog\n", encoding="utf-8")
 
     env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")

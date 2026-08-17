@@ -6,4 +6,4 @@ archived at
 [`docs/archive/2026-07-22-doc-hygiene/project-knowledge/DECOMPOSITION_PROGRAM_ROADMAP.md`](../docs/archive/2026-07-22-doc-hygiene/project-knowledge/DECOMPOSITION_PROGRAM_ROADMAP.md).
 
 This file is a static-KB compatibility pointer, not an active plan. Current
-work and status live in `TASK_TRACKER_DATA.json` and its generated views.
+work and status live in `project-knowledge/IMPROVEMENT_BACKLOG.md`.

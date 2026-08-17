@@ -1062,7 +1062,6 @@ test_v3_66_87_temporal_harness.py
 test_v3_66_880_capability_manifest_is_stated.py
 test_v3_66_881_stale_base_is_surfaced.py
 test_v3_66_882_restart_without_the_hook.py
-test_v3_66_884_freshcheck_shallow_boundary.py
 test_v3_66_885_runner_fixture_resolution.py
 test_v3_66_888_session_pack_final_gates_run.py
 test_v3_66_889_import_graph_sees_tests.py
@@ -1198,7 +1197,6 @@ test_wave2_backlog.py
 # tests green, then -n 2/3/4/6/8 --dist loadfile, zero failures at every width.
 test_capture_iframe_clipboard.py
 test_live_harness.py
-test_register_promises_resolve.py
 test_t55_live_test_harness_timeout.py
 test_t9a_live_stream_wired.py
 test_u42_resource_live_tests.py

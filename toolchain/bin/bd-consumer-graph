@@ -225,10 +225,10 @@ def cmd_dead_tools(a):
     # closest thing to an invocation log that exists (no real one ever has -- the sandbox
     # fs resets between sessions), so a tool named here was probably genuinely used.
     # The sandbox's /home/claude/vp/{KB_HANDOFF,Backlog,Roadmap}.md are retired session
-    # artifacts; project-knowledge/SESSION_CARRY.md is their in-repo replacement
+    # artifacts; project-knowledge/IMPROVEMENT_BACKLOG.md is their in-repo replacement
     # (CLAUDE.md's STATE.json/handoff idiom), and CHANGELOG.md is unchanged.
     evidence = []
-    for p in (os.path.join(PK, "SESSION_CARRY.md"), os.path.join(WORK, "CHANGELOG.md")):
+    for p in (os.path.join(PK, "IMPROVEMENT_BACKLOG.md"), os.path.join(WORK, "CHANGELOG.md")):
         if os.path.isfile(p):
             evidence.append(p)
     files["evidence"] = evidence

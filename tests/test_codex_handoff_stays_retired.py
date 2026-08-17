@@ -51,7 +51,7 @@ TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
 PROSE_EXEMPT = {
     "tests/test_codex_handoff_stays_retired.py",
     "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
-    "project-knowledge/SESSION_CARRY.md",
+    "project-knowledge/IMPROVEMENT_BACKLOG.md",
     "project-knowledge/LESSONS_LEARNED_v3_66_818.md",
     "CLAUDE.md",
     "CHANGELOG.md",
@@ -63,7 +63,7 @@ def test_the_retired_files_are_gone():
     assert not present, (
         "these were retired but are present again:\n  "
         + "\n  ".join(present)
-        + "\n\nThe open task groups were absorbed into SESSION_CARRY 15.15. A "
+        + "\n\nThe open task groups were absorbed into the canonical backlog. A "
           "second agent-facing contract is the failure this retirement removes "
           "-- restoring the file restores the failure, so recover it from git "
           "history for reference rather than reinstating it as a live document."
@@ -84,7 +84,7 @@ def test_the_retirement_is_documented_not_just_done():
     assert tombstoned, (
         f"{TOMBSTONE.relative_to(REPO_ROOT)} has no line recording "
         f"CODEX_HANDOFF as RETIRED. Keep the tombstone: a reader who finds the "
-        f"34-task program referenced in SESSION_CARRY and no explanation for "
+        f"34-task program referenced in the historical record and no explanation for "
         f"the document's absence will recreate it."
     )
 

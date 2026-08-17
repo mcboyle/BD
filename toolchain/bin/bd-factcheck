@@ -5,15 +5,15 @@ counts from the live tree, then flag any number in STATE.json / a target doc tha
 claims a different value for the same thing.
 
 Usage:
-  bd-factcheck [--tree DIR] [--doc SESSION_CARRY.md|handoff.md ...]
+  bd-factcheck [--tree DIR] [--doc IMPROVEMENT_BACKLOG.md|handoff.md ...]
 Exit 1 if any drift is found (so it can gate a doc update), 0 if the scanned
 docs are clean, 2 CANNOT-EVALUATE (no readable doc, or --tree is not a work
 tree -- deriving canonical counts from an absent tree yields zeros, and every
 number in the doc would then "drift" against nothing).
 
---doc defaults to project-knowledge/SESSION_CARRY.md inside --tree. The old
+--doc defaults to project-knowledge/IMPROVEMENT_BACKLOG.md inside --tree. The old
 default was /home/claude/STATE.json; STATE.json is retired (CLAUDE.md s7) and
-SESSION_CARRY.md is the register now. The scan is plain-text and applies
+IMPROVEMENT_BACKLOG.md is the register now. The scan is plain-text and applies
 unchanged; the JSON claim-line pruner still handles a JSON doc when given one.
 """
 import argparse, glob, json, os, re, sys
@@ -193,14 +193,14 @@ def main():
     ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--doc", nargs="*", default=None,
                     help="docs to fact-check (default: "
-                         "<tree>/project-knowledge/SESSION_CARRY.md)")
+                         "<tree>/project-knowledge/IMPROVEMENT_BACKLOG.md)")
     ap.add_argument("--selftest", action="store_true",
                    help="fault-injection selftest (delegates to bd-coretest)")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
     if not a.doc:
-        a.doc = [os.path.join(a.tree, "project-knowledge", "SESSION_CARRY.md")]
+        a.doc = [os.path.join(a.tree, "project-knowledge", "IMPROVEMENT_BACKLOG.md")]
     # The canonical counts ARE the denominator every finding is measured
     # against. Derived from a tree with no bulk_downloader/ they are all zero,
     # and the tool would then report drift against nothing (or, worse, clean).

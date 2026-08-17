@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1164 - establish one canonical task authority
+
+Cut 4 makes `project-knowledge/IMPROVEMENT_BACKLOG.md` the sole live task
+register. The superseded session ledger, its promise-accounting test, the
+retired STATE reconciliation tool, the advisory per-user session queue, and
+five adjudicated pending-spec artifacts are removed. The two genuinely open
+pending-spec residuals are preserved as atomic backlog rows RECON-7 and
+S5-RESIDUE; the earlier session item 31 subwork remains visible in rows
+119-128 rather than being copied as another checklist.
+
+Current operator tools and documentation now read or name the canonical
+backlog. The backlog publishes an exact machine-checked row, open-row, and ID
+denominator instead of an arbitrary minimum-size floor, and a directly wired
+production-path regression proves the retired authorities cannot return as
+tracked files, dangling symlinks, executable references, or replacement task
+names. Freshness now checks the canonical register and the temporary contract
+baseline records the five reviewed CLAUDE.md pointer rewrites.
+
 ## v3.66.1163 - make temporary contract conservation exact
 
 Cut 3 hardens the temporary paragraph-conservation gate that protects the

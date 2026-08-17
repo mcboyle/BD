@@ -21,7 +21,7 @@ UPLOADS (attach; the loader picks each by content/name, so order is not critical
   - BulkDL_next_session_v3_66_<n>.zip     -- the per-session version pack (REQUIRED):
                                              STATE.json, newest KB_HANDOFF, Roadmap,
                                              Backlog, EXECUTION_PLAN, REMAINING_WORK,
-                                             TASK_TRACKER (3 files).
+                                             IMPROVEMENT_BACKLOG (one file).
   - BulkDownloader_project_files_3_66_<n>.zip
                                           -- the static-KB bundle (this file lives in
                                              it). If a PROJECT_KNOWLEDGE_UPDATE.md /

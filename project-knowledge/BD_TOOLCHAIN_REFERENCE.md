@@ -289,7 +289,7 @@ before first paint; self-boots and tears down its own backend.
 
 ### CODEX_HANDOFF.md — RETIRED 2026-08-03 *(a second agent-facing contract)*
 
-**The document is gone. Do not recreate it; use `CLAUDE.md` plus SESSION_CARRY 15.15.**
+**The document is gone. Do not recreate it; use `CLAUDE.md` plus IMPROVEMENT_BACKLOG.md.**
 
 Removed in the same cut: `CODEX_HANDOFF.md` and
 `tests/test_codex_handoff_defers_to_claude_md.py`.
@@ -310,7 +310,7 @@ can no longer encounter its subject, which is worse than no gate.
 
 The 34-task program's open groups (Analysis Task 4 paused, Analysis 5-7,
 Governance 1-8, Audit/knowledge/hygiene/static-KB 1-11) are recorded in
-SESSION_CARRY 15.15, including the fact that Task 4's frozen review packages no
+IMPROVEMENT_BACKLOG.md, including the fact that Task 4's frozen review packages no
 longer exist -- so resuming it means RE-FREEZING from the current tree, not
 verifying against the recorded hashes.
 
@@ -322,7 +322,7 @@ delete the correction along with the error.
 
 ### TASK_TRACKER — RETIRED 2026-08-03 *(the ledger, its generators, and two operator tools)*
 
-**The tracker is gone. Do not regenerate it; use `project-knowledge/SESSION_CARRY.md`.**
+**The tracker is gone. Do not regenerate it; use `project-knowledge/IMPROVEMENT_BACKLOG.md`.**
 
 Removed in the same cut: `TASK_TRACKER.md`, `TASK_TRACKER.xlsx`,
 `TASK_TRACKER_DATA.json` (the canonical source -- the other two were views),
@@ -333,12 +333,12 @@ tests. `bd-pack` lost its `TRACKER_FILES` list and `_tracker_drift()` gate;
 `bd-freshest`, `tools/render_advanced_kb.py` and
 `tools/build_session_pack.py` lost single references.
 
-WHY. It was a SECOND register beside SESSION_CARRY.md, and the two never
-referenced each other -- SESSION_CARRY mentioned TASK_TRACKER zero times
+WHY. It was a SECOND register beside IMPROVEMENT_BACKLOG.md, and the two never
+referenced each other -- IMPROVEMENT_BACKLOG.md mentioned TASK_TRACKER zero times
 while the tracker held eleven open operator-bound rows the session queue
 could not see. Two registers that do not know about each other are worse
 than one that is merely incomplete, because each looks authoritative alone.
-Everything still OPEN was absorbed into SESSION_CARRY 15.15 first. The 283
+Everything still OPEN was absorbed into IMPROVEMENT_BACKLOG.md first. The 283
 completed rows were deliberately not copied: git history holds them, and a
 completed row is not something anyone needs to read again.
 
@@ -584,7 +584,6 @@ called by `bd-handoff`.
   idf-weighted whole-tree capability sweep → LIKELY BUILT / WEAK / ABSENT.
 - **`bd-freshest`** — point every scoping pass at the newest authoritative doc; flags
   version-lagging catalogs + stray zips.
-- **`bd-session`** — multi-cut session ledger (arc/deploy_queue derived, not hand-typed).
 - **`bd-pinscan`** — flags `== N` magnitude/parity assertions that should be `<= N` ceilings.
 - **`bd-bandcheck`** — validate a band target list (real files, no known-hang, no
   test-function-as-path, no leak co-band) before running it.

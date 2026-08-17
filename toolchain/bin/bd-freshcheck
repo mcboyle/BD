@@ -47,7 +47,7 @@ import sys
 OK, STALE, UNKNOWN = "OK", "STALE", "UNKNOWN"
 
 # Docs whose claims are load-bearing enough to gate on.
-_DOCS = ("CLAUDE.md", "project-knowledge/SESSION_CARRY.md")
+_DOCS = ("CLAUDE.md", "project-knowledge/IMPROVEMENT_BACKLOG.md")
 
 # `tsx` MUST precede `ts` in the alternation: Python tries branches
 # left-to-right, so a leading `ts` would match the first two characters of
@@ -174,7 +174,7 @@ def _decide_nonzero_ancestry(root: pathlib.Path, claimed: str):
     after which the same question answers 1 -- so the shallow boundary can
     manufacture a 1 as readily as a 128, and only exit 0 cannot be faked.
     Keying on the code, or on whether the object is present, ships the false
-    verdict unchanged; both were drafted and both are wrong (SESSION_CARRY
+    verdict unchanged; both were drafted and both are wrong (IMPROVEMENT_BACKLOG
     15.33). The boundary is the subject, so the boundary is what this moves.
 
     WHY NOT CALL EVERY NONZERO UNKNOWN. That is the opposite error and it
@@ -215,100 +215,6 @@ def _decide_nonzero_ancestry(root: pathlib.Path, claimed: str):
                      "nonzero answer cannot be told from blindness" % _DEEPEN)
 
 
-def check_session_close_tip(root: pathlib.Path) -> dict:
-    """The newest `### 15.N | ... close ... at <sha>` must name the current HEAD.
-
-    MEASURED at v3.66.849: a session-close section read "close at 939a37d" while
-    HEAD was 030f16a, because it was written before the commit carrying it
-    merged. A close section names the tip it closes AT, so it is only ever
-    correct if written or corrected after its own merge -- and nothing catches
-    that but a check like this one.
-    """
-    reg = root / "project-knowledge" / "SESSION_CARRY.md"
-    if not reg.is_file():
-        return {"name": "register close tip", "status": UNKNOWN,
-                "detail": "SESSION_CARRY.md is missing"}
-    heads = re.findall(r"^### (\d+\.\d+) \|([^\n]*)$", reg.read_text(encoding="utf-8"), re.M)
-    closes = [(n, t) for n, t in heads if re.search(r"\bclose\b", t, re.I)]
-    if not closes:
-        return {"name": "register close tip", "status": UNKNOWN,
-                "detail": "no section title contains 'close' -- nothing to check"}
-    # @899 -- this was closes[-1], which is FILE order, not NEWEST. The register
-    # is not written in numeric order: measured on the real file, 15.39 sits
-    # ~900 lines ABOVE 15.30, so the check graded 15.30 (2026-08-05) and 15.37
-    # and 15.39 were structurally INVISIBLE -- a fabricated sha in the newest
-    # section passed unnoticed. The docstring above says "the newest", which is
-    # what this now computes.
-    #
-    # SORTED NUMERICALLY, NOT AS STRINGS: max("15.7", "15.39") is "15.7", so a
-    # string sort lands on a real but ancient section -- and on one of the four
-    # that use the comma form below, which would then resolve UNKNOWN.
-    num, title = max(closes, key=lambda c: tuple(int(x) for x in c[0].split(".")))
-    # BOTH FORMS. 4 of the 10 live close sections write ", <sha>" rather than
-    # "at <sha>" (15.7, 15.13, 15.14, 15.16). Accepting only the at-form meant a
-    # close written that way resolved UNKNOWN -- and ci.yml runs this with no
-    # continue-on-error, so exit 2 is red exactly like exit 1. Fixing the
-    # selection without widening this would convert a blind gate into a loud
-    # wrong one, which is the same soundness bug facing the other way.
-    m = re.search(r"(?:\bat |,\s*)([0-9a-f]{7,40})\b", title)
-    if not m:
-        return {"name": "register close tip", "status": UNKNOWN,
-                "detail": f"section {num} is a close section but names no commit"}
-    claimed = m.group(1)
-    rc, head = _run(["git", "rev-parse", "HEAD"], root)
-    if rc != 0:
-        return {"name": "register close tip", "status": UNKNOWN, "detail": "git rev-parse failed"}
-    head = head.strip()
-
-    # THE PREDICATE IS ANCESTRY, NOT IDENTITY, and the difference decides
-    # whether this gate survives contact with a working repo.
-    #
-    # The obvious check -- "the named commit must BE HEAD" -- catches the bug
-    # that motivated this (a close section written before its own merge, naming
-    # a tip one behind). But it goes STALE on the very next commit, because a
-    # close section legitimately names the tip AT CLOSE TIME and work continues
-    # after it. Wired into a test, that is red on every subsequent cut forever,
-    # and a gate that cries wolf gets switched off (CLAUDE.md section 0 counts
-    # over-sensitivity as a soundness bug equal to a false clean).
-    #
-    # So the GATED condition is the one that is always wrong when violated: the
-    # named commit must exist and be an ANCESTOR of HEAD. That catches a typo,
-    # a commit from an abandoned branch, and a sha invented from memory. Whether
-    # it is also the current tip is reported as DETAIL for a human, not gated
-    # on -- which is honest about the fact that only a reader can tell "written
-    # one commit early" from "three cuts have landed since".
-    rc2, _ = _run(["git", "merge-base", "--is-ancestor", claimed, "HEAD"], root)
-    if rc2 is None:
-        return {"name": "register close tip", "status": UNKNOWN,
-                "detail": f"could not test whether {claimed} is in this history"}
-    if rc2 != 0:
-        # NOT `rc2 != 0 -> STALE`. In a shallow clone -- which is what the
-        # cloud container is, and what any `--depth` CI checkout would be --
-        # only exit 0 is trustworthy. See _decide_nonzero_ancestry.
-        status, note = _decide_nonzero_ancestry(root, claimed)
-        if status == STALE:
-            return {"name": "register close tip", "status": STALE,
-                    "detail": f"{num} says 'close at {claimed}', which is NOT an "
-                              f"ancestor of HEAD ({head[:12]}) -- it names a commit "
-                              f"this branch does not contain{note}"}
-        if status == UNKNOWN:
-            return {"name": "register close tip", "status": UNKNOWN,
-                    "detail": f"{num} says 'close at {claimed}' and this checkout "
-                              f"cannot decide whether that is an ancestor of HEAD "
-                              f"({head[:12]}): {note}"}
-        # OK: the deepen found the connecting path. Fall through and report it
-        # exactly as an unobstructed run would, so the two are indistinguishable
-        # to a reader -- the boundary was an artefact, not a fact about the doc.
-        rc2 = 0
-    at_tip = head.startswith(claimed)
-    return {"name": "register close tip", "status": OK,
-            "detail": f"{num} names {claimed}, in history"
-                      + (" and at the tip" if at_tip
-                         else f"; HEAD has moved to {head[:12]} since (normal after "
-                              f"further cuts -- only a reader can tell that from a "
-                              f"section written one commit early)")}
-
-
 def check_delegate(root: pathlib.Path, tool: str, label: str) -> dict:
     """Run a sibling detector. Its ABSENCE is UNKNOWN, never OK."""
     p = root / "toolchain" / "bin" / tool
@@ -337,7 +243,6 @@ def check_delegate(root: pathlib.Path, tool: str, label: str) -> dict:
 def run_all(root: pathlib.Path, repo_only: bool = False) -> list[dict]:
     rows = [
         check_anchors(root),
-        check_session_close_tip(root),
         check_delegate(root, "bd-doc-truth", "doc claims vs source (bd-doc-truth)"),
     ]
     if not repo_only:

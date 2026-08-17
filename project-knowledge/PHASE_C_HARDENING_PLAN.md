@@ -13,7 +13,7 @@
 <!-- No cut/build authorized by this doc; every increment is its own gated wave (MODE: MAX AUDIT). -->
 
 Pairs with: `9_SETTINGS_CENTER_SAFETY_SPEC.md`, `RELEASE_DISCIPLINE_TIERS.md`, `GLOSSARY.md`
-(F2/redaction terms), the `TASK_TRACKER` (rows `C1`..`C6`, `BP-VH*`, `P3-T12-CALLSITE`), and
+(F2/redaction terms), the canonical backlog (rows `C1`..`C6`, `BP-VH*`, `P3-T12-CALLSITE`), and
 `STATE.guards` (the 7 guard baselines).
 
 ---
