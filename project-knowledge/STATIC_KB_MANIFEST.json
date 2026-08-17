@@ -1,20 +1,20 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T09:00:02+00:00",
- "version_context": "v3.66.1164",
- "file_count": 93,
+ "generated": "2026-08-17T09:30:44+00:00",
+ "version_context": "v3.66.1165",
+ "file_count": 91,
  "files": {
   "0_INDEX.md": {
-   "sha256": "b6e7c92a16e6f6b728564dd7ae738279c283713e315c49ab86b1c72b5be38eca",
-   "bytes": 2452
+   "sha256": "53d9219246d1d224c0bfdf593d5033d0f6dd28756d2a11899b7672926799b825",
+   "bytes": 2455
   },
   "10_SANDBOX_SHELL_PREFLIGHT.md": {
    "sha256": "9f7069c5dc681b9cd151dda78bbcbf463eff938236186c54402520de7ad57b9b",
    "bytes": 1878
   },
   "2_RELEASE_TEST_BAND.md": {
-   "sha256": "fcff13955019b660a200f98df60193cda32e2404c68aaa2187ab9dd648d39578",
-   "bytes": 4973
+   "sha256": "0624bffa6ffaf5f9cae17127088af0de6a2f0c970af38c191aad207cc2fd8f6e",
+   "bytes": 4929
   },
   "3_VERSION_COUPLED_TESTS.md": {
    "sha256": "9e62f748ad714bb92d0ce2f387180fce124192227ceb8d273d428af4800c06e4",
@@ -161,20 +161,20 @@
    "bytes": 9934
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "cf1c078635a8d2bbd1c84a540fcbd02000a2c09ddd6388dbc1de1092878f4f19",
-   "bytes": 144393
+   "sha256": "6b59b72ddae07f6735468712e0820a08f148ff472de268b5954e50690302df29",
+   "bytes": 144293
   },
   "INVARIANTS.json": {
    "sha256": "3e45bdd0751b7f3616b9aa6893e338e379a24411df7e45e43c10d71b3f7ae50b",
    "bytes": 3818
   },
   "KB_ACTIVE_INDEX.md": {
-   "sha256": "664535438e4b986067acabd96d4562bfe44855d3b33c0c2d7f575aec79d661f9",
-   "bytes": 7033
+   "sha256": "cdd27ed874244f11328f46aa858526b4fc68aa88db409da9c6adf0048d6ac00e",
+   "bytes": 6925
   },
   "KB_JUDGMENT.md": {
-   "sha256": "df3091cea4db336a34bc9ef5a106ecf6e8a24013d17df69c966c2d4080954bfa",
-   "bytes": 95214
+   "sha256": "97748cef09c23e281dfaad551a6e3ca171490fe88798fc606b8bf22f62662a6f",
+   "bytes": 95151
   },
   "KB_RECOGNIZER_COVERAGE_METHOD.md": {
    "sha256": "0be8eb27ebf64d12901d51b96ef7f39bd99fc0fea5a255805ad2da0eae91eba5",
@@ -195,10 +195,6 @@
   "LESSONS_LEARNED_v3_66_818.md": {
    "sha256": "881e6fc42792352283c0dd62cde08ee09281d3b7fa6412c74cb40fa9069205e0",
    "bytes": 14837
-  },
-  "NEXT_SESSION_BOOTSTRAP.md": {
-   "sha256": "a1c800d0503932fa8539e4d11c567a827f9f49f898a8409b18b50213b2290a81",
-   "bytes": 5812
   },
   "OPERATOR_POLICY_DECISIONS.md": {
    "sha256": "40dc8c5e80d63c22d267c20318d9f9ef4012561895fab5d9c7fc6f79b7d08db4",
@@ -240,25 +236,21 @@
    "sha256": "b4093a795c818a4a058d66e25b9fd29b267b8cc67b81fe21108b8bca1ced6dd3",
    "bytes": 2785
   },
-  "PROJECT_OPERATING_INSTRUCTIONS.md": {
-   "sha256": "4fb5a8a1e4eb4fdca4c983e2c886922e96fa5a369515a3019f310067bf5634a7",
-   "bytes": 25590
-  },
   "REACHABILITY_DEFERRALS.json": {
    "sha256": "4ff75f70bb8eaa07a9c41ad3d67de6d427d18e433ad66be76593174f623d683b",
    "bytes": 2617
   },
   "README.md": {
-   "sha256": "e1dc9e4a5a17457cae2aab2c26dbca3899887a0e5d084a54d77cd8f44eb46924",
-   "bytes": 27897
+   "sha256": "45a25cc4895a0b153761d782e79fda6e5fdd8cda3b764b1f85e9629aafaf059a",
+   "bytes": 27825
   },
   "README_KB.md": {
-   "sha256": "e6ac17ae7c7d720eed655741708cffa1a2b3c0275539cec161e045a19a9af0c9",
-   "bytes": 1355
+   "sha256": "ca0c9e384a9318bd5ceb3b5e9edd8e8ebe0ab07a15c54fea7e36cff3c31e1e57",
+   "bytes": 1331
   },
   "RELEASE_DISCIPLINE_TIERS.md": {
-   "sha256": "1319b8b3b22bfd593c7eba2c7015dc39a729862a004b21fe4b7c18b7c2655803",
-   "bytes": 7881
+   "sha256": "3661f68fb121a9c90776fdf01d035459661751ac954b2d4ea9f589f42a5c30bb",
+   "bytes": 7866
   },
   "RENDER_CAPTURE_AUDIT_GUIDE.md": {
    "sha256": "25e5b218eb113613b40b6af306fc569dfd1e00d9e78ecf03d5cd1ea36b9085cc",
@@ -277,8 +269,8 @@
    "bytes": 1594
   },
   "SANDBOX.md": {
-   "sha256": "8c21a9ff6866dafdfe95200f7a3ca51732408190d424dffd6bbd8a84ce3ec31a",
-   "bytes": 34713
+   "sha256": "1ba47b5a5fa2f0b2450ff4d65d676dc8b596ba0884669957a28d870f9330d87b",
+   "bytes": 34657
   },
   "SANDBOX_CAPABILITY_LAYER.md": {
    "sha256": "2b52ad331cb7732d557e71f571f89d6cf9d093b3b40a50672700048f6a3a3456",
@@ -309,8 +301,8 @@
    "bytes": 3658
   },
   "bd_starting_message.txt": {
-   "sha256": "39918994fda6a015cf575b757b4ca5a0b27bd7b8694b57e7338feba4c5772dcf",
-   "bytes": 6591
+   "sha256": "cc2a3ffb00755859a0c236b5f06f6fb646d31920837298a34a913c6ffd8c8eba",
+   "bytes": 6570
   },
   "build_montage.py": {
    "sha256": "e49129f660f96e4ceb16b019a09deb27e9f5853cf63abb4f86eeb9fc44da8c47",

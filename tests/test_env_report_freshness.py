@@ -19,7 +19,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER = REPO_ROOT / "toolchain" / "bin" / "bd-env-report-check"
 PYTHON = REPO_ROOT / "venv" / "bin" / "python"
-BOOTSTRAP_DOC = REPO_ROOT / "project-knowledge" / "NEXT_SESSION_BOOTSTRAP.md"
+BOOTSTRAP_DOC = REPO_ROOT / "docs" / "repo" / "ENVIRONMENT_PROVISIONING.md"
 
 
 def _run(tree: Path, report: Path | None = None):
@@ -134,12 +134,12 @@ def test_explicit_unknown_provenance_does_not_pass(tmp_path):
 def test_bootstrap_doc_gates_its_grep_behind_the_freshness_check():
     """The documented consumer must not read rows it cannot date.
 
-    NEXT_SESSION_BOOTSTRAP.md greps the report for VERDICT|FAIL|WARN. Today that
-    prints a seven-day-old verdict with no indication it is stale.
+    The provisioning runbook may expose report rows only after proving the
+    report describes the current tree.
     """
     text = BOOTSTRAP_DOC.read_text(encoding="utf-8")
     assert "bd-env-report-check" in text, (
-        "NEXT_SESSION_BOOTSTRAP.md still reads .claude-env-report.md without "
+        "ENVIRONMENT_PROVISIONING.md still reads .claude-env-report.md without "
         "checking whether it describes this tree"
     )
 

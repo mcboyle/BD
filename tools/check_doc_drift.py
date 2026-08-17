@@ -39,7 +39,7 @@ GENERATED = ["ENDPOINT_CATALOG.md", "FUNCTION_INDEX.md"]
 # Canonical KB set — lives in project knowledge, not the tree (informational).
 KB_SET = [
     "KB_ACTIVE_INDEX.md", "PROJECT_CHARTER.md", "PROJECT_GOALS.md",
-    "AUTOMATION_POLICY.md", "PROJECT_OPERATING_INSTRUCTIONS.md", "SCHEMAS.md",
+    "AUTOMATION_POLICY.md", "SCHEMAS.md",
 ]
 ARCHIVE_GLOBS = [
     "v3_66_*_handoff.md", "SESSION_HANDOFF*.md", "DEBUG_FINDINGS_*.md",

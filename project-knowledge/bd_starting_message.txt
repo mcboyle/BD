@@ -73,7 +73,7 @@ BOOTSTRAP (setup.sh now FAILS by design -- do NOT run it):
       incrementally (grep/sed/view ranges), never whole.
    c. Read the newest KB_HANDOFF_v3_66_*.md (state), then EXECUTION_PLAN + REMAINING_WORK
       + Backlog + Roadmap (what's open + the plan). KB_ACTIVE_INDEX.md is the reading order
-      for the static how/why docs (PROJECT_OPERATING_INSTRUCTIONS, CHARTER, GOALS, SANDBOX,
+      for the static how/why docs (CLAUDE.md, CHARTER, GOALS, SANDBOX,
       SCHEMAS, KB_JUDGMENT).
 
 6. If the last handoff flagged RE-PASTE OWED (static PK stale / boot kbsync CANON UNKNOWN):

@@ -61,6 +61,18 @@ list rather than trusting this one:
 to the report as a WARN naming what can no longer run, so a skipped capability
 can never be read later as a passing suite.
 
+Before reading `.claude-env-report.md`, prove that it describes the current
+tree:
+
+```bash
+venv/bin/python toolchain/bin/bd-env-report-check --tree "$PWD"
+```
+
+Only exit 0 is FRESH. STALE exits 1 and UNKNOWN exits 2; neither authorizes
+grepping or quoting the report's `VERDICT`, `FAIL`, or `WARN` rows. The report
+is gitignored and can outlive the tree that produced it, so its presence is not
+provenance.
+
 The sections below are the reference for *what each group provides and why* —
 useful when a step WARNs and you need to know what you lost, not a menu to
 choose from.

@@ -13,6 +13,33 @@ constraints.
 
 ---
 
+## Routine deploy and rollback
+
+This is the operator-facing post-checkout condition set for both an existing
+host and a fresh one. A Git update moves tracked files; it does not make the
+running system match them. `scripts/deploy.sh` is the preferred implementation
+because it performs and verifies these steps in the required stopped-service
+window. A manual update or rollback must preserve the same order:
+
+1. Clear every `__pycache__` directory and `*.pyc` file. Git does not remove
+   stale bytecode, and an older source mtime can otherwise leave the previous
+   release executing.
+2. Regenerate gitignored generated artifacts, especially
+   `reports/gui_parity_inventory.json`; do not merely delete them. `git clean
+   -fd` does not refresh ignored files.
+3. Rebuild the untracked SPA bundle with
+   `(cd frontend && npm ci && npm run build)`. A checkout contains no
+   `frontend/dist`, and the application returns 503 when the bundle is missing.
+4. Restart `bulkdownloader` only after the tree, generated artifacts, and SPA
+   bundle are ready: `sudo systemctl restart bulkdownloader`.
+
+Then require `/api/health` to report the checked-out version and require `GET /`
+to return 200. For rollback, select the exact known-good commit and repeat the
+same four conditions; changing the Git target alone is not a rollback of the
+running service.
+
+---
+
 ## What `scripts/provision_test_host.sh` does and does not do
 
 `CLAUDE.md` calls it "the one command that takes a fresh Ubuntu 24.04 box to a

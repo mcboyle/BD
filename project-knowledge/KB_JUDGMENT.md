@@ -13,7 +13,7 @@ at read-time. Until then: `bulk_downloader/__init__.py::__version__` is the vers
 tree -- never quoted. This doc is the *reasoning*. (STATE.json and the KB_HANDOFF series were the
 pre-git session-pack channel and no longer exist in this repo.) **Last reviewed @v3.66.805.**
 
-Pairs with: `PROJECT_OPERATING_INSTRUCTIONS` (workflow + release checklist), `AUTOMATION_POLICY`
+Pairs with: `CLAUDE.md` (workflow + release checklist), `AUTOMATION_POLICY`
 (what may be automated + the gated-approval model), `SANDBOX.md` (env footguns). This doc is the
 judgment view; those are the operating facts — it cross-references rather than restates them.
 
@@ -449,7 +449,7 @@ The durable models that, once internalized, prevent a class of mistakes. (Anchor
 ## 3. Decision criteria — the judgment calls
 
 The recurring decisions and how to make them. (The *rule*; the operating mechanics live in
-`PROJECT_OPERATING_INSTRUCTIONS`.)
+`CLAUDE.md`.)
 
 - **guard vs non-guard.** The **7 byte-identical release guards** — `extraction_core.py`,
   `session_capture.py`, `tools/capture_session.py`, `dom_capture.py`, `dom_recorder.py`,
@@ -483,7 +483,7 @@ The recurring decisions and how to make them. (The *rule*; the operating mechani
 
 ## 4. Collaboration contract — how Matt works
 
-The judgment view of the working relationship (operating facts: `PROJECT_OPERATING_INSTRUCTIONS`
+The judgment view of the working relationship (operating facts: `CLAUDE.md`
 §3).
 
 - **Terse/directive; single-word approvals are binding.** "go" / "cut" / "1" / "Continue" =

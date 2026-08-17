@@ -56,6 +56,6 @@ Three rules that catch newcomers:
    remove them either -- that needs `-x`), does not restart the service, and
    does not deliver `frontend/dist/` at all (it is untracked, so a missing or
    stale SPA bundle is a silent 503). Work the **Deploy** section of
-   [project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md](project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md)
-   -- it is the canonical post-deploy checklist, and a second copy of that list
+   [docs/repo/FRESH_HOST_BRINGUP.md](docs/repo/FRESH_HOST_BRINGUP.md)
+   -- it is the canonical operator post-deploy checklist, and a second copy of that list
    here would only drift.

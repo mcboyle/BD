@@ -427,7 +427,7 @@ and the kit-build rows are gone with the kits.
 | BulkDL invariants and load-bearing lines | `project-knowledge/DANGER_MAPv2.md` + `INV_TAGS.md` + `# INV-` inline tags |
 | Known flaky / environmental test failures | `project-knowledge/KNOWN_FLAKES.md` |
 | What's open / current state | `project-knowledge/IMPROVEMENT_BACKLOG.md` |
-| How to work in the project | `CLAUDE.md` + `project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md` |
+| How to work in the project | `CLAUDE.md` |
 | Session record / history | git history + `CHANGELOG.md` |
 
 Do **not** point a new doc at this file for environment setup - point it at

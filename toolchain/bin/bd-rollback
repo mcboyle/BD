@@ -4,7 +4,7 @@ the source zip so a rollback is one command. Pass-through: any extra args go to
 tools/rollback.py unchanged.
 
 It PREPARES a rollback archive; it does NOT deploy. Deploy + restart on stash stay
-the human gate (see the deploy section of PROJECT_OPERATING_INSTRUCTIONS).
+the human gate (see Routine deploy and rollback in docs/repo/FRESH_HOST_BRINGUP.md).
 
 Usage:
     bd-rollback --archive 3.66.363                 # auto-find --from (highest zip)
