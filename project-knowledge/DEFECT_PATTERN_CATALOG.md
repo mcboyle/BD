@@ -145,6 +145,23 @@ provider-ID/host source. **Sev:** low (bounded by fixed host).
 ruff `S110`/`SIM105`/`S112` clusters cross-checked with `semantic_diff` (does the
 try-body call a drifted signature?). **Sev:** medium when the feature is opt-in.
 
+#### Reviewed tree-scan suppressions
+
+`project-knowledge/DEFECT_PATTERN_SUPPRESSIONS.json` is the single suppression
+authority for `bd-defect-scan` tree results. Its
+`bd-defect-suppressions/v1` entries bind a detector ID, normalized
+repository-relative production path, normalized-AST fingerprint, and a nonempty
+review rationale. Matching happens only after the detector fires. A semantic
+change therefore changes the fingerprint and makes the finding visible again;
+an ambiguous fingerprint never suppresses multiple findings.
+
+The authority is fail-closed: a missing, unreadable, malformed, duplicate,
+stale, or path-escaping entry makes the tree scan CANNOT-EVALUATE. Direct
+single-file scans and the vulnerability/fixed corpus remain raw detector
+controls and do not apply reviewed tree suppressions. Scanner JSON keeps
+`total_findings` and `by_dp` as the visible/actionable result, with raw and
+suppressed evidence reported separately for audit.
+
 ### DP-14 — third-party API drift  (from VR-P01, VR-P05)
 **Rule:** code calls a vendored-library attribute that moved/renamed across versions
 (`apprise.AppriseURLBase`→`URLBase`; `add(u)` without the `tag=` the later `notify`
@@ -187,4 +204,6 @@ capture/URL. **Sev:** low (latent; bound the scan).
 - `F821` ~97% FP (suppress annotation/DI/`in globals()`); the 1 real = DP-06.
 - ruff default `E`/`F` ~90% style — review the extended `S`/`SIM` clusters.
 - vulture <90 = framework callbacks/dynamic dispatch noise.
-- Every suppression lives in `bd-triage`, never hand-applied.
+- Generic line/class audit triage remains in `bd-triage`. Defect-pattern tree
+  suppressions live only in the AST-bound authority above; neither mechanism
+  may be hand-applied inside detector code.

@@ -98,9 +98,18 @@ def test_live_residuals_are_owned_by_exactly_one_open_backlog_row_each():
     required = {
         "AUTH-SCENE",
         "AI-BOOT-OBS",
-        "DEFECT-SUPPRESS",
     }
     assert _open_label_counts(backlog, required) == {label: 1 for label in required}
+
+
+def test_defect_suppression_residual_is_terminally_owned_by_cut_1174():
+    backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
+    matches = re.findall(
+        r"^\|\s*139\s*\|\s*CLOSED\s+@1174\s*\|\s*DEFECT-SUPPRESS\b",
+        backlog,
+        flags=re.MULTILINE,
+    )
+    assert len(matches) == 1
 
 
 def test_cut_1171_terminally_adjudicated_the_three_program_rows():

@@ -23,6 +23,16 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+                                "toolchain", "bin"))
+from bd_defect_suppressions import (  # noqa: E402
+    SuppressionError,
+    apply_suppressions,
+    finding_fingerprint,
+    handler_contexts,
+    load_suppressions,
+)
+
 # ---- detector registry -------------------------------------------------------
 # Each detector: fn(path, src, tree_or_None) -> list[finding dict].
 # finding = {dp, severity, precision, line, title, snippet}
@@ -347,6 +357,7 @@ def dp13(path, src, tree):
     out = []
     if tree is None:
         return out
+    contexts = handler_contexts(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.ExceptHandler):
             body = node.body
@@ -355,8 +366,12 @@ def dp13(path, src, tree):
                 or (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call))
                 for s in body) and body
             if only_passlog:
-                out.append(_find("DP-13", "medium", TRIAGE, node.lineno,
-                                 "exception swallowed (pass/log only) -- dead feature if body always raises"))
+                finding = _find("DP-13", "medium", TRIAGE, node.lineno,
+                                "exception swallowed (pass/log only) -- dead feature if body always raises")
+                finding["fingerprint"] = finding_fingerprint(
+                    "DP-13", path, node, contexts[id(node)]
+                )
+                out.append(finding)
     return out[:200]
 
 
@@ -492,7 +507,8 @@ def scan_file(path, src, only=None):
     return findings
 
 
-def scan_tree(root):
+def scan_tree(root, include_suppression_report=False):
+    suppressions = load_suppressions(root, DETECTORS)
     results = {}
     for base, exts in PROD:
         for dp_, _, fns in os.walk(os.path.join(root, base)):
@@ -506,7 +522,15 @@ def scan_tree(root):
                     fnd = scan_file(rel, src)
                     if fnd:
                         results[rel] = fnd
-    return results
+    visible, suppressed, suppression_errors = apply_suppressions(
+        results, suppressions
+    )
+    if include_suppression_report:
+        return (visible, suppressed, results, len(suppressions),
+                suppression_errors)
+    if suppression_errors:
+        raise SuppressionError(suppression_errors[0])
+    return visible
 
 
 def check_corpus(corpus_dir):
@@ -554,21 +578,55 @@ def main():
         return
 
     if a.scan:
-        res = scan_tree(a.scan)
-        n = sum(len(v) for v in res.values())
-        by_dp = {}
-        for v in res.values():
-            for f in v:
-                by_dp[f["dp"]] = by_dp.get(f["dp"], 0) + 1
+        try:
+            res, suppressed, raw, suppression_entries, suppression_errors = scan_tree(
+                a.scan, include_suppression_report=True
+            )
+        except SuppressionError as exc:
+            print(json.dumps({
+                "schema": 1,
+                "root": a.scan,
+                "suppression_entries": 0,
+                "suppression_errors": [str(exc)],
+            }, indent=2, sort_keys=True))
+            print("CANNOT-EVALUATE --scan %s: suppression authority: %s"
+                  % (a.scan, exc), file=sys.stderr)
+            raise SystemExit(2)
+
+        def summarize(findings):
+            total = sum(len(v) for v in findings.values())
+            counts = {}
+            for values in findings.values():
+                for finding in values:
+                    counts[finding["dp"]] = counts.get(finding["dp"], 0) + 1
+            return total, dict(sorted(counts.items()))
+
+        n, by_dp = summarize(res)
+        raw_n, raw_by_dp = summarize(raw)
+        suppressed_n, suppressed_by_dp = summarize(suppressed)
         payload = {"schema": 1, "root": a.scan, "files_with_findings": len(res),
                    "total_findings": n, "by_dp": dict(sorted(by_dp.items())),
-                   "findings": res}
+                   "findings": res,
+                   "raw_total_findings": raw_n,
+                   "suppressed_total_findings": suppressed_n,
+                   "visible_total_findings": n,
+                   "raw_by_dp": raw_by_dp,
+                   "suppressed_by_dp": suppressed_by_dp,
+                   "suppressed_findings": suppressed,
+                   "suppression_entries": suppression_entries,
+                   "suppression_errors": suppression_errors}
         if a.out:
             json.dump(payload, open(a.out, "w"), indent=2, sort_keys=True)
-            print(f"defect_patterns --scan: {n} findings across {len(res)} files -> {a.out}")
+            print("defect_patterns --scan: %d visible + %d suppressed = %d raw "
+                  "findings across %d visible files -> %s"
+                  % (n, suppressed_n, raw_n, len(res), a.out))
             print("  by DP:", json.dumps(dict(sorted(by_dp.items()))))
         else:
             print(json.dumps(payload, indent=2, sort_keys=True))
+        if suppression_errors:
+            for error in suppression_errors:
+                print("suppression error:", error, file=sys.stderr)
+            raise SystemExit(2)
         return
     ap.print_help()
 

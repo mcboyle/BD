@@ -25,6 +25,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402  (DEFAULT_WORK + analysis-tool classification)
+from bd_defect_suppressions import (  # noqa: E402
+    SuppressionError,
+    apply_suppressions,
+    finding_fingerprint,
+    handler_contexts,
+    load_suppressions,
+)
 
 # ---- detector registry -------------------------------------------------------
 # Each detector: fn(path, src, tree_or_None) -> list[finding dict].
@@ -632,6 +639,7 @@ def dp13(path, src, tree):
     out = []
     if tree is None:
         return out
+    contexts = handler_contexts(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Try):
             continue
@@ -642,8 +650,12 @@ def dp13(path, src, tree):
                 isinstance(statement, ast.Pass) or _is_logging_expression(statement)
                 for statement in body)
             if only_passlog and not (pass_only and _try_else_returns_or_raises(node)):
-                out.append(_find("DP-13", "medium", TRIAGE, handler.lineno,
-                                 "exception swallowed (pass/log only) -- dead feature if body always raises"))
+                finding = _find("DP-13", "medium", TRIAGE, handler.lineno,
+                                "exception swallowed (pass/log only) -- dead feature if body always raises")
+                finding["fingerprint"] = finding_fingerprint(
+                    "DP-13", path, handler, contexts[id(handler)]
+                )
+                out.append(finding)
     return out[:200]
 
 
@@ -779,7 +791,7 @@ def scan_file(path, src, only=None):
     return findings
 
 
-def scan_tree(root):
+def scan_tree(root, include_suppression_report=False):
     """A3 (702): memoized per FILE CONTENT. This scan re-parsed the entire tree on
     every run (17.9s) and bd-ratchet calls it for defect_DP_total INSIDE
     bd-precut --gate -- so every cut paid it. Between two cuts nearly every file is
@@ -789,11 +801,19 @@ def scan_tree(root):
     SOURCE). Never on mtime -- mtime lies. Change a detector and every entry it
     produced misses, so the cache can never serve a finding from rules that no
     longer exist. BDTOOLS_CACHE=0 disables it."""
+    suppressions = load_suppressions(root, DETECTORS)
     cache = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
         import bdtools_cache as _bc
-        cache = _bc.Cache("defect-scan", _bc.logic_key(os.path.realpath(__file__)))
+        cache = _bc.Cache(
+            "defect-scan",
+            _bc.logic_key(
+                os.path.realpath(__file__),
+                os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                             "bd_defect_suppressions.py"),
+            ),
+        )
     except Exception:  # why: cache lib optional; disable it and scan cold -- correctness unaffected, only speed
         cache = None
 
@@ -820,7 +840,15 @@ def scan_tree(root):
                         results[rel] = fnd
     if cache is not None:
         cache.save()
-    return results, scanned
+    visible, suppressed, suppression_errors = apply_suppressions(
+        results, suppressions
+    )
+    if include_suppression_report:
+        return (visible, scanned, suppressed, results, len(suppressions),
+                suppression_errors)
+    if suppression_errors:
+        raise SuppressionError(suppression_errors[0])
+    return visible, scanned
 
 
 def check_corpus(corpus_dir):
@@ -996,35 +1024,70 @@ def main():
     # actually yielded files: a root that exists but holds no bulk_downloader/
     # or tools/ is just as unscannable, and must not read as clean.
     sec.require_corpus(root, min_files=1, label="--scan")
-    res, scanned = scan_tree(root)
+    try:
+        res, scanned, suppressed, raw, suppression_entries, suppression_errors = scan_tree(
+            root, include_suppression_report=True
+        )
+    except SuppressionError as exc:
+        if a.json:
+            print(json.dumps({
+                "schema": 1,
+                "root": root,
+                "suppression_entries": 0,
+                "suppression_errors": [str(exc)],
+            }, indent=2, sort_keys=True))
+        sys.stderr.write("CANNOT-EVALUATE --scan %s: suppression authority: %s\n"
+                         % (root, exc))
+        return sec.EXIT_CANNOT_EVALUATE
     if scanned == 0:
         sys.stderr.write("CANNOT-EVALUATE --scan %s: reason=%s (0 files under %s)\n"
                          % (root, sec.REASON_EMPTY,
                             "/".join(b for b, _ in PROD)))
         return sec.EXIT_CANNOT_EVALUATE
-    n = sum(len(v) for v in res.values())
-    by_dp = {}
-    for v in res.values():
-        for f in v:
-            by_dp[f["dp"]] = by_dp.get(f["dp"], 0) + 1
+    def summarize(findings):
+        total = sum(len(v) for v in findings.values())
+        counts = {}
+        for values in findings.values():
+            for finding in values:
+                counts[finding["dp"]] = counts.get(finding["dp"], 0) + 1
+        return total, dict(sorted(counts.items()))
+
+    n, by_dp = summarize(res)
+    raw_n, raw_by_dp = summarize(raw)
+    suppressed_n, suppressed_by_dp = summarize(suppressed)
     payload = {"schema": 1, "root": root, "files_with_findings": len(res),
                "total_findings": n, "files_scanned": scanned,
                "by_dp": dict(sorted(by_dp.items())),
-               "findings": res}
+               "findings": res,
+               "raw_total_findings": raw_n,
+               "suppressed_total_findings": suppressed_n,
+               "visible_total_findings": n,
+               "raw_by_dp": raw_by_dp,
+               "suppressed_by_dp": suppressed_by_dp,
+               "suppressed_findings": suppressed,
+               "suppression_entries": suppression_entries,
+               "suppression_errors": suppression_errors}
     if a.out:
         json.dump(payload, open(a.out, "w"), indent=2, sort_keys=True)
-        print("bd-defect-scan: %d findings across %d files (scanned %d) -> %s"
-              % (n, len(res), scanned, a.out))
-        return sec.EXIT_OK
+        print("bd-defect-scan: %d visible + %d suppressed = %d raw findings "
+              "across %d visible files (scanned %d) -> %s"
+              % (n, suppressed_n, raw_n, len(res), scanned, a.out))
+        return (sec.EXIT_CANNOT_EVALUATE if suppression_errors
+                else sec.EXIT_OK)
     if a.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
-        return 0
-    print("bd-defect-scan: %d finding(s) across %d file(s) | scanned %d files"
-          % (n, len(res), scanned))
+        return sec.EXIT_CANNOT_EVALUATE if suppression_errors else 0
+    print("bd-defect-scan: %d visible + %d suppressed = %d raw finding(s) "
+          "across %d visible file(s) | scanned %d files"
+          % (n, suppressed_n, raw_n, len(res), scanned))
     for dp, c in sorted(by_dp.items()):
         print("  %s: %d" % (dp, c))
     if not n:
         print("no DP-01..18 defects found")
+    if suppression_errors:
+        for error in suppression_errors:
+            print("suppression error:", error, file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     return 0
     ap.print_help()
 
