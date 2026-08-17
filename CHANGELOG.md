@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1175 - adjudicate authenticated-scene evidence
+
+Cut E closes the stale authenticated-scene proof request without contacting an
+authenticated site. The exact FilthyKings target, redacted-capture digest and
+counts, current reviewed-template digest, alias boundary, and operator decision
+are recorded together. The retained capture is historical provenance; current
+host matching and sibling rejection remain owned by deterministic source and
+hermetic tests.
+
 ## v3.66.1174 - bind reviewed defect suppressions to semantic nodes
 
 Cut G adds one strict, reviewed 12-entry DP-13 suppression authority shared by

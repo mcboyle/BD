@@ -96,7 +96,6 @@ def _open_label_counts(text: str, labels: set[str]) -> dict[str, int]:
 def test_live_residuals_are_owned_by_exactly_one_open_backlog_row_each():
     backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
     required = {
-        "AUTH-SCENE",
         "AI-BOOT-OBS",
     }
     assert _open_label_counts(backlog, required) == {label: 1 for label in required}
@@ -106,6 +105,18 @@ def test_defect_suppression_residual_is_terminally_owned_by_cut_1174():
     backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
     matches = re.findall(
         r"^\|\s*139\s*\|\s*CLOSED\s+@1174\s*\|\s*DEFECT-SUPPRESS\b",
+        backlog,
+        flags=re.MULTILINE,
+    )
+    assert len(matches) == 1
+
+
+def test_authenticated_scene_residual_is_terminally_adjudicated_by_cut_1175():
+    backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
+    matches = re.findall(
+        r"^\|\s*163\s*\|\s*MOOT\s+@1175\s*\|\s*AUTH-SCENE\b.*"
+        r"764386de034f8daec2de29999efcc30b389d683b04e453df6e255251c521e969.*"
+        r"fa3fef2aa68cb141ad04fdaceb939930745061ff4d208a51abd80fbd1aa888d0",
         backlog,
         flags=re.MULTILINE,
     )
