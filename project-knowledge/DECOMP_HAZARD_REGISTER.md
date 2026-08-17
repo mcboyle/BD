@@ -5,7 +5,8 @@ Numbered, durable catalogue of decomposition hazards proven in this program. Eac
 future `DECOMP_FORENSICS_<module>_<ver>.md` references hazards by ID. Project
 knowledge (version-agnostic). The decomposition program is CLOSED; its per-cut history
 lives in the CHANGELOG plus canonical backlog rows. The runner/db/blueprint invariants are
-consolidated in `ADVANCED_PROJECT_KNOWLEDGE.md` section I (full registry `DANGER_MAPv2.md`).
+consolidated in `ADVANCED_PROJECT_KNOWLEDGE.md` section I; machine guards live in
+root `INVARIANTS.json`.
 
 Legend — **Visible?**: does the hazard surface at import time / in the sandbox, or
 only on-stash? The on-stash-only ones are the dangerous class: a green import +

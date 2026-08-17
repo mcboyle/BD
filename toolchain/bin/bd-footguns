@@ -22,8 +22,8 @@ introduced it / which cut it bit), the FIX, and STATUS.
   bd-footguns --explain ID             one footgun in full.
   bd-footguns --selftest               neg + pos controls.
 
-External FOOTGUNS.json (tree root or alongside this tool) is merged over the
-embedded seed, so the registry grows with the project without editing the tool.
+The canonical FOOTGUNS.json is read from the tree root or, for the standalone
+bdsuite package, alongside this tool. Missing or malformed authority is fatal.
 """
 import argparse, ctypes, errno, json, os, platform, re, shutil, stat
 import subprocess, sys, tempfile
@@ -32,147 +32,48 @@ import subprocess, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
 
-# ---- embedded seed: the mechanically-checkable footguns from the 693-700 review.
-# Each detector DELEGATES to the authoritative gate (no re-derived models -> no drift).
-SEED = [
-    {"id": "FG-ENV-TRANCHE-BD-LITERAL", "severity": "blocking", "status": "active",
-     "rule": "No BD_ literal anywhere in a shipped .py may become an OPEN operator-tunable env_var.",
-     "detector": {"kind": "tool", "cmd": ["bd-envscan", "--tree", "{tree}"], "block_on_exit": [3]},
-     "protects": ["test_v3_66_319_env_tranche_4_3d", "test_v3_66_305_config_danger"],
-     "fix": "Do not BD_-prefix an internal/backend-only name (e.g. NETNS_NS, not BD_NETNS).",
-     "provenance": {"introduced_cut": "674", "bit_at_cut": "699", "review_id": "F-01"}},
-
-    {"id": "FG-FUNCTION-INDEX-LINESHIFT", "severity": "blocking", "status": "active",
-     "rule": "A line-shifting edit to a FUNCTION_INDEX-tracked module (incl. runner_extractors.py, not just app/runner) must regenerate FUNCTION_INDEX.",
-     "detector": {"kind": "insync", "test": "tests/test_function_index_in_sync.py"},
-     "protects": ["test_function_index_in_sync"],
-     "fix": "python3 tools/build_function_index.py (or bd-regen --write) before the cut.",
-     "provenance": {"bit_at_cut": "695", "review_id": "F-03"}},
-
-    {"id": "FG-ROUTE-MAP-BASELINE", "severity": "blocking", "status": "active",
-     "rule": "A route add must re-freeze route_map_baseline + update _BASELINE_SHA, and gui_parity must regen BEFORE ROUTE_INDEX.",
-     "detector": {"kind": "insync", "test": "tests/test_route_map_invariant.py"},
-     "protects": ["test_route_map_invariant", "test_route_index_in_sync"],
-     "fix": "Regen tests/route_map_baseline.txt via tools/route_map_snapshot.py with PYTHONPATH=<tree> (NOT env -u PYTHONPATH -- that strips the work tree and silently writes an EMPTY baseline) + update _BASELINE_SHA.",
-     "provenance": {"review_id": "footgun-taxonomy #4"}},
-
-    {"id": "FG-IMPORT-EDGE-BASELINE", "severity": "blocking", "status": "active",
-     "rule": "A new INTERNAL import edge must re-freeze the import_graph baseline in the SAME cut.",
-     "detector": {"kind": "insync", "test": "tests/test_import_graph_no_new_edges.py"},
-     "protects": ["test_import_graph_no_new_edges"],
-     "fix": "python3 tools/decomp/import_graph_gate.py --update (then regen DEPENDENCY_GRAPH).",
-     "provenance": {"review_id": "footgun-taxonomy #24"}},
-
-    {"id": "FG-ENDPOINT-CATALOG-SYNC", "severity": "blocking", "status": "active",
-     "rule": "A route change must regen ENDPOINT_CATALOG + route counts.",
-     "detector": {"kind": "insync", "test": "tests/test_endpoint_catalog_in_sync.py"},
-     "protects": ["test_endpoint_catalog_in_sync"],
-     "fix": "python3 tools/build_endpoint_catalog.py + tools/check_route_counts.py.",
-     "provenance": {"review_id": "route-add discipline"}},
-
-    {"id": "FG-OVERLAY-ORPHAN-ON-DELETE", "severity": "advisory", "status": "retired",
-     "rule": "RETIRED at v3.66.918: the class cannot occur under the current deploy. "
-             "It described `unzip -o` over the live tree, which overwrites and adds but "
-             "NEVER removes -- so a file DELETED in a cut kept living on the box, and "
-             "because the graph gates (dependency_graph, import_graph_gate) GLOB THE "
-             "DISK, the orphan was scanned as live source and its stale edge tripped the "
-             "frozen baseline. bit@718: app_sched_exports.py, deleted at 716, put "
-             "test_import_graph_no_new_edges RED even though the release zip was correct. "
-             "The box now deploys with `git fetch` + `git reset --hard`, which propagates "
-             "deletions natively, so no orphan survives for anything to enumerate. The "
-             "sweeper this entry used to name was retired with the class, and is cited by "
-             "MECHANISM rather than by name because a retirement gate scans this file for "
-             "that name -- naming a removed thing to explain its removal recreates it.",
-     "detector": {"kind": "advisory", "note": "no detector -- the class is structurally gone"},
-     "protects": ["test_import_graph_no_new_edges", "test_dependency_graph_in_sync"],
-     "fix": "nothing to do under a git deploy. If a zip overlay is ever restored, "
-            "restore an orphan sweep with it -- this entry going quiet is not evidence "
-            "the problem was solved, only that the deploy model changed.",
-     "provenance": {"review_id": "718 stash RED: overlay deploy never deletes"}},
-
-    {"id": "FG-SPA-WIRING-ROUTE-INDEX", "severity": "blocking", "status": "active",
-     "rule": "Adding or removing a FRONTEND CALL to an API endpoint is a ROUTE_INDEX "
-             "change. ROUTE_INDEX records a spa_wired flag per (method, path); wiring a "
-             "control FLIPS it even though no route was added, removed, or renamed. "
-             "bit@714: the VPN kill-switch controls were wired, ROUTE_INDEX was not "
-             "regenerated, and the full suite went RED on stash with "
-             "'only-in-parity=[the 4 killswitch routes]'. 'Route change' is not just "
-             "url_map: it is anything the index records, and the index records WHO CALLS "
-             "the route.",
-     "detector": {"kind": "insync", "test": "tests/test_route_index_in_sync.py"},
-     "protects": ["test_route_index_in_sync", "test_spa_wired_join_is_faithful"],
-     "fix": "python3 tools/build_route_index.py (AFTER gui_parity), then band "
-            "tests/test_route_index_in_sync.py -- note test_spa_wired_join_is_faithful "
-            "lives INSIDE that file, it is not a separate suite.",
-     "provenance": {"review_id": "714 stash RED: wiring a control is a route change"}},
-
-    {"id": "FG-PIN-INDEX-POSTBUMP", "severity": "blocking", "status": "active",
-     "rule": "After a version bump, PIN_INDEX must be regenerated (it pins the version).",
-     "detector": {"kind": "insync", "test": "tests/test_pin_index_in_sync.py"},
-     "protects": ["test_pin_index_in_sync"],
-     "fix": "python3 tools/build_pin_index.py after the 3-part version bump.",
-     "provenance": {"review_id": "bump discipline"}},
-
-    {"id": "FG-GUARD-SHA-BYTE-IDENTICAL", "severity": "blocking", "status": "active",
-     "rule": "The 7 SHA-pinned release-guard files stay byte-identical unless a new SHA is explicitly declared.",
-     "detector": {"kind": "tool", "cmd": ["bd-guardcheck"], "block_on_exit": [1, 2]},
-     "protects": ["guard-SHA gate (build_release / verify_release)"],
-     "fix": "Revert the guard-file edit, or declare a new SHA deliberately.",
-     "provenance": {"review_id": "release floor"}},
-
-    # advisory (documented but not yet mechanically detectable) -- still LISTED so
-    # it is never forgotten, but does not block until a detector is written.
-    {"id": "FG-CLOAK-EXECPATH-COMPOSE", "severity": "advisory", "status": "active",
-     "rule": "The F5 browser-in-netns shim must WRAP cloak's executable_path, not replace it.",
-     "detector": {"kind": "none"},
-     "protects": ["(F5 wiring cut -- verify with bd-netns-launch-proof)"],
-     "fix": "shim -> cloak binary via NETNS_BROWSER_BIN; validate on a live netns launch.",
-     "provenance": {"review_id": "F-07 / next-session P0"}},
-]
-
-
 def _load_registry(tree):
-    # HIGHEST-REGISTRY-VERSION WINS. Never last-wins (F-2): whichever file was read
-    # LAST overwrote the entry, and the tool-adjacent copy ships inside the bdsuite
-    # zip -- so a stale bundle silently REVERTED lessons at runtime. The v3.66.721
-    # venv-destruction consequence vanished from the live registry while remaining
-    # "in the KB": absent, and trusted.
-    reg = {f["id"]: f for f in SEED}
-    ver = {f["id"]: -1 for f in SEED}
-    for cand in (os.path.join(tree, "FOOTGUNS.json"),
-                 os.path.join(os.path.dirname(os.path.realpath(__file__)), "FOOTGUNS.json")):
-        if not os.path.isfile(cand):
-            continue
-        try:
-            ext = json.load(open(cand))
-        except (ValueError, OSError) as exc:
-            sys.stderr.write("WARN: unreadable footgun registry %s (%s) -- NOT silently "
-                             "ignored\n" % (cand, exc))
-            continue
-        fver = ext.get("version", 0) if isinstance(ext, dict) else 0
-        # `.get` BEFORE the isinstance guard raised AttributeError for the bare
-        # LIST form this very expression exists to support -- and for any
-        # scalar JSON -- from a call site outside every try, so an unreadable
-        # registry killed the tool with exit 1. Shape it first.
-        if isinstance(ext, dict):
-            rows = ext.get("footguns", [])
-        elif isinstance(ext, list):
-            rows = ext
-        else:
-            sys.stderr.write("WARN: footgun registry %s is neither an object "
-                             "nor a list -- ignored\n" % cand)
-            continue
-        for f in rows:
-            if not isinstance(f, dict):
-                continue
-            fid = f.get("id")
-            if not fid:
-                continue
-            if fid in ver and fver <= ver[fid]:
-                continue      # a STALER copy may not revert a lesson
-            reg[fid] = {**reg.get(fid, {}), **f}
-            ver[fid] = fver
+    candidates = (
+        os.path.join(tree, "FOOTGUNS.json"),
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "FOOTGUNS.json"),
+    )
+    cand = next((path for path in candidates if os.path.isfile(path)), None)
+    if cand is None:
+        raise ValueError("FOOTGUNS.json authority is missing")
+    def reject_duplicates(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError("duplicate JSON key: %s" % key)
+            out[key] = value
+        return out
+    try:
+        ext = json.load(open(cand), object_pairs_hook=reject_duplicates)
+    except (ValueError, OSError) as exc:
+        raise ValueError("unreadable footgun authority %s: %s" % (cand, exc)) from exc
+    if not isinstance(ext, dict) or not isinstance(ext.get("footguns"), list):
+        raise ValueError("FOOTGUNS.json must be an object with a footguns list")
+    if not ext["footguns"]:
+        raise ValueError("FOOTGUNS.json authority is empty")
+    reg = {}
+    for f in ext["footguns"]:
+        if not isinstance(f, dict) or not f.get("id"):
+            raise ValueError("FOOTGUNS.json contains a row without an id")
+        fid = f["id"]
+        if fid in reg:
+            raise ValueError("duplicate footgun id: %s" % fid)
+        if f.get("status") not in {"active", "retired"}:
+            raise ValueError("invalid footgun status for %s" % fid)
+        if f.get("status") == "active" and f.get("severity") not in {"blocking", "advisory"}:
+            raise ValueError("invalid footgun severity for %s" % fid)
+        reg[fid] = f
     return list(reg.values())
+
+
+# Compatibility view for focused tests and installed consumers.  It is loaded
+# from the canonical JSON authority; it is not a second embedded registry.
+SEED = _load_registry(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.realpath(__file__)))))
 
 
 def _sandbox():

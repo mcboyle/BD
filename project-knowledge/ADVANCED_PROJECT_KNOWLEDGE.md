@@ -70,7 +70,7 @@ truth over every doc here.**
 - **`gui_parity_inventory` is a `.json` + `.md` PAIR** -- the gates read the `.json`, the
   humans read the `.md`; ship/restore both together or a drift check reads a stale pair.
   It auto-discovers every `tools/*.py`, so any NEW tool file requires regenerating the
-  inventory AND re-banding its version-pinned test in the SAME cut. **[GATE_AUTHORITY.md]**
+  inventory AND re-banding its version-pinned test in the SAME cut. **[ARCHITECTURE_MAP.md]**
 - **Version bump is a 3-part edit landed together:** `bulk_downloader/__init__.py`
   `__version__` + CHANGELOG top `## vX.Y.Z` + every version-pinned test. `grep -rnE
   '__version__ *== *"3\.66\.' tests/` each release -- don't trust the pin list to stay at
@@ -278,13 +278,13 @@ The product is a capture tool; these bite specifically in the capture/redaction 
   authoritative "clean" signal is **`0 planned` + `verify CLEAN`** (plus a value sample).
   Don't read a non-zero redactions tally as residual leakage.
 
-## I. Runner / db / blueprint load-bearing invariants [DANGER_MAPv2 / DECOMP_HAZARD_REGISTER]
+## I. Runner / db / blueprint load-bearing invariants [INVARIANTS.json / DECOMP_HAZARD_REGISTER]
 
 "Do not clean up" invariants in the runner/capture/db core and the post-decomposition
 blueprints -- a fresh instance would "fix" these and break captures or create import
-cycles. All validated live @464 (`runner.py`, `db.py`, `app.py`, 14 `runner_*.py`, 169
-`app_*.py`). The full numbered registry is `DANGER_MAPv2` (use
-`tools/explain_invariant.py INV-NNN` to find the in-source site).
+cycles. Re-derive topology from source rather than preserving volatile counts. The
+machine registry is root `INVARIANTS.json`; point-of-use `# INV-` tags and its guard
+tests are the executable evidence.
 
 - **`runner.py::_process_one` dispatch order is load-bearing**, and the dispatch tracer
   MIRRORS it -- keep the two in sync. Phase-B login fallback stays in `login_async`, not
@@ -311,14 +311,14 @@ cycles. All validated live @464 (`runner.py`, `db.py`, `app.py`, 14 `runner_*.py
 | Section | Home card(s) |
 |---|---|
 | A Sandbox/shell | `10_SANDBOX_SHELL_PREFLIGHT.md`, `SANDBOX.md` |
-| B Build/release | `8_BUILD_RELEASE_CHEATSHEET.md`, `2_RELEASE_TEST_BAND.md`, `3_VERSION_COUPLED_TESTS.md`, `GATE_AUTHORITY.md` |
+| B Build/release | `8_BUILD_RELEASE_CHEATSHEET.md`, `2_RELEASE_TEST_BAND.md`, `3_VERSION_COUPLED_TESTS.md`, `ARCHITECTURE_MAP.md` |
 | C Defect shapes | `KB_JUDGMENT.md` section 1 |
 | D Secrets/vault | `9_SETTINGS_CENTER_SAFETY_SPEC.md`, `7_VPN_CONFIG_API_SURFACE.md` |
 | E Bulk ops/compaction | `KB_JUDGMENT.md` section 1 + continuity section 2 |
 | F Automation posture | `AUTOMATION_POLICY.md` |
 | G Tracker method | `KB_JUDGMENT.md` section 3 |
 | H Capture/redaction | `KNOWN_FOOTGUNS.md`, `9_SETTINGS_CENTER_SAFETY_SPEC.md` |
-| I Runner/db/blueprint invariants | `DANGER_MAPv2` (full registry), `DECOMP_HAZARD_REGISTER.md`, and the archived `../docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md` |
+| I Runner/db/blueprint invariants | root `INVARIANTS.json`, `DECOMP_HAZARD_REGISTER.md`, and the archived `../docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md` |
 
 *Provenance: consolidated from this session's direct observations + the historical
 recovery passes (parts 1-3) mined from the dropped archive corpus, all re-validated

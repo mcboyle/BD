@@ -13,11 +13,7 @@
 # how a lost rule becomes the new baseline, which is the shape bd-mutate hits
 # when a battery starts on a dirty tree and adopts the mutant as pristine.
 #
-# paragraphs: 308
-# Recomputed for v3.66.1163 after the comparison became case-sensitive: all
-# 308 current CLAUDE.md paragraphs remain ACTIVE. At v3.66.1164 five reviewed
-# task-authority pointer rewrites were added to the four historical declarations
-# below rather than being erased or silently adopted.
+# paragraphs: 306
 
 954cda71a521  # CLAUDE.md — operating contract for BulkDownloader
 7b7d54555a40  You are working on **BulkDownloader (BD)**: a self-hosted Flask + Playwright + React/TypeScript
@@ -69,9 +65,7 @@ f4b13f2e1e1a  This is not a small distinction. At v3.66.1072 a false claim in th
 1323b9e07769  **HIT AGAIN at v3.66.1077, hunting leaked tmpdirs.** A census asked "does this file clean up aft
 1d48f9b84bc7  The reason is section 0's, applied to introspection: recollection's denominator is "what I remem
 f61831294db9  ## 2 | Release discipline (non-negotiable)
-c6d32c02f127  1. **RED-first TDD.** Tests proven failing on pristine source *before* implementation. A test th
-f6f9557a6957  | File | sha256 (16) | | --- | --- | | `bulk_downloader/extraction_core.py` | `5b6248a5c9e664ab`
-d4e5798a6547  *(Pinned at v3.66.805. Re-derive with `bd-guardcheck`, which reads `guards.json` — the single so
+5930ae9364fd  1. **RED-first TDD.** Tests proven failing on pristine source *before* implementation. A test th
 f3093718fa14  Until v3.66.818 `bd-guardcheck` reported `0 ok, 0 drifted, 7 missing` and **exited 0** on a clea
 72c120215ad1  6. **MEASURE THE COST OF ANYTHING YOU ADD TO EVERY TEST RUN.** An autouse fixture, a conftest ho
 c6c0473a0425  Before packaging a change for review, regenerate all tracked artifacts from the repository root
@@ -242,7 +236,7 @@ a86f5073b423  **An escape can be a HARNESS defect rather than a missing test, an
 7255796cfa51  ## 7 | What git changes, and what it does not
 1fa712bb083a  This repository is new. Most of BD's tooling was built in a world with **no version control**, w
 eba5a684aeca  **Now genuinely easier:** diffing work against a baseline (`git diff` replaces zip comparison),
-b740c827815c  **Changed — the deploy path is now git.** The box updates with `git fetch origin main` + `git re
+707b67e04e3c  **Changed — the deploy path is now git.** The box updates with `git fetch origin main` + `git re
 6f2861e6a417  **Unchanged — do not assume git fixed these:**
 3599dc353bc5  - **A deploy moves files. It does not make the running system match them.** Four gaps survive th
 5d98adc51efc  **`scripts/deploy.sh` now does all of this (v3.66.848), and you should use it.** It fetches and
@@ -330,12 +324,16 @@ bb20d5f6313d  - **A SWEEP OVER HOSTS OR FILES GOES TO A SUBAGENT.** Its tool out
 
 ## DECLARED REMOVALS
 
-b70cc3e3eb4a  rewritten v3.66.1141: the count was deleted, not the rule. The directive 'LOOK IN toolchain/bin BEFORE YOU HAND-ROLL ANYTHING' and the `ls toolchain/bin/bd-* | wc -l` recipe both survive in section 8; only the stale figure and its history changed.
-c325c8fc8afb  rewritten v3.66.1162: the sanctioned command survives verbatim except for the independently qualified fixed worker count, now `-n 24`; all timeout, distribution, ordering, environment, and observability flags remain unchanged.
-41f9a214c5c2  superseded v3.66.1162 by the fixed-count paragraph in section 5: repeated exact-population two-host qualification selected `-n 24`; explicit `-n 4` survives as the comparison and regression oracle, and results still record the resolved count.
-dfe31469bbb6  rewritten v3.66.1162: the stale container-specific `-n 4` explanation was removed; the timeout, distribution, whole-run cap, and written-exit-marker requirements survive in section 5.
-0b4dc44bfc2b  rewritten v3.66.1164: the six-host warning survives; only its pointer to the retired session ledger became an explicit historical description.
-24e09355f56f  rewritten v3.66.1164: the freshness denominator now names the sole canonical task register, IMPROVEMENT_BACKLOG.md, instead of the retired session ledger.
-506ceaeefcbf  rewritten v3.66.1164: the document/register freshness rule survives; its worked example now uses the canonical backlog.
-40ede145538a  rewritten v3.66.1164: the pre-setting branch recovery rule survives; Git history now owns the historical reconciliation rather than a deleted session ledger citation.
-7ffd05de5185  rewritten v3.66.1164: the one-agent-contract rule survives; surviving work now points to atomic canonical backlog rows rather than the retired second task authority.
+b70cc3e3eb4a  rewritten v3.66.1141: stale tool-count prose was removed while the lookup rule and recipe survived.
+c325c8fc8afb  rewritten v3.66.1162: the sanctioned command survives with the independently qualified fixed worker count.
+41f9a214c5c2  superseded v3.66.1162 by the fixed-count paragraph; n4 remains the comparison oracle.
+dfe31469bbb6  rewritten v3.66.1162: stale container-count prose was removed; suite controls survive.
+0b4dc44bfc2b  rewritten v3.66.1164: the six-host warning survives without the retired session-ledger pointer.
+24e09355f56f  rewritten v3.66.1164: freshness now names the canonical backlog rather than the retired ledger.
+506ceaeefcbf  rewritten v3.66.1164: the freshness rule survives with a canonical-backlog example.
+40ede145538a  rewritten v3.66.1164: branch recovery survives; Git history owns the old reconciliation.
+7ffd05de5185  rewritten v3.66.1164: the one-agent-contract rule survives and routes work to canonical backlog rows.
+c6d32c02f127  rewritten v3.66.1167: RED-first TDD survives; the adjacent guard policy now derives only from guards.json.
+f6f9557a6957  removed v3.66.1167: duplicate seven-file digest table retired; guards.json preserves the exact roster and pins.
+d4e5798a6547  rewritten v3.66.1167: bd-guardcheck fail-closed guidance survives without copied digest prose.
+b740c827815c  rewritten v3.66.1167: git-deploy live-edit warning survives and now points to FRESH_HOST_BRINGUP.

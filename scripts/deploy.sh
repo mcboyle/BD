@@ -43,7 +43,7 @@
 #
 # NOTHING IS DESTROYED SILENTLY. `git reset --hard` has no equivalent of
 # `unzip -x`, so it discards operator live-edits the overlay was configured to
-# preserve (GATE_AUTHORITY.md section C). This script REFUSES rather than
+# preserve (docs/repo/FRESH_HOST_BRINGUP.md). This script REFUSES rather than
 # resetting over them, and prints exactly what it would have destroyed.
 #
 # EXIT CODES (the caller's remedy differs for each; mirrors bd-guardcheck):
@@ -268,8 +268,7 @@ fi
 
 # ── [3] operator live-edit gate ─────────────────────────────────────
 # Refusal, not a prompt: this must be safe to run non-interactively, and the
-# operator's remedy is already written down (commit the work -- GATE_AUTHORITY.md
-# section C names the cockpit_console.py case specifically).
+# operator's remedy is already written down in docs/repo/FRESH_HOST_BRINGUP.md.
 STEP=3
 
 # Untracked, non-ignored files are reported for information only. `git reset
@@ -304,7 +303,7 @@ if [ -n "$DIRTY" ] || [ -n "$LOCAL_COMMITS" ]; then
   fi
   if [ "$DISCARD" -eq 0 ]; then
     refuse "refusing to discard operator work listed above. Commit it (see
-  GATE_AUTHORITY.md section C) and push, or re-run with --discard-local to
+  docs/repo/FRESH_HOST_BRINGUP.md) and push, or re-run with --discard-local to
   destroy it deliberately. Nothing has been changed."
   fi
   note "--discard-local given: the work listed above is being DESTROYED"

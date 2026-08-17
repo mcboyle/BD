@@ -16,7 +16,7 @@ the floor, not the ceiling. The on-stash full suite remains the binding gate.
 | `bulk_downloader/element_pick.py` | `test_element_pick_bridge`, `test_element_pick_selector`, `test_capture_pick_api`, `test_inspect_pick`, `test_v3_66_271_gcw2_pick_overlay`, `test_v3_66_274_capture_ux` (RSEL row-group: + the 276 selector tests) |
 | `bulk_downloader/runner.py` (download/probe/verdict path) | `test_extraction_core`, `test_extraction_core_characterization`, `test_v3_66_274_probe_mode`, `test_v3_66_273_gcw_download_gate`, `test_v3_66_6_runner_deep_detect`, `test_v3_66_44_runner_gaps`, `test_t49_runner_timing` |
 | `bulk_downloader/detect.py` (find_best_download / scoring) | `test_extraction_core`, `test_v3_66_6_runner_deep_detect`, + the 276 RSEL selector/score tests |
-| `bulk_downloader/app.py` (routes) | `test_contracts`, `test_gui_parity`, then regen + `tools/check_route_counts.py` (see GATE_AUTHORITY §B) |
+| `bulk_downloader/app.py` (routes) | `test_contracts`, `test_gui_parity`, then regen + `tools/check_route_counts.py` (see ARCHITECTURE_MAP safety surfaces) |
 | `bulk_downloader/app.py` (`test_extract` body params, no new route) | `test_capture_pick_api`, the relevant `_27x` GCW suites; gui_parity should stay byte-identical (confirm) |
 | `bulk_downloader/global_config.py` | `test_v3_66_133_live_config_apply`, `test_settings_center_wiring`, `test_settings_center_slice4/5`; **adding a KEY also requires:** FE-wire it (api-types.ts + settingsSchema.ts + Settings.tsx) + a `config_gui_manifest.json` row, then band `test_v3_66_710_config_denominator`, `test_v3_66_713_unscanned_surfaces`, `test_v3_66_716_decoys_and_shadow`, `test_v3_66_720_oidc_and_ffmpeg`, `test_config_parity_ratchet`, `test_gui_parity` (+`test_v3_66_305_config_danger` if safety-bearing) -- see FG-CONFIG-KEY-ADD-PARITY. **If the key is read via `runtime_flags.num` with a `BD_...` env seed, add a SECOND `config_gui_manifest.json` row keyed by the ENV-VAR NAME** (else the env var surfaces as its own `open_runtime_tunable` and 713/716/720 go RED); config-only keys need one row (v3.66.760). |
 | `bulk_downloader/captcha_relay.py` | `test_v3_43_60_captcha_relay`, `test_v3_66_757_takeover_fold`, `test_v3_66_758_takeover_driver`, `test_v3_66_759_takeover_admission`, `test_v3_66_760_takeover_idle_sweep`, `test_v3_66_761_takeover_observability`, `test_headless_default` |
@@ -32,7 +32,7 @@ the floor, not the ceiling. The on-stash full suite remains the binding gate.
 
 ## Always-on (any cut)
 - `test_contracts.py` — version/CHANGELOG/health/semver + route invariants.
-- On any **route** change: regen the 4 in-sync targets + `check_route_counts.py` (GATE_AUTHORITY §B).
+- On any **route** change: regen the 4 in-sync targets + `check_route_counts.py` (ARCHITECTURE_MAP safety surfaces).
 - On any **guard** touch: declare the new sha; re-derive all 7 from the extracted zip.
 
 ## Maintenance

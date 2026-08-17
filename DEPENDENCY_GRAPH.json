@@ -2185,7 +2185,6 @@
         "bulk_downloader/site_editor.py",
         "tools/config_surface_inventory.py",
         "tools/dependency_graph.py",
-        "tools/invariants.py",
         "tools/seed_review_state.py"
       ],
       "writers": []
@@ -2288,7 +2287,6 @@
         "tools/config_surface_inventory.py",
         "tools/dependency_graph.py",
         "tools/gen_frontend_secret_keys.py",
-        "tools/invariants.py",
         "tools/reachability_ledger.py",
         "tools/risk_score.py",
         "tools/seed_review_state.py",

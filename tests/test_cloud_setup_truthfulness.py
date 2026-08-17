@@ -13,6 +13,7 @@ diagnostic from a hardcoded one, which is precisely the bug in `step`.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 import textwrap
@@ -73,41 +74,17 @@ def _run_bash(snippet: str, *, cwd: Path | None = None, env: dict | None = None,
 # --------------------------------------------------------------------------
 
 def test_guard_pins_in_cloud_setup_match_the_files_on_disk():
-    """A stale pin makes the provisioner cry wolf on an intact tree.
-
-    CLAUDE.md 0's inverse: a gate that fires on identity gets switched off, so
-    over-sensitivity is a soundness bug, not a safe default. This hashes the
-    real files rather than comparing cloud-setup.sh's copy to CLAUDE.md's copy
-    -- comparing the two copies to each other would pass if both went stale
-    together.
-    """
+    """Cloud setup invokes the production checker instead of copying pins."""
     source = _script()
     pins = dict(re.findall(r'"([^"]+\.py)"\s*:\s*"([0-9a-f]{16})"', source))
-    assert pins, "no guard pins found in cloud-setup.sh -- anchor stale"
-
-    wrong = []
-    for path, pinned in sorted(pins.items()):
-        target = REPO_ROOT / path
-        assert target.is_file(), f"cloud-setup.sh pins a nonexistent file: {path}"
-        actual = hashlib.sha256(target.read_bytes()).hexdigest()[:16]
-        if actual != pinned:
-            wrong.append(f"{path}: pinned {pinned}, actual {actual}")
-
-    assert not wrong, (
-        "cloud-setup.sh's guard pins have drifted from the tree:\n  "
-        + "\n  ".join(wrong)
-        + "\nThe provisioner would report a guard mismatch on an intact tree."
-    )
+    assert not pins
+    assert "toolchain/bin/bd-guardcheck --tree \"$PWD\"" in source
 
 
 def test_every_guard_file_is_pinned_so_the_denominator_contains_the_subject():
-    """A pin list missing a guard reports OK for a file it never examined."""
-    source = _script()
-    pinned = set(re.findall(r'"([^"]+\.py)"\s*:\s*"[0-9a-f]{16}"', source))
-    missing = [p for p in GUARD_PATHS if p not in pinned]
-    assert not missing, (
-        f"cloud-setup.sh's guard step cannot see these guard files: {missing}"
-    )
+    """The canonical manifest, not cloud prose, owns the exact denominator."""
+    manifest = json.loads((REPO_ROOT / "guards.json").read_text())
+    assert set(manifest["guards"]) == set(GUARD_PATHS)
 
 
 # --------------------------------------------------------------------------

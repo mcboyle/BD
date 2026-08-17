@@ -3,7 +3,7 @@
 rebaselining its SHA atomically, instead of hand-editing.
 
 WHERE THE BASELINE LIVES (v3.66.855). It is `guards.json` at the repo root --
-the single source of truth read by bd-guardcheck (GATE_AUTHORITY section A).
+the single source of truth read by bd-guardcheck (root guards.json).
 STATE.json, which this tool was written to rewrite, is RETIRED along with the
 sandbox that held it. So with no --state the tool no longer errors: it does the
 read-only half (recompute the live sha, diff it against the guards.json pin,
@@ -76,7 +76,7 @@ def _manifest_pin(root, rel):
     """The pin guards.json currently carries for `rel`, as (short8, full) or None.
 
     READ-ONLY. guards.json is the live single source of truth for the 7 guard
-    SHAs (GATE_AUTHORITY section A); this tool deliberately does NOT write it,
+    SHAs (root guards.json); this tool deliberately does NOT write it,
     because rebaselining a guard is an explicit operator decision and a tool that
     re-froze it silently would defeat the gate it exists to serve.
     """
@@ -219,7 +219,7 @@ def main(argv=None):
         if not a.apply:
             print()
             print(f"{DIM}dry-run. This tool does NOT write guards.json: rebaselining a "
-                  f"guard is an explicit operator decision (GATE_AUTHORITY A), and a "
+                  f"guard is an explicit operator decision (guards.json), and a "
                   f"tool that re-froze it silently would defeat the gate.{RST}")
             return 0
         # --apply with nothing writable: say so with a code that means "no verdict

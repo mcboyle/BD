@@ -8,7 +8,7 @@ the pack is the live edge; the manifest is the truth" model.
 ## Why this exists
 
 Static project knowledge is always-on context, but it is a CACHE: durable docs
-(`ADVANCED_PROJECT_KNOWLEDGE`, `GLOSSARY`, `ARCHITECTURE_MAP`, `DANGER_MAPv2`, the
+(`ADVANCED_PROJECT_KNOWLEDGE`, `GLOSSARY`, `ARCHITECTURE_MAP`, the
 reference cards, ...) evolve mid-session. Nothing forced the pasted copy to be refreshed,
 so it drifted -- the project's named nemesis (a stale cache of a derived fact). `bd-kb-sync`
 makes the drift visible, carries the updated docs volatile so nothing is lost, and produces

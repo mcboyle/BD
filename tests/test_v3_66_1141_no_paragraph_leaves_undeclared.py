@@ -113,7 +113,7 @@ def test_the_baseline_is_not_empty_and_covers_the_contract():
     active, removed = mod.load_baseline(BASELINE)
     current = mod.paragraphs(CONTRACT.read_text(encoding="utf-8"))
     current_fps = {mod.fingerprint(paragraph) for paragraph in current}
-    assert len(active) == len(current) == len(current_fps) == 308, (
+    assert len(active) == len(current) == len(current_fps) == 306, (
         "the intended paragraph denominator drifted: "
         f"active={len(active)}, paragraphs={len(current)}, unique={len(current_fps)}. "
         "Every current paragraph must be frozen explicitly; additions are not "
@@ -158,7 +158,7 @@ def test_a_deleted_paragraph_fails_the_gate():
         paras = mod.paragraphs((root / "CLAUDE.md").read_text(encoding="utf-8"))
         active, _ = mod.load_baseline(root / "project-knowledge" / BASELINE.name)
         frozen = [paragraph for paragraph in paras if mod.fingerprint(paragraph) in active]
-        assert len(frozen) == len(active) == 308, (
+        assert len(frozen) == len(active) == 306, (
             "fixture precondition: the copied corpus is not the frozen denominator")
         # Drop a LONG paragraph so the failure identifies a substantial active
         # subject rather than a heading or another incidental short unit.
@@ -313,7 +313,7 @@ def test_reflowing_the_contract_does_not_fire():
         assert mod.normalise(reflowed) == mod.normalise(victim)
         assert mod.fingerprint(reflowed) == mod.fingerprint(victim)
         changed = body.replace(victim, reflowed, 1)
-        assert len(mod.paragraphs(changed)) == len(mod.paragraphs(body)) == 308
+        assert len(mod.paragraphs(changed)) == len(mod.paragraphs(body)) == 306
         (root / "CLAUDE.md").write_text(changed, encoding="utf-8")
 
         r = _check(root, root / "project-knowledge" / BASELINE.name)
@@ -334,7 +334,7 @@ def test_a_paragraph_moved_to_the_casebook_passes():
         paras = mod.paragraphs(body)
         active, _ = mod.load_baseline(root / "project-knowledge" / BASELINE.name)
         frozen = [paragraph for paragraph in paras if mod.fingerprint(paragraph) in active]
-        assert len(frozen) == len(active) == 308
+        assert len(frozen) == len(active) == 306
         victim = max(frozen, key=len)
         (root / "CLAUDE.md").write_text(body.replace(victim, "", 1),
                                         encoding="utf-8")
