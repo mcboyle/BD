@@ -33,7 +33,7 @@ the numbers as a snapshot and the structure as durable.
 **One core.** This is the single most under-appreciated spec. Every "run it in
 parallel to save time" instinct is wrong here — `bd-parband --jobs N` buys
 almost nothing on 1 CPU, and the full `tsc + vitest + vite` chain is serial-bound.
-It is also why `bd-mkbdsuite` takes ~9–11 minutes and why the documented
+It is also why the retired suite builder took ~9-11 minutes and why the documented
 "run the three FE steps independently under `timeout 600`" workaround exists.
 
 **Capabilities.** The bounding set includes `cap_net_admin`, `cap_sys_admin`,
@@ -315,7 +315,7 @@ Recorded rather than reconciled. Each is measured.
 | canon `bfb2b02e6ca5`, 372→364 files | **`b6b65208be30`, 364 files** | later generation; version pack agrees independently |
 | sandbox node **v20.18.0** (register, MOD-8) | **v22.22.2** | see below |
 | `/mnt/project` mounted read-only | **absent, then materialized rw** | halt-guard-4 scenario, confirmed |
-| pack_G2 a separate optpack target | **absorbed by G** (9 of 29 debs) | `bd-optpack` registers only E–H |
+| pack_G2 a separate optional target | **absorbed by G** (9 of 29 debs) | the historical installer registered only E-H |
 | coupling `0.3967889` → 0.397 | `bd-ratchet` prints **0.398** | unresolved; see below |
 
 **Node.** MOD-8 was closed as mis-scoped on the reasoning that
@@ -379,7 +379,7 @@ Language registries: PyPI (default, no index override; cache
 `git -C /home/claude/work status` returns *"not a git repository"*, and a
 `find` for `.git` under `/home/claude` and `/usr/local` returns nothing. The work
 tree is an **unzip of the release zip**, not a checkout. There is no local
-history, no branches, no diff-against-HEAD. This is why `bd-since` (work tree vs
+history, no branches, no diff-against-HEAD. This is why the retired ZIP-diff helper (work tree vs
 pinned zip) exists and why the overlay/deploy-manifest machinery has to reason
 about deletions manually — nothing else is tracking them.
 

@@ -211,15 +211,11 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
         r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, sorted(RETIRED)))
         + r")(?![A-Za-z0-9_-])"
     )
-    current_docs = (
-        "project-knowledge/README.md",
-        "project-knowledge/KB_SYNC_WORKFLOW.md",
-        "project-knowledge/RELEASE_DISCIPLINE_TIERS.md",
-        "project-knowledge/CODE_REVIEW_INDEX.md",
-        "project-knowledge/PROJECT_KNOWLEDGE_IS_STATIC.md",
-        "project-knowledge/GLOSSARY.md",
-        "project-knowledge/KB_ACTIVE_INDEX.md",
-        "docs/repo/ENVIRONMENT_PROVISIONING.md",
+    sec = _load("bdtools_sec_retired_consumers_v1172", BIN / "bdtools_sec.py")
+    current_docs, _historical = sec.tracked_markdown_corpus(REPO)
+    current_docs = tuple(
+        rel for rel in current_docs
+        if rel != "project-knowledge/IMPROVEMENT_BACKLOG.md"
     )
     live_code = (
         "toolchain/bin/bd-coretest",
@@ -228,6 +224,7 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
         ".github/workflows/ci.yml",
     )
     offenders = {}
+    assert len(current_docs) == 131
     for rel in current_docs + live_code:
         matches = sorted(set(token.findall((REPO / rel).read_text(encoding="utf-8"))))
         if matches:

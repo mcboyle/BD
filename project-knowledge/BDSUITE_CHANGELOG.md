@@ -99,7 +99,7 @@
 
     Consumers audited before install: bd-boot kbsync phase (exit-code + text
     only; its freshness gate reads `generated`, which remains in the file),
-    bd-consumer-graph (path listing), bd-handoff repin (copies the pin dict
+    bd-consumer-graph (path listing), the historical handoff repin (copies the pin dict
     whole -- new key survives). Selftest 6/6 from the installed path.
 
 # bdsuite rev-808 (cont) -- GATE-SOUND-REM: bd-mutation-test --only selector

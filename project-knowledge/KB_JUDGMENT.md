@@ -196,7 +196,7 @@ the memory store); they belong in the versioned PK, not an ephemeral summary.*
   45.0.7 because the `<46` pin held even though a bare `pip download authlib` pulls 49.x.)
 - **optional-pack-invisible-to-tools** *(fresh @682)* — `pack_E-H` are flat single-capability packs
   with no inner kit, so `bd-install` indexes them but they're invisible to the toolchain. *Fix:*
-  `bd-optpack` is the authoritative detect/report/install-on-demand tool; `bd-status` surfaces their
+  the environment/package inspector is authoritative; `bd-status` surfaces their
   state. They are NOT auto-installed (G needs root apt; E/H are heavy).
 
 *The four shapes below were reconciled in from a parallel @682 session's KB_JUDGMENT
@@ -238,7 +238,7 @@ the memory store); they belong in the versioned PK, not an ephemeral summary.*
   "installed" probe can pass while the capability is dead (EACCES browsers, dead jscpd `.bin`).
   *Immunize:* extract entry-by-entry restoring `external_attr` modes + rematerializing symlinks,
   run an ELF/`#!` exec-restore safety net, and verify the CAPABILITY (launch/run `--version`),
-  never the install flag — `bd-optpack verify` mechanizes this.
+  never the install flag -- verify installed contents directly.
 - **mtime-as-freshness-inverts-after-extraction** *(fresh @688)* — choosing the "newest/
   authoritative" copy of a file by mtime (`ls -t`, `max(key=getmtime)`) inverts after any zip
   extraction, because extraction resets mtimes to "now": a STALE packed manifest/STATE looked
@@ -250,13 +250,13 @@ the memory store); they belong in the versioned PK, not an ephemeral summary.*
   `BulkDownloader_v3_66_<old>.zip` from a prior session yields **4 red FAILs** (version / sha /
   file-count / name) that read like STATE is corrupt when it is fine. *Smell:* bd-state FAILs
   immediately after a read-only/doc session where you built no zip. *Fix:* pass `--zip <matching-zip>`
-  explicitly; or run `bd-freshest` (it lists stray zips whose version != `built_version`); or just
+  explicitly; compare repository and artifact identities directly; or just
   trust STATE if you didn't build this session — the byte-pins were set at the last real build.
   *This is not STATE corruption.*
 
 *New tools that immunize the @682 shapes above (ship in `bd_new_tools_v3_66_682`): `bd-capsweep`
 (whole-tree capability sweep → kills catalog-id-not-shipped-module + the round-count blind spot),
-`bd-freshest` (newest-authoritative-doc locator → kills scope-from-oldest + surfaces the stray zip),
+the retired newest-document helper (which exposed scope-from-oldest and stray ZIPs),
 `bd-session` (multi-cut ledger → kills hand-typed session-arc drift).*
 
 *This section is the one most likely to graduate to its own file + a Phase-6 regression-registry
@@ -331,7 +331,7 @@ assertions written to pin it — all in one session. Assume it is in whatever yo
   **contains** the right item, and the **sort key throws it away**. *Canonical:* four tools globbed
   BOTH `/mnt/user-data/uploads` and `/home/claude`, then sorted the **path strings** with
   `reverse=True` — and `"/mnt..." > "/home..."` lexicographically, so the **read-only stale copy
-  always won regardless of version**. `bd-since` diffed the work tree against a **four-release-stale
+  always won regardless of version**. The retired ZIP-diff helper compared the work tree against a **four-release-stale
   zip** while looking entirely correct. *Smell:* `sorted(globs, reverse=True)` over paths from more
   than one directory. *Fix:* sort by **the thing being asked about** (the version), not by where the
   file happens to live. **And when ONE resolver has this bug, SWEEP THE WHOLE TOOLCHAIN** — fixing
@@ -415,7 +415,7 @@ The durable models that, once internalized, prevent a class of mistakes. (Anchor
 - **live ≠ built when cuts stack.** What is *built* (committed to origin/main) legitimately runs
   ahead of what is *live* (what the box last reset to and restarted on) whenever cuts stack
   undeployed. Confirm the deployed version from `/api/health`, never from the tree. (The STATE.json
-  `live_version`/`built_version` pins that `bd-handoff`/`bd-pack` maintained no longer exist in this
+  the former `live_version`/`built_version` session-pack pins no longer exist in this
   repo -- the file is gone; the model is not.)
 - **band from the extracted zip, never the work tree.** Work-tree pyc lies; always band the
   extracted/built zip and gate `verify_release --zip` on the **true `$?`**, not a piped `tail`.
@@ -539,7 +539,7 @@ selftest drives a different code path than the entry point. Fixed: `bd-tool-smok
 It does not.** Running the selftests is strictly better than not, but it is not the same
 question as "does the tool work."
 
-**3. bd-since measured PATH STRINGS, not versions.** (parallel session's find)
+**3. The retired ZIP-diff helper measured PATH STRINGS, not versions.** (parallel session's find)
 It globbed uploads + /home/claude and `sorted(..., reverse=True)`. Lexicographically
 `/mnt...` > `/home...`, so the read-only uploads copy always won *regardless of version* --
 diffing the work tree against a four-release-stale zip while looking entirely correct.
@@ -870,7 +870,7 @@ path in a string must survive; `/*` inside a string literal must not open a comm
 `bd-guard-declare` writes the new SHA to `/home/claude/STATE.json`, but every checker
 (`bd-guardcheck`, `bd-precut`, `bd-state`) reads the baseline from **inside the version zip**.
 The declaration lands where nothing reads it and the guard gate stays red until STATE is
-repacked. Same shape: `bd-handoff` regenerates STATE and **silently drops keys not in
+repacked. Same historical shape: the old handoff regenerated STATE and **silently dropped keys not in
 `STATE_schema.json`** -- it discarded `static_kb_manifest_pin` this session.
 **Before trusting a write, confirm the READER reads that channel.**
 
@@ -1018,7 +1018,7 @@ item off the alarming list and grep for a real caller. One grep killed the whole
 file applies to it. A blind gate that audits gates is worse than no audit: it launders
 fabrication as rigor. `bd-mutation-test` learned this at 737 (it was itself a blind gate).
 The 753 session learned it **four times in one day** -- see (h), plus: it declared the 748
-tracker-gate fix "never shipped" because the `bd-pack` it *had* lacked the gate. The fix
+tracker-gate fix "never shipped" because the old session packer lacked the gate. The fix
 had shipped; it had been bootstrapped from an early, incomplete snapshot. **Judge the
 artifact only after verifying you have the right artifact.**
 
@@ -1298,7 +1298,7 @@ bd-decomp's candidate list has no /mnt/project fallback, so nothing breaks. True
 and insufficient. The PK copy carried `_declared_at`, `_why` and `_meta` -- a
 hand-authored account of why spa_wired was re-baselined 424 -> 422 -- while the
 live `~/.bd_metrics_baseline.json` bd-boot seeds is four bare numbers with no
-provenance, and `bd-mkbdsuite` ships the file only `if os.path.isfile(...)` from a
+provenance, and the retired suite builder shipped the file only `if os.path.isfile(...)` from a
 path that does not exist. Deleting it breaks nothing and destroys the only copy of
 the reasoning.
 

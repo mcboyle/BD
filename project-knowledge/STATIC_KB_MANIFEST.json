@@ -1,6 +1,6 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T20:09:34+00:00",
+ "generated": "2026-08-17T20:15:10+00:00",
  "version_context": "v3.66.1172",
  "file_count": 79,
  "files": {
@@ -57,8 +57,8 @@
    "bytes": 17263
   },
   "BDSUITE_CHANGELOG.md": {
-   "sha256": "e674f9f6730938ac19ba0afbbe938733ca236b27a7ec9874cb3b29b386e319ed",
-   "bytes": 19364
+   "sha256": "3274d6d7a4e320bba28a788cb427337f33bdb32ebf6e882324cbdf3c3455e091",
+   "bytes": 19376
   },
   "BDSUITE_TOOL_BUDGET": {
    "sha256": "f27a03251cd3b16edaa8634f04a6345043d56b67ee0a503aab65cfdfa19b43be",
@@ -137,8 +137,8 @@
    "bytes": 6449
   },
   "KB_JUDGMENT.md": {
-   "sha256": "2c4d202b796b8e55792d27beeaa7c13b657ad5332eb77b038b27d264370e3a1c",
-   "bytes": 95215
+   "sha256": "e3d00c0cc3a9073b6b4335dab0925f83bec265c04461d7a471eb104bbb751651",
+   "bytes": 95203
   },
   "KB_RECOGNIZER_COVERAGE_METHOD.md": {
    "sha256": "0be8eb27ebf64d12901d51b96ef7f39bd99fc0fea5a255805ad2da0eae91eba5",
