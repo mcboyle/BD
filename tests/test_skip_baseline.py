@@ -243,6 +243,26 @@ def test_junit_reader_reconciles_each_result_state(tmp_path):
         _TOOL._read_junit(multiple)
 
 
+def test_junit_reader_rejects_duplicate_same_result_state(tmp_path):
+    duplicate = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='2'><testcase classname='tests.alpha'
+      name='test_impossible'><skipped message='first'/>
+      <skipped message='second'/></testcase></testsuite></testsuites>""")
+
+    with pytest.raises(_TOOL.EvidenceError, match="multiple result states"):
+        _TOOL._read_junit(duplicate)
+
+
+def test_junit_reader_rejects_unknown_result_state(tmp_path):
+    unknown = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='0'><testcase classname='tests.alpha'
+      name='test_impossible'><passed/></testcase></testsuite></testsuites>""")
+
+    with pytest.raises(_TOOL.EvidenceError,
+                       match="unknown testcase result element"):
+        _TOOL._read_junit(unknown)
+
+
 def test_written_skip_baseline_is_read_back_before_success(tmp_path, monkeypatch):
     target = tmp_path / "SKIP_BASELINE.json"
     original = _TOOL.Path.replace

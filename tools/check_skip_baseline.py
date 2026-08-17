@@ -63,13 +63,23 @@ def _read_junit(path: Path) -> dict:
         if identity in identities:
             raise EvidenceError(f"duplicate testcase identity: {identity}")
         identities.add(identity)
-        failure = case.find("failure")
-        error = case.find("error")
-        skip = case.find("skipped")
-        states = sum(node is not None for node in (failure, error, skip))
-        if states > 1:
+        result_nodes = [child for child in case
+                        if child.tag in {"failure", "error", "skipped"}]
+        unknown_nodes = [child.tag for child in case
+                         if child.tag not in {"failure", "error", "skipped"}]
+        if unknown_nodes:
+            raise EvidenceError(
+                f"unknown testcase result element for {identity}: "
+                f"{unknown_nodes[0]}")
+        if len(result_nodes) > 1:
             raise EvidenceError(
                 f"testcase has multiple result states: {identity}")
+        failure = next((node for node in result_nodes
+                        if node.tag == "failure"), None)
+        error = next((node for node in result_nodes
+                      if node.tag == "error"), None)
+        skip = next((node for node in result_nodes
+                     if node.tag == "skipped"), None)
         observed_failures += failure is not None
         observed_errors += error is not None
         if skip is None:
