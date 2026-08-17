@@ -235,7 +235,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1174",
+      "value": "3.66.1175",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -566,7 +566,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1166_historical_docs_are_adjudicated.py",
-      "line": 137,
+      "line": 148,
       "value": {
         "AUTH-SCENE": 0,
         "AI-BOOT-OBS": 1
