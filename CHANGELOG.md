@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1161 - remove the transcript context census
+
+Cut 2 removes the context-census executable, its internal selftest wiring, and
+its census-only v1140 test module. The tool had no established product consumer,
+read provider transcript files, could expose transcript and command prefixes in
+ordinary output, failed on an empty recognized-character denominator, and could
+not measure the provider's complete context. It is deleted rather than replaced;
+Git history retains its implementation and historical measurements.
+
+The agent contract keeps the measured context-economy lessons but no longer
+instructs operators to run a local transcript estimate. A repo-wide retirement
+contract proves the executable and census-only tests remain physically absent,
+the tracked-path denominator is nonempty, no live tracked text still names the
+command, no dangling retired path or context/transcript census successor can be
+laundered into success, and the surviving context-economy guidance remains
+present. Packaging inherits the deletion from the source tree; no exclusion,
+redirect, registry, or successor census is introduced.
+
 ## v3.66.1160 - body-contract probes preserve kill-switch state
 
 Bridge Cut A found that the full suite's result depended on xdist scheduling:
