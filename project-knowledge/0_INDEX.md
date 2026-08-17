@@ -2,7 +2,7 @@
 # BulkDownloader -- build/audit/sandbox reference cards
 
 Focused reference distilled from the release sessions. **Split for the
-static/version.zip model** (`PROJECT_OPERATING_INSTRUCTIONS.md` S2.5):
+static/version.zip model** (historical; the checkout is now the handoff):
 
 ## Durable -- live in static project knowledge (`reference/`)
 

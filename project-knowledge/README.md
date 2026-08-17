@@ -29,7 +29,7 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
 1. **Memory is stale-by-construction for BD *state*.** Version numbers, guard SHAs,
    slice letters, parity/file counts live ONLY in `STATE.json` (per-session
    `version.zip`) + the newest `KB_HANDOFF_v3_66_<n>.md`. Durable *lessons* live in
-   `KB_JUDGMENT.md` + `PROJECT_OPERATING_INSTRUCTIONS.md`. Source is ground truth,
+   `KB_JUDGMENT.md` + `CLAUDE.md`. Source is ground truth,
    re-derived every session. Never store version-specific ephemera to memory.
 2. **Gated approval.** Read-only / planning / analysis is free. Anything that
    changes runtime, build, version, a guard, or cuts a release needs an explicit
@@ -409,7 +409,7 @@ through Matt** — but the collisions that actually hurt are preventable:
 - **Memory** (across-session): personalized, but STALE for BD state by construction
   and updated in the background. Never the source of truth for version/guards/counts.
 - **Static PK** (`/mnt/project`, this bundle): the always-on cache of durable docs
-  (this README, `KB_JUDGMENT.md`, `PROJECT_OPERATING_INSTRUCTIONS.md`,
+  (this README, `KB_JUDGMENT.md`, `CLAUDE.md`,
   `BD_TOOLCHAIN_REFERENCE.md`, `Manifest.md`, `SANDBOX_CAPABILITY_LAYER.md`, the
   audit battery, …). When these change mid-session they must be re-pasted —
   `bd-handoff --kb-dir` stages a paste-ready update via `bd-kb-sync`. The live
@@ -519,7 +519,7 @@ bd-parallel claim --version 3.66.N --item "…" ; bd-parallel check *.json
 ---
 
 *Authoritative pointers: `KB_JUDGMENT.md` (§1 failure taxonomy) ·
-`PROJECT_OPERATING_INSTRUCTIONS.md` · `BD_TOOLCHAIN_REFERENCE.md` (full per-tool
+`CLAUDE.md` · `BD_TOOLCHAIN_REFERENCE.md` (full per-tool
 reference) · `SANDBOX_CAPABILITY_LAYER.md`
 (what the sandbox can/can't do). When any doc disagrees with the source tree,
 the source wins.*

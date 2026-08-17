@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CANONICAL = REPO_ROOT / "project-knowledge" / "PROJECT_OPERATING_INSTRUCTIONS.md"
+CANONICAL = REPO_ROOT / "docs" / "repo" / "FRESH_HOST_BRINGUP.md"
 
 
 def _git(*args: str) -> str:
@@ -122,11 +122,11 @@ def deploy_section() -> str:
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if re.match(r"^#{2,4}\s+Deploy\s*$", line.strip()):
+        if re.match(r"^#{2,4}\s+Routine deploy and rollback\s*$", line.strip()):
             start = i
             break
     assert start is not None, (
-        f"{CANONICAL.relative_to(REPO_ROOT)} has no '### Deploy' heading. The "
+        f"{CANONICAL.relative_to(REPO_ROOT)} has no routine deploy/rollback heading. The "
         f"canonical deploy runbook moved or was renamed; repoint this test at "
         f"wherever it now lives rather than widening the search back to the "
         f"whole file."

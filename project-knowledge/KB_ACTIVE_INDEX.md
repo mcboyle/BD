@@ -8,23 +8,17 @@ The single active index for the project-knowledge set. This file is **static**
 
 The distilled current state (newest `KB_HANDOFF_v3_66_<n>.md`) and the live
 planning docs are **not** in static project knowledge -- they arrive in the
-per-session **`version.zip`**. See `PROJECT_OPERATING_INSTRUCTIONS.md` S2.5 for the
-static-vs-version.zip split and the session-close rule.
-
-**Halt guard:** if no `KB_HANDOFF_v3_66_*.md` is in uploads, the version.zip wasn't
-attached -- STOP and request it (per `bd_starting_message.txt` Step 0). Do not
-proceed from static project knowledge alone.
+per-session **`version.zip`**. This is historical workflow context; the current
+checkout and `CLAUDE.md` are authoritative.
 
 ## Reading order
 
-1. `bd_starting_message.txt` -- bootstrap prompt (run first; Step 0 is the halt
-   guard).
+1. `CLAUDE.md` -- the sole agent-facing contract: working style, release
+   checklist, verification, and footguns.
 1. `PROJECT_CHARTER.md` -- purpose, scope, ethics, in-code guardrails.
 1. `PROJECT_GOALS.md` -- durable direction.
 1. `AUTOMATION_POLICY.md` -- canonical automation doc (what may be automated, where
    approval is required, IMPLEMENTED / PARTIAL / PLANNED state).
-1. `PROJECT_OPERATING_INSTRUCTIONS.md` -- working style, continuity system
-   (incl. S2.5 static/version.zip split), release checklist, deploy, footguns.
 1. `KB_JUDGMENT.md` -- the durable why/how layer: named failure shapes, system
    mental-models, decision criteria, and how Matt works (judgment, not facts;
    changes only when judgment changes, never on a routine release).
@@ -54,9 +48,9 @@ proceed from static project knowledge alone.
 
 ## Static project knowledge (this set -- change only when a static doc changes)
 
-`README_KB.md`, `KB_ACTIVE_INDEX.md`, `bd_starting_message.txt`,
+`README_KB.md`, `KB_ACTIVE_INDEX.md`,
 `PROJECT_CHARTER.md`, `PROJECT_GOALS.md`, `AUTOMATION_POLICY.md`,
-`PROJECT_KNOWLEDGE_IS_STATIC.md`, `PROJECT_OPERATING_INSTRUCTIONS.md`,
+`PROJECT_KNOWLEDGE_IS_STATIC.md`,
 `KB_JUDGMENT.md`, `ADVANCED_PROJECT_KNOWLEDGE.md`, `DANGER_MAPv2.md`, `GLOSSARY.md`, `ARCHITECTURE_MAP.md`, `SANDBOX.md`, `SCHEMAS.md`, `REPTYLE_CAPTURE_RUNBOOK.md`, `BDKIT_FIXES.md`,
 `bdkit_HANDOFF.md`, `KNOWN_FLAKES.md`, `CONTINUATION_TEMPLATE.md`,
 `STATE.schema.json`, `Manifest.md`, the kit scripts (`setup.sh`, `bd-install`,
@@ -104,8 +98,8 @@ from the transcript).
 ## Folded / merged in prior cleanups (not separate files)
 
 - `FUNCTIONALITY_FIRST_RULES.md` -> folded into `AUTOMATION_POLICY.md`.
-- `PROJECT_OPERATING_INSTRUCTIONS_ADDENDUM.md` -> merged into
-  `PROJECT_OPERATING_INSTRUCTIONS.md` (S0 + S2 + S5).
+- The former operating-instructions addendum was retired with the superseded
+  document; current agent rules live only in `CLAUDE.md`.
 
 Ground-truth order: **source code > newest transcript > newest handoff > static
 project docs > older docs.**

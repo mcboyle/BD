@@ -19,7 +19,7 @@ point, apply it **fully** — the change here is that you *announce* it and the
 operator *opts in*, so a long careful session reads as intended, not as drift. The
 floor below never relaxes in any tier.
 
-**Read alongside** `PROJECT_OPERATING_INSTRUCTIONS.md` §4 (release checklist) and
+**Read alongside** `CLAUDE.md` sections 2-4 (release checklist) and
 `AUTOMATION_POLICY.md`. This doc tiers that checklist; it does not replace the floor.
 
 ---

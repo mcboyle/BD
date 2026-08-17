@@ -4,8 +4,8 @@
 This is the static, version-agnostic project-knowledge set for BulkDownloader.
 
 **Read order lives in `KB_ACTIVE_INDEX.md` -- start there.**
-In short: `bd_starting_message.txt` (halt guard) -> `PROJECT_CHARTER.md` -> `PROJECT_GOALS.md` ->
-`AUTOMATION_POLICY.md` -> `PROJECT_OPERATING_INSTRUCTIONS.md` -> `SANDBOX.md` -> `SCHEMAS.md` ->
+In short: `CLAUDE.md` -> `PROJECT_CHARTER.md` -> `PROJECT_GOALS.md` ->
+`AUTOMATION_POLICY.md` -> `SANDBOX.md` -> `SCHEMAS.md` ->
 `project-knowledge/IMPROVEMENT_BACKLOG.md` -> `REPTYLE_CAPTURE_RUNBOOK.md` ->
 the reference cards.
 

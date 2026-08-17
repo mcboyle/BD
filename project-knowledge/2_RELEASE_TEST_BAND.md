@@ -32,8 +32,8 @@ join; bundle tail lacks `;`; no CDN/runtime network; vendored assets from disk).
 healthy capture browser and SKIP cleanly on `Page.goto` timeout in the sandbox (and on any host where the
 browser can't navigate — see the Capture Navigation Blocker). For a browser-free runtime check use the Node
 A/B (`asi_node_ab.js`): OLD join throws the ASI error, NEW join starts recording.
-These 5 ASI-separator checks are a *narrower* set than the **7 byte-identical release guards** (enumerated in
-`PROJECT_OPERATING_INSTRUCTIONS.md` §4 step 6) — same word "guard," don't conflate them.
+These 5 ASI-separator checks are a *narrower* set than the byte-identical
+release guards in `CLAUDE.md` section 2 — same word "guard," don't conflate them.
 
 ## The builder trap (cost the most time)
 

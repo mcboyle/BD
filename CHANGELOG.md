@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1165 - leave one agent-facing contract
+
+Cut 5 removes six remaining session/bootstrap instruction and execution-prompt
+documents that competed with `CLAUDE.md`. Their live operator content is not discarded: the
+four post-checkout deploy conditions now live together in the focused fresh-host
+operator runbook, and the cloud provisioning guide requires provenance checking
+before reading its gitignored environment report.
+
+Current README, knowledge indexes, drift tooling, tests, CI wiring, and static
+manifest now point at the surviving authorities. A directly wired repo-wide
+regression proves all six retired paths are physically absent, including as
+dangling symlinks, and that no live tracked reader routes a session back to
+their basenames. No reduced "read this first" replacement is introduced.
+
 ## v3.66.1164 - establish one canonical task authority
 
 Cut 4 makes `project-knowledge/IMPROVEMENT_BACKLOG.md` the sole live task

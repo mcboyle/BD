@@ -15,16 +15,17 @@ A file that could not be verified was KEPT (unknown is not a delete).
 
 ---
 
-## Category 1 -- .txt (10 files): CLEAN, all KEEP
+## Category 1 -- .txt (historical v3.66.811 finding)
 
 No stale/implemented docs. All are load-bearing or current:
 
 - `VERSION.txt`, `requirements.txt` / `-dev` / `-optional` / `-cloak` -- manifests.
 - `tests/route_map_baseline.txt`, `tests/SKIP_BASELINE.txt` -- gate baselines.
-- `project-knowledge/bd_starting_message.txt` -- version-AGNOSTIC static-KB bootstrap.
+- `project-knowledge/bd_starting_message.txt` -- classified here as a static-KB
+  bootstrap at v3.66.811; retired in Cut 5 because it was a second agent contract.
 - `project-knowledge/OPV_COWORK_EXECUTION_PROMPT.txt`,
-  `project-knowledge/OPV_EXECUTION_PROMPT_CODEX.txt` -- current (v3.66.811) OPV
-  orchestration prompts.
+  `project-knowledge/OPV_EXECUTION_PROMPT_CODEX.txt` -- v3.66.811 OPV orchestration
+  prompts, retired in Cut 5; the canonical backlog preserves unresolved work.
 
 ## Category 2 -- .json (122 files): CLEAN, all KEEP
 
