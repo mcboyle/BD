@@ -78,6 +78,33 @@ def _source_tree(root: Path) -> None:
     )
 
 
+def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z", "toolchain", "scripts", "tools", ".github"],
+        cwd=root,
+    ).decode().split("\0")
+    names = "|".join(map(re.escape, sorted(RETIRED)))
+    invocation = re.compile(
+        rf"(?:toolchain/bin/|BIN\s*/\s*|join\([^\n]*|subprocess[^\n]*|"
+        rf"(?:^|[;&|])\s*)(?:['\"])?(?:{names})(?![A-Za-z0-9_-])"
+    )
+    offenders = []
+    denominator = 0
+    for rel in tracked:
+        if not rel:
+            continue
+        path = root / rel
+        if not path.is_file():
+            continue
+        denominator += 1
+        for line_no, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            if invocation.search(line):
+                offenders.append(f"{rel}:{line_no}:{line.strip()}")
+    return denominator, offenders
+
+
 def test_doc_truth_recurses_over_tracked_current_authority(tmp_path: Path):
     """A nested task-bearing document must be inside the real CLI denominator."""
     _source_tree(tmp_path)
@@ -217,19 +244,16 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
         rel for rel in current_docs
         if rel != "project-knowledge/IMPROVEMENT_BACKLOG.md"
     )
-    live_code = (
-        "toolchain/bin/bd-coretest",
-        "toolchain/bin/bd-consumer-graph",
-        "tools/build_pin_index.py",
-        ".github/workflows/ci.yml",
-    )
     offenders = {}
     assert len(current_docs) == 131
-    for rel in current_docs + live_code:
+    for rel in current_docs:
         matches = sorted(set(token.findall((REPO / rel).read_text(encoding="utf-8"))))
         if matches:
             offenders[rel] = matches
     assert not offenders, offenders
+    code_denominator, code_offenders = _retired_code_invocations(REPO)
+    assert code_denominator > 100
+    assert not code_offenders, code_offenders
     for rel in (
         "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
         "project-knowledge/BD_TOOLCHAIN_WHEN_TO_USE.md",
@@ -239,6 +263,18 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
             ["git", "ls-files"], cwd=REPO, text=True
         ).splitlines()
         assert not os.path.lexists(REPO / rel)
+
+
+def test_retired_executable_consumer_scan_has_a_positive_control(tmp_path: Path):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "new-close.sh").write_text(
+        "#!/bin/sh\nbd-pack --out /tmp/result\n", encoding="utf-8"
+    )
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    denominator, offenders = _retired_code_invocations(tmp_path)
+    assert denominator == 1
+    assert len(offenders) == 1 and "bd-pack" in offenders[0]
 
 
 def test_coretest_refuses_to_certify_a_missing_tool(tmp_path: Path):
