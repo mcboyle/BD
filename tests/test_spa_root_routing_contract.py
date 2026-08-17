@@ -1,22 +1,12 @@
-"""v3.66.203 — Phase 1 root flip (LEGACY_MIGRATION_PLAN).
-
-`/` serves the D3 React SPA; the legacy shell moved to `/legacy`
-FULLY FUNCTIONAL (the program-long escape hatch until Phase 4).
-/m, /m/ops and /m2 are 302 shims to root; /m2 preserves deep links.
-
-These pins are the flip's contract. The pre-flip contracts were
-re-expressed (never dropped) in: test_v3_43_55_csrf_bootstrap.py
-(legacy inline mint, now at /legacy), test_d3_u1_scaffold.py (vite
-base + 503 not-built surface, now at /), test_d3_u9_opt_in.py (shim
-targets), test_d3_u8_polish.py (e2e targets root),
-test_fresh_install_gui_smoke.py (SPA root).
-"""
+"""Current SPA root, namespace, asset, redirect, and method contract."""
 from __future__ import annotations
 
 import os
 import re
 import tempfile
 from pathlib import Path
+
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 

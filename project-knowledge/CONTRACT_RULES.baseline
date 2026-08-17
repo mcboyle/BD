@@ -242,7 +242,7 @@ eba5a684aeca  **Now genuinely easier:** diffing work against a baseline (`git di
 5d98adc51efc  **`scripts/deploy.sh` now does all of this (v3.66.848), and you should use it.** It fetches and
 200272c8513a  **A FAILED DEPLOY IS NOT A NO-OP, AND IT CAN LEAVE THE SERVICE DOWN.** The script stops the unit
 c37dbcdeaf53  **One property of it matters before you edit it: every step after `git reset --hard` executes th
-829a3ed7c769  **In a *cloud container* none of this applies:** `scripts/cloud-setup.sh` runs `npm run build` a
+eb0459528490  **In a *cloud container* none of this applies:** `scripts/cloud-setup.sh` runs `npm run build` a
 b73728480685  **BUT THE GATE HAS A NAMED BLIND SPOT: `capture.sh` CANNOT SEE CROSS-FILE STATE LEAKS.** Measure
 c1e932425958  **What it actually runs, re-measured 2026-08-08 at v3.66.958. THREE jobs, not two, and the gate
 9586070327cd  - `postgres-integration` -- four mod3 files. - `gates` -- gitleaks, the generated-artifacts sync
@@ -337,3 +337,4 @@ c6d32c02f127  rewritten v3.66.1167: RED-first TDD survives; the adjacent guard p
 f6f9557a6957  removed v3.66.1167: duplicate seven-file digest table retired; guards.json preserves the exact roster and pins.
 d4e5798a6547  rewritten v3.66.1167: bd-guardcheck fail-closed guidance survives without copied digest prose.
 b740c827815c  rewritten v3.66.1167: git-deploy live-edit warning survives and now points to FRESH_HOST_BRINGUP.
+829a3ed7c769  rewritten v3.66.1168: the cloud-build rule survives with the current SPA routing test name.

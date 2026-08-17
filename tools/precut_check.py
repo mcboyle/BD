@@ -60,7 +60,6 @@ TOUCH_MAP = [
     (r"^bulk_downloader/(cloak|auto_detect|macro_replay|selector_playground)\.py$",
      ["test_v3_66_285_cloak_parity"]),
     (r"frontend/src/.*CaptureWorkflow", ["test_gui_parity", "test_v3_66_274_capture_ux", "test_v3_66_292_dom_analyzer_link"]),
-    (r"^tools/legacy_pin_scan\.py$", ["test_legacy_pin_scan"]),
     # v3.66.841: the tasktracker_gen/_sync band entries are gone with the tool.
     # The lesson they carried is kept because it outlives them: a band map is a
     # DENOMINATOR, and one that omits a test guarding the file makes the cut

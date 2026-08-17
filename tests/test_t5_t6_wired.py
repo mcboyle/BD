@@ -1,22 +1,19 @@
-"""T5+T6 batched tranche + VPN row U + the CSRF-source fix — migration pins
-(v3.66.208, second batched Phase-2 cut).
+"""Current governance, security, automation, VPN, and CSRF SPA contract.
 
-Proves four things, all RED on pristine v3.66.207:
+Proves the current endpoint, CSRF, and confirmation behavior:
 
 1. The 30 wired families (T5: retention 3 · rights 3 · scheduled_exports 4 ·
    diagnostics_bundle 2; T6: plex_advanced 6 · tpdb 2 · subtitles 1 ·
    thumbnail_sheets 1 · marketplace 1 · jsonapi 1 · ai 2; row U: vpn
    kill_switch/providers/settings 3; plus /api/csrf closed by the CSRF fix)
-   drop out of the legacy_parity legacy-only set, with FULL /api/ literals in
+   remain SPA-wired, with full /api/ literals in
    the new hooks/pages.
-2. The ratchet baseline committed the 71 -> 41 shrink (MONOTONIC: <= 41 +
-   own-endpoints-absent — never an == pin).
-3. THE CSRF FIX: the SPA fetch wrapper sources its token from /api/csrf (the
+2. The SPA fetch wrapper sources its token from /api/csrf (the
    self-minting canonical endpoint, P0.1/v3.66.202) and no longer references
    the nonexistent /api/auth_surface route. On 207 every cookie-session SPA
    write 403'd because of this — the test client carries no bd_session
    cookie, so only a real deployment saw it.
-4. CSRF-across-the-board: no state-changing fetch() exists anywhere in
+3. CSRF-across-the-board: no state-changing fetch() exists anywhere in
    frontend/src outside lib/api-client.ts — every mutation must ride a
    wrapper that carries X-CSRF-Token (the SiteDetail raw DELETE was the one
    stray, fixed this cut).
@@ -29,10 +26,10 @@ Maintenance/Integrations.
 run_tests.py conventions: zero-arg test functions; repo root from __file__;
 no pytest builtins.
 """
-import importlib.util
-import json
 import re
 from pathlib import Path
+
+BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -73,28 +70,6 @@ ROW_U_ENDPOINTS = [
     "/api/vpn/settings",
 ]
 CSRF_ENDPOINT = ["/api/csrf"]
-
-
-def _load_legacy_parity():
-    spec = importlib.util.spec_from_file_location(
-        "legacy_parity", REPO / "tools" / "legacy_parity.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _norm(endpoints):
-    return {re.sub(r"\{[^}]+\}", "*", e) for e in endpoints}
-
-
-def test_all_30_t5_t6_rowu_endpoints_are_spa_wired():
-    """None of the 30 families (nor /api/csrf) may remain legacy-only."""
-    lp = _load_legacy_parity()
-    legacy_only = _norm(lp.measure()["legacy_only"])
-    wanted = T5_ENDPOINTS + T6_ENDPOINTS + ROW_U_ENDPOINTS + CSRF_ENDPOINT
-    still = [ep for ep in wanted if ep in legacy_only]
-    assert not still, (
-        "T5/T6/row-U endpoints still legacy-only (not SPA-wired): " + repr(still))
 
 
 def test_t5_full_literals_present_in_spa_source():
@@ -231,17 +206,3 @@ def test_integrations_route_registered_and_linked():
     settings = (REPO / "frontend" / "src" / "routes" / "Settings.tsx").read_text(
         encoding="utf-8")
     assert '"/integrations"' in settings, "Settings tools list lacks /integrations"
-
-
-def test_ratchet_baseline_committed_at_or_below_41():
-    """The legacy_parity baseline must carry the T5+T6+rowU shrink.
-    MONOTONIC pin: <= 41 (may shrink further, may never grow), and none of
-    this cut's endpoints may remain in it."""
-    b = json.loads((REPO / "reports" / "legacy_parity_baseline.json").read_text(
-        encoding="utf-8"))
-    assert b["legacy_only_count"] <= 41, (
-        f"baseline count {b['legacy_only_count']} > 41 — T5/T6 shrink not committed")
-    assert b["legacy_only_count"] == len(b["legacy_only"])
-    wanted = T5_ENDPOINTS + T6_ENDPOINTS + ROW_U_ENDPOINTS + CSRF_ENDPOINT
-    leftovers = _norm(b["legacy_only"]) & set(wanted)
-    assert not leftovers, "T5/T6/row-U endpoints still in baseline: " + repr(sorted(leftovers))

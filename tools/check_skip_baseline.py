@@ -1,197 +1,180 @@
 #!/usr/bin/env python3
-"""check_skip_baseline.py — PT9 release-time skip-count gate.
+"""Check exact skip identities and reasons in complete real-pytest JUnit.
 
-The runner reports the skipped count in its summary line but does NOT
-gate on it: a refactor that mass-skips tests (broken conftest, import
-error, path change) passes the runner's `Failed: 0` check while
-quietly hiding test coverage. This script makes that visible at
-release time.
+Usage: ``python tools/check_skip_baseline.py --junit result.xml``.
+Use ``--update`` only after every changed skip has been adjudicated.
 
-Usage:
-    # 1. Generate a SUMMARY.txt (the runner already does this with --summary)
-    BD_DISABLE_KEEPALIVE=1 python3 run_tests.py --summary
-
-    # 2. Check the skip count in that summary against the pinned baseline
-    python3 tools/check_skip_baseline.py
-
-    # 3. To reset the baseline (after intentionally adding/removing skips):
-    python3 tools/check_skip_baseline.py --update
-
-Exit 0 = skip count matches baseline.
-Exit 1 = mismatch (current count differs from baseline).
-Exit 2 = couldn't read the baseline or the summary.
-
-Pinned to `tests/SKIP_BASELINE.txt`. Format:
-    <int>\\n
-    # comment lines start with '#'
-
-The baseline is intentionally a single integer, not a list of test
-names. Rationale: any list would either need re-sorting whenever the
-suite grows (noisy diffs) or would silently lose entries when a test
-file is renamed. A count is the actual thing PT9 wants to gate on.
-
-A list-of-names check would also have to know which skips are
-intentional. The whole point is that the operator audits any drift —
-the file is small enough that re-reading SUMMARY.txt during a release
-is sufficient to verify what's been added/removed.
-
-Parser note. The runner's SUMMARY.txt writes a summary line of the
-shape:
-
-    result  : 4443 total | 4443 passed | 0 failed | 0 skipped
-
-The runner's stdout one-liner uses the older shape:
-
-    Total: N | Passed: N | Failed: 0 | Skipped: N
-
-Both are supported. v3.63.9 shipped a version of this tool that only
-recognised the second; on a fresh stash deploy the first call to
-`--update` failed with "could not read Skipped count from SUMMARY.txt"
-because SUMMARY.txt only ever contains the first shape. The test
-`tests/test_skip_baseline.py::test_parser_reads_real_runner_summary`
-round-trips real runner output through this parser to pin both
-shapes.
+Exit 0 means exact match, 1 means identity/reason drift, and 2 means the
+evidence or baseline cannot support a verdict. Incomplete, zero-test, failed,
+errored, malformed, or internally inconsistent JUnit always returns 2.
 """
 
 import argparse
-import re
+import json
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-DEFAULT_BASELINE = Path("tests/SKIP_BASELINE.txt")
-DEFAULT_SUMMARY = Path("SUMMARY.txt")
-
-# Match the SUMMARY.txt "result :" shape: `N skipped` (lowercase, the
-# count comes BEFORE the word). The 1st capture group is the count.
-_RE_RESULT_LINE = re.compile(
-    r"(\d+)\s+skipped\b",
-    re.IGNORECASE,
-)
-
-# Match the runner's stdout one-liner shape: `Skipped: N`. Kept as a
-# secondary fallback so older summary captures still parse, and so any
-# future change that moves to this shape doesn't silently break.
-_RE_LABEL_COLON = re.compile(
-    r"\bSkipped\s*:\s*(\d+)\b",
-)
+DEFAULT_BASELINE = Path("tests/SKIP_BASELINE.json")
 
 
-def _read_baseline(path: Path) -> int | None:
-    """Return the pinned count, or None if the file doesn't exist /
-    is malformed."""
+class EvidenceError(ValueError):
+    """The supplied test evidence cannot support a skip verdict."""
+
+
+def _read_junit(path: Path) -> dict:
+    """Read complete passing JUnit and retain exact skip identities/reasons."""
     if not path.is_file():
-        return None
+        raise EvidenceError(f"missing JUnit evidence: {path}")
     try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            return int(line)
-    except (OSError, ValueError):
-        return None
-    return None
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError) as exc:
+        raise EvidenceError(f"malformed JUnit evidence: {exc}") from exc
 
-
-def _read_summary_skipped(path: Path) -> int | None:
-    """Find the skipped count in a runner SUMMARY.txt or in the
-    one-line summary the runner prints. Returns None if not found.
-
-    Two formats are recognised:
-      * `result  : N total | N passed | N failed | N skipped`
-        (the SUMMARY.txt shape — count BEFORE the word, lowercase)
-      * `... | Skipped: N`
-        (the runner's stdout one-liner — label-colon-count)
-    The first is the canonical case; the second is the fallback.
-    """
-    if not path.is_file():
-        return None
+    suites = [suite for suite in root.iter("testsuite")
+              if not suite.findall("testsuite")]
+    if not suites:
+        raise EvidenceError("missing test summary")
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
+        declared = sum(int(suite.attrib["tests"]) for suite in suites)
+        failures = sum(int(suite.attrib["failures"]) for suite in suites)
+        errors = sum(int(suite.attrib["errors"]) for suite in suites)
+        declared_skips = sum(int(suite.attrib["skipped"]) for suite in suites)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EvidenceError("missing or malformed test summary") from exc
+    if declared <= 0:
+        raise EvidenceError("zero tests executed")
+    if failures:
+        raise EvidenceError(f"JUnit reports {failures} failure(s)")
+    if errors:
+        raise EvidenceError(f"JUnit reports {errors} error(s)")
 
-    # Primary: the "N skipped" shape from SUMMARY.txt's result line.
-    m = _RE_RESULT_LINE.search(text)
-    if m is not None:
-        try:
-            return int(m.group(1))
-        except (TypeError, ValueError):
-            pass
+    cases = [case for suite in suites for case in suite.findall("testcase")]
+    if len(cases) != declared:
+        raise EvidenceError(
+            f"testcase population is incomplete: declared {declared}, "
+            f"observed {len(cases)}")
 
-    # Fallback: the "Skipped: N" shape from the runner's stdout
-    # one-liner. Kept so an operator can pipe stdout to a file and
-    # point --summary at it.
-    m = _RE_LABEL_COLON.search(text)
-    if m is not None:
-        try:
-            return int(m.group(1))
-        except (TypeError, ValueError):
-            pass
+    skipped = {}
+    identities = set()
+    for case in cases:
+        classname = (case.get("classname") or "").strip()
+        name = (case.get("name") or "").strip()
+        if not classname or not name:
+            raise EvidenceError("testcase has no stable identity")
+        identity = f"{classname}::{name}"
+        if identity in identities:
+            raise EvidenceError(f"duplicate testcase identity: {identity}")
+        identities.add(identity)
+        skip = case.find("skipped")
+        if skip is None:
+            continue
+        reason = (skip.get("message") or "").strip()
+        if not reason:
+            raise EvidenceError(f"skip reason missing for {identity}")
+        skipped[identity] = reason
+    if len(skipped) != declared_skips:
+        raise EvidenceError(
+            f"skip summary disagrees: declared {declared_skips}, "
+            f"observed {len(skipped)}")
+    return {"executed": declared, "skipped": skipped}
 
-    return None
+
+def _compare_skips(expected: dict[str, str], observed: dict[str, str]) -> list[str]:
+    """Return exact identity/reason differences in diagnostic order."""
+    differences = [f"missing: {key}" for key in sorted(expected.keys() - observed)]
+    differences.extend(
+        f"unexpected: {key}" for key in sorted(observed.keys() - expected))
+    differences.extend(
+        f"reason changed: {key}"
+        for key in sorted(expected.keys() & observed)
+        if expected[key] != observed[key])
+    return differences
+
+
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise EvidenceError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _read_identity_baseline(path: Path) -> dict[str, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"),
+                             object_pairs_hook=_reject_duplicate_keys)
+    except EvidenceError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EvidenceError(f"missing or malformed skip baseline: {path}") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != "bd-skip-baseline/1":
+        raise EvidenceError("skip baseline has wrong schema")
+    rows = payload.get("skips")
+    if not isinstance(rows, list):
+        raise EvidenceError("skip baseline has no skips list")
+    result = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise EvidenceError("skip baseline row is not an object")
+        identity = row.get("identity")
+        reason = row.get("reason")
+        if not isinstance(identity, str) or not identity.strip():
+            raise EvidenceError("skip baseline row has no identity")
+        if not isinstance(reason, str) or not reason.strip():
+            raise EvidenceError(f"skip baseline reason missing for {identity}")
+        if identity in result:
+            raise EvidenceError(f"duplicate skip baseline identity: {identity}")
+        result[identity] = reason
+    return result
+
+
+def _write_identity_baseline(path: Path, skips: dict[str, str]) -> None:
+    payload = {
+        "schema": "bd-skip-baseline/1",
+        "skips": [
+            {"identity": identity, "reason": skips[identity]}
+            for identity in sorted(skips)
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE,
-                    help=f"baseline file (default {DEFAULT_BASELINE})")
-    ap.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY,
-                    help=f"runner summary to parse (default {DEFAULT_SUMMARY})")
-    ap.add_argument("--update", action="store_true",
-                    help="rewrite the baseline with the current count")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE,
+                        help=f"baseline file (default {DEFAULT_BASELINE})")
+    parser.add_argument("--junit", type=Path, required=True,
+                        help="complete passing real-pytest JUnit XML")
+    parser.add_argument("--update", action="store_true",
+                        help="write observed identities/reasons after adjudication")
+    args = parser.parse_args()
 
-    current = _read_summary_skipped(args.summary)
-    if current is None:
-        print(f"FAIL: could not read skip count from {args.summary}\n"
-              f"  generate it first: "
-              f"BD_DISABLE_KEEPALIVE=1 python3 run_tests.py --summary",
-              file=sys.stderr)
+    try:
+        result = _read_junit(args.junit)
+        if args.update:
+            _write_identity_baseline(args.baseline, result["skipped"])
+            print(f"OK: baseline updated with {len(result['skipped'])} "
+                  f"exact skip identities in {args.baseline}")
+            return 0
+        expected = _read_identity_baseline(args.baseline)
+    except EvidenceError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
 
-    if args.update:
-        # Preserve any leading comment block in the existing file.
-        header_lines = []
-        if args.baseline.is_file():
-            for line in args.baseline.read_text(
-                    encoding="utf-8").splitlines():
-                if line.strip().startswith("#") or not line.strip():
-                    header_lines.append(line)
-                else:
-                    break
-        if not header_lines:
-            header_lines = [
-                "# tests/SKIP_BASELINE.txt — PT9 skip-count gate.",
-                "# Pinned skip count. Update only when adding or removing a",
-                "# legitimate skip; mass-skip regressions show up as a",
-                "# mismatch against this number.",
-                "# Update with: python3 tools/check_skip_baseline.py --update",
-                "",
-            ]
-        body = "\n".join(header_lines) + f"\n{current}\n"
-        args.baseline.parent.mkdir(parents=True, exist_ok=True)
-        args.baseline.write_text(body, encoding="utf-8")
-        print(f"OK: baseline updated to {current} in {args.baseline}")
-        return 0
-
-    baseline = _read_baseline(args.baseline)
-    if baseline is None:
-        print(f"WARN: no baseline at {args.baseline}; current count is "
-              f"{current}. Initialize with --update.", file=sys.stderr)
-        return 2
-
-    if current == baseline:
-        print(f"OK: skip count matches baseline ({current})")
-        return 0
-
-    direction = "UP" if current > baseline else "DOWN"
-    print(f"FAIL: skip count {direction} (baseline {baseline}, "
-          f"current {current})", file=sys.stderr)
-    print(f"  Investigate the change. If intentional, update the "
-          f"baseline:", file=sys.stderr)
-    print(f"    python3 tools/check_skip_baseline.py --update",
-          file=sys.stderr)
-    return 1
+    differences = _compare_skips(expected, result["skipped"])
+    if differences:
+        print("FAIL: skip identities or reasons changed:\n  "
+              + "\n  ".join(differences), file=sys.stderr)
+        return 1
+    noun = "identity" if len(expected) == 1 else "identities"
+    print(f"OK: {len(expected)} exact skip {noun} and reasons match "
+          f"across {result['executed']} executed tests")
+    return 0
 
 
 if __name__ == "__main__":

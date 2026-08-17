@@ -39,7 +39,7 @@ def api_csrf():
     """Return the CSRF token derived from the caller's session cookie.
     Used by the JS UI to seed the X-CSRF-Token header on first load.
 
-    P0.1 (v3.66.202, LEGACY_MIGRATION_PLAN Phase 0): if no valid session
+    Current contract: if no valid session
     exists, mint one HERE and set the cookie on this response — the
     app-level bootstrap. Previously sessions were minted only on GET /
     (the legacy serve_index inline mint + the path-gated
@@ -70,4 +70,3 @@ def register_routes(app) -> int:
     app.register_blueprint(csrf_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("csrf."))
-

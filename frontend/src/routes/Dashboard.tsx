@@ -39,7 +39,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 // ── T1 read-only dashboard (v3.66.205) ──────────────────────────────
 //
 // Ports the legacy `widgets.js` mini-framework as ONE consolidated SPA
-// route (not 1:1 widget tiles), per docs/LEGACY_MIGRATION_PLAN.md Phase
+// route (not 1:1 widget tiles), preserving the current dashboard contract
 // 2 / T1. Pure read-only: every panel is a GET (the one POST,
 // /api/route_urls, is a non-mutating URL→site lookup). No writes, no
 // confirm-gates, no secret fields — those arrive in stateful tranches

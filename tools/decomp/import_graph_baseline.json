@@ -2423,6 +2423,12 @@
     "tests/test_cockpit_capture_profile.py": [
       "tools/cockpit_core.py"
     ],
+    "tests/test_cockpit_navigation_contract.py": [
+      "bulk_downloader/app_cockpit_home.py"
+    ],
+    "tests/test_cockpit_route_contract.py": [
+      "bulk_downloader/app_cockpit_home.py"
+    ],
     "tests/test_cockpit_ui_prefs.py": [
       "tools/cockpit_console.py"
     ],
@@ -2493,8 +2499,19 @@
       "bulk_downloader/db.py",
       "bulk_downloader/secrets_store.py"
     ],
+    "tests/test_csrf_contract_reachability.py": [
+      "bulk_downloader/app.py"
+    ],
     "tests/test_csrf_origin_guard.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_csrf_session_bootstrap.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_csrf_tool_contracts.py": [
+      "bulk_downloader/app.py",
+      "tools/_probe_lib.py"
     ],
     "tests/test_csv_bulk.py": [
       "bulk_downloader/csv_bulk.py"
@@ -2528,13 +2545,6 @@
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_util.py"
-    ],
-    "tests/test_cut35_csrf_meta_contract_retired.py": [
-      "bulk_downloader/app.py"
-    ],
-    "tests/test_cut35_csrf_meta_premise_retired_in_tools.py": [
-      "bulk_downloader/app.py",
-      "tools/_probe_lib.py"
     ],
     "tests/test_cut3_import_preview_routes.py": [
       "bulk_downloader/app.py",
@@ -3118,10 +3128,6 @@
     "tests/test_ollama_unknown_model.py": [
       "bulk_downloader/ai_provider.py"
     ],
-    "tests/test_p01_csrf_bootstrap.py": [
-      "bulk_downloader/app.py",
-      "bulk_downloader/db.py"
-    ],
     "tests/test_p1_release_tooling.py": [
       "tools/check_doc_drift.py",
       "tools/check_version_consistency.py",
@@ -3151,9 +3157,6 @@
     ],
     "tests/test_p3_template_manager_ui.py": [
       "bulk_downloader/app_template_manager_ui.py"
-    ],
-    "tests/test_p4_cockpit_home.py": [
-      "bulk_downloader/app_cockpit_home.py"
     ],
     "tests/test_p7_openapi.py": [
       "tools/build_endpoint_catalog.py",
@@ -3204,9 +3207,6 @@
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/retention.py"
     ],
-    "tests/test_phase1_root_flip.py": [
-      "bulk_downloader/app.py"
-    ],
     "tests/test_phase2_cut21_deadletter_routes.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py"
@@ -3224,9 +3224,6 @@
       "bulk_downloader/vpn_kill_switch_system.py",
       "bulk_downloader/vpn_leak_tests.py",
       "bulk_downloader/vpn_wireguard.py"
-    ],
-    "tests/test_phase4_retired.py": [
-      "bulk_downloader/app_cockpit_home.py"
     ],
     "tests/test_phase9_0_exec_contract.py": [
       "bulk_downloader/aiassist.py",
@@ -3537,6 +3534,9 @@
     "tests/test_sites_config_honours_the_install_dir.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/constants.py"
+    ],
+    "tests/test_spa_root_routing_contract.py": [
+      "bulk_downloader/app.py"
     ],
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"

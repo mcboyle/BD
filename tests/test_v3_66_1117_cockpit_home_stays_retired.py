@@ -50,12 +50,12 @@ _EXEMPT = {
     "CHANGELOG.md",
     "project-knowledge/IMPROVEMENT_BACKLOG.md",
     # Tests that ASSERT the retirement. Each of these names the route in order
-    # to prove it is gone -- test_p4_cockpit_home asserts a 404 for it,
-    # test_phase4_retired asserts it is absent from the url_map, and
+    # to prove it is gone -- the current cockpit route/navigation contracts
+    # assert the 404 and live nav schema, and
     # test_cockpit_appearance asserts no nav renders an href to it. Banning the
     # string here would delete the checks that make the ban true.
-    "tests/test_p4_cockpit_home.py",
-    "tests/test_phase4_retired.py",
+    "tests/test_cockpit_navigation_contract.py",
+    "tests/test_cockpit_route_contract.py",
     "tests/test_cockpit_appearance.py",
     "tests/test_integration_wiring.py",
     # Kept as the HISTORICAL record of the v3.66.3xx nav arrangement, with its

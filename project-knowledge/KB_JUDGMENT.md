@@ -137,7 +137,7 @@ is · canonical instance · the smell · the fix.**
   `git reset --hard origin/main` has no exclusion list, so no file can ship its test without its
   change.
 - **equality-pin-whack-a-mole** — `== N` magnitude pins re-break on every subsequent tranche.
-  *Fix:* convert legacy_parity `== N` to `<= N` ceilings the *same* cut a tranche moves the ratchet.
+  *Fix:* replace magnitude ratchets with direct present-tense behavior and safety contracts.
 - **fixture-looks-like-a-pin** — a synthetic version/SHA string inside a test fixture gets matched
   by a pin-scanner or the `bd-cut` bump() grep. *Instances:* `test_release_hygiene_gates`,
   `test_scan_version_pins_fixture`. *Fix:* allowlist the known fixture files; PIN_INDEX ships a

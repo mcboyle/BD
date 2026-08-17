@@ -1,6 +1,6 @@
-"""The retired csrf-meta-tag premise must be gone from tools/ as well.
+"""Current CSRF diagnostic-tool reachability and truthful-verdict contract.
 
-tests/test_cut35_csrf_meta_contract_retired.py established this contract and
+tests/test_csrf_contract_reachability.py establishes the root-body contract and
 proved it BICONDITIONALLY against measured reachability -- but its denominator
 was `capture.sh` and nothing else. Three siblings under tools/ kept probing the
 same deleted contract, invisibly to it. That is the exact denominator gap the
@@ -104,6 +104,8 @@ import tempfile
 from pathlib import Path
 
 from tools import _probe_lib
+
+BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parents[1]
 TOOLS = REPO / "tools"

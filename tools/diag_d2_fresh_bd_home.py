@@ -201,7 +201,7 @@ try:
     result["body_sha256"] = hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
     # No meta-tag or token-value probe: / is now the installer 503 or the
     # static frontend/dist/index.html, neither of which can carry the retired
-    # csrf meta tag (see tests/test_cut35_csrf_meta_premise_retired_in_tools.py
+    # csrf meta tag (see tests/test_csrf_tool_contracts.py
     # for the literal and the reachability measurement). The token-value field
     # in particular would have written a live CSRF token into a diagnostic that
     # gets shipped. The literal is deliberately not repeated here: this file is

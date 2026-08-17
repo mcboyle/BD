@@ -1,4 +1,4 @@
-"""The deleted csrf-meta-tag contract must not be probed OR advertised.
+"""Current CSRF root-body probe and actionable-hint contract.
 
 THE DEFECT, in two places that echo one deleted premise.
 
@@ -61,6 +61,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
+BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parents[1]
 CAPTURE_SH = REPO / "capture.sh"

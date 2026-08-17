@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """test_runtime_report.py — test health report (G). Read-only except the report.
-Composes test_inventory + test_coverage_catalog + the pinned skip baseline, and
+Composes test_inventory + test_coverage_catalog + the exact skip-identity baseline, and
 parses a SUMMARY.txt (from `run_tests.py --summary`) if one is present — it does
 NOT run the suite itself. Writes reports/test_health.md.
 CLI: --root, --summary PATH, --outdir
@@ -9,7 +9,7 @@ import os as _os_rc, sys as _sys_rc
 _sys_rc.path.insert(0, _os_rc.path.dirname(_os_rc.path.abspath(__file__)))
 import report_core as _RC  # shared write/render helpers
 
-import argparse, os, re, sys
+import argparse, json, os, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_inventory as TI  # type: ignore
@@ -19,13 +19,13 @@ _SUM = re.compile(r"Total:\s*(\d+)\s*\|\s*Passed:\s*(\d+)\s*\|\s*Failed:\s*(\d+)
 
 
 def _skip_baseline(root):
-    p = os.path.join(root, "tests", "SKIP_BASELINE.txt")
+    p = os.path.join(root, "tests", "SKIP_BASELINE.json")
     try:
-        for ln in open(p):
-            ln = ln.strip()
-            if ln and not ln.startswith("#"):
-                return int(ln)
-    except (OSError, ValueError):
+        payload = json.loads(Path(p).read_text(encoding="utf-8"))
+        if payload.get("schema") == "bd-skip-baseline/1":
+            rows = payload.get("skips")
+            return len(rows) if isinstance(rows, list) else None
+    except (OSError, ValueError, AttributeError):
         pass
     return None
 

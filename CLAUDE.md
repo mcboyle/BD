@@ -1740,7 +1740,7 @@ system match them, which is the first item below.
   Two tests fail without it and neither names the cause:
   `test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree` ("declared
   data dir does not exist: frontend/dist") and
-  `test_phase1_root_flip::test_missing_asset_is_404_not_spa_html` (503). They
+  `test_spa_root_routing_contract::test_missing_asset_is_404_not_spa_html` (503). They
   were the last two failures a session had to wave away as environmental, so a
   future occurrence is now real signal rather than noise.
 - **Gitignored generated artifacts still go stale, and `git clean -fd` will not

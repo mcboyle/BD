@@ -19,19 +19,17 @@ import type {
   OkResult,
 } from "@/lib/api-types";
 
-// ── T2 history/logs/search tranche (v3.66.206) ──────────────────────
+// ── Current history/logs/search API consumers ───────────────────────
 //
-// Ports the 12 legacy-only history/logs/search families into the SPA
-// /history route, per docs/LEGACY_MIGRATION_PLAN.md Phase 2 / T2. Each
+// The 12 history/logs/search families are consumed by the SPA /history route. Each
 // call uses the FULL "/api/…" string literal (NOT a concatenated base
-// var) so tools/legacy_parity.py + gui_parity_inventory.py credit the
-// endpoint spa_wired and it drops out of the legacy-only baseline.
+// var) so gui_parity_inventory.py observes the SPA endpoint consumer.
 //
-// First confirm-gated writes of Phase 2 (log clear, history vacuum,
+// Confirm-gated writes (log clear, history vacuum,
 // saved-search add/delete): the route arms them through the typed/
 // one-step confirm dialog (Maintenance.tsx pattern) — never one-click.
 // None of these endpoints carry secrets, so the (R) redaction pairing
-// rule does not bite this tranche (that arrives at T7 notify).
+// rule does not apply here.
 
 const SLOW = 30_000;
 // F4.5: slow safety poll while the shared SSE stream is live.
@@ -67,7 +65,7 @@ export function useHistory(filters: {
  * Uses ?paginate=1 for the first page and ?cursor=<id> for older pages,
  * consuming the {rows, next_cursor} envelope (db_search_cursor). The plain
  * useHistory() bare-array hook above is unchanged. Full "/api/history" literal
- * so tools/legacy_parity.py + gui_parity_inventory.py credit it spa_wired.
+ * so gui_parity_inventory.py observes the SPA endpoint consumer.
  */
 export function useHistoryPaginated(filters: {
   site_id?: string;

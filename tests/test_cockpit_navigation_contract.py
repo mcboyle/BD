@@ -1,12 +1,10 @@
-"""Endpoint + render tests for the additive cockpit landing page (#1 / P4).
-
-Additive only; the existing sidebar is untouched. NEEDS OPERATOR CLICK-THROUGH
-VALIDATION for the live page. Runs under run_tests.py.
-"""
+"""Current cockpit navigation endpoint and schema contract."""
 import sys
 from pathlib import Path
 
 from flask import Flask
+
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO))

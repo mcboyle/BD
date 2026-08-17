@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
-"""test_phase4_retired.py -- end-state assertions for the Phase-4 retirement,
-now extended through the v3.66.353 cleanup cut.
-
-Phase-4 (scope A @344 / scope B @345) retired the redundant server-rendered
-Center PAGES and the dead /api/monitoring/summary API while keeping the live
-APIs the SPA/console depend on. v3.66.353 finished the job by physically
-removing the two now-empty modules (app_actions_center, app_monitoring) from the
-source tree; this file asserts both the retired routing AND the removed modules.
-
-run_tests.py conventions: zero-arg test_* functions, plain asserts, no pytest
-builtins.
-"""
+"""Current cockpit route, navigation, and removed-module contract."""
 import importlib.util
 import json
 from pathlib import Path
 
 from flask import Flask
+
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parent.parent
 

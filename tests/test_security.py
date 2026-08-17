@@ -320,7 +320,7 @@ class TestPhase40CSRFAndPairing:
         # app-level session bootstrap. No session cookie → it MINTS one
         # (same anonymous csrf_bootstrap session GET / mints) instead of
         # refusing. Old contract (ok=false + "no session") retired here;
-        # full bootstrap proof lives in tests/test_p01_csrf_bootstrap.py.
+        # Full bootstrap proof lives in tests/test_csrf_session_bootstrap.py.
         r = fresh_app.get("/api/csrf")
         assert r.status_code == 200
         d = r.get_json()

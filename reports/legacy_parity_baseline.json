@@ -1,5 +1,0 @@
-{
-  "note": "Phase 4 complete (v3.66.334-335): the legacy shell (templates/index.html + static/*.js|css) was DELETED and the /legacy route was removed outright (v3.66.335; /legacy now 404s via the reserved prefix). The legacy-only API surface is empty: the prior tombstone /api/{x} (legacy app.js dynamic /api/${sel}/... dispatch) no longer exists. Floor is now 0. History: 1(P4-pre 316-333) 5(212 live+stream) 10(211) 41(209) 71(207) 94(206) 106(205) 119(201).",
-  "legacy_only_count": 0,
-  "legacy_only": []
-}

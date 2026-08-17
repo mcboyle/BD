@@ -18,12 +18,11 @@ import type {
 //
 // Ports the 12 legacy-only library/tags/scene_score/storage_rebalance
 // families into the EXISTING SPA /library + /rebalance routes, per
-// docs/LEGACY_MIGRATION_PLAN.md Phase 2 / T3 (amended pacing: T3+T4
+// the current library route contract
 // batch). Every call is a FULL "/api/…" string literal (inline `${…}`
 // template params are fine — they normalise to the same parameterised
 // endpoint; a concatenated base var is NOT credited), so
-// tools/legacy_parity.py drops each endpoint from the legacy-only
-// baseline.
+// gui_parity_inventory.py observes each SPA endpoint consumer.
 //
 // Write gating (program contract — never one-click): the bulk tag
 // writes (add/remove/rename) and a non-dry NFO regen arm through the

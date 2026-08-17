@@ -1,24 +1,20 @@
-"""T8 fed/edge_deploy/pair tranche — migration pins (v3.66.211).
+"""Current federation, edge deployment, and pairing SPA contract.
 
-Proves the 8 legacy-only fed/edge_deploy/pair families are now SPA-wired
-(they drop out of the legacy_parity legacy-only set), the /cluster route is
+Proves the 8 endpoint families remain SPA-wired, the /cluster route is
 lazy-loaded with an inbound nav link, the federation TRUST write
 (manual_register) and the fleet-wide write (edge_deploy/all) are A-tier
 (No-default yes/no + amber label), sync_pull is wired as a MUTATION (never a
 query, so it cannot auto-fire), the pair/redeem token is a write-only (R)
 secret (SecretField, never seeded, cleared after submit), no write is
-one-click, and the ratchet baseline committed the 34 -> 10 shrink.
-
-RED on pristine v3.66.210 (none of these were wired; baseline was 34;
-no useCluster hook; no /cluster route).
+one-click.
 
 run_tests.py conventions: zero-arg test functions; repo root from __file__;
 no pytest builtins.
 """
-import importlib.util
-import json
 import re
 from pathlib import Path
+
+BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "frontend" / "src"
@@ -33,26 +29,6 @@ T8_ENDPOINTS = [
     "/api/pair",
     "/api/pair/redeem",
 ]
-
-
-def _load_legacy_parity():
-    spec = importlib.util.spec_from_file_location(
-        "legacy_parity", REPO / "tools" / "legacy_parity.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _norm(s):
-    return {re.sub(r"\{[^}]+\}", "*", e) for e in s}
-
-
-def test_all_8_t8_endpoints_are_spa_wired():
-    """None of the 8 T8 families may remain in the legacy-only set."""
-    lp = _load_legacy_parity()
-    legacy_only = _norm(set(lp.measure()["legacy_only"]))
-    still = [ep for ep in T8_ENDPOINTS if ep in legacy_only]
-    assert not still, "T8 endpoints still legacy-only: " + repr(still)
 
 
 def test_t8_full_literals_present_in_hook():
@@ -112,17 +88,3 @@ def test_t8_writes_never_one_click():
     assert not re.search(r"onClick=\{[^}]*edgeAll\.mutate", route)
     assert not re.search(r"onClick=\{[^}]*redeem\.mutate", route)
     assert "const confirmRun = () =>" in route
-
-
-def test_t8_ratchet_committed_to_10():
-    """Baseline committed the 34 -> 10 shrink; none of the 8 T8 endpoints
-    remain in it."""
-    base = json.loads((REPO / "reports" / "legacy_parity_baseline.json").read_text())
-    # Ceiling, not equality: the ratchet is monotonic-down and later tranches
-    # (T9a -> 5, T9b -> 1) drive it below 10. The invariant is that the 8 T8
-    # families never return to the baseline (checked below); == 10 only re-broke
-    # on the next migration (stale-magnitude-floor lesson, cf. the T7 fix).
-    assert base["legacy_only_count"] <= 10, base["legacy_only_count"]
-    norm = _norm(set(base["legacy_only"]))
-    for ep in T8_ENDPOINTS:
-        assert ep not in norm, f"{ep} still in baseline"
