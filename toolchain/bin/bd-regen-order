@@ -100,6 +100,8 @@ CHAIN = [
 ]
 
 VERIFY = [
+    ("template identity", ["tools/decomp/templates_snapshot.py", "--check"],
+     "GATE: verifies the reviewed frozen template identity; never auto-freezes it"),
     ("route counts", ["tools/check_route_counts.py"],
      "GATE: verifies ROUTE_INDEX/ENDPOINT_CATALOG against the test pins"),
 ]
@@ -247,6 +249,13 @@ def selftest():
           "  NEG: check_route_counts is a gate, not a generator")
     ok &= n2
 
+    verify_blob = " ".join(a for _l, argv, _w in VERIFY for a in argv)
+    n3 = "templates_snapshot.py --check" in verify_blob and \
+         "templates_snapshot.py" not in blob and "--freeze" not in verify_blob
+    print(("%sPASS%s" if n3 else "%sFAIL%s") % ((G, RST) if n3 else (R, RST)) +
+          "  NEG/POS: template identity is verified but never auto-frozen")
+    ok &= n3
+
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -340,9 +349,9 @@ def main():
         rc, out = _run(work, argv)
         tail = out.strip().splitlines()[-1] if out.strip() else ""
         print("  %s %-18s %s" % ((G + "OK" + RST) if rc == 0 else (R + "XX" + RST),
-                                 "route counts", tail[:90]))
+                                 label, tail[:90]))
         if rc != 0:
-            failed.append("route counts")
+            failed.append(label)
 
     if failed:
         print("%sREGEN INCOMPLETE%s -- %s" % (R, RST, ", ".join(failed)))

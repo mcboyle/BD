@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1176 - bind every template producer to the identity snapshot
+
+Cut I maps the exact ten template-identity producers into the affected-band
+gate and makes the canonical regeneration workflow verify the frozen
+91-element snapshot. The workflow never auto-freezes that reviewed declaration;
+a semantic mutation is caught and every producer now bands the same guard.
+
 ## v3.66.1175 - adjudicate authenticated-scene evidence
 
 Cut E closes the stale authenticated-scene proof request without contacting an

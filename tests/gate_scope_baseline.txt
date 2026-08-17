@@ -543,7 +543,6 @@ tests/test_template_registry_filthykings.py
 tests/test_template_registry_host_aliases.py
 tests/test_template_registry_reptyle.py
 tests/test_template_sandbox.py
-tests/test_templates_list_identity.py
 tests/test_templates_v438.py
 tests/test_the_fixture_serves_decodable_segments.py
 tests/test_themes_catalog.py
