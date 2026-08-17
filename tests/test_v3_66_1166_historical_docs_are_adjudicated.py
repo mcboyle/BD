@@ -93,12 +93,14 @@ def _open_label_counts(text: str, labels: set[str]) -> dict[str, int]:
     return counts
 
 
-def test_live_residuals_are_owned_by_exactly_one_open_backlog_row_each():
+def test_ai_boot_residual_is_terminally_owned_by_cut_1177():
     backlog = (ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md").read_text()
-    required = {
-        "AI-BOOT-OBS",
-    }
-    assert _open_label_counts(backlog, required) == {label: 1 for label in required}
+    matches = re.findall(
+        r"^\|\s*164\s*\|\s*CLOSED\s+@1177\s*\|\s*AI-BOOT-OBS\s+--",
+        backlog,
+        flags=re.MULTILINE,
+    )
+    assert len(matches) == 1
 
 
 def test_defect_suppression_residual_is_terminally_owned_by_cut_1174():

@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1636,
+    "edge_count": 1637,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2374,6 +2374,7 @@
         "bulk_downloader/runner_telemetry.py"
       ],
       "bulk_downloader/ai_boot_status.py": [
+        "bulk_downloader/ai_boot_observation.py",
         "bulk_downloader/ai_boot_readiness.py",
         "bulk_downloader/app_ai.py"
       ],
@@ -5068,6 +5069,9 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/download_window.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/ai_boot_observation.py": [
+        "bulk_downloader/ai_boot_status.py"
       ],
       "bulk_downloader/ai_boot_readiness.py": [
         "bulk_downloader/ai_boot_status.py",
