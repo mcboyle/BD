@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 
 
+BD_GATE_SCOPE = "repo-wide"
+
+
 ROOT = Path(__file__).resolve().parent.parent
 SCANNER = ROOT / "toolchain" / "bin" / "bd-defect-scan"
 

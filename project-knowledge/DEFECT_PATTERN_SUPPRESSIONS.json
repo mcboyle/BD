@@ -1,0 +1,77 @@
+{
+  "schema": "bd-defect-suppressions/v1",
+  "entries": [
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/fuzz_service.py",
+      "fingerprint": "5f9af9a1bea40c074d27ba963259ca3aa44eef73b7aa1768a735773791ef36a0",
+      "rationale": "A peer-closed fuzz IPC channel cannot receive the bounded status payload; delivery is best-effort after the peer has gone."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/fuzz_service.py",
+      "fingerprint": "0c2bc8493730171c6b7ce5dca66e4a2ecba18e116c5f0f0e8d4eff3e2e6aa07e",
+      "rationale": "The fuzz worker closes its IPC endpoint in finally; an already-closed endpoint requires no further recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/fuzz_service.py",
+      "fingerprint": "e74027e603abbcafdebd1446d5418631928f528e7d0322d2b66845a74d0e9901",
+      "rationale": "The case worker closes its IPC endpoint in finally; an already-closed endpoint requires no further recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/fuzz_service.py",
+      "fingerprint": "5aeb34ba13d44ab26d88b085a0df05501e1e2e581d9023821cd6a0800b209d53",
+      "rationale": "The hypothesis worker closes its IPC endpoint in finally; an already-closed endpoint requires no further recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/oracle_adapters.py",
+      "fingerprint": "b0df9451e73ff0779aecfd27652064ac5800577583c69be333570ca6f3a8b9eb",
+      "rationale": "Process-group signalling is idempotent cleanup; a group that has already exited needs no recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/oracle_adapters.py",
+      "fingerprint": "b81dc404e76055f98187f492d8dcf57e0da736586b4a2e6b04a51eacfcdeae11",
+      "rationale": "The bounded post-kill reap is best-effort after both termination signals have already been sent."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/oracle_service.py",
+      "fingerprint": "8026d91829394a38c277c0bccd35515987621ff1b192e1c3854d68884d5f7401",
+      "rationale": "A peer-closed oracle IPC channel cannot receive the bounded control payload; delivery is best-effort after the peer has gone."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/oracle_service.py",
+      "fingerprint": "b78f4c49a6091d0bfd04ddc6ab766f762a86efbf711328f28cf09d2fc5bf5f03",
+      "rationale": "The oracle worker closes its IPC endpoint in finally; an already-closed endpoint requires no further recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/oracle_service.py",
+      "fingerprint": "8952decf3286f5f3ddef078cdb433d6a8a6ef81a7528a8c90fd13aa0ada381ea",
+      "rationale": "Per-process signalling is idempotent cleanup; a session member that has already exited needs no recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/oracle_service.py",
+      "fingerprint": "38885b1baa8e71157eb852cfef72c8e54f7d09b7fa7171e0b448af9fc7454418",
+      "rationale": "Fallback process-group signalling is idempotent cleanup; a group that has already exited needs no recovery."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/code_intelligence/semantic_service.py",
+      "fingerprint": "03a33958638a9b0b98098fcecea31e212f367ea76abc27a2ab3043e4502d5f85",
+      "rationale": "Temporary semantic artifacts are unlinked best-effort during cleanup and may already be absent or unsupported by the platform."
+    },
+    {
+      "dp": "DP-13",
+      "path": "tools/graph_build.py",
+      "fingerprint": "78933463d2fa407fdd8f89aaa1bb09dc26fc823f0d705b4b9de72badc59f6a34",
+      "rationale": "Temporary-root discovery deliberately skips an unavailable system temp directory and continues through explicit environment and database-parent candidates."
+    }
+  ]
+}

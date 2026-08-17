@@ -20,9 +20,10 @@ Every collector fails SAFE to None, so a tree this tool cannot read yields ZERO
 metrics -- and zero metrics must never be reported as "nothing regressed", nor
 pinned as a baseline. 2 covers: no baseline, a --baseline that would pin {}, a
 --check where not one pinned metric was measurable, and a --collect that measured
-nothing. One measurable metric is enough for a real verdict.
+nothing. One measurable metric is enough for a real verdict except when the pinned
+defect metric is unavailable: that scanner is a required gate input.
 """
-import argparse, json, os, re, subprocess, sys, time, glob
+import argparse, json, os, subprocess, sys, time, glob
 
 # v3.66.855 desandbox. AFTER the import line on purpose (sys must already be bound).
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -44,6 +45,52 @@ def _routes_unwired_operator(tree):
                and r.get("blueprint") != "cockpit")
 
 
+_DEFECT_IDS = {"DP-%02d" % n for n in range(1, 19)}
+
+
+def _parse_defect_total(stdout):
+    """Return the visible defect total from one exact scanner JSON document.
+
+    Suppression evidence deliberately carries raw and suppressed DP maps beside
+    the visible ``by_dp`` map. Regex extraction cannot tell those meanings apart
+    and double-counts them. This consumer therefore validates the named visible
+    map, its total, and the scan denominator structurally. Anything else is not
+    a measurement.
+    """
+    def _unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("duplicate JSON key: %s" % key)
+            obj[key] = value
+        return obj
+
+    try:
+        payload = json.loads(stdout, object_pairs_hook=_unique_object)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if type(payload.get("schema")) is not int or payload["schema"] != 1:
+        return None
+    scanned = payload.get("files_scanned")
+    total = payload.get("total_findings")
+    by_dp = payload.get("by_dp")
+    if type(scanned) is not int or scanned <= 0:
+        return None
+    if type(total) is not int or total < 0 or not isinstance(by_dp, dict):
+        return None
+    for detector, count in by_dp.items():
+        if detector not in _DEFECT_IDS or type(count) is not int or count < 0:
+            return None
+    if sum(by_dp.values()) != total:
+        return None
+    visible = payload.get("visible_total_findings", total)
+    if type(visible) is not int or visible != total:
+        return None
+    return total
+
+
 def _defect_total(tree):
     """Sum of DP-01..18 occurrences from bd-defect-scan (a ceiling metric).
     FAIL-SAFE: no source tree -> None (skip), never a bogus 0."""
@@ -63,12 +110,9 @@ def _defect_total(tree):
         _env = dict(os.environ, BDTOOLS_CACHE="0")
         r = subprocess.run([sys.executable, exe, "--scan", tree, "--json"],
                            capture_output=True, text=True, timeout=600, env=_env)
-        m = re.findall(r'"DP-\d+"\s*:\s*(\d+)', r.stdout)
-        if m:
-            return sum(int(x) for x in m)
-        # fallback: parse the text "DP-NN: <count>" lines
-        m = re.findall(r'DP-\d+:\s*(\d+)', r.stdout + r.stderr)
-        return sum(int(x) for x in m) if m else None
+        if r.returncode != sec.EXIT_OK:
+            return None
+        return _parse_defect_total(r.stdout)
     except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
         return None
 
@@ -145,6 +189,7 @@ METRICS = {
     "mutation_caught_pct":        (_mutation_caught_pct,     "floor"),
     "spa_wired":                  (_spa_wired,               "floor"),
 }
+_REQUIRED_METRICS = frozenset({"defect_DP_total"})
 
 
 def _collect(tree):
@@ -173,6 +218,12 @@ def cmd_collect(a, record=True):
 
 def cmd_baseline(a):
     vals = _collect(a.tree)
+    missing = sorted(_REQUIRED_METRICS.intersection(METRICS).difference(vals))
+    if missing:
+        sys.stderr.write("CANNOT-EVALUATE: required metric(s) unavailable: %s "
+                         "(reason=%s) -- refusing to pin an incomplete baseline\n"
+                         % (", ".join(missing), sec.REASON_UNREADABLE))
+        return sec.EXIT_CANNOT_EVALUATE
     # THE WORST FAILURE THIS TOOL CAN HAVE. Every collector fails SAFE to None, so a
     # tree it cannot read yields {} -- and pinning {} as the baseline makes every
     # later --check iterate an empty dict and print "OK -- no metric regressed".
@@ -196,6 +247,7 @@ def cmd_check(a):
     base = json.load(open(BASELINE))
     cur = _collect(a.tree)
     regressed = []
+    required_unknown = []
     compared = 0
     print("ratchet check vs baseline:")
     for n, bv in sorted(base.items()):
@@ -210,7 +262,10 @@ def cmd_check(a):
             continue
         cv = cur.get(n)
         if cv is None:
-            print(f"  [skip] {n} (not measurable now)"); continue
+            print(f"  [skip] {n} (not measurable now)")
+            if n in _REQUIRED_METRICS:
+                required_unknown.append(n)
+            continue
         compared += 1
         d = METRICS[n][1]
         bad = (cv > bv) if d == "ceiling" else (cv < bv)
@@ -226,6 +281,11 @@ def cmd_check(a):
             verb = "rose" if d == "ceiling" else "fell"
             print(f"  * {n}: {verb} {bv} -> {cv}")
         return 3
+    if required_unknown:
+        sys.stderr.write("CANNOT-EVALUATE: pinned required metric(s) were not "
+                         "measurable: %s (reason=%s) -- no green verdict\n"
+                         % (", ".join(required_unknown), sec.REASON_UNREADABLE))
+        return sec.EXIT_CANNOT_EVALUATE
     # Every collector fails safe to None, so a tree this tool cannot read produces a
     # page of "[skip]" lines followed by "OK -- no metric regressed": a pass minted
     # over zero comparisons. ONE comparison is enough to mint a verdict, so a

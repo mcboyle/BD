@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T20:53:04+00:00",
- "version_context": "v3.66.1173",
- "file_count": 79,
+ "generated": "2026-08-17T21:33:09+00:00",
+ "version_context": "v3.66.1174",
+ "file_count": 80,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -77,8 +77,8 @@
    "bytes": 7960
   },
   "CODE_INTELLIGENCE_PROGRAM.md": {
-   "sha256": "9a74b69b0ffe544553598c6480a2bd39923859672a9f49f5c18e4ead2e8bdaa0",
-   "bytes": 2392
+   "sha256": "87aa83dfea8fa69f84cf6d935f886ab227929c8298b5994de7784aa9082c3096",
+   "bytes": 3060
   },
   "CODE_INTELLIGENCE_SCHEMAS.md": {
    "sha256": "f87ee42227160fa17e7484cc5b6449ac35161eb1487056865fa31dd2677597b4",
@@ -113,8 +113,12 @@
    "bytes": 6957
   },
   "DEFECT_PATTERN_CATALOG.md": {
-   "sha256": "8823a5fbd12e32369bdb1da5c6417cd735f7aefe8dad47df95cddcd9f254411f",
-   "bytes": 10599
+   "sha256": "b2e1de750e3c81a0ddc51a71e2738b00a0f70b0d7d321775da04ef3e28737527",
+   "bytes": 11689
+  },
+  "DEFECT_PATTERN_SUPPRESSIONS.json": {
+   "sha256": "8b642266d133de8028e85b25b232b917e318f4f0a353efc4f8798d8aa16b77a7",
+   "bytes": 3860
   },
   "DRM_EME_DETECTION_DECISION.md": {
    "sha256": "171ac87785e7f21b1e3b5dee76ec00d00528e4161a5951c32148658ed662da9d",
@@ -129,8 +133,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "d7db1bf991fd18a26cecabc8dabfd1994992a2776df7dd062b6d2e31f0b2e3cc",
-   "bytes": 106355
+   "sha256": "fcc30a607dd3bdb04d8a75a62b36acf7a3bbdafc344c48a1ed56d9db39c39cd4",
+   "bytes": 106710
   },
   "KB_ACTIVE_INDEX.md": {
    "sha256": "78c4d7785f3a952ec17e45039812f132a080d169bb6444504b0ebccb09685855",

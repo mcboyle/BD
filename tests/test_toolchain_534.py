@@ -2347,3 +2347,153 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
                             cwd=root, capture_output=True, text=True, timeout=300)
         assert ok.returncode == 0, (
             "a real passing suite must stay green:\n" + ok.stdout + ok.stderr)
+
+
+# --------------------------------------------------------------------------- #
+# bd-ratchet -- defect-scan JSON is a structural gate boundary                #
+# --------------------------------------------------------------------------- #
+
+def _load_bd_ratchet():
+    """Load the shipped extensionless tool without running its main()."""
+    import importlib.machinery
+    import importlib.util
+
+    path = _REPO_ROOT / "toolchain" / "bin" / "bd-ratchet"
+    loader = importlib.machinery.SourceFileLoader("bd_ratchet_1174", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(path.parent))
+    try:
+        loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+    return module
+
+
+def _ratchet_defect_total(payload, returncode=0, raw_stdout=None):
+    """Drive the real collector while replacing only its slow child process."""
+    import tempfile
+    from types import SimpleNamespace
+    from unittest import mock
+
+    ratchet = _load_bd_ratchet()
+    stdout = json.dumps(payload) if raw_stdout is None else raw_stdout
+    child = SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "bulk_downloader"))
+        with mock.patch.object(ratchet.subprocess, "run", return_value=child):
+            return ratchet._defect_total(td)
+
+
+def test_ratchet_reads_only_the_visible_structural_defect_map():
+    """A raw/suppressed diagnostic map must not be counted as visible debt.
+
+    Mutation caught: restoring the regex sums every JSON object whose key looks
+    like DP-NN. Once suppression output carries both raw_by_dp and by_dp, that
+    silently double-counts the same findings and compares the wrong metric.
+    """
+    payload = {
+        "schema": 1,
+        "root": "/work",
+        "files_with_findings": 2,
+        "total_findings": 5,
+        "files_scanned": 8,
+        "by_dp": {"DP-01": 2, "DP-13": 3},
+        "findings": {},
+        "raw_total_findings": 1041,
+        "raw_by_dp": {"DP-13": 1041},
+        "suppressed_by_dp": {"DP-13": 1038},
+    }
+    assert _ratchet_defect_total(payload) == 5
+
+
+def test_ratchet_accepts_a_proven_zero_over_a_nonzero_scan_denominator():
+    """Zero visible findings is valid only when the scanner actually scanned."""
+    payload = {
+        "schema": 1,
+        "root": "/work",
+        "files_with_findings": 0,
+        "total_findings": 0,
+        "files_scanned": 8,
+        "by_dp": {},
+        "findings": {},
+    }
+    assert _ratchet_defect_total(payload) == 0
+
+
+def test_ratchet_rejects_nonzero_or_structurally_invalid_scanner_results():
+    """A launched child is not a verdict: malformed/inconsistent JSON is UNKNOWN.
+
+    Each fixture still contains a tempting DP count where useful, so a regex
+    fallback or an implementation that ignores the child status fails this test.
+    """
+    valid = {
+        "schema": 1,
+        "root": "/work",
+        "files_with_findings": 1,
+        "total_findings": 4,
+        "files_scanned": 8,
+        "by_dp": {"DP-13": 4},
+        "findings": {},
+    }
+    cases = [
+        (valid, 2, None),
+        (valid, 0, '{"by_dp":{"DP-13":4} trailing'),
+        ({**valid, "by_dp": None}, 0, None),
+        ({**valid, "total_findings": 3}, 0, None),
+        ({**valid, "visible_total_findings": 3}, 0, None),
+        ({**valid, "files_scanned": 0}, 0, None),
+        ({**valid, "by_dp": {"DP-19": 4}}, 0, None),
+        ({**valid, "by_dp": {"DP-13": True}}, 0, None),
+        ({**valid, "by_dp": {"DP-13": -1}, "total_findings": -1}, 0, None),
+        (valid, 0,
+         '{"schema":1,"files_scanned":8,"total_findings":4,'
+         '"by_dp":{"DP-01":1},"by_dp":{"DP-13":4}}'),
+    ]
+    for payload, returncode, raw_stdout in cases:
+        got = _ratchet_defect_total(payload, returncode, raw_stdout)
+        assert got is None, (payload, returncode, raw_stdout, got)
+
+
+def test_ratchet_check_cannot_pass_when_the_pinned_defect_metric_is_unknown():
+    """One unrelated metric must not turn a failed defect scan into green."""
+    import tempfile
+    from types import SimpleNamespace
+
+    ratchet = _load_bd_ratchet()
+    old_metrics, old_baseline = ratchet.METRICS, ratchet.BASELINE
+    with tempfile.TemporaryDirectory() as td:
+        ratchet.BASELINE = os.path.join(td, "baseline.json")
+        with open(ratchet.BASELINE, "w") as fh:
+            json.dump({"defect_DP_total": 10, "spa_wired": 4}, fh)
+        ratchet.METRICS = {
+            "defect_DP_total": (lambda _tree: None, "ceiling"),
+            "spa_wired": (lambda _tree: 4, "floor"),
+        }
+        try:
+            rc = ratchet.cmd_check(SimpleNamespace(tree="/work"))
+        finally:
+            ratchet.METRICS, ratchet.BASELINE = old_metrics, old_baseline
+    assert rc == ratchet.sec.EXIT_CANNOT_EVALUATE
+
+
+def test_ratchet_refuses_to_pin_a_baseline_without_the_defect_metric():
+    """A fresh baseline must not permanently omit the required scanner gate."""
+    import tempfile
+    from types import SimpleNamespace
+
+    ratchet = _load_bd_ratchet()
+    old_metrics, old_baseline = ratchet.METRICS, ratchet.BASELINE
+    with tempfile.TemporaryDirectory() as td:
+        ratchet.BASELINE = os.path.join(td, "baseline.json")
+        ratchet.METRICS = {
+            "defect_DP_total": (lambda _tree: None, "ceiling"),
+            "spa_wired": (lambda _tree: 4, "floor"),
+        }
+        try:
+            rc = ratchet.cmd_baseline(SimpleNamespace(tree="/work"))
+            wrote = os.path.exists(ratchet.BASELINE)
+        finally:
+            ratchet.METRICS, ratchet.BASELINE = old_metrics, old_baseline
+    assert rc == ratchet.sec.EXIT_CANNOT_EVALUATE
+    assert not wrote

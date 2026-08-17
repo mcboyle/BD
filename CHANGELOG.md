@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1174 - bind reviewed defect suppressions to semantic nodes
+
+Cut G adds one strict, reviewed 12-entry DP-13 suppression authority shared by
+both defect-scanner entry points. Decisions bind repository path, lexical owner,
+owning try-body AST, handler AST, detector, and rationale without line-number
+identity. Raw findings remain observable and cached unchanged; filtering occurs
+after raw detection, and semantic changes make stale findings reappear.
+
+Malformed, duplicate, ambiguous, escaping, unreadable, or stale authority fails
+closed. The defect ratchet now parses the visible JSON map structurally, refuses
+an unavailable pinned defect metric, and cannot double-count raw diagnostics.
+
 ## v3.66.1173 - pay the measured gate-scope debt
 
 Cut C explicitly classifies the exact 24 pre-policy repository gates, removes

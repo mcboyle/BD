@@ -17,6 +17,14 @@ The durable machine surfaces are the dependency/function/import graphs, root
 The historical 58-batch evidence census is
 `project-knowledge/AUDIT_COMPLETION_LEDGER.json`.
 
+Reviewed defect-pattern exceptions have one durable authority:
+`project-knowledge/DEFECT_PATTERN_SUPPRESSIONS.json`. Each entry is bound to an
+executable detector ID, a normalized production path, a normalized-AST
+fingerprint, and a review rationale. The detectors still run before the exact
+tree result is filtered; semantic edits make a finding reappear. Invalid,
+stale, or ambiguous authority is CANNOT-EVALUATE, never an empty finding set.
+Raw single-file and regression-corpus controls are not suppression-aware.
+
 ## Current frontends
 
 - `toolchain/bin/bd-coverage-map` is built and launches
@@ -33,9 +41,11 @@ The historical command names `bd-review-next`, `bd-finding`, `bd-invariant`, and
 built capability, not proof that `bd-invariant` exists. Do not restore absent
 names merely to satisfy an old plan.
 
-## Current residual ownership
+## Current ownership
 
-- Backlog 139 owns reviewed, AST-bound `bd-defect-scan` suppressions.
+- Reviewed, AST-bound `bd-defect-scan` tree suppressions belong only in the
+  canonical authority above. `bd-triage` remains a separate generic audit
+  triage mechanism and is not an alternative defect-pattern suppression path.
 - Backlog 140 is closed by the exact historical audit-evidence census; it does
   not claim that unknown batches completed.
 - Any future analyzer integration must begin as a newly measured atomic backlog
