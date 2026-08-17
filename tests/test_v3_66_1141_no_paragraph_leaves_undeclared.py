@@ -39,6 +39,7 @@ that lives only in prose has not been deferred, it has been dropped.
 
 from __future__ import annotations
 
+import argparse
 import importlib.machinery
 import importlib.util
 import pathlib
@@ -47,6 +48,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 
 # Its subject is the contract corpus and one tool -- not the tree.
 BD_GATE_SCOPE = "module"
@@ -72,6 +74,22 @@ def _check(root, baseline) -> subprocess.CompletedProcess:
         capture_output=True, text=True, timeout=180)
 
 
+def _synthetic_contract(text: str):
+    """Return a populated temporary contract root and its loaded tool."""
+    td = tempfile.TemporaryDirectory()
+    root = pathlib.Path(td.name)
+    (root / "project-knowledge").mkdir()
+    contract = root / "CLAUDE.md"
+    baseline = root / "project-knowledge" / "CONTRACT_RULES.baseline"
+    contract.write_text(text, encoding="utf-8")
+    mod = _load()
+    ns = argparse.Namespace(root=str(root), baseline=str(baseline), show=20)
+    assert mod.cmd_extract(ns) == 0, "fixture precondition: fresh extraction failed"
+    active, _ = mod.load_baseline(baseline)
+    assert active, "fixture precondition: extraction produced no denominator"
+    return td, root, contract, baseline, mod
+
+
 # ---------------------------------------------------------------- preconditions
 
 def test_the_tool_and_the_baseline_exist():
@@ -93,10 +111,16 @@ def test_the_baseline_is_not_empty_and_covers_the_contract():
     """
     mod = _load()
     active, removed = mod.load_baseline(BASELINE)
-    assert len(active) >= 100, (
-        f"the baseline holds only {len(active)} active paragraph(s); the "
-        "contract had 300 when it was frozen. A shrunken baseline protects "
-        "nothing and must be explained by DECLARED REMOVALS, not by silence.")
+    current = mod.paragraphs(CONTRACT.read_text(encoding="utf-8"))
+    current_fps = {mod.fingerprint(paragraph) for paragraph in current}
+    assert len(active) == len(current) == len(current_fps) == 308, (
+        "the intended paragraph denominator drifted: "
+        f"active={len(active)}, paragraphs={len(current)}, unique={len(current_fps)}. "
+        "Every current paragraph must be frozen explicitly; additions are not "
+        "allowed to fall outside the conservation gate.")
+    assert set(active) == current_fps, (
+        "the baseline and current contract have different paragraph identities; "
+        "a matching count does not prove matching subjects")
     # Every declared removal must carry a reason -- a bare fingerprint under
     # that heading is a deletion with the paperwork skipped.
     for fp, reason in removed.items():
@@ -132,11 +156,13 @@ def test_a_deleted_paragraph_fails_the_gate():
         shutil.copy(BASELINE, root / "project-knowledge" / BASELINE.name)
 
         paras = mod.paragraphs((root / "CLAUDE.md").read_text(encoding="utf-8"))
-        assert len(paras) > 20, "fixture precondition: the copy has paragraphs"
-        # Drop a LONG paragraph: a short one risks its excerpt surviving as a
-        # substring of some other paragraph, which would make this test pass for
-        # the wrong reason.
-        victim = max(paras, key=len)
+        active, _ = mod.load_baseline(root / "project-knowledge" / BASELINE.name)
+        frozen = [paragraph for paragraph in paras if mod.fingerprint(paragraph) in active]
+        assert len(frozen) == len(active) == 308, (
+            "fixture precondition: the copied corpus is not the frozen denominator")
+        # Drop a LONG paragraph so the failure identifies a substantial active
+        # subject rather than a heading or another incidental short unit.
+        victim = max(frozen, key=len)
         body = (root / "CLAUDE.md").read_text(encoding="utf-8")
         assert body.count(victim) == 1, "the victim paragraph is not unique"
         (root / "CLAUDE.md").write_text(body.replace(victim, "", 1),
@@ -148,6 +174,105 @@ def test_a_deleted_paragraph_fails_the_gate():
             f"{r.returncode}). It cannot protect the contract.\n{r.stdout[-1200:]}")
         assert "FAIL" in r.stdout and "LOST" in r.stdout, (
             "the gate failed without naming what it lost")
+
+
+def test_preserving_an_excerpt_prefix_does_not_authorize_suffix_loss():
+    """A human excerpt is diagnostic text, never proof of paragraph identity."""
+    original = (
+        "The release gate must preserve this deliberately long and unique prefix "
+        "through the complete frozen excerpt boundary before the decisive rule: "
+        "NEVER authorize publication without the exact terminal evidence."
+    )
+    td, root, contract, baseline, mod = _synthetic_contract(
+        "# Contract\n\n" + original + "\n")
+    with td:
+        active, _ = mod.load_baseline(baseline)
+        victim_fp = mod.fingerprint(original)
+        assert victim_fp in active, "fixture precondition: victim is frozen"
+        excerpt = active[victim_fp]
+        assert len(excerpt) == mod.EXCERPT
+        assert original.startswith(excerpt)
+
+        changed = excerpt + " The decisive rule was deleted after the excerpt."
+        assert mod.normalise(changed) != mod.normalise(original)
+        contract.write_text("# Contract\n\n" + changed + "\n", encoding="utf-8")
+        fps, _, _ = mod.corpus_state(root)
+        assert victim_fp not in fps, "fixture precondition: exact identity still survived"
+
+        r = _check(root, baseline)
+        assert r.returncode == 1, (
+            "a matching excerpt prefix authorized a different paragraph; human "
+            f"display text became the success oracle:\n{r.stdout}")
+        assert f"LOST {victim_fp}" in r.stdout
+
+
+def test_case_only_semantic_mutation_is_not_the_same_paragraph():
+    original = "You MUST preserve UNKNOWN as a distinct state before authorization."
+    changed = original.replace("MUST", "must").replace("UNKNOWN", "unknown")
+    assert changed != original
+    assert changed.lower() == original.lower()
+    td, root, contract, baseline, mod = _synthetic_contract(
+        "# Contract\n\n" + original + "\n")
+    with td:
+        active, _ = mod.load_baseline(baseline)
+        victim_fp = next(fp for fp, excerpt in active.items() if "UNKNOWN" in excerpt)
+        contract.write_text("# Contract\n\n" + changed + "\n", encoding="utf-8")
+
+        r = _check(root, baseline)
+        assert r.returncode == 1, (
+            "lowercasing fingerprints hid a case-only semantic mutation:\n" + r.stdout)
+        assert f"LOST {victim_fp}" in r.stdout
+
+
+def test_extract_refuses_to_overwrite_an_established_baseline():
+    td, root, contract, baseline, mod = _synthetic_contract(
+        "# Contract\n\nNever replace an established intent baseline silently.\n")
+    with td:
+        before = baseline.read_bytes()
+        contract.write_text(
+            "# Contract\n\nA different contract must not become truth by extraction.\n",
+            encoding="utf-8")
+        r = subprocess.run(
+            [sys.executable, str(TOOL), "--extract", "--root", str(root),
+             "--baseline", str(baseline)],
+            capture_output=True, text=True, timeout=180)
+        assert r.returncode == 2
+        assert "REFUSED" in r.stderr and "already exists" in r.stderr
+        assert baseline.read_bytes() == before, (
+            "a refused extraction changed the established baseline")
+
+
+def test_whitespace_only_reflow_preserves_the_exact_fingerprint():
+    original = "Every required gate must preserve its exact measured denominator."
+    td, root, contract, baseline, mod = _synthetic_contract(
+        "# Contract\n\n" + original + "\n")
+    with td:
+        changed = "Every required\n gate\tmust preserve its exact measured denominator."
+        assert changed != original
+        assert mod.normalise(changed) == mod.normalise(original)
+        assert mod.fingerprint(changed) == mod.fingerprint(original)
+        contract.write_text("# Contract\n\n" + changed + "\n", encoding="utf-8")
+        assert _check(root, baseline).returncode == 0
+
+
+def test_verbatim_move_is_the_only_thing_that_restores_a_missing_paragraph():
+    victim = "A frozen rule may move verbatim, but it may not silently disappear."
+    td, root, contract, baseline, mod = _synthetic_contract(
+        "# Contract\n\n" + victim + "\n")
+    with td:
+        victim_fp = mod.fingerprint(victim)
+        contract.write_text("# Contract\n\nA different retained paragraph remains.\n",
+                            encoding="utf-8")
+        missing = _check(root, baseline)
+        assert missing.returncode == 1 and f"LOST {victim_fp}" in missing.stdout
+
+        casebook = root / "project-knowledge" / "CONTRACT_CASEBOOK.md"
+        casebook.write_text("# Casebook\n\n" + victim + "\n", encoding="utf-8")
+        contract_fps = {mod.fingerprint(p) for p in mod.paragraphs(contract.read_text())}
+        corpus_fps, _, _ = mod.corpus_state(root)
+        assert victim_fp not in contract_fps
+        assert victim_fp in corpus_fps
+        assert _check(root, baseline).returncode == 0
 
 
 def test_reflowing_the_contract_does_not_fire():
@@ -166,30 +291,30 @@ def test_reflowing_the_contract_does_not_fire():
             shutil.copy(CASEBOOK, root / "project-knowledge" / CASEBOOK.name)
         shutil.copy(BASELINE, root / "project-knowledge" / BASELINE.name)
 
-        # Re-wrap every prose line to a different width, leaving fences alone.
-        out, fence = [], False
-        for line in CONTRACT.read_text(encoding="utf-8").split("\n"):
-            if line.lstrip().startswith("```"):
-                fence = not fence
-                out.append(line)
-                continue
-            if fence or not line.strip() or line.lstrip().startswith(("#", "|", "-", "*")):
-                out.append(line)
-                continue
-            words = line.split()
-            cur = ""
-            for w in words:
-                if len(cur) + len(w) + 1 > 55:
-                    out.append(cur)
-                    cur = w
-                else:
-                    cur = f"{cur} {w}".strip()
-            out.append(cur)
-        rewrapped = "\n".join(out)
-        assert rewrapped != CONTRACT.read_text(encoding="utf-8"), (
+        mod = _load()
+        body = CONTRACT.read_text(encoding="utf-8")
+        active, _ = mod.load_baseline(root / "project-knowledge" / BASELINE.name)
+        candidates = [
+            paragraph for paragraph in mod.paragraphs(body)
+            if mod.fingerprint(paragraph) in active
+            and len(paragraph) > 300
+            and not any(line.lstrip().startswith(("#", "|", "-", "*", "```"))
+                        for line in paragraph.splitlines())
+        ]
+        assert candidates, "fixture precondition: no active plain-prose paragraph"
+        victim = candidates[0]
+        assert body.count(victim) == 1
+        reflowed = "\n".join(textwrap.wrap(
+            mod.normalise(victim), width=55,
+            break_long_words=False, break_on_hyphens=False))
+        assert reflowed != victim, (
             "fixture precondition: the re-wrap must actually change the text, "
             "or this test proves nothing (CLAUDE.md section 6)")
-        (root / "CLAUDE.md").write_text(rewrapped, encoding="utf-8")
+        assert mod.normalise(reflowed) == mod.normalise(victim)
+        assert mod.fingerprint(reflowed) == mod.fingerprint(victim)
+        changed = body.replace(victim, reflowed, 1)
+        assert len(mod.paragraphs(changed)) == len(mod.paragraphs(body)) == 308
+        (root / "CLAUDE.md").write_text(changed, encoding="utf-8")
 
         r = _check(root, root / "project-knowledge" / BASELINE.name)
         assert r.returncode == 0, (
@@ -207,7 +332,10 @@ def test_a_paragraph_moved_to_the_casebook_passes():
         shutil.copy(BASELINE, root / "project-knowledge" / BASELINE.name)
         body = CONTRACT.read_text(encoding="utf-8")
         paras = mod.paragraphs(body)
-        victim = max(paras, key=len)
+        active, _ = mod.load_baseline(root / "project-knowledge" / BASELINE.name)
+        frozen = [paragraph for paragraph in paras if mod.fingerprint(paragraph) in active]
+        assert len(frozen) == len(active) == 308
+        victim = max(frozen, key=len)
         (root / "CLAUDE.md").write_text(body.replace(victim, "", 1),
                                         encoding="utf-8")
         existing = CASEBOOK.read_text(encoding="utf-8") if CASEBOOK.is_file() else "# Casebook\n"
