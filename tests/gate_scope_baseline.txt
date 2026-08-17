@@ -30,7 +30,6 @@ tests/test_api_token_admin_reserved.py
 tests/test_app06_reveal_path_scope.py
 tests/test_app_auth.py
 tests/test_app_semantic_search.py
-tests/test_architecture_inventory.py
 tests/test_audit_f2_p13a.py
 tests/test_audit_p3a.py
 tests/test_audit_promotion_wirings_533.py

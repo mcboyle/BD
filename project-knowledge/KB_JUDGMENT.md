@@ -1195,8 +1195,9 @@ disagreed about which keys are legitimate.
    key set is a SUBSET of the backend write denominator. A Settings field the
    backend would 400 on is now a test failure, not a shipped bug. This is the
    symmetric contract the @709 comment asked for and never got.
-3. Read-side residual (still open, test-only): widen the @709 scan regex to see
-   loop reads, or the read-vs-declared gate stays blind to the same pattern.
+3. The loop-read scanner residual closed at v3.66.781:
+   `test_scanner_detects_loop_read_keys` now exercises tuple-driven reads, so the
+   read and write denominators cannot silently diverge on that shape.
 
 ### The meta-lesson
 The operator reported THREE keys (the ones they happened to touch). The

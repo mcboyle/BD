@@ -1,0 +1,623 @@
+{
+  "batch_aliases": {
+    "CBD": "CORE_BD",
+    "COREBD": "CORE_BD",
+    "CORE_BD": "CORE_BD",
+    "TO": "TOOLS_OTHER",
+    "TOOLSO": "TOOLS_OTHER",
+    "TOOLS_OTHER": "TOOLS_OTHER"
+  },
+  "batches": [
+    {
+      "artifacts": [],
+      "batch": "FE-01",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-FE02-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-03",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-04",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-FE04-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-05",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-06",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-FE06-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-07",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-08",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-09",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-FE09-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "FE-10",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [
+        "docs/audit/AUDIT_CAP-01_v3_66_532.json"
+      ],
+      "batch": "CAP-01",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "artifact_backed",
+      "finding_ids": [
+        "F-CAP01-01",
+        "F-CAP01-manifest-gap"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "REC-01",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-REC01-01",
+        "F-REC01-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "REC-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-REC02-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "REC-03",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-REC03-01",
+        "F-REC03-02",
+        "F-REC03-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "REC-04",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [
+        "docs/audit/AUDIT_RUN-01_v3_66_532.json"
+      ],
+      "batch": "RUN-01",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "artifact_backed",
+      "finding_ids": [
+        "F-RUN01-01",
+        "F-RUN01-02",
+        "F-RUN01-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "RUN-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-RUN02-01",
+        "F-RUN02-02",
+        "F-RUN02-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "RUN-03",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-RUN03-01",
+        "F-RUN03-02",
+        "F-RUN03-03",
+        "F-RUN03-04"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "AUTH-01",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "AUTH-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-AUTH02-01",
+        "F-AUTH02-02",
+        "F-AUTH02-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "APP-01",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-APP01-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "APP-02",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "APP-03",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-APP03-01",
+        "F-APP03-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "APP-04",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-APP04-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "APP-05",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-APP05-01",
+        "F-APP05-02",
+        "F-APP05-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "APP-06",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-APP06-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-01",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CBD01-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD02-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-03",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CBD03-01",
+        "F-CBD03-02",
+        "F-CBD03-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-04",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CORE_BD04-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-05",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD05-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-06",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD06-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-07",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-08",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD08-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-09",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-10",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CORE_BD10-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-11",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD11-01",
+        "F-COREBD11-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-12",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CBD12-01",
+        "F-CBD12-02",
+        "F-CORE_BD12-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-13",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD13-01",
+        "F-COREBD13-02",
+        "F-COREBD13-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-14",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CORE_BD14-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-15",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-CORE_BD15-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-16",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-17",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD17-01",
+        "F-COREBD17-02",
+        "F-COREBD17-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-18",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COREBD18-01",
+        "F-COREBD18-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "CORE_BD-19",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "COCKPIT-01",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COCKPIT01-01",
+        "F-COCKPIT01-02",
+        "F-COCKPIT01-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "COCKPIT-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COCKPIT02-01",
+        "F-COCKPIT02-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "COCKPIT-03",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-COCKPIT03-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_BUILD-01",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_BUILD-02",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-01",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-02",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-TOOLS_OTHER02-01"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-03",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-04",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-TOOLSO04-01",
+        "F-TOOLSO04-02",
+        "F-TOOLSO04-03"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-05",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-06",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-TO06-01",
+        "F-TO06-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-07",
+      "completion_verdict": "partial_unknown",
+      "evidence_class": "finding_citations_only",
+      "finding_ids": [
+        "F-TOOLS_OTHER07-01",
+        "F-TOOLS_OTHER07-02"
+      ]
+    },
+    {
+      "artifacts": [],
+      "batch": "TOOLS_OTHER-08",
+      "completion_verdict": "unknown",
+      "evidence_class": "no_surviving_evidence",
+      "finding_ids": []
+    }
+  ],
+  "completion_marker": "EVIDENCE_CENSUS_COMPLETE",
+  "finding_ids": [
+    "F-APP01-01",
+    "F-APP03-01",
+    "F-APP03-02",
+    "F-APP04-01",
+    "F-APP05-01",
+    "F-APP05-02",
+    "F-APP05-03",
+    "F-APP06-01",
+    "F-AUTH02-01",
+    "F-AUTH02-02",
+    "F-AUTH02-03",
+    "F-CAP01-01",
+    "F-CAP01-manifest-gap",
+    "F-CBD01-01",
+    "F-CBD03-01",
+    "F-CBD03-02",
+    "F-CBD03-03",
+    "F-CBD12-01",
+    "F-CBD12-02",
+    "F-COCKPIT01-01",
+    "F-COCKPIT01-02",
+    "F-COCKPIT01-03",
+    "F-COCKPIT02-01",
+    "F-COCKPIT02-02",
+    "F-COCKPIT03-01",
+    "F-COREBD02-01",
+    "F-COREBD05-01",
+    "F-COREBD06-01",
+    "F-COREBD08-01",
+    "F-COREBD11-01",
+    "F-COREBD11-02",
+    "F-COREBD13-01",
+    "F-COREBD13-02",
+    "F-COREBD13-03",
+    "F-COREBD17-01",
+    "F-COREBD17-02",
+    "F-COREBD17-03",
+    "F-COREBD18-01",
+    "F-COREBD18-02",
+    "F-CORE_BD04-01",
+    "F-CORE_BD10-01",
+    "F-CORE_BD12-01",
+    "F-CORE_BD14-01",
+    "F-CORE_BD15-01",
+    "F-FE02-01",
+    "F-FE04-01",
+    "F-FE06-01",
+    "F-FE09-01",
+    "F-REC01-01",
+    "F-REC01-02",
+    "F-REC02-01",
+    "F-REC03-01",
+    "F-REC03-02",
+    "F-REC03-03",
+    "F-RUN01-01",
+    "F-RUN01-02",
+    "F-RUN01-03",
+    "F-RUN02-01",
+    "F-RUN02-02",
+    "F-RUN02-03",
+    "F-RUN03-01",
+    "F-RUN03-02",
+    "F-RUN03-03",
+    "F-RUN03-04",
+    "F-TO06-01",
+    "F-TO06-02",
+    "F-TOOLSO04-01",
+    "F-TOOLSO04-02",
+    "F-TOOLSO04-03",
+    "F-TOOLS_OTHER02-01",
+    "F-TOOLS_OTHER07-01",
+    "F-TOOLS_OTHER07-02"
+  ],
+  "legacy_finding_ids": [
+    "F0001"
+  ],
+  "planned_batch_count": 58,
+  "scan_roots": [
+    "bulk_downloader",
+    "tools",
+    "toolchain",
+    "scripts",
+    "tests",
+    "frontend/src"
+  ],
+  "schema_version": "bd-audit-completion/1",
+  "source_sha": "3e8de4ff763a4c0942547ca39322e54ae2cc14c8",
+  "source_tree": "058af611c010dbadef926468db2c3d2daef37969"
+}

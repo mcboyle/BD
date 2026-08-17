@@ -121,7 +121,7 @@ Every artifact carries its own `--check`, mirroring the in-sync gates:
 - **`semantic_diff`** `[LIVE-capable via libcst]`: flags when a function's
   signature/raises/return-contract/call-edges change even across a "pure refactor" —
   catches the caller/callee signature-drift class the moment it lands.
-- **`differential_oracle`** `[PLANNED]`: cross-checks redundant implementations of
+- **`differential_oracle`** `[LIVE as tools/differential_oracle.py]`: cross-checks redundant implementations of
   one contract (the two IP classifiers, the two `sites_config` resolvers, `_mask`
   vs `_is_secret` pairs); divergence = latent bug.
 - **`bd-audit-gate`** `[BUILT — corrected v3.66.805]`: runs `defect_patterns` +

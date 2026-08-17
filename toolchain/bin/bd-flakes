@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""bd-flakes -- known flaky/hazard tests you must NOT blindly band or full-run.
+"""bd-flakes -- machine-consumed known test hazards and diagnostic guidance.
 
-Surfaces KNOWN_FLAKES.md plus the hard hazards (full tests/ hangs; test_perf_lab;
-test_v3_66_146_nav_guard >200s). The "what will bite my band?" reference. Read-only.
+Surfaces KNOWN_FLAKES.md plus the small executable hazard set. Read-only.
 Usage: bd-flakes [--pk /mnt/project]
 """
 import argparse, os, sys
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
-HAZARDS=[("NEVER run the full tests/ dir","it hangs (no per-test timeout)"),
-         ("tests/test_perf_lab.py","long/among the hangers -- never band casually"),
-         ("tests/test_v3_66_146_nav_guard.py",">200s timeout (known, not a regression)"),
-         ("don't pkill -9","leaves orphan state; let timeouts expire")]
+HAZARDS=[("use the sanctioned full-suite command","fixed -n 24, loadfile, timeout contract"),
+         ("preserve the first raw failure","a passing retry is diagnostic, not erasure"),
+         ("don't pkill by a short pattern","it can kill the invoking controller too"),
+         ("reap the owned process group","never leave workers behind after a bounded kill")]
 def selftest():
     """IMPORT-OK: known-flakes reader with no independent fault surface. Structural check
     only -- the module parsed and exposes main(); this is the weakest selftest
