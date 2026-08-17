@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 73,
+    "total": 74,
     "version": 1,
-    "count_dict": 72,
+    "count_dict": 73,
     "test_files_scanned": 1365,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -30,7 +30,7 @@
       "tests/test_corpus_disposition_buckets.py": 1,
       "tests/test_coverage_map_frontend.py": 2,
       "tests/test_daily_digest.py": 2,
-      "tests/test_differential_oracle_frontend.py": 3,
+      "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
       "tests/test_settings_center_slice4.py": 1,
@@ -199,6 +199,16 @@
         "forbidden": 0
       },
       "gates_what": "test_cli_durably_records_timeout_as_blocking_state"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_differential_oracle_frontend.py",
+      "line": 853,
+      "value": {
+        "kill": 1,
+        "stat": 1
+      },
+      "gates_what": "test_pid_is_running_treats_proc_stat_disappearance_as_exit"
     },
     {
       "form": "count_dict",
