@@ -32,10 +32,12 @@ Design notes:
 """
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import socket
 import sqlite3
+import stat
 import sys
 import tempfile
 import time
@@ -410,35 +412,105 @@ def check_loopback() -> dict:
 _ORPHAN_TEMP_GLOBS = ("*.part", ".tmp*", "tmp*", ".selftest_*", "*.tmp")
 
 
-def check_orphan_tempfiles(*dirs, max_age_hours: float = 24.0) -> dict:
+def check_orphan_tempfiles(
+    *dirs,
+    max_age_hours: float = 24.0,
+    max_entries: int = 100_000,
+    max_depth: int = 64,
+) -> dict:
     """ROB-3-rem: WARN if stale temp artifacts (.part / .tmp* / .selftest_* left
     by a crashed download or capture) older than ``max_age_hours`` linger in any
     of ``dirs``. A missing dir is skipped -- never a FAIL. Read-only; reports,
     never deletes."""
     cutoff = time.time() - max_age_hours * 3600.0
     stale = []
+    errors = []
+    scanned = 0
+    limit_hit = False
     for d in dirs:
+        if limit_hit:
+            break
         if not d:
             continue
         base = Path(d)
-        if not base.is_dir():
+        try:
+            root_mode = base.lstat().st_mode
+        except FileNotFoundError:
             continue
-        for pat in _ORPHAN_TEMP_GLOBS:
-            for f in base.glob(pat):
-                try:
-                    if f.is_file() and f.stat().st_mtime < cutoff:
-                        stale.append(str(f))
-                except OSError:
-                    continue
+        except OSError as exc:
+            errors.append(f"cannot inspect configured root {base}: {type(exc).__name__}")
+            continue
+        if stat.S_ISLNK(root_mode):
+            errors.append(f"configured root is a symlink: {base}")
+            continue
+        if not stat.S_ISDIR(root_mode):
+            continue
+        stack = [(base, 0)]
+        while stack:
+            current, depth = stack.pop()
+            if depth > max_depth:
+                errors.append(f"depth limit {max_depth} reached at {current}")
+                continue
+            try:
+                entries = os.scandir(current)
+            except OSError as exc:
+                errors.append(f"cannot scan {current}: {type(exc).__name__}")
+                continue
+            try:
+                with entries:
+                    for entry in entries:
+                        scanned += 1
+                        if scanned > max_entries:
+                            errors.append(f"entry limit {max_entries} reached")
+                            stack.clear()
+                            limit_hit = True
+                            break
+                        # Never follow either directory or file symlinks: a configured
+                        # root cannot authorize observation of a target outside it.
+                        try:
+                            if entry.is_symlink():
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                if depth == max_depth:
+                                    errors.append(
+                                        f"depth limit {max_depth} reached at {entry.path}"
+                                    )
+                                else:
+                                    stack.append((Path(entry.path), depth + 1))
+                                continue
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
+                            if not any(
+                                fnmatch.fnmatchcase(entry.name, pat)
+                                for pat in _ORPHAN_TEMP_GLOBS
+                            ):
+                                continue
+                            if entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                                stale.append(entry.path)
+                        except OSError as exc:
+                            errors.append(
+                                f"cannot inspect {entry.path}: {type(exc).__name__}"
+                            )
+                            continue
+            except OSError as exc:
+                errors.append(f"cannot iterate {current}: {type(exc).__name__}")
     stale = sorted(set(stale))
     if stale:
         return _result(WARN, "orphan_tempfiles",
             f"{len(stale)} orphan temp file(s) older than {max_age_hours:.0f}h "
             f"(a crashed download/capture may have leaked them)",
             count=len(stale), sample=stale[:10], max_age_hours=max_age_hours,
+            scanned_entries=scanned, incomplete=bool(errors), errors=errors[:10],
             hint="Safe to remove if no capture/download is in flight.")
+    if errors:
+        return _result(WARN, "orphan_tempfiles",
+            f"orphan tempfile scan incomplete ({len(errors)} observation error(s))",
+            count=0, sample=[], max_age_hours=max_age_hours,
+            scanned_entries=scanned, incomplete=True, errors=errors[:10],
+            hint="Inspect the reported roots; a clean result could not be proven.")
     return _result(OK, "orphan_tempfiles",
-        f"no orphan temp files older than {max_age_hours:.0f}h", count=0)
+        f"no orphan temp files older than {max_age_hours:.0f}h", count=0,
+        sample=[], scanned_entries=scanned, incomplete=False, errors=[])
 
 
 def check_plugin_health() -> dict:
