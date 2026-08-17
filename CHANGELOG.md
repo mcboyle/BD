@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1163 - make temporary contract conservation exact
+
+Cut 3 hardens the temporary paragraph-conservation gate that protects the
+agent contract until its approved reduction. Paragraph identity is now
+case-sensitive after whitespace normalization, and the human-readable excerpt
+is no longer accepted as proof that a changed or truncated paragraph survived.
+The established baseline cannot be overwritten by `--extract`; attempted
+replacement refuses before changing its bytes.
+
+The reviewed baseline is re-established over exactly all 308 current
+CLAUDE.md paragraphs while preserving four historical rewrite declarations.
+Production-path regressions prove prefix-preserving suffix loss and case-only
+mutation fail, established-baseline extraction refuses without mutation, and
+whitespace-only reflow plus a verbatim corpus move remain valid. The dedicated
+suite is now explicitly present in the CI toolchain shard and its independently
+pinned shard denominator. No casebook, rule registry, or replacement authority
+is introduced; this temporary subsystem remains scheduled for retirement with
+the approved Cut 10 contract reduction.
+
 ## v3.66.1162 - promote the stable canonical full-suite worker count
 
 The repository-sanctioned real-pytest full suite now uses fixed `-n 24` with
