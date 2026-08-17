@@ -41,7 +41,7 @@ RETIRED = (
     "project-knowledge/bd-deploy-manifest",
 )
 
-TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
+TOMBSTONE = REPO_ROOT / "project-knowledge" / "README.md"
 
 
 def test_the_fail_safe_branch_is_executable():
@@ -93,7 +93,7 @@ def test_the_retirement_is_documented_not_just_done():
     tombstone beside it, re-adding the tool looks like a fix.
     """
     text = TOMBSTONE.read_text(encoding="utf-8")
-    assert "RETIRED" in text and "bd-deploy-manifest" in text, (
+    assert "bd-deploy-manifest" in text and "git reset --hard" in text and "cannot\noccur" in text, (
         f"{TOMBSTONE.relative_to(REPO_ROOT)} no longer records why "
         f"bd-deploy-manifest was retired. Keep the tombstone: the reason the "
         f"tool existed is still true of the OLD deploy model, so a reader who "

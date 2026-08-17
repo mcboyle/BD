@@ -273,7 +273,7 @@ def main():
     if caps.get("netns_probe_state") == "not_provisioned":
         # Name the remedy. An UNKNOWN that does not say how to become known is
         # just a quieter "no".
-        _suffix = "NOT PROBED -- pack_G absent; run 'bd-optpack install G --apt'"
+        _suffix = "NOT PROBED -- required network namespace tools are absent"
     else:
         _suffix = f"ip/nft/wg: {_tools}"
     print(f"  root + CAP_NET_ADMIN netns  : {cap3(caps['can_create_netns'])}  ({_suffix})")
@@ -298,7 +298,7 @@ def main():
         pass
 
     print(f"\n{B}Before any cut, run:{RST}  bd-footguns --check && bd-precut --gate && bd-cut ...")
-    print(f"{B}Session-close order:{RST}  build+verify+present -> STOP for stash GREEN -> bd-handoff -> bd-pack")
+    print(f"{B}Session-close order:{RST}  build+verify+present -> exact-head review/CI -> merge")
     return 0
 
 

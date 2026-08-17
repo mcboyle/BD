@@ -4,7 +4,7 @@
 STATE.json is the per-session pin (schema in STATE.schema.json). This asserts it
 is not lying: the FULL-ZIP sha256, version, file_count, and guard SHAs in the pin
 must all match the zip. Run it at session start (after bd-install) and again at
-session close (after bd-pack regenerates STATE.json). A failure means a prose doc /
+session close after release evidence is regenerated. A failure means a prose doc /
 the pin drifted from source -- fix before trusting anything.
 
 NOTE (v3.66.276 hardening): the full-zip sha256 gate was added because an OFF-PIN,

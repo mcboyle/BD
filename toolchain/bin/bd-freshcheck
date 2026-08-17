@@ -19,7 +19,7 @@ session-close section naming a tip one commit behind because it was written
 before its own merge.
 
 WHY AN AGGREGATOR AND NOT A NEW DETECTOR. bd-doc-truth, bd-factcheck,
-bd-freshest, bd-kb-conflict and bd-decision-memory already existed -- and every
+bd-doc-truth, bd-kb-conflict and bd-decision-memory already existed -- and every
 one of them was PROSE-ONLY, described somewhere and invoked by nothing, for
 long enough that the staleness they detect shipped anyway. A checker nobody runs
 is a checker that does not exist. The scarce thing was never the detector; it
@@ -44,10 +44,10 @@ import re
 import subprocess
 import sys
 
-OK, STALE, UNKNOWN = "OK", "STALE", "UNKNOWN"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import bdtools_sec as sec
 
-# Docs whose claims are load-bearing enough to gate on.
-_DOCS = ("CLAUDE.md", "project-knowledge/IMPROVEMENT_BACKLOG.md")
+OK, STALE, UNKNOWN = "OK", "STALE", "UNKNOWN"
 
 # `tsx` MUST precede `ts` in the alternation: Python tries branches
 # left-to-right, so a leading `ts` would match the first two characters of
@@ -115,9 +115,14 @@ def check_anchors(root: pathlib.Path) -> dict:
         by_base[pathlib.PurePosixPath(f).name].append(f)
     tset = set(tracked)
 
+    try:
+        docs, historical = sec.tracked_markdown_corpus(root)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        return {"name": "doc file:line anchors", "status": UNKNOWN,
+                "detail": f"Markdown denominator unavailable: {exc}"}
     total = ok = ambiguous = 0
     broken = []
-    for d in _DOCS:
+    for d in docs:
         p = root / d
         if not p.is_file():
             return {"name": "doc file:line anchors", "status": UNKNOWN,
@@ -130,7 +135,11 @@ def check_anchors(root: pathlib.Path) -> dict:
                 broken.append(f"{d}: {rel}:{lo} -- no tracked file of that name")
                 continue
             if len(cands) > 1:
-                ambiguous += 1        # cannot judge; not counted as broken
+                ambiguous += 1
+                broken.append(
+                    f"{d}: {rel}:{lo} -- ambiguous basename resolves to "
+                    + ", ".join(cands[:6])
+                )
                 continue
             n = len((root / cands[0]).read_text(encoding="utf-8", errors="replace").splitlines())
             top = int(hi) if hi else lo
@@ -144,7 +153,8 @@ def check_anchors(root: pathlib.Path) -> dict:
                           "not the same as finding nothing wrong"}
     return {"name": "doc file:line anchors",
             "status": STALE if broken else OK,
-            "detail": f"{ok}/{total} resolve and are in range"
+            "detail": f"{len(docs)} document(s), {len(historical)} historical excluded; "
+                      f"{ok}/{total} anchors resolve and are in range"
                       + (f", {ambiguous} ambiguous basename(s) not judged" if ambiguous else "")
                       + ("; BROKEN: " + "; ".join(broken[:6]) if broken else "")}
 

@@ -44,7 +44,7 @@ RETIRED = (
     "tests/test_codex_handoff_defers_to_claude_md.py",
 )
 
-TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
+TOMBSTONE = REPO_ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
 
 # Prose about the incident is the point of keeping the incident. These name it
 # deliberately and must keep doing so.
@@ -80,7 +80,7 @@ def test_the_retirement_is_documented_not_just_done():
     """
     text = TOMBSTONE.read_text(encoding="utf-8")
     tombstoned = [ln for ln in text.splitlines()
-                  if "CODEX_HANDOFF" in ln and "RETIRED" in ln]
+                  if "CODEX_HANDOFF" in ln.upper() and "RETIRED" in ln.upper()]
     assert tombstoned, (
         f"{TOMBSTONE.relative_to(REPO_ROOT)} has no line recording "
         f"CODEX_HANDOFF as RETIRED. Keep the tombstone: a reader who finds the "

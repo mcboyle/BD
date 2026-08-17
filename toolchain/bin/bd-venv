@@ -366,21 +366,14 @@ fi
 # ---- 8: dev/test layer (pytest + pyinstaller) -----------------------------
 # Optional in-sandbox: lets pytest-based / reload / monkeypatch tests run
 # (stronger than the custom run_tests.py). Offline from the dev kit wheelhouse
-# (bulkdl_dev_kit staged by bd-prestage, or in the cloak pack), else live pip.
+# (from a supplied pack wheelhouse), else live pip.
 if [ "$WANT_DEV" -eq 0 ]; then
     warn "dev layer skipped (--no-dev)"
 elif pytest_ok; then
     ok "pytest present (dev layer ok)"
 else
     _devwh=""
-    # a) extracted dev kit staged by bd-prestage
-    if [ -d "${BD_STAGING:-/tmp/bulkdl_staging}" ] && ls "${BD_STAGING:-/tmp/bulkdl_staging}"/bulkdl_dev_kit.zip >/dev/null 2>&1; then
-        rm -rf /tmp/_devk && mkdir -p /tmp/_devk
-        unzip -q -o "${BD_STAGING:-/tmp/bulkdl_staging}/bulkdl_dev_kit.zip" -d /tmp/_devk 2>/dev/null
-        _devwh="$(find /tmp/_devk -maxdepth 2 -type d -name 'pip-wheels-dev' 2>/dev/null | head -1)"
-    fi
-    # b) dev wheels shipped inside the cloak pack
-    [ -z "$_devwh" ] && [ -n "$PACK" ] && [ -d "$PACK/pip-wheels-dev" ] && _devwh="$PACK/pip-wheels-dev"
+    [ -n "$PACK" ] && [ -d "$PACK/pip-wheels-dev" ] && _devwh="$PACK/pip-wheels-dev"
     if [ -n "$_devwh" ]; then
         vpy -m pip install --no-index --find-links "$_devwh" pytest pyinstaller 2>&1 | tail -2
     elif [ "$OFFLINE" -eq 1 ]; then

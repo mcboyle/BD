@@ -168,7 +168,7 @@ def test_the_eight_bare_closed_remainders_are_terminal_or_transferred() -> None:
     assert "transferred to backlog 133" in rows[99][1]
     assert rows[133][0] == "OPEN"
     assert "transferred to backlog 106" in rows[105][1]
-    assert rows[106][0] == "OPEN"
+    assert rows[106][0].startswith("CLOSED @1172")
 
 
 def test_retired_programs_and_false_inventory_are_physically_absent() -> None:

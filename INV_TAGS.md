@@ -4,10 +4,9 @@ VERSION: 3.64.4
 LAST_VERIFIED: A.1 restore, 2026-05-23
 KB_VERSION: 2
 
-This file is the cross-reference between DANGER_MAP.md invariants
-and the load-bearing source lines that carry inline `# INV-<ID>`
-tags. **DANGER_MAP.md is the authoritative source for the rationale
-behind each invariant; this file is the locality index.**
+This historical locality index cross-references load-bearing source lines that
+carry inline `# INV-<ID>` tags. Root `INVARIANTS.json`, current source, and
+point-of-use tests are authoritative; this prose index is not.
 
 Regenerate with:
 ```
@@ -47,10 +46,10 @@ Tagged lines:
 - `bulk_downloader/runner.py:2771` — call in
   `start_captcha_solve_session`
 - `bulk_downloader/runner.py:3022` — call in `verify_login_after_wizard`
-- `bulk_downloader/runner.py:4545` — call in `_playlist_expand_one`
-- `bulk_downloader/runner.py:4612` — call in `_search_site`
+- `bulk_downloader/runner.py:2160` — definition of `_playlist_expand_one`
+- `bulk_downloader/runner.py:2207` — definition of `_search_site`
 
-Pre-existing dev_suite.py reference: `dev_suite.py:280` (dispatch
+Current dispatch mirror: `bulk_downloader/dev_suite/audit_security.py:146` (dispatch
 tracer references INV-001 by ID).
 
 ## INV-002 — `runner._process_one` dispatch order
@@ -64,8 +63,8 @@ and is read by a dispatch-tracer test.
 
 Tagged lines:
 
-- `bulk_downloader/runner.py:5211` — `_process_one` definition
-- `bulk_downloader/dev_suite.py:1594` — `_DISPATCH_CHAIN` mirror
+- `bulk_downloader/runner.py:2905` — `_process_one` definition
+- `bulk_downloader/dev_suite/audit_security.py:146` — `_DISPATCH_CHAIN` mirror
 
 Pinning test: `tests/test_dispatch_chain.py`.
 
@@ -106,7 +105,7 @@ Tagged lines:
 - `bulk_downloader/db.py:207` — `PRAGMA journal_mode=WAL`
 - `bulk_downloader/db.py:211` — `cx.isolation_level = ""`
 
-Pre-existing dev_suite.py reference: `dev_suite.py:272`.
+Current mirror reference: `bulk_downloader/dev_suite/audit_security.py:146`.
 
 ## INV-005 — `RESOLUTION_TIERS` / `res_label` parallel tables
 
@@ -124,7 +123,7 @@ Tagged lines:
 - `bulk_downloader/detect.py:57` — `_RES_LABEL_PATTERNS` constant
 - `bulk_downloader/detect.py:138` — `res_label` function
 
-Pre-existing dev_suite.py reference: `dev_suite.py:293`.
+Current mirror reference: `bulk_downloader/dev_suite/audit_security.py:146`.
 
 ## INV-006 — credentials route through vault abstraction
 
@@ -142,7 +141,7 @@ Tagged lines:
   function
 - `bulk_downloader/vpn_config.py:302` — `resolve_secrets` function
 
-Pre-existing dev_suite.py reference: `dev_suite.py:301`.
+Current mirror reference: `bulk_downloader/dev_suite/audit_security.py:146`.
 
 -----
 

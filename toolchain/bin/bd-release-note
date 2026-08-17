@@ -2,7 +2,7 @@
 """bd-release-note -- generate release notes from STATE + tree diff + changelog.
 
 Assembles a human-readable release note for the current version: changed files
-vs the pinned zip (via the same diff bd-since uses), the CHANGELOG top entry,
+vs the candidate base (via Git diff), the CHANGELOG top entry,
 the validation line + guard status from STATE, and the next-actions from STATE.
 For operator sign-off + the tracker. Read-only.
 

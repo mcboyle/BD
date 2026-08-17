@@ -2,7 +2,7 @@
 
 A small, read-only toolset that answers "is this release sound?" without
 promoting, enabling, swapping, building, or bumping anything. It composes the
-checks that already exist in the tree (`bulk_downloader/dev_suite.py`,
+checks that already exist in the tree (`bulk_downloader/dev_suite/__init__.py`,
 `tools/promote_template.py`, `run_tests.py`) rather than re-implementing them, so
 there is one definition of each rule.
 

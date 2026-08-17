@@ -271,7 +271,7 @@ def verify(bundle, as_json=False, work=None):
               % (R, n, RST))
         print("  They are consistently WRONG: every one read the same stale STATE.json")
         print("  instead of deriving from source. An attestation built from this bundle")
-        print("  would certify the wrong release. Re-pin STATE (bd-handoff) first.")
+        print("  would certify the wrong release. Recreate evidence at the exact candidate first.")
         return 3
     print("\n%sOK -- views agree with each other AND with the source.%s" % (G, RST))
     return 0

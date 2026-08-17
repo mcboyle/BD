@@ -52,7 +52,7 @@ checkout and `CLAUDE.md` are authoritative.
 `KB_JUDGMENT.md`, `ADVANCED_PROJECT_KNOWLEDGE.md`, `GLOSSARY.md`, `ARCHITECTURE_MAP.md`, `SANDBOX.md`, `SCHEMAS.md`, `REPTYLE_CAPTURE_RUNBOOK.md`, `BDKIT_FIXES.md`,
 `bdkit_HANDOFF.md`, `KNOWN_FLAKES.md`, `CONTINUATION_TEMPLATE.md`,
 `STATE.schema.json`, `Manifest.md`, the kit scripts (`setup.sh`, `bd-install`,
-`bd-status`, `bd`, `bdenv.sh`, `bd-preflight`, `bd-state`, `bd-cut`, `bd-pack`,
+`bd-status`, `bd`, `bdenv.sh`, `bd-preflight`, `bd-state`, `bd-cut`,
 `install_bulkdl_kits.sh`), the kit READMEs (`README_KIT_FIXES.md`,
 `README_EFFICIENCY_KIT.md`), `bd-kb-sync` + `KB_SYNC_WORKFLOW.md` + `STATIC_KB_MANIFEST.json` (the static-KB sync engine, its doc, and the integrity manifest), and `reference/` cards 2/3/4/6/7/8/9/10.
 
@@ -70,7 +70,9 @@ OPV / harness / render / GUI-audit work, read these first:
 | `RENDER_CAPTURE_AUDIT_GUIDE.md` | The definitive GUI render + audit methodology (gui_audit_kit, discoverability, both-theme capture, the squish-regression lesson). |
 | `PROJECT_KNOWLEDGE_UPDATE_539_SANDBOX.md` | What the 539 sandbox session changed and why. |
 
-`bd-sbcap` (capability provisioner) and the expanded `bd-opv` are in `BD_TOOLCHAIN_REFERENCE.md`.
+Derive the current command inventory with
+`venv/bin/python toolchain/bin/bd-tools --bin toolchain/bin`; command help is
+the authoritative interface.
 The full toolkit (every tool added that session + a README) is `BD_SANDBOX_TOOLKIT_v3_66_539.zip`.
 
 

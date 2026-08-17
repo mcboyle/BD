@@ -67,4 +67,4 @@ source each session — never trust a number copied into a doc.
 - **Read-only attestation.** Audit sessions never bump/cut/guard-edit/baseline-
   `--update`/tracker-write/stash-touch; attest it and re-verify the tree after.
 - **Volatile vs static.** Capture + consolidate in `version.zip` every session;
-  promote to static KB only at a deliberate `bd-handoff --kb-dir` step.
+  promote to static KB only with a deliberate `bd-kb-sync stage` step.

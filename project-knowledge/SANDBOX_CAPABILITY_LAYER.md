@@ -3,7 +3,8 @@
 
 *Read this before doing OPV / harness / render work. It records what the sandbox
 CAN do (proven), how to turn it on, and the footguns already paid for. Companion
-to `BD_TOOLCHAIN_REFERENCE.md` (the bd-* tools) and `TESTING_ETHICS_FRAME` (the
+to the live `bd-tools --bin toolchain/bin` inventory and command help, plus
+`TESTING_ETHICS_FRAME` (the
 harness ethics). The specific check count drifts; the capabilities don't.*
 
 ---

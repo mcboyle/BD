@@ -44,8 +44,7 @@ DEFAULT_BIN = os.path.dirname(os.path.realpath(__file__))
 # 30-phase deep dive flagged these as the highest latent risk (all lack a
 # selftest). Tracked, not excused; the untested count is ratcheted.
 CRITICAL_CORE = [
-    "bd-cut", "bd-bump", "bd-handoff", "bd-pack", "bd-regen", "bd-guardcheck",
-    "bd-checkpoint", "bd-blast", "bd-suites", "bd-touched",
+    "bd-cut", "bd-bump", "bd-regen", "bd-guardcheck",
 ]
 # Ratchet baseline: how many CRITICAL_CORE tools currently lack a selftest.
 # This number must only FALL. Backfill a selftest -> lower it here.
@@ -401,6 +400,7 @@ def run(bindir, do_runtime):
     analysis = [t for t in tools if _is_analysis(bindir, t)]
     tset = set(tools)
     cc_present = [t for t in CRITICAL_CORE if t in tset]
+    cc_missing = sorted(set(CRITICAL_CORE) - tset)
     cc_untested = [t for t in cc_present
                    if "--selftest" not in open(os.path.join(bindir, t),
                                                errors="ignore").read()]
@@ -430,10 +430,12 @@ def run(bindir, do_runtime):
             "error_count": sum(len(r["errors"]) for r in results),
             "warning_count": sum(len(r["warnings"]) for r in results),
             "critical_core": {"present": len(cc_present),
+                              "missing": cc_missing,
                               "untested": sorted(cc_untested),
                               "untested_count": len(cc_untested),
                               "baseline": CRITICAL_CORE_UNTESTED_BASELINE,
-                              "regressed": len(cc_untested) > CRITICAL_CORE_UNTESTED_BASELINE},
+                              "regressed": bool(cc_missing) or
+                                           len(cc_untested) > CRITICAL_CORE_UNTESTED_BASELINE},
             "clean": all(not r["errors"] for r in results)}
 
 
@@ -647,8 +649,8 @@ def main():
                     print("  %s%s%s" % (R, l, RST))
     if res["clean"] and not cc["regressed"] and not when_bad:
         print("%sno errors -- toolchain clean%s" % (G, RST))
-    blocked = ((not res["clean"]) or (a.gate and not res["clean"])
-               or (a.ratchet and cc["regressed"]) or (a.gate and when_bad))
+    blocked = ((not res["clean"]) or cc["regressed"] or
+               (a.gate and when_bad))
     # Tier-1 (702): the A1 exit-code convention, finally adopted.
     #   0 = ok | 2 = the TOOL broke | 3 = POLICY blocked (a gate said no)
     # These three were previously 1 / 3 / 3 across bd-tool-lint / bd-precut /

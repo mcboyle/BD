@@ -8,7 +8,7 @@
       "count_dict"
     ],
     "handled_elsewhere": {
-      "guard_sha": "STATE.json — the 7 byte-identical guard SHAs, re-derived from the built zip and auto-repinned by bd-handoff; gated by verify_release / bd-state. Not a hand-typed tree pin.",
+      "guard_sha": "guards.json — the 7 byte-identical guard SHAs, gated by bd-guardcheck and verify_release. Not a hand-typed tree pin.",
       "route_count": "tools/check_route_counts.py (G12) — source-decorator count == gui_parity inventory count == the integer pins in tests/test_wave2_backlog.py."
     },
     "known_gaps": [
@@ -20,7 +20,7 @@
     "total": 75,
     "version": 1,
     "count_dict": 74,
-    "test_files_scanned": 1368,
+    "test_files_scanned": 1369,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -235,7 +235,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1171",
+      "value": "3.66.1172",
       "gates_what": "test_containment_routes_and_version"
     },
     {

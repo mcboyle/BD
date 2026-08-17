@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1172 - close nested freshness and legacy-tool blind spots
+
+Cut B derives one tracked 135-document current-authority Markdown corpus for
+both freshness gates, reports 14 historical exclusions, and catches nested
+project-knowledge and docs claims. It migrates every still-live finding from
+the 2026-07-29 flat audit into the canonical backlog before retiring the report.
+
+History reconstructs the exact twelve-tool legacy set, including the formerly
+missing `bd-since`. The ten remaining executables and their live routing are
+retired; `bd-coretest` and `bd-tool-lint` now fail closed when a required tool
+denominator shrinks. Four newly explicit residuals remain OPEN as rows 166-169.
+
 ## v3.66.1171 - adjudicate backlog truth before execution
 
 Cut A re-derives nine stale OPEN backlog rows against the current tree. It

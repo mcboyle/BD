@@ -47,8 +47,8 @@ Confirmed by direct inspection of the loaded tree on 2026-06-06; **no edits made
 |---|---|---|
 | `extraction_core` importers | exactly 3 | ✅ `tools/build_template_from_wacz.py`, `bulk_downloader/capture_template.py`, `bulk_downloader/capture_workbench.py` |
 | `DraftPattern` class definition | only in `extraction_core` | ✅ `bulk_downloader/extraction_core.py:112` (workbench only *imports* it) |
-| `decision_confidence` definition | only in `capture_workbench` | ✅ `bulk_downloader/capture_workbench.py:1877` (`_decision_confidence`); 0 in core |
-| `CP_*` constant definitions | only in `capture_workbench` | ✅ `capture_workbench.py:798–803` (6 constants); 0 in core |
+| `decision_confidence` definition | workbench implementation | `bulk_downloader/capture_workbench_impl/analysis.py:951` (`_decision_confidence`); 0 in core |
+| `CP_*` constant definitions | workbench implementation | `bulk_downloader/capture_workbench_impl/_common.py:226` (6 constants); 0 in core |
 | confidence-model unification | not started | ✅ none in `extraction_core` |
 | `extraction_core` test suites | green | ✅ `test_extraction_core` 21/21 + `test_extraction_core_characterization` 9/9 = **30/30** |
 

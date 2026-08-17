@@ -244,10 +244,7 @@ def test_every_mutation_anchor_resolves_to_exactly_its_declared_count():
 # this, a gate reading ONE file certified the whole population.
 _SANDBOX_WORK_DEFAULT = 'default="/home/claude/work"'
 _KNOWN_SANDBOX_DEFAULT_CARRIERS = {
-    "toolchain/bin/bd-checkpoint",
     "toolchain/bin/bd-rollback",
-    "toolchain/bin/bd-since",
-    "toolchain/bin/bd-snapshot",
     "tools/bd-scan.py",
     "tools/bd_decomp_lib.py",
     "tools/decomp_regen.py",

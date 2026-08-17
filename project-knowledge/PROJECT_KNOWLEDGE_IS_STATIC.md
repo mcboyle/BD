@@ -27,7 +27,8 @@ stop needing to touch this folder.
 
 ## How the machinery stays version-free
 The scripts **read** state at runtime; they never embed it:
-- `bd-state` / `bd-preflight` / `bd-pack` pull version/sha/guards from STATE.json + the zip.
+- `bd-state` / `bd-preflight` and release verification derive version/sha/guards
+  from the repository and exact release input.
 - No script hardcodes a version. (If you ever add one, you've reintroduced the drift.)
 So a new release changes STATE.json in the pack — and every script here keeps
 working untouched.

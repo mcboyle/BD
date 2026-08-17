@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import zipfile
 import pytest
 
 
@@ -108,51 +107,24 @@ def test_footgun_runtime_and_package_share_one_42_row_registry(tmp_path):
     (installed / "bdtools_sec.py").write_bytes((ROOT / "toolchain/bin/bdtools_sec.py").read_bytes())
     duplicate = b'{"footguns": [], "footguns": []}\n'
     (installed / "FOOTGUNS.json").write_bytes(duplicate)
-    out = tmp_path / "out"
     rejected_runtime = subprocess.run(
         [str(installed / "bd-footguns"), "--tree", str(installed.parent), "--list", "--json"],
         capture_output=True, text=True,
     )
     assert rejected_runtime.returncode != 0
-    rejected_package = subprocess.run(
-        [str(ROOT / "toolchain/bin/bd-mkbdsuite"), "--version", "3.66.1167",
-         "--bin", str(installed), "--out", str(out), "--no-lint"],
-        capture_output=True, text=True,
-    )
-    assert rejected_package.returncode != 0
-    assert "malformed FOOTGUNS.json" in rejected_package.stdout
     (installed / "FOOTGUNS.json").write_text('{"footguns": []}\n')
     empty_runtime = subprocess.run(
         [str(installed / "bd-footguns"), "--tree", str(installed.parent), "--list", "--json"],
         capture_output=True, text=True,
     )
     assert empty_runtime.returncode != 0
-    empty_package = subprocess.run(
-        [str(ROOT / "toolchain/bin/bd-mkbdsuite"), "--version", "3.66.1167",
-         "--bin", str(installed), "--out", str(out), "--no-lint"],
-        capture_output=True, text=True,
-    )
-    assert empty_package.returncode != 0
     (installed / "FOOTGUNS.json").write_bytes((ROOT / canonical).read_bytes())
-    built = subprocess.run(
-        [str(ROOT / "toolchain/bin/bd-mkbdsuite"), "--version", "3.66.1167",
-         "--bin", str(installed), "--out", str(out), "--no-lint"],
+    restored = subprocess.run(
+        [str(installed / "bd-footguns"), "--tree", str(installed.parent), "--list", "--json"],
         capture_output=True, text=True,
     )
-    assert built.returncode == 0, built.stdout + built.stderr
-    archive = out / "bdsuite_v3_66_1167.zip"
-    with zipfile.ZipFile(archive) as zf:
-        assert zf.namelist().count("bin/FOOTGUNS.json") == 1
-        assert "FOOTGUNS.json" not in zf.namelist()
-        assert zf.read("bin/FOOTGUNS.json") == (ROOT / canonical).read_bytes()
-        zf.extractall(tmp_path / "unpacked")
-    (tmp_path / "unpacked/bin/bd-footguns").chmod(0o755)
-    packaged = subprocess.run(
-        [str(tmp_path / "unpacked/bin/bd-footguns"), "--tree", str(tmp_path / "unpacked"),
-         "--list", "--json"], capture_output=True, text=True,
-    )
-    assert packaged.returncode == 0, packaged.stdout + packaged.stderr
-    assert {row["id"] for row in json.loads(packaged.stdout)} == set(ids)
+    assert restored.returncode == 0, restored.stdout + restored.stderr
+    assert {row["id"] for row in json.loads(restored.stdout)} == set(ids)
 
 
 def test_defect_catalog_is_an_exact_view_of_the_executable_detector_set():

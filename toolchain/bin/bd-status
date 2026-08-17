@@ -152,14 +152,5 @@ else
 fi
 
 echo
-echo "=== OPTIONAL PACKS (pack_E-H, install-on-demand) ==="
-if command -v bd-optpack >/dev/null 2>&1; then
-    echo "  $c_dim$(bd-optpack --brief 2>/dev/null)$c_off"
-    echo "  $c_dim(bd-optpack list | install <E|F|G|H|all>)$c_off"
-else
-    echo "  $c_dim(bd-optpack not on PATH -- optional packs E-H not managed)$c_off"
-fi
-
-echo
 echo "=== DISK ==="
 df -h /home/claude /tmp 2>/dev/null | tail -2 | awk '{printf "  %-12s %s used, %s free (%s)\n", $6, $3, $4, $5}'

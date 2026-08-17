@@ -6,7 +6,7 @@ chain (tsc+vitest+vite), the full bd-tool-lint --gate runtime suite, a long
 capture. PROVEN this session: `setsid nohup <cmd> & ` with stdio redirected keeps
 running across bash_tool calls (a 6-min runtime lint completed detached; a single
 call would have been killed at ~230s). Five heavy tools each grew a bespoke
-chunk/resume flag (bd-boot, bd-prestage, bd-cut --skip-fe, bd-deep-capture
+chunk/resume flag (bd-boot, bd-cut --skip-fe, bd-deep-capture
 --start/--count, bd-sbcap) to work around a constraint that does NOT bind. This is
 the one primitive that removes the reason for all of them.
 

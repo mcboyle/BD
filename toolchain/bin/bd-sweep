@@ -67,10 +67,9 @@ GHOST = "/home/claude/BD_SWEEP_GHOST_DIR_DOES_NOT_EXIST"
 # work tree, or the venv. bd-install does `rm -rf work/*` and the release zip
 # carries no venv/ -- a sweep that "just runs everything to see" ends the session.
 NEVER_EXEC = frozenset([
-    "bd-boot", "bd-install", "bd-venv", "bd-prestage", "bd-cut", "bd-bump",
-    "bd-pack", "bd-handoff", "bd-ship", "bd-rollback", "bd-mkbdsuite",
-    "bd-mkauditstate", "bd-optpack", "bd-fetch", "bd-repin-dist", "bd-kb-sync",
-    "bd-reindex", "bd-regen", "bd-checkpoint", "bd-snapshot", "bd-fullsuite",
+    "bd-boot", "bd-install", "bd-venv", "bd-cut", "bd-bump",
+    "bd-rollback", "bd-fetch", "bd-repin-dist", "bd-kb-sync",
+    "bd-reindex", "bd-regen", "bd-fullsuite",
     "bd-opv", "bd-render", "bd-deep-capture", "bd-novnc", "bd-corpus",
     "bd-guard-declare", "bd-ratchet", "bd-sweep",
     # v3.66.738: bd-mutation-test is an ORCHESTRATOR. The rewrite (blind ->

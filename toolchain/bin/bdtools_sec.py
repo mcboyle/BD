@@ -17,7 +17,9 @@ import glob
 import ipaddress
 import json
 import os
+import pathlib
 import re
+import subprocess
 import sys
 import zipfile
 from urllib.parse import urlsplit
@@ -64,6 +66,32 @@ REASON_ABSENT = "ABSENT"
 REASON_EMPTY = "EMPTY"
 REASON_UNREADABLE = "UNREADABLE"
 REASON_NO_INTERPRETER = "NO_INTERPRETER"
+
+
+def tracked_markdown_corpus(root):
+    """Return (current, historical) tracked Markdown paths, repo-relative."""
+    root = pathlib.Path(root)
+    cp = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.md"], cwd=str(root),
+        capture_output=True, text=True, timeout=30,
+    )
+    if cp.returncode != 0:
+        raise RuntimeError("git ls-files failed while deriving Markdown corpus")
+    tracked = [p for p in cp.stdout.split("\0") if p]
+    if not tracked:
+        raise RuntimeError("tracked Markdown denominator collapsed to zero")
+    current, historical = [], []
+    for rel in tracked:
+        parts = pathlib.PurePosixPath(rel).parts
+        if not (len(parts) == 1 or parts[:1] in (("project-knowledge",), ("docs",))):
+            continue
+        if rel == "CHANGELOG.md" or parts[:2] == ("docs", "archive"):
+            historical.append(rel)
+        else:
+            current.append(rel)
+    if not current:
+        raise RuntimeError("current Markdown denominator collapsed to zero")
+    return sorted(current), sorted(historical)
 
 
 def _imports_pytest(exe, timeout=30):

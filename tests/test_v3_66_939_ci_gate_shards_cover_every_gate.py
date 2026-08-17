@@ -130,6 +130,7 @@ _DECLARED = {
     "tests/test_v3_66_1169_openapi_has_one_producer.py",
     "tests/test_v3_66_1170_claude_is_concise_authority.py",
     "tests/test_v3_66_1171_backlog_truth_is_current.py",
+    "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
     # @1148. Also BD_GATE_SCOPE = "module" and also deliberately so: its subject
     # is bd-cut's release gate, not the tree. It is pinned into a shard because
     # the contract it holds -- only a measured exit 0 authorizes a cut -- is the

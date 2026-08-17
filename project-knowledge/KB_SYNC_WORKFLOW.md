@@ -27,12 +27,11 @@ a paste-ready update.
 
 1. **Mid-session**, Claude maintains the static-KB working copy (a dir, e.g.
    `/home/claude/static_kb`) and edits durable docs there as they change.
-2. **Session close** -- `bd-handoff --kb-dir <static_kb_working_dir> ...`:
-   - runs `bd-kb-sync stage`, which diffs the working copy vs the manifest, **reseeds the
+2. **Session close** -- run `bd-kb-sync stage <static_kb_working_dir> --out <out>`:
+   - it diffs the working copy vs the manifest, **reseeds the
      manifest to the new state**, and (on drift) writes `BulkDownloader_project_files_v<ver>.zip`
      + `PROJECT_KNOWLEDGE_UPDATE.md` into `--out`, printing **STATIC KB UPDATE REQUIRED**;
-   - `bd-pack` then carries those into the pack. If `--kb-dir` is omitted, bd-handoff WARNS
-     that sync was skipped.
+   - the release build then carries those artifacts into the release evidence.
 3. **Matt re-pastes** static from `BulkDownloader_project_files_v<ver>.zip` (delete all,
    paste). The pasted set now matches the manifest inside it.
 4. **Next bootstrap** -- `bd-boot` runs `bd-kb-sync verify /mnt/project` (integrity: catches a
@@ -75,6 +74,6 @@ To re-baseline by hand: `bd-kb-sync seed /path/to/static_set --version v3.66.<n>
 
 ## Guarantees
 
-- A durable doc can't change without `bd-handoff` surfacing it + staging the paste-ready update.
+- A durable doc change is surfaced by manifest drift and the staged paste-ready update.
 - No session loses an update: the pack carries the newer copies regardless of re-paste timing.
 - A partial or stale paste is caught at the next `bd-boot` (integrity + freshness), not silently.
