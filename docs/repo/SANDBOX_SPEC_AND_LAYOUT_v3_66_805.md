@@ -165,7 +165,9 @@ not rot (register §3.5), and it is worth disambiguating in prose rather than
 
 Derived artifacts that must be regenerated in a specific order live at the work
 root: `DEPENDENCY_GRAPH.json`, `FUNCTION_INDEX.md`, `ROUTE_INDEX.json`,
-`PIN_INDEX.json`, `ENDPOINT_CATALOG.md`, `build_info.json`, `openapi.json`.
+`PIN_INDEX.json`, `ENDPOINT_CATALOG.md`, and `build_info.json`. OpenAPI is now
+generated dynamically at `/api/openapi.json`; transient exports use
+`tools/build_openapi.py --out PATH` and are not checked in.
 
 ---
 

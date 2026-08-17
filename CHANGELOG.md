@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1169 - canonicalize OpenAPI and retire unused integration residue
+
+Cut 9 makes `bulk_downloader.openapi_spec.generate` the sole OpenAPI producer.
+The live route and transient CLI export now return the same repeatable document,
+derive their version from `bulk_downloader.__version__`, and ask the production
+CSRF predicate instead of maintaining a second policy. The separately drifting
+checked-in `openapi.json` is removed, and cockpit navigation links to the live
+route.
+
+Reader and host-state enumeration found no active consumers, installed units,
+or running processes for the old overlay deployer, handoff-manifest generator,
+chatbot bridge, review-refresh units, temporary template snapshot, or standalone
+`spa/` ResolutionPicker app. Those surfaces and their current-document residue
+are retired; historical evidence remains in source control and dated audits.
+
 ## v3.66.1168 - make tests state current contracts
 
 Cut 8 retires the completed legacy-SPA parity and deletion-pin machinery after

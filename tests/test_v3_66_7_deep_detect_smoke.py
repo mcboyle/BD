@@ -7,12 +7,11 @@ deep_detect code path bdctl wraps (POST /api/dev/deep_detect ->
 bulk_downloader.deep_detect.deep_detect), without the HTTP hop.
 
 What this proves:
-  - Multi-resolution `resolution_download_card` emission (the kind the
-    SPA ResolutionPicker keys off of).
+  - Multi-resolution `resolution_download_card` emission.
   - Best-download selection ranks 4k > 1080p > 720p with the correct
     codec/fps annotations.
-  - The report shape matches what the v3.66.6 ResolutionPicker
-    component expects (`download_candidates` list with click_selector
+  - The report preserves the candidate-selection contract
+    (`download_candidates` list with click_selector
     + url + resolution + codec + fps + score per row).
 
 A full network-backed smoke against three real URLs (login form,
@@ -94,10 +93,11 @@ def test_scoring_orders_resolutions_correctly(report):
     assert by_label["4k"] > by_label["1080p"] > by_label["720p"]
 
 
-def test_resolution_picker_would_open(report):
-    """SPA ResolutionPicker opens when there are >=2 cards with both
-    a click_selector and a url. This is the v3.66.6 trigger
-    condition; assert we'd actually surface the picker here.
+def test_multiple_actionable_candidates_are_explicit(report):
+    """Two or more cards with selectors and URLs remain distinguishable.
+
+    This is the API-level selection condition; no frontend implementation is
+    part of the engine contract.
     """
     cards = [c for c in report["buckets"]["accepted"]
              if c.get("source_type") == "resolution_download_card"

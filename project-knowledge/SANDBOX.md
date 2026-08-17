@@ -161,7 +161,7 @@ footgun #1.
 | `media` | B | `/tmp/media/tools_bin/` (ffmpeg, ffprobe — 7.0.2 static) | ✅ |
 | `gtk` | B | `/home/claude/.local/gtk/` (GTK 3 + GIR). **Also launches Xvfb on :99 — dies between calls** | files ✅ / Xvfb ❌ |
 | `optional` | C | `/tmp/opt/` (yt-dlp, scrapling, apprise, site-specific extractor APIs) | ✅ |
-| `frontend` | C | `/home/claude/work/frontend/` (full React `node_modules`, ~344 packages including testing-library). **Creates BulkDownloader/frontend/node_modules + BulkDownloader/spa/node_modules symlinks** | ✅ |
+| `frontend` | C | `/home/claude/work/frontend/` (full React `node_modules`, ~344 packages including testing-library). **Creates the BulkDownloader/frontend/node_modules symlink** | ✅ |
 | `node` | C | `/home/claude/.local/node/` (Node 20.18.0 + npm 10.8.2) | ✅ |
 | `rsuite` | C | `/home/claude/rsuite_kit/` (standalone rsuite 5.71.0 + React 19 in own tree) | ✅ |
 | `pypy` | C | `/home/claude/pypy_kit/pypy/bin/pypy3` | ✅ |
@@ -176,7 +176,6 @@ footgun #1.
 | `lsp` | C | `/home/claude/lsp_kit/` (pylsp, pyright wheels) | ✅ |
 | `precommit` | C | `/home/claude/precommit_kit/` (pre-commit + config) | ✅ |
 | `ollama` | reassembled from 7 parts | `/home/claude/ollama_kit/` (~3.6 GB extracted; `ollama serve` on :11434 — dies between calls) | files ✅ / serve ❌ |
-| `spa` | standalone (rare) | `/home/claude/spa/` (placeholder vite scaffold; frontend kit covers real use) | ✅ |
 
 **Pack sizes:**
 - pack_A: ~395M (core + venv + datastores)

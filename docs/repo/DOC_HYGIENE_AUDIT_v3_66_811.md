@@ -32,8 +32,9 @@ No stale/implemented docs. All are load-bearing or current:
 Everything is structural/load-bearing:
 
 - 75 `tests/*.json` -- recognizer/challenge corpus fixtures (test data).
-- Generated + `--check`-gated: `ROUTE_INDEX`, `PIN_INDEX`, `DEPENDENCY_GRAPH`,
-  `openapi`, `build_info`.
+- Generated + `--check`-gated at the time of this audit: `ROUTE_INDEX`,
+  `PIN_INDEX`, `DEPENDENCY_GRAPH`, `openapi`, `build_info`. Cut 9 later retired
+  the drifting checked-in OpenAPI copy in favor of the live canonical producer.
 - Frozen baselines: `reports/config_gui_manifest`, `reports/config_parity_baseline`,
   `reports/legacy_parity_baseline`, `.gitleaks-baseline`, `tools/decomp/*_baseline`,
   `kb/*snapshot*`.
@@ -43,9 +44,9 @@ Everything is structural/load-bearing:
 - KB data + `docs/audit/*.json` (all consumed by a tool or test:
   `review_merge.py`, `verify_audit.py`, `test_audit_promotion_wirings_533.py`).
 
-Side-notes (not deletion recs): `docs/framework/nodes.example.json` has zero refs
-(a doc example); `spa/` (14 files, package name "spa") looks like a small separate
-app distinct from `frontend/` (361 files) -- worth a separate look.
+Side-notes at audit time: `docs/framework/nodes.example.json` had zero refs (a
+doc example); `spa/` was a 14-file separate app. Cut 9 subsequently proved that
+the app had no live reader or installed process and retired it.
 
 ## Category 3 -- .md (177 files): 5 DELETE, 23 ARCHIVE, 0 GITIGNORE, rest KEEP
 

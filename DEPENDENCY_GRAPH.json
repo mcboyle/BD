@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1635,
+    "edge_count": 1636,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4026,7 +4026,8 @@
         "bulk_downloader/ai_boot_readiness.py"
       ],
       "bulk_downloader/openapi_spec.py": [
-        "bulk_downloader/app_openapi.py"
+        "bulk_downloader/app_openapi.py",
+        "tools/build_openapi.py"
       ],
       "bulk_downloader/password_import.py": [
         "bulk_downloader/app_secrets.py"
@@ -7290,6 +7291,7 @@
         "tools/packaging_config.py"
       ],
       "tools/build_openapi.py": [
+        "bulk_downloader/openapi_spec.py",
         "tools/build_endpoint_catalog.py"
       ],
       "tools/build_recognizer_corpus.py": [
@@ -7740,6 +7742,7 @@
       "tools/body_contract.py",
       "tools/body_contract_fixtures.py",
       "tools/build_endpoint_catalog.py",
+      "tools/build_openapi.py",
       "tools/build_release.py",
       "tools/build_template_from_wacz.py",
       "tools/builder_gap_report.py",
@@ -7801,7 +7804,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 224,
+    "total": 222,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",

@@ -70,8 +70,8 @@ NAV = [
          "kind": "existing", "note": "the React SPA (requires built frontend/dist)"},
     ]},
     {"group": "API & schema", "items": [
-        {"label": "OpenAPI export", "path": "openapi.json", "kind": "artifact",
-         "note": "OpenAPI 3.1 (tools/build_openapi.py)"},
+        {"label": "OpenAPI export", "path": "/api/openapi.json", "kind": "page",
+         "note": "OpenAPI 3.1 generated from the live route map"},
         {"label": "Endpoint catalog", "path": "ENDPOINT_CATALOG.md", "kind": "artifact",
          "note": "human-readable route index"},
         {"label": "Generated schemas", "path": "docs (document_schemas.py)",

@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T14:40:35+00:00",
- "version_context": "v3.66.1168",
+ "generated": "2026-08-17T15:55:29+00:00",
+ "version_context": "v3.66.1169",
  "file_count": 84,
  "files": {
   "0_INDEX.md": {
@@ -245,8 +245,8 @@
    "bytes": 1594
   },
   "SANDBOX.md": {
-   "sha256": "864d42669c8c52d850b1863fc7e5cd7d171ffc8c9e033d68c75df4f1fa2307fd",
-   "bytes": 34644
+   "sha256": "1a101391f60c7b02270e3e90d4a10fc368f450bcf7bffd8924733df416aa2b56",
+   "bytes": 34497
   },
   "SANDBOX_CAPABILITY_LAYER.md": {
    "sha256": "2b52ad331cb7732d557e71f571f89d6cf9d093b3b40a50672700048f6a3a3456",
