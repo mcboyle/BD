@@ -70,13 +70,12 @@ RETIRED = (
     "project-knowledge/bd-reconcile",
 )
 
-TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
+TOMBSTONE = REPO_ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
 
 # Prose about the past is not a live dependency. These files describe the
 # retirement or the history and are expected to name it.
 PROSE_EXEMPT = {
     "tests/test_task_tracker_stays_retired.py",
-    "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
     "project-knowledge/IMPROVEMENT_BACKLOG.md",
     "CHANGELOG.md",
 }
