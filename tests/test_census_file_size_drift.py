@@ -1039,3 +1039,6 @@ def test_a_row_compared_under_one_dir_is_not_a_miss_under_another(lib):
     assert swept > 0, (
         "fixture drift: nothing resolved under either directory, so this "
         "test cannot distinguish the double-count it is about")
+
+
+BD_GATE_SCOPE = "repo-wide"

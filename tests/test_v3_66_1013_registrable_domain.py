@@ -269,3 +269,6 @@ def test_the_remaining_copies_are_COUNTED_so_the_backlog_cannot_grow():
         "of these is the bug that made victim.co.uk and attacker.co.uk the "
         "same site. Use bulk_downloader.registrable_domain.\n  %s"
         % (len(found), "\n  ".join(sorted(found))))
+
+
+BD_GATE_SCOPE = "repo-wide"

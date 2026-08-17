@@ -280,3 +280,6 @@ def test_the_table_covers_every_site_the_ratchet_counts():
     assert modules == expected, (
         "the tested population drifted from the ten modules @1013's census "
         "found: %r" % (modules ^ expected))
+
+
+BD_GATE_SCOPE = "repo-wide"

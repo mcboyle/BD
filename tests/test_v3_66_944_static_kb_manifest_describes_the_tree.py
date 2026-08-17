@@ -315,3 +315,6 @@ def test_the_tools_own_walk_agrees_with_git_on_membership():
         f"the manifest records {len(removed)} file(s) the tool's walk cannot "
         f"find: {removed[:20]}")
     # `changed` is deliberately NOT asserted on -- see the docstring.
+
+
+BD_GATE_SCOPE = "repo-wide"

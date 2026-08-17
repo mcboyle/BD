@@ -230,3 +230,6 @@ def test_nothing_under_logs_is_tracked():
         f"logs/ carries tracked file(s) {tracked} -- ignoring the directory "
         f"would hide real content, not runtime output"
     )
+
+
+BD_GATE_SCOPE = "repo-wide"

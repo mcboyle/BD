@@ -285,3 +285,6 @@ def test_no_exception_is_granted_to_a_path_that_is_already_ignored():
     assert not redundant, (
         f"_NOT_WRITTEN names path(s) that ARE gitignored: {redundant}. The "
         f"ignore rule already settles them; the exception only obscures that.")
+
+
+BD_GATE_SCOPE = "repo-wide"

@@ -197,3 +197,6 @@ def test_nothing_still_calls_the_retired_tool():
         "something still invokes the retired deploy manifest:\n  "
         + "\n  ".join(offenders)
     )
+
+
+BD_GATE_SCOPE = "repo-wide"

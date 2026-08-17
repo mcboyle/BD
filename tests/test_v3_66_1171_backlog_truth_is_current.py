@@ -166,7 +166,8 @@ def test_the_eight_bare_closed_remainders_are_terminal_or_transferred() -> None:
     assert "remainder -> backlog 165" in rows[5][1]
     assert rows[165][0] == "OPEN"
     assert "transferred to backlog 133" in rows[99][1]
-    assert rows[133][0] == "OPEN"
+    assert rows[133][0] == "CLOSED @1173"
+    assert "exact 24 pre-policy repository gates" in rows[133][1]
     assert "transferred to backlog 106" in rows[105][1]
     assert rows[106][0].startswith("CLOSED @1172")
 

@@ -621,3 +621,6 @@ def test_share_safe_refuses_to_bundle_a_credential_store(tmp_path):
     assert any("proton pass" in x["reason"].lower() for x in manifest["refused"]), (
         f"refused, but not for the right reason -- the manifest must say WHY: "
         f"{manifest['refused']}")
+
+
+BD_GATE_SCOPE = "repo-wide"

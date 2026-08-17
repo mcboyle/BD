@@ -117,7 +117,6 @@ tests/test_capture_verdict.py
 tests/test_capture_workbench_surface_lock.py
 tests/test_cbd03_dom_scrub_floor.py
 tests/test_cbd03_ollama_rebind_pin.py
-tests/test_census_file_size_drift.py
 tests/test_cloak_install_path.py
 tests/test_cloak_persistent_context_fallback.py
 tests/test_cloud_bootstrap_is_thin.py
@@ -144,7 +143,6 @@ tests/test_cockpit_ui_prefs.py
 tests/test_code_intelligence_adapters.py
 tests/test_code_intelligence_foundation.py
 tests/test_code_intelligence_frontend_docs.py
-tests/test_codex_handoff_stays_retired.py
 tests/test_config_snapshot_diff.py
 tests/test_confirm_tiers_209.py
 tests/test_consolidation.py
@@ -222,10 +220,8 @@ tests/test_deep_detect_surface_lock.py
 tests/test_defect_scan_precision.py
 tests/test_dependency_graph_fails_closed.py
 tests/test_dependency_graph_in_sync.py
-tests/test_deploy_manifest_stays_retired.py
 tests/test_deploy_script.py
 tests/test_derive_api_a6_1.py
-tests/test_desandbox_tool_verifiers.py
 tests/test_dev_metrics.py
 tests/test_dev_suite.py
 tests/test_dev_suite_surface_lock.py
@@ -280,10 +276,7 @@ tests/test_fts_external_content_delete.py
 tests/test_fts_stale_terms_on_update.py
 tests/test_function_index_in_sync.py
 tests/test_fuzz_harness_frontend.py
-tests/test_generated_artifact_workflow.py
 tests/test_generated_artifacts_are_not_tracked.py
-tests/test_git_deploy_gaps_are_documented.py
-tests/test_gitignore_rules_actually_match.py
 tests/test_global_config_defaults.py
 tests/test_graph_projections_v2.py
 tests/test_graph_source_hash_release_gate.py
@@ -294,9 +287,6 @@ tests/test_harness_retry_timeout.py
 tests/test_headless_default.py
 tests/test_healthcheck_disk_captures.py
 tests/test_heartbeat_detects_a_logged_out_page.py
-tests/test_history_columns_go_through_migrations.py
-tests/test_history_file_size_is_the_size_on_disk.py
-tests/test_history_records_whether_bytes_were_fetched.py
 tests/test_home_config_stores_are_guarded.py
 tests/test_hooks.py
 tests/test_hooks_webhook_ssrf.py
@@ -434,7 +424,6 @@ tests/test_player_recognition_families.py
 tests/test_player_recognition_generic.py
 tests/test_player_recognition_pack_bc.py
 tests/test_player_recognition_packs_dei.py
-tests/test_playwright_engines_single_source.py
 tests/test_plugin_uninstall.py
 tests/test_precut_check.py
 tests/test_preflight_checklist.py
@@ -476,7 +465,6 @@ tests/test_run03_01_load_urls_no_accumulator_pollution.py
 tests/test_run03_resolve_safe_no_secret_log.py
 tests/test_runner_manual_characterization.py
 tests/test_runner_template_assist_patch.py
-tests/test_sandbox_home_stays_retired.py
 tests/test_scan_version_pins_fixture.py
 tests/test_secret_display_never.py
 tests/test_secret_rotation_age.py
@@ -549,7 +537,6 @@ tests/test_t6_login_security.py
 tests/test_t7_ai_inspection.py
 tests/test_t8_ai_metrics.py
 tests/test_t9_vision_test.py
-tests/test_task_tracker_stays_retired.py
 tests/test_template_assist_reptyle.py
 tests/test_template_extractor_surface_lock.py
 tests/test_template_keystone.py
@@ -711,12 +698,10 @@ tests/test_v3_66_100_cockpit_wave2.py
 tests/test_v3_66_1010_l34_triage_is_affordable.py
 tests/test_v3_66_1011_mod3_pg_isolation.py
 tests/test_v3_66_1012_slow_operator_routes.py
-tests/test_v3_66_1013_registrable_domain.py
 tests/test_v3_66_1014_site_families.py
 tests/test_v3_66_1015_capture_analytics_bounds.py
 tests/test_v3_66_1016_login_interstitial.py
 tests/test_v3_66_1017_captured_dismiss_selectors.py
-tests/test_v3_66_1018_registrable_domain_drain.py
 tests/test_v3_66_101_cockpit_wave3.py
 tests/test_v3_66_1020_residues.py
 tests/test_v3_66_1021_log_reinit_replaces.py
@@ -740,7 +725,6 @@ tests/test_v3_66_104_cockpit_clickable.py
 tests/test_v3_66_1050_killswitch_autocycle_respects_the_keepalive_flag.py
 tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
 tests/test_v3_66_1058_capture_states_its_blind_spots.py
-tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py
 tests/test_v3_66_105_band_b.py
 tests/test_v3_66_1060_bd_run_logs_are_keyed_by_run.py
 tests/test_v3_66_1069_the_wipe_does_not_escape_its_file.py
@@ -1199,7 +1183,6 @@ tests/test_v3_66_80_failure_taxonomy.py
 tests/test_v3_66_819_bd_session_key_anchored_redaction.py
 tests/test_v3_66_820_auth_health_reaped_on_site_delete.py
 tests/test_v3_66_820_installer_browser_reach.py
-tests/test_v3_66_820_share_tools_saw_no_session_keys.py
 tests/test_v3_66_82_confidence_admission.py
 tests/test_v3_66_834_login_on_done_always_fires.py
 tests/test_v3_66_835_phase_b_takeover_reentrancy.py
@@ -1231,7 +1214,6 @@ tests/test_v3_66_911_monkeypatch_dotted_path.py
 tests/test_v3_66_912_wired_gates_refuse_on_empty.py
 tests/test_v3_66_915_audit_caps_are_one_window.py
 tests/test_v3_66_916_regen_nfos_resolves.py
-tests/test_v3_66_918_tracked_source_denominator.py
 tests/test_v3_66_925_bitrot_resolves_basenames.py
 tests/test_v3_66_926_app_import_does_not_boot_db.py
 tests/test_v3_66_927_integrity_thread_keeps_its_path.py
@@ -1241,14 +1223,11 @@ tests/test_v3_66_930_bitrot_scan_gets_its_roots.py
 tests/test_v3_66_931_bitrot_schema_init_reports_real_errors.py
 tests/test_v3_66_932_pre_push_guards_the_two_dot_diff.py
 tests/test_v3_66_934_ai_config_is_not_inherited.py
-tests/test_v3_66_935_scan_wait_reports_non_convergence.py
 tests/test_v3_66_936_golden_carries_no_ambient_state.py
 tests/test_v3_66_937_band_floor_is_not_dropped.py
-tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py
 tests/test_v3_66_940_envfile_seeds_only_declared_keys.py
 tests/test_v3_66_941_scan_start_refuses_a_live_worker.py
 tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py
-tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
 tests/test_v3_66_945_envfile_seeding_does_not_escape_its_test.py
 tests/test_v3_66_946_the_leak_guard_does_not_fire_on_inherited_state.py
 tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py
@@ -1256,12 +1235,10 @@ tests/test_v3_66_949_the_full_sweep_is_bounded_and_instrumented.py
 tests/test_v3_66_950_the_band_runs_real_pytest.py
 tests/test_v3_66_963_import_does_not_persist_config.py
 tests/test_v3_66_964_app_config_writer_does_not_lose_updates.py
-tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py
 tests/test_v3_66_969_a_restart_survives_the_hooks_rerecord.py
 tests/test_v3_66_96_autopilot_cockpit.py
 tests/test_v3_66_970_missing_labels_name_their_mechanism.py
 tests/test_v3_66_971_capture_scrub_sniffs_content.py
-tests/test_v3_66_972_library_missing_stays_retired.py
 tests/test_v3_66_973_wacz_corpus_survey.py
 tests/test_v3_66_974_template_merge.py
 tests/test_v3_66_977_ytdlp_freshness_compares_versions.py
@@ -1302,4 +1279,3 @@ tests/test_worker_pipeline.py
 tests/test_workflow_derivation.py
 tests/test_workflow_diagnostic.py
 tests/test_wow_promote_runtime_shape.py
-tests/test_zip_era_tools_stay_retired.py

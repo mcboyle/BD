@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1173 - pay the measured gate-scope debt
+
+Cut C explicitly classifies the exact 24 pre-policy repository gates, removes
+their legacy-baseline exemptions, and preserves their direct CI execution. An
+audit of all 29 module declarations corrects the sole concrete mismatch without
+pretending syntax can prove semantic scope. The equivalent footgun status and
+severity boundary remains review judgment rather than becoming another
+self-certifying registry. Re-derivation also closes the stale bd-band-derive
+rename premise: both existing execution paths already fail closed when absent.
+
 ## v3.66.1172 - close nested freshness and legacy-tool blind spots
 
 Cut B derives one tracked 135-document current-authority Markdown corpus for

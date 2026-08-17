@@ -375,3 +375,6 @@ def test_no_test_file_hand_rolls_a_scan_poll_loop():
         "hand-rolled scan poll loop(s) -- use scan_wait.start_and_wait or "
         "scan_wait.wait_for_scan, which fail on non-convergence instead of "
         "falling through:\n  " + "\n  ".join(sorted(set(offenders))))
+
+
+BD_GATE_SCOPE = "repo-wide"

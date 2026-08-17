@@ -177,3 +177,6 @@ def test_no_stale_literal_survives_in_the_source():
                 f"mechanism, not the number -- explaining a removal by naming "
                 f"the removed thing puts it back."
             )
+
+
+BD_GATE_SCOPE = "repo-wide"

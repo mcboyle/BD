@@ -693,3 +693,6 @@ def test_fragment_parses_under_bash() -> None:
         [_BASH, "-n", str(FRAGMENT)], capture_output=True, text=True
     )
     assert proc.returncode == 0, f"{FRAGMENT_REL} does not parse:\n{proc.stderr}"
+
+
+BD_GATE_SCOPE = "repo-wide"

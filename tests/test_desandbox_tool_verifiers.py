@@ -582,3 +582,6 @@ def test_the_tool_rows_go_through_the_diagnosing_runner():
         f"_run_tool, so a timeout there still surfaces as a bare "
         f"TimeoutExpired traceback with no verdict: {offenders}"
     )
+
+
+BD_GATE_SCOPE = "repo-wide"

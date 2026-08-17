@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-BD_GATE_SCOPE = "module"
+BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / "tools"
