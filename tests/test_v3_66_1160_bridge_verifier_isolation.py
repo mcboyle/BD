@@ -168,3 +168,39 @@ def test_probe_serializes_restore_against_concurrent_real_state(monkeypatch):
         assert [row["tunnel_id"] for row in ks.list_kill_states()] == ["concurrent"]
     finally:
         ks._reset_for_tests()
+
+
+def test_probe_serializes_restore_against_concurrent_auto_recover_change(monkeypatch):
+    """A legitimate concurrent policy change must survive probe restoration."""
+    from bulk_downloader import vpn_kill_switch as ks
+    from tools import body_contract as bc
+
+    ks._reset_for_tests()
+    ks.set_auto_recover(False)
+    holder = {}
+    attempted = threading.Event()
+    completed = threading.Event()
+
+    def concurrent_change():
+        attempted.set()
+        ks.set_auto_recover(True)
+        completed.set()
+
+    def inner(_work, _calls):
+        thread = threading.Thread(target=concurrent_change, daemon=True)
+        holder["thread"] = thread
+        thread.start()
+        assert attempted.wait(1), "the concurrent auto-recover seam never fired"
+        assert not completed.wait(0.1), (
+            "concurrent auto-recover mutation was not serialized behind restoration"
+        )
+        return []
+
+    monkeypatch.setattr(bc, "_probe_inner", inner)
+    try:
+        bc.probe(ROOT, [])
+        holder["thread"].join(2)
+        assert completed.is_set(), "the serialized auto-recover mutation never resumed"
+        assert ks.get_auto_recover() is True
+    finally:
+        ks._reset_for_tests()
