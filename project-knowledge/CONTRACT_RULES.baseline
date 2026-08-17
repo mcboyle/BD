@@ -15,12 +15,13 @@
 #
 # paragraphs: 308
 # Recomputed for v3.66.1163 after the comparison became case-sensitive: all
-# 308 current CLAUDE.md paragraphs are ACTIVE, and the four reviewed historical
-# rewrites below remain preserved as declarations rather than being erased.
+# 308 current CLAUDE.md paragraphs remain ACTIVE. At v3.66.1164 five reviewed
+# task-authority pointer rewrites were added to the four historical declarations
+# below rather than being erased or silently adopted.
 
 954cda71a521  # CLAUDE.md — operating contract for BulkDownloader
 7b7d54555a40  You are working on **BulkDownloader (BD)**: a self-hosted Flask + Playwright + React/TypeScript
-0b4dc44bfc2b  **This sentence read "single deployment target: headless host `test4`" for the whole life of thi
+1b4313a22f3b  **This sentence read "single deployment target: headless host `test4`" for the whole life of thi
 19cfc8837bc0  Older prose here, in `project-knowledge/`, and in the SDD reports calls that box `stash`. That i
 1469c959369a  **A SECOND BOX NOW EXISTS, AND IT IS A DIFFERENT CLAIM FROM THE ONE ABOVE.** The operator is sta
 5f8851f8c889  **THE BROADER CLAIM THAT USED TO SIT HERE WAS FALSE, AND ITS DENOMINATOR IS THE LESSON.** It rea
@@ -52,7 +53,7 @@ e397888936f8  Generalise it: **a test that varies an environment variable must P
 a14962d593f7  ```python _real = sqlite3.connect def traced(*a, **k): if str(a[0]) != ":memory:": hits.append(t
 07fd575714fd  Run it with the gating flag both set and unset. Three of the four sites here were invisible in o
 e2baa3235be6  **THIS FILE IS IN THE GATE'S DENOMINATOR AND ITS CLAIMS STILL GO STALE — AND THE PARAGRAPH THAT
-24e09355f56f  ``` bd-freshcheck : _DOCS names CLAUDE.md and project-knowledge/SESSION_CARRY.md bd-doc-truth :
+baf298a2ac2c  ``` bd-freshcheck : _DOCS names CLAUDE.md and project-knowledge/IMPROVEMENT_BACKLOG.md bd-doc-tr
 a3e64a783877  **But the conclusion survives the correction, because the denominator is not the predicate.** Bo
 9b850bb95721  That was caught only because a register re-derivation **ran the tool instead of quoting the note
 9e4f3f23c492  **Reading this section does not inoculate you against it.** The same session that wrote the five
@@ -134,7 +135,7 @@ b28ec10f9a0f  **INCLUDING AN EDGE FROM A TEST FILE, since v3.66.889.** The gate 
 7b20e7dcdb73  **So `test_import_graph_no_new_edges.py` is now an axis-6 gate too** -- a cut that touches no so
 9c71915f69d7  ```bash grep -rln "def <function_you_touched>\|<function_you_touched>" tests/*.py ```
 335397e15c57  Measured 2026-08-02: v3.66.835 added an 8-line comment to `start_manual_login`; `pause_site_keep
-506ceaeefcbf  **Editing a DOC or a REGISTER bands the freshness gates, and no module-derived band reaches them
+09016b4ad838  **Editing a DOC or a REGISTER bands the freshness gates, and no module-derived band reaches them
 12e28307b075  Two failure shapes, both hit in one cut:
 f40de9c814d3  - **An anchor to an untracked path can never resolve.** Citing the launcher's `stop-hook-git-che
 d3ec302f70ce  **Writing the bad form as an EXAMPLE is itself the bug.** The first draft of this bullet quoted
@@ -275,7 +276,7 @@ c4861bae1857  There is no `/api/version`. The only version route is `/api/dev/ve
 cfe9d8a10b0f  **Verified by experiment, not by reading the setting.** Enabling it acts only on FUTURE merges —
 0c29ecf20e9f  **The mechanism it fixes, kept because the fallback still needs it.** Squash writes a *new* comm
 89a338e3ee6b  **When the sequence below is still required:**
-40ede145538a  - a branch **merged before 2026-08-01**, which nothing will collect. (The original population --
+90ec109daff6  - a branch **merged before 2026-08-01**, which nothing will collect. (The original population --
 bae8e35d00c5  **`git bundle verify` IS NOT PROOF A BUNDLE CAN BE RESTORED FROM.** Measured on the box 2026-08-
 7823b1ad25eb  ```bash T=$(mktemp -d) && git init -q "$T" && \ git -C "$T" fetch "$BUNDLE" 'refs/*:refs/restore
 d2f22c3c3391  Do not treat auto-delete as a licence to `--force`. The sequence is: prove the content is alread
@@ -288,7 +289,7 @@ c07e739ed865  **GitHub's own merge commits are not yours to re-author.** A squas
 587612ce7a59  ``` bulk_downloader/ the application (.py) tests/ test files (+ corpus/ and fixtures/ assets) to
 b9d21a8f5099  Sizes are deliberately not written here. Every count in this block has been wrong at least once,
 edabf3877314  ```bash find bulk_downloader tools -name '*.py' | wc -l # per directory as needed find tests -na
-7ffd05de5185  **This is the only agent-facing contract. There is no second one.** `CODEX_HANDOFF.md` was retir
+4caceada5772  **This is the only agent-facing contract. There is no second one.** `CODEX_HANDOFF.md` was retir
 94caacd1d8e6  **LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** Count them (`ls toolchain/bin/bd-* |
 9ccbcf4b16c2  | question this file makes you ask | tool | | --- | --- | | what is the band for this diff? | `b
 4171f28176c0  Do not treat that as the list — it is a starting point, not a denominator. It is only the ones t
@@ -333,3 +334,8 @@ b70cc3e3eb4a  rewritten v3.66.1141: the count was deleted, not the rule. The dir
 c325c8fc8afb  rewritten v3.66.1162: the sanctioned command survives verbatim except for the independently qualified fixed worker count, now `-n 24`; all timeout, distribution, ordering, environment, and observability flags remain unchanged.
 41f9a214c5c2  superseded v3.66.1162 by the fixed-count paragraph in section 5: repeated exact-population two-host qualification selected `-n 24`; explicit `-n 4` survives as the comparison and regression oracle, and results still record the resolved count.
 dfe31469bbb6  rewritten v3.66.1162: the stale container-specific `-n 4` explanation was removed; the timeout, distribution, whole-run cap, and written-exit-marker requirements survive in section 5.
+0b4dc44bfc2b  rewritten v3.66.1164: the six-host warning survives; only its pointer to the retired session ledger became an explicit historical description.
+24e09355f56f  rewritten v3.66.1164: the freshness denominator now names the sole canonical task register, IMPROVEMENT_BACKLOG.md, instead of the retired session ledger.
+506ceaeefcbf  rewritten v3.66.1164: the document/register freshness rule survives; its worked example now uses the canonical backlog.
+40ede145538a  rewritten v3.66.1164: the pre-setting branch recovery rule survives; Git history now owns the historical reconciliation rather than a deleted session ledger citation.
+7ffd05de5185  rewritten v3.66.1164: the one-agent-contract rule survives; surviving work now points to atomic canonical backlog rows rather than the retired second task authority.

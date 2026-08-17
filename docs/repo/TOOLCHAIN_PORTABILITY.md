@@ -123,7 +123,6 @@ ceiling for in-repo work; do not re-open it as a port.**
 | `bd-imports` | exit 1: import_graph_gate.py not found |
 | `bd-intake` | exit 0: no uploads dir at /mnt/user-data/uploads |
 | `bd-l0-graph` | exit 0: KNOWLEDGE_GRAPH built -> /home/claude/KNOWLEDGE_GRAPH.db /   1122 files, 1122 mo |
-| `bd-pending` | exit 0: bd-pending -- reconciling pending items vs reality in /mnt/project / =========== |
 | `bd-precut` | exit 0: == bd-precut :: root=/home/user/BD /   [precut_check skipped -- no tool or basel |
 | `bd-ratchet` | exit 0:  |
 | `bd-since` | 'no source zip found' -- needs the release zip; git diff replaces it (redundant) |
@@ -248,7 +247,6 @@ ceiling for in-repo work; do not re-open it as a port.**
 | `bd-imports` | exit 1: import_graph_gate.py not found |
 | `bd-intake` | exit 0: no uploads dir at /mnt/user-data/uploads |
 | `bd-l0-graph` | exit 0: KNOWLEDGE_GRAPH built -> /home/claude/KNOWLEDGE_GRAPH.db /   1122 files, 1122 mo |
-| `bd-pending` | exit 0: bd-pending -- reconciling pending items vs reality in /mnt/project / =========== |
 | `bd-precut` | exit 0: == bd-precut :: root=/home/user/BD /   [precut_check skipped -- no tool or basel |
 | `bd-ratchet` | exit 0:  |
 | `bd-since` | 'no source zip found' -- needs the release zip; git diff replaces it (redundant) |
@@ -323,7 +321,6 @@ ceiling for in-repo work; do not re-open it as a port.**
 | `bd-runner-nav` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-sbcap` | mutating/heavy; hardcodes a sandbox path (needs /home/claude infra); not run |
 | `bd-selfcheck` | hardcodes a sandbox path with no --tree/--work override |
-| `bd-session` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-ship` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-snapshot` | mutating/heavy; hardcodes a sandbox path (needs /home/claude infra); not run |
 | `bd-state` | hardcodes a sandbox path with no --tree/--work override |

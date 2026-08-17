@@ -19,7 +19,7 @@ four. It then said "four" from 2026-08-12 to 2026-08-14 while the fleet grew to
 six.** So it has gone stale TWICE, undercounting both times, and the cut that
 should have caught the second was TITLED `a host list that existed nowhere
 tracked` (v3.66.1128) — that cut tracked `docs/repo/hosts.example`, wrote a
-five-host figure into SESSION_CARRY 15.96, and never touched this paragraph.
+five-host figure into a now-retired session ledger, and never touched this paragraph.
 It was corrected 2026-08-14 only because the operator said "It is 6" out loud;
 no gate reported it, and none can.
 It is the first thing every session reads, so it set the frame for
@@ -271,7 +271,7 @@ documents-go-stale rule in this file spent releases being an instance of it.
 Re-measured at v3.66.944:
 
 ```
-bd-freshcheck : _DOCS names CLAUDE.md and project-knowledge/SESSION_CARRY.md
+bd-freshcheck : _DOCS names CLAUDE.md and project-knowledge/IMPROVEMENT_BACKLOG.md
 bd-doc-truth  : docs_scanned=<it prints the count and the exclusion itself>
                 excluded=[CHANGELOG.md]   stale_count=0
 ```
@@ -908,7 +908,7 @@ missed something, not instead of it.
 
 **Editing a DOC or a REGISTER bands the freshness gates, and no module-derived
 band reaches them.** Measured at v3.66.879: the band derived for that cut was
-correct for the code it changed, and CI still went red on a `SESSION_CARRY.md`
+correct for the code it changed, and CI still went red on an `IMPROVEMENT_BACKLOG.md`
 edit. `bd-freshcheck` reads *documents* — it resolves every `file:line` anchor in
 the gating docs against `git ls-files`, and it requires the newest `### 15.N`
 section whose title contains "close" to name a commit that is an ancestor of
@@ -2011,7 +2011,7 @@ can discard someone else's work.
   (The original population -- 21 no-merge-base branches plus a stale merged
   handoff branch -- was reconciled and DELETED 2026-08-01; the remote now
   carries `main` only, and the family is archived in the operator's verified
-  bundle on the box. See SESSION_CARRY 15.4. The case can still arise for any
+  bundle on the box. Git history preserves that reconciliation. The case can still arise for any
   future pre-setting branch.);
 
   **`git bundle verify` IS NOT PROOF A BUNDLE CAN BE RESTORED FROM.** Measured
@@ -2110,8 +2110,8 @@ ls toolchain/bin/bd-* | wc -l
 ```
 
 **This is the only agent-facing contract. There is no second one.**
-`CODEX_HANDOFF.md` was retired at v3.66.842; its 34-task program's open groups
-live in `project-knowledge/SESSION_CARRY.md` 15.15. It was a second document an
+`CODEX_HANDOFF.md` was retired at v3.66.842; its surviving open groups are
+atomic rows in `project-knowledge/IMPROVEMENT_BACKLOG.md`. It was a second document an
 agent read before acting, describing a *different machine*: it once shipped 14
 commands against a dot-prefixed `venv` that does not exist here, while this file
 said otherwise, and a session followed the wrong one and reported seven failures

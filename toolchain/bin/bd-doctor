@@ -132,20 +132,20 @@ def main(argv=None):
     line("ok" if pw else WARN, "Playwright chromium",
          f"pool {_pool}" if pw else ("no pool located" if not _pool else f"none under {_pool}"))
 
-    print("-- session register")
+    print("-- task register")
     # STATE.json is RETIRED: the session-state file belonged to the zip-overlay
-    # sandbox, and project-knowledge/SESSION_CARRY.md is the register now. The
+    # sandbox, and project-knowledge/IMPROVEMENT_BACKLOG.md is the register now. The
     # old code globbed the retired trees (/mnt/user-data, /home/claude, all of
     # /tmp) and could pick up an unrelated STATE.json left by another process --
     # a diagnostic reading someone else's fixture as this host's state. Report
     # the retirement as a FACT and check the real register instead.
-    _carry = os.path.join(a.work, "project-knowledge", "SESSION_CARRY.md")
-    if os.path.isfile(_carry):
-        line("ok", "session register",
-             "STATE.json retired -- project-knowledge/SESSION_CARRY.md present")
+    _backlog = os.path.join(a.work, "project-knowledge", "IMPROVEMENT_BACKLOG.md")
+    if os.path.isfile(_backlog):
+        line("ok", "task register",
+             "STATE.json retired -- project-knowledge/IMPROVEMENT_BACKLOG.md present")
     else:
-        line(WARN, "session register",
-             f"STATE.json retired; no SESSION_CARRY.md under {a.work} "
+        line(WARN, "task register",
+             f"STATE.json retired; no IMPROVEMENT_BACKLOG.md under {a.work} "
              "(not a checkout, or the register moved)")
 
     # -- live capabilities (egress-era; what can this sandbox actually DO?) ----

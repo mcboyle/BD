@@ -32,7 +32,7 @@ NEEDLE = "/" + "home" + "/" + "claude"
 
 # Every tracked file permitted to carry the reference, measured at 0f3e435.
 # Entries are removed as carriers are retired; none may be added without an
-# explicit operator decision recorded in project-knowledge/SESSION_CARRY.md.
+# explicit operator decision recorded in the canonical improvement backlog.
 ALLOWLIST: frozenset[str] = frozenset({
     ".superpowers/sdd/wacz-processing-report.md",
     "CHANGELOG.md",
@@ -74,16 +74,13 @@ ALLOWLIST: frozenset[str] = frozenset({
     "project-knowledge/RENDER_CAPTURE_AUDIT_GUIDE.md",
     "project-knowledge/SANDBOX.md",
     "project-knowledge/SANDBOX_CAPABILITY_LAYER.md",
-    "project-knowledge/SESSION_CARRY.md",
+    "project-knowledge/IMPROVEMENT_BACKLOG.md",
     "project-knowledge/bd_starting_message.txt",
     "project-knowledge/build_montage.py",
     "project-knowledge/build_navigator.py",
     "project-knowledge/capture_all.py",
     "project-knowledge/mobile_drawer_probe.py",
     "project-knowledge/mobile_more_probe.py",
-    "project-knowledge/pending-specs/KICKOFF.md",
-    "project-knowledge/pending-specs/recon-queue-items-1-9.md",
-    "project-knowledge/pending-specs/s5-home-claude-residue.md",
     "project-knowledge/render_check.py",
     "project-knowledge/round.sh",
     "project-knowledge/spa_render.sh",

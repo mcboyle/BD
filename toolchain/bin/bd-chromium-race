@@ -5,7 +5,7 @@ WHAT IT IS FOR, AND WHY IT EXISTS AT ALL. Row 144 asks why
 test_a_site_with_no_declared_wall_is_untouched crosses 240s in the full 48-way
 suite when it takes 28-36s alone. Every cheap probe had failed: 22/22 standalone
 runs took do_login's early return including under +36 CPU spinners at load ~25,
-and a whole-file arm was 6/6 the same. SESSION_CARRY 15.96 and row 144 both
+and a whole-file arm was 6/6 the same. Backlog row 144 and the retired ledger history both
 concluded that only the full suite could reach it, and the ~19h overnight hunt
 was the only instrument anyone had.
 

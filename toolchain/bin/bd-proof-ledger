@@ -13,8 +13,8 @@ CANNOT-EVALUATE (no STATE-derivable release under --home).
 
 RETIREMENT NOTE (v3.66.854 port): this tool's source of truth is STATE.json
 plus a release zip, and BOTH are retired -- git replaced the zip overlay and
-project-knowledge/SESSION_CARRY.md replaced STATE.json (CLAUDE.md s7). The
-STATE reader is left INTACT rather than repointed, because SESSION_CARRY.md is
+project-knowledge/IMPROVEMENT_BACKLOG.md replaced STATE.json (CLAUDE.md s7). The
+STATE reader is left INTACT rather than repointed, because IMPROVEMENT_BACKLOG.md is
 prose and carries none of the fields this ledger is built from (zip sha256 +
 file_count, guards_full_sha256, validation line, parity). On a git checkout the
 only honest verdict is therefore CANNOT-EVALUATE, and the tool now says which
@@ -165,7 +165,7 @@ def main():
         sys.stderr.write(
             "CANNOT-EVALUATE proof ledger: reason=%s (no STATE.json under %s. "
             "STATE.json and the release zip are RETIRED -- git replaced the zip "
-            "overlay and project-knowledge/SESSION_CARRY.md replaced the "
+            "overlay and project-knowledge/IMPROVEMENT_BACKLOG.md replaced the "
             "register. Pass --home at a preserved bundle to read an archived "
             "release.)\n" % (sec.REASON_ABSENT, a.home))
         return sec.EXIT_CANNOT_EVALUATE

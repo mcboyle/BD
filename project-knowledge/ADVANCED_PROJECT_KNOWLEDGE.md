@@ -220,10 +220,12 @@ persisting secrets/signed-URLs in templates.
   the authoritative *shipped* record; every entry <= live version is "completed", but grep
   the `work/` tree to validate each claim (module/route/function exists) -- don't trust the
   doc.
-- **The tracker is data-driven:** `TASK_TRACKER_DATA.json` -> `tasktracker_gen.py` renders
-  MD + XLSX, `--check` gates drift. Adding a classification bucket (e.g. `decided_against`)
-  is a `tasktracker_gen.py` change (RED-first, re-pin its `--check`), not just a JSON edit
-  -- the renderer only emits the buckets it hard-codes.
+- **The task register is data-driven:**
+  `project-knowledge/IMPROVEMENT_BACKLOG.md` is the sole canonical table and
+  accepts exactly OPEN, CLOSED, and MOOT. Its repo-wide gate parses every row,
+  validates status/evidence/text, and binds the published exact row count,
+  OPEN count, and ordered-ID digest to the current bytes. A new classification
+  is therefore a backlog-schema and gate change, not a renderer or view edit.
 
 ---
 

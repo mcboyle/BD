@@ -263,7 +263,6 @@ jobs:
           - name: toolchain
             suites: >-
               tests/test_toolchain_534.py
-              tests/test_register_promises_resolve.py
               tests/test_v3_66_1052_the_backlog_is_machine_visible.py
               tests/test_v3_66_1142_fleet_run_is_hermetic.py
               tests/test_v3_66_1158_fleet_provenance_fails_closed.py
@@ -271,6 +270,7 @@ jobs:
               tests/test_v3_66_1160_bridge_verifier_isolation.py
               tests/test_v3_66_1161_context_census_is_retired.py
               tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py
+              tests/test_v3_66_1164_one_task_authority.py
               tests/test_v3_66_1141_no_paragraph_leaves_undeclared.py
               tests/test_v3_66_1145_step0_fails_closed.py
               tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py

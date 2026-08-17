@@ -26,7 +26,7 @@
 >   `scripts/provision_test_host.sh` - the one command that takes a fresh
 >   Ubuntu 24.04 box to green. The cloud panel path is
 >   `scripts/cloud-bootstrap.sh` -> `scripts/cloud-setup.sh`.
-> - `TASK_TRACKER.md` (generated from `TASK_TRACKER_DATA.json`) - what is open.
+> - `project-knowledge/IMPROVEMENT_BACKLOG.md` - what is open.
 > - `CLAUDE.md` sections 2 and 3 - release discipline, the guard SHAs, and what
 >   a version bump actually requires.
 >
@@ -94,14 +94,14 @@ easy copy-paste.
 
 *The transcript/journal system and the per-release `KB_HANDOFF_*.md` files
 described below no longer exist in this repo. Continuity now comes from git
-history, `CHANGELOG.md`, `TASK_TRACKER.md`, and `project-knowledge/`.*
+history, `CHANGELOG.md`, `project-knowledge/IMPROVEMENT_BACKLOG.md`, and `project-knowledge/`.*
 
 
 Long sessions are compacted; the **transcript + journal** system is the record,
 not per-release handoff docs (the old `v*_handoff.md` convention is retired —
 the files of that name in outputs, 138–149, are legacy).
 
-1. **`/mnt/transcripts/journal.txt`** — *(LEGACY — the transcript/journal system no longer exists; continuity now comes from git history, `CHANGELOG.md` and `TASK_TRACKER.md`.)* catalog. Read the tail; each entry names a
+1. **`/mnt/transcripts/journal.txt`** — *(LEGACY — the transcript/journal system no longer exists; continuity now comes from git history, `CHANGELOG.md` and `project-knowledge/IMPROVEMENT_BACKLOG.md`.)* catalog. Read the tail; each entry names a
    transcript file + a one-paragraph summary.
 2. **The newest transcript** in `/mnt/transcripts/` — the full detailed record
    (module APIs, paths, line numbers, decisions). They are **large** → read
@@ -426,7 +426,7 @@ and the kit-build rows are gone with the kits.
 | Project goals / direction | `project-knowledge/PROJECT_GOALS.md` |
 | BulkDL invariants and load-bearing lines | `project-knowledge/DANGER_MAPv2.md` + `INV_TAGS.md` + `# INV-` inline tags |
 | Known flaky / environmental test failures | `project-knowledge/KNOWN_FLAKES.md` |
-| What's open / current state | `TASK_TRACKER.md` (generated from `TASK_TRACKER_DATA.json`) |
+| What's open / current state | `project-knowledge/IMPROVEMENT_BACKLOG.md` |
 | How to work in the project | `CLAUDE.md` + `project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md` |
 | Session record / history | git history + `CHANGELOG.md` |
 

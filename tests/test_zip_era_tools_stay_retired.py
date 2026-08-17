@@ -28,7 +28,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 
 # Retired at v3.66.961. Removing an entry needs an operator decision recorded
-# in project-knowledge/SESSION_CARRY.md -- this list is the record that they
+# as an atomic row in project-knowledge/IMPROVEMENT_BACKLOG.md -- this list records that they
 # went deliberately, not the mute button for a file someone re-added.
 _RETIRED = (
     "toolchain/bin/bd-install",

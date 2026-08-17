@@ -6,7 +6,7 @@ This is the static, version-agnostic project-knowledge set for BulkDownloader.
 **Read order lives in `KB_ACTIVE_INDEX.md` -- start there.**
 In short: `bd_starting_message.txt` (halt guard) -> `PROJECT_CHARTER.md` -> `PROJECT_GOALS.md` ->
 `AUTOMATION_POLICY.md` -> `PROJECT_OPERATING_INSTRUCTIONS.md` -> `SANDBOX.md` -> `SCHEMAS.md` ->
-`TASK_TRACKER.md` (at the repo ROOT, not in project-knowledge/) -> `REPTYLE_CAPTURE_RUNBOOK.md` ->
+`project-knowledge/IMPROVEMENT_BACKLOG.md` -> `REPTYLE_CAPTURE_RUNBOOK.md` ->
 the reference cards.
 
 **Current state is in the TREE.** Version: `bulk_downloader/__init__.py`. Guard SHAs: `guards.json`,

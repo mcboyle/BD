@@ -77,7 +77,7 @@ TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
 PROSE_EXEMPT = {
     "tests/test_task_tracker_stays_retired.py",
     "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
-    "project-knowledge/SESSION_CARRY.md",
+    "project-knowledge/IMPROVEMENT_BACKLOG.md",
     "CHANGELOG.md",
 }
 
@@ -87,7 +87,7 @@ def test_the_retired_files_are_gone():
     assert not present, (
         "these were retired but are present again:\n  "
         + "\n  ".join(present)
-        + "\n\nThe open rows were absorbed into SESSION_CARRY 15.15. If you are "
+        + "\n\nThe open rows were absorbed into the canonical backlog. If you are "
           "restoring the tracker, recover it from git history rather than "
           "regenerating -- TASK_TRACKER_DATA.json was canonical and the .md/"
           ".xlsx were views, so a regenerated .md without its data source is a "
@@ -110,7 +110,7 @@ def test_the_retirement_is_documented_not_just_done():
         f"{TOMBSTONE.relative_to(REPO_ROOT)} has no line recording TASK_TRACKER "
         f"as RETIRED. Keep the tombstone: the reason it existed -- a durable "
         f"cross-session ledger -- is still a real need, so a reader who finds "
-        f"only the rationale will rebuild it instead of using SESSION_CARRY."
+        f"only the rationale will rebuild it instead of using the backlog."
     )
 
 

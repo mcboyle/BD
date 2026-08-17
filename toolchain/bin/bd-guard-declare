@@ -97,7 +97,7 @@ def _manifest_pin(root, rel):
 def _find_state():
     # v3.66.855 port: the three globs here were /mnt/user-data/uploads,
     # /home/claude and /mnt/project -- the retired sandbox and uploads mount.
-    # STATE.json itself is retired (project-knowledge/SESSION_CARRY.md is the
+    # STATE.json itself is retired (project-knowledge/IMPROVEMENT_BACKLOG.md is the
     # register now, guards.json is the guard baseline), so there is nothing left
     # to discover: this returns None unless the operator passes --state, and the
     # caller reports that as CANNOT-EVALUATE rather than guessing a path.

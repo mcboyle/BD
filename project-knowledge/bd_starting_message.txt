@@ -20,8 +20,10 @@ UPLOADS (attach; the loader picks each by content/name, so order is not critical
                                              its sha256 MUST match STATE.json's pin).
   - BulkDL_next_session_v3_66_<n>.zip     -- the per-session version pack (REQUIRED):
                                              STATE.json, newest KB_HANDOFF, Roadmap,
-                                             Backlog, EXECUTION_PLAN, REMAINING_WORK,
-                                             TASK_TRACKER (3 files).
+                                             Backlog, EXECUTION_PLAN, REMAINING_WORK.
+                                             Do not take task state from this pack;
+                                             use project-knowledge/IMPROVEMENT_BACKLOG.md
+                                             in the checked-out source tree.
   - BulkDownloader_project_files_3_66_<n>.zip
                                           -- the static-KB bundle (this file lives in
                                              it). If a PROJECT_KNOWLEDGE_UPDATE.md /

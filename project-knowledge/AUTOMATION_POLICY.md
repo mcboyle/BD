@@ -18,7 +18,7 @@ carries its **current implementation state**:
 **Anything not yet proven in source/tests is PLANNED, not current behavior.** But PLANNED is an
 invitation, not a wall: automate the preparation, evidence, validation, and review queue around it,
 and build toward the item landing. Current work and completion state live in
-`TASK_TRACKER_DATA.json` and its generated tracker views.
+`project-knowledge/IMPROVEMENT_BACKLOG.md`.
 
 ## Posture (the maximalist default)
 

@@ -4,7 +4,7 @@
 The project's working vocabulary. The handoffs, tracker, and CHANGELOG are jargon-dense;
 this is the decode ring so a fresh session can parse them fast. Static (version-agnostic);
 definitions reflect the @464 codebase. Where a term names a tracker item, the live status is
-in `TASK_TRACKER`, not here.
+in `project-knowledge/IMPROVEMENT_BACKLOG.md`, not here.
 
 ## Capture & redaction
 
@@ -102,9 +102,9 @@ in `TASK_TRACKER`, not here.
 
 ## Tracker, process & operations
 
-- **the tracker (TASK_TRACKER)** -- the authoritative, drift-gated work registry
-  (`TASK_TRACKER_DATA.json` -> `tasktracker_gen.py`). Buckets: incomplete / completed /
-  awaiting_operator / decided_against.
+- **the backlog** -- the authoritative, drift-gated work registry
+  (`project-knowledge/IMPROVEMENT_BACKLOG.md`). Its complete machine-readable
+  status vocabulary is OPEN / CLOSED / MOOT.
 - **OPV (OPV-*)** -- Operator Verification: tasks that need live on-stash operator action with
   screenshot proof (historical guide archived at
   `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/OPERATOR_VERIFICATION_GUIDE.md`);
@@ -112,7 +112,8 @@ in `TASK_TRACKER`, not here.
 - **PHC-1 / Phase C** -- the F2 capture-hardening overlay (VPN control, secrets lifecycle, AI
   editor): the designated LAST sandbox-buildable feature item.
 - **Track-K** -- the VPN egress program (vpn_config / vpn_api; the T5/T6 bind decision is open).
-- **awaiting_operator** -- built + sandbox-green, but needs live-stash verification (not
+- **awaiting_operator** -- prose classification for work that is built + sandbox-green,
+  but needs live-stash verification (not a canonical backlog status;
   sandbox-testable: noVNC click-throughs, capture runs, week-long soaks).
 - **stash** -- the headless production host (mboyle@10.0.70.20) running the systemd
   `bulkdownloader` service. Deploys via git: `git fetch origin main` + `git reset --hard

@@ -148,7 +148,7 @@ KB sync:
 2. **Consolidate (volatile).** A consolidation session renders
    `ADVANCED_PROJECT_KNOWLEDGE_v2.md` (and a grown invariant registry / module
    catalog) **from the graph** — knowledge-as-data rendered to prose, the way
-   `TASK_TRACKER.md` renders from `TASK_TRACKER_DATA.json`. These live in
+   `project-knowledge/IMPROVEMENT_BACKLOG.md` is the sole task register. These live in
    `version.zip`, not static KB.
 3. **Promote (static).** When the advanced-PK layer is stable, run
    `bd-handoff --kb-dir <dir>` → `bd-kb-sync` stages the

@@ -240,7 +240,6 @@ A category's TRIGGER is the 'when'; each tool's line is the 'what'.
 ## Doc/KB truth + agent governance (Wave 13)
 **WHEN:** WHEN DOCS/STATE MAY HAVE DRIFTED from source -- and at session close.
 
-- `bd-pending` -- reconcile STATE.json's pending_pk_update against reality.
 - `bd-doc-truth` -- compare docs to source behavior.
 - `bd-kb-conflict` -- find contradictory KB instructions across docs.
 - `bd-runtime-gate` -- identify runtime-only validations.
@@ -297,7 +296,6 @@ A category's TRIGGER is the 'when'; each tool's line is the 'what'.
 - `bd-ship` -- one-command session close: the mirror of bd-boot (which chains the
 - `bd-handoff` -- one-command session close.
 - `bd-pack` -- assemble + LINT the next-session pack so a stale doc can never ship.
-- `bd-session` -- the multi-cut session ledger. Multi-cut chats are regular (e.g.
 - `bd-kb-sync` -- keep static project knowledge in sync via a sha256 manifest.
 - `bd-pk-mirror` -- detect drift between static-PK .py files and their
 - `bd-mkbdsuite` -- (re)build the bdsuite toolchain zip.

@@ -306,7 +306,7 @@ def _default_state():
     `/mnt/user-data/uploads`. All three are RETIRED: the sandbox home, the
     uploads mount, and the session-zip channel that carried STATE.json (git
     replaced it -- CLAUDE.md s7; the register is now
-    project-knowledge/SESSION_CARRY.md). None of those paths exists on this
+    project-knowledge/IMPROVEMENT_BACKLOG.md). None of those paths exists on this
     machine, so every one of those probes already returned nothing -- dropping
     them changes no verdict here, it only stops the code claiming to look
     somewhere real.
