@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T09:39:30+00:00",
- "version_context": "v3.66.1165",
+ "generated": "2026-08-17T10:28:31+00:00",
+ "version_context": "v3.66.1166",
  "file_count": 88,
  "files": {
   "0_INDEX.md": {
@@ -157,12 +157,12 @@
    "bytes": 9077
   },
   "GLOSSARY.md": {
-   "sha256": "20e2a14b5058b2a543be7c554ae5225b4525d9c95019f40314caee7537fda430",
-   "bytes": 9934
+   "sha256": "bd6a78b6173e557b857296dc2aa63455d75cc45e08a13790d60d1c85426bcb37",
+   "bytes": 9880
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "6b59b72ddae07f6735468712e0820a08f148ff472de268b5954e50690302df29",
-   "bytes": 144293
+   "sha256": "bf3986f17227801af848060fd12796f71ef3c2b8a1917c018c542273983c5e0c",
+   "bytes": 143743
   },
   "INVARIANTS.json": {
    "sha256": "3e45bdd0751b7f3616b9aa6893e338e379a24411df7e45e43c10d71b3f7ae50b",
@@ -197,8 +197,8 @@
    "bytes": 14837
   },
   "OPERATOR_POLICY_DECISIONS.md": {
-   "sha256": "40dc8c5e80d63c22d267c20318d9f9ef4012561895fab5d9c7fc6f79b7d08db4",
-   "bytes": 9247
+   "sha256": "c7570ba9fab9a3c5a508ef5aca63c8dfed08a01f44bf23ad8a6a2cd22a76735a",
+   "bytes": 9039
   },
   "OPV_CHECK_REFERENCE.md": {
    "sha256": "78bca4cab532c35a9337bdb1f408875906b41998c1ed0f29eb05ef1230f89e53",

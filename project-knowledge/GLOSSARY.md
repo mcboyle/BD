@@ -107,7 +107,7 @@ in `project-knowledge/IMPROVEMENT_BACKLOG.md`, not here.
   status vocabulary is OPEN / CLOSED / MOOT.
 - **OPV (OPV-*)** -- Operator Verification: tasks that need live on-stash operator action with
   screenshot proof (historical guide archived at
-  `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/OPERATOR_VERIFICATION_GUIDE.md`);
+  `OPV_COMPLETION_GUIDE_v3_66_810.md`);
   they sit in awaiting_operator.
 - **PHC-1 / Phase C** -- the F2 capture-hardening overlay (VPN control, secrets lifecycle, AI
   editor): the designated LAST sandbox-buildable feature item.

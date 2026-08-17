@@ -228,6 +228,7 @@ def test_operator_policy_documents_external_pin_lifecycle():
 
 
 def test_canonical_certification_command_requires_graph_pin():
-    plan = (ROOT / "docs" / "superpowers" / "plans" /
-            "2026-07-22-dependency-graph-hardening.md").read_text(encoding="utf-8")
-    assert "BD_REQUIRE_GRAPH_HASH=1 DISPLAY=:99 ./capture.sh --workers=60 --summary" in plan
+    policy = (ROOT / "project-knowledge" / "OPERATOR_POLICY_DECISIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "BD_REQUIRE_GRAPH_HASH=1 DISPLAY=:99 ./capture.sh --workers=60 --summary" in policy

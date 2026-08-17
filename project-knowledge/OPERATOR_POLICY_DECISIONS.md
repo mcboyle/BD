@@ -4,7 +4,7 @@
 <!-- Records the operator's settled choices on the "operator's-call" (Bucket B) constraints, and the -->
 <!-- concrete consequences for the build order + governance docs. Bucket-A hard lines (no circumvention, -->
 <!-- no redistribution, credential floor, new-host approval) are UNCHANGED and are NOT in scope here. -->
-<!-- One item (scope) requires a PROJECT_CHARTER wording change — shown below for sign-off, not yet applied. -->
+<!-- The approved scope wording was applied to PROJECT_CHARTER at v3.66.593. -->
 
 ## The three decisions
 
@@ -22,8 +22,8 @@ L2 "act" = an autonomous write, and the standing rule is *every autonomous write
 backed-up-and-restorable first*. A0 is currently PARTIAL, so **L2 is the target but not yet safe to
 run**; BD operates effectively at L1 (stage + confirm) until A0 lands.
 
-- The archived `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/AUTOMATION_PROGRAM_PLAN.md` was updated: added the L0–L4 autonomy dial (set to L2), and A0 is the
-  explicit unlock for L2. A2 (auto-refresh) / A5 (auto-promote) are the L2 actions, already A0-gated.
+- The L0–L4 autonomy dial is set to L2. A0 is the explicit unlock for L2;
+  auto-refresh and auto-promote remain A0-gated.
 - **Action:** build **A0+ verified backup** (restore-and-assert into scratch before the write) first.
   Nothing at L2 runs before it.
 
@@ -85,14 +85,13 @@ What this preserves (the compensating guardrails that must stay firm at broader 
   with two riders: (a) manual delete must be *complete* (purge file + DB row + thumbnails/derived +
   cached capture) — recommend a small `delete_archived()` to guarantee it; (b) a non-negotiable floor:
   unlawful/non-consensual content is deleted promptly regardless of the keep-forever default.
-- **Autonomy guardrails (AR4 blast/rate limits, AA5 graceful off-switch)** — not policy dials; they
-  were build-items captured in the archived
-  `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/AUTOMATION_PROGRAM_PLAN.md` §6, and AR4 is now called out as
-  mandatory alongside A-DISCO (§7) given the level-4 enumeration scope.
-- **Plugin supply-chain governance** — only relevant if the plugin marketplace / self-update is ever
-  built; captured as a risk flag in the archived
-  `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/PLUGIN_V3_PLAN.md` §6 (signing + operator-pinned key, never
-  auto-apply). Deferred until/unless that track is chosen.
+- **Autonomy guardrails** — AR4 blast/rate limits and the AA5 graceful
+  off-switch are mandatory implementation constraints, not policy dials. A
+  level-4 enumeration must cap breadth and request rate, expose an immediate
+  off-switch, and never widen beyond approved hosts.
+- **Plugin supply-chain governance** — only relevant if the plugin marketplace
+  or self-update track is selected. Any such track requires signing plus an
+  operator-pinned key and must never auto-apply an update. It remains deferred.
 
 ---
 
@@ -108,6 +107,12 @@ Two long-open "one-line decision" items, both resolving to **leave as-is with ra
 Decision #14 was superseded for the dependency/graph hardening release. Generate
 the external pin only after the release archive has passed its independent
 SHA/version/build gates on stash:
+
+The canonical certification invocation remains:
+
+```bash
+BD_REQUIRE_GRAPH_HASH=1 DISPLAY=:99 ./capture.sh --workers=60 --summary
+```
 
 ```bash
 set -euo pipefail
