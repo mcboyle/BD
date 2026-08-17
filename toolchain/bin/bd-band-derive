@@ -317,6 +317,22 @@ def map_rows(path):
 
 FLOOR = ["tests/test_contracts.py"]
 
+# v3.66.1176: every source that can change the assembled TEMPLATES identity
+# owes the frozen snapshot check. This is intentionally an exact producer set;
+# a filename-stem or import grep cannot see data re-exported through __init__.
+TEMPLATE_IDENTITY_PRODUCERS = {
+    "bulk_downloader/templates.py",
+    "bulk_downloader/site_templates/__init__.py",
+    "bulk_downloader/site_templates/accessors.py",
+    "bulk_downloader/site_templates/_data_cms.py",
+    "bulk_downloader/site_templates/_data_heuristics.py",
+    "bulk_downloader/site_templates/_data_mainstream.py",
+    "bulk_downloader/site_templates/_data_players.py",
+    "bulk_downloader/site_templates/_data_studios_a.py",
+    "bulk_downloader/site_templates/_data_studios_b.py",
+    "bulk_downloader/site_templates/_data_tubes.py",
+}
+
 
 def module_consumers(work, rel):
     """SIGNAL 4 -- MODULE-CONSUMER (the one signals 1-3 all miss).
@@ -454,6 +470,8 @@ def tests_for_file(work, rel, rows, zsha_src=None):
     base = os.path.basename(rel)
     stem = re.sub(r"\.\w+$", "", base)
     hits = set()
+    if rel in TEMPLATE_IDENTITY_PRODUCERS:
+        hits.add("tests/test_templates_list_identity.py")
     if stem:
         for tp in glob.glob(os.path.join(work, "tests", "**", "*%s*.py" % stem),
                             recursive=True):

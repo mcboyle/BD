@@ -41,18 +41,18 @@ RETIRED = {
 }
 
 MIGRATED_AUDIT_LABELS = {
-    "FRONTEND-SECRET-REGEN",
-    "TEMPLATE-SNAPSHOT-COVERAGE",
-    "PYTEST-CAPTURE-DIAGNOSTICS",
-    "SKIP-BASELINE-ENFORCEMENT",
-    "AI-BOOT-OBS",
+    "FRONTEND-SECRET-REGEN": "OPEN",
+    "TEMPLATE-SNAPSHOT-COVERAGE": "CLOSED @1176",
+    "PYTEST-CAPTURE-DIAGNOSTICS": "OPEN",
+    "SKIP-BASELINE-ENFORCEMENT": "OPEN",
+    "AI-BOOT-OBS": "OPEN",
 }
 
 AUDIT_OWNER_ROWS = {
     "#6": (110, "CLOSED"),
     "#17": (111, "CLOSED"),
     "#19d": (166, "OPEN"),
-    "#19e": (167, "OPEN"),
+    "#19e": (167, "CLOSED @1176"),
     "#21": (168, "OPEN"),
     "#22": (169, "OPEN"),
     "#24": (164, "OPEN"),
@@ -217,10 +217,10 @@ def test_current_markdown_denominator_is_explicit_and_nonzero():
 def test_the_audit_is_retired_only_after_every_live_finding_has_an_owner():
     assert not AUDIT.exists() and not os.path.lexists(AUDIT)
     text = BACKLOG.read_text(encoding="ascii")
-    for label in sorted(MIGRATED_AUDIT_LABELS):
+    for label, status in sorted(MIGRATED_AUDIT_LABELS.items()):
         rows = [line for line in text.splitlines() if f"{label} --" in line]
         assert len(rows) == 1, (label, rows)
-        assert "| OPEN |" in rows[0], rows[0]
+        assert f"| {status} |" in rows[0], rows[0]
     row114 = [line for line in text.splitlines() if line.startswith("| 114 |")]
     assert len(row114) == 1 and "| CLOSED @1172 |" in row114[0]
     assert "#23 and #25 are fixed" in row114[0]

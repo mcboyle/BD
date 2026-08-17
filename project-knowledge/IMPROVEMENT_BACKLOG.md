@@ -2,7 +2,7 @@
 
 ASCII-only.
 
-<!-- canonical-task-register schema=1 rows=166 open=30 ids-sha256=e8a9537bf0e1e68306246a2b3f3276883b2478204a61535cdf87e05d6edaf0e0 -->
+<!-- canonical-task-register schema=1 rows=166 open=29 ids-sha256=e8a9537bf0e1e68306246a2b3f3276883b2478204a61535cdf87e05d6edaf0e0 -->
 
 ## Why this file exists
 
@@ -244,7 +244,7 @@ proving nothing was lost. Nothing was lost here that any commit ever held.
 | 164 | OPEN | AI-BOOT-OBS -- capture must observe and gate the AI companion unit without making the main service wait for model warm-up. Bound and record companion retry contention so an indefinitely restarting companion cannot remain invisible. Preserve the sequential text/vision and GPU-runtime proof contracts; do not replace them with an `nvidia-smi` availability check. |
 | 165 | OPEN | CAPTURE-VAULT-CONCURRENCY -- two simultaneous captures on one host still share /tmp/bd_capture_vault and the global systemd drop-in. Re-derive every vault producer/consumer, give each capture an isolated owned vault identity, prove concurrent runs cannot overwrite or tear down one another, and preserve bounded cleanup/forensics semantics from backlog 132. |
 | 166 | OPEN | FRONTEND-SECRET-REGEN -- the generated frontend secret-key contract is checked but its server-source denominator is absent from both bd-regen-order and bd-band-derive. Derive the producer set, wire check/regeneration into the canonical chain, and prove a source-key mutation cannot escape the affected band. |
-| 167 | OPEN | TEMPLATE-SNAPSHOT-COVERAGE -- template identity has a frozen baseline, but site-template data edits neither band its check nor run it through bd-regen-order. Bind the check to the complete producer denominator and add a mutation that changes one template while every unrelated gate remains green. |
+| 167 | CLOSED @1176 | TEMPLATE-SNAPSHOT-COVERAGE -- binds the exact ten producers (the compatibility shim, package assembler, accessor, and seven data modules) to `test_templates_list_identity.py`. Every producer bands the gate, the canonical regeneration workflow verifies the frozen 91-element identity without ever auto-freezing it, and a semantic template mutation is caught before the original identity is restored and rechecked. |
 | 168 | OPEN | PYTEST-CAPTURE-DIAGNOSTICS -- pytest_capture_results still writes a zero threshold and empty over-budget list and omits slowest/skip detail from its summary. Restore measured budget and diagnostic reconciliation without changing test verdicts; prove the JSON and text summaries agree on a synthetic slow/skip population. |
 | 169 | OPEN | SKIP-BASELINE-ENFORCEMENT -- the exact 39-identity skip baseline and fail-closed checker exist, but capture, CI, and the canonical full-suite path do not enforce the checker against complete real JUnit. Wire one authoritative current-SHA execution point and preserve skip identity/reason reconciliation. |
 | 170 | OPEN | INV-TAG-REGEN -- INV_TAGS.md remains a manually maintained historical locality index while current source, root INVARIANTS.json, and point-of-use tests own behavior. Replace its stale version/count prose with a generated current-source view or retire it with explain_invariant and lint_kb consumers migrated; do not restore the retired DANGER_MAP as a second authority. |
