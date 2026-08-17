@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3843,
+  "edge_count": 3844,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -12,6 +12,9 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/runner.py"
+    ],
+    "bulk_downloader/ai_boot_observation.py": [
+      "bulk_downloader/ai_boot_status.py"
     ],
     "bulk_downloader/ai_boot_readiness.py": [
       "bulk_downloader/ai_boot_status.py",

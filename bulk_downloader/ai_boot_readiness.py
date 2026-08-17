@@ -47,6 +47,7 @@ def _base(cfg: Mapping[str, Any], attempt: int, gpu: dict | None = None) -> dict
         },
         "error_code": "",
         "error": "",
+        "phases": [],
     }
 
 
@@ -73,7 +74,9 @@ def _validate_config(cfg: Mapping[str, Any]) -> None:
 
 
 def _attempt(cfg, probe, attempt: int) -> dict[str, Any]:
+    phases = []
     installed = probe.list_models()
+    phases.append("list")
     missing = [name for name in (cfg["model_text"], cfg["model_vision"])
                if not model_present(name, installed)]
     if missing:
@@ -85,19 +88,23 @@ def _attempt(cfg, probe, attempt: int) -> dict[str, Any]:
         failure.partial_status = partial
         raise failure
     gpu = probe.gpu()
+    phases.append("gpu")
     if not gpu.get("available"):
         failure = ProbeFailure("gpu_unavailable", str(gpu.get("error") or "GPU unavailable"))
         failure.partial_status = _base(cfg, attempt, gpu)
         raise failure
 
     probe.warm_text(cfg["model_text"])
+    phases.append("warm_text")
     vision_error = None
     try:
         probe.warm_vision(cfg["model_vision"])
+        phases.append("warm_vision")
     except ProbeFailure as exc:
         vision_error = ProbeFailure("vision_warm_failed", str(exc))
 
     entries = probe.resident_models()
+    phases.append("ps")
     text = _model_state(cfg["model_text"], probe.resident_for(cfg["model_text"], entries))
     vision = _model_state(cfg["model_vision"], probe.resident_for(cfg["model_vision"], entries))
     if text["state"] != "ready":
@@ -117,6 +124,7 @@ def _attempt(cfg, probe, attempt: int) -> dict[str, Any]:
         partial = _base(cfg, attempt, gpu)
         partial.update({
             "state": "degraded",
+            "phases": phases,
             "models": {"text": text, "vision": {**vision, "state": "failed" if vision_error else vision["state"]}},
             "error_code": code,
             "error": message[:300],
@@ -126,7 +134,8 @@ def _attempt(cfg, probe, attempt: int) -> dict[str, Any]:
         raise failure
 
     ready = _base(cfg, attempt, gpu)
-    ready.update({"state": "ready", "models": {"text": text, "vision": vision}})
+    ready.update({"state": "ready", "models": {"text": text, "vision": vision},
+                  "phases": phases})
     return ready
 
 

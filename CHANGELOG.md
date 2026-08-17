@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1177 - observe the independent AI boot companion
+
+Capture now records a bounded, structured observation of the AI readiness
+companion and gates it as an independent stage without delaying main-service
+startup. The observer proves same-boot finality, exact text-before-vision phases,
+positive GPU residency for both models, systemd invocation identity, and bounded
+restart contention. Missing, stale, malformed, unsupported, or unobservable
+evidence fails closed while still producing an atomic diagnostic artifact.
+
 ## v3.66.1176 - bind every template producer to the identity snapshot
 
 Cut I maps the exact ten template-identity producers into the affected-band

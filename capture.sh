@@ -870,6 +870,15 @@ ACTIVE=$(systemctl is-active bulkdownloader 2>&1)
 if [ "$ACTIVE" = "active" ]; then SERVICE_EXIT=0; else SERVICE_EXIT=1; fi
 echo "  service: $ACTIVE"
 
+# The AI readiness companion is deliberately independent of the main unit.
+# Observe it only after the app is serving, and preserve the structured result
+# even when it cannot certify readiness so the final verdict can fail closed.
+venv/bin/python -m bulk_downloader.ai_boot_observation \
+  --output "$OUT/05_ai_boot_observation.json" \
+  --timeout "${AI_BOOT_OBSERVE_TIMEOUT:-300}" \
+  --interval "${AI_BOOT_OBSERVE_INTERVAL:-5}"
+AI_BOOT_EXIT=$?
+
 # Unlock the CAPTURE vault, after the service is up and before [5a] seeds --
 # the seeder refuses on a locked vault, which is the whole reason this exists.
 # The password goes in on stdin (--data-binary @-), never in argv: /proc makes
@@ -1380,6 +1389,7 @@ venv/bin/python tools/capture_verdict.py \
   --stage-exit "service-install=$INSTALL_EXIT" \
   --stage-exit "service-active=$SERVICE_EXIT" \
   --stage-exit "service-ready=$SERVICE_READY_EXIT" \
+  --stage-exit "ai-boot-observation=$AI_BOOT_EXIT" \
   --stage-exit "dev-tools=$DEV_EXIT" \
   --stage-exit "selftest=$SELFTEST_EXIT" \
   --stage-exit "goldens=$T51_EXIT" \
