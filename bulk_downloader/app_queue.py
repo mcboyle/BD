@@ -462,21 +462,21 @@ def api_queue_v2_bulk_cancel():
 def api_queue_v2_add_url():
     """v3.66.8 — enqueue a single URL on a configured site.
 
-    The m2 Add-URL wizard composes this with /api/dev/deep_detect:
-    detect → ResolutionPicker → confirm → this endpoint.
+    A caller may compose this with /api/dev/deep_detect:
+    detect → choose one candidate → confirm → this endpoint.
 
     Body: {
         "site_id":        "<configured site id>",  # required
         "url":            "https://...",            # required
-        "click_selector": "...",                    # optional, picker-provided
-        "resolution":     "1080p",                  # optional, picker-provided
-        "codec":          "h264",                   # optional, picker-provided
-        "fps":            30,                       # optional, picker-provided
+        "click_selector": "...",                    # optional candidate hint
+        "resolution":     "1080p",                  # optional candidate hint
+        "codec":          "h264",                   # optional candidate hint
+        "fps":            30,                       # optional candidate hint
         "source_type":    "resolution_download_card", # optional
     }
 
     Calls runners[site_id].load_urls([url]) — the same per-site
-    enqueue path the legacy UI uses. The picker-provided hints
+    enqueue path the primary UI uses. The candidate hints
     (resolution/codec/fps/click_selector/source_type) are accepted
     for forward compat with the planned per-job hint passthrough
     but not consumed by load_urls today (Phase 68's per-URL
@@ -561,4 +561,3 @@ def register_routes(app) -> int:
     app.register_blueprint(queue_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("queue."))
-

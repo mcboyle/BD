@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3837,
+  "edge_count": 3844,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3159,8 +3159,9 @@
       "bulk_downloader/app_template_manager_ui.py"
     ],
     "tests/test_p7_openapi.py": [
-      "tools/build_endpoint_catalog.py",
-      "tools/build_openapi.py"
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/openapi_spec.py"
     ],
     "tests/test_p8_queue_intelligence.py": [
       "bulk_downloader/db.py",
@@ -4447,6 +4448,13 @@
     "tests/test_v3_66_1160_bridge_verifier_isolation.py": [
       "bulk_downloader/vpn_kill_switch.py",
       "tools/body_contract.py"
+    ],
+    "tests/test_v3_66_1169_openapi_has_one_producer.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_cockpit_home.py",
+      "bulk_downloader/openapi_spec.py",
+      "tools/build_release.py"
     ],
     "tests/test_v3_66_116_template_autopilot.py": [
       "tools/cockpit_console.py",
@@ -6481,6 +6489,7 @@
       "tools/packaging_config.py"
     ],
     "tools/build_openapi.py": [
+      "bulk_downloader/openapi_spec.py",
       "tools/build_endpoint_catalog.py"
     ],
     "tools/build_recognizer_corpus.py": [

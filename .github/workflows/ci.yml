@@ -255,6 +255,7 @@ jobs:
               tests/test_v3_66_1166_historical_docs_are_adjudicated.py
               tests/test_v3_66_1167_safety_authorities_are_single_source.py
               tests/test_v3_66_1168_tests_are_current_contracts.py
+              tests/test_v3_66_1169_openapi_has_one_producer.py
               tests/test_v3_66_1141_no_paragraph_leaves_undeclared.py
               tests/test_v3_66_1145_step0_fails_closed.py
               tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py

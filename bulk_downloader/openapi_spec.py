@@ -21,7 +21,7 @@ For each route the generator records:
   • Description (from docstring's first paragraph)
   • Path parameters (from the URL placeholders)
   • Response shape: always {} unless tagged
-  • Security: 'CsrfToken' header for POST/PUT/DELETE
+  • Security: 'CsrfToken' only where the production CSRF hook requires it
 
 Limitations:
   • Request bodies not inferred — view functions accept arbitrary
@@ -32,7 +32,9 @@ Limitations:
 from __future__ import annotations
 
 import inspect
+import importlib
 import re
+from copy import deepcopy
 from typing import Iterable, Optional
 
 
@@ -143,15 +145,19 @@ def _docstring_summary(view_fn) -> str:
     return ""
 
 
-def _is_mutating(methods: set) -> bool:
-    """True if any of the methods would require CSRF."""
-    return bool({"POST", "PUT", "PATCH", "DELETE"} & methods)
+def _csrf_required(method: str, path: str) -> bool:
+    """Ask the production hook predicate; never maintain a second policy."""
+    app_module = importlib.import_module("bulk_downloader.app")
+    return bool(app_module.csrf_fires_for(method, path))
 
 
 def generate(app, *, title: str = "BulkDownloader API",
-            version: str = "v3.43.80",
+            version: Optional[str] = None,
             base_url: str = "/") -> dict:
     """Produce an OpenAPI 3.1 doc reflecting `app`'s registered routes."""
+    if version is None:
+        from . import __version__
+        version = __version__
     spec: dict = {
         "openapi": "3.1.0",
         "info": {
@@ -170,11 +176,10 @@ def generate(app, *, title: str = "BulkDownloader API",
                     "type": "apiKey",
                     "in": "header",
                     "name": "X-CSRF-Token",
-                    "description": ("Required for all state-mutating "
-                                     "endpoints (POST/PUT/PATCH/DELETE). "
-                                     "Token is rendered inline in the "
-                                     "/index page and auto-injected by "
-                                     "the bundled JS."),
+                    "description": ("Required only where the production "
+                                     "csrf_fires_for policy marks an operation. "
+                                     "Consult each operation's "
+                                     "x-csrf-required value."),
                 }
             },
             "schemas": {
@@ -196,7 +201,7 @@ def generate(app, *, title: str = "BulkDownloader API",
         summary = _docstring_summary(view_fn) or rule.endpoint
         spec["paths"].setdefault(path_str, {})
         methods = (rule.methods or set()) - {"HEAD", "OPTIONS"}
-        for method in methods:
+        for method in sorted(methods):
             method_lower = method.lower()
             op = {
                 "summary": summary,
@@ -212,19 +217,30 @@ def generate(app, *, title: str = "BulkDownloader API",
                             "content": {"application/json": {
                                 "schema": {"$ref": "#/components/schemas/Error"}}}},
                 },
+                "x-csrf-required": _csrf_required(method, rule.rule),
             }
             if path_params:
                 op["parameters"] = list(path_params)
-            if _is_mutating({method}):
+            if op["x-csrf-required"]:
                 op["security"] = [{"CsrfToken": []}]
+                op.setdefault("parameters", []).append({
+                    "name": "X-CSRF-Token",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "string"},
+                })
+                op["responses"]["403"] = {
+                    "description": "CSRF token missing/invalid",
+                }
             # Merge in tagged metadata if present
-            override = ROUTE_META.get((rule.rule, method))
+            override = deepcopy(ROUTE_META.get((rule.rule, method)))
             if override:
                 # Merge parameters carefully so override extends path params
                 if "parameters" in override:
                     op.setdefault("parameters", []).extend(override.pop("parameters"))
                 op.update(override)
             spec["paths"][path_str][method_lower] = op
+    spec["paths"] = dict(sorted(spec["paths"].items()))
     return spec
 
 
