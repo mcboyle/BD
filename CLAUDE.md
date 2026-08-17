@@ -1156,15 +1156,15 @@ possible at all.
 
   ```bash
   BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ \
-      -n 4 --dist loadfile --timeout=240 --timeout-method=thread \
+      -n 24 --dist loadfile --timeout=240 --timeout-method=thread \
       -p no:randomly
   ```
 
   Every flag is load-bearing and a different one is a different experiment:
   `--timeout` is what turns a hang into a named test instead of a stall,
-  `--timeout-method=thread` dumps its stack, `--dist loadfile` is the
-  distribution that was actually measured, and `-n 4` matched THAT CONTAINER's
-  four cores. Run it under a whole-run cap as well, and wait on a written exit
+  `--timeout-method=thread` dumps its stack, and `--dist loadfile` is the
+  distribution that was actually measured. Run it under a whole-run cap as
+  well, and wait on a written exit
   marker rather than on `pgrep` (§5's rule about a wrapper matching itself).
 
   **`-q` WAS REMOVED FROM THIS FORM AT v3.66.1126, AND `-u` ADDED. BOTH ARE
@@ -1218,12 +1218,14 @@ possible at all.
   at the configured verbosity AND that the output survives to disk. Absence of a
   message is evidence of nothing until both are established.
 
-  **`-n 4` IS NOT A CONSTANT -- DERIVE IT.** It is the one flag here that
-  describes the machine rather than the experiment, and it was copied onto an
-  86-core box at v3.66.1035 purely because this paragraph said 4. Use
-  `-n "$(nproc)"` or a stated fraction of it, and RECORD the value with the
-  result; a count taken at one worker level cannot be compared with one taken
-  at another.
+  **`-n 24` IS THE FIXED CANONICAL COUNT; HOST CAPACITY DOES NOT REWRITE THE
+  EXPERIMENT.** Post-Cut-2 qualification ran the complete collected population
+  repeatedly on two compatible hosts. `-n 34` was not faster than `-n 24`, so
+  24 is the measured performance knee and the canonical fleet command pins it
+  exactly. Keep `-n 4` as the explicit comparison and regression oracle. Any
+  other count is a separately labelled diagnostic, and every result records
+  the resolved count; a count taken at one worker level cannot be compared with
+  one taken at another.
 
   **AND MACHINE LOAD DOMINATES THE FAILURE COUNT, WHICH MAKES A SINGLE SAMPLE
   UNINTERPRETABLE.** Measured on test5 at v3.66.1035, same tree, same commit:

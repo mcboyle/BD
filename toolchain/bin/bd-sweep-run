@@ -14,8 +14,7 @@ IT REUSES, IT DOES NOT REIMPLEMENT:
                            outside the pytest process, because a bound that
                            shares a fate with the thing it bounds is not a
                            bound), the log kept whole on disk, the ANSI-proof
-                           summary/FAILED anchors, and the cores//3 worker rule
-                           measured at v3.66.1044.
+                           summary/FAILED anchors.
   toolchain/bin/bd-fleet   read_hosts() for ~/.config/bd/hosts (a second parser
                            over one format is a seam) and parse_probe(), plus
                            its self-match-proof `ps -eo comm=,args=` filter.
@@ -108,6 +107,7 @@ DEFAULT_STALL = 1200                   # no log growth for this long = STALLED
 DEFAULT_POLL = 30
 DEFAULT_MAX_UNKNOWN = 5                # consecutive unreadable polls -> UNKNOWN
 DEFAULT_KEEP_REMOTE = 20
+CANONICAL_WORKERS = 24                 # post-Cut-2 two-host performance knee
 
 # Remote refusal codes. The local side keys off the STATUS WORD, not the code:
 # four refusals sharing one exit code is how four mutants escaped a
@@ -224,19 +224,19 @@ def require_attrs(mod, name, attrs):
 # the command (pure)
 # ---------------------------------------------------------------------------
 def section5_tokens(workers):
-    """CLAUDE.md section 5's ONE permitted whole-suite form, verbatim, with the
-    single flag that describes the MACHINE rather than the experiment filled in:
+    """CLAUDE.md section 5's ONE permitted whole-suite form, verbatim:
 
         BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
-            -n 4 --dist loadfile --timeout=240 --timeout-method=thread \\
+            -n 24 --dist loadfile --timeout=240 --timeout-method=thread \\
             -p no:randomly
 
     Every flag is load-bearing and a different one is a different experiment:
     --timeout turns a hang into a named test, --timeout-method=thread dumps its
     stack, --dist loadfile is the distribution that was actually measured, and
-    -p no:randomly is the ordering that was measured. `-n 4` is NOT a
-    constant -- it was copied onto an 86-core box at v3.66.1035 purely because
-    the paragraph said 4 -- so it is derived from the TARGET and recorded.
+    -p no:randomly is the ordering that was measured. The canonical default is
+    fixed at 24 so changing host capacity cannot silently change the experiment;
+    explicit worker counts remain available for the four-worker comparison
+    oracle and bounded diagnostics, and are recorded with every row.
 
     Returned as tokens so the selftest can compare them against the fenced block
     in CLAUDE.md itself rather than against my memory of it."""
@@ -296,19 +296,10 @@ def contract_tokens_from_claude_md(path):
         return None
 
 
-def normalise_worker_token(tokens):
-    """`-n 4` and `-n 16` are the same FORM. Compare forms, not machines."""
-    out = list(tokens)
-    for i, tok in enumerate(out):
-        if tok == "-n" and i + 1 < len(out):
-            out[i + 1] = "N"
-    return out
-
-
 # ---------------------------------------------------------------------------
 # workers (pure)
 # ---------------------------------------------------------------------------
-def derive_workers(nproc, explicit=None, frac=3, bdrun=None):
+def derive_workers(nproc, explicit=None):
     """(count, provenance). RECORD THE PROVENANCE: a count taken at one worker
     level cannot be compared with one taken at another, so the row carries where
     the number came from and not just the number."""
@@ -322,15 +313,7 @@ def derive_workers(nproc, explicit=None, frac=3, bdrun=None):
                      "the target did not report a usable nproc (%r). A worker "
                      "count guessed from here is the v3.66.1035 defect: -n 4 "
                      "typed onto an 86-core box." % (nproc,))
-    if frac < 1:
-        raise Refuse("REFUSE-BAD-WORKERS", "--workers-frac must be >= 1")
-    if frac == 3 and bdrun is not None:
-        # ONE IMPLEMENTATION OF THE MEASURED RULE: bd-run.auto_workers is
-        # cores//3 floored at 2, measured at v3.66.1044 (-n 8: 224s, 16: 190s,
-        # 32: 182s, 64: 223s on 64 cores -- both ends slower than the middle).
-        return bdrun.auto_workers(nproc), \
-            "cores//3 via bd-run.auto_workers (nproc=%d)" % nproc
-    return max(2, nproc // frac), "cores//%d floored at 2 (nproc=%d)" % (frac, nproc)
+    return CANONICAL_WORKERS, "fixed canonical -n 24 (nproc=%d)" % nproc
 
 
 # ---------------------------------------------------------------------------
@@ -1023,8 +1006,7 @@ def run(args, transport_factory=None, clock=time.time, sleeper=time.sleep,
         out=None):
     out = out or sys.stdout
     bdrun = require_attrs(load_sibling(args.repo, "bd-run"), "bd-run",
-                          ["strip_ansi", "verdict", "auto_workers",
-                           "_SUMMARY", "_FAILLINE"])
+                          ["strip_ansi", "verdict", "_SUMMARY", "_FAILLINE"])
     bdfleet = require_attrs(load_sibling(args.repo, "bd-fleet"), "bd-fleet",
                             ["read_hosts", "parse_probe"])
 
@@ -1111,8 +1093,7 @@ def run(args, transport_factory=None, clock=time.time, sleeper=time.sleep,
                      % (label, pf["porcelain"]))
 
     nproc = _int_or_none(pf.get("nproc"))
-    workers, workers_from = derive_workers(nproc, args.workers, args.workers_frac,
-                                           bdrun)
+    workers, workers_from = derive_workers(nproc, args.workers)
     pytest_procs = _int_or_none(pf.get("pytest_procs"))
     busy_note = busy_gate(pytest_procs, pf.get("ps_ok"), args.allow_busy, label)
     if busy_note:
@@ -1606,7 +1587,7 @@ def _rundir_from_launch(script):
 def _args_for(repo_local, repo_remote, local_dir, commit, **over):
     ns = argparse.Namespace(
         repo=repo_local, remote_repo=str(repo_remote), host="fakehost", addr="fake",
-        hosts="/nonexistent", commit=commit, workers=None, workers_frac=3,
+        hosts="/nonexistent", commit=commit, workers=None,
         cap_seconds=120, slack_seconds=60, stall_seconds=60, poll_seconds=0.2,
         max_unknown=5, connect_timeout=5, local_dir=str(local_dir), keep_remote=5,
         register=True, dry_run=False, quiet_wait=True,
@@ -1640,16 +1621,15 @@ def selftest(argv=None):                                    # noqa: C901
               "the tool's own CODE (comments/strings stripped) calls %s" % banned)
 
     bdrun = require_attrs(load_sibling(repo_src, "bd-run"), "bd-run",
-                          ["strip_ansi", "verdict", "auto_workers", "_SUMMARY",
-                           "_FAILLINE"])
+                          ["strip_ansi", "verdict", "_SUMMARY", "_FAILLINE"])
     bdfleet = require_attrs(load_sibling(repo_src, "bd-fleet"), "bd-fleet",
                             ["read_hosts", "parse_probe"])
 
     # --- 1. the command IS section 5's, re-derived from CLAUDE.md ---------
-    built = section5_tokens(16)
+    built = section5_tokens(CANONICAL_WORKERS)
     expected = ["BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
                 "venv/bin/python", "-m", "pytest",
-                "tests/", "-n", "16", "--dist", "loadfile", "--timeout=240",
+                "tests/", "-n", "24", "--dist", "loadfile", "--timeout=240",
                 "--timeout-method=thread", "-p", "no:randomly"]
     check(built == expected, "the built command is not the sanctioned form: %s" % built)
     contract = contract_tokens_from_claude_md(os.path.join(repo_src, "CLAUDE.md"))
@@ -1659,10 +1639,9 @@ def selftest(argv=None):                                    # noqa: C901
                      "form was compared only against this file's own constant."
                      % repo_src)
     else:
-        check(normalise_worker_token(contract) == normalise_worker_token(built),
+        check(contract == built,
               "the built command DIFFERS from CLAUDE.md's fenced block.\n"
-              "        contract: %s\n        built:    %s"
-              % (normalise_worker_token(contract), normalise_worker_token(built)))
+              "        contract: %s\n        built:    %s" % (contract, built))
     check(suite_command(4)[:3] == ["env", "-u", "BD_INSTALL_DIR"],
           "BD_INSTALL_DIR is not popped for the run")
 
@@ -1689,17 +1668,17 @@ def selftest(argv=None):                                    # noqa: C901
           "the generated runner matches on the process table")
 
     # --- 2. workers -------------------------------------------------------
-    n, prov = derive_workers(48, None, 3, bdrun)
-    check(n == bdrun.auto_workers(48) and "bd-run.auto_workers" in prov,
-          "frac=3 did not delegate to bd-run.auto_workers")
+    n, prov = derive_workers(48)
+    check(n == CANONICAL_WORKERS and "fixed canonical" in prov,
+          "the default is not the fixed canonical worker count")
     for cores in (3, 12, 48, 64, 86):
-        check(derive_workers(cores, None, 3, bdrun)[0] == max(2, cores // 3),
-              "the two worker rules disagree at %d cores" % cores)
-    check(derive_workers(48, 7, 3, bdrun) == (7, "explicit --workers 7"),
+        check(derive_workers(cores)[0] == CANONICAL_WORKERS,
+              "host capacity changed the canonical default at %d cores" % cores)
+    check(derive_workers(48, 7) == (7, "explicit --workers 7"),
           "an explicit --workers was overridden")
     for bad in (None, "NONE", 0, -1):
         try:
-            derive_workers(bad, None, 3, bdrun)
+            derive_workers(bad)
             check(False, "a missing nproc (%r) did not refuse" % (bad,))
         except Refuse as exc:
             check(exc.token == "REFUSE-PREFLIGHT-UNKNOWN",
@@ -1984,10 +1963,11 @@ def selftest(argv=None):                                    # noqa: C901
         check(order.exists() and order.read_text().split() == ["bd-jobs", "pytest"],
               "registration did not happen BEFORE the run: %s"
               % (order.read_text().split() if order.exists() else "no order log"))
-        check(row.get("workers") == bdrun.auto_workers(os.cpu_count() or 2),
-              "the worker count was not derived from the target's nproc")
-        check("cores//3" in str(row.get("workers_from")),
-              "the row does not record where the worker count came from")
+        check(row.get("workers") == CANONICAL_WORKERS,
+              "the happy path did not use the fixed canonical worker count")
+        check("fixed canonical" in str(row.get("workers_from")) and
+              "nproc=" in str(row.get("workers_from")),
+              "the row does not record the fixed policy and measured capacity")
         check([f["test"] for f in row.get("failures", [])]
               == ["tests/test_alpha.py::test_one", "tests/test_beta.py::test_two"],
               "the row lost the failure names")
@@ -2410,7 +2390,7 @@ def selftest(argv=None):                                    # noqa: C901
               % (checks, checks, len(notes)), file=sys.stderr)
         return 2
     print("SELFTEST PASS: %d of %d checks -- section-5 form re-derived from "
-          "CLAUDE.md, worker derivation + provenance, host/commit refusals, the "
+          "CLAUDE.md, fixed-worker selection + provenance, host/commit refusals, the "
           "busy gate as a function AND end to end over a fake ps with a positive "
           "control, context identity (empty/stale/foreign), run-id uniqueness, 7 "
           "poll shapes, all four wait outcomes, log parsing with both numbers, and "
@@ -2441,11 +2421,8 @@ def main(argv=None):
                    help="where rows and fetched logs land (default: %s)"
                         % DEFAULT_LOCAL_DIR)
     p.add_argument("--workers", type=int, default=None,
-                   help="explicit -n; by default it is DERIVED from the TARGET's "
-                        "nproc and recorded with the row")
-    p.add_argument("--workers-frac", type=int, default=3, dest="workers_frac",
-                   help="-n = nproc//FRAC floored at 2 (default 3, the measured "
-                        "flat-fast zone). --workers-frac 1 gives -n nproc.")
+                   help="explicit -n override (for example 4 for the comparison "
+                        "oracle); fixed canonical default: 24")
     p.add_argument("--cap-seconds", type=int, default=DEFAULT_CAP, dest="cap_seconds",
                    help="whole-run cap handed to bd-run (default %d)" % DEFAULT_CAP)
     p.add_argument("--slack-seconds", type=int, default=DEFAULT_SLACK,

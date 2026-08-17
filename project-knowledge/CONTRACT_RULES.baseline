@@ -163,7 +163,6 @@ e0c04c7dba73  | claim this rule rested on | measured | | --- | --- | | `test_per
 84587c5ccd31  ``` 14 failed, 14943 passed, 91 skipped in 635.42s (10m35s) # 4 workers tests exceeding the 240s
 d84c4eac1e5c  The 14 are the documented container-only set (`test_e2e_smoke` ×7, the `no_backend` body-contrac
 48ac0989649e  **SO THE SWEEP IS PERMITTED, IN EXACTLY ONE FORM. Never bare `pytest tests/`.**
-c325c8fc8afb  ```bash BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ \ -n 4 --dist
 dfe31469bbb6  Every flag is load-bearing and a different one is a different experiment: `--timeout` is what tu
 c26570c72046  **`-q` WAS REMOVED FROM THIS FORM AT v3.66.1126, AND `-u` ADDED. BOTH ARE OBSERVABILITY FIXES FO
 5aa2d92ad1e3  `-q` sets `verbose == -1`, and xdist guards its entire crash-recovery narration behind `verbose 
@@ -172,7 +171,6 @@ a78d5023e854  ```python # xdist.dsession.DSession.report_line, as of pytest-xdis
 3fb1fd0eaf90  So under `-q` these NEVER appear: `replacing crashed worker gwN`, `maximum crashed workers reach
 e0a25966d9c6  `PYTHONUNBUFFERED=1` exists because a run that never exits never flushes. It is spelled as an EN
 09729a432a4d  **THE GENERAL RULE, because two independent blindfolds here produced the identical symptom and f
-41f9a214c5c2  **`-n 4` IS NOT A CONSTANT -- DERIVE IT.** It is the one flag here that describes the machine ra
 b13a7f1f75ef  **AND MACHINE LOAD DOMINATES THE FAILURE COUNT, WHICH MAKES A SINGLE SAMPLE UNINTERPRETABLE.** M
 5d6536ca635c  Three single samples were each read as signal in one session (19, 27, 51) and all three were noi
 caccfa7b7dbb  **WHAT THIS DOES NOT LICENSE.** One ordering was measured — `-p no:randomly` with `--dist loadfi
@@ -317,3 +315,5 @@ b0c1d07422ef  **TEST THE SEAM, NOT ONLY THE COMPONENTS.** `bd-jobs` shipped at v
 ## DECLARED REMOVALS
 
 b70cc3e3eb4a  rewritten v3.66.1141: the count was deleted, not the rule. The directive 'LOOK IN toolchain/bin BEFORE YOU HAND-ROLL ANYTHING' and the `ls toolchain/bin/bd-* | wc -l` recipe both survive in section 8; only the stale figure and its history changed.
+c325c8fc8afb  rewritten v3.66.1162: the sanctioned command survives verbatim except for the independently qualified fixed worker count, now `-n 24`; all timeout, distribution, ordering, environment, and observability flags remain unchanged.
+41f9a214c5c2  superseded v3.66.1162 by the fixed-count paragraph in section 5: repeated exact-population two-host qualification selected `-n 24`; explicit `-n 4` survives as the comparison and regression oracle, and results still record the resolved count.

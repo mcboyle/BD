@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1162 - promote the stable canonical full-suite worker count
+
+The repository-sanctioned real-pytest full suite now uses fixed `-n 24` with
+`--dist loadfile`.  Two-host, exact-tree qualification reconciled the complete
+16,640-test population across repeated `-n 24` and `-n 34` executions.  Both
+counts were stable, but `-n 34` was slightly slower on both hosts and therefore
+failed the required ten-percent advantage over `-n 24`.  Explicit `-n 4`
+remains the comparison and regression oracle; automatic or host-derived worker
+selection cannot silently alter the canonical command.
+
+The policy is pinned by a repo-wide production-path regression and the
+`bd-sweep-run` selftest, including fixed selection across differing reported
+CPU counts, exact contract-command agreement, explicit-oracle compatibility,
+and removal of the former fractional-worker CLI.  The cut also makes the
+frontend differential-oracle process census treat a `/proc/<pid>/stat` entry
+that disappears between probes as an exited process, with a deterministic race
+regression, instead of allowing that ordinary process-exit race to abort an
+otherwise valid high-concurrency run.
+
 ## v3.66.1161 - remove the transcript context census
 
 Cut 2 removes the context-census executable, its internal selftest wiring, and
