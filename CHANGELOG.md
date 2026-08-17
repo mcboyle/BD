@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1166 - adjudicate historical documentation
+
+Cut 6 classifies every tracked archive, implementation plan, design spec, and
+pending-spec path. Thirteen point-in-time archive records remain explicitly as
+historical evidence; redundant and executable-looking archived plans are
+removed. The entire stale `docs/superpowers` plan/spec population is retired
+after its genuine residual work is made atomic in the canonical backlog.
+
+Current policy now carries its autonomy, plugin supply-chain, graph-pin, and
+OPV facts without depending on deleted archive prose. A directly wired
+repo-wide regression pins the retained archive denominator, proves the retired
+plan/spec directories cannot return as tracked or dangling paths, and requires
+the migrated residuals to remain machine-visible.
+
 ## v3.66.1165 - leave one agent-facing contract
 
 Cut 5 removes six remaining session/bootstrap instruction and execution-prompt
