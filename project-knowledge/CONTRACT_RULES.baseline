@@ -15,8 +15,9 @@
 #
 # paragraphs: 308
 # Recomputed for v3.66.1163 after the comparison became case-sensitive: all
-# 308 current CLAUDE.md paragraphs are ACTIVE, and the four reviewed historical
-# rewrites below remain preserved as declarations rather than being erased.
+# 308 current CLAUDE.md paragraphs remain ACTIVE. At v3.66.1164 five reviewed
+# task-authority pointer rewrites were added to the four historical declarations
+# below rather than being erased or silently adopted.
 
 954cda71a521  # CLAUDE.md — operating contract for BulkDownloader
 7b7d54555a40  You are working on **BulkDownloader (BD)**: a self-hosted Flask + Playwright + React/TypeScript

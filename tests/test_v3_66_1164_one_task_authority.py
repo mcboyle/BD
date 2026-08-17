@@ -28,6 +28,9 @@ CURRENT_SURFACES = (
     "CLAUDE.md",
     "toolchain/bin",
     "project-knowledge/README.md",
+    "project-knowledge/README_KB.md",
+    "project-knowledge/SANDBOX.md",
+    "project-knowledge/bd_starting_message.txt",
     "project-knowledge/BD_TOOLCHAIN_REFERENCE.md",
     "project-knowledge/BD_TOOLCHAIN_WHEN_TO_USE.md",
 )

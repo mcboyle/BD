@@ -1,6 +1,6 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-17T08:31:49+00:00",
+ "generated": "2026-08-17T08:47:34+00:00",
  "version_context": "v3.66.1164",
  "file_count": 93,
  "files": {
@@ -41,8 +41,8 @@
    "bytes": 2483
   },
   "ADVANCED_PROJECT_KNOWLEDGE.md": {
-   "sha256": "d9b42fdd7f2b1bf0f3ad3cf74cab9ff023a861d6396e106006c4b6ef4f2d1167",
-   "bytes": 22675
+   "sha256": "71ad947aa14ed5d17c38a266d10ff713a4b5b8a2d30620b61bda557026f67d8b",
+   "bytes": 22779
   },
   "ARCHITECTURE_MAP.md": {
    "sha256": "7d60217065bd02a431524773766d976607ecea4d1174afcf572b04a554db109b",
@@ -113,8 +113,8 @@
    "bytes": 631
   },
   "CONTRACT_RULES.baseline": {
-   "sha256": "5bb65842c5fbbbe30e0905351e68ff404e082c81f92a6fe89e876ed486ec3eda",
-   "bytes": 35752
+   "sha256": "185ee1b522bfb33ae79e4c172c79a25ef56b67d621da4b37f9e0991dbd1355fa",
+   "bytes": 35809
   },
   "COVERAGE_GAPS.json": {
    "sha256": "98f863bac981bd226f608e972420be10cb111bfac6d808434be4bc2ba2f13ca5",
@@ -157,8 +157,8 @@
    "bytes": 9077
   },
   "GLOSSARY.md": {
-   "sha256": "36aa7e3d181127415f1fe95d5665f342f33dde5c8a9defbd4828ff4636e7e4aa",
-   "bytes": 9863
+   "sha256": "20e2a14b5058b2a543be7c554ae5225b4525d9c95019f40314caee7537fda430",
+   "bytes": 9934
   },
   "IMPROVEMENT_BACKLOG.md": {
    "sha256": "94c59aec2f7e93d4127e92e00901d2eb8352b7e66f47d5a55c7db441440c4789",
@@ -309,8 +309,8 @@
    "bytes": 3658
   },
   "bd_starting_message.txt": {
-   "sha256": "51a5021add73eacd2601555eb4147432eb41d369c8de69a63d066585e581b93f",
-   "bytes": 6417
+   "sha256": "39918994fda6a015cf575b757b4ca5a0b27bd7b8694b57e7338feba4c5772dcf",
+   "bytes": 6591
   },
   "build_montage.py": {
    "sha256": "e49129f660f96e4ceb16b019a09deb27e9f5853cf63abb4f86eeb9fc44da8c47",
