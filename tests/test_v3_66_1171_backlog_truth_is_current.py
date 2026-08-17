@@ -267,6 +267,8 @@ def test_code_intelligence_documents_describe_current_tools() -> None:
     assert "auto-emits a RED-test stub" not in architecture
     assert "`bd-audit-gate`** `[BUILT, STANDALONE]`" in architecture
     assert "blocks the build" not in architecture
+    assert "bd-audit-gate queries it on every cut" not in architecture
+    assert "bd-audit-gate queries it when explicitly invoked" in architecture
     assert "does not run `semantic_diff`" in architecture
     for absent in ("bd-review-next", "bd-finding", "bd-invariant", "bd-dup"):
         assert absent in program

@@ -27,7 +27,7 @@ are single queries, not greps across files.
                                       │ upsert
    L0 extract ──► KNOWLEDGE_GRAPH.db ◄┴─ L1 graph_build (calls/imports/taint/guards)
    (battery)         │   ▲
-                     │   └── bd-audit-gate queries it on every cut
+                     │   └── bd-audit-gate queries it when explicitly invoked
                      ▼
    projections: MODULE_CATALOG · CALL_GRAPH · TAINT_MAP · SECURITY_SURFACE
                 INVARIANTS · CONTRACTS · ERROR_CATALOG · CONFIG_LINEAGE
