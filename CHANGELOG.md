@@ -17,11 +17,13 @@ restore the exact kill-state and auto-recovery values while retaining the
 singleton's owning re-entrant lock for the complete mutation window. That
 serializes legitimate concurrent state changes behind restoration instead of
 erasing them, and deliberately retains application callback registrations.
-Five production-path regressions prove each mutating endpoint fired with a
+Six production-path regressions prove each mutating endpoint fired with a
 nonzero denominator, preexisting state is restored exactly, and concurrent
 real state and auto-recovery mutations resume and survive. Auto-recovery reads,
-writes, and test reset now obey the same owning lock. The original cross-file
-order that exposed the leak is also green.
+writes, and test reset now obey the same owning lock. Fixture probing enters
+the preservation window before a cold app import, and the regression harness
+preserves callbacks owned by surrounding tests. The original cross-file order
+that exposed the leak is also green.
 
 ## v3.66.1159 - fleet retention proves removal of the owned run
 

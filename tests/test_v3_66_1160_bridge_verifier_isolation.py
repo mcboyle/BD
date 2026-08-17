@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import json
+import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
+
+import pytest
 
 
 BD_GATE_SCOPE = "repo-wide"
@@ -11,17 +18,45 @@ BD_GATE_SCOPE = "repo-wide"
 ROOT = str(Path(__file__).resolve().parent.parent)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_kill_switch_without_erasing_callbacks():
+    """Give each case clean state, then restore every singleton it observed."""
+    from bulk_downloader import vpn_kill_switch as ks
+
+    with ks._state_lock:
+        states = copy.deepcopy(ks._states)
+        auto_recover = ks._auto_recover_enabled
+        ks._states.clear()
+        ks._auto_recover_enabled = True
+    with ks._callbacks_lock:
+        callbacks = list(ks._callbacks)
+    try:
+        yield
+    finally:
+        with ks._state_lock:
+            ks._states.clear()
+            ks._states.update(states)
+            ks._auto_recover_enabled = auto_recover
+        with ks._callbacks_lock:
+            ks._callbacks[:] = callbacks
+
+
 def test_typed_body_probe_restores_vpn_kill_switch_state(monkeypatch):
     """A mutating probe may observe the singleton, but may not retain its writes."""
     from bulk_downloader import vpn_kill_switch as ks
     from tools import body_contract as bc
 
-    ks._reset_for_tests()
     ks.set_auto_recover(False)
     ks.kill_tunnel("preexisting", reason="fixture must survive")
     before = ks.list_kill_states()
     fired = {"probe_kills": 0}
     real_kill = ks.kill_tunnel
+    callback_events = []
+
+    def callback(tunnel_id, state):
+        callback_events.append((tunnel_id, state))
+
+    ks.register_kill_callback(callback)
 
     def counted_kill(tunnel_id, reason=""):
         if tunnel_id == "_probe":
@@ -38,19 +73,19 @@ def test_typed_body_probe_restores_vpn_kill_switch_state(monkeypatch):
         "unknownType": False,
     }
 
-    try:
-        result = bc.probe_typed(ROOT, [call])
-        assert result, "the injected production probe path did not return a verdict"
-        assert fired["probe_kills"] == 2, (
-            "both differential requests must reach the real kill endpoint; otherwise "
-            "the state-restoration assertion has no mutation denominator"
-        )
-        assert ks.list_kill_states() == before, (
-            "probe_typed leaked its synthetic _probe kill into the process singleton"
-        )
-        assert ks.get_auto_recover() is False
-    finally:
-        ks._reset_for_tests()
+    result = bc.probe_typed(ROOT, [call])
+    assert result, "the injected production probe path did not return a verdict"
+    assert fired["probe_kills"] == 2, (
+        "both differential requests must reach the real kill endpoint; otherwise "
+        "the state-restoration assertion has no mutation denominator"
+    )
+    assert ks.list_kill_states() == before, (
+        "probe_typed leaked its synthetic _probe kill into the process singleton"
+    )
+    assert ks.get_auto_recover() is False
+    assert callback_events == [("_probe", "killed")]
+    with ks._callbacks_lock:
+        assert callback in ks._callbacks
 
 
 def test_literal_body_probe_restores_vpn_kill_switch_state(monkeypatch):
@@ -58,7 +93,6 @@ def test_literal_body_probe_restores_vpn_kill_switch_state(monkeypatch):
     from bulk_downloader import vpn_kill_switch as ks
     from tools import body_contract as bc
 
-    ks._reset_for_tests()
     ks.set_auto_recover(False)
     ks.kill_tunnel("preexisting", reason="fixture must survive")
     before = ks.list_kill_states()
@@ -79,19 +113,16 @@ def test_literal_body_probe_restores_vpn_kill_switch_state(monkeypatch):
         "shape": "{reason}",
     }
 
-    try:
-        result = bc.probe(ROOT, [call])
-        assert result, "the injected production probe path did not return a verdict"
-        assert fired["probe_kills"] == 1, (
-            "the literal-body probe must reach the real kill endpoint exactly once; "
-            "otherwise the state-restoration assertion has no mutation denominator"
-        )
-        assert ks.list_kill_states() == before, (
-            "probe leaked its synthetic _probe kill into the process singleton"
-        )
-        assert ks.get_auto_recover() is False
-    finally:
-        ks._reset_for_tests()
+    result = bc.probe(ROOT, [call])
+    assert result, "the injected production probe path did not return a verdict"
+    assert fired["probe_kills"] == 1, (
+        "the literal-body probe must reach the real kill endpoint exactly once; "
+        "otherwise the state-restoration assertion has no mutation denominator"
+    )
+    assert ks.list_kill_states() == before, (
+        "probe leaked its synthetic _probe kill into the process singleton"
+    )
+    assert ks.get_auto_recover() is False
 
 
 def test_fixture_body_probe_restores_vpn_kill_switch_state(monkeypatch):
@@ -99,7 +130,6 @@ def test_fixture_body_probe_restores_vpn_kill_switch_state(monkeypatch):
     from bulk_downloader import vpn_kill_switch as ks
     from tools import body_contract as bc
 
-    ks._reset_for_tests()
     ks.set_auto_recover(False)
     ks.kill_tunnel("preexisting", reason="fixture must survive")
     before = ks.list_kill_states()
@@ -121,17 +151,14 @@ def test_fixture_body_probe_restores_vpn_kill_switch_state(monkeypatch):
         "unknownType": False,
     }
 
-    try:
-        result = bc.probe_fixtures(ROOT, [call])
-        assert result, "the fixture-backed production probe returned no verdict"
-        assert fired["fixture_kills"] == 2, (
-            "both fixture differential requests must reach the real kill endpoint; "
-            "otherwise the restoration assertion has no mutation denominator"
-        )
-        assert ks.list_kill_states() == before
-        assert ks.get_auto_recover() is False
-    finally:
-        ks._reset_for_tests()
+    result = bc.probe_fixtures(ROOT, [call])
+    assert result, "the fixture-backed production probe returned no verdict"
+    assert fired["fixture_kills"] == 2, (
+        "both fixture differential requests must reach the real kill endpoint; "
+        "otherwise the restoration assertion has no mutation denominator"
+    )
+    assert ks.list_kill_states() == before
+    assert ks.get_auto_recover() is False
 
 
 def test_probe_serializes_restore_against_concurrent_real_state(monkeypatch):
@@ -139,7 +166,6 @@ def test_probe_serializes_restore_against_concurrent_real_state(monkeypatch):
     from bulk_downloader import vpn_kill_switch as ks
     from tools import body_contract as bc
 
-    ks._reset_for_tests()
     ks.set_auto_recover(False)
     holder = {}
     attempted = threading.Event()
@@ -161,13 +187,10 @@ def test_probe_serializes_restore_against_concurrent_real_state(monkeypatch):
         return []
 
     monkeypatch.setattr(bc, "_probe_inner", inner)
-    try:
-        bc.probe(ROOT, [])
-        holder["thread"].join(2)
-        assert completed.is_set(), "the serialized legitimate mutation never resumed"
-        assert [row["tunnel_id"] for row in ks.list_kill_states()] == ["concurrent"]
-    finally:
-        ks._reset_for_tests()
+    bc.probe(ROOT, [])
+    holder["thread"].join(2)
+    assert completed.is_set(), "the serialized legitimate mutation never resumed"
+    assert [row["tunnel_id"] for row in ks.list_kill_states()] == ["concurrent"]
 
 
 def test_probe_serializes_restore_against_concurrent_auto_recover_change(monkeypatch):
@@ -175,7 +198,6 @@ def test_probe_serializes_restore_against_concurrent_auto_recover_change(monkeyp
     from bulk_downloader import vpn_kill_switch as ks
     from tools import body_contract as bc
 
-    ks._reset_for_tests()
     ks.set_auto_recover(False)
     holder = {}
     attempted = threading.Event()
@@ -197,10 +219,41 @@ def test_probe_serializes_restore_against_concurrent_auto_recover_change(monkeyp
         return []
 
     monkeypatch.setattr(bc, "_probe_inner", inner)
-    try:
-        bc.probe(ROOT, [])
-        holder["thread"].join(2)
-        assert completed.is_set(), "the serialized auto-recover mutation never resumed"
-        assert ks.get_auto_recover() is True
-    finally:
-        ks._reset_for_tests()
+    bc.probe(ROOT, [])
+    holder["thread"].join(2)
+    assert completed.is_set(), "the serialized auto-recover mutation never resumed"
+    assert ks.get_auto_recover() is True
+
+
+def test_fixture_probe_snapshots_kill_switch_before_cold_app_import(tmp_path):
+    """App initialization is part of the probe mutation window, not its baseline."""
+    script = """
+import json
+import sys
+from bulk_downloader import vpn_kill_switch as ks
+from tools import body_contract as bc
+
+assert "bulk_downloader.app" not in sys.modules
+ks.set_auto_recover(False)
+before = ks.get_auto_recover()
+result = bc.probe_fixtures(sys.argv[1], [])
+print(json.dumps({"before": before, "after": ks.get_auto_recover(), "result": result}))
+"""
+    env = os.environ.copy()
+    env["BD_DISABLE_KEEPALIVE"] = "1"
+    env["BD_HOME"] = str(tmp_path / "home")
+    env["PYTHONPATH"] = ROOT
+    proc = subprocess.run(
+        [sys.executable, "-c", script, ROOT],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout.splitlines()[-1])
+    assert payload["before"] is False
+    assert payload["result"] == []
+    assert payload["after"] is False

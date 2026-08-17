@@ -438,49 +438,54 @@ def probe_fixtures(work, tcalls):
     # world, one level up -- a verdict that depends on what ran first is not a verdict.
     #
     # So snapshot the app's module-level state, wipe it, and restore it afterwards.
-    _saved = None
-    _saved_app_cfg = None
-    try:
-        import bulk_downloader.app as _A
-        _saved = ({k: dict(v) if isinstance(v, dict) else v
-                   for k, v in _A.s_cfg.items()},
-                  dict(_A.s_meta), dict(_A.runners))
-        # v3.66.750 -- _app_cfg is module-level state exactly like s_cfg,
-        # and a replayed settings probe mutates it (path_allowlist -> ["x"]).
-        # Without this restore, the SECOND probe_fixtures() call in a
-        # process inherits the first call's poisoned config and setup_site
-        # flaps OK -> UNKNOWN (the ratchet's old +1 tolerance).
-        _saved_app_cfg = dict(getattr(_A, "_app_cfg", {}) or {})
-        _A.s_cfg.clear()
-        _A.s_meta.clear()
-        _A.runners.clear()
-    except Exception:
-        pass
     try:
         with _preserve_vpn_kill_switch_state():
-            return _probe_fixtures_inner(work, tcalls, scratch)
+            # App import itself mutates kill-switch policy.  It belongs inside
+            # the preservation window just as much as the endpoint replay does;
+            # otherwise a cold probe snapshots the import's value as baseline.
+            _saved = None
+            _saved_app_cfg = None
+            try:
+                import bulk_downloader.app as _A
+                _saved = ({k: dict(v) if isinstance(v, dict) else v
+                           for k, v in _A.s_cfg.items()},
+                          dict(_A.s_meta), dict(_A.runners))
+                # v3.66.750 -- _app_cfg is module-level state exactly like s_cfg,
+                # and a replayed settings probe mutates it (path_allowlist -> ["x"]).
+                # Without this restore, the SECOND probe_fixtures() call in a
+                # process inherits the first call's poisoned config and setup_site
+                # flaps OK -> UNKNOWN (the ratchet's old +1 tolerance).
+                _saved_app_cfg = dict(getattr(_A, "_app_cfg", {}) or {})
+                _A.s_cfg.clear()
+                _A.s_meta.clear()
+                _A.runners.clear()
+            except Exception:
+                pass
+            try:
+                return _probe_fixtures_inner(work, tcalls, scratch)
+            finally:
+                if _saved is not None:
+                    try:
+                        import bulk_downloader.app as _A
+                        _A.s_cfg.clear()
+                        _A.s_cfg.update(_saved[0])
+                        _A.s_meta.clear()
+                        _A.s_meta.update(_saved[1])
+                        _A.runners.clear()
+                        _A.runners.update(_saved[2])
+                        if _saved_app_cfg is not None:
+                            _cfg = getattr(_A, "_app_cfg", None)
+                            if _cfg is not None:
+                                _cfg.clear()
+                                _cfg.update(_saved_app_cfg)
+                    except Exception:
+                        pass
     finally:
         os.chdir(prev)
         if prev_home is None:
             os.environ.pop("BD_HOME", None)
         else:
             os.environ["BD_HOME"] = prev_home
-        if _saved is not None:
-            try:
-                import bulk_downloader.app as _A
-                _A.s_cfg.clear()
-                _A.s_cfg.update(_saved[0])
-                _A.s_meta.clear()
-                _A.s_meta.update(_saved[1])
-                _A.runners.clear()
-                _A.runners.update(_saved[2])
-                if _saved_app_cfg is not None:
-                    _cfg = getattr(_A, "_app_cfg", None)
-                    if _cfg is not None:
-                        _cfg.clear()
-                        _cfg.update(_saved_app_cfg)
-            except Exception:
-                pass
 
 
 # A 400 whose message names a RESOURCE or a VALUE cannot prove a dead control.
