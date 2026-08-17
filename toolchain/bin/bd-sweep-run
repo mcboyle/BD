@@ -1601,11 +1601,11 @@ def _args_for(repo_local, repo_remote, local_dir, commit, **over):
     return ns
 
 
-def selftest(argv=None):                                    # noqa: C901
+def selftest(repo_src=None):                                # noqa: C901
     failures = []
     notes = []
     checks = 0
-    repo_src = DEFAULT_REPO
+    repo_src = repo_src or DEFAULT_REPO
     src = pathlib.Path(os.path.realpath(__file__)).read_text(encoding="utf-8")
 
     def check(ok, message):
@@ -2459,7 +2459,7 @@ def main(argv=None):
     rc = 2
     try:
         if args.selftest:
-            rc = selftest()
+            rc = selftest(args.repo)
             return rc
         if not args.host or not args.commit:
             print("bd-sweep-run: REFUSED [REFUSE-INCOMPLETE-REQUEST]: --host and "

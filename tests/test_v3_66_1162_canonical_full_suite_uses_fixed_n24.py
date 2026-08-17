@@ -79,7 +79,7 @@ def test_cli_offers_a_fixed_default_and_no_dynamic_fraction_policy():
 
 def test_selftest_drives_the_fixed_default_through_the_real_run_path():
     result = subprocess.run(
-        [str(TOOL), "--selftest"],
+        [str(TOOL), "--repo", str(ROOT), "--selftest"],
         cwd=ROOT,
         text=True,
         capture_output=True,

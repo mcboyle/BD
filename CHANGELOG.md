@@ -17,7 +17,9 @@ selection cannot silently alter the canonical command.
 The policy is pinned by a repo-wide production-path regression and the
 `bd-sweep-run` selftest, including fixed selection across differing reported
 CPU counts, exact contract-command agreement, explicit-oracle compatibility,
-and removal of the former fractional-worker CLI.  The cut also makes the
+removal of the former fractional-worker CLI, and selftest subject binding that
+honors an explicit `--repo` instead of falling back to a host-specific default.
+The cut also makes the
 frontend differential-oracle process census treat a `/proc/<pid>/stat` entry
 that disappears between probes as an exited process, with a deterministic race
 regression, instead of allowing that ordinary process-exit race to abort an
