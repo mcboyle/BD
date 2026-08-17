@@ -65,20 +65,21 @@ def test_reserved_namespaces_404_not_spa_html():
     c = _fresh_client()
     for path in ("/api/definitely_not_a_route_zz",
                  "/cockpit/definitely_not_a_page_zz",
-                 "/legacy/definitely_not_a_thing_zz",
-                 "/m2zz_is_not_reserved_but_this_is/../"):
-        r = c.get("/api/definitely_not_a_route_zz")
-        assert r.status_code == 404
-    r = c.get("/cockpit/definitely_not_a_page_zz")
-    assert r.status_code == 404
+                 "/legacy/definitely_not_a_thing_zz"):
+        r = c.get(path)
+        assert r.status_code == 404, f"{path}: {r.status_code}"
 
 
 def test_missing_asset_is_404_not_spa_html():
     """An asset-looking path (file extension) not present in dist is a
-    404 — a stale hashed bundle name must fail loudly, not return HTML."""
+    404 when built; a clean source checkout reports the explicit 503 state."""
     c = _fresh_client()
     r = c.get("/assets/definitely-not-a-real-bundle-zz.js")
-    assert r.status_code == 404
+    if not _DIST.is_file():
+        assert r.status_code == 503
+        assert r.headers.get("X-BD-M2-Status") == "not-built"
+    else:
+        assert r.status_code == 404
 
 
 def test_real_asset_served_from_root():

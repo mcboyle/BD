@@ -18,16 +18,24 @@ import test_coverage_catalog as TC  # type: ignore
 _SUM = re.compile(r"Total:\s*(\d+)\s*\|\s*Passed:\s*(\d+)\s*\|\s*Failed:\s*(\d+)\s*\|\s*Skipped:\s*(\d+)")
 
 
+class ReportEvidenceError(ValueError):
+    """The report cannot truthfully render its skip authority."""
+
+
 def _skip_baseline(root):
     p = os.path.join(root, "tests", "SKIP_BASELINE.json")
     try:
         payload = json.loads(Path(p).read_text(encoding="utf-8"))
-        if payload.get("schema") == "bd-skip-baseline/1":
-            rows = payload.get("skips")
-            return len(rows) if isinstance(rows, list) else None
-    except (OSError, ValueError, AttributeError):
-        pass
-    return None
+    except OSError as exc:
+        raise ReportEvidenceError(f"skip authority is unreadable: {p}") from exc
+    except (ValueError, AttributeError) as exc:
+        raise ReportEvidenceError(f"skip authority is malformed: {p}") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != "bd-skip-baseline/1":
+        raise ReportEvidenceError(f"skip authority has the wrong schema: {p}")
+    rows = payload.get("skips")
+    if not isinstance(rows, list):
+        raise ReportEvidenceError(f"skip authority skips must be a list: {p}")
+    return len(rows)
 
 
 def build(root=".", summary=None):

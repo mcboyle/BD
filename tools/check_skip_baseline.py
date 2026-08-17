@@ -138,10 +138,14 @@ def _write_identity_baseline(path: Path, skips: dict[str, str]) -> None:
             for identity in sorted(skips)
         ],
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(path)
+    except OSError as exc:
+        raise EvidenceError(f"cannot write skip baseline: {path}") from exc
 
 
 def main() -> int:

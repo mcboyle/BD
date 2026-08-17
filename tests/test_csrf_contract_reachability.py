@@ -58,6 +58,7 @@ import os
 import re
 import shutil
 import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -95,26 +96,34 @@ def _step3_program() -> str:
 
 def _root_bodies() -> dict[str, bytes]:
     """Every body GET / can return, MEASURED by driving the real app."""
-    os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
-    import bulk_downloader.app as A
-    saved = A._M2_DIST_ROOT
-    out: dict[str, bytes] = {}
+    previous = os.environ.get("BD_DISABLE_KEEPALIVE")
+    os.environ["BD_DISABLE_KEEPALIVE"] = "1"
     try:
-        A._M2_DIST_ROOT = Path(tempfile.mkdtemp()) / "no-such-dist"
-        with A.app.test_client() as c:
-            out["dist-absent-503"] = c.get("/").data
-        built = REPO / "frontend" / "dist" / "index.html"
-        if built.is_file():
-            A._M2_DIST_ROOT, label = built.parent, "built-dist"
-        else:
-            d = Path(tempfile.mkdtemp())
-            shutil.copy(REPO / "frontend" / "index.html", d / "index.html")
-            A._M2_DIST_ROOT, label = d, "vite-source-index-standin"
-        with A.app.test_client() as c:
-            out[label] = c.get("/").data
+        import bulk_downloader.app as A
+        saved = A._M2_DIST_ROOT
+        out: dict[str, bytes] = {}
+        with ExitStack() as stack:
+            absent = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            A._M2_DIST_ROOT = absent / "no-such-dist"
+            with A.app.test_client() as c:
+                out["dist-absent-503"] = c.get("/").data
+            built = REPO / "frontend" / "dist" / "index.html"
+            if built.is_file():
+                A._M2_DIST_ROOT, label = built.parent, "built-dist"
+            else:
+                d = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+                shutil.copy(REPO / "frontend" / "index.html", d / "index.html")
+                A._M2_DIST_ROOT, label = d, "vite-source-index-standin"
+            with A.app.test_client() as c:
+                out[label] = c.get("/").data
+        return out
     finally:
-        A._M2_DIST_ROOT = saved
-    return out
+        if "A" in locals() and "saved" in locals():
+            A._M2_DIST_ROOT = saved
+        if previous is None:
+            os.environ.pop("BD_DISABLE_KEEPALIVE", None)
+        else:
+            os.environ["BD_DISABLE_KEEPALIVE"] = previous
 
 
 def _dist_standin_is_faithful() -> tuple[bool, str]:
@@ -133,15 +142,22 @@ def _reachable(probe: str) -> list[str]:
 
 
 def _csrf_403_hint() -> str:
-    os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
-    import bulk_downloader.app as A
-    with A.app.test_client() as c:
-        c.get("/")                       # warm the bd_session cookie
-        r = c.post(GUARDED_PATH, json={})
-        assert r.status_code == 403, (
-            f"{GUARDED_PATH} answered {r.status_code}, not the CSRF 403 this "
-            f"test reads its subject from")
-        return (r.get_json() or {}).get("hint", "")
+    previous = os.environ.get("BD_DISABLE_KEEPALIVE")
+    os.environ["BD_DISABLE_KEEPALIVE"] = "1"
+    try:
+        import bulk_downloader.app as A
+        with A.app.test_client() as c:
+            c.get("/")                       # warm the bd_session cookie
+            r = c.post(GUARDED_PATH, json={})
+            assert r.status_code == 403, (
+                f"{GUARDED_PATH} answered {r.status_code}, not the CSRF 403 this "
+                f"test reads its subject from")
+            return (r.get_json() or {}).get("hint", "")
+    finally:
+        if previous is None:
+            os.environ.pop("BD_DISABLE_KEEPALIVE", None)
+        else:
+            os.environ["BD_DISABLE_KEEPALIVE"] = previous
 
 
 @pytest.mark.parametrize("probe", [META_PROBE, JINJA_PROBE])

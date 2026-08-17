@@ -129,31 +129,41 @@ def _root_bodies() -> dict[str, bytes]:
     whole subject is a denominator that excluded its subject, so it derives its
     own reachability rather than inheriting one.
     """
-    os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
-    import bulk_downloader.app as A
-    saved = A._M2_DIST_ROOT
-    out: dict[str, bytes] = {}
+    previous = os.environ.get("BD_DISABLE_KEEPALIVE")
+    os.environ["BD_DISABLE_KEEPALIVE"] = "1"
     try:
-        A._M2_DIST_ROOT = Path(tempfile.mkdtemp()) / "no-such-dist"
-        with A.app.test_client() as c:
-            out["dist-absent-503"] = c.get("/").data
-        built = REPO / "frontend" / "dist" / "index.html"
-        if built.is_file():
-            A._M2_DIST_ROOT, label = built.parent, "built-dist"
-        else:
-            d = Path(tempfile.mkdtemp())
-            shutil.copy(REPO / "frontend" / "index.html", d / "index.html")
-            A._M2_DIST_ROOT, label = d, "vite-source-index-standin"
-        with A.app.test_client() as c:
-            out[label] = c.get("/").data
+        import bulk_downloader.app as A
+        saved = A._M2_DIST_ROOT
+        out: dict[str, bytes] = {}
+        with contextlib.ExitStack() as stack:
+            absent = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            A._M2_DIST_ROOT = absent / "no-such-dist"
+            with A.app.test_client() as c:
+                out["dist-absent-503"] = c.get("/").data
+            built = REPO / "frontend" / "dist" / "index.html"
+            if built.is_file():
+                A._M2_DIST_ROOT, label = built.parent, "built-dist"
+            else:
+                d = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+                shutil.copy(REPO / "frontend" / "index.html", d / "index.html")
+                A._M2_DIST_ROOT, label = d, "vite-source-index-standin"
+            with A.app.test_client() as c:
+                out[label] = c.get("/").data
+        return out
     finally:
-        A._M2_DIST_ROOT = saved
-    return out
+        if "A" in locals() and "saved" in locals():
+            A._M2_DIST_ROOT = saved
+        if previous is None:
+            os.environ.pop("BD_DISABLE_KEEPALIVE", None)
+        else:
+            os.environ["BD_DISABLE_KEEPALIVE"] = previous
 
 
 def _standin_is_faithful() -> tuple[bool, str]:
     if (REPO / "frontend" / "dist" / "index.html").is_file():
         return True, "measured the real built dist/index.html"
+    if not (REPO / "frontend" / "index.html").is_file():
+        return False, "no built dist and frontend/index.html is missing"
     cfg = REPO / "frontend" / "vite.config.ts"
     if not cfg.is_file():
         return False, "frontend/vite.config.ts is missing"
@@ -325,8 +335,8 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
     # over a second copy of the predicate would certify the copy.
     graded_bug = _graded_defect_lines(section)
     assert not graded_bug, (
-        f"functional_probe grades a healthy root a defect ({header}). GET / "
-        f"returns 200 and serves the SPA shell; the CSRF token ships via "
+        f"functional_probe grades an expected root state a defect ({header}). "
+        f"The CSRF token ships via "
         f"GET /api/csrf, not an HTML meta tag. Offending findings:\n  "
         + "\n  ".join(graded_bug))
 
@@ -343,11 +353,16 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
     assert root_findings, (
         "F.1 reports no finding about GET / at all, so the root-load arm "
         f"produced nothing and nothing was checked (UNKNOWN fails). window:\n{section}")
-    assert any("[ok" in ln for ln in root_findings), (
-        "F.1's GET / finding is not graded ok on a healthy root. An arm "
-        "downgraded to info or warn reports nothing actionable on a broken "
-        "root either, so the probe has lost its teeth rather than passed:\n  "
-        + "\n  ".join(root_findings))
+    if (REPO / "frontend" / "dist" / "index.html").is_file():
+        assert any("[ok" in ln for ln in root_findings), (
+            "F.1's GET / finding is not graded ok with a built SPA:\n  "
+            + "\n  ".join(root_findings))
+    else:
+        assert any("[info" in ln and "frontend-not-built" in ln
+                   and "503" in ln for ln in root_findings), (
+            "F.1 did not report the explicit frontend-not-built 503 state; "
+            "a clean source checkout must be distinguished from a broken "
+            "built deployment:\n  " + "\n  ".join(root_findings))
 
     # POSITIVE CONTROL for the no-defect assertion above. `assert not
     # graded_bug` is satisfied by a grader that has gone blind, and an empty
@@ -358,13 +373,13 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
     # hand-spelled imitation, so the control cannot certify a format the probe
     # stopped using. If Report.F's spelling ever changes, the re-grade below
     # produces an unchanged line and this FAILS -- unknown is a third state.
-    ok_line = next(ln for ln in root_findings if "[ok" in ln)
+    source_line = root_findings[0]
     for sev in ("bug ", "crit"):
-        forged = ok_line.replace("[ok  ]", f"[{sev}]", 1)
-        assert forged != ok_line, (
-            "could not re-grade a real [ok  ] line, so this control planted "
+        forged = re.sub(r"\[[a-z]+\s*\]", f"[{sev}]", source_line, count=1)
+        assert forged != source_line, (
+            "could not re-grade a real root finding, so this control planted "
             "nothing and the no-defect assertion above stayed unmeasured "
-            f"(UNKNOWN fails). probe printed: {ok_line!r}")
+            f"(UNKNOWN fails). probe printed: {source_line!r}")
         assert _graded_defect_lines(forged) == [forged], (
             f"the defect grader cannot see a [{sev.strip()}] finding in the "
             "probe's OWN output format, so the no-defect assertion above was "

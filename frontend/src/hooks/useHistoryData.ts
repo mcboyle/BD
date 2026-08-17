@@ -25,9 +25,10 @@ import type {
 // call uses the FULL "/api/…" string literal (NOT a concatenated base
 // var) so gui_parity_inventory.py observes the SPA endpoint consumer.
 //
-// Confirm-gated writes (log clear, history vacuum,
-// saved-search add/delete): the route arms them through the typed/
-// one-step confirm dialog (Maintenance.tsx pattern) — never one-click.
+// Confirm-gated writes (log clear, history vacuum, and saved-search
+// add/delete/run) are armed by the route before these hooks dispatch them.
+// Saved-search updates are also enqueued there, except notify-only updates,
+// which apply immediately; none of these endpoints carries secret fields.
 // None of these endpoints carry secrets, so the (R) redaction pairing
 // rule does not apply here.
 

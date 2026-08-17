@@ -2,8 +2,8 @@
 
 Proves the 23 endpoint families (library 4 · tags 6 · scene_score 1 ·
 storage_rebalance 1; T4: sites-bulk 3 · runners 2 · concurrent 1 · rate_limit 1
-· retry_policy 1 · crash_recovery 2 · file 1) are now SPA-wired and drop out
-remain SPA-wired and dangerous-selection writes carry typed confirm tokens.
+· retry_policy 1 · crash_recovery 2 · file 1) remain SPA-wired, and
+dangerous-selection writes carry typed confirmation tokens.
 
 run_tests.py conventions: zero-arg test functions; repo root from __file__;
 no pytest builtins.

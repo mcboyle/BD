@@ -4,7 +4,7 @@ Proves the 7 endpoint families remain SPA-wired, the /notifications
 route is lazy-loaded with an inbound nav link, the secret inputs are
 write-only ((R) rule: GET masks them, the matching capture redaction
 ships the same cut), writes are never one-click (they arm a Pending),
-and writes are never one-click.
+and dispatch happens only from the confirmation dialog.
 
 run_tests.py conventions: zero-arg test functions; repo root from
 __file__; no pytest builtins.

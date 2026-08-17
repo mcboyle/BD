@@ -51,8 +51,9 @@ def test_protected_post_succeeds_without_legacy_shell():
     sid = body.get("id")
     assert sid is not None, f"site create did not return an id: {body}"
     # cleanup so repeated runs / later tests don't accrete sites
-    c.delete(f"/api/sites/{sid}",
-             headers={"X-CSRF-Token": d["csrf_token"]})
+    cleanup = c.delete(f"/api/sites/{sid}",
+                       headers={"X-CSRF-Token": d["csrf_token"]})
+    assert cleanup.status_code == 200, cleanup.get_json()
 
 
 def test_existing_session_path_unchanged():

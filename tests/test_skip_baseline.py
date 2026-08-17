@@ -185,3 +185,37 @@ def test_runtime_report_counts_the_canonical_identity_baseline(tmp_path):
         ],
     }), encoding="utf-8")
     assert _load_runtime_report()._skip_baseline(str(tmp_path)) == 2
+
+
+@pytest.mark.parametrize("contents, match", [
+    ("{not-json", "malformed"),
+    (json.dumps({"schema": "wrong", "skips": []}), "schema"),
+    (json.dumps({"schema": "bd-skip-baseline/1", "skips": {}}), "list"),
+])
+def test_runtime_report_refuses_invalid_skip_authority(tmp_path, contents, match):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "SKIP_BASELINE.json").write_text(contents, encoding="utf-8")
+    report = _load_runtime_report()
+    with pytest.raises(report.ReportEvidenceError, match=match):
+        report._skip_baseline(str(tmp_path))
+
+
+def test_skip_baseline_update_turns_write_failure_into_refusal(
+        tmp_path, monkeypatch, capsys):
+    junit = _junit(tmp_path, """<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='1'><testcase classname='tests.alpha'
+      name='test_parked'><skipped message='parked'/></testcase>
+      </testsuite></testsuites>""")
+    baseline = tmp_path / "blocked" / "SKIP_BASELINE.json"
+
+    def denied(*_args, **_kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(_TOOL.Path, "mkdir", denied)
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--junit", str(junit),
+        "--baseline", str(baseline), "--update",
+    ])
+    assert _TOOL.main() == 2
+    assert "REFUSED" in capsys.readouterr().err
