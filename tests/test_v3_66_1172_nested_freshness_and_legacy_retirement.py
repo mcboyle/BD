@@ -86,9 +86,6 @@ def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
     ).decode().split("\0")
     names = "|".join(map(re.escape, sorted(RETIRED)))
     token = re.compile(rf"(?<![A-Za-z0-9_-])(?:{names})(?![A-Za-z0-9_-])")
-    shell_invocation = re.compile(
-        rf"(?:toolchain/bin/|(?:^|[;&|])\s*)(?:['\"])?(?:{names})(?![A-Za-z0-9_-])"
-    )
     offenders = []
     denominator = 0
     for rel in tracked:
@@ -107,19 +104,24 @@ def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
             except SyntaxError:
                 tree = None
             if tree is not None:
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.Call):
-                        continue
-                    for child in ast.walk(node):
-                        if isinstance(child, ast.Constant) and isinstance(child.value, str):
-                            if token.search(child.value):
-                                offenders.append(
-                                    f"{rel}:{getattr(child, 'lineno', 0)}:{child.value}"
-                                )
+                docstrings = {
+                    id(node.body[0].value)
+                    for node in ast.walk(tree)
+                    if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                    and node.body and isinstance(node.body[0], ast.Expr)
+                    and isinstance(node.body[0].value, ast.Constant)
+                    and isinstance(node.body[0].value.value, str)
+                }
+                for child in ast.walk(tree):
+                    if (isinstance(child, ast.Constant) and isinstance(child.value, str)
+                            and id(child) not in docstrings and token.search(child.value)):
+                        offenders.append(
+                            f"{rel}:{getattr(child, 'lineno', 0)}:{child.value}"
+                        )
         for line_no, line in enumerate(lines, 1):
             if line.lstrip().startswith("#"):
                 continue
-            if not is_python and shell_invocation.search(line):
+            if not is_python and token.search(line):
                 offenders.append(f"{rel}:{line_no}:{line.strip()}")
     return denominator, offenders
 
@@ -291,7 +293,7 @@ def test_retired_executable_consumer_scan_has_a_positive_control(tmp_path: Path)
     )
     (tmp_path / "tools").mkdir()
     (tmp_path / "tools" / "new_close.py").write_text(
-        'import subprocess\nsubprocess.run([\n    "bd-pack",\n    "--out",\n])\n',
+        'import subprocess\nCOMMAND = [\n    "bd-pack",\n    "--out",\n]\nsubprocess.run(COMMAND)\n',
         encoding="utf-8",
     )
     _git(tmp_path, "init", "-q")
