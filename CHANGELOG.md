@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1185 - let bd-mutate emit canonical specs
+
+- Add `--emit-spec <canonical-basename>.json --subject <text>` so a validated
+  scratch battery is atomically written under `tests/mutants/` before its
+  execution verdict, preserving escaped evidence as well as caught evidence.
+- Refuse path traversal, empty subjects, malformed canonical mutants, missing
+  subjects or bands, duplicate bands, and all attempted clobbers at exit 2.
+- Exercise the real CLI against caught and escaped batteries and prove an
+  existing spec remains byte-identical when another writer asks for its name.
+
 ## v3.66.1184 - make mutation specifications tracked artifacts
 
 - Establish `tests/mutants/<version>_<slug>.json` as the single-writer,

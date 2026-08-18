@@ -70,6 +70,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,7 @@ from pathlib import Path
 
 CAUGHT, ESCAPED, INVALID, ERROR = "CAUGHT", "ESCAPED", "INVALID", "ERROR"
 SPEC_SCHEMA = "bd-mutate-spec/1"
+_EMIT_NAME = re.compile(r"v3_66_[0-9]+_[a-z0-9_]+\.json\Z")
 
 
 def _sha(p: Path) -> str:
@@ -190,6 +192,67 @@ def _battery_exit(rows: list[dict]) -> int:
     if any(row.get("verdict") in {INVALID, ERROR} for row in rows):
         return 2
     return 0 if rows and all(row.get("verdict") == CAUGHT for row in rows) else 1
+
+
+def _emit_spec(work: Path, name: str, subject: str, band: list[str],
+               mutants: list[dict]) -> Path:
+    """Write one canonical spec atomically without taking another cut's name."""
+    if not _EMIT_NAME.fullmatch(name):
+        raise ValueError(
+            "--emit-spec must be a canonical basename like "
+            "v3_66_1185_short_slug.json")
+    if not subject.strip():
+        raise ValueError("--subject is required with --emit-spec")
+    if not band or any(not target for target in band):
+        raise ValueError("cannot emit a spec with an empty band")
+    if len(band) != len(set(band)):
+        raise ValueError("cannot emit a spec with duplicate band targets")
+
+    required = {"label", "file", "old", "new", "direction", "catcher"}
+    for index, mutant in enumerate(mutants, 1):
+        if set(mutant) != required:
+            raise ValueError(
+                f"emitted mutant {index} fields must be exactly {sorted(required)}")
+        for field in required:
+            if not isinstance(mutant[field], str) or not mutant[field]:
+                raise ValueError(
+                    f"emitted mutant {index} field {field!r} must be a non-empty string")
+        subject_path = work / mutant["file"]
+        if not subject_path.is_file():
+            raise ValueError(f"emitted mutant {index} subject does not exist: {mutant['file']}")
+    for target in band:
+        path = work / target.split("::", 1)[0]
+        if not path.is_file():
+            raise ValueError(f"emitted band target does not exist: {target}")
+
+    rel = Path("tests") / "mutants" / name
+    destination = work / rel
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        "schema": SPEC_SCHEMA,
+        "_comment": f"Re-run: toolchain/bin/bd-mutate --spec {rel.as_posix()}",
+        "subject": subject.strip(),
+        "band": band,
+        "mutants": mutants,
+    }
+    payload = (json.dumps(document, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{name}.", suffix=".tmp", dir=str(destination.parent))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp_name, 0o644)
+        try:
+            os.link(tmp_name, destination)
+        except FileExistsError:
+            raise ValueError(f"canonical spec already exists: {rel.as_posix()}")
+    finally:
+        Path(tmp_name).unlink(missing_ok=True)
+    print(f"emitted canonical spec: {rel.as_posix()}")
+    return destination
 
 
 def _run_band(band: list[str], work: Path) -> tuple[int, str]:
@@ -643,6 +706,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="bd-mutate")
     ap.add_argument("--spec", help="JSON object spec, or a legacy bare mutant list")
     ap.add_argument("--band", default="", help="test targets for legacy bare-list specs")
+    ap.add_argument("--emit-spec", metavar="BASENAME",
+                    help="write tests/mutants/BASENAME without clobbering")
+    ap.add_argument("--subject", default="",
+                    help="human-readable subject required by --emit-spec")
     ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -664,6 +731,12 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as e:
         print(f"BD-MUTATE-UNRUNNABLE: invalid spec: {e}", file=sys.stderr)
         return 2
+    if a.emit_spec:
+        try:
+            _emit_spec(work, a.emit_spec, a.subject, band, spec)
+        except (OSError, ValueError) as e:
+            print(f"BD-MUTATE-UNRUNNABLE: cannot emit spec: {e}", file=sys.stderr)
+            return 2
     rc, rows = run_battery(spec, band, work)
     if a.json:
         print(json.dumps({"exit": rc, "rows": rows}, indent=1))
