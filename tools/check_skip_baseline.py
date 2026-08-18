@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Check exact skip identities and reasons in complete real-pytest JUnit.
+"""Reconcile permitted skip identities across complete pytest JUnit lanes.
 
-Usage: ``venv/bin/python tools/check_skip_baseline.py --junit result.xml``.
-Use ``--update`` only after every changed skip has been adjudicated.
-
-Exit 0 means exact match, 1 means identity/reason drift, and 2 means the
-evidence or baseline cannot support a verdict. Incomplete, zero-test, failed,
-errored, malformed, or internally inconsistent JUnit always returns 2.
+Exit 0 means every baseline identity executed once as PASS or as its exact
+permitted SKIP. Exit 1 is skip-policy drift. Exit 2 means the supplied evidence
+cannot support a verdict.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
+
+try:  # Script execution places tools/ first; package-style tests use the root.
+    from pytest_capture_results import _read_lane
+except ImportError:  # pragma: no cover - selected by the test import path
+    from tools.pytest_capture_results import _read_lane
+
 
 DEFAULT_BASELINE = Path("tests/SKIP_BASELINE.json")
 
@@ -22,85 +26,41 @@ class EvidenceError(ValueError):
     """The supplied test evidence cannot support a skip verdict."""
 
 
-def _read_junit(path: Path) -> dict:
-    """Read complete passing JUnit and retain exact skip identities/reasons."""
-    if not path.is_file():
-        raise EvidenceError(f"missing JUnit evidence: {path}")
+def _read_junits(paths: list[Path]) -> dict:
+    """Read complete, disjoint JUnit lanes and retain every terminal state."""
+    if not paths:
+        raise EvidenceError("missing JUnit evidence")
+    states: dict[str, dict] = {}
     try:
-        root = ET.parse(path).getroot()
-    except (OSError, ET.ParseError) as exc:
-        raise EvidenceError(f"malformed JUnit evidence: {exc}") from exc
-
-    suites = [suite for suite in root.iter("testsuite")
-              if not suite.findall("testsuite")]
-    if not suites:
-        raise EvidenceError("missing test summary")
-    try:
-        declared = sum(int(suite.attrib["tests"]) for suite in suites)
-        failures = sum(int(suite.attrib["failures"]) for suite in suites)
-        errors = sum(int(suite.attrib["errors"]) for suite in suites)
-        declared_skips = sum(int(suite.attrib["skipped"]) for suite in suites)
-    except (KeyError, TypeError, ValueError) as exc:
-        raise EvidenceError("missing or malformed test summary") from exc
-    if declared <= 0:
+        for path in paths:
+            for record in _read_lane(path):
+                identity = record["identity"]
+                if identity in states:
+                    raise EvidenceError(f"duplicate testcase identity: {identity}")
+                states[identity] = record
+    except EvidenceError:
+        raise
+    except ValueError as exc:
+        raise EvidenceError(str(exc)) from exc
+    if not states:
         raise EvidenceError("zero tests executed")
-    cases = [case for suite in suites for case in suite.findall("testcase")]
-    if len(cases) != declared:
-        raise EvidenceError(
-            f"testcase population is incomplete: declared {declared}, "
-            f"observed {len(cases)}")
+    failures = sum(row["status"] == "fail" for row in states.values())
+    errors = sum(row["status"] == "error" for row in states.values())
+    if failures:
+        raise EvidenceError(f"JUnit reports {failures} failure(s)")
+    if errors:
+        raise EvidenceError(f"JUnit reports {errors} error(s)")
+    skipped = {
+        identity: row["reason"]
+        for identity, row in states.items()
+        if row["status"] == "skip"
+    }
+    return {"executed": len(states), "skipped": skipped, "states": states}
 
-    skipped = {}
-    identities = set()
-    observed_failures = 0
-    observed_errors = 0
-    for case in cases:
-        classname = (case.get("classname") or "").strip()
-        name = (case.get("name") or "").strip()
-        if not classname or not name:
-            raise EvidenceError("testcase has no stable identity")
-        identity = f"{classname}::{name}"
-        if identity in identities:
-            raise EvidenceError(f"duplicate testcase identity: {identity}")
-        identities.add(identity)
-        result_nodes = [child for child in case
-                        if child.tag in {"failure", "error", "skipped"}]
-        unknown_nodes = [child.tag for child in case
-                         if child.tag not in {"failure", "error", "skipped"}]
-        if unknown_nodes:
-            raise EvidenceError(
-                f"unknown testcase result element for {identity}: "
-                f"{unknown_nodes[0]}")
-        if len(result_nodes) > 1:
-            raise EvidenceError(
-                f"testcase has multiple result states: {identity}")
-        failure = next((node for node in result_nodes
-                        if node.tag == "failure"), None)
-        error = next((node for node in result_nodes
-                      if node.tag == "error"), None)
-        skip = next((node for node in result_nodes
-                     if node.tag == "skipped"), None)
-        observed_failures += failure is not None
-        observed_errors += error is not None
-        if skip is None:
-            continue
-        reason = (skip.get("message") or "").strip()
-        if not reason:
-            raise EvidenceError(f"skip reason missing for {identity}")
-        skipped[identity] = reason
-    for label, declared_count, observed_count in (
-            ("failure", failures, observed_failures),
-            ("error", errors, observed_errors),
-            ("skip", declared_skips, len(skipped))):
-        if declared_count != observed_count:
-            raise EvidenceError(
-                f"{label} summary disagrees: declared {declared_count}, "
-                f"observed {observed_count}")
-    if observed_failures:
-        raise EvidenceError(f"JUnit reports {observed_failures} failure(s)")
-    if observed_errors:
-        raise EvidenceError(f"JUnit reports {observed_errors} error(s)")
-    return {"executed": declared, "skipped": skipped}
+
+def _read_junit(path: Path) -> dict:
+    """Compatibility wrapper for callers that validate one complete lane."""
+    return _read_junits([path])
 
 
 def _compare_skips(expected: dict[str, str], observed: dict[str, str]) -> list[str]:
@@ -112,6 +72,27 @@ def _compare_skips(expected: dict[str, str], observed: dict[str, str]) -> list[s
         f"reason changed: {key}"
         for key in sorted(expected.keys() & observed)
         if expected[key] != observed[key])
+    return differences
+
+
+def _compare_baseline(expected: dict[str, str], result: dict) -> list[str]:
+    """Reconcile every permitted identity as a PASS or its exact SKIP."""
+    states = result["states"]
+    skipped = result["skipped"]
+    differences = [
+        f"missing: {identity}"
+        for identity in sorted(expected)
+        if identity not in states
+    ]
+    differences.extend(
+        f"unexpected: {identity}"
+        for identity in sorted(set(skipped) - set(expected))
+    )
+    differences.extend(
+        f"reason changed: {identity}"
+        for identity in sorted(set(expected) & set(skipped))
+        if expected[identity] != skipped[identity]
+    )
     return differences
 
 
@@ -166,8 +147,7 @@ def _write_identity_baseline(path: Path, skips: dict[str, str]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         temporary.replace(path)
         if _read_identity_baseline(path) != skips:
             raise EvidenceError(f"written skip baseline did not verify: {path}")
@@ -175,36 +155,40 @@ def _write_identity_baseline(path: Path, skips: dict[str, str]) -> None:
         raise EvidenceError(f"cannot write skip baseline: {path}") from exc
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE,
                         help=f"baseline file (default {DEFAULT_BASELINE})")
-    parser.add_argument("--junit", type=Path, required=True,
-                        help="complete passing real-pytest JUnit XML")
+    parser.add_argument("--junit", type=Path, required=True, action="append",
+                        help="complete real-pytest JUnit XML; repeat for each lane")
     parser.add_argument("--update", action="store_true",
-                        help="write observed identities/reasons after adjudication")
-    args = parser.parse_args()
+                        help="retired: baseline updates require hand adjudication")
+    args = parser.parse_args(argv)
+
+    lane_paths = {path.resolve(strict=False) for path in args.junit}
+    if len(args.junit) != 2 or len(lane_paths) != 2:
+        print("REFUSED: exactly two distinct JUnit lanes are required", file=sys.stderr)
+        return 2
+    if args.update:
+        print("REFUSED: --update is disabled; baseline changes require hand adjudication",
+              file=sys.stderr)
+        return 2
 
     try:
-        result = _read_junit(args.junit)
-        if args.update:
-            _write_identity_baseline(args.baseline, result["skipped"])
-            print(f"OK: baseline updated with {len(result['skipped'])} "
-                  f"exact skip identities in {args.baseline}")
-            return 0
+        result = _read_junits(args.junit)
         expected = _read_identity_baseline(args.baseline)
     except EvidenceError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
 
-    differences = _compare_skips(expected, result["skipped"])
+    differences = _compare_baseline(expected, result)
     if differences:
         print("FAIL: skip identities or reasons changed:\n  "
               + "\n  ".join(differences), file=sys.stderr)
         return 1
     noun = "identity" if len(expected) == 1 else "identities"
-    print(f"OK: {len(expected)} exact skip {noun} and reasons match "
-          f"across {result['executed']} executed tests")
+    print(f"OK: {len(expected)} baseline {noun} executed as PASS or exact "
+          f"permitted SKIP across {result['executed']} executed tests")
     return 0
 
 
