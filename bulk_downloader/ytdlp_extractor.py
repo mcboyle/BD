@@ -57,12 +57,13 @@ def _socks_remote_dns(proxy_url: Optional[str]) -> str:
 
 
 # ── build_ytdlp_info_cmd (pure) ───────────────────────────────────────
-def build_ytdlp_info_cmd(*, ytdlp: str, url: str, cookie_file: str = "",
+def build_ytdlp_info_cmd(*, ytdlp, url: str, cookie_file: str = "",
                          proxy_url: Optional[str] = None) -> list:
     """Pure builder for the yt-dlp info-probe CLI (unit-testable, no side
     effects). ``-j --skip-download`` prints one JSON object per video and
     downloads nothing; ``--no-playlist`` keeps it to the single target."""
-    cmd = [ytdlp, "-j", "--skip-download",
+    prefix = list(ytdlp) if isinstance(ytdlp, (list, tuple)) else [ytdlp]
+    cmd = prefix + ["-j", "--skip-download",
            "--no-warnings", "--no-progress", "--no-playlist"]
     proxy = _socks_remote_dns(proxy_url)
     if proxy:
@@ -181,16 +182,26 @@ def _default_run(cmd: list):
 # ── make_ytdlp_extractor (the shim) ───────────────────────────────────
 def make_ytdlp_extractor(config: Optional[dict], *,
                          run: Optional[Callable] = None,
-                         which: Optional[Callable] = None) -> Callable:
+                         which: Optional[Callable] = None,
+                         resolve: Optional[Callable] = None) -> Callable:
     """Build a ``fn(url, ctx) -> dict`` plugin ``@extractor`` shim backed by
     yt-dlp's ``-j`` info probe. ``run`` / ``which`` are injectable for tests
     (default: real subprocess + ``shutil.which``)."""
     cfg = dict(config or {})
     _run = run or _default_run
     _which = which or _shutil.which
+    if resolve is None:
+        def _resolve():
+            from . import ytdlp_updater
+            if which is None:
+                return ytdlp_updater.resolve_ytdlp_argv()
+            exe = _which("yt-dlp") or _which("youtube-dl")
+            return ytdlp_updater.resolve_ytdlp_argv(exe) if exe else None
+    else:
+        _resolve = resolve
 
     def _extract(url: str, ctx: Optional[dict] = None) -> dict:
-        ytdlp = _which("yt-dlp") or _which("youtube-dl")
+        ytdlp = _resolve()
         if not ytdlp:
             return {}                       # runtime gate: no binary -> fall through
         cookie_file = (cfg.get("cookie_file") or "").strip()

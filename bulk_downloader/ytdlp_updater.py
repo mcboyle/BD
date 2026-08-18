@@ -31,6 +31,7 @@ Design notes:
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import re
 import shutil
@@ -44,9 +45,12 @@ from typing import Optional, Tuple
 # pick up anyway, so caching forever is fine. Time-based expiry on
 # the cache is just so a fresh `pip install --upgrade` between BD
 # starts isn't masked by a stale cache during the same session.
-_VERSION_CACHE: dict = {"ts": 0.0, "version": None, "path": None}
+_VERSION_CACHE: dict = {
+    "ts": 0.0, "version": None, "key": None,
+    "source": "unavailable", "error": "unavailable",
+}
 
-# Last update-check timestamp per executable path. Prevents the
+# Last update-check timestamp per resolved command. Prevents the
 # auto-update path from firing more than once per 24h regardless of
 # how many sites are configured.
 _LAST_UPDATE_CHECK: dict = {}
@@ -54,28 +58,82 @@ _LAST_UPDATE_CHECK: dict = {}
 # Cache TTL: 1 hour. Long enough to make repeated calls cheap, short
 # enough that an explicit yt-dlp upgrade is detected within an hour.
 _CACHE_TTL = 3600
+_VERSION_RE = re.compile(
+    r"^\d{4}\.\d{1,2}\.\d{1,2}(?:[.+-][0-9A-Za-z][0-9A-Za-z._+-]*|\s+\[(?:master|nightly)\])?$",
+    re.IGNORECASE,
+)
+
+
+def _resolve_ytdlp_argv(executable: Optional[str] = None):
+    """Return immutable ``(argv, source, unavailable_error)`` for yt-dlp.
+
+    A configured executable takes precedence.  PATH console scripts retain
+    their historical precedence; only when neither is visible is the current
+    interpreter a real operational route.  A virtualenv can contain
+    ``yt_dlp`` without exposing ``yt-dlp`` on the service's PATH.  This returns
+    argv elements, never a shell string.
+    """
+    if executable:
+        return (executable,), "explicit", None
+    exe = shutil.which("yt-dlp")
+    if exe:
+        return (exe,), "path", None
+    exe = shutil.which("youtube-dl")
+    if exe:
+        return (exe,), "path", None
+    if sys.executable and importlib.util.find_spec("yt_dlp") is not None:
+        return (sys.executable, "-m", "yt_dlp"), "module", None
+    return None, "unavailable", ("module_absent" if sys.executable else "unavailable")
+
+
+def resolve_ytdlp_argv(executable: Optional[str] = None):
+    """Return the canonical local yt-dlp command argv, or ``None``.
+
+    Callers execute the returned immutable argv tuple directly.  In particular,
+    module-only installations use ``(sys.executable, "-m", "yt_dlp")`` rather than a
+    shell or a guessed global Python.
+    """
+    argv, _source, _error = _resolve_ytdlp_argv(executable)
+    return argv
+
+
+def _version_probe(executable: Optional[str] = None, *, _resolved=None) -> dict:
+    """Probe the resolved command and retain source/error evidence for status."""
+    argv, source, unavailable_error = _resolved or _resolve_ytdlp_argv(executable)
+    key = (source, tuple(argv or ()))
+    now = time.time()
+    cache = _VERSION_CACHE
+    if (cache.get("key") == key and cache.get("version")
+            and (now - cache.get("ts", 0.0)) < _CACHE_TTL):
+        return {"version": cache.get("version"), "source": cache.get("source"),
+                "error": cache.get("error")}
+    if not argv:
+        result = {"version": None, "source": source, "error": unavailable_error}
+    else:
+        try:
+            r = subprocess.run(list(argv) + ["--version"], capture_output=True,
+                               text=True, timeout=10, shell=False)
+            if r.returncode != 0:
+                result = {"version": None, "source": source, "error": "command_failed"}
+            else:
+                lines = (r.stdout or "").strip().splitlines()
+                ver = lines[0].strip() if len(lines) == 1 else None
+                result = ({"version": ver, "source": source, "error": None}
+                          if ver and _VERSION_RE.fullmatch(ver)
+                          else {"version": None, "source": source,
+                                "error": "malformed_output"})
+        except subprocess.TimeoutExpired:
+            result = {"version": None, "source": source, "error": "timeout"}
+        except OSError:
+            result = {"version": None, "source": source, "error": "command_failed"}
+    _VERSION_CACHE.update({"ts": now, "key": key, **result})
+    return result
 
 
 def current_version(executable: Optional[str] = None) -> Optional[str]:
     """Return the installed yt-dlp version string, or None if it
-    couldn't be determined. Cached for 1 hour per executable path."""
-    exe = executable or shutil.which("yt-dlp") or shutil.which("youtube-dl")
-    if not exe:
-        return None
-    now = time.time()
-    cache = _VERSION_CACHE
-    if cache["path"] == exe and (now - cache["ts"]) < _CACHE_TTL and cache["version"]:
-        return cache["version"]
-    try:
-        r = subprocess.run([exe, "--version"], capture_output=True,
-                          text=True, timeout=10)
-        if r.returncode != 0:
-            return None
-        ver = (r.stdout or "").strip().splitlines()[0] if r.stdout else None
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    _VERSION_CACHE.update({"ts": now, "version": ver, "path": exe})
-    return ver
+    couldn't be determined. Cached for 1 hour per resolved command."""
+    return _version_probe(executable)["version"]
 
 
 def version_age_days(version: Optional[str] = None) -> Optional[int]:
@@ -112,26 +170,30 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
         `threshold_days` days
       • Won't run more than once per 24h regardless of how many
         site configs trigger this
-      • Skipped silently if no yt-dlp on PATH (nothing to update)
+      • Skipped silently if no usable local yt-dlp command is resolved
       • Skipped if running from a packaged binary (no pip to call)
 
     Use from a periodic task or from a startup hook — never from a
     hot worker path; the pip call can take 5-30 seconds.
     """
-    exe = shutil.which("yt-dlp") or shutil.which("youtube-dl")
-    if not exe:
+    resolved = _resolve_ytdlp_argv()
+    argv, source, _unavailable_error = resolved
+    if not argv:
         return (False, "yt-dlp not installed; nothing to update")
     now = time.time()
-    last = _LAST_UPDATE_CHECK.get(exe, 0.0)
+    update_key = (source, tuple(argv))
+    last = _LAST_UPDATE_CHECK.get(update_key, 0.0)
     if not force and (now - last) < 86400:
         return (False, "update check rate-limited (24h)")
-    if not force and not is_stale(threshold_days=threshold_days):
-        return (False, f"yt-dlp is fresh (≤{threshold_days}d old)")
+    if not force:
+        age = version_age_days(_version_probe(_resolved=resolved)["version"])
+        if age is None or age <= threshold_days:
+            return (False, f"yt-dlp is fresh (≤{threshold_days}d old)")
     # Find a python that owns pip. Prefer sys.executable so we update
     # the yt-dlp that lives in the same environment as BD.
     py = sys.executable or "python"
     cmd = [py, "-m", "pip", "install", "--upgrade", "--quiet", "yt-dlp"]
-    _LAST_UPDATE_CHECK[exe] = now
+    _LAST_UPDATE_CHECK[update_key] = now
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
@@ -143,7 +205,8 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
         return (False, f"pip install --upgrade raised: {e}")
     # Invalidate the version cache so the next current_version() call
     # picks up the upgraded version.
-    _VERSION_CACHE.update({"ts": 0.0, "version": None, "path": None})
+    _VERSION_CACHE.update({"ts": 0.0, "version": None, "key": None,
+                           "source": "unavailable", "error": "unavailable"})
     new_ver = current_version()
     # @979: this path already reached the network, so refresh the latest-version
     # cache here rather than making the BOOT probe fetch. That is what lets the
@@ -270,11 +333,14 @@ def is_behind(installed, latest) -> bool:
 def status_dict() -> dict:
     """Return a small dict for /api/status surfacing. Keeps UI code
     decoupled from the implementation."""
-    ver = current_version()
+    probe = _version_probe()
+    ver = probe["version"]
     age = version_age_days(ver) if ver else None
     return {
         "installed": ver is not None,
         "version": ver,
         "age_days": age,
         "stale": age is not None and age > 30,
+        "probe_source": probe["source"],
+        "probe_error": probe["error"],
     }

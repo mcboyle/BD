@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1638,
+    "edge_count": 1641,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4732,7 +4732,10 @@
         "bulk_downloader/app_ytdlp_update.py",
         "bulk_downloader/bg_scheduler.py",
         "bulk_downloader/healthcheck.py",
-        "bulk_downloader/metrics_prom.py"
+        "bulk_downloader/metrics_prom.py",
+        "bulk_downloader/provider_resolve_impl/youtube.py",
+        "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/ytdlp_extractor.py"
       ],
       "tools/_probe_lib.py": [
         "tools/adversarial_probe.py",
@@ -6643,7 +6646,8 @@
       ],
       "bulk_downloader/provider_resolve_impl/youtube.py": [
         "bulk_downloader/global_config.py",
-        "bulk_downloader/provider_resolve.py"
+        "bulk_downloader/provider_resolve.py",
+        "bulk_downloader/ytdlp_updater.py"
       ],
       "bulk_downloader/push.py": [
         "bulk_downloader/db.py"
@@ -6814,7 +6818,8 @@
         "bulk_downloader/provider_resolve.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/tier_probe.py",
-        "bulk_downloader/vpn_runtime.py"
+        "bulk_downloader/vpn_runtime.py",
+        "bulk_downloader/ytdlp_updater.py"
       ],
       "bulk_downloader/runner_integrations.py": [
         "bulk_downloader/cookies.py",
@@ -7132,7 +7137,8 @@
         "bulk_downloader/hooks.py"
       ],
       "bulk_downloader/ytdlp_extractor.py": [
-        "bulk_downloader/plugins.py"
+        "bulk_downloader/plugins.py",
+        "bulk_downloader/ytdlp_updater.py"
       ],
       "tools/_probe_lib.py": [
         "bulk_downloader/app.py",

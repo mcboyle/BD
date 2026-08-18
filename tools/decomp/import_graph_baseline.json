@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3854,
+  "edge_count": 3862,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1585,7 +1585,8 @@
     ],
     "bulk_downloader/provider_resolve_impl/youtube.py": [
       "bulk_downloader/global_config.py",
-      "bulk_downloader/provider_resolve.py"
+      "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "bulk_downloader/push.py": [
       "bulk_downloader/db.py"
@@ -1756,7 +1757,8 @@
       "bulk_downloader/provider_resolve.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/tier_probe.py",
-      "bulk_downloader/vpn_runtime.py"
+      "bulk_downloader/vpn_runtime.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "bulk_downloader/runner_integrations.py": [
       "bulk_downloader/cookies.py",
@@ -2074,7 +2076,8 @@
       "bulk_downloader/hooks.py"
     ],
     "bulk_downloader/ytdlp_extractor.py": [
-      "bulk_downloader/plugins.py"
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "tests/conftest.py": [
       "bulk_downloader/aiassist.py",
@@ -4480,6 +4483,12 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/selftest.py"
     ],
+    "tests/test_v3_66_1180_ytdlp_module_resolver.py": [
+      "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/ytdlp_extractor.py",
+      "bulk_downloader/ytdlp_updater.py"
+    ],
     "tests/test_v3_66_118_site_readiness.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
@@ -4904,7 +4913,8 @@
       "tools/capture_session.py"
     ],
     "tests/test_v3_66_26_phase4_youtube_cipher.py": [
-      "bulk_downloader/provider_resolve.py"
+      "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "tests/test_v3_66_271_gcw2_pick_overlay.py": [
       "bulk_downloader/element_pick.py"

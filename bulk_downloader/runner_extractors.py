@@ -196,7 +196,8 @@ def _build_ytdlp_cmd(*, ytdlp, dl_dir, url, proxy_url=None, cookie_file="",
     has not configured plugin dirs) -> no flag -> byte-identical to the prior
     cmd. The gate lives in the caller, not here, so this stays a pure builder."""
     import os as _os
-    cmd = [ytdlp, "--no-progress", "--no-warnings",
+    prefix = list(ytdlp) if isinstance(ytdlp, (list, tuple)) else [ytdlp]
+    cmd = prefix + ["--no-progress", "--no-warnings",
            "--no-playlist", "--restrict-filenames",
            "--output", _os.path.join(dl_dir, "%(title)s-%(id)s.%(ext)s")]
     proxy = _socks_remote_dns(proxy_url)
@@ -296,10 +297,10 @@ class ExtractorsMixin:
           its original failure path."""
         if not self.config.get("use_ytdlp_fallback", False):
             return (False, "ytdlp_fallback disabled", None, 0)
-        import shutil as _sh
-        ytdlp = _sh.which("yt-dlp") or _sh.which("youtube-dl")
+        from . import ytdlp_updater
+        ytdlp = ytdlp_updater.resolve_ytdlp_argv()
         if not ytdlp:
-            return (False, "yt-dlp not installed on PATH", None, 0)
+            return (False, "yt-dlp not installed", None, 0)
         dl_dir = (self.config.get("download_dir") or "").strip()
         if not dl_dir:
             return (False, "no download_dir configured", None, 0)

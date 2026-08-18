@@ -313,11 +313,13 @@ class TestCipherDispatchYtdlp:
         assert called == []  # subprocess never invoked
 
     def test_ytdlp_not_on_path(self, monkeypatch):
+        from bulk_downloader import ytdlp_updater
         monkeypatch.setenv("BD_YOUTUBE_CIPHER", "yt-dlp")
         monkeypatch.setattr(pr, "_yt_cipher_ytdlp_path", lambda: None)
+        monkeypatch.setattr(ytdlp_updater, "resolve_ytdlp_argv", lambda: None)
         cands, err = _decipher_signed_formats_ytdlp(VALID_VIDEO_ID)
         assert cands == []
-        assert "not on PATH" in err
+        assert "not installed" in err
         assert "BD_YOUTUBE_CIPHER=off" in err
 
     def test_timeout_produces_clear_error(self, monkeypatch):
@@ -664,13 +666,15 @@ class TestCipherInResolveYoutube:
         """When yt-dlp fails (here: not on PATH), the resolver returns
         the dispatcher's error string, not v3.66.20's old "out of
         scope" wording."""
+        from bulk_downloader import ytdlp_updater
         monkeypatch.setenv("BD_YOUTUBE_CIPHER", "yt-dlp")
         monkeypatch.setattr(pr, "_yt_cipher_ytdlp_path", lambda: None)
+        monkeypatch.setattr(ytdlp_updater, "resolve_ytdlp_argv", lambda: None)
         body = _make_watch_html(_signed_only_player_response())
         cands, err = resolve_youtube(
             {"video_id": VALID_VIDEO_ID}, http_get=_fake_get(200, body))
         assert cands == []
-        assert "not on PATH" in err
+        assert "not installed" in err
 
     def test_hls_present_does_not_invoke_dispatcher(self, monkeypatch):
         """The hot-path optimization: when HLS is in streamingData,

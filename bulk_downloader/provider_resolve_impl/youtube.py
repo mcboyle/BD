@@ -120,6 +120,12 @@ def _yt_cipher_ytdlp_path() -> Optional[str]:
     return _YT_CIPHER_YTDLP_PATH_CACHE[0]
 
 
+# The historical helper remains a monkeypatch seam for focused cipher tests.
+# Production must not consult its PATH cache: the shared resolver owns the
+# current command-selection policy for every real yt-dlp consumer.
+_YT_CIPHER_DEFAULT_PATH_HELPER = _yt_cipher_ytdlp_path
+
+
 def _decipher_signed_formats_ytdlp(
     video_id: str,
     *,
@@ -139,7 +145,6 @@ def _decipher_signed_formats_ytdlp(
     Returns ``(candidates, error)``. ``error`` is ``None`` on success.
     """
     _pr = __pr_shim()  # H-07: the shim instance THIS module was loaded with
-    _yt_cipher_ytdlp_path = _pr._yt_cipher_ytdlp_path
     if _run is None:
         _run = subprocess.run
     if not _YT_VIDEO_ID_RE.match(video_id):
@@ -148,16 +153,28 @@ def _decipher_signed_formats_ytdlp(
             "must match ^[A-Za-z0-9_-]{11}$"
         )
 
-    ytdlp = _yt_cipher_ytdlp_path()
-    if not ytdlp:
+    path_helper = _pr._yt_cipher_ytdlp_path
+    if path_helper is not _YT_CIPHER_DEFAULT_PATH_HELPER:
+        # A shim monkeypatch is an explicit test/integration injection.  It is
+        # deliberately distinct from the legacy cached production lookup.
+        injected_path = path_helper()
+        ytdlp_argv = (injected_path,) if injected_path else None
+    else:
+        ytdlp_argv = None
+    if ytdlp_argv is None:
+        # Use the single canonical route in production.  In particular, do
+        # not let a stale cipher-local PATH cache bypass console/module
+        # precedence selected by status, runner fallback, and the plugin.
+        from bulk_downloader import ytdlp_updater
+        ytdlp_argv = ytdlp_updater.resolve_ytdlp_argv()
+    if not ytdlp_argv:
         return [], (
-            "yt-dlp not on PATH; install yt-dlp or set "
+            "yt-dlp not installed; install yt-dlp or set "
             "BD_YOUTUBE_CIPHER=off"
         )
 
     watch_url = f"https://www.youtube.com/watch?v={video_id}"
-    argv = [
-        ytdlp,
+    argv = list(ytdlp_argv) + [
         "--dump-single-json",
         "--no-warnings",
         "--no-playlist",
