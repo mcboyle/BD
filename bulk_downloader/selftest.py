@@ -417,6 +417,7 @@ def check_orphan_tempfiles(
     max_age_hours: float = 24.0,
     max_entries: int = 100_000,
     max_depth: int = 64,
+    observation_errors=(),
 ) -> dict:
     """ROB-3-rem: WARN if stale temp artifacts (.part / .tmp* / .selftest_* left
     by a crashed download or capture) older than ``max_age_hours`` linger in any
@@ -424,14 +425,25 @@ def check_orphan_tempfiles(
     never deletes."""
     cutoff = time.time() - max_age_hours * 3600.0
     stale = []
-    errors = []
+    errors = list(observation_errors)
     scanned = 0
     limit_hit = False
+    # A parent already authorizes every lexical descendant; scanning both
+    # wastes the bounded denominator and can manufacture a cap warning.  Use
+    # abspath, never resolve(), so this normalisation cannot follow a symlink.
+    roots = []
     for d in dirs:
-        if limit_hit:
-            break
         if not d:
             continue
+        base = Path(d)
+        normalized = Path(os.path.abspath(base))
+        if any(normalized.is_relative_to(existing[0]) for existing in roots):
+            continue
+        roots = [entry for entry in roots if not entry[0].is_relative_to(normalized)]
+        roots.append((normalized, base))
+    for _normalized, d in roots:
+        if limit_hit:
+            break
         base = Path(d)
         try:
             root_mode = base.lstat().st_mode
@@ -789,15 +801,25 @@ def run_all(sites_config_path: str | None = None,
     checks.append(check_ffmpeg_hls())
     checks.append(check_extractor_freshness())
 
-    # Session-1 hygiene: leaked tempfiles across the download/capture roots,
-    # and a live verification that egress fails closed (ROB-3-rem / POS-3).
+    # Session-1 hygiene: leaked tempfiles across configured download roots and
+    # the exact dom-analyzer capture-output dirs.  ``captures_root`` remains a
+    # disk-space gauge above; when its fallback is PROJECT_ROOT it must never
+    # become a recursive hygiene authority over the repository or venv.
     # The sibling stale-lock check was deleted at v3.66.844: nothing in the
     # tree writes a *.lock, and its rglob over the PROJECT_ROOT fallback only
     # ever found vendored npm yarn.lock manifests inside agent worktrees.
     _hygiene_dirs = [d for d in (download_dirs or []) if d]
-    if captures_root:
-        _hygiene_dirs.append(captures_root)
-    checks.append(check_orphan_tempfiles(*_hygiene_dirs))
+    _capture_hygiene_errors = []
+    try:
+        from . import dom_analyzer as _da
+        _hygiene_dirs.extend(str(path) for path in _da.capture_output_dirs())
+    except Exception as exc:  # noqa: BLE001 - inability to define scope is visible
+        _capture_hygiene_errors.append(
+            f"capture hygiene roots unavailable: {type(exc).__name__}: {exc}"
+        )
+    checks.append(check_orphan_tempfiles(
+        *_hygiene_dirs, observation_errors=_capture_hygiene_errors
+    ))
     checks.append(check_egress_fail_closed())
     checks.append(check_plugin_health())
 

@@ -105,6 +105,24 @@ def _base_for_dir(d: str, root=None) -> Path:
     return _project_root()
 
 
+def capture_output_dirs(root=None) -> tuple[Path, ...]:
+    """Return the canonical, physical directories that hold capture outputs.
+
+    The tuple is intentionally derived from ``_CAPTURE_OUTPUT_DIRS`` and the
+    same routing used by capture discovery.  Callers that need to observe
+    capture files (rather than the store volume as a whole) must use this
+    narrow authority instead of treating a store base as a recursive root.
+    A symlinked store base cannot authorize observation through its children.
+    """
+    dirs = []
+    for directory in _CAPTURE_OUTPUT_DIRS:
+        base = _base_for_dir(directory, root)
+        if base.is_symlink():
+            raise OSError(f"capture store base is a symlink: {base}")
+        dirs.append(base / directory)
+    return tuple(dirs)
+
+
 def _base_for_token(token: str, root=None) -> Path:
     """Pick the resolution base for a rel_path token by its leading dir component:
     a capture-output token resolves under the store root, a template token under

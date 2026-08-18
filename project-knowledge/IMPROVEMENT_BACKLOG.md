@@ -2,7 +2,7 @@
 
 ASCII-only.
 
-<!-- canonical-task-register schema=1 rows=166 open=26 ids-sha256=e8a9537bf0e1e68306246a2b3f3276883b2478204a61535cdf87e05d6edaf0e0 -->
+<!-- canonical-task-register schema=1 rows=168 open=26 ids-sha256=43e431575498b5a46e720f3908a2138d57bba754b3f3e60ede6f8929f2af12b2 -->
 
 ## Why this file exists
 
@@ -248,3 +248,5 @@ proving nothing was lost. Nothing was lost here that any commit ever held.
 | 168 | OPEN | PYTEST-CAPTURE-DIAGNOSTICS -- pytest_capture_results still writes a zero threshold and empty over-budget list and omits slowest/skip detail from its summary. Restore measured budget and diagnostic reconciliation without changing test verdicts; prove the JSON and text summaries agree on a synthetic slow/skip population. |
 | 169 | OPEN | SKIP-BASELINE-ENFORCEMENT -- the exact 39-identity skip baseline and fail-closed checker exist, but capture, CI, and the canonical full-suite path do not enforce the checker against complete real JUnit. Wire one authoritative current-SHA execution point and preserve skip identity/reason reconciliation. |
 | 170 | OPEN | INV-TAG-REGEN -- INV_TAGS.md remains a manually maintained historical locality index while current source, root INVARIANTS.json, and point-of-use tests own behavior. Replace its stale version/count prose with a generated current-source view or retire it with explain_invariant and lint_kb consumers migrated; do not restore the retired DANGER_MAP as a second authority. |
+| 171 | CLOSED @1180 | CAPTURE-ROOT-ORPHAN-HYGIENE -- current six-host fleet evidence found the v1178 recursive orphan scan using the unset `capture_store_root` fallback as a repository root: four hosts falsely reported `venv/.../_pytest/tmpdir.py` as a stale temporary artifact, and two reached the 100000-entry cap before a complete result. The selftest now retains that store base only for its disk gauge and derives its three recursive hygiene roots (`captures`, `offline_out`, `offline_captures`) from dom-analyzer's canonical output directory authority. Derivation or symlink-root failure is visible incomplete WARN evidence; repository/venv observation is not authorized. |
+| 172 | CLOSED @1180 | YTDLP-EXECUTABLE-TRUTH -- current six-host capture evidence records `venv/bin/python -m yt_dlp --version` returning `2026.07.04` on all six hosts, while five module-present/PATH-absent hosts were falsely surfaced by `status_dict()` as `installed=false`. The canonical resolver now prefers an explicit executable, then PATH `yt-dlp`, then PATH `youtube-dl`, then a verified service-interpreter `-m yt_dlp` argv; structured status records only the probe source and error category, never a local path. The updater and executable yt-dlp consumers share that argv route, preserve list argv plus URL option separation, and report unavailable, command failure, timeout, malformed output, or upstream-index UNKNOWN without laundering any into installed/current. |
