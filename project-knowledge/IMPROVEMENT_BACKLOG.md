@@ -2,7 +2,7 @@
 
 ASCII-only.
 
-<!-- canonical-task-register schema=1 rows=168 open=24 ids-sha256=43e431575498b5a46e720f3908a2138d57bba754b3f3e60ede6f8929f2af12b2 -->
+<!-- canonical-task-register schema=1 rows=169 open=24 ids-sha256=9feff3417a89241a6271b1bfd29e93a6838ace9af2b09c45aa211ca1682f09ee -->
 
 ## Why this file exists
 
@@ -250,3 +250,4 @@ proving nothing was lost. Nothing was lost here that any commit ever held.
 | 170 | OPEN | INV-TAG-REGEN -- INV_TAGS.md remains a manually maintained historical locality index while current source, root INVARIANTS.json, and point-of-use tests own behavior. Replace its stale version/count prose with a generated current-source view or retire it with explain_invariant and lint_kb consumers migrated; do not restore the retired DANGER_MAP as a second authority. |
 | 171 | CLOSED @1180 | CAPTURE-ROOT-ORPHAN-HYGIENE -- current six-host fleet evidence found the v1178 recursive orphan scan using the unset `capture_store_root` fallback as a repository root: four hosts falsely reported `venv/.../_pytest/tmpdir.py` as a stale temporary artifact, and two reached the 100000-entry cap before a complete result. The selftest now retains that store base only for its disk gauge and derives its three recursive hygiene roots (`captures`, `offline_out`, `offline_captures`) from dom-analyzer's canonical output directory authority. Derivation or symlink-root failure is visible incomplete WARN evidence; repository/venv observation is not authorized. |
 | 172 | CLOSED @1180 | YTDLP-EXECUTABLE-TRUTH -- current six-host capture evidence records `venv/bin/python -m yt_dlp --version` returning `2026.07.04` on all six hosts, while five module-present/PATH-absent hosts were falsely surfaced by `status_dict()` as `installed=false`. The canonical resolver now prefers an explicit executable, then PATH `yt-dlp`, then PATH `youtube-dl`, then a verified service-interpreter `-m yt_dlp` argv; structured status records only the probe source and error category, never a local path. The updater and executable yt-dlp consumers share that argv route, preserve list argv plus URL option separation, and report unavailable, command failure, timeout, malformed output, or upstream-index UNKNOWN without laundering any into installed/current. |
+| 173 | CLOSED @1182 | AUTHORITY-DOCUMENTS -- the reviewed fleet bundle remains canonical while four byte-pinned authority artifacts are mirrored under project-knowledge and checked on every PR. CURRENT_STATE.json is generated on demand and forbidden from Git tracking: its embedded HEAD becomes stale when a commit creates the next HEAD. The two-commit reproduction and durable local instructions record why no freshness/hash gate may commit that overlay. |

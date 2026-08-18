@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-18T09:56:11+00:00",
- "version_context": "v3.66.1181",
- "file_count": 80,
+ "generated": "2026-08-18T21:13:47+00:00",
+ "version_context": "v3.66.1182",
+ "file_count": 85,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -56,6 +56,10 @@
    "sha256": "3d3288a0e1a401b70483544aec068af6c4bb3627215e6db37e6c6cd075ac3fd6",
    "bytes": 17263
   },
+  "AUTONOMY_POLICY.md": {
+   "sha256": "9b6125c91484ba5ad5d6dc8a2d7ad1f0cf3879d0af63bc859c4ffd53c338d11f",
+   "bytes": 2419
+  },
   "BDSUITE_CHANGELOG.md": {
    "sha256": "3274d6d7a4e320bba28a788cb427337f33bdb32ebf6e882324cbdf3c3455e091",
    "bytes": 19376
@@ -100,6 +104,10 @@
    "sha256": "98f863bac981bd226f608e972420be10cb111bfac6d808434be4bc2ba2f13ca5",
    "bytes": 4378
   },
+  "CURRENT_STATE.md": {
+   "sha256": "c8bfc9a553a2dadaeb418f8e9d1e41ed835a2c4cbb8931ace088bf7bf4bf54e0",
+   "bytes": 822
+  },
   "DECOMPOSITION_PLAYBOOK.md": {
    "sha256": "757b6707d3dfbe861e3d2116593f564a8512af2ed44f79c093093a7ecfa11a47",
    "bytes": 15679
@@ -124,6 +132,10 @@
    "sha256": "171ac87785e7f21b1e3b5dee76ec00d00528e4161a5951c32148658ed662da9d",
    "bytes": 8111
   },
+  "ERRATA_2026-08-18.md": {
+   "sha256": "cdff9825acf4cbc92dd618bee339cd5f9b535cbe959798dbc3f7438a220c49b8",
+   "bytes": 1390
+  },
   "EXTRACTION_CORE_DECISION_CONFIDENCE_DECISION.md": {
    "sha256": "4b1864426672da45137eb1bc1bbc01ed545ef3f7917c8d47bc92f0f30054b5ec",
    "bytes": 4918
@@ -133,8 +145,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "f436d08d00815cc09d96fac3f1a4b024d48376aefab393a2519af0f8ad7ed131",
-   "bytes": 110397
+   "sha256": "82aa4fa2e095f5290bc0d03629962c4baca0a4b65278b4f1f89ba6c7f0512b6f",
+   "bytes": 110856
   },
   "KB_ACTIVE_INDEX.md": {
    "sha256": "78c4d7785f3a952ec17e45039812f132a080d169bb6444504b0ebccb09685855",
@@ -244,6 +256,10 @@
    "sha256": "1cdf5cdb8c7ec89b8d3a4a9289ec5e4897abf4a00ea5e37c760501bd6554c225",
    "bytes": 4475
   },
+  "SUPERSEDED.md": {
+   "sha256": "02ba441f40fe0eec8460b68c118c02e2bf4b2dda96f756083c3cc403c3ae1ca5",
+   "bytes": 765
+  },
   "TESTING_ETHICS_FRAME.md": {
    "sha256": "836ba965d5426eda36a1b9909039b768d591a83f21fb4e17b5da947cf8ab928b",
    "bytes": 7728
@@ -259,6 +275,10 @@
   "audit_partition.py": {
    "sha256": "3067d27d9fc9670828644e4aecbf80e9c62b6891d7716b9c47bf2ef1d1d85262",
    "bytes": 3658
+  },
+  "build_current_overlay.py": {
+   "sha256": "1e276e5634d1a0b247e3f76f432af62ff75ac548c96696c20d21681ed184a6f9",
+   "bytes": 7773
   },
   "build_montage.py": {
    "sha256": "e49129f660f96e4ceb16b019a09deb27e9f5853cf63abb4f86eeb9fc44da8c47",

@@ -142,6 +142,10 @@ work/
 nextsess/
 audit_carry/
 
+# Generated on demand for the checked-out HEAD. Committing this overlay would
+# change HEAD and immediately invalidate the identity recorded inside it.
+project-knowledge/CURRENT_STATE.json
+
 # --- local ---
 .env
 .env.*

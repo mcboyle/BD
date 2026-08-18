@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1182 - make authority documents locally available
+
+- Mirror the four reviewed fleet authority artifacts at byte-pinned hashes and
+  run their repository-wide drift gate in CI.
+- Generate the current-state overlay only on demand; ignore it and forbid Git
+  tracking because committing the recorded HEAD necessarily makes it stale.
+
 ## v3.66.1181 - capture diagnostics and skip reconciliation
 
 - Reconcile both complete capture JUnit lanes, preserve exact failure/skip identities, and report deterministic slow-test diagnostics.
