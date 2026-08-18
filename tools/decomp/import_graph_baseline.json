@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3845,
+  "edge_count": 3848,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4462,6 +4462,11 @@
     ],
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py": [
       "bulk_downloader/selftest.py"
+    ],
+    "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/site_editor.py",
+      "bulk_downloader/vpn.py"
     ],
     "tests/test_v3_66_117_capture_intel.py": [
       "tools/cockpit_console.py",

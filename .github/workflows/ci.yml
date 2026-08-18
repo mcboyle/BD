@@ -94,6 +94,7 @@ jobs:
           generated=(
             ROUTE_INDEX.json ENDPOINT_CATALOG.md DEPENDENCY_GRAPH.json
             DEPENDENCY_GRAPH.md FUNCTION_INDEX.md PIN_INDEX.json
+            frontend/src/lib/secretKeys.generated.ts
             project-knowledge/STATIC_KB_MANIFEST.json
           )
           for artifact in "${generated[@]}"; do
@@ -263,6 +264,8 @@ jobs:
               tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py
               tests/test_v3_66_1177_ai_boot_observation_is_bounded.py
               tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
+              tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py
+              tests/test_frontend_secret_keys_in_sync.py
               tests/test_templates_list_identity.py
               tests/test_defect_scan_precision.py
               tests/test_v3_66_1145_step0_fails_closed.py

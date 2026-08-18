@@ -76,6 +76,9 @@ WORK = repo_root(__file__)
 
 # (label, argv, why-this-position). Order is the contract.
 CHAIN = [
+    ("FRONTEND_SECRET_KEYS", ["tools/gen_frontend_secret_keys.py"],
+     "server secret-key authorities -> tracked frontend constants; must precede "
+     "every consumer-derived artifact"),
     ("gui_parity", ["tools/gui_parity_inventory.py"],
      "produces the spa_wired truth ROUTE_INDEX joins against"),
     ("ROUTE_INDEX", ["tools/build_route_index.py"],

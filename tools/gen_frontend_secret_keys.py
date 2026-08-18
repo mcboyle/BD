@@ -55,12 +55,24 @@ def _server_sources() -> dict:
     pat = SENSITIVE_QS_KEY.pattern
     substr_terms: list[str] = []
     anchored_terms: list[str] = []
-    m_sub = re.search(r"\(([^)]*?)\)(?:\||$)", pat)
-    if m_sub:
-        substr_terms = [t for t in m_sub.group(1).split("|") if t and "?" not in t]
-    m_anc = re.search(r"\^\(\?:([^)]*)\)\$", pat)
-    if m_anc:
-        anchored_terms = [t for t in m_anc.group(1).split("|") if t]
+    expected_flags = re.IGNORECASE | re.UNICODE
+    if SENSITIVE_QS_KEY.flags != expected_flags:
+        raise RuntimeError(
+            "SENSITIVE_QS_KEY flags changed; frontend lowercasing assumes "
+            "exact IGNORECASE|UNICODE semantics"
+        )
+    shape = re.fullmatch(r"\(([^()]*)\)\|\^\(\?:([^()]*)\)\$", pat)
+    if not shape:
+        raise RuntimeError(
+            "SENSITIVE_QS_KEY no longer has the reviewed substring|anchored-exact "
+            "shape; refuse partial frontend extraction"
+        )
+    substr_terms = [t for t in shape.group(1).split("|") if t]
+    anchored_terms = [t for t in shape.group(2).split("|") if t]
+    if (not substr_terms or not anchored_terms
+            or any(re.search(r"[^A-Za-z0-9_-]", term)
+                   for term in substr_terms + anchored_terms)):
+        raise RuntimeError("SENSITIVE_QS_KEY terms are empty or not literal-safe")
 
     return {
         "config_floor": sorted(set(_CONFIG_SECRET_FLOOR)),
