@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1180 - reliability train tasks 1-3
+
+- Task 1 closes backlog row 171: orphan hygiene derives the exact DOM Analyzer
+  capture-output roots and never scans the repository or virtualenv fallback.
+- Task 2 closes row 172: yt-dlp status and every operational consumer share one
+  safe resolver for explicit, PATH, and verified same-interpreter module routes.
+- Task 3 closes rows 168-169: two complete pytest JUnit lanes are reconciled
+  fail-closed, with exact skip authority and deterministic slow-test evidence.
+
 ## v3.66.1179 - bind frontend secret constants to their server sources
 
 The canonical regeneration chain now emits the tracked frontend secret-key
