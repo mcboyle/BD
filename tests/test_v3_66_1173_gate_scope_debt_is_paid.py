@@ -17,7 +17,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "tests" / "gate_scope_baseline.txt"
-BASELINE_IDS_SHA256 = "7a3980b841736b368f8696494fc18cbcb1d61f7ce20efef43ed157166c0f4fe5"
+BASELINE_IDS_SHA256 = "d72cb8122657155dd519c0a4d06fde083b4cdb571035089da1d0e56c24791576"
 
 MIGRATED = (
     "tests/test_v3_66_1018_registrable_domain_drain.py",
@@ -82,10 +82,10 @@ def test_the_exact_twenty_four_pre_policy_gates_are_now_explicit() -> None:
 
 def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
     entries = _baseline_entries()
-    assert len(entries) == 1264, (
+    assert len(entries) == 1263, (
         "gate_scope_baseline must contain the 1,290 pre-Cut-C entries minus "
         "the exact 24 migrated gates and the later classified defect-precision and "
-        "template-identity gates; "
+        "template-identity and frontend-secret gates; "
         "do not trade one unclassified path for another"
     )
     assert _identity_digest(entries) == BASELINE_IDS_SHA256, (

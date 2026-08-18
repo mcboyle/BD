@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1179 - bind frontend secret constants to their server sources
+
+The canonical regeneration chain now emits the tracked frontend secret-key
+constants before downstream derived artifacts. The affected-band engine maps
+the exact three server authorities to the sync gate, and CI includes the
+generated TypeScript file in its tracked-output denominator. Mutations in each
+source domain prove that stale frontend redaction policy cannot pass silently.
+
 ## v3.66.1178 - see nested orphan download and capture artifacts
 
 The startup tempfile-hygiene check now scans real descendant directories while

@@ -77,6 +77,7 @@ def test_canonical_chain_and_location_interfaces_select_the_real_tree(tmp_path):
     regen = _load_regen_tool()
     labels = [label for label, _argv, _why in regen.CHAIN]
     assert labels == [
+        "FRONTEND_SECRET_KEYS",
         "gui_parity",
         "ROUTE_INDEX",
         "ENDPOINT_CATALOG",

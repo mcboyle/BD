@@ -96,7 +96,23 @@ DIFF_TREE_PRUNE = {"node_modules", "venv", ".venv", ".git", "__pycache__",
 #     test_v3_43_63_library_extractors exercises hls_downloader; test_v3_43_60_
 #     coverage_gaps patches integrity._FFPROBE. A refactor that MOVES the seam breaks
 #     them, and the deriver never bands them.
+FRONTEND_SECRET_INPUTS = (
+    "bulk_downloader/site_editor.py",
+    "bulk_downloader/vpn.py",
+    "bulk_downloader/capture_redact.py",
+)
+
+
 COUNT_COUPLED = [
+    {
+        "id": "SC-FRONTEND-SECRET-KEYS",
+        "when_any": FRONTEND_SECRET_INPUTS,
+        "exact_paths": True,
+        "band": ["tests/test_frontend_secret_keys_in_sync.py"],
+        "why": "these are the exact server inputs imported by "
+               "gen_frontend_secret_keys._server_sources; their values are emitted "
+               "into a differently-named tracked TypeScript artifact",
+    },
     {
         "id": "CC-EDITABLE-SET",
         "when_any": ["bulk_downloader/app_kernel.py",          # CFG_FIELDS lives here
@@ -130,8 +146,12 @@ def count_coupled(rel):
     see COUNT_COUPLED."""
     out = []
     for rule in COUNT_COUPLED:
-        if any(rel == w or os.path.basename(rel) == os.path.basename(w)
-               for w in rule["when_any"]):
+        if rule.get("exact_paths"):
+            matched = rel.replace("\\", "/") in rule["when_any"]
+        else:
+            matched = any(rel == w or os.path.basename(rel) == os.path.basename(w)
+                          for w in rule["when_any"])
+        if matched:
             out.extend(rule["band"])
     return out
 
@@ -608,6 +628,9 @@ def rev_deps(work, rel):
 # this map is the STATEMENT of the obligation; union with an already-present
 # suite is a no-op, whereas omitting it here would make the map a lie.
 REGEN_ENFORCING_SUITES = {
+    "FRONTEND_SECRET_KEYS": (
+        "tests/test_frontend_secret_keys_in_sync.py",
+    ),
     "FUNCTION_INDEX/DEPENDENCY_GRAPH": (
         "tests/test_function_index_in_sync.py",
         "tests/test_dependency_graph_in_sync.py",
@@ -645,6 +668,10 @@ def regen_suites(work, changed, fe_mut=None):
 
 def regen_flags(changed, fe_mut=None, work=None):
     flags = []
+    if set(FRONTEND_SECRET_INPUTS) & {c.replace("\\", "/") for c in changed}:
+        flags.append(("FRONTEND_SECRET_KEYS",
+                      "server secret-key authority changed -> regenerate "
+                      "frontend/src/lib/secretKeys.generated.ts"))
     # v3.66.789: a mutating FE call-site delta carries THREE regen obligations
     # beyond the band; skipping any of them is exactly the 789 first-capture RED.
     if fe_mut:

@@ -17,6 +17,9 @@ Sandbox-safe: zero-arg, pure Python, no fixtures.
 import importlib.util
 from pathlib import Path
 
+
+BD_GATE_SCOPE = "repo-wide"
+
 _REPO = Path(__file__).resolve().parent.parent
 _GEN_TOOL = _REPO / "tools" / "gen_frontend_secret_keys.py"
 _OUT = _REPO / "frontend" / "src" / "lib" / "secretKeys.generated.ts"

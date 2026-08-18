@@ -270,7 +270,6 @@ tests/test_fixture_site2.py
 tests/test_framework_gui.py
 tests/test_fresh_install_gui_smoke.py
 tests/test_frontend_dependency_security_floor.py
-tests/test_frontend_secret_keys_in_sync.py
 tests/test_fts_external_content_delete.py
 tests/test_fts_stale_terms_on_update.py
 tests/test_function_index_in_sync.py
