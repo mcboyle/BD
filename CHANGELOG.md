@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1178 - see nested orphan download and capture artifacts
+
+The startup tempfile-hygiene check now scans real descendant directories while
+remaining bounded by each configured root and refusing to follow directory
+symlinks. Nested stale `.part` and temporary artifacts can no longer disappear
+from the health denominator; recent files and the retired subjectless stale-lock
+check remain untouched.
+
 ## v3.66.1177 - observe the independent AI boot companion
 
 Capture now records a bounded, structured observation of the AI readiness

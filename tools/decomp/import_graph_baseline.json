@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3844,
+  "edge_count": 3845,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4459,6 +4459,9 @@
     "tests/test_v3_66_116_template_autopilot.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py": [
+      "bulk_downloader/selftest.py"
     ],
     "tests/test_v3_66_117_capture_intel.py": [
       "tools/cockpit_console.py",
