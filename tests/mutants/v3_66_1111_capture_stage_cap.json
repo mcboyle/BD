@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1111_capture_stage_cap.json",
+  "subject": "v3.66.1111 -- wedged capture stages are bounded without changing healthy stage behavior",
+  "band": [
+    "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py"
+  ],
+  "mutants": [
+    {
+      "label": "the cap never fires (the defect restored)",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "    if [ \"$CAPTURE_STAGE_CAP\" -gt 0 ] && [ \"$elapsed\" -ge \"$CAPTURE_STAGE_CAP\" ] \\\n       && kill -0 \"$pid\" 2>/dev/null; then",
+      "new": "    if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_a_wedged_stage_is_stopped_and_returns_124"
+    },
+    {
+      "label": "the cap reports 124 but does not kill the child",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "      _stop_process_group \"$pid\"\n      trap - INT TERM HUP\n      return 124",
+      "new": "      trap - INT TERM HUP\n      return 124",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_child_is_actually_dead_afterwards"
+    },
+    {
+      "label": "the cap is silent in the stage log",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "        | tee -a \"$logfile\"",
+      "new": "        > /dev/null",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_cap_says_so_in_the_stage_log_not_only_on_stdout"
+    },
+    {
+      "label": "the cap fires regardless of elapsed time (over-sensitivity)",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "[ \"$elapsed\" -ge \"$CAPTURE_STAGE_CAP\" ] \\\n       && kill -0 \"$pid\" 2>/dev/null; then",
+      "new": "kill -0 \"$pid\" 2>/dev/null; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_a_stage_that_finishes_under_the_cap_is_untouched"
+    },
+    {
+      "label": "the command's own exit code is flattened to 0",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  return \"$command_exit\"",
+      "new": "  return 0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_stages_OWN_exit_code_still_reaches_the_caller"
+    },
+    {
+      "label": "a zero cap no longer disables the bound",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "    if [ \"$CAPTURE_STAGE_CAP\" -gt 0 ] && [ \"$elapsed\" -ge \"$CAPTURE_STAGE_CAP\" ]",
+      "new": "    if [ \"$elapsed\" -ge \"$CAPTURE_STAGE_CAP\" ]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_a_zero_cap_disables_the_bound"
+    },
+    {
+      "label": "the default cap drops to a value a healthy lane would trip",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": ": \"${CAPTURE_STAGE_CAP:=5400}\"",
+      "new": ": \"${CAPTURE_STAGE_CAP:=200}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_default_cap_is_far_above_the_slowest_measured_lane"
+    },
+    {
+      "label": "exit 124 loses its name in the verdict",
+      "file": "tools/capture_verdict.py",
+      "old": "    if exit_code == 124:",
+      "new": "    if exit_code == 9999:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_verdict_names_a_capped_stage_rather_than_printing_a_bare_number"
+    }
+  ]
+}

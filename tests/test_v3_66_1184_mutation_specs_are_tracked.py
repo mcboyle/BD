@@ -1,0 +1,247 @@
+"""v3.66.1184 -- mutation evidence is tracked and directly re-runnable.
+
+The repository had zero tracked ``bd-mutate`` JSON specs even though tests and
+CHANGELOG entries claimed concrete mutation results.  These checks make the
+artifact population non-empty, validate its executable anchors, and exercise
+the production CLI rather than treating JSON text as evidence by itself.
+"""
+from __future__ import annotations
+
+import ast
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+
+BD_GATE_SCOPE = "repo-wide"
+
+_REPO = Path(__file__).resolve().parent.parent
+_TOOL = _REPO / "toolchain" / "bin" / "bd-mutate"
+_SCHEMA = "bd-mutate-spec/1"
+_TOP_LEVEL_FIELDS = {"schema", "_comment", "subject", "band", "mutants"}
+_MUTANT_FIELDS = {"label", "file", "old", "new", "direction", "catcher"}
+
+
+def _git_paths(*pathspecs: str) -> list[str]:
+    run = subprocess.run(
+        ["git", "ls-files", "--", *pathspecs],
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in run.stdout.splitlines() if line]
+
+
+def _tracked_specs() -> list[Path]:
+    return [_REPO / rel for rel in _git_paths("tests/mutants/*.json")]
+
+
+def _assert_anchor_counts(root: Path, document: dict) -> int:
+    """Return the reconciled mutant count, refusing missing/ambiguous anchors."""
+    mutants = document.get("mutants")
+    assert isinstance(mutants, list) and mutants, "spec has zero mutants"
+    checked = 0
+    for mutant in mutants:
+        rel = mutant.get("file")
+        old = mutant.get("old")
+        assert isinstance(rel, str) and rel, f"invalid mutant file: {mutant!r}"
+        assert isinstance(old, str) and old, f"invalid old anchor: {mutant!r}"
+        subject = root / rel
+        assert subject.is_file(), f"mutant subject is absent: {rel}"
+        count = subject.read_text(encoding="utf-8").count(old)
+        assert count == 1, f"{rel}: old anchor occurs {count} times, expected exactly 1"
+        checked += 1
+    assert checked == len(mutants), (
+        f"anchor reader checked {checked} of {len(mutants)} mutants"
+    )
+    return checked
+
+
+def _defined_nodeids(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    rel = path.relative_to(_REPO).as_posix()
+    found: set[str] = set()
+
+    def walk(body: list[ast.stmt], owners: tuple[str, ...] = ()) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                found.add("::".join((rel, *owners, node.name)))
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body, (*owners, node.name))
+
+    walk(tree.body)
+    return found
+
+
+def _write_synthetic_tree(tmp_path: Path) -> tuple[Path, str]:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "m.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_m.py").write_text(
+        "import importlib\n"
+        "import m\n"
+        "def test_value():\n"
+        "    importlib.reload(m)\n"
+        "    assert m.value() == 1\n",
+        encoding="utf-8",
+    )
+    return tmp_path, "tests/test_m.py"
+
+
+def _run_tool(work: Path, spec: object, *extra: str) -> subprocess.CompletedProcess[str]:
+    spec_path = work / "input-spec.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, str(_TOOL), "--spec", str(spec_path), "--work", str(work), *extra],
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def test_a_tracked_mutation_spec_exists_at_all():
+    specs = _tracked_specs()
+    assert specs, "tracked tests/mutants/*.json denominator is 0"
+
+
+def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
+    specs = _tracked_specs()
+    assert specs, "cannot validate a zero-spec population"
+    tracked = set(_git_paths())
+    checked = 0
+    for path in specs:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        assert isinstance(document, dict), f"{path}: tracked specs use object form"
+        assert set(document) == _TOP_LEVEL_FIELDS, (
+            f"{path}: fields {sorted(document)} != {sorted(_TOP_LEVEL_FIELDS)}"
+        )
+        assert document["schema"] == _SCHEMA, path
+        assert isinstance(document["_comment"], str) and document["_comment"].strip(), path
+        assert isinstance(document["subject"], str) and document["subject"].strip(), path
+        band = document["band"]
+        assert isinstance(band, list) and band, f"{path}: band denominator is 0"
+        assert len(band) == len(set(band)), f"{path}: duplicate band target"
+        for target in band:
+            assert isinstance(target, str) and target, f"{path}: invalid band target"
+            rel = target.split("::", 1)[0]
+            assert rel in tracked and (_REPO / rel).is_file(), (
+                f"{path}: band target is absent or untracked: {target}"
+            )
+        mutants = document["mutants"]
+        assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
+        for mutant in mutants:
+            assert isinstance(mutant, dict), f"{path}: mutant is not an object"
+            assert set(mutant) == _MUTANT_FIELDS, (
+                f"{path}: mutant fields {sorted(mutant)} != {sorted(_MUTANT_FIELDS)}"
+            )
+            for field in ("label", "file", "old", "new", "catcher"):
+                assert isinstance(mutant[field], str) and mutant[field], (
+                    f"{path}: {field} must be a non-empty string"
+                )
+            assert mutant["direction"] == "regression", (
+                f"{path}: bd-mutate-spec/1 currently permits only regression"
+            )
+            assert mutant["file"] in tracked, f"{path}: untracked subject {mutant['file']}"
+            catcher_path = mutant["catcher"].split("::", 1)[0]
+            assert catcher_path in tracked and (_REPO / catcher_path).is_file(), (
+                f"{path}: catcher path is absent or untracked: {mutant['catcher']}"
+            )
+            assert mutant["catcher"] in _defined_nodeids(_REPO / catcher_path), (
+                f"{path}: catcher is not a defined test: {mutant['catcher']}"
+            )
+        checked += 1
+    assert checked == len(specs), f"schema reader checked {checked} of {len(specs)} specs"
+
+
+def test_every_tracked_mutant_anchor_occurs_exactly_once_in_its_file():
+    specs = _tracked_specs()
+    assert specs, "cannot judge anchors over a zero-spec population"
+    checked = 0
+    expected = 0
+    for path in specs:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        expected += len(document.get("mutants", []))
+        checked += _assert_anchor_counts(_REPO, document)
+    assert checked == expected and checked > 0, (
+        f"anchor reader checked {checked} of {expected} declared mutants"
+    )
+
+
+def test_the_anchor_gate_rejects_zero_and_duplicate_matches(tmp_path):
+    (tmp_path / "subject.py").write_text("anchor\nanchor\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match="occurs 0 times"):
+        _assert_anchor_counts(
+            tmp_path,
+            {"mutants": [{"file": "subject.py", "old": "absent"}]},
+        )
+    with pytest.raises(AssertionError, match="occurs 2 times"):
+        _assert_anchor_counts(
+            tmp_path,
+            {"mutants": [{"file": "subject.py", "old": "anchor"}]},
+        )
+
+
+def test_object_form_uses_its_recorded_band_and_is_rerunnable(tmp_path):
+    work, band = _write_synthetic_tree(tmp_path)
+    spec = {
+        "schema": _SCHEMA,
+        "_comment": "synthetic executable contract",
+        "subject": "the recorded band catches a changed return value",
+        "band": [band],
+        "mutants": [{
+            "label": "return 1 becomes 2",
+            "file": "m.py",
+            "old": "return 1",
+            "new": "return 2",
+            "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }],
+    }
+    run = _run_tool(work, spec, "--json")
+    assert run.returncode == 0, run.stdout + run.stderr
+    payload = json.loads(run.stdout[run.stdout.index("{"):])
+    assert payload["rows"][0]["verdict"] == "CAUGHT", payload
+
+
+def test_the_legacy_bare_list_form_stays_runnable(tmp_path):
+    work, band = _write_synthetic_tree(tmp_path)
+    spec = [{
+        "label": "return 1 becomes 2",
+        "file": "m.py",
+        "old": "return 1",
+        "new": "return 2",
+    }]
+    run = _run_tool(work, spec, "--band", band, "--json")
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_an_invalid_mutant_does_not_exit_one(tmp_path):
+    work, band = _write_synthetic_tree(tmp_path)
+    spec = [{
+        "label": "make the module unimportable",
+        "file": "m.py",
+        "old": "    return 1",
+        "new": "    return (",
+    }]
+    run = _run_tool(work, spec, "--band", band, "--json")
+    assert run.returncode == 2, run.stdout + run.stderr
+    payload = json.loads(run.stdout[run.stdout.index("{"):])
+    assert payload["rows"][0]["verdict"] == "INVALID", payload
+
+
+def test_a_genuine_escape_still_exits_one(tmp_path):
+    work, band = _write_synthetic_tree(tmp_path)
+    spec = [{
+        "label": "unobserved extra binding",
+        "file": "m.py",
+        "old": "def value():",
+        "new": "UNOBSERVED = 1\ndef value():",
+    }]
+    run = _run_tool(work, spec, "--band", band, "--json")
+    assert run.returncode == 1, run.stdout + run.stderr
+    payload = json.loads(run.stdout[run.stdout.index("{"):])
+    assert payload["rows"][0]["verdict"] == "ESCAPED", payload

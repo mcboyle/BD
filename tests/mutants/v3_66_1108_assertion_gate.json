@@ -1,0 +1,66 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1108_assertion_gate.json",
+  "subject": "v3.66.1108 -- the impossible-assertion gate detects defects without folding valid assertions",
+  "band": [
+    "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py"
+  ],
+  "mutants": [
+    {
+      "label": "drop the null-coalescing exemption (over-sensitivity)",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "if isinstance(node.op, ast.Or) and i == last and _falsy_literal(operand):",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_null_coalescing_defaults_are_exempt"
+    },
+    {
+      "label": "the deliberate-failure idiom stops being recognised",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    return isinstance(node, ast.Constant) and not bool(node.value)",
+      "new": "    return False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_bare_failure_idiom_is_exempt"
+    },
+    {
+      "label": "whole-test exemption for `assert False` removed",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    if not _bare_falsy_constant(test) and _decide(test) is False:",
+      "new": "    if _decide(test) is False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_bare_failure_idiom_is_exempt"
+    },
+    {
+      "label": "the folder decides nothing at all (silent green gate)",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    if sum(1 for _ in ast.walk(node)) > _MAX_NODES:",
+      "new": "    if True:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_folder_recognises_impossible_assertions"
+    },
+    {
+      "label": "unreachable-assert detection disabled",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "                if isinstance(st, _TERMINATORS):",
+      "new": "                if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_it_finds_an_unreachable_assert"
+    },
+    {
+      "label": "boolean-context walk stops descending (the @1098 shape goes blind)",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    yield node\n    if isinstance(node, ast.BoolOp):",
+      "new": "    yield node\n    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_it_descends_into_NESTED_boolean_operators"
+    },
+    {
+      "label": "the size bound is removed (unbounded fold inside the gate)",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "        if len(value) > _MAX_LEN:\n            raise _Unfoldable(\"value longer than the fold bound\")",
+      "new": "        if False:\n            raise _Unfoldable(\"value longer than the fold bound\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_folder_refuses_an_oversized_RESULT"
+    }
+  ]
+}

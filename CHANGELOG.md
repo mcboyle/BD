@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1184 - make mutation specifications tracked artifacts
+
+- Establish `tests/mutants/<version>_<slug>.json` as the single-writer,
+  re-runnable `bd-mutate-spec/1` location and rescue the 2026-08-13 v1108 and
+  v1111 batteries with their current tracked bands, nodeids, and unique anchors.
+- Let `bd-mutate` consume the recorded band from object-form specs while
+  retaining bare-list scratch specs, and return UNKNOWN/exit 2 for INVALID or
+  ERROR mutants instead of misclassifying unmeasured batteries as escapes.
+- Gate a nonzero tracked-spec population, schema, tracked paths, named tests,
+  reader reconciliation, and exact anchor uniqueness directly in CI.
+
 ## v3.66.1183 - close independent fleet backlog hygiene
 
 - Isolate stale shared-temp entries under private no-clobber names before

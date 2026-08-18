@@ -36,10 +36,16 @@ it stays with the caller.
 
 THE CONTRACT
 
-  bd-mutate --spec mutants.json --band "tests/a.py tests/b.py" [--work DIR]
+  bd-mutate --spec tests/mutants/v3_66_N_slug.json [--work DIR]
+  bd-mutate --spec scratch-list.json --band "tests/a.py tests/b.py" [--work DIR]
   bd-mutate --selftest
 
-  mutants.json is a LIST of objects:
+  A durable spec is an object tagged ``bd-mutate-spec/1`` with ``subject``,
+  ``band``, and ``mutants`` fields.  A scratch spec may remain a bare LIST;
+  bare-list mutants default to ``direction: regression`` and still require the
+  legacy ``--band`` argument.
+
+  Each mutant object has:
     label   required  what this mutant breaks, in words, for the report
     file    required  repo-relative path to mutate
     old     required  the exact text to replace. MUST occur exactly once.
@@ -47,9 +53,9 @@ THE CONTRACT
     catcher optional  the test you EXPECT to catch it (reported, not enforced)
 
   Exit 0 only when every mutant is CAUGHT. Exit 1 if any ESCAPED. Exit 2 if the
-  battery could not be run at all -- an empty spec, a red or unprovable
-  baseline, a file that will not restore. Two is not a softer one: it means the
-  battery has no verdict, which is the state that must never read as success.
+  battery could not be run at all -- an empty spec, INVALID/ERROR mutant, a red
+  or unprovable baseline, or a file that will not restore. Two is not a softer
+  one: it means the battery has no verdict, which must never read as success.
 
 WHAT IT DELIBERATELY DOES NOT DO. It does not judge whether an escape matters,
 and it does not close one. An escape is closed by adding the missing TEST, never
@@ -71,6 +77,7 @@ import tempfile
 from pathlib import Path
 
 CAUGHT, ESCAPED, INVALID, ERROR = "CAUGHT", "ESCAPED", "INVALID", "ERROR"
+SPEC_SCHEMA = "bd-mutate-spec/1"
 
 
 def _sha(p: Path) -> str:
@@ -133,6 +140,56 @@ def _apply(src: str, old: str, new: str) -> str:
     if len(after) != len(src) - len(old) + len(new):
         raise ValueError("length arithmetic failed -- the edit is not what it claims")
     return after
+
+
+def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], list[str]]:
+    """Accept durable object specs while keeping cheap scratch lists valid."""
+    if isinstance(document, list):
+        mutants = document
+        band = cli_band
+    elif isinstance(document, dict):
+        if document.get("schema") != SPEC_SCHEMA:
+            raise ValueError(
+                f"object spec schema must be {SPEC_SCHEMA!r}, got {document.get('schema')!r}")
+        mutants = document.get("mutants")
+        band = document.get("band")
+        if cli_band and cli_band != band:
+            raise ValueError(
+                "--band disagrees with the durable spec's recorded band; edit the spec "
+                "when its executable denominator changes")
+    else:
+        raise ValueError("spec root must be an object or a bare mutant list")
+
+    if not isinstance(mutants, list):
+        raise ValueError("spec mutants must be a list")
+    if not isinstance(band, list) or any(not isinstance(item, str) for item in band):
+        raise ValueError("spec band must be a list of test-target strings")
+
+    normalised: list[dict] = []
+    for index, raw in enumerate(mutants, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"mutant {index} must be an object")
+        mutant = dict(raw)
+        for field in ("file", "old", "new"):
+            if not isinstance(mutant.get(field), str) or not mutant[field]:
+                raise ValueError(f"mutant {index} field {field!r} must be a non-empty string")
+        for field in ("label", "catcher"):
+            if field in mutant and mutant[field] is not None and not isinstance(mutant[field], str):
+                raise ValueError(f"mutant {index} field {field!r} must be a string")
+        direction = mutant.setdefault("direction", "regression")
+        if direction != "regression":
+            raise ValueError(
+                f"mutant {index} direction {direction!r} is not executable; "
+                "this tool currently supports only 'regression'")
+        normalised.append(mutant)
+    return normalised, band
+
+
+def _battery_exit(rows: list[dict]) -> int:
+    """Map measured verdicts to the public three-state CLI contract."""
+    if any(row.get("verdict") in {INVALID, ERROR} for row in rows):
+        return 2
+    return 0 if rows and all(row.get("verdict") == CAUGHT for row in rows) else 1
 
 
 def _run_band(band: list[str], work: Path) -> tuple[int, str]:
@@ -404,7 +461,7 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         if verbose:
             print(f"  [{row['verdict']:7}] {label}")
 
-    return (0 if all(r["verdict"] == CAUGHT for r in out) else 1), out
+    return _battery_exit(out), out
 
 
 def _report(rows: list[dict]) -> None:
@@ -584,8 +641,8 @@ def _selftest(work: Path) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(prog="bd-mutate")
-    ap.add_argument("--spec", help="JSON file: a list of mutant objects")
-    ap.add_argument("--band", default="", help="space-separated test targets")
+    ap.add_argument("--spec", help="JSON object spec, or a legacy bare mutant list")
+    ap.add_argument("--band", default="", help="test targets for legacy bare-list specs")
     ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -601,8 +658,12 @@ def main() -> int:
     if not a.spec:
         ap.error("--spec is required (or --selftest)")
 
-    spec = json.loads(Path(a.spec).read_text(encoding="utf-8"))
-    band = [b for b in a.band.split() if b]
+    try:
+        document = json.loads(Path(a.spec).read_text(encoding="utf-8"))
+        spec, band = _normalise_spec(document, [b for b in a.band.split() if b])
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        print(f"BD-MUTATE-UNRUNNABLE: invalid spec: {e}", file=sys.stderr)
+        return 2
     rc, rows = run_battery(spec, band, work)
     if a.json:
         print(json.dumps({"exit": rc, "rows": rows}, indent=1))
