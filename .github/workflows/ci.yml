@@ -321,6 +321,7 @@ jobs:
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
+              tests/test_v3_66_1186_bd_mutate_named_controls.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
           - name: isolation
             suites: >-

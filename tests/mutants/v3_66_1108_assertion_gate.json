@@ -11,8 +11,11 @@
       "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
       "old": "if isinstance(node.op, ast.Or) and i == last and _falsy_literal(operand):",
       "new": "if False:",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_null_coalescing_defaults_are_exempt"
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_null_coalescing_defaults_are_exempt",
+      "preserves": [
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_folder_decides_the_live_shape_that_motivated_this_gate"
+      ]
     },
     {
       "label": "the deliberate-failure idiom stops being recognised",

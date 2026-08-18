@@ -50,12 +50,19 @@ THE CONTRACT
     file    required  repo-relative path to mutate
     old     required  the exact text to replace. MUST occur exactly once.
     new     required  what to replace it with
-    catcher optional  the test you EXPECT to catch it (reported, not enforced)
+    direction         regression (default) or overcorrection
+    catcher optional  regression nodeid that must fail when named
+    control  required for overcorrection; this nodeid must fail
+    preserves required for overcorrection; these nodeids must still pass
 
-  Exit 0 only when every mutant is CAUGHT. Exit 1 if any ESCAPED. Exit 2 if the
-  battery could not be run at all -- an empty spec, INVALID/ERROR mutant, a red
-  or unprovable baseline, or a file that will not restore. Two is not a softer
-  one: it means the battery has no verdict, which must never read as success.
+  --direction {regression,overcorrection,all} filters a recorded battery;
+  filtering to zero mutants is UNKNOWN rather than vacuous success.
+
+  Exit 0 only when every selected mutant is CAUGHT. Exit 1 if any ESCAPED or is
+  INDISCRIMINATE. Exit 2 if the battery could not be measured -- an empty
+  selection, UNKNOWN/INVALID/ERROR mutant, red or unprovable baseline, missing
+  named nodeid, partial JUnit, or failed restore. Two is not a softer one: it
+  means the battery has no verdict, which must never read as success.
 
 WHAT IT DELIBERATELY DOES NOT DO. It does not judge whether an escape matters,
 and it does not close one. An escape is closed by adding the missing TEST, never
@@ -75,9 +82,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-CAUGHT, ESCAPED, INVALID, ERROR = "CAUGHT", "ESCAPED", "INVALID", "ERROR"
+CAUGHT, ESCAPED = "CAUGHT", "ESCAPED"
+INDISCRIMINATE, UNKNOWN = "INDISCRIMINATE", "UNKNOWN"
+INVALID, ERROR = "INVALID", "ERROR"
 SPEC_SCHEMA = "bd-mutate-spec/1"
 _EMIT_NAME = re.compile(r"v3_66_[0-9]+_[a-z0-9_]+\.json\Z")
 
@@ -175,21 +185,35 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
         for field in ("file", "old", "new"):
             if not isinstance(mutant.get(field), str) or not mutant[field]:
                 raise ValueError(f"mutant {index} field {field!r} must be a non-empty string")
-        for field in ("label", "catcher"):
+        for field in ("label", "catcher", "control"):
             if field in mutant and mutant[field] is not None and not isinstance(mutant[field], str):
                 raise ValueError(f"mutant {index} field {field!r} must be a string")
         direction = mutant.setdefault("direction", "regression")
-        if direction != "regression":
+        if direction not in {"regression", "overcorrection"}:
             raise ValueError(
-                f"mutant {index} direction {direction!r} is not executable; "
-                "this tool currently supports only 'regression'")
+                f"mutant {index} direction must be 'regression' or 'overcorrection', "
+                f"got {direction!r}")
+        if direction == "overcorrection":
+            control = mutant.get("control")
+            preserves = mutant.get("preserves")
+            if not isinstance(control, str) or not control:
+                raise ValueError(
+                    f"mutant {index} overcorrection requires one named control")
+            if (not isinstance(preserves, list) or not preserves
+                    or any(not isinstance(nodeid, str) or not nodeid for nodeid in preserves)):
+                raise ValueError(
+                    f"mutant {index} overcorrection requires nonempty named preserves")
+            if len(preserves) != len(set(preserves)):
+                raise ValueError(f"mutant {index} preserves contains duplicates")
+            if control in preserves:
+                raise ValueError(f"mutant {index} control must not also be preserved")
         normalised.append(mutant)
     return normalised, band
 
 
 def _battery_exit(rows: list[dict]) -> int:
     """Map measured verdicts to the public three-state CLI contract."""
-    if any(row.get("verdict") in {INVALID, ERROR} for row in rows):
+    if any(row.get("verdict") in {UNKNOWN, INVALID, ERROR} for row in rows):
         return 2
     return 0 if rows and all(row.get("verdict") == CAUGHT for row in rows) else 1
 
@@ -208,12 +232,16 @@ def _emit_spec(work: Path, name: str, subject: str, band: list[str],
     if len(band) != len(set(band)):
         raise ValueError("cannot emit a spec with duplicate band targets")
 
-    required = {"label", "file", "old", "new", "direction", "catcher"}
     for index, mutant in enumerate(mutants, 1):
+        required = {"label", "file", "old", "new", "direction"}
+        if mutant["direction"] == "regression":
+            required.add("catcher")
+        else:
+            required.update({"control", "preserves"})
         if set(mutant) != required:
             raise ValueError(
                 f"emitted mutant {index} fields must be exactly {sorted(required)}")
-        for field in required:
+        for field in required - {"preserves"}:
             if not isinstance(mutant[field], str) or not mutant[field]:
                 raise ValueError(
                     f"emitted mutant {index} field {field!r} must be a non-empty string")
@@ -255,14 +283,184 @@ def _emit_spec(work: Path, name: str, subject: str, band: list[str],
     return destination
 
 
-def _run_band(band: list[str], work: Path) -> tuple[int, str]:
+def _python_for(work: Path) -> str:
     py = str(work / "venv" / "bin" / "python")
     if not Path(py).is_file():
         py = sys.executable      # a worktree has no venv/ -- say so, do not guess
-    cmd = [py, "-m", "pytest", "-q", "-p", "no:randomly", *band]
-    r = subprocess.run(cmd, cwd=str(work), capture_output=True, text=True,
-                       env=_child_env())
-    return r.returncode, (r.stdout + r.stderr)[-4000:]
+    return py
+
+
+def _collected_nodeids(output: str, work: Path) -> list[str]:
+    """Read pytest -q collection output without treating its summary as data."""
+    nodeids: list[str] = []
+    for raw in output.splitlines():
+        candidate = raw.strip()
+        if "::" not in candidate:
+            continue
+        rel = candidate.split("::", 1)[0]
+        if (work / rel).is_file():
+            nodeids.append(candidate)
+    return nodeids
+
+
+def _nodeid_identity(nodeid: str) -> tuple[str, str]:
+    parts = nodeid.split("::")
+    module = parts[0]
+    if module.endswith(".py"):
+        module = module[:-3]
+    classname = ".".join([module.replace("/", "."), *parts[1:-1]])
+    return classname, parts[-1]
+
+
+def _read_junit(path: Path, collected: list[str]) -> tuple[dict[str, list[str]], str | None]:
+    """Return exact per-nodeid outcomes, or an UNKNOWN reason."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return {}, "JUnit evidence is missing or empty"
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError) as e:
+        return {}, f"JUnit evidence is malformed or truncated: {e}"
+    cases = list(root.iter("testcase"))
+    if not collected:
+        return {}, "pytest collected zero tests"
+    if len(cases) != len(collected):
+        return {}, (
+            f"JUnit executed {len(cases)} cases but collection named "
+            f"{len(collected)}")
+
+    identities: dict[tuple[str, str], list[str]] = {}
+    for nodeid in collected:
+        identities.setdefault(_nodeid_identity(nodeid), []).append(nodeid)
+    outcomes: dict[str, list[str]] = {}
+    for case in cases:
+        identity = (case.get("classname", ""), case.get("name", ""))
+        candidates = identities.get(identity, [])
+        if len(candidates) != 1:
+            return {}, (
+                f"JUnit case {identity!r} maps to {len(candidates)} collected nodeids")
+        if case.find("error") is not None:
+            outcome = "error"
+        elif case.find("failure") is not None:
+            outcome = "failed"
+        elif case.find("skipped") is not None:
+            outcome = "skipped"
+        else:
+            outcome = "passed"
+        outcomes.setdefault(candidates[0], []).append(outcome)
+    if set(outcomes) != set(collected):
+        missing = sorted(set(collected) - set(outcomes))
+        extra = sorted(set(outcomes) - set(collected))
+        return {}, f"JUnit identity reconciliation failed: missing={missing} extra={extra}"
+    if any(len(values) != 1 for values in outcomes.values()):
+        duplicates = sorted(k for k, values in outcomes.items() if len(values) != 1)
+        return {}, f"JUnit contains duplicate nodeids: {duplicates}"
+    return outcomes, None
+
+
+def _run_band(band: list[str], work: Path) -> dict:
+    py = _python_for(work)
+    collect_cmd = [py, "-m", "pytest", "--collect-only", "-q", "-p", "no:randomly", *band]
+    collected_run = subprocess.run(
+        collect_cmd, cwd=str(work), capture_output=True, text=True, env=_child_env())
+    collect_output = collected_run.stdout + collected_run.stderr
+    collected = _collected_nodeids(collect_output, work)
+    if collected_run.returncode != 0:
+        return {
+            "rc": collected_run.returncode,
+            "tail": collect_output[-4000:],
+            "collected": collected,
+            "outcomes": {},
+            "measurement_error": "pytest collection failed",
+            "collection_error": True,
+        }
+    if not collected:
+        return {
+            "rc": 2,
+            "tail": collect_output[-4000:],
+            "collected": [],
+            "outcomes": {},
+            "measurement_error": "pytest collected zero tests",
+            "collection_error": False,
+        }
+
+    with tempfile.TemporaryDirectory(prefix="bd-mutate-junit-") as td:
+        junit = Path(td) / "band.xml"
+        cmd = [
+            py, "-m", "pytest", "-q", "-p", "no:randomly",
+            "--junitxml", str(junit), *band,
+        ]
+        run = subprocess.run(
+            cmd, cwd=str(work), capture_output=True, text=True, env=_child_env())
+        output = run.stdout + run.stderr
+        outcomes, measurement_error = _read_junit(junit, collected)
+    return {
+        "rc": run.returncode,
+        "tail": output[-4000:],
+        "collected": collected,
+        "outcomes": outcomes,
+        "measurement_error": measurement_error,
+        "collection_error": False,
+    }
+
+
+def _named_outcome(result: dict, nodeid: str) -> tuple[str | None, str | None]:
+    values = result["outcomes"].get(nodeid, [])
+    if len(values) != 1:
+        return None, f"named nodeid {nodeid} appeared {len(values)} times; expected exactly 1"
+    return values[0], None
+
+
+def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
+    """Grade the named subject, never whichever unrelated test also screamed."""
+    if result.get("collection_error"):
+        return INVALID, "pytest collection error: " + result["tail"][-700:]
+    if result.get("measurement_error"):
+        return UNKNOWN, result["measurement_error"]
+    errors = sorted(nodeid for nodeid, values in result["outcomes"].items()
+                    if values == ["error"])
+    if errors:
+        return INVALID, f"pytest error outcome(s), not assertion failures: {errors}"
+
+    direction = mutant.get("direction", "regression")
+    if direction == "regression":
+        catcher = mutant.get("catcher")
+        if not catcher:
+            if result["rc"] == 0:
+                return ESCAPED, "band stayed green with the behaviour broken"
+            first = [line for line in result["tail"].splitlines() if line.startswith("FAILED")]
+            return CAUGHT, first[0][:160] if first else "band went red"
+        outcome, why = _named_outcome(result, catcher)
+        if why:
+            return UNKNOWN, why
+        if outcome == "failed":
+            return CAUGHT, f"named catcher failed: {catcher}"
+        if outcome == "passed":
+            return ESCAPED, f"named catcher passed while another band member may have failed: {catcher}"
+        return UNKNOWN, f"named catcher was {outcome}, not an executed assertion verdict: {catcher}"
+
+    control = mutant["control"]
+    control_outcome, why = _named_outcome(result, control)
+    if why:
+        return UNKNOWN, why
+    preserve_outcomes: list[tuple[str, str]] = []
+    for nodeid in mutant["preserves"]:
+        outcome, preserve_why = _named_outcome(result, nodeid)
+        if preserve_why:
+            return UNKNOWN, preserve_why
+        preserve_outcomes.append((nodeid, outcome))
+    unknown = [(nodeid, outcome) for nodeid, outcome in preserve_outcomes
+               if outcome not in {"passed", "failed"}]
+    if control_outcome not in {"passed", "failed"}:
+        return UNKNOWN, f"named control was {control_outcome}, not an assertion verdict: {control}"
+    if unknown:
+        return UNKNOWN, f"preserved nodeids lacked assertion verdicts: {unknown}"
+    if control_outcome == "passed":
+        return ESCAPED, f"named control passed while another band member may have failed: {control}"
+    failed_preserves = [nodeid for nodeid, outcome in preserve_outcomes if outcome == "failed"]
+    if failed_preserves:
+        return INDISCRIMINATE, (
+            f"control failed but preserved test(s) also failed: {failed_preserves}")
+    return CAUGHT, f"named control failed and every preserved test passed: {control}"
 
 
 # --------------------------------------------------------------------------- #
@@ -454,20 +652,30 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
 
     # ---- BASELINE. Red afterwards proves nothing if it was red before. ------
     _purge_pycache(work)
-    rc, tail = _run_band(band, work)
-    if rc != 0:
+    baseline = _run_band(band, work)
+    if baseline["rc"] != 0 or baseline.get("measurement_error"):
         print("BD-MUTATE-UNRUNNABLE: BASELINE IS RED. Every verdict below would "
-              "be evidence about the baseline, not about a mutant.\n" + tail[-1500:],
+              "be evidence about the baseline, not about a mutant.\n"
+              + (baseline.get("measurement_error") or "") + "\n"
+              + baseline["tail"][-1500:],
               file=sys.stderr)
         return 2, out
     if verbose:
-        print(f"baseline GREEN over {len(band)} band target(s); {len(spec)} mutant(s)\n")
+        print(f"baseline GREEN over {len(band)} band target(s), "
+              f"{len(baseline['collected'])} collected test(s); {len(spec)} mutant(s)\n")
 
     for i, m in enumerate(spec, 1):
         label = m.get("label") or f"mutant {i}"
         rel = m["file"]
         path = work / rel
-        row = {"label": label, "file": rel, "catcher": m.get("catcher")}
+        row = {
+            "label": label,
+            "file": rel,
+            "direction": m.get("direction", "regression"),
+            "catcher": m.get("catcher"),
+            "control": m.get("control"),
+            "preserves": m.get("preserves"),
+        }
         if not path.is_file():
             row["verdict"] = ERROR
             row["why"] = "file does not exist"
@@ -503,13 +711,8 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         try:
             _purge_pycache(work)
             path.write_text(mutated, encoding="utf-8")
-            rc, tail = _run_band(band, work)
-            row["verdict"] = CAUGHT if rc != 0 else ESCAPED
-            if rc == 0:
-                row["why"] = "band stayed green with the behaviour broken"
-            else:
-                first = [l for l in tail.splitlines() if l.startswith("FAILED")]
-                row["why"] = first[0][:160] if first else "band went red"
+            result = _run_band(band, work)
+            row["verdict"], row["why"] = _grade_mutant(m, result)
         finally:
             path.write_text(original, encoding="utf-8")
             _purge_pycache(work)
@@ -533,8 +736,9 @@ def _report(rows: list[dict]) -> None:
     print("\n%-8s %-46s %s" % ("VERDICT", "MUTANT", "NOTE"))
     for r in rows:
         print("%-8s %-46s %s" % (r["verdict"], r["label"][:46], (r.get("why") or "")[:70]))
-    print("\n%d caught, %d escaped, %d invalid, %d error"
-          % (c[CAUGHT], c[ESCAPED], c[INVALID], c[ERROR]))
+    print("\n%d caught, %d escaped, %d indiscriminate, %d unknown, %d invalid, %d error"
+          % (c[CAUGHT], c[ESCAPED], c[INDISCRIMINATE], c[UNKNOWN],
+             c[INVALID], c[ERROR]))
     if c[INVALID]:
         print("INVALID is not CAUGHT: those mutants never ran, so they are "
               "unmeasured, not survived.")
@@ -698,6 +902,63 @@ def _selftest(work: Path) -> int:
         print(("PASS" if refused else "FAIL")
               + "  --recover REFUSES rather than overwriting an unrecorded edit")
 
+        # 9. DIRECTION IS EXECUTABLE. The named control, not an unrelated red
+        # bandmate, decides whether an over-correction is constrained.
+        d = Path(td) / "direction"
+        d.mkdir()
+        (d / "tests").mkdir()
+        (d / "m.py").write_text(
+            "def render(value):\n"
+            "    if value is None:\n"
+            "        return 'unknown'\n"
+            "    return str(value)\n", encoding="utf-8")
+        test_path = d / "tests" / "test_m.py"
+        test_path.write_text(
+            "import importlib, m\n"
+            "def fresh(): return importlib.reload(m)\n"
+            "def test_fix(): assert fresh().render(None) == 'unknown'\n"
+            "def test_control(): assert fresh().render(7) == '7'\n"
+            "def test_bandmate(): assert fresh().render('ok') == 'ok'\n",
+            encoding="utf-8")
+        over = {
+            "label": "over-correct naming", "file": "m.py",
+            "old": "    return str(value)", "new": "    return 'unknown'",
+            "direction": "overcorrection",
+            "control": "tests/test_m.py::test_control",
+            "preserves": ["tests/test_m.py::test_fix"],
+        }
+        rc, rows = run_battery([over], ["tests/test_m.py"], d, verbose=False)
+        real = rc == 0 and rows and rows[0]["verdict"] == CAUGHT
+        ok &= real
+        print(("PASS" if real else "FAIL")
+              + "  an over-correction seen by its named control is CAUGHT")
+
+        test_path.write_text(
+            "import importlib, m\n"
+            "def fresh(): return importlib.reload(m)\n"
+            "def test_fix(): assert fresh().render(None) == 'unknown'\n"
+            "def test_control(): assert fresh().render(None) == 'unknown'\n"
+            "def test_bandmate(): assert fresh().render(7) == '7'\n",
+            encoding="utf-8")
+        rc, rows = run_battery([over], ["tests/test_m.py"], d, verbose=False)
+        decorative = rc == 1 and rows and rows[0]["verdict"] == ESCAPED
+        ok &= decorative
+        print(("PASS" if decorative else "FAIL")
+              + "  an unrelated failing bandmate cannot satisfy a named control")
+
+        invalid_import = {
+            "label": "parseable import break", "file": "m.py",
+            "old": "def render(value):",
+            "new": "import zzz_definitely_not_a_module\ndef render(value):",
+            "direction": "regression", "catcher": "tests/test_m.py::test_fix",
+        }
+        rc, rows = run_battery(
+            [invalid_import], ["tests/test_m.py"], d, verbose=False)
+        import_guard = rc == 2 and rows and rows[0]["verdict"] == INVALID
+        ok &= import_guard
+        print(("PASS" if import_guard else "FAIL")
+              + "  a parseable import break is INVALID rather than CAUGHT")
+
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -710,6 +971,8 @@ def main() -> int:
                     help="write tests/mutants/BASENAME without clobbering")
     ap.add_argument("--subject", default="",
                     help="human-readable subject required by --emit-spec")
+    ap.add_argument("--direction", choices=("regression", "overcorrection", "all"),
+                    default="all", help="run only one mutant direction (default: all)")
     ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -737,9 +1000,22 @@ def main() -> int:
         except (OSError, ValueError) as e:
             print(f"BD-MUTATE-UNRUNNABLE: cannot emit spec: {e}", file=sys.stderr)
             return 2
-    rc, rows = run_battery(spec, band, work)
+    total = len(spec)
+    selected = spec if a.direction == "all" else [
+        mutant for mutant in spec if mutant["direction"] == a.direction]
+    if not selected:
+        print(f"BD-MUTATE-UNRUNNABLE: 0 of {total} mutants after "
+              f"--direction {a.direction}", file=sys.stderr)
+        return 2
+    rc, rows = run_battery(selected, band, work)
     if a.json:
-        print(json.dumps({"exit": rc, "rows": rows}, indent=1))
+        print(json.dumps({
+            "exit": rc,
+            "direction": a.direction,
+            "selected": len(selected),
+            "total": total,
+            "rows": rows,
+        }, indent=1))
     elif rows:
         _report(rows)
     return rc

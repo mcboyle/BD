@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1186 - execute named mutation controls
+
+- Add authoritative per-mutant `direction` plus
+  `--direction {regression,overcorrection,all}` filtering, refusing a zero
+  post-filter denominator rather than reporting vacuous success.
+- Resolve complete pytest collection against JUnit written outside the work
+  tree. Regression catchers and over-correction controls must be the named test
+  that fails; unrelated red bandmates cannot satisfy either contract.
+- Require every over-correction control to fail while every named preserved
+  fix test passes. Report decorative controls as ESCAPED, blunt mutants as
+  INDISCRIMINATE, missing/skipped evidence as UNKNOWN, and pytest collection or
+  setup errors as INVALID with the public 0/1/2 exit lattice.
+- Convert the rescued v1108 and v1111 over-sensitivity mutants to executable
+  controls and add a tracked self-battery proving regression compatibility.
+
 ## v3.66.1185 - let bd-mutate emit canonical specs
 
 - Add `--emit-spec <canonical-basename>.json --subject <text>` so a validated

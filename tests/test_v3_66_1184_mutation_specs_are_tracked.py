@@ -22,7 +22,9 @@ _REPO = Path(__file__).resolve().parent.parent
 _TOOL = _REPO / "toolchain" / "bin" / "bd-mutate"
 _SCHEMA = "bd-mutate-spec/1"
 _TOP_LEVEL_FIELDS = {"schema", "_comment", "subject", "band", "mutants"}
-_MUTANT_FIELDS = {"label", "file", "old", "new", "direction", "catcher"}
+_BASE_MUTANT_FIELDS = {"label", "file", "old", "new", "direction"}
+_REGRESSION_FIELDS = _BASE_MUTANT_FIELDS | {"catcher"}
+_OVERCORRECTION_FIELDS = _BASE_MUTANT_FIELDS | {"control", "preserves"}
 
 
 def _git_paths(*pathspecs: str) -> list[str]:
@@ -135,24 +137,37 @@ def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
         assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
         for mutant in mutants:
             assert isinstance(mutant, dict), f"{path}: mutant is not an object"
-            assert set(mutant) == _MUTANT_FIELDS, (
-                f"{path}: mutant fields {sorted(mutant)} != {sorted(_MUTANT_FIELDS)}"
+            direction = mutant.get("direction")
+            expected_fields = (
+                _REGRESSION_FIELDS if direction == "regression"
+                else _OVERCORRECTION_FIELDS if direction == "overcorrection"
+                else set()
             )
-            for field in ("label", "file", "old", "new", "catcher"):
+            assert expected_fields, f"{path}: unsupported direction {direction!r}"
+            assert set(mutant) == expected_fields, (
+                f"{path}: mutant fields {sorted(mutant)} != {sorted(expected_fields)}"
+            )
+            for field in ("label", "file", "old", "new"):
                 assert isinstance(mutant[field], str) and mutant[field], (
                     f"{path}: {field} must be a non-empty string"
                 )
-            assert mutant["direction"] == "regression", (
-                f"{path}: bd-mutate-spec/1 currently permits only regression"
-            )
             assert mutant["file"] in tracked, f"{path}: untracked subject {mutant['file']}"
-            catcher_path = mutant["catcher"].split("::", 1)[0]
-            assert catcher_path in tracked and (_REPO / catcher_path).is_file(), (
-                f"{path}: catcher path is absent or untracked: {mutant['catcher']}"
-            )
-            assert mutant["catcher"] in _defined_nodeids(_REPO / catcher_path), (
-                f"{path}: catcher is not a defined test: {mutant['catcher']}"
-            )
+            named = [mutant["catcher"]] if direction == "regression" else [
+                mutant["control"], *mutant["preserves"]]
+            if direction == "overcorrection":
+                assert isinstance(mutant["control"], str) and mutant["control"], path
+                assert isinstance(mutant["preserves"], list) and mutant["preserves"], path
+                assert len(mutant["preserves"]) == len(set(mutant["preserves"])), path
+                assert mutant["control"] not in mutant["preserves"], path
+            for nodeid in named:
+                assert isinstance(nodeid, str) and nodeid, f"{path}: invalid nodeid"
+                node_path = nodeid.split("::", 1)[0]
+                assert node_path in tracked and (_REPO / node_path).is_file(), (
+                    f"{path}: named test path is absent or untracked: {nodeid}"
+                )
+                assert nodeid in _defined_nodeids(_REPO / node_path), (
+                    f"{path}: nodeid is not a defined test: {nodeid}"
+                )
         checked += 1
     assert checked == len(specs), f"schema reader checked {checked} of {len(specs)} specs"
 

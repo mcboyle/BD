@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Self-proving direction battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1186_direction_named_controls.json",
+  "subject": "v3.66.1186 -- regression remains compatible while overcorrections require executable named controls",
+  "band": [
+    "tests/test_v3_66_1186_bd_mutate_named_controls.py"
+  ],
+  "mutants": [
+    {
+      "label": "OVER-CORRECTION: require a named control for every direction",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        if direction == \"overcorrection\":",
+      "new": "        if True:",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1186_bd_mutate_named_controls.py::test_the_regression_direction_is_unchanged_by_default",
+      "preserves": [
+        "tests/test_v3_66_1186_bd_mutate_named_controls.py::test_an_overcorrection_with_no_named_control_is_UNRUNNABLE"
+      ]
+    }
+  ]
+}

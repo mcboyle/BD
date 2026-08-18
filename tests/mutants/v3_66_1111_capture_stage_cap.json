@@ -35,8 +35,11 @@
       "file": "scripts/lib/heartbeat.sh",
       "old": "[ \"$elapsed\" -ge \"$CAPTURE_STAGE_CAP\" ] \\\n       && kill -0 \"$pid\" 2>/dev/null; then",
       "new": "kill -0 \"$pid\" 2>/dev/null; then",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_a_stage_that_finishes_under_the_cap_is_untouched"
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_a_stage_that_finishes_under_the_cap_is_untouched",
+      "preserves": [
+        "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_a_wedged_stage_is_stopped_and_returns_124"
+      ]
     },
     {
       "label": "the command's own exit code is flattened to 0",
