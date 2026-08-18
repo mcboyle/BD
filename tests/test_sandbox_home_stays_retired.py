@@ -24,145 +24,184 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import AbstractSet, Mapping
 
 REPO = Path(__file__).resolve().parent.parent
 
 # Assembled, never spelled -- see the module docstring.
 NEEDLE = "/" + "home" + "/" + "claude"
 
-# Every tracked file permitted to carry the reference, measured at 0f3e435.
-# Entries are removed as carriers are retired; none may be added without an
-# explicit operator decision recorded in the canonical improvement backlog.
-ALLOWLIST: frozenset[str] = frozenset({
-    ".superpowers/sdd/wacz-processing-report.md",
-    "CHANGELOG.md",
-    "SANDBOX.md",
-    "VERSION.txt",
-    "conf/README.md",
-    "conf/supervisord.conf",
-    "docs/UX_IMPROVEMENT_PLAN.md",
-    "docs/archive/2026-07-22-doc-hygiene/docs/audit/CODE_INTELLIGENCE_DELIVERABLES.md",
-    "docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md",
-    "docs/repo/SANDBOX_SPEC_AND_LAYOUT_v3_66_805.md",
-    "kb/decomp/app_py_F5.1/APP_DECOMP_MAP.json",
-    "project-knowledge/10_SANDBOX_SHELL_PREFLIGHT.md",
-    "project-knowledge/ADVANCED_PROJECT_KNOWLEDGE.md",
-    "project-knowledge/CODE_INTELLIGENCE_TOOLING.md",
-    "project-knowledge/KB_JUDGMENT.md",
-    "project-knowledge/KB_SYNC_WORKFLOW.md",
-    "project-knowledge/PRESTAGE_GUIDE.md",
-    "project-knowledge/README.md",
-    "project-knowledge/RELEASE_DISCIPLINE_TIERS.md",
-    "project-knowledge/RENDER_CAPTURE_AUDIT_GUIDE.md",
-    "project-knowledge/SANDBOX.md",
-    "project-knowledge/SANDBOX_CAPABILITY_LAYER.md",
-    "project-knowledge/IMPROVEMENT_BACKLOG.md",
-    "FOOTGUNS.json",
-    "tests/test_v3_66_1167_safety_authorities_are_single_source.py",
-    "project-knowledge/build_montage.py",
-    "project-knowledge/build_navigator.py",
-    "project-knowledge/capture_all.py",
-    "project-knowledge/mobile_drawer_probe.py",
-    "project-knowledge/mobile_more_probe.py",
-    "project-knowledge/render_check.py",
-    "project-knowledge/round.sh",
-    "project-knowledge/spa_render.sh",
-    "project-knowledge/spa_serve.py",
-    "project-knowledge/spa_shot.py",
-    "project-knowledge/spa_tabs.py",
-    "project-knowledge/subtabs_cap.py",
-    "project-knowledge/subtabs_click.py",
-    "scripts/classify_toolchain.py",
-    "scripts/classify_toolchain_verdict.py",
-    "scripts/refine_degraded.py",
-    "slowest_tests.sh",
-    "tests/test_bd_doctor_probes_the_real_environment.py",
-    "tests/test_capture_fixture_roots.py",
-    "tests/test_desandbox_tool_verifiers.py",
-    "tests/test_element_pick_bridge.py",
-    "tests/test_element_pick_selector.py",
-    "tests/test_env_parity_sees_the_real_browser_pool.py",
-    "tests/test_fixture_recognizer_loop.py",
-    "tests/test_fresh_install_gui_smoke.py",
-    "tests/test_generated_artifact_workflow.py",
-    "tests/test_guardcheck_fails_closed.py",
-    "tests/test_route_index_in_sync.py",
-    "tests/test_toolchain_534.py",
-    "tests/test_u27_security_cluster.py",
-    "tests/test_v3_66_245_floor_signed_url_nondom.py",
-    "tests/test_v3_66_252_dom_excerpt.py",
-    "tests/test_v3_66_276_row_selector_robust.py",
-    "tests/test_v3_66_527_numeric_integer_backstop.py",
-    "tests/test_v3_66_653_dep_freshness.py",
-    "tests/test_v3_66_799_audit_tool_selftests.py",
-    "toolchain/bdenv.sh",
-    "toolchain/bin/bd",
-    "toolchain/bin/bd-bandcheck",
-    "toolchain/bin/bd-consumer-graph",
-    "toolchain/bin/bd-corpus",
-    "toolchain/bin/bd-cut",
-    "toolchain/bin/bd-deep-capture",
-    "toolchain/bin/bd-defect-scan",
-    "toolchain/bin/bd-docstale",
-    "toolchain/bin/bd-doctor",
-    "toolchain/bin/bd-env-parity",
-    "toolchain/bin/bd-factcheck",
-    "toolchain/bin/bd-fixture-lint",
-    "toolchain/bin/bd-footguns",
-    "toolchain/bin/bd-fullsuite",
-    "toolchain/bin/bd-golden",
-    "toolchain/bin/bd-guard-declare",
-    "toolchain/bin/bd-guardcheck",
-    "toolchain/bin/bd-kb-sync",
-    "toolchain/bin/bd-lsp",
-    "toolchain/bin/bd-mutation-test",
-    "toolchain/bin/bd-opv",
-    "toolchain/bin/bd-parband",
-    "toolchain/bin/bd-parity-scan",
-    "toolchain/bin/bd-path-scan",
-    "toolchain/bin/bd-pk-mirror",
-    "toolchain/bin/bd-precut",
-    "toolchain/bin/bd-ready",
-    "toolchain/bin/bd-reindex",
-    "toolchain/bin/bd-release-note",
-    "toolchain/bin/bd-render-env",
-    "toolchain/bin/bd-rev",
-    "toolchain/bin/bd-rollback",
-    "toolchain/bin/bd-rollback-oracle",
-    "toolchain/bin/bd-sbcap",
-    "toolchain/bin/bd-state",
-    "toolchain/bin/bd-status",
-    "toolchain/bin/bd-sweep",
-    "toolchain/bin/bd-sym",
-    "toolchain/bin/bd-tool-smoke",
-    "toolchain/bin/bd-treecheck",
-    "toolchain/bin/bd-venv",
-    "toolchain/bin/bd-worktree-check",
-    "toolchain/bin/bdtools_sec.py",
-    "toolchain/install_bdsuite.sh",
-    "tools/audit/witnesses/cap01_witnesses.py",
-    "tools/audit/witnesses/run01_witnesses.py",
-    "tools/bd-scan.py",
-    "tools/bd_decomp_lib.py",
-    "tools/code_intelligence/oracle_adapters.py",
-    "tools/constraint_incidence.py",
-    "tools/consumer_agreement.py",
-    "tools/coverage_map.py",
-    "tools/decomp_lint.py",
-    "tools/decomp_regen.py",
-    "tools/defect_patterns.py",
-    "tools/endpoint_reachability.py",
-    "tools/reachability_ledger.py",
-    "tools/read_coverage.py",
-    "tools/render_advanced_kb.py",
-    "tools/review_merge.py",
-    "tools/risk_score.py",
-    "tools/run_witnesses.py",
-    "tools/seed_review_state.py",
-    "tools/staleness.py",
-    "tools/verify_audit.py",
-    "tools/witness_drift.py",
+# Every tracked carrier has one machine-readable disposition. ``UNSWEPT`` is
+# temporary and separately names the authority phase that owns its removal.
+# Other reasons are durable exemptions. The vocabulary is deliberately closed.
+ADVERSARIAL_FIXTURE = "adversarial_fixture"
+HISTORICAL_RECORD = "historical_record"
+PROVENANCE_ARTIFACT = "provenance_artifact"
+OPERATOR_PROSE = "operator_prose"
+UNSWEPT = "unswept"
+VALID_REASONS = frozenset({
+    ADVERSARIAL_FIXTURE,
+    HISTORICAL_RECORD,
+    PROVENANCE_ARTIFACT,
+    OPERATOR_PROSE,
+    UNSWEPT,
 })
+VALID_PHASES = frozenset({"live", "prose", "fixture"})
+
+ALLOWLIST: Mapping[str, str] = {
+    ".superpowers/sdd/wacz-processing-report.md": PROVENANCE_ARTIFACT,
+    "CHANGELOG.md": HISTORICAL_RECORD,
+    "FOOTGUNS.json": HISTORICAL_RECORD,
+    "SANDBOX.md": HISTORICAL_RECORD,
+    "VERSION.txt": PROVENANCE_ARTIFACT,
+    "conf/README.md": UNSWEPT,
+    "conf/supervisord.conf": UNSWEPT,
+    "docs/UX_IMPROVEMENT_PLAN.md": UNSWEPT,
+    "docs/archive/2026-07-22-doc-hygiene/docs/audit/CODE_INTELLIGENCE_DELIVERABLES.md": HISTORICAL_RECORD,
+    "docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md": HISTORICAL_RECORD,
+    "docs/repo/SANDBOX_SPEC_AND_LAYOUT_v3_66_805.md": PROVENANCE_ARTIFACT,
+    "kb/decomp/app_py_F5.1/APP_DECOMP_MAP.json": PROVENANCE_ARTIFACT,
+    "project-knowledge/10_SANDBOX_SHELL_PREFLIGHT.md": UNSWEPT,
+    "project-knowledge/ADVANCED_PROJECT_KNOWLEDGE.md": UNSWEPT,
+    "project-knowledge/CODE_INTELLIGENCE_TOOLING.md": UNSWEPT,
+    "project-knowledge/IMPROVEMENT_BACKLOG.md": OPERATOR_PROSE,
+    "project-knowledge/KB_JUDGMENT.md": HISTORICAL_RECORD,
+    "project-knowledge/KB_SYNC_WORKFLOW.md": UNSWEPT,
+    "project-knowledge/PRESTAGE_GUIDE.md": UNSWEPT,
+    "project-knowledge/README.md": UNSWEPT,
+    "project-knowledge/RELEASE_DISCIPLINE_TIERS.md": UNSWEPT,
+    "project-knowledge/RENDER_CAPTURE_AUDIT_GUIDE.md": UNSWEPT,
+    "project-knowledge/SANDBOX.md": HISTORICAL_RECORD,
+    "project-knowledge/SANDBOX_CAPABILITY_LAYER.md": UNSWEPT,
+    "project-knowledge/build_montage.py": UNSWEPT,
+    "project-knowledge/build_navigator.py": UNSWEPT,
+    "project-knowledge/capture_all.py": UNSWEPT,
+    "project-knowledge/mobile_drawer_probe.py": UNSWEPT,
+    "project-knowledge/mobile_more_probe.py": UNSWEPT,
+    "project-knowledge/render_check.py": UNSWEPT,
+    "project-knowledge/round.sh": UNSWEPT,
+    "project-knowledge/spa_render.sh": UNSWEPT,
+    "project-knowledge/spa_serve.py": UNSWEPT,
+    "project-knowledge/spa_shot.py": UNSWEPT,
+    "project-knowledge/spa_tabs.py": UNSWEPT,
+    "project-knowledge/subtabs_cap.py": UNSWEPT,
+    "project-knowledge/subtabs_click.py": UNSWEPT,
+    "scripts/classify_toolchain.py": ADVERSARIAL_FIXTURE,
+    "scripts/classify_toolchain_verdict.py": ADVERSARIAL_FIXTURE,
+    "scripts/refine_degraded.py": ADVERSARIAL_FIXTURE,
+    "slowest_tests.sh": UNSWEPT,
+    "tests/test_bd_doctor_probes_the_real_environment.py": ADVERSARIAL_FIXTURE,
+    "tests/test_capture_fixture_roots.py": ADVERSARIAL_FIXTURE,
+    "tests/test_desandbox_tool_verifiers.py": ADVERSARIAL_FIXTURE,
+    "tests/test_element_pick_bridge.py": ADVERSARIAL_FIXTURE,
+    "tests/test_element_pick_selector.py": ADVERSARIAL_FIXTURE,
+    "tests/test_env_parity_sees_the_real_browser_pool.py": ADVERSARIAL_FIXTURE,
+    "tests/test_fixture_recognizer_loop.py": ADVERSARIAL_FIXTURE,
+    "tests/test_fresh_install_gui_smoke.py": ADVERSARIAL_FIXTURE,
+    "tests/test_generated_artifact_workflow.py": ADVERSARIAL_FIXTURE,
+    "tests/test_guardcheck_fails_closed.py": ADVERSARIAL_FIXTURE,
+    "tests/test_route_index_in_sync.py": ADVERSARIAL_FIXTURE,
+    "tests/test_sandbox_home_stays_retired.py": ADVERSARIAL_FIXTURE,
+    "tests/test_toolchain_534.py": ADVERSARIAL_FIXTURE,
+    "tests/test_u27_security_cluster.py": UNSWEPT,
+    "tests/test_v3_66_1167_safety_authorities_are_single_source.py": ADVERSARIAL_FIXTURE,
+    "tests/test_v3_66_245_floor_signed_url_nondom.py": ADVERSARIAL_FIXTURE,
+    "tests/test_v3_66_252_dom_excerpt.py": ADVERSARIAL_FIXTURE,
+    "tests/test_v3_66_276_row_selector_robust.py": ADVERSARIAL_FIXTURE,
+    "tests/test_v3_66_527_numeric_integer_backstop.py": ADVERSARIAL_FIXTURE,
+    "tests/test_v3_66_653_dep_freshness.py": ADVERSARIAL_FIXTURE,
+    "tests/test_v3_66_799_audit_tool_selftests.py": ADVERSARIAL_FIXTURE,
+    "toolchain/bdenv.sh": UNSWEPT,
+    "toolchain/bin/bd": HISTORICAL_RECORD,
+    "toolchain/bin/bd-bandcheck": HISTORICAL_RECORD,
+    "toolchain/bin/bd-consumer-graph": HISTORICAL_RECORD,
+    "toolchain/bin/bd-corpus": HISTORICAL_RECORD,
+    "toolchain/bin/bd-cut": HISTORICAL_RECORD,
+    "toolchain/bin/bd-deep-capture": HISTORICAL_RECORD,
+    "toolchain/bin/bd-defect-scan": ADVERSARIAL_FIXTURE,
+    "toolchain/bin/bd-docstale": HISTORICAL_RECORD,
+    "toolchain/bin/bd-doctor": HISTORICAL_RECORD,
+    "toolchain/bin/bd-env-parity": HISTORICAL_RECORD,
+    "toolchain/bin/bd-factcheck": HISTORICAL_RECORD,
+    "toolchain/bin/bd-fixture-lint": ADVERSARIAL_FIXTURE,
+    "toolchain/bin/bd-footguns": HISTORICAL_RECORD,
+    "toolchain/bin/bd-fullsuite": HISTORICAL_RECORD,
+    "toolchain/bin/bd-golden": ADVERSARIAL_FIXTURE,
+    "toolchain/bin/bd-guard-declare": HISTORICAL_RECORD,
+    "toolchain/bin/bd-guardcheck": UNSWEPT,
+    "toolchain/bin/bd-kb-sync": HISTORICAL_RECORD,
+    "toolchain/bin/bd-lsp": HISTORICAL_RECORD,
+    "toolchain/bin/bd-mutation-test": HISTORICAL_RECORD,
+    "toolchain/bin/bd-opv": HISTORICAL_RECORD,
+    "toolchain/bin/bd-parband": HISTORICAL_RECORD,
+    "toolchain/bin/bd-parity-scan": HISTORICAL_RECORD,
+    "toolchain/bin/bd-path-scan": ADVERSARIAL_FIXTURE,
+    "toolchain/bin/bd-pk-mirror": HISTORICAL_RECORD,
+    "toolchain/bin/bd-precut": HISTORICAL_RECORD,
+    "toolchain/bin/bd-ready": HISTORICAL_RECORD,
+    "toolchain/bin/bd-reindex": UNSWEPT,
+    "toolchain/bin/bd-release-note": HISTORICAL_RECORD,
+    "toolchain/bin/bd-render-env": HISTORICAL_RECORD,
+    "toolchain/bin/bd-rev": HISTORICAL_RECORD,
+    "toolchain/bin/bd-rollback": UNSWEPT,
+    "toolchain/bin/bd-rollback-oracle": HISTORICAL_RECORD,
+    "toolchain/bin/bd-sbcap": UNSWEPT,
+    "toolchain/bin/bd-state": UNSWEPT,
+    "toolchain/bin/bd-status": UNSWEPT,
+    "toolchain/bin/bd-sweep": ADVERSARIAL_FIXTURE,
+    "toolchain/bin/bd-sym": HISTORICAL_RECORD,
+    "toolchain/bin/bd-tool-smoke": ADVERSARIAL_FIXTURE,
+    "toolchain/bin/bd-treecheck": HISTORICAL_RECORD,
+    "toolchain/bin/bd-venv": UNSWEPT,
+    "toolchain/bin/bd-worktree-check": UNSWEPT,
+    "toolchain/bin/bdtools_sec.py": UNSWEPT,
+    "toolchain/install_bdsuite.sh": UNSWEPT,
+    "tools/audit/witnesses/cap01_witnesses.py": HISTORICAL_RECORD,
+    "tools/audit/witnesses/run01_witnesses.py": UNSWEPT,
+    "tools/bd-scan.py": UNSWEPT,
+    "tools/bd_decomp_lib.py": UNSWEPT,
+    "tools/code_intelligence/oracle_adapters.py": UNSWEPT,
+    "tools/constraint_incidence.py": UNSWEPT,
+    "tools/consumer_agreement.py": UNSWEPT,
+    "tools/coverage_map.py": UNSWEPT,
+    "tools/decomp_lint.py": HISTORICAL_RECORD,
+    "tools/decomp_regen.py": UNSWEPT,
+    "tools/defect_patterns.py": UNSWEPT,
+    "tools/endpoint_reachability.py": UNSWEPT,
+    "tools/reachability_ledger.py": UNSWEPT,
+    "tools/read_coverage.py": UNSWEPT,
+    "tools/render_advanced_kb.py": UNSWEPT,
+    "tools/review_merge.py": UNSWEPT,
+    "tools/risk_score.py": UNSWEPT,
+    "tools/run_witnesses.py": UNSWEPT,
+    "tools/seed_review_state.py": UNSWEPT,
+    "tools/staleness.py": UNSWEPT,
+    "tools/verify_audit.py": UNSWEPT,
+    "tools/witness_drift.py": UNSWEPT,
+}
+
+UNSWEPT_PHASES: Mapping[str, str] = {
+    path: (
+        "fixture" if path == "tests/test_u27_security_cluster.py"
+        else "prose" if path in {
+            "conf/README.md",
+            "docs/UX_IMPROVEMENT_PLAN.md",
+            "project-knowledge/10_SANDBOX_SHELL_PREFLIGHT.md",
+            "project-knowledge/ADVANCED_PROJECT_KNOWLEDGE.md",
+            "project-knowledge/CODE_INTELLIGENCE_TOOLING.md",
+            "project-knowledge/KB_SYNC_WORKFLOW.md",
+            "project-knowledge/PRESTAGE_GUIDE.md",
+            "project-knowledge/README.md",
+            "project-knowledge/RELEASE_DISCIPLINE_TIERS.md",
+            "project-knowledge/RENDER_CAPTURE_AUDIT_GUIDE.md",
+            "project-knowledge/SANDBOX_CAPABILITY_LAYER.md",
+        }
+        else "live"
+    )
+    for path, reason in ALLOWLIST.items()
+    if reason == UNSWEPT
+}
+CLOSED_PHASES: AbstractSet[str] = frozenset()
 
 
 def _tracked_carriers() -> set[str]:
@@ -187,10 +226,36 @@ def _tracked_carriers() -> set[str]:
     return carriers
 
 
-def _verdict(carriers: set[str], allowlist: frozenset[str]) -> tuple[set[str], set[str]]:
+def _classification_errors(
+    allowlist: Mapping[str, str],
+    unswept_phases: Mapping[str, str],
+    closed_phases: AbstractSet[str],
+) -> list[str]:
+    errors: list[str] = []
+    for path, reason in sorted(allowlist.items()):
+        if reason not in VALID_REASONS:
+            errors.append(f"invalid reason for {path}: {reason}")
+        if reason == UNSWEPT and path not in unswept_phases:
+            errors.append(f"UNSWEPT entry has no phase: {path}")
+    for path, phase in sorted(unswept_phases.items()):
+        if path not in allowlist:
+            errors.append(f"phase names an unclassified carrier: {path}")
+        elif allowlist[path] != UNSWEPT:
+            errors.append(f"non-UNSWEPT entry has a phase: {path}")
+        if phase not in VALID_PHASES:
+            errors.append(f"invalid phase for {path}: {phase}")
+        elif phase in closed_phases:
+            errors.append(f"closed {phase} phase still has UNSWEPT entry: {path}")
+    return errors
+
+
+def _verdict(
+    carriers: set[str], allowlist: Mapping[str, str] | AbstractSet[str]
+) -> tuple[set[str], set[str]]:
     """(new carriers, stale allowlist entries). Pure, so the synthetic tests
     below can drive it with a fabricated population instead of the real tree."""
-    return (carriers - allowlist), (allowlist - carriers)
+    allowed = set(allowlist)
+    return (carriers - allowed), (allowed - carriers)
 
 
 def _require_population(carriers: set[str]) -> None:
@@ -210,6 +275,8 @@ def _require_population(carriers: set[str]) -> None:
 def test_no_new_sandbox_home_carriers():
     carriers = _tracked_carriers()
     _require_population(carriers)
+    errors = _classification_errors(ALLOWLIST, UNSWEPT_PHASES, CLOSED_PHASES)
+    assert not errors, errors
     new, stale = _verdict(carriers, ALLOWLIST)
     assert not new, (
         f"{len(new)} tracked file(s) carry the retired sandbox home path and "
@@ -239,6 +306,66 @@ def test_the_population_guard_refuses_an_empty_scan():
     with pytest.raises(AssertionError, match="BD-GATE-UNRUNNABLE"):
         _require_population(set())
     _require_population({"a.py"})  # and does not fire when the scan found work
+
+
+# This literal is deliberate: the preservation test is itself an adversarial
+# carrier and therefore must appear in the reason-annotated mapping above.
+PRESERVED_NEEDLE = "/home/claude"
+
+
+def test_every_carrier_has_a_closed_reason_and_unswept_phase():
+    assert isinstance(ALLOWLIST, dict), "carrier exemptions have no reasons"
+    assert set(ALLOWLIST) == _tracked_carriers()
+    assert set(ALLOWLIST.values()) <= {
+        "adversarial_fixture",
+        "historical_record",
+        "provenance_artifact",
+        "operator_prose",
+        "unswept",
+    }
+    errors = _classification_errors(ALLOWLIST, UNSWEPT_PHASES, CLOSED_PHASES)
+    assert not errors, errors
+
+
+def test_classification_rejects_an_invalid_reason():
+    errors = _classification_errors(
+        {"bad.py": "made_up"}, {}, frozenset()
+    )
+    assert errors == ["invalid reason for bad.py: made_up"]
+
+
+def test_classification_rejects_an_unphased_unswept_entry():
+    errors = _classification_errors(
+        {"left.py": "unswept"}, {}, frozenset()
+    )
+    assert errors == ["UNSWEPT entry has no phase: left.py"]
+
+
+def test_classification_rejects_unswept_work_after_its_phase_closes():
+    errors = _classification_errors(
+        {"left.py": "unswept"}, {"left.py": "live"}, frozenset({"live"})
+    )
+    assert errors == ["closed live phase still has UNSWEPT entry: left.py"]
+
+
+def test_intentional_adversarial_and_historical_literals_remain():
+    sentinels = {
+        "toolchain/bin/bd-defect-scan": "GHOST_DIR_DOES_NOT_EXIST",
+        "toolchain/bin/bd-fixture-lint": "GHOST_NO_SUCH_CORPUS",
+        "toolchain/bin/bd-golden": "GHOST_NO_TREE",
+        "toolchain/bin/bd-path-scan": "GHOST_DIR_DOES_NOT_EXIST",
+        "toolchain/bin/bd-sweep": "BD_SWEEP_GHOST_DIR_DOES_NOT_EXIST",
+    }
+    for relative, suffix in sentinels.items():
+        text = (REPO / relative).read_text(encoding="utf-8")
+        assert PRESERVED_NEEDLE + "/" + suffix in text, relative
+
+    for relative in ("SANDBOX.md", "project-knowledge/SANDBOX.md"):
+        text = (REPO / relative).read_text(encoding="utf-8")
+        historical, current = text.split("## 11.", 1)
+        assert "RETIRED ENVIRONMENT - HISTORICAL RECORD" in historical
+        assert historical.count(PRESERVED_NEEDLE) == 39, relative
+        assert PRESERVED_NEEDLE not in current, relative
 
 
 BD_GATE_SCOPE = "repo-wide"

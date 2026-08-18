@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1185 - classify retired sandbox-home carriers
+
+- Replace the flat retired-home allowlist with an exact reason mapping and
+  phase ownership for every unswept live, prose, and fixture carrier.
+- Fail on missing or invalid reasons, unowned unswept entries, and unswept
+  entries left after their phase closes while preserving both original
+  new-carrier and stale-entry ratchets.
+- Protect the five load-bearing ghost sentinels and both historical sandbox
+  records from blanket replacement with an explicit preservation control.
+
 ## v3.66.1184 - retire the zip-era release shell wrapper
 
 - Remove the uncalled `scripts/build_release.sh` path and its frozen v3.66.137
