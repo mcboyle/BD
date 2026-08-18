@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1184 - make test-root retention decidable
+
+- Publish an atomic per-run outcome marker and hold a kernel-released lock so
+  live, failed, abandoned, reclaimable, and unknown test roots remain
+  distinguishable even after `SIGKILL`.
+- Define the bounded 20-root/24-hour forensics policy, fail closed on unknown
+  state, and pin the marker/lock regression into CI's isolation shard.
+
 ## v3.66.1183 - close independent fleet backlog hygiene
 
 - Isolate stale shared-temp entries under private no-clobber names before

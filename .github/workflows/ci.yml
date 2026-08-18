@@ -328,6 +328,7 @@ jobs:
               tests/test_no_test_writes_the_repo_plugins_dir.py
               tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
               tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py
+              tests/test_v3_66_1184_a_run_root_records_its_own_outcome.py
               tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
           - name: tree-gates-1
             suites: >-
