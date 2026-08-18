@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3848,
+  "edge_count": 3854,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1884,6 +1884,7 @@
       "bulk_downloader/cloak.py"
     ],
     "bulk_downloader/selftest.py": [
+      "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/download_egress.py",
       "bulk_downloader/healthcheck.py",
       "bulk_downloader/plugins.py",
@@ -4471,6 +4472,13 @@
     "tests/test_v3_66_117_capture_intel.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_1180_capture_root_orphan_hygiene.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_selftest.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/selftest.py"
     ],
     "tests/test_v3_66_118_site_readiness.py": [
       "tools/cockpit_console.py",
