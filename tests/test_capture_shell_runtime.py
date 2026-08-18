@@ -49,8 +49,8 @@ def _build_probe(path: Path) -> None:
             "stops sandboxing and the probe writes to the real path")
         probe = probe.replace(old, new)
     probe += r'''
-printf 'PARALLEL_EXIT=%s\nSERIAL_EXIT=%s\nRESULTS_EXIT=%s\nSUITE_EXIT=%s\n' \
-  "$PARALLEL_EXIT" "$SERIAL_EXIT" "$RESULTS_EXIT" "$SUITE_EXIT" \
+printf 'PARALLEL_EXIT=%s\nSERIAL_EXIT=%s\nRESULTS_EXIT=%s\nSKIP_BASELINE_EXIT=%s\nSUITE_EXIT=%s\n' \
+  "$PARALLEL_EXIT" "$SERIAL_EXIT" "$RESULTS_EXIT" "$SKIP_BASELINE_EXIT" "$SUITE_EXIT" \
   > "${CAPTURE_PROBE_RESULT:?}"
 exit "$SUITE_EXIT"
 '''
@@ -84,6 +84,7 @@ def _run_probe(
     parallel_exit: int = 0,
     serial_exit: int = 0,
     results_exit: int = 0,
+    skip_baseline_exit: int = 0,
     frontend_ready: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, int], list[list[str]]]:
     fake_home = tmp_path / "BulkDownloader"
@@ -143,6 +144,9 @@ if args[:2] == ["-m", "pytest"]:
 if args[:1] == ["tools/pytest_capture_results.py"]:
     raise SystemExit(int(os.environ.get("FAKE_RESULTS_EXIT", "0")))
 
+if args[:1] == ["tools/check_skip_baseline.py"]:
+    raise SystemExit(int(os.environ.get("FAKE_SKIP_BASELINE_EXIT", "0")))
+
 raise SystemExit(0)
 '''
     _write_executable(fake_home / "venv" / "bin" / "python", fake_python)
@@ -177,6 +181,7 @@ exit 0
             "FAKE_CAPTURE_PARALLEL_EXIT": str(parallel_exit),
             "FAKE_CAPTURE_SERIAL_EXIT": str(serial_exit),
             "FAKE_RESULTS_EXIT": str(results_exit),
+            "FAKE_SKIP_BASELINE_EXIT": str(skip_baseline_exit),
             "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
         }
     )
@@ -232,6 +237,7 @@ def test_capture_runtime_parses_workers_and_routes_only_parallel(tmp_path) -> No
         "PARALLEL_EXIT": 0,
         "SERIAL_EXIT": 0,
         "RESULTS_EXIT": 0,
+        "SKIP_BASELINE_EXIT": 0,
         "SUITE_EXIT": 0,
     }
 
@@ -250,13 +256,14 @@ def test_capture_runtime_fails_before_pytest_when_spa_build_missing(
 
 
 @pytest.mark.parametrize(
-    ("parallel_exit", "serial_exit", "results_exit", "expected"),
+    ("parallel_exit", "serial_exit", "results_exit", "skip_baseline_exit", "expected"),
     [
-        pytest.param(5, 0, 0, 5, id="empty-parallel-lane"),
-        pytest.param(0, 5, 0, 5, id="empty-serial-lane"),
-        pytest.param(7, 0, 0, 7, id="parallel-lane-failure"),
-        pytest.param(0, 9, 0, 9, id="serial-lane-failure"),
-        pytest.param(0, 0, 11, 11, id="converter-failure-precedence"),
+        pytest.param(5, 0, 0, 12, 5, id="empty-parallel-lane"),
+        pytest.param(0, 5, 0, 12, 5, id="empty-serial-lane"),
+        pytest.param(7, 0, 0, 12, 7, id="parallel-lane-failure"),
+        pytest.param(0, 9, 0, 12, 9, id="serial-lane-failure"),
+        pytest.param(0, 0, 11, 12, 11, id="converter-failure-precedence"),
+        pytest.param(0, 0, 0, 12, 12, id="skip-reconciliation-reaches-verdict"),
     ],
 )
 def test_capture_runtime_propagates_lane_and_converter_exits(
@@ -264,6 +271,7 @@ def test_capture_runtime_propagates_lane_and_converter_exits(
     parallel_exit,
     serial_exit,
     results_exit,
+    skip_baseline_exit,
     expected,
 ) -> None:
     completed, exits, _ = _run_probe(
@@ -271,6 +279,7 @@ def test_capture_runtime_propagates_lane_and_converter_exits(
         parallel_exit=parallel_exit,
         serial_exit=serial_exit,
         results_exit=results_exit,
+        skip_baseline_exit=skip_baseline_exit,
     )
 
     assert completed.returncode == expected, completed.stdout + completed.stderr

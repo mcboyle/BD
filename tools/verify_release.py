@@ -280,8 +280,8 @@ def _print_tests(agg):
             print(f"    !! {r['file']}  failed={r['failed']} rc={r['rc']}")
     else:
         print("  no real regressions")
-    print("  (skip identity/reason drift: gate complete JUnit with "
-          "tools/check_skip_baseline.py --junit <path>)")
+    print("  (skip identity/reason drift: gate both complete capture JUnits with "
+          "tools/check_skip_baseline.py --junit <parallel> --junit <serial>)")
 
 
 def main(argv=None):
