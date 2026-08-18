@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1184 - retire the zip-era release shell wrapper
+
+- Remove the uncalled `scripts/build_release.sh` path and its frozen v3.66.137
+  and v3.66.148 zip workflow; `tools/build_release.py` remains the supported
+  release builder.
+- Add a repo-wide tombstone gate, schedule it with the related tree gates, and
+  synchronize the retired-home carrier ratchet with the deletion.
+- Correct current packaging documentation and retire the characterization that
+  preserved the obsolete shell workflow.
+
 ## v3.66.1183 - close independent fleet backlog hygiene
 
 - Isolate stale shared-temp entries under private no-clobber names before

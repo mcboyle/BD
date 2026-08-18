@@ -72,7 +72,6 @@ ALLOWLIST: frozenset[str] = frozenset({
     "project-knowledge/spa_tabs.py",
     "project-knowledge/subtabs_cap.py",
     "project-knowledge/subtabs_click.py",
-    "scripts/build_release.sh",
     "scripts/classify_toolchain.py",
     "scripts/classify_toolchain_verdict.py",
     "scripts/refine_degraded.py",

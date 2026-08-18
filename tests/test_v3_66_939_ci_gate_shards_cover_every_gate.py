@@ -294,6 +294,7 @@ _DECLARED = {
     "tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py",
     "tests/test_codex_handoff_stays_retired.py",
     "tests/test_sandbox_home_stays_retired.py",
+    "tests/test_v3_66_1184_build_release_sh_stays_retired.py",
     "tests/test_deploy_manifest_stays_retired.py",
     "tests/test_gitignore_rules_actually_match.py",
     "tests/test_task_tracker_stays_retired.py",

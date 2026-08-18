@@ -168,7 +168,7 @@ bd-precut (predicts the cut) · bd-cut (**`--skip-fe`** backend-only) · bd-band
 bd-bump (`bd-bump 3.66.N --title "…"` → **`--check` default**, `--write` applies).
 
 ### Close / package
-`scripts/build_release.sh` builds the release tree; `tools/verify_release.py`
+`tools/build_release.py` builds the release tree; `tools/verify_release.py`
 validates it; bd-kb-sync stages static-PK updates; bd-repin-dist is used only for
 frontend-rebuilding cuts. Exact-head evidence, not a session ZIP, authorizes merge.
 
@@ -479,7 +479,7 @@ bd-repin-dist                  # FE-changing cuts only
 git diff --name-only <base>...HEAD ; bd-band-derive --files <changed> ; bd-bandcheck <list> ; bd-band <files>
 
 # close
-scripts/build_release.sh ; venv/bin/python tools/verify_release.py --help
+venv/bin/python tools/build_release.py --help ; venv/bin/python tools/verify_release.py --help
 
 # situational
 bd-audit ; bd-audit promote <name>
