@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1185 - bound abandoned test roots safely
+
+- Make `bd-gc` refuse held-lock roots and unknown or contradictory markers,
+  preserve the newest 20 failed or abandoned runs for at least 24 hours, and
+  reclaim clean refused roots only after the same age floor.
+- Exclude the retained `/tmp/bd-runctx` corpus, retain dry-run defaults and
+  shared object-bound deletion, and sweep on entry to capture and wedge hunts.
+- Move legacy markerless roots and the unrelated fleet-only residues to one
+  explicit successor instead of falsely claiming that tracked code removed
+  existing host state.
+
 ## v3.66.1184 - make test-root retention decidable
 
 - Publish an atomic per-run outcome marker and hold a kernel-released lock so

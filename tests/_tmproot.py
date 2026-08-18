@@ -153,6 +153,29 @@ def _release_marker_lock(ident) -> None:
             os.close(fd)
 
 
+def _ensure_named_lock(fd: int, ident) -> None:
+    """Leave a lock entry inside a root that survived partial removal."""
+    if ident not in _RUN_RECORDS:
+        return
+    lock_fd = None
+    try:
+        try:
+            lock_fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=fd)
+        except FileNotFoundError:
+            lock_fd = os.open(
+                _LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL,
+                0o600, dir_fd=fd)
+        lock_st = os.fstat(lock_fd)
+        if not stat.S_ISREG(lock_st.st_mode):
+            raise OSError(errno.EINVAL, "run-root lock is not a regular file")
+        if ident in _RUN_RECORDS:
+            _RUN_RECORDS[ident]["lock_dev"] = lock_st.st_dev
+            _RUN_RECORDS[ident]["lock_ino"] = lock_st.st_ino
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+
+
 def _release_root_fd(ident):
     """Pop first, then close only while the descriptor still identifies root.
 
@@ -232,6 +255,9 @@ def install() -> str | None:
         "root_dev": _st.st_dev,
         "root_ino": _st.st_ino,
     }
+    _lock_st = os.fstat(marker_lock_fd)
+    _RUN_RECORDS[_ROOT_IDENT].update(
+        lock_dev=_lock_st.st_dev, lock_ino=_lock_st.st_ino)
     _publish_run_record(_fd, "RUNNING")
     _LAST_FAILURE = None
     tempfile.tempdir = _ROOT
@@ -989,6 +1015,7 @@ def finish(exitstatus: int) -> bool:
             # the contents.  If the root itself survives, recreate the marker
             # through the held object descriptor so the refusal is still
             # decidable after the process exits (even after rename-away).
+            _ensure_named_lock(fd, ident)
             _publish_run_record(fd, "RECLAIMABLE", exitstatus=0,
                                 reason=_LAST_REASON or R_UNPROVEN)
     except BaseException as error:

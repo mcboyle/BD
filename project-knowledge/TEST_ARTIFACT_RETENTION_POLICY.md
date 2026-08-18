@@ -23,6 +23,9 @@ identity classifies the object as `UNKNOWN` and must not remove it.
 or wedged run may be the artifact under investigation. A shorter bound would
 recreate the loss this policy prevents.
 
+The newest-20 bound is one combined protected population across
+`KEPT_FOR_FORENSICS` and `ABANDONED`, so alternating outcomes cannot retain 40.
+
 ## Enforcement
 
 Bounds are enforced on the way into a test or capture workflow, including by

@@ -119,6 +119,7 @@ BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"
 # shellcheck source=scripts/lib/capture_run_dir.sh
 . "$(dirname "$0")/scripts/lib/capture_run_dir.sh"
 CAPTURE_KEEP="${CAPTURE_KEEP:-5}"
+bd_test_root_gc "$(dirname "$0")" || true
 bd_capture_prune "$CAPTURE_KEEP" || true
 CAPTURE_RUN_ID="$(bd_capture_run_id "$(dirname "$0")")"
 OUT="/tmp/bd_capture-${CAPTURE_RUN_ID}"
