@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1642,
+    "edge_count": 1643,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -5027,6 +5027,9 @@
       "tools/runner_struct.py": [
         "tools/runner_extract_unit.py"
       ],
+      "tools/safe_temp_remove.py": [
+        "tools/reap_orphan_tempdirs.py"
+      ],
       "tools/template_analytics.py": [
         "tools/template_statistics.py"
       ],
@@ -7628,6 +7631,9 @@
       "tools/queue_intelligence.py": [
         "bulk_downloader/db.py"
       ],
+      "tools/reap_orphan_tempdirs.py": [
+        "tools/safe_temp_remove.py"
+      ],
       "tools/recognizer_scorecard.py": [
         "tools/player_families.py",
         "tools/player_recognition.py"
@@ -7822,7 +7828,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 221,
+    "total": 224,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
@@ -7923,6 +7929,7 @@
       "tools/plugin_test.py",
       "tools/promote_template.py",
       "tools/queue_intelligence.py",
+      "tools/reap_orphan_tempdirs.py",
       "tools/recognizer_scorecard.py",
       "tools/redaction_dial_report.py",
       "tools/release_diff_summary.py",

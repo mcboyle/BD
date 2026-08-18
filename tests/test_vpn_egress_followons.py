@@ -42,12 +42,17 @@ _MULTI_CONN_PY = _REPO_ROOT / "bulk_downloader" / "multi_conn.py"
 # ---- helpers ---------------------------------------------------------------
 
 def _client_constructions(src: str, needle: str = "httpx.Client("):
-    """Yield the ~200-char window starting at each httpx.Client( construction."""
+    """Return exact AST call bodies; fixed character windows drift on edits."""
+    import ast
+    tree = ast.parse(src)
     out = []
-    i = src.find(needle)
-    while i >= 0:
-        out.append(src[i:i + 220])
-        i = src.find(needle, i + 1)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (isinstance(func, ast.Attribute) and func.attr == "Client"
+                and isinstance(func.value, ast.Name) and func.value.id == "httpx"):
+            out.append(ast.get_source_segment(src, node) or ast.unparse(node))
     return out
 
 

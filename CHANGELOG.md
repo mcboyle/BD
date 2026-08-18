@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1183 - close independent fleet backlog hygiene
+
+- Isolate stale shared-temp entries under private no-clobber names before
+  verified removal, report every failure, and cover the measured `bdcut_*`
+  family in `bd-gc`.
+- Hash the current contents of all 114 fixed source windows so a shift cannot
+  hide behind an unchanged window count.
+- Generate `INV_TAGS.md` solely from current tracked source; it is no longer a
+  manually maintained historical authority.
+- Fail closed on empty generated-artifact denominators and on every
+  mid-destroy janitor error; keep both generators in the canonical regeneration
+  chain and the destructive-helper regression in CI.
+- Measure the serial and sanctioned `-n 24 --dist loadfile` full-suite
+  denominators on one clean checkout and record their materially different
+  outcome identities.
+
 ## v3.66.1182 - make authority documents locally available
 
 - Mirror the four reviewed fleet authority artifacts at byte-pinned hashes and

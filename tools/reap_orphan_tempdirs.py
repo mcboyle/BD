@@ -16,10 +16,14 @@ Dry-run by default; pass --apply to actually delete.
 """
 import argparse
 import os
-import shutil
 import sys
 import tempfile
 import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tools.safe_temp_remove import rename_verify_destroy
 
 # Known BD runtime temp prefixes (grep of bulk_downloader/*.py mkdtemp/
 # NamedTemporaryFile prefix=). Conservative allow-list -- nothing else is touched.
@@ -51,21 +55,18 @@ def find_orphans(root=None, max_age_h=24.0, prefixes=_TEMP_PREFIXES):
 
 
 def reap(paths, apply=False):
-    """Delete (when apply) each path; return the list acted on. Best-effort."""
-    done = []
+    """Delete (when apply) each path; return (done, failed), never swallow."""
+    done, failed = [], []
     for p in paths:
         if not apply:
             done.append(p)
             continue
-        try:
-            if os.path.isdir(p) and not os.path.islink(p):
-                shutil.rmtree(p, ignore_errors=True)
-            else:
-                os.remove(p)
+        removed, reason = rename_verify_destroy(p)
+        if removed:
             done.append(p)
-        except OSError:
-            pass
-    return done
+        else:
+            failed.append((p, reason or "unverified removal failure"))
+    return done, failed
 
 
 def main(argv=None):
@@ -80,13 +81,15 @@ def main(argv=None):
     a = ap.parse_args(argv)
     root = a.root or tempfile.gettempdir()
     orphans = find_orphans(root, a.max_age_hours)
-    done = reap(orphans, apply=a.apply)
+    done, failed = reap(orphans, apply=a.apply)
     verb = "reaped" if a.apply else "would reap"
     print(f"{verb} {len(done)} stale BD temp entry(ies) "
           f"(>{a.max_age_hours}h) under {root}")
     for p in done:
         print("  ", os.path.basename(p))
-    return 0
+    for p, reason in failed:
+        print("  FAILED", os.path.basename(p), reason, file=sys.stderr)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

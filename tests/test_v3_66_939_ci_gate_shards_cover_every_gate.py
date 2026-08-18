@@ -104,6 +104,9 @@ _DECLARED = {
     "tests/test_cockpit_navigation_contract.py",
     "tests/test_pk_mirrors_stay_retired.py",
     "tests/test_authority_documents.py",
+    "tests/test_v3_66_1183_inv_tags_generated.py",
+    "tests/test_v3_66_1183_safe_temp_janitors.py",
+    "tests/test_v3_66_1183_source_window_content.py",
     "tests/test_toolchain_534.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly

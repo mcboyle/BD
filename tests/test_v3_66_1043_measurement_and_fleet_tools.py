@@ -80,7 +80,8 @@ def test_only_bd_gc_and_bd_jobs_hold_a_destructive_verb(tool):
     do is remove a tree, signal a process, or deploy.
     """
     code = _code_only((_BIN / tool).read_text(encoding="utf-8"))
-    for forbidden in ("rmtree", "os.kill", "systemctl restart", "deploy.sh"):
+    for forbidden in ("rmtree", "rename_verify_destroy", "safe_temp_remove",
+                      "os.kill", "systemctl restart", "deploy.sh"):
         assert forbidden not in code, (
             "%s can %r. Only bd-gc and bd-jobs hold destructive verbs; the "
             "rest must be safe to run blind." % (tool, forbidden))
@@ -92,7 +93,8 @@ def test_the_two_pure_reporters_touch_no_file_at_all(tool):
     delete. Separated from the case above so the weaker promise the other two
     make cannot be mistaken for this one."""
     code = _code_only((_BIN / tool).read_text(encoding="utf-8"))
-    for forbidden in ("unlink", "rmtree", "shutil.move"):
+    for forbidden in ("unlink", "rmtree", "shutil.move",
+                      "rename_verify_destroy", "safe_temp_remove"):
         assert forbidden not in code, "%s can %r" % (tool, forbidden)
 
 

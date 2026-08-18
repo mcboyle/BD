@@ -12,8 +12,7 @@ Maintenance:
   retired, in which case the same commit also updates DANGER_MAP.md,
   INV_TAGS.md, and (if relevant) tests/test_invariant_*_*.py.
 
-See INV_TAGS.md at the repo root for the current locality index.
-See DANGER_MAP.md for invariant rationale.
+See the generated INV_TAGS.md view and root INVARIANTS.json.
 """
 from __future__ import annotations
 
@@ -77,7 +76,7 @@ def test_inv_tag_count_is_at_or_above_floor():
             f"{INV_TAG_FLOOR} ({missing} tag(s) missing). "
             f"Current tags:\n{lines_repr}\n\n"
             f"If a tag was legitimately removed (invariant retired), "
-            f"update DANGER_MAP.md, INV_TAGS.md, and INV_TAG_FLOOR in "
+            f"regenerate INV_TAGS.md and update INV_TAG_FLOOR in "
             f"this file in the SAME commit."
         )
 

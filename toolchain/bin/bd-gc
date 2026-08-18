@@ -28,15 +28,18 @@ THIS TOOL IS THE DANGEROUS ONE IN THE SET, so read the refusals.
 import argparse
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 import tempfile
 import time
 
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from tools.safe_temp_remove import rename_verify_destroy
+
 # Structural, not configurable. A cleanup tool with a --path flag is a wrapper
 # around rm -rf with better manners.
-PREFIXES = ("/tmp/bd-", "/tmp/pytest-of-")
+PREFIXES = ("/tmp/bd-", "/tmp/bdcut_", "/tmp/pytest-of-")
 NEVER = ("/tmp/bd-jobs",)
 MIN_AGE_MIN = 10
 
@@ -93,14 +96,8 @@ def size_of(path):
 
 
 def remove(path):
-    try:
-        if os.path.islink(path) or os.path.isfile(path):
-            os.unlink(path)
-        else:
-            shutil.rmtree(path)
-        return None
-    except OSError as exc:
-        return str(exc)
+    removed, reason = rename_verify_destroy(path)
+    return None if removed else reason
 
 
 def run(args):

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3864,
+  "edge_count": 3866,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4492,6 +4492,9 @@
     "tests/test_v3_66_1181_capture_reconciliation.py": [
       "tools/pytest_capture_results.py"
     ],
+    "tests/test_v3_66_1183_safe_temp_janitors.py": [
+      "tools/safe_temp_remove.py"
+    ],
     "tests/test_v3_66_118_site_readiness.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
@@ -6839,6 +6842,9 @@
     ],
     "tools/queue_intelligence.py": [
       "bulk_downloader/db.py"
+    ],
+    "tools/reap_orphan_tempdirs.py": [
+      "tools/safe_temp_remove.py"
     ],
     "tools/recognizer_scorecard.py": [
       "tools/player_families.py",

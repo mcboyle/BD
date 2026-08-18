@@ -372,6 +372,9 @@ jobs:
               tests/test_source_windows_do_not_shift.py
               tests/test_pk_mirrors_stay_retired.py
               tests/test_authority_documents.py
+              tests/test_v3_66_1183_inv_tags_generated.py
+              tests/test_v3_66_1183_safe_temp_janitors.py
+              tests/test_v3_66_1183_source_window_content.py
               tests/test_pin_index_in_sync.py
               tests/test_all_sources_parse.py
               tests/test_versync_gate.py

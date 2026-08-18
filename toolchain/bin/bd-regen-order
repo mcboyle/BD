@@ -20,8 +20,10 @@ THE ORDER, and why each edge exists:
   3. build_endpoint_catalog -- url_map -> catalog; independent of (1)/(2) but cheap here.
   4. dependency_graph       -- AST walk of the package; must follow any file add/delete.
   5. build_function_index   -- line-number-sensitive; must follow any edit that shifts lines.
-  6. build_pin_index        -- follows the version bump and the docs above.
-  7. check_route_counts     -- VERIFIES (2)/(3) against the test pins. A gate, not a generator.
+  6. build_inv_tags         -- current-source invariant view; follows source edits.
+  7. source_window_hashes   -- hashes resolved fixed-window content after source edits.
+  8. build_pin_index        -- follows the version bump and every generated test artifact.
+  9. check_route_counts     -- VERIFIES (2)/(3) against the test pins. A gate, not a generator.
 
 WHAT THIS TOOL DELIBERATELY WILL NOT DO
 ---------------------------------------
@@ -89,8 +91,12 @@ CHAIN = [
      "AST walk; must follow any file add/delete"),
     ("FUNCTION_INDEX", ["tools/build_function_index.py"],
      "line-number sensitive; must follow any edit that shifts lines"),
+    ("INV_TAGS", ["tools/build_inv_tags.py"],
+     "current-source invariant view; follows every source edit"),
+    ("SOURCE_WINDOW_HASHES", ["tools/build_source_window_hashes.py"],
+     "resolved-window content hashes; follows every source edit"),
     ("PIN_INDEX", ["tools/build_pin_index.py"],
-     "follows the version bump and the docs above"),
+     "follows the version bump and every generated test artifact above"),
     ("STATIC_KB", ["toolchain/bin/bd-kb-sync", "seed", "project-knowledge"],
      "LAST: hashes project-knowledge/, so nothing that could write there may "
      "follow it. Added @947 (register item 35) -- @944 gated this manifest's "
