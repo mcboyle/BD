@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tools.pytest_capture_results import _read_version, convert_junit
 
 
@@ -58,7 +60,7 @@ def test_convert_junit_writes_capture_schema_and_summary(tmp_path) -> None:
     )
 
 
-def test_convert_junit_preserves_collection_errors(tmp_path) -> None:
+def test_convert_junit_preserves_collection_errors_with_a_stable_fallback_identity(tmp_path) -> None:
     junit = tmp_path / "pytest.xml"
     json_path = tmp_path / "results.json"
     summary_path = tmp_path / "SUMMARY.txt"
@@ -78,6 +80,7 @@ def test_convert_junit_preserves_collection_errors(tmp_path) -> None:
     assert payload["failed"] == 0
     assert payload["errors"] == 1
     assert payload["ok"] is False
+    assert payload["tests"][0]["identity"] == "<collection>::tests/test_broken.py"
     assert payload["tests"][0]["status"] == "error"
     assert "ImportError" in payload["tests"][0]["error"]
 

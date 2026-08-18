@@ -66,7 +66,7 @@ def test_junit_reader_returns_exact_skip_identities_and_reasons(tmp_path):
      "zero"),
     ("<testsuites><testsuite tests='2' failures='0' errors='0' skipped='0'>"
      "<testcase classname='tests.x' name='test_one'/></testsuite></testsuites>",
-     "testcase"),
+     "summary disagrees"),
     ("<testsuites><testsuite tests='1' failures='0' errors='0' skipped='1'>"
      "<testcase classname='tests.x' name='test_one'><skipped/></testcase>"
      "</testsuite></testsuites>", "reason"),
@@ -78,7 +78,7 @@ def test_junit_reader_returns_exact_skip_identities_and_reasons(tmp_path):
      "</testsuite></testsuites>", "error"),
     ("<testsuites><testsuite tests='1' failures='0' errors='0' skipped='0'>"
      "<testcase classname='tests.x' name='test_one'><skipped message='parked'/>"
-     "</testcase></testsuite></testsuites>", "skip summary"),
+     "</testcase></testsuite></testsuites>", "summary disagrees"),
 ])
 def test_junit_reader_fails_closed_on_incomplete_or_vacuous_evidence(
         tmp_path, xml, message):
@@ -116,13 +116,19 @@ message="parked by operator">detail</skipped></testcase></testsuite></testsuites
             "reason": "parked by operator",
         }],
     }), encoding="utf-8")
+    other = tmp_path / "other.xml"
+    other.write_text(
+        "<testsuites><testsuite tests='1' failures='0' errors='0' skipped='0'>"
+        "<testcase classname='tests.beta' name='test_runs'/></testsuite></testsuites>",
+        encoding="utf-8")
     monkeypatch.setattr(sys, "argv", [
         "check_skip_baseline.py", "--junit", str(junit),
+        "--junit", str(other),
         "--baseline", str(baseline),
     ])
 
     assert _TOOL.main() == 0
-    assert "1 exact skip identity" in capsys.readouterr().out
+    assert "1 baseline identity executed" in capsys.readouterr().out
 
 
 def test_main_refuses_missing_summary_and_zero_collection(
@@ -134,35 +140,18 @@ def test_main_refuses_missing_summary_and_zero_collection(
                 "<testsuites><testsuite tests='0' failures='0' errors='0' "
                 "skipped='0'/></testsuites>"):
         junit = _junit(tmp_path, xml)
+        other = tmp_path / "other.xml"
+        other.write_text(
+            "<testsuites><testsuite tests='1' failures='0' errors='0' skipped='0'>"
+            "<testcase classname='tests.beta' name='test_runs'/></testsuite></testsuites>",
+            encoding="utf-8")
         monkeypatch.setattr(sys, "argv", [
             "check_skip_baseline.py", "--junit", str(junit),
+            "--junit", str(other),
             "--baseline", str(baseline),
         ])
         assert _TOOL.main() == 2
     assert "REFUSED" in capsys.readouterr().err
-
-
-def test_update_writes_observed_identities_and_reasons_atomically(
-        tmp_path, monkeypatch):
-    junit = _junit(tmp_path, '''<testsuites><testsuite tests="1" failures="0"
-errors="0" skipped="1"><testcase classname="tests.alpha" name="test_parked">
-<skipped message="parked by operator">detail</skipped></testcase>
-</testsuite></testsuites>''')
-    baseline = tmp_path / "SKIP_BASELINE.json"
-    monkeypatch.setattr(sys, "argv", [
-        "check_skip_baseline.py", "--junit", str(junit),
-        "--baseline", str(baseline), "--update",
-    ])
-
-    assert _TOOL.main() == 0
-    payload = json.loads(baseline.read_text(encoding="utf-8"))
-    assert payload == {
-        "schema": "bd-skip-baseline/1",
-        "skips": [{
-            "identity": "tests.alpha::test_parked",
-            "reason": "parked by operator",
-        }],
-    }
 
 
 def test_baseline_rejects_duplicate_json_keys(tmp_path):
@@ -208,31 +197,36 @@ def test_runtime_report_refuses_invalid_skip_authority(tmp_path, contents, match
         report._skip_baseline(str(tmp_path))
 
 
-def test_skip_baseline_update_turns_write_failure_into_refusal(
+def test_skip_baseline_update_is_disabled_and_cannot_shrink_authority(
         tmp_path, monkeypatch, capsys):
     junit = _junit(tmp_path, """<testsuites><testsuite tests='1'
-      failures='0' errors='0' skipped='1'><testcase classname='tests.alpha'
-      name='test_parked'><skipped message='parked'/></testcase>
-      </testsuite></testsuites>""")
-    baseline = tmp_path / "blocked" / "SKIP_BASELINE.json"
-
-    def denied(*_args, **_kwargs):
-        raise PermissionError("denied")
-
-    monkeypatch.setattr(_TOOL.Path, "mkdir", denied)
+      failures='0' errors='0' skipped='0'><testcase classname='tests.alpha'
+      name='test_runs'/></testsuite></testsuites>""")
+    other = tmp_path / "other.xml"
+    other.write_text("""<testsuites><testsuite tests='1'
+      failures='0' errors='0' skipped='0'><testcase classname='tests.beta'
+      name='test_runs'/></testsuite></testsuites>""", encoding="utf-8")
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    baseline.write_text(json.dumps({
+        "schema": "bd-skip-baseline/1",
+        "skips": [{"identity": "tests.alpha::test_parked", "reason": "parked"}],
+    }), encoding="utf-8")
     monkeypatch.setattr(sys, "argv", [
         "check_skip_baseline.py", "--junit", str(junit),
-        "--baseline", str(baseline), "--update",
+        "--junit", str(other), "--baseline", str(baseline), "--update",
     ])
     assert _TOOL.main() == 2
-    assert "REFUSED" in capsys.readouterr().err
+    assert "--update is disabled" in capsys.readouterr().err
+    assert _TOOL._read_identity_baseline(baseline) == {
+        "tests.alpha::test_parked": "parked",
+    }
 
 
 def test_junit_reader_reconciles_each_result_state(tmp_path):
     mismatch = _junit(tmp_path, """<testsuites><testsuite tests='1'
       failures='1' errors='0' skipped='0'><testcase classname='tests.alpha'
       name='test_failed'/></testsuite></testsuites>""")
-    with pytest.raises(_TOOL.EvidenceError, match="failure summary disagrees"):
+    with pytest.raises(_TOOL.EvidenceError, match="summary disagrees"):
         _TOOL._read_junit(mismatch)
 
     multiple = _junit(tmp_path, """<testsuites><testsuite tests='1'

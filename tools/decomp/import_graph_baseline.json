@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3862,
+  "edge_count": 3864,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4489,6 +4489,9 @@
       "bulk_downloader/ytdlp_extractor.py",
       "bulk_downloader/ytdlp_updater.py"
     ],
+    "tests/test_v3_66_1181_capture_reconciliation.py": [
+      "tools/pytest_capture_results.py"
+    ],
     "tests/test_v3_66_118_site_readiness.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
@@ -6591,6 +6594,9 @@
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
       "bulk_downloader/library_final.py"
+    ],
+    "tools/check_skip_baseline.py": [
+      "tools/pytest_capture_results.py"
     ],
     "tools/check_version_consistency.py": [
       "bulk_downloader/__init__.py"

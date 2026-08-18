@@ -689,12 +689,19 @@ venv/bin/python tools/pytest_capture_results.py \
    --summary "$OUT/02_SUMMARY.txt" \
    >> "$OUT/02_suite_run.log" 2>&1
 RESULTS_EXIT=$?
+venv/bin/python tools/check_skip_baseline.py \
+   --junit "$OUT/02_pytest_parallel.xml" \
+   --junit "$OUT/02_pytest_serial.xml" \
+   >> "$OUT/02_suite_run.log" 2>&1
+SKIP_BASELINE_EXIT=$?
 if [ "$RESULTS_EXIT" -ne 0 ]; then
   SUITE_EXIT=$RESULTS_EXIT
 elif [ "$PARALLEL_EXIT" -ne 0 ]; then
   SUITE_EXIT=$PARALLEL_EXIT
-else
+elif [ "$SERIAL_EXIT" -ne 0 ]; then
   SUITE_EXIT=$SERIAL_EXIT
+else
+  SUITE_EXIT=$SKIP_BASELINE_EXIT
 fi
 echo "  --- tail of suite run ---"
 tail -25 "$OUT/02_suite_run.log"
