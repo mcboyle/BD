@@ -962,7 +962,7 @@ def sweep_test_roots(addr: str) -> subprocess.CompletedProcess:
         addr,
         'cd "$HOME/BulkDownloader" && '
         'venv/bin/python toolchain/bin/bd-gc --apply --older-than 1440 '
-        '--only bd-testrun',
+        '--only classified',
         timeout=300,
     )
 

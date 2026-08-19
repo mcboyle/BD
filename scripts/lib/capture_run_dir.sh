@@ -45,7 +45,7 @@ bd_capture_run_id() {
 bd_test_root_gc() {
   local repo="${1:?bd_test_root_gc needs the repository root}"
   "$repo/venv/bin/python" "$repo/toolchain/bin/bd-gc" \
-    --apply --older-than 1440 --only bd-testrun
+    --apply --older-than 1440 --only classified
 }
 
 # bd_capture_prune <keep> [glob]

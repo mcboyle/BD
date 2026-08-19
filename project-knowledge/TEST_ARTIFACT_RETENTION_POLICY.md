@@ -41,10 +41,19 @@ the harness that can kill one. A session-finish hook may perform immediate
 cleanup, but it is not the retention owner because `SIGKILL` prevents it from
 running.
 
-Automatic capture and wedge-hunt invocations are restricted to the classified
-`bd-testrun-*` family. Generic `bdcut_*`, `pytest-of-*`, and other mtime-only
-families remain operator-invoked only; a long live operation cannot be deleted
-merely because its directory mtime is old.
+Automatic capture and wedge-hunt invocations are restricted to two lock-
+classified families: `bd-testrun-*` and `bd_capture_vault-*`. Generic
+`bdcut_*`, `pytest-of-*`, and other mtime-only families remain operator-invoked
+only; a long live operation cannot be deleted merely because its directory
+mtime is old.
+
+Capture vaults can contain the synthetic capture credential and are therefore
+an explicit secrets-bearing retention population, not an accidental test-root
+alias. A LIVE vault is never eligible. An unlocked vault is ABANDONED and keeps
+the same 24-hour/newest-20 bound required by row 165, after which automatic
+capture/wedge entry cleanup may remove it object-bound. Test roots and capture
+vaults have independent newest-20 budgets; activity in one family never spends
+the other's forensic floor.
 
 Dry-run is the default for an operator-invoked cleanup tool. Destruction is
 object-bound: the implementation must acquire and verify the object before it

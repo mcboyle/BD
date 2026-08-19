@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1188 - bind every capture to the singleton lifetime
+
+- Claim the singleton lock for vault and non-vault captures alike, retain it
+  through every service/port-dependent stage, and release it only from final
+  EXIT cleanup. Extracted shell tests use scratch locks and prove they never
+  touch the real `/tmp` lock.
+- Automatically classify both test roots and secrets-bearing abandoned vaults
+  while still excluding generic mtime-only families. Each classified family
+  receives an independent 24-hour/newest-20 budget.
+- Remove an unheld lock name after degraded marker setup and exercise the real
+  bash-to-`bd-gc` inherited-descriptor teardown boundary.
+
 ## v3.66.1187 - close retention review fault paths
 
 - Rank the newest-20 forensics floor only over old roots that are actually at

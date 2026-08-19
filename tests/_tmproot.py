@@ -298,6 +298,13 @@ def install() -> str | None:
         elif marker_lock_fd is not None:
             os.close(marker_lock_fd)
             marker_lock_fd = None
+        try:
+            os.unlink(_LOCK_NAME, dir_fd=_fd)
+        except FileNotFoundError:
+            pass
+        except OSError as cleanup_exc:
+            _retention_degraded("unheld lock-name cleanup failed (%s: %s)" %
+                                (type(cleanup_exc).__name__, cleanup_exc))
         _retention_degraded("initial publish failed (%s: %s)" %
                             (type(exc).__name__, exc))
     _LAST_FAILURE = None

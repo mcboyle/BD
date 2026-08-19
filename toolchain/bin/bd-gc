@@ -258,6 +258,10 @@ def scan(now, older_than_s, root="/tmp", only_family=None):  # noqa: D401
             if (only_family == "bd-testrun" and
                     not path.name.startswith("bd-testrun-")):
                 continue
+            if (only_family == "classified" and
+                    not (path.name.startswith("bd-testrun-") or
+                         path.name.startswith("bd_capture_vault-"))):
+                continue
             ok, why = is_candidate(path, now, older_than_s)
             (eligible if ok else skipped).append((str(path), why))
     protected = [
@@ -270,8 +274,18 @@ def scan(now, older_than_s, root="/tmp", only_family=None):  # noqa: D401
         except OSError:
             return float("-inf")
 
-    protected.sort(key=observed_mtime, reverse=True)
-    keep = {path for path, _ in protected[:FORENSICS_KEEP]}
+    # Test diagnostics and secrets-bearing capture vaults are distinct
+    # retention populations.  Each gets the documented newest-N floor; one
+    # busy family cannot silently consume every slot belonging to the other.
+    protected_groups = {"test-root": [], "capture-vault": []}
+    for item in protected:
+        family = ("capture-vault" if os.path.basename(item[0]).startswith(
+                  "bd_capture_vault-") else "test-root")
+        protected_groups[family].append(item)
+    keep = set()
+    for group in protected_groups.values():
+        group.sort(key=observed_mtime, reverse=True)
+        keep.update(path for path, _ in group[:FORENSICS_KEEP])
     if keep:
         retained, remaining = [], []
         for path, why in eligible:
@@ -454,7 +468,7 @@ def main(argv=None):
                    help="du each candidate (slow on thousands of paths)")
     p.add_argument("--show", type=int, default=20)
     p.add_argument("--verbose", action="store_true")
-    p.add_argument("--only", choices=("bd-testrun",),
+    p.add_argument("--only", choices=("bd-testrun", "classified"),
                    help="scope automatic cleanup to a classified family")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("--finish-capture-vault")

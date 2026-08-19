@@ -109,21 +109,66 @@ def test_marker_setup_resource_failure_degrades_observably_and_still_cleans(
 def test_automatic_sweeps_are_scoped_to_the_classified_test_root_family():
     capture_lib = (REPO / "scripts/lib/capture_run_dir.sh").read_text()
     hunt = HUNT_PATH.read_text()
-    assert "--only bd-testrun" in capture_lib
-    assert "--only bd-testrun" in hunt
+    assert "--only classified" in capture_lib
+    assert "--only classified" in hunt
 
 
-def test_scan_only_test_roots_excludes_mtime_only_families(tmp_path, monkeypatch):
+def test_automatic_scope_includes_vaults_but_excludes_mtime_only_families(
+        tmp_path, monkeypatch):
     gc = _load("bd_gc_1187_scope")
     monkeypatch.setattr(gc, "PREFIXES", (str(tmp_path) + "/",))
     root = _marked(tmp_path / "bd-testrun-old", "RECLAIMABLE", 30)
     generic = tmp_path / "bdcut_live"
     generic.mkdir()
     os.utime(generic, (1, 1))
+    vault = tmp_path / "bd_capture_vault-old"
+    vault.mkdir(); (vault / ".bd-capture-vault.lock").touch()
+    os.utime(vault, (1, 1))
     eligible, skipped = gc.scan(time.time(), 60, root=str(tmp_path),
-                                only_family="bd-testrun")
+                                only_family="classified")
     assert {Path(path) for path, _why in eligible} == {root}
+    assert any(Path(path) == vault and "newest" in why
+               for path, why in skipped)
     assert all(Path(path) != generic for path, _why in eligible + skipped)
+
+
+def test_test_roots_and_secret_vaults_have_independent_newest_n_budgets(
+        tmp_path, monkeypatch):
+    gc = _load("bd_gc_1187_family_budgets")
+    monkeypatch.setattr(gc, "PREFIXES", (str(tmp_path) + "/",))
+    monkeypatch.setattr(gc, "FORENSICS_KEEP", 2)
+    roots = [_marked(tmp_path / f"bd-testrun-{i}",
+                     "KEPT_FOR_FORENSICS", 30 + i) for i in range(3)]
+    vaults = []
+    for index in range(3):
+        vault = tmp_path / f"bd_capture_vault-{index}"
+        vault.mkdir(); (vault / ".bd-capture-vault.lock").touch()
+        stamp = time.time() - (30 + index) * 3600
+        os.utime(vault, (stamp, stamp))
+        vaults.append(vault)
+    eligible, skipped = gc.scan(time.time(), 60, root=str(tmp_path),
+                                only_family="classified")
+    assert {Path(path) for path, _why in eligible} == {roots[-1], vaults[-1]}
+    assert sum("newest" in why for _path, why in skipped) == 4
+
+
+def test_degraded_marker_setup_removes_the_unheld_lock_name():
+    script = (
+        "import errno, os, pathlib, _tmproot\n"
+        "real_flock = _tmproot.fcntl.flock\n"
+        "def fail(fd, op): raise OSError(errno.ENOLCK, 'injected')\n"
+        "_tmproot.fcntl.flock = fail\n"
+        "root = _tmproot.install()\n"
+        "_tmproot.fcntl.flock = real_flock\n"
+        "print('ROOT', root)\n"
+        "print('LOCK', pathlib.Path(root, '.bd-testrun.lock').exists())\n"
+        "_tmproot.finish(0)\n")
+    env = dict(os.environ, PYTHONPATH=str(REPO / "tests"))
+    env.pop("KEEP_TEST_TMPDIRS", None)
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO, env=env,
+                            text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert "LOCK False" in result.stdout
 
 
 def test_interrupted_publish_and_private_removal_residues_are_decidable(

@@ -7,6 +7,7 @@ import importlib.util
 import os
 import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -79,6 +80,29 @@ def test_two_sequential_vault_claims_both_succeed(tmp_path):
         assert "ENABLED" in result.stdout
 
 
+def test_a_non_vault_capture_claims_the_same_singleton(tmp_path):
+    block = _vault_block()
+    env = dict(os.environ,
+               CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path / "global.lock"))
+    env.pop("CAPTURE_VAULT_PW", None)
+    first = subprocess.Popen(
+        ["bash", "-s"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, env=env)
+    assert first.stdin is not None
+    first.stdin.write(block + "echo CLAIMED\nsleep 30\n")
+    first.stdin.close()
+    try:
+        time.sleep(0.1)
+        second = subprocess.run(
+            ["bash", "-s"], input=block, capture_output=True, text=True,
+            env={**env, "CAPTURE_VAULT_PW": "unit-test-value"}, timeout=10)
+        assert second.returncode == 73
+        assert "CAPTURE-VAULT-CONCURRENCY-REFUSED" in second.stderr
+    finally:
+        first.send_signal(signal.SIGTERM)
+        first.wait(timeout=10)
+
+
 def test_teardown_removes_only_the_descriptor_owned_vault(tmp_path):
     gc = _load_gc("bd_gc_1186_finish")
     own = tmp_path / "bd_capture_vault-own"
@@ -94,6 +118,30 @@ def test_teardown_removes_only_the_descriptor_owned_vault(tmp_path):
     assert ok, why
     assert not own.exists()
     assert (peer / "secret").read_text() == "peer"
+
+
+def test_shell_descriptor_is_inherited_by_the_real_bd_gc_cli(tmp_path):
+    vault = Path(tempfile.mkdtemp(dir="/tmp", prefix="bd_capture_vault-shell-"))
+    peer = tmp_path / "bd_capture_vault-peer"
+    peer.mkdir()
+    (vault / "secret").write_text("owned")
+    (peer / "secret").write_text("peer")
+    script = (
+        'exec {owned}<"$VAULT"\n'
+        'exec "$PY" "$GC" --finish-capture-vault "$VAULT" '
+        '--owned-fd "$owned"\n')
+    try:
+        result = subprocess.run(
+            ["bash", "-c", script], cwd=REPO, text=True, capture_output=True,
+            env={**os.environ, "VAULT": str(vault), "PY": os.sys.executable,
+                 "GC": str(GC_PATH)}, timeout=30)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not vault.exists()
+        assert (peer / "secret").read_text() == "peer"
+    finally:
+        if vault.exists():
+            import shutil
+            shutil.rmtree(vault)
 
 
 def test_a_replaced_vault_path_is_refused_and_the_foreign_peer_survives(tmp_path):

@@ -244,6 +244,12 @@ capture_vault_claim() {
   fi
 }
 
+# Every capture below rewrites/restarts the same unit and probes the same fixed
+# ports, even when credential-backed vault checks are skipped.  Claim the
+# singleton before deciding whether a vault is enabled, and hold it until the
+# process EXIT cleanup after every service-dependent stage has finished.
+capture_vault_claim || exit 73
+
 # AN UNATTENDED CAPTURE MUST REACH THE SAME CHECKS AS AN ATTENDED ONE (@1064).
 #
 # This block used to gate solely on `[ -t 0 ]`, so every capture launched by
@@ -262,7 +268,6 @@ capture_vault_claim() {
 # enters test_gui_parity's config-surface ledger, and this is a capture-time
 # argument, not a runtime config key.
 if [ -n "${CAPTURE_VAULT_PW:-}" ]; then
-  if ! capture_vault_claim; then exit 73; fi
   CAPTURE_VAULT=1
   echo "  capture vault ENABLED from CAPTURE_VAULT_PW -- the operator vault is not opened"
 elif [ -t 0 ]; then
@@ -270,7 +275,6 @@ elif [ -t 0 ]; then
   read -rs CAPTURE_VAULT_PW
   printf '\n' >&2
   if [ -n "$CAPTURE_VAULT_PW" ]; then
-    if ! capture_vault_claim; then exit 73; fi
     CAPTURE_VAULT=1
     echo "  capture vault ENABLED -- the operator vault is not opened"
   else
@@ -376,10 +380,13 @@ cleanup_capture_vault() {
     fi
     echo "  service restarted on the operator vault"
     wait_for_service_ready || true
-    if [ -n "$CAPTURE_VAULT_LOCK_FD" ]; then
-      exec {CAPTURE_VAULT_LOCK_FD}>&-
-      CAPTURE_VAULT_LOCK_FD=""
-    fi
+  fi
+}
+
+release_capture_singleton() {
+  if [ -n "$CAPTURE_VAULT_LOCK_FD" ]; then
+    exec {CAPTURE_VAULT_LOCK_FD}>&-
+    CAPTURE_VAULT_LOCK_FD=""
   fi
 }
 
@@ -403,6 +410,7 @@ cleanup_all() {
     cleanup_live_seed
   fi
   cleanup_capture_vault
+  release_capture_singleton
 }
 trap cleanup_all EXIT
 
