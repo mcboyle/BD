@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1191 - decide, bound, and isolate capture and test-root retention
+
+- Define five disk-decidable test-root states in
+  `TEST_ARTIFACT_RETENTION_POLICY.md`: a held kernel lock is LIVE, a nonzero
+  terminal marker is KEPT_FOR_FORENSICS, a refused zero terminal marker is
+  RECLAIMABLE, a RUNNING marker whose lock is released is ABANDONED, and any
+  malformed, unreadable, or contradictory state is UNKNOWN and never removed.
+  `_tmproot` publishes the marker atomically, holds a lock the kernel releases
+  even on `SIGKILL`, and republishes a durable clean-refusal outcome through
+  the surviving identity-bound root descriptor.
+- Make `bd-gc` refuse LIVE and UNKNOWN roots, keep the newest 20 at-risk roots
+  independently of a 24-hour floor, admit a clean reclaimable root only after
+  that floor, and exclude the retained `/tmp/bd-runctx` corpus. Automatic
+  capture and wedge-hunt sweeps are scoped to marker-classified roots and to
+  secrets-bearing keyed vaults; live `bdcut_*` and `pytest-of-*` objects stay
+  explicit operator actions. Resource failures degrade observably instead of
+  aborting pytest, interrupted publish/removal residues are classified, and
+  every post-open classifier error closes its descriptor.
+- Key each capture vault by run id, hold it by directory descriptor from
+  creation through object-bound teardown, and serialize every capture that
+  touches the genuinely singleton systemd unit, drop-in, port 5555, or fixture
+  port 8899 behind an owner-only, descriptor-verified global lock directory
+  and regular lock file. Unsafe path, owner, mode, link-count, or identity
+  changes fail closed with descriptor cleanup; a concurrent capture exits 73
+  with `CAPTURE-VAULT-CONCURRENCY-REFUSED` and names the holder instead of
+  overwriting or tearing down its peer.
+- Stop detached pytest, live-test, and fixture descendants from inheriting the
+  singleton or enabled keyed-vault directory/lock descriptors, including
+  through the real shared Xvfb launcher, and validate every inherited
+  descriptor as decimal so no environment text is ever evaluated in the setsid
+  or fallback branches.
+- Bind `bd-wedge-hunt` to its containing checkout and refuse shallow or unbound
+  tool copies instead of assuming `$HOME/BulkDownloader`.
+- True same-host parallel capture services and ports remain explicit open work
+  in backlog row 175; the legacy markerless host residue keeps its own owner in
+  row 174.
+
 ## v3.66.1190 - own timed-out mutation process trees
 
 - Run collection and execution pytest commands in private process sessions.

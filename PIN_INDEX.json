@@ -20,7 +20,7 @@
     "total": 75,
     "version": 1,
     "count_dict": 74,
-    "test_files_scanned": 1389,
+    "test_files_scanned": 1393,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -236,7 +236,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1190",
+      "value": "3.66.1191",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -292,7 +292,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 546,
+      "line": 559,
       "value": {
         "validated": 1,
         "substituted": 1
@@ -302,7 +302,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 897,
+      "line": 910,
       "value": {
         "owned": 1,
         "foreign": 0
@@ -312,7 +312,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 898,
+      "line": 911,
       "value": {
         "open": 0,
         "chmod": 0,
@@ -326,7 +326,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1580,
+      "line": 1593,
       "value": {
         "owned": 1,
         "foreign": 1,
@@ -337,7 +337,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1670,
+      "line": 1683,
       "value": {
         "renamed": 1,
         "substituted": 1,
@@ -348,7 +348,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1758,
+      "line": 1771,
       "value": {
         "primary": 1,
         "diagnostic": 1
@@ -358,7 +358,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 1817,
+      "line": 1830,
       "value": {
         "unlinked": 1,
         "close": 1
@@ -368,7 +368,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2111,
+      "line": 2124,
       "value": {
         "walk": 1,
         "secondary": 1
@@ -378,7 +378,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2156,
+      "line": 2169,
       "value": {
         "primary": 1,
         "secondary": 1
@@ -388,7 +388,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2197,
+      "line": 2210,
       "value": {
         "walk": 2,
         "restore": 1
@@ -398,7 +398,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2234,
+      "line": 2247,
       "value": {
         "walk": 2,
         "restore": 1
@@ -408,7 +408,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2269,
+      "line": 2282,
       "value": {
         "primary": 1,
         "close": 1
@@ -418,7 +418,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1154_the_object_not_the_name.py",
-      "line": 2311,
+      "line": 2324,
       "value": {
         "rmdir": 1,
         "close": 1

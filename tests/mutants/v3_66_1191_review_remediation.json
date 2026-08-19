@@ -1,0 +1,131 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Review-remediation authority checks. Re-run only in a disposable scratch checkout: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1191_review_remediation.json",
+  "subject": "v3.66.1191 -- descriptor-bound capture ownership and durable retention refusal",
+  "band": [
+    "tests/test_v3_66_1191_retention_review_edges.py",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py"
+  ],
+  "mutants": [
+    {
+      "label": "holder PID publication reopens the replaceable lock pathname",
+      "file": "capture.sh",
+      "old": "if ! printf '%-32s\\n' \"$$\" >&\"$CAPTURE_VAULT_LOCK_FD\"; then",
+      "new": "if ! printf '%-32s\\n' \"$$\" >\"$lock\"; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_holder_pid_publication_stays_bound_to_the_locked_descriptor"
+    },
+    {
+      "label": "peer-writable directories are accepted as singleton authority",
+      "file": "capture.sh",
+      "old": "if [ $((16#$mode_bits & 0170000)) -ne $((0040000)) ] || \\\n     [ \"$owner\" != \"$EUID\" ] || [ \"$mode\" != 700 ]; then",
+      "new": "if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_singleton_refuses_a_lock_in_a_peer_writable_directory"
+    },
+    {
+      "label": "an empty singleton override no longer selects the default parent",
+      "file": "capture.sh",
+      "old": "if [ -z \"${CAPTURE_VAULT_GLOBAL_LOCK:-}\" ] && [ ! -d \"$lock_dir\" ]; then",
+      "new": "if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_empty_singleton_lock_export_creates_and_validates_its_default_parent"
+    },
+    {
+      "label": "clean refusal falls back to the lost original root descriptor",
+      "file": "tests/_tmproot.py",
+      "old": "if not ok and record_fd is not None:",
+      "new": "if not ok and fd is not None:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_clean_refusal_republishes_through_the_reopened_root_descriptor"
+    },
+    {
+      "label": "keyed vault accepts a directory substituted during descriptor open",
+      "file": "capture.sh",
+      "old": "  if [ \"$dir_opened\" != \"$dir_created\" ]; then\n    capture_vault_setup_refuse \"created directory identity changed during descriptor open\"\n  fi",
+      "new": "  if false; then\n    capture_vault_setup_refuse \"created directory identity changed during descriptor open\"\n  fi",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_creation_identity_rejects_substitution_during_directory_open"
+    },
+    {
+      "label": "keyed vault accepts a substitution after descriptor-relative lock setup",
+      "file": "capture.sh",
+      "old": "  if [ \"$dir_public\" != \"$dir_created\" ]; then\n    capture_vault_setup_refuse \"keyed vault public identity changed during lock setup\"\n  fi",
+      "new": "  if false; then\n    capture_vault_setup_refuse \"keyed vault public identity changed during lock setup\"\n  fi",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_substitution_after_prelock_identity_check_still_fails_closed"
+    },
+    {
+      "label": "capture secrets return to the replaceable public vault pathname",
+      "file": "capture.sh",
+      "old": "  CAPTURE_VAULT_FILE=\"/proc/$$/fd/$CAPTURE_VAULT_DIR_FD/secrets.json\"",
+      "new": "  CAPTURE_VAULT_FILE=\"$CAPTURE_VAULT_DIR/secrets.json\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_secret_path_remains_bound_to_the_claimed_directory_descriptor"
+    },
+    {
+      "label": "detached children retain the keyed vault directory descriptor",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_VAULT_DIR_FD:-}\" \"capture vault directory\"",
+      "new": "  : \"${CAPTURE_VAULT_DIR_FD:-}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_enabled_fixture_child_closes_all_vault_descriptors_and_releases_locks"
+    },
+    {
+      "label": "detached children retain the keyed vault lock descriptor",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_VAULT_DIR_LOCK_FD:-}\" \"capture vault lock\"",
+      "new": "  : \"${CAPTURE_VAULT_DIR_LOCK_FD:-}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_enabled_fixture_child_closes_all_vault_descriptors_and_releases_locks"
+    },
+    {
+      "label": "fixture launch bypasses the shared descriptor-closing child path",
+      "file": "capture.sh",
+      "old": "  _start_capture_detached \"$OUT/05a_fixture_site.log\" \\\n    venv/bin/python tools/fixture_site.py --port 8899\n  FIXTURE_PID=\"$CAPTURE_DETACHED_PID\"",
+      "new": "  setsid venv/bin/python tools/fixture_site.py --port 8899 \\\n    > \"$OUT/05a_fixture_site.log\" 2>&1 &\n  FIXTURE_PID=$!",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_enabled_fixture_child_closes_all_vault_descriptors_and_releases_locks"
+    },
+    {
+      "label": "named-lock recreation does not restore owner write and execute",
+      "file": "tests/_tmproot.py",
+      "old": "        if relaxed_mode != mode:\n            os.fchmod(fd, relaxed_mode)\n        try:",
+      "new": "        if False:\n            os.fchmod(fd, relaxed_mode)\n        try:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_mode_0500_lost_fd_clean_refusal_is_durably_reclaimable"
+    },
+    {
+      "label": "named-lock recreation leaves the root mode relaxed",
+      "file": "tests/_tmproot.py",
+      "old": "        if relaxed_mode != mode:\n            os.fchmod(fd, mode)\n            if stat.S_IMODE(os.fstat(fd).st_mode) != mode:\n                raise OSError(\n                    errno.EIO, \"run-root lock mode restoration did not verify\")",
+      "new": "        if False:\n            os.fchmod(fd, mode)\n            if stat.S_IMODE(os.fstat(fd).st_mode) != mode:\n                raise OSError(\n                    errno.EIO, \"run-root lock mode restoration did not verify\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_mode_0500_lost_fd_clean_refusal_is_durably_reclaimable"
+    },
+    {
+      "label": "named-lock recreation does not verify root mode restoration",
+      "file": "tests/_tmproot.py",
+      "old": "            if stat.S_IMODE(os.fstat(fd).st_mode) != mode:\n                raise OSError(\n                    errno.EIO, \"run-root lock mode restoration did not verify\")",
+      "new": "            if False:\n                raise OSError(\n                    errno.EIO, \"run-root lock mode restoration did not verify\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_named_lock_refuses_when_original_mode_cannot_be_restored"
+    },
+    {
+      "label": "bd-gc leaves a validated-open lock descriptor behind on error",
+      "file": "toolchain/bin/bd-gc",
+      "old": "    except BaseException:\n        try:\n            os.close(lock_fd)\n        except OSError:\n            pass\n        raise",
+      "new": "    except BaseException:\n        raise",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_bd_gc_closes_capture_lock_fd_when_fstat_fails"
+    },
+    {
+      "label": "heartbeat accepts non-decimal descriptor text",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "    *[!0-9]*)\n      printf 'run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\\n' >&2\n      ;;",
+      "new": "    *[!0-9]*) _CAPTURE_CLOSE_FDS+=(\"$BD_HEARTBEAT_CLOSE_FD\") ;;",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it"
+    }
+  ]
+}
