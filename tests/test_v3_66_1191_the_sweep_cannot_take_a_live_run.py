@@ -182,6 +182,17 @@ def test_capture_and_wedge_hunt_sweep_on_the_way_in(monkeypatch):
 
 def test_wedge_hunt_refuses_a_tool_copy_not_bound_to_its_checkout(tmp_path):
     hunt = _load("bd_wedge_hunt_1185_bad_root", HUNT_PATH)
+    shallow_copy = Path("/tmp") / f"bd-wedge-hunt-{os.getpid()}-{tmp_path.name}"
+    shallow_copy.write_text("copy")
+    try:
+        hunt._checkout_for(shallow_copy)
+    except SystemExit as exc:
+        assert str(exc).count("BD-HUNT-UNRUNNABLE") == 1
+    else:
+        raise AssertionError("shallow unbound tool copy was accepted as a checkout")
+    finally:
+        shallow_copy.unlink()
+
     copied_tool = tmp_path / "not-a-checkout" / "toolchain" / "bin" / "bd-wedge-hunt"
     copied_tool.parent.mkdir(parents=True)
     copied_tool.write_text("copy")

@@ -334,7 +334,12 @@ ARM_FULL_TMPFS = ("full-tmpfs", [], True, dict(_FAULTHANDLER, TMPDIR="/mnt/bdtmp
 # arms on the same host.
 def _checkout_for(tool_path):
     """Return the checkout containing this tool, or refuse an unbound copy."""
-    root = tool_path.resolve().parents[2]
+    resolved = tool_path.resolve()
+    if len(resolved.parents) < 3:
+        raise SystemExit(
+            "BD-HUNT-UNRUNNABLE: resolved tool path is too shallow to identify "
+            "a containing checkout: %s" % resolved)
+    root = resolved.parents[2]
     if not root.is_dir():
         raise SystemExit(
             "BD-HUNT-UNRUNNABLE: resolved checkout does not exist: %s" % root)
