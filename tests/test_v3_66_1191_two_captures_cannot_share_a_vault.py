@@ -41,7 +41,7 @@ def _fixture_launch_block() -> str:
     """The real detached fixture launch, without the surrounding wait loop."""
     lines = CAPTURE.read_text().splitlines()
     start = next(i for i, line in enumerate(lines)
-                 if line.startswith("  setsid bash -c") or
+                 if line.startswith("  setsid ") or
                  line.startswith("  _start_capture_detached"))
     end = next(i for i in range(start, len(lines))
                if lines[i].strip().startswith("FIXTURE_PID="))
