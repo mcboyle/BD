@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1190 - own timed-out mutation process trees
+
+- Run collection and execution pytest commands in private process sessions.
+- On timeout, terminate the complete process group with bounded TERM/KILL
+  escalation and reap the owned child before restoring the mutation subject.
+- Prove collection and execution descendants cannot survive tool return or
+  perform delayed work against the restored source tree.
+
 ## v3.66.1189 - make durable mutation selection exact
 
 - Require every durable regression mutant to name its catcher while retaining
