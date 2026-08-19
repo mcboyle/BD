@@ -64,6 +64,18 @@ archive is not present in this repository; consult source-control history.
   numbers, and record host, tree, interpreter, timestamp and exit status with
   the result. Running it surfaced a fourth refusal reason the source-reading
   derivation never had: postgres is not reachable on this host.
+- Correct two figures in row 120 that had silently survived from the
+  superseded name-glob population: the capture span ends 2026-06-20, not
+  2026-06-12, and the download-flow fetch count is 44 across the 21 files (24
+  across the 14 deduplicated sessions), not 29. Both were caught by the second
+  independent review reproducing the first review's finding-shape against the
+  fix itself.
+- Open backlog rows 178 and 179 for the two defects the fleet full-suite lanes
+  surfaced and proved at this head: the locale-collation dependence in the
+  v3.66.1192 installer test (bidirectional on two hosts, pre-existing at the
+  deployed tree, launcher-injected LC_ALL shown to decide the verdict) and the
+  run-context recorder's nondeterministic partial chain capture (131/171/173 of
+  1386 files across three canonical runs).
 - Open backlog row 177 for a defect the cut's own verification surfaced: the
   cloud-bootstrap probe-list test fails on every non-canonical worktree because
   it silently assumes the checkout under test sits at a probed location. Proven
