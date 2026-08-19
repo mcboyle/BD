@@ -2,9 +2,10 @@
 # Max-verify battery for the SPA migration phases P0-P6 + the release band.
 # One invocation = one full round. Prints a compact per-suite table + a verdict.
 set -u
-cd /home/claude/work
+WORK="${BD_WORK:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)}"
+cd "$WORK"
 PB=/tmp/prestaged_site_packages
-PWP=/home/claude/.cache/ms-playwright
+PWP="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
 
 # --- suite battery, grouped by migration phase --------------------------------
 SUITES="
@@ -68,13 +69,13 @@ g "config_surface --check"  "env PYTHONPATH=$PB python3 tools/config_surface_inv
 # --- cockpit render_check (headless chromium, computed-layout gate) ------------
 echo ""
 echo "=== render_check (cockpit shell, 30 checks) ==="
-rcout=$(env BD_RENDER_ROOT=/home/claude/work PYTHONPATH=$PB PLAYWRIGHT_BROWSERS_PATH=$PWP \
-        timeout 120 python3 /home/claude/render_check.py 2>&1)
+rcout=$(env BD_RENDER_ROOT="$WORK" PYTHONPATH=$PB PLAYWRIGHT_BROWSERS_PATH=$PWP \
+        timeout 120 python3 "$WORK/project-knowledge/render_check.py" 2>&1)
 echo "$rcout" | grep -iE 'PASS|FAIL|checks|RESULT|[0-9]+/[0-9]+' | tail -6
 echo "$rcout" | grep -qiE 'FAIL' && RCFAIL=1 || RCFAIL=0
 
 echo ""
 echo "######## ROUND VERDICT: battery_fail=$SUITEFAIL gate_fail=$GATEFAIL render_check_fail=$RCFAIL ########"
 # belt+suspenders: ensure no runtime-db leak survives the round
-rm -f /home/claude/work/downloader_history.db /home/claude/work/downloader_history.db-wal /home/claude/work/downloader_history.db-shm 2>/dev/null
-echo "tree-clean: $(find /home/claude/work -name '*.db' | tr '\n' ' ')"
+rm -f "$WORK/downloader_history.db" "$WORK/downloader_history.db-wal" "$WORK/downloader_history.db-shm" 2>/dev/null
+echo "tree-clean: $(find "$WORK" -name '*.db' | tr '\n' ' ')"

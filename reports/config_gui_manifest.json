@@ -97,6 +97,7 @@
     "BD_SLOW_QUERY_LOG": "full",
     "BD_SLOW_QUERY_MS": "full",
     "BD_TEST_MODE": "full",
+    "BD_TEST_PYTHON": "display-only",
     "BD_TOKEN": "full",
     "BD_URL": "display-only",
     "BD_USE_CLOAK": "full",

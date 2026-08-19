@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
-DEFAULT_ROOTS = ["/home/claude", "/mnt/user-data/uploads"]
+DEFAULT_ROOTS = [os.environ.get("BD_ARTIFACT_ROOT", sec.DEFAULT_WORK), "/mnt/user-data/uploads"]
 _VER = re.compile(r'__version__\s*=\s*["\']([^"\']+)')
 
 
@@ -200,7 +200,7 @@ def selftest():
         #    through the bug. Drive the real subprocess in both modes and pin
         #    exit-code parity.
         import subprocess as _sp
-        _env = dict(os.environ, PYTHONPATH="/home/claude/bin:" +
+        _env = dict(os.environ, PYTHONPATH=os.path.dirname(os.path.realpath(__file__)) + ":" +
                     os.environ.get("PYTHONPATH", ""))
 
         def _both(work, roots):

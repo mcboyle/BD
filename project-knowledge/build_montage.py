@@ -6,7 +6,8 @@ Each cell = a 380px-wide top-crop thumbnail + a label bar. Output 4 PNGs:
 import os, json
 from PIL import Image, ImageDraw, ImageFont
 
-CAP = "/home/claude/capture"
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+CAP = os.environ.get("BD_CAPTURE_DIR", os.path.join(ROOT, "reports", "capture"))
 OUT = "/mnt/user-data/outputs"
 man = json.load(open(f"{CAP}/manifest.json"))
 

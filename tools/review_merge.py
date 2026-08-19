@@ -39,7 +39,9 @@ import os
 import sqlite3
 import time
 
-ART = "/home/claude/review/artifacts"
+DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(DEFAULT_ROOT, "review")
+ART = os.path.join(REVIEW, "artifacts")
 STATE = os.path.join(ART, "REVIEW_STATE.json")
 INV = os.path.join(ART, "INVARIANTS.json")
 DB = os.path.join(ART, "KNOWLEDGE_GRAPH.db")
@@ -93,7 +95,7 @@ def _verify_audit(audit_path, root):
         for c in (os.path.join(_HERE, "audit", "witnesses", fname),
                   os.path.join(d, "witnesses", fname),
                   os.path.join(_HERE, "..", "witnesses", fname),
-                  os.path.join("/home/claude/review/witnesses", fname)):
+                  os.path.join(REVIEW, "witnesses", fname)):
             if os.path.exists(c):
                 wcand = c
                 break
@@ -125,7 +127,7 @@ def _build_reachability():
             return
 
 
-def merge(audit_path: str, root: str = "/home/claude/work",
+def merge(audit_path: str, root: str = DEFAULT_ROOT,
           verify: bool = True) -> int:
     # W1: acceptance gate BEFORE any state read/write. A REJECT aborts the whole
     # merge (rc=2, nothing written) unless verify is disabled.
@@ -264,7 +266,7 @@ def check() -> int:
     seed_review_state --check; this adds the audit_of_record completeness check.)"""
     import hashlib
     state = _load(STATE)
-    root = "/home/claude/work"
+    root = DEFAULT_ROOT
     bad = []
     rev = 0
     for p, rec in state["files"].items():
@@ -292,7 +294,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--audit")
     ap.add_argument("--check", action="store_true")
-    ap.add_argument("--root", default="/home/claude/work",
+    ap.add_argument("--root", default=DEFAULT_ROOT,
                     help="tree root for the verify_audit sha check")
     ap.add_argument("--no-verify", action="store_true",
                     help="skip the pre-merge verify_audit acceptance gate (W1 override)")

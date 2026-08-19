@@ -13,7 +13,7 @@ Guards baseline, in order of precedence:
   --state PATH    an explicit STATE.json (version-pack workflow).
   <tree>/guards.json   the repo-root manifest.  This is the default and the
                   single source of truth for a git checkout.
-  legacy STATE discovery (/home/claude/nextsess, work_pack, newest version zip).
+  operator STATE discovery (BD_STATE_ROOT, then newest version pack).
 
 Exit codes:
   0  every guard resolved and matched.
@@ -22,7 +22,7 @@ Exit codes:
      with no pin, or a summary whose buckets do not account for every guard.
 
 CLAUDE.md 0 -- why exit 2 exists at all.  This tool used to default --tree to
-/home/claude/work.  Run from a git checkout that path does not exist, so all 7
+an absent sandbox tree. Run from a git checkout and all 7
 guards read as FILE MISSING; and `if drift: return 1` was the only non-zero path,
 so the gate printed "0 ok, 0 drifted, 7 missing." and exited 0.  It certified a
 tree it had never read.  A gate that cannot see its subject reports OK, and that
@@ -31,8 +31,20 @@ is worse than no gate: unknown is a THIRD STATE and it FAILS.
 The inverse rule binds just as hard: on an intact tree this must exit 0 and
 report every guard ok.  A gate that cries wolf gets switched off.
 """
-import argparse, glob, hashlib, json, os, re, sys, zipfile
-import sys
+import argparse, glob, hashlib, importlib.util, json, os, re, sys, zipfile
+
+_RESOLVER_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_bd_work_tree.py")
+try:
+    _resolver_spec = importlib.util.spec_from_file_location("_bd_guard_work_tree", _RESOLVER_PATH)
+    if _resolver_spec is None or _resolver_spec.loader is None:
+        raise ImportError(f"cannot load {_RESOLVER_PATH}")
+    _resolver = importlib.util.module_from_spec(_resolver_spec)
+    _resolver_spec.loader.exec_module(_resolver)
+except (Exception, SystemExit) as exc:
+    _resolver = None
+    _RESOLVER_LOAD_ERROR = exc
+else:
+    _RESOLVER_LOAD_ERROR = None
 
 MANIFEST_NAME = "guards.json"
 UNRUNNABLE = 2
@@ -40,9 +52,9 @@ DRIFTED = 1
 
 
 def _bd_pick_newest(paths):
-    """Highest VERSION wins; ties resolve to /home/claude.
+    """Highest VERSION wins; ties resolve to the operator artifact root.
 
-    These lists glob BOTH /mnt/user-data/uploads AND /home/claude, then sorted the PATH
+    These lists can span uploads and the operator artifact root; sorting the PATH
     STRINGS with reverse=True. Lexicographically "/mnt..." > "/home...", so the READ-ONLY
     UPLOADS COPY ALWAYS WON -- regardless of version. bd-since cheerfully diffed the work
     tree against a FOUR-RELEASE-STALE zip (722 against a live 726) while looking entirely
@@ -53,7 +65,7 @@ def _bd_pick_newest(paths):
     """
     def _k(p):
         nums = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
-        return (nums, p.startswith("/home/claude"))
+        return nums
     return sorted(paths, key=_k, reverse=True)
 
 
@@ -121,25 +133,19 @@ def resolve_tree(explicit):
     """Find the tree whose guards we are checking.
 
     Explicit --tree always wins (that is the version-pack / fault-injection path).
-    Otherwise: walk up from CWD for a guards.json, then the repo root implied by
-    this script's own location, then the legacy /home/claude/work.
+    Otherwise the shared resolver requires installed pointer authority or this
+    script's exact physical source-checkout layout; caller cwd is not authority.
 
-    The old code hardcoded /home/claude/work as the default, which is why a run
+    The old code hardcoded a sandbox tree as the default, which is why a run
     from a git checkout hashed nothing at all.
     """
     if explicit:
         return os.path.abspath(explicit), "--tree"
-    for d in _upward(os.getcwd()):
-        if os.path.isfile(os.path.join(d, MANIFEST_NAME)):
-            return d, f"{MANIFEST_NAME} found above cwd"
-    # this file lives at <root>/toolchain/bin/bd-guardcheck
-    script_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-    if os.path.isfile(os.path.join(script_root, MANIFEST_NAME)):
-        return script_root, "repo root of this script"
-    for d in _upward(os.getcwd()) + [script_root]:
-        if all(os.path.isfile(os.path.join(d, g)) for g in GUARDS):
-            return d, "guard files found on disk"
-    return "/home/claude/work", "legacy default"
+    if _resolver is None:
+        raise RuntimeError(
+            f"checkout resolver failed to load beside physical tool: {_RESOLVER_LOAD_ERROR}"
+        )
+    return str(_resolver.resolve_work_tree(__file__)), "checkout authority"
 
 
 def load_manifest(path):
@@ -172,8 +178,10 @@ def load_manifest(path):
 
 def resolve_state(explicit):
     """Find STATE.json: --state, common pack dirs, or newest version-pack zip."""
+    state_root = os.environ.get("BD_STATE_ROOT", os.getcwd())
     for p in ([explicit] if explicit else []) + [
-            "/home/claude/nextsess/STATE.json", "/home/claude/work_pack/STATE.json"]:
+            os.path.join(state_root, "nextsess", "STATE.json"),
+            os.path.join(state_root, "work_pack", "STATE.json")]:
         if p and os.path.isfile(p):
             try:
                 return json.load(open(p)), p
@@ -227,14 +235,17 @@ def sha(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tree", "--work", default=None,
-                    help="tree to hash (default: discovered from cwd / this script)")
+                    help="tree to hash (default: resolved checkout authority)")
     ap.add_argument("--guards", default=None,
                     help="explicit guards.json manifest (absent/malformed => exit 2)")
     ap.add_argument("--state", default=None,
                     help="explicit STATE.json baseline (version-pack workflow)")
     a = ap.parse_args()
 
-    tree, how = resolve_tree(a.tree)
+    try:
+        tree, how = resolve_tree(a.tree)
+    except RuntimeError as exc:
+        return unrunnable(str(exc), "pass --tree to name the intended checkout")
     names, pinned_full, pinned_short, src = resolve_baseline(a, tree)
     print(f"(tree: {tree}  [{how}])")
     if names is None:

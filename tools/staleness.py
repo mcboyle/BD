@@ -22,10 +22,12 @@ import json
 import os
 import sys
 
-ART = "/home/claude/review/artifacts"
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(ROOT, "review")
+ART = os.path.join(REVIEW, "artifacts")
 STATE = os.path.join(ART, "REVIEW_STATE.json")
-MAN = "/home/claude/review/audit_manifests"
-STALE_MD = "/home/claude/review/STALE.md"
+MAN = os.path.join(REVIEW, "audit_manifests")
+STALE_MD = os.path.join(REVIEW, "STALE.md")
 
 
 def _load_state():
@@ -74,7 +76,7 @@ def incremental(changed):
     s["totals"]["reviewed"] = sum(1 for x in statuses if x == "reviewed")
     s["totals"]["unreviewed"] = sum(1 for x in statuses if x != "reviewed")
     _save_state(s)
-    out = "/home/claude/review/audit_manifests/REAUDIT.txt"
+    out = os.path.join(MAN, "REAUDIT.txt")
     with open(out, "w") as fh:
         fh.write("\n".join(manifest) + ("\n" if manifest else ""))
     print(f"staleness incremental: changed={len(changed)} "

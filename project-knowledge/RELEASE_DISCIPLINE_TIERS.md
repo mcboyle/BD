@@ -142,7 +142,7 @@ change or an unverified banner — the cost of guessing B is only that you did l
 
 ## One more standing rule (learned 261)
 
-**One instance per work tree.** Two Claude instances on the same `/home/claude/work`
+**One instance per work tree.** Two agents on the same `$BD_WORK`
 will clobber each other (261 saw `player_recognition.py` churn sha three times
 between read-only views, and release zips appear unbuilt-by-you). If two are
 unavoidable, reconcile explicitly before either touches shared files, and treat any

@@ -15,7 +15,9 @@ os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 os.makedirs(_ISO, exist_ok=True)
 os.chdir(_ISO)                          # belt+suspenders: any bare-cwd write (screenshots/) stays out of the tree
 
-sys.path.insert(0, "/home/claude/work")
+sys.path.insert(0, os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+))
 from bulk_downloader.app import app  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 

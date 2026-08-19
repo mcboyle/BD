@@ -9,8 +9,8 @@ cycle check each monolith uses. The engine behind the `bd-decomp` shim.
   bd-decomp check <target>          live invariant diff + cross-monolith --check
 
 Resolves the kit generators via $DECOMP_KIT (default
-/home/claude/decomp_kit/decomp_program_kit) and the work root via --root (default
-/home/claude/work). The app/runner invariant tools have snapshots that this drives
+DECOMP_KIT or the in-repository tools/decomp directory) and the work root via
+--root (default repository root). The app/runner invariant tools have snapshots that this drives
 end-to-end; dev_suite/deep_detect use a surface-lock TEST, which this points you to
 (the band runs it -- it's pytest-style, not a standalone snapshot).
 
@@ -24,6 +24,10 @@ import hashlib
 import os
 import subprocess
 import sys
+
+DEFAULT_ROOT = os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
 
 # target -> the per-cut handles. invariant_tool lives under <kit>/tools or
 # <kit>/runner/tools; surface_lock_test ships beside tests/.
@@ -64,7 +68,7 @@ TARGETS = {
 
 
 def _kit() -> str:
-    return os.environ.get("DECOMP_KIT", "/home/claude/decomp_kit/decomp_program_kit")
+    return os.environ.get("DECOMP_KIT", os.path.join(DEFAULT_ROOT, "tools", "decomp"))
 
 
 def _tool_path(target: str) -> str:
@@ -196,7 +200,7 @@ def cmd_check(a) -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="bd-decomp", description="per-cut decomposition invariant dispatch")
-    ap.add_argument("--root", default="/home/claude/work", help="work-tree root")
+    ap.add_argument("--root", default=DEFAULT_ROOT, help="work-tree root")
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("targets")
     for name in ("baseline", "check"):

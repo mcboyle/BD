@@ -8,22 +8,50 @@
 # 602/603). Run this after bd-cut's bump and BEFORE build_release, then run
 # build_release + verify_release under the venv too.
 #
-# Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR]   (default: /home/claude/work)
+# Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR] (default: this checkout)
 #   env: BD_VENV_PY (default <work>/venv/bin/python; REFUSES if it cannot
 #        import the project deps -- see @878)
 set -u
 # default to the canonical work tree, NOT the caller's cwd: invoked from
-# /home/claude every tools/ path missed and all regens ERR'd (first-ever
+# outside the checkout every tools/ path missed and all regens ERR'd (first-ever
 # execution, v3.66.688 review). --work/--tree accepted per suite convention.
 # --selftest: this is a bootstrap/orchestration script; a real run IS its test.
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a full source tree to reindex"
   echo "SELFTEST PASS"; exit 0;; esac
-WORK="/home/claude/work"
-if [ "${1:-}" = "--work" ] || [ "${1:-}" = "--tree" ]; then
-    WORK="${2:?--work needs a dir}"
-elif [ -n "${1:-}" ]; then
-    WORK="$1"
+_bd_usage='Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR]'
+_bd_explicit=""
+_bd_has_explicit=0
+case "${1:-}" in
+  -h|--help)
+    [ "$#" -eq 1 ] || { echo "$_bd_usage" >&2; exit 2; }
+    echo "$_bd_usage"; exit 0;;
+  --work|--tree)
+    [ "$#" -eq 2 ] && [ -n "${2:-}" ] || {
+      echo "bd-reindex: ${1} needs exactly one directory" >&2
+      echo "$_bd_usage" >&2
+      exit 2
+    }
+    _bd_explicit="$2"
+    _bd_has_explicit=1;;
+  -*)
+    echo "bd-reindex: unknown option: $1" >&2
+    echo "$_bd_usage" >&2
+    exit 2;;
+  ?*)
+    [ "$#" -eq 1 ] || { echo "$_bd_usage" >&2; exit 2; }
+    _bd_explicit="$1"
+    _bd_has_explicit=1;;
+esac
+_bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
+_bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
+[ -f "$_bd_tool_dir/_bd_work_tree.py" ] || {
+  echo "BD-WORK-TREE-UNRUNNABLE: resolver missing beside physical tool" >&2; exit 2;
+}
+if [ "$_bd_has_explicit" -eq 1 ]; then
+  WORK="$(python3 "$_bd_tool_dir/_bd_work_tree.py" --work "$_bd_explicit")" || exit 2
+else
+  WORK="$(python3 "$_bd_tool_dir/_bd_work_tree.py")" || exit 2
 fi
 # @878 -- REFUSE an interpreter that cannot import the deps.
 # This defaulted to a venv under the retired sandbox work root and fell through

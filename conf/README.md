@@ -4,8 +4,8 @@
 
 Single static binary. Run with:
 ```bash
-/home/claude/webproxy_kit/tools_bin/caddy run \
-    --config /home/claude/webproxy_kit/conf/Caddyfile
+"${BD_WEBPROXY_ROOT:?set BD_WEBPROXY_ROOT}"/tools_bin/caddy run \
+    --config "$BD_WEBPROXY_ROOT/conf/Caddyfile"
 ```
 
 Default conf proxies localhost:8080 -> localhost:5555 (BulkDL).
