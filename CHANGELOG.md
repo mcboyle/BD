@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1193 - make installed-suite refusal non-mutating
+
+- Validate the checkout and physical destination contract before the installer
+  creates, copies, writes, or links any artifact.
+- Make wrappers propagate a failed environment source, and prove the installed
+  checkout pointer hermetically under success, deletion, and corruption.
+
 ## v3.66.1192 - make residue closure mutation-resistant
 
 - Give installed `bd` wrappers and `bdenv.sh` one physically resolved layout

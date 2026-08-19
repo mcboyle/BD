@@ -24,7 +24,7 @@ if [ "${BD_SKIP_ENV_CHECK:-0}" != "1" ]; then
     echo "  Set BD_ENV_FILE=<path>, or BD_SKIP_ENV_CHECK=1 to proceed bare." >&2
     exit 2
   fi
-  . "$BD_ENV_FILE"
+  . "$BD_ENV_FILE" || exit $?
 fi
 
 c_ok=$'\e[32mOK \e[0m'

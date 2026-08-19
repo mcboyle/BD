@@ -19,6 +19,37 @@ REPO = Path(__file__).resolve().parents[1]
 BIN = REPO / "toolchain" / "bin"
 
 
+def _installed_layout(tmp_path: Path) -> tuple[dict[str, str], Path, Path, Path, Path]:
+    home = tmp_path / "home"
+    suite_bin = home / ".local" / "bin"
+    link_bin = tmp_path / "usr-local-bin"
+    installed_env = home / ".local" / "bdenv.sh"
+    pointer = home / ".local" / ".bd-work-tree"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("BD_")}
+    env.update({
+        "HOME": str(home),
+        "BD_SUITE_BIN": str(suite_bin),
+        "BD_SUITE_LINK_BIN": str(link_bin),
+    })
+    return env, suite_bin, link_bin, installed_env, pointer
+
+
+def _install(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(REPO / "toolchain" / "install_bdsuite.sh")],
+        cwd=REPO, env=env, text=True, capture_output=True,
+    )
+
+
+def _run_installed_bd(link_bin: Path, env: dict[str, str], cwd: Path):
+    run_env = {key: value for key, value in env.items() if not key.startswith("BD_")}
+    run_env["BD_ENV_NO_SERVICES"] = "1"
+    return subprocess.run(
+        [str(link_bin / "bd"), "/bin/sh", "-c", "printf '%s' \"$BD_WORK_TREE\""],
+        cwd=cwd, env=run_env, text=True, capture_output=True, timeout=10,
+    )
+
+
 def _load_extensionless(name: str, path: Path):
     loader = importlib.machinery.SourceFileLoader(name, str(path))
     spec = importlib.util.spec_from_loader(name, loader)
@@ -68,29 +99,60 @@ def test_bdenv_preserves_operator_paths_and_can_skip_optional_services(tmp_path)
 
 def test_installed_bd_resolves_shared_env_and_validated_checkout(tmp_path):
     """The installer layout must execute through its public symlink."""
-    home = tmp_path / "home"
-    suite_bin = home / ".local" / "bin"
-    link_bin = tmp_path / "usr-local-bin"
-    env = {
-        **os.environ,
-        "HOME": str(home),
-        "BD_SUITE_BIN": str(suite_bin),
-        "BD_SUITE_LINK_BIN": str(link_bin),
-    }
-    subprocess.run(
-        ["bash", str(REPO / "toolchain" / "install_bdsuite.sh")],
-        cwd=REPO, env=env, text=True, capture_output=True, check=True,
-    )
+    env, _suite_bin, link_bin, installed_env, pointer = _installed_layout(tmp_path)
+    installed = _install(env)
+    assert installed.returncode == 0, installed.stderr
 
-    installed_env = home / ".local" / "bdenv.sh"
     assert installed_env.is_file()
-    result = subprocess.run(
-        [str(link_bin / "bd"), "/bin/sh", "-c", "printf '%s' \"$BD_WORK_TREE\""],
-        cwd=tmp_path, env={**env, "BD_ENV_NO_SERVICES": "1"}, text=True,
-        capture_output=True, timeout=10,
-    )
+    assert pointer.read_text(encoding="utf-8") == str(REPO.resolve()) + "\n"
+    public_bd = link_bin / "bd"
+    assert public_bd.is_symlink()
+    assert public_bd.readlink() == (_suite_bin / "bd").resolve()
+    result = _run_installed_bd(link_bin, env, tmp_path)
     assert result.returncode == 0, result.stderr
     assert Path(result.stdout).resolve() == REPO.resolve()
+
+
+def test_invalid_checkout_leaves_installed_layout_byte_identical(tmp_path):
+    """Checkout refusal must happen before any copy, link, env, or pointer write."""
+    env, suite_bin, link_bin, installed_env, pointer = _installed_layout(tmp_path)
+    invalid = tmp_path / "not-a-checkout"
+    invalid.mkdir()
+    env["BD_WORK_TREE"] = str(invalid)
+
+    artifacts = {
+        suite_bin / "bd": b"old-tool\n",
+        link_bin / "bd": b"old-public-entry\n",
+        installed_env: b"old-env\n",
+        pointer: b"old-pointer\n",
+    }
+    for path, content in artifacts.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    result = _install(env)
+    assert result.returncode == 2
+    assert "valid BD_WORK_TREE checkout" in result.stderr
+    assert {path: path.read_bytes() for path in artifacts} == artifacts
+    assert not (suite_bin / "bd-status").exists()
+    assert not (link_bin / "bd-status").exists()
+
+
+def test_installed_bd_fails_closed_when_checkout_pointer_is_missing_or_corrupt(tmp_path):
+    """The installed pointer, not ambient authority, must supply the checkout."""
+    env, _suite_bin, link_bin, _installed_env, pointer = _installed_layout(tmp_path)
+    installed = _install(env)
+    assert installed.returncode == 0, installed.stderr
+
+    pointer.unlink()
+    missing = _run_installed_bd(link_bin, env, tmp_path)
+    assert missing.returncode == 2
+    assert "BD_WORK_TREE is not a Git checkout" in missing.stderr
+
+    pointer.write_text(str(tmp_path / "wrong-checkout") + "\n", encoding="utf-8")
+    corrupt = _run_installed_bd(link_bin, env, tmp_path)
+    assert corrupt.returncode == 2
+    assert "BD_WORK_TREE is not a Git checkout" in corrupt.stderr
 
 
 def test_consumer_oracle_accepts_the_explicit_repository_root(tmp_path):
