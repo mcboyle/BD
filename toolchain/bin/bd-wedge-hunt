@@ -343,7 +343,7 @@ def _checkout_for(tool_path):
             raise ImportError(str(helper))
         resolver = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(resolver)
-    except (ImportError, OSError, FileNotFoundError):
+    except (Exception, SystemExit):
         if (len(resolved.parents) >= 3 and resolved.parent.name == "bin"
                 and resolved.parent.parent.name == "toolchain"):
             raise SystemExit(

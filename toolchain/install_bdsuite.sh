@@ -35,20 +35,36 @@ VALID_ROOT="$(realpath -- "$VALID_ROOT")" || exit 2
 DEST="$(realpath -m -- "$DEST")" || exit 2
 LINK_DEST="$(realpath -m -- "$LINK_DEST")" || exit 2
 ENV_DEST="$(realpath -m -- "$ENV_DEST")" || exit 2
-[ "$ENV_DEST" = "$DEST/.bdenv.sh" ] || {
-  echo "ERROR: BD_ENV_FILE_DEST must be $DEST/.bdenv.sh" >&2
+EXPECTED_ENV_DEST="$(realpath -m -- "$DEST/.bdenv.sh")" || exit 2
+[ "$ENV_DEST" = "$EXPECTED_ENV_DEST" ] || {
+  echo "ERROR: BD_ENV_FILE_DEST must be $EXPECTED_ENV_DEST" >&2
+  exit 2
+}
+[ "$DEST" != / ] || {
+  echo "ERROR: BD_SUITE_BIN may not be filesystem root" >&2
+  exit 2
+}
+[ "$LINK_DEST" != / ] || {
+  echo "ERROR: BD_SUITE_LINK_BIN may not be filesystem root" >&2
   exit 2
 }
 [ "$DEST" != "$LINK_DEST" ] || {
   echo "ERROR: BD_SUITE_BIN and BD_SUITE_LINK_BIN must be distinct" >&2
   exit 2
 }
-case "$DEST/" in "$LINK_DEST/"*)
-  echo "ERROR: BD_SUITE_BIN may not be inside BD_SUITE_LINK_BIN" >&2; exit 2;;
-esac
-case "$LINK_DEST/" in "$DEST/"*)
-  echo "ERROR: BD_SUITE_LINK_BIN may not be inside BD_SUITE_BIN" >&2; exit 2;;
-esac
+path_is_within() {
+  [ "$1" = "$2" ] && return 0
+  case "$1" in "$2"/*) return 0;; esac
+  return 1
+}
+if path_is_within "$DEST" "$LINK_DEST"; then
+  echo "ERROR: BD_SUITE_BIN may not be inside BD_SUITE_LINK_BIN" >&2
+  exit 2
+fi
+if path_is_within "$LINK_DEST" "$DEST"; then
+  echo "ERROR: BD_SUITE_LINK_BIN may not be inside BD_SUITE_BIN" >&2
+  exit 2
+fi
 [ -d "$HERE/bin" ] && [ -f "$HERE/bdenv.sh" ] && [ -f "$HERE/install_exchange.py" ] || {
   echo "ERROR: incomplete source toolchain at $HERE" >&2
   exit 2
@@ -143,6 +159,11 @@ done
 DEST_PARENT="$(dirname -- "$DEST")"
 mkdir -p -- "$DEST_PARENT" "$LINK_DEST" || exit 2
 STAGE="$(mktemp -d "$DEST_PARENT/.bdsuite-stage.XXXXXX")" || exit 2
+TXN_DIR="$(mktemp -d "$LINK_DEST/.bdsuite-txn.XXXXXX")" || exit 2
+[ "$(stat -c '%a' -- "$TXN_DIR")" = 700 ] || {
+  echo "ERROR: transaction directory is not mode 0700: $TXN_DIR" >&2
+  exit 2
+}
 if [ -d "$DEST" ]; then
   DEST_MODE="$(stat -c '%a' -- "$DEST")" || exit 2
 else
@@ -186,8 +207,9 @@ rollback() {
   done
   if [ "$rollback_ok" -eq 1 ]; then
     [ ! -e "$STAGE" ] || rm -rf -- "$STAGE"
+    [ ! -e "$TXN_DIR" ] || rm -rf -- "$TXN_DIR"
   else
-    echo "BD-INSTALL-ROLLBACK-INCOMPLETE: prior generation preserved at $STAGE; live destination $DEST requires recovery" >&2
+    echo "BD-INSTALL-ROLLBACK-INCOMPLETE: recovery data preserved at $STAGE and $TXN_DIR; live destination $DEST requires recovery" >&2
   fi
   exit "$status"
 }
@@ -294,9 +316,8 @@ STAGED_ROOT="$(env -u BD_WORK_TREE python3 "$STAGE/_bd_work_tree.py")" || {
   exit 2
 }
 
-txn="$$"
 for name in "${PUBLIC_NAMES[@]}"; do
-  prepared="$LINK_DEST/.bdsuite-link.$txn.$name"
+  prepared="$TXN_DIR/link.$name"
   [ ! -e "$prepared" ] && [ ! -L "$prepared" ] || { echo "ERROR: link staging collision: $prepared" >&2; exit 2; }
   ln -s -- "$DEST/$name" "$prepared" || { echo "ERROR: preparing public link failed: $name" >&2; exit 2; }
   PREPARED_LINKS+=("$prepared")
@@ -306,20 +327,24 @@ if [ -e "$DEST" ]; then
   python3 "$HERE/install_exchange.py" "$DEST" "$STAGE" || exit 2
   EXCHANGED=1
 else
-  mv -T -- "$STAGE" "$DEST" || exit 2
+  mv -T -- "$STAGE" "$DEST" || {
+    echo "ERROR: publishing suite generation failed" >&2; exit 2;
+  }
 fi
 PUBLISHED=1
 
 for name in "${PUBLIC_NAMES[@]}"; do
   public="$LINK_DEST/$name"
-  prepared="$LINK_DEST/.bdsuite-link.$txn.$name"
+  prepared="$TXN_DIR/link.$name"
   if [ -e "$public" ] || [ -L "$public" ]; then
     # Prevalidation proved this is already the exact stable link.  Keep it in
     # place so upgrades never introduce a missing-public-command interval.
     rm -f -- "$prepared" || exit 2
   else
     NEW_LINKS+=("$public")
-    mv -T -- "$prepared" "$public" || exit 2
+    mv -T -- "$prepared" "$public" || {
+      echo "ERROR: publishing public link failed: $name" >&2; exit 2;
+    }
   fi
 done
 
@@ -333,8 +358,10 @@ for name in "${OLD_PUBLIC_NAMES[@]}"; do
   [ -L "$public" ] || continue
   target="$(readlink -- "$public")" || continue
   case "$target" in "$DEST/$name")
-    backup="$LINK_DEST/.bdsuite-backup.$txn.$name"
-    mv -T -- "$public" "$backup" || exit 2
+    backup="$TXN_DIR/backup.$name"
+    mv -T -- "$public" "$backup" || {
+      echo "ERROR: retiring obsolete public link failed: $name" >&2; exit 2;
+    }
     BACKUP_ORIGINALS+=("$public")
     BACKUP_PATHS+=("$backup")
   esac
@@ -353,6 +380,7 @@ COMMITTED=1
 cleanup_ok=1
 for backup in "${BACKUP_PATHS[@]}"; do rm -f -- "$backup" || cleanup_ok=0; done
 [ "$EXCHANGED" -eq 0 ] || rm -rf -- "$STAGE" || cleanup_ok=0
+rmdir -- "$TXN_DIR" || cleanup_ok=0
 trap - EXIT
 [ "$cleanup_ok" -eq 1 ] || {
   echo "BD-INSTALL-CLEANUP-INCOMPLETE: published generation is valid; transaction residue requires cleanup" >&2

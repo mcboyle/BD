@@ -3,6 +3,7 @@ from __future__ import annotations
 
 BD_GATE_SCOPE = "module"
 
+import ast
 import importlib.machinery
 import importlib.util
 import json
@@ -114,6 +115,35 @@ def _failure_shim(tmp_path: Path, command: str, fail_on: int = 1) -> Path:
     return shim_dir
 
 
+def _shim_count(shim_dir: Path) -> int:
+    return int((shim_dir / "count").read_text(encoding="utf-8"))
+
+
+def _mutate_python(path: Path, anchor: str, replacement: str) -> None:
+    """Apply one review mutant only when its exact source anchor is intact."""
+    before = path.read_text(encoding="utf-8")
+    assert before.count(anchor) == 1, f"mutation anchor count changed for {path}"
+    after = before.replace(anchor, replacement, 1)
+    assert after != before
+    ast.parse(after, filename=str(path))
+    path.write_text(after, encoding="utf-8")
+
+
+def _add_owned_stale_command(suite_bin: Path, link_bin: Path, name: str = "bd-stale") -> Path:
+    stale = suite_bin / name
+    stale.write_text("owned stale command\n", encoding="utf-8")
+    stale.chmod(0o755)
+    (link_bin / name).symlink_to(stale)
+    manifest_path = suite_bin / ".bdsuite-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_basenames"].append(name)
+    manifest["public_commands"].append(name)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return stale
+
+
 def _write_state_pack(path: Path, marker: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
@@ -188,6 +218,96 @@ def test_work_tree_resolver_translates_git_launch_failures(monkeypatch, failure)
     monkeypatch.setattr(resolver.subprocess, "run", fail_git)
     with pytest.raises(resolver.WorkTreeResolutionError):
         resolver.resolve_work_tree(BIN / "_bd_work_tree.py", explicit=str(REPO))
+
+
+@pytest.mark.parametrize("failed_lstat", [1, 2])
+def test_work_tree_resolver_translates_pointer_lstat_oserrors(
+    tmp_path, monkeypatch, capsys, failed_lstat,
+):
+    """Either pointer metadata probe is a named exit-2 refusal, never a traceback."""
+    resolver = _load_extensionless(
+        f"bd_work_tree_lstat_failure_{failed_lstat}", BIN / "_bd_work_tree.py"
+    )
+    installed = tmp_path / "installed"
+    installed.mkdir()
+    tool = installed / "bd-tool"
+    tool.write_text("tool\n", encoding="utf-8")
+    pointer = installed / ".bd-work-tree"
+    pointer.write_text(str(REPO.resolve()) + "\n", encoding="utf-8")
+    real_lstat = Path.lstat
+    calls = 0
+
+    def injected_lstat(path):
+        nonlocal calls
+        if path == pointer:
+            calls += 1
+            if calls == failed_lstat:
+                raise PermissionError("injected pointer metadata refusal")
+        return real_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", injected_lstat)
+    monkeypatch.setattr(resolver, "__file__", str(tool))
+    assert resolver.main([]) == 2
+    captured = capsys.readouterr()
+    assert "BD-WORK-TREE-UNRUNNABLE" in captured.err
+    assert "installed pointer metadata is unreadable" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+    assert calls == failed_lstat
+
+
+@pytest.mark.parametrize(
+    ("consumer", "named_refusal", "expected_exit"),
+    [
+        ("bd-guardcheck", "BD-GATE-UNRUNNABLE", 2),
+        ("bd-state", "BD-WORK-TREE-UNRUNNABLE", 2),
+        ("bd-wedge-hunt", "BD-HUNT-UNRUNNABLE", 1),
+    ],
+)
+@pytest.mark.parametrize(
+    "corrupt_helper",
+    [
+        "raise RuntimeError('injected resolver corruption')\n",
+        "raise SystemExit(73)\n",
+    ],
+)
+def test_public_consumers_translate_corrupt_resolver_loads(
+    tmp_path, consumer, named_refusal, expected_exit, corrupt_helper,
+):
+    """Every resolver consumer translates ordinary failures and SystemExit."""
+    suite_bin = tmp_path / "installed"
+    link_bin = tmp_path / "public"
+    suite_bin.mkdir(); link_bin.mkdir()
+    shutil.copy2(BIN / consumer, suite_bin / consumer)
+    (link_bin / consumer).symlink_to(suite_bin / consumer)
+    (suite_bin / "_bd_work_tree.py").write_text(corrupt_helper, encoding="utf-8")
+    run_env = {key: value for key, value in os.environ.items() if not key.startswith("BD_")}
+    result = subprocess.run(
+        [str(link_bin / consumer)], cwd=tmp_path, env=run_env,
+        text=True, capture_output=True, timeout=10,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == expected_exit, combined
+    assert combined.count(named_refusal) == 1
+    assert "Traceback" not in combined
+
+
+@pytest.mark.parametrize("uncaught", ["KeyboardInterrupt", "GeneratorExit"])
+def test_resolver_load_boundary_does_not_translate_base_exits(tmp_path, uncaught):
+    """Operator interrupts and generator shutdown remain outside named translation."""
+    suite_bin = tmp_path / "installed"
+    link_bin = tmp_path / "public"
+    suite_bin.mkdir(); link_bin.mkdir()
+    shutil.copy2(BIN / "bd-state", suite_bin / "bd-state")
+    (link_bin / "bd-state").symlink_to(suite_bin / "bd-state")
+    (suite_bin / "_bd_work_tree.py").write_text(f"raise {uncaught}()\n", encoding="utf-8")
+    run_env = {key: value for key, value in os.environ.items() if not key.startswith("BD_")}
+    result = subprocess.run(
+        [str(link_bin / "bd-state")], cwd=tmp_path, env=run_env,
+        text=True, capture_output=True, timeout=10,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode != 2
+    assert "BD-WORK-TREE-UNRUNNABLE" not in combined
 
 
 def test_installed_public_tools_share_pointer_authority(tmp_path):
@@ -336,8 +456,17 @@ def test_installer_publishes_exact_population_and_removes_owned_stale_paths(tmp_
     )
 
 
-@pytest.mark.parametrize("command", ["cp", "chmod", "ln"])
-def test_installer_failure_preserves_the_complete_old_install(tmp_path, command):
+@pytest.mark.parametrize(
+    ("command", "fail_on", "diagnostic"),
+    [
+        ("cp", 1, "staging copy failed for _bd_work_tree.py"),
+        ("chmod", 2, "staging chmod failed for _bd_work_tree.py"),
+        ("ln", 1, "preparing public link failed: bd"),
+    ],
+)
+def test_installer_failure_preserves_the_complete_old_install(
+    tmp_path, command, fail_on, diagnostic,
+):
     """Handled staging/link failures return 2 and preserve every old owned path."""
     env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
     source = tmp_path / "source-toolchain"
@@ -350,16 +479,86 @@ def test_installer_failure_preserves_the_complete_old_install(tmp_path, command)
     (source / "bin" / "bd").write_bytes(
         (source / "bin" / "bd").read_bytes() + b"\n# replacement\n"
     )
-    shim = _failure_shim(tmp_path, command)
+    shim = _failure_shim(tmp_path, command, fail_on)
     failed_env = {**env, "PATH": str(shim) + os.pathsep + env["PATH"]}
     failed = _install(failed_env, source)
 
     assert failed.returncode == 2, failed.stdout + failed.stderr
+    assert _shim_count(shim) == fail_on
+    assert diagnostic in failed.stderr
     assert "bdsuite installed" not in failed.stdout
     assert _tree_snapshot(suite_bin, link_bin) == before
     still_runs = _run_installed_bd(link_bin, env, tmp_path)
     assert still_runs.returncode == 0, still_runs.stdout + still_runs.stderr
     assert Path(still_runs.stdout).resolve() == REPO.resolve()
+
+
+@pytest.mark.parametrize(
+    ("layout", "expected"),
+    [
+        ("equal", "must be distinct"),
+        ("dest-nested", "BD_SUITE_BIN may not be inside"),
+        ("link-nested", "BD_SUITE_LINK_BIN may not be inside"),
+        ("sibling-prefix", "incomplete source toolchain"),
+        ("dest-root", "BD_SUITE_BIN may not be filesystem root"),
+        ("link-root", "BD_SUITE_LINK_BIN may not be filesystem root"),
+    ],
+)
+def test_installer_destination_validator_is_component_aware_and_non_mutating(
+    tmp_path, layout, expected,
+):
+    """Equality, containment, sibling prefixes, and root refusal precede mutation."""
+    validator = tmp_path / "validator-toolchain"
+    validator.mkdir()
+    shutil.copy2(REPO / "toolchain" / "install_bdsuite.sh", validator)
+    base = tmp_path / "destinations"
+    cases = {
+        "equal": (base / "same", base / "same"),
+        "dest-nested": (base / "public" / "suite", base / "public"),
+        "link-nested": (base / "suite", base / "suite" / "public"),
+        "sibling-prefix": (base / "a" / "b", base / "a" / "b2"),
+        "dest-root": (Path("/"), base / "public"),
+        "link-root": (base / "suite", Path("/")),
+    }
+    dest, link_dest = cases[layout]
+    env = {
+        **{key: value for key, value in os.environ.items() if not key.startswith("BD_")},
+        "BD_WORK_TREE": str(REPO),
+        "BD_SUITE_BIN": str(dest),
+        "BD_SUITE_LINK_BIN": str(link_dest),
+    }
+    result = _install(env, validator)
+    assert result.returncode == 2
+    assert expected in result.stderr
+    assert not base.exists()
+
+
+def test_installer_refuses_alternate_env_destination_before_mutation(tmp_path):
+    """The environment fragment cannot escape the exact generation directory."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    env["BD_ENV_FILE_DEST"] = str(tmp_path / "alternate" / ".bdenv.sh")
+    refused = _install(env)
+    assert refused.returncode == 2
+    assert "BD_ENV_FILE_DEST must be" in refused.stderr
+    assert not suite_bin.exists()
+    assert not link_bin.exists()
+    assert not (tmp_path / "alternate").exists()
+
+
+def test_installer_refuses_source_symlink_before_mutation(tmp_path):
+    """A symlink in the copied source roster cannot enter the installed generation."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    source = tmp_path / "symlink-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    victim = source / "bin" / "bd-state"
+    victim.unlink()
+    victim.symlink_to(REPO / "toolchain" / "bin" / "bd-state")
+    env["BD_WORK_TREE"] = str(REPO)
+    refused = _install(env, source)
+    assert refused.returncode == 2
+    assert "source tool population contains a symlink" in refused.stderr
+    assert not suite_bin.exists()
+    assert not link_bin.exists()
 
 
 def test_installer_refuses_unrelated_public_collision_before_mutation(tmp_path):
@@ -402,16 +601,13 @@ def test_installer_rolls_back_a_live_validation_failure(tmp_path):
     source = tmp_path / "live-invalid-toolchain"
     shutil.copytree(REPO / "toolchain", source)
     resolver = source / "bin" / "_bd_work_tree.py"
-    resolver.write_text(
-        resolver.read_text(encoding="utf-8").replace(
-            "from __future__ import annotations\n",
-            "from __future__ import annotations\n"
-            "import pathlib\n"
-            "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
-            "    raise SystemExit(2)\n",
-            1,
-        ),
-        encoding="utf-8",
+    _mutate_python(
+        resolver,
+        "from __future__ import annotations\n",
+        "from __future__ import annotations\n"
+        "import pathlib\n"
+        "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+        "    raise SystemExit(2)\n",
     )
     env["BD_WORK_TREE"] = str(REPO)
     failed = _install(env, source)
@@ -433,21 +629,136 @@ def test_installer_rollback_handles_every_legal_link_directory_character(tmp_pat
     shutil.copytree(REPO / "toolchain", source)
     (source / "bin" / "bd-status").unlink()
     resolver = source / "bin" / "_bd_work_tree.py"
-    resolver.write_text(
-        resolver.read_text(encoding="utf-8").replace(
-            "from __future__ import annotations\n",
-            "from __future__ import annotations\n"
-            "import pathlib\n"
-            "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
-            "    raise SystemExit(2)\n",
-            1,
-        ),
-        encoding="utf-8",
+    _mutate_python(
+        resolver,
+        "from __future__ import annotations\n",
+        "from __future__ import annotations\n"
+        "import pathlib\n"
+        "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+        "    raise SystemExit(2)\n",
     )
     env["BD_WORK_TREE"] = str(REPO)
     failed = _install(env, source)
     assert failed.returncode == 2
     assert _tree_snapshot(suite_bin, link_bin) == before
+
+
+@pytest.mark.parametrize(
+    ("seam", "diagnostic"),
+    [
+        ("public-link", "publishing public link failed: bd-status"),
+        ("obsolete-link", "retiring obsolete public link failed: bd-stale"),
+    ],
+)
+def test_installer_mv_failure_targets_post_exchange_publication_seams(
+    tmp_path, seam, diagnostic,
+):
+    """The first injected mv is proven to be the requested post-exchange seam."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    source = tmp_path / "mv-failure-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    env["BD_WORK_TREE"] = str(REPO)
+    first = _install(env, source)
+    assert first.returncode == 0, first.stderr
+    if seam == "public-link":
+        (link_bin / "bd-status").unlink()
+    else:
+        _add_owned_stale_command(suite_bin, link_bin)
+    before = _tree_snapshot(suite_bin, link_bin)
+    (source / "bin" / "bd").write_bytes(
+        (source / "bin" / "bd").read_bytes() + b"\n# mv failure generation\n"
+    )
+    shim = _failure_shim(tmp_path, "mv", 1)
+    failed = _install({**env, "PATH": str(shim) + os.pathsep + env["PATH"]}, source)
+    assert failed.returncode == 2, failed.stdout + failed.stderr
+    assert _shim_count(shim) == 1
+    assert diagnostic in failed.stderr
+    assert _tree_snapshot(suite_bin, link_bin) == before
+
+
+def test_obsolete_backup_uses_random_private_transaction_area_and_preserves_collision(
+    tmp_path,
+):
+    """A legacy predictable collision is unrelated, and backup storage is private."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    source = tmp_path / "collision-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    env["BD_WORK_TREE"] = str(REPO)
+    first = _install(env, source)
+    assert first.returncode == 0, first.stderr
+    _add_owned_stale_command(suite_bin, link_bin)
+
+    shim_dir = tmp_path / "shim-mv-collision"
+    shim_dir.mkdir()
+    real_mv = shutil.which("mv")
+    assert real_mv
+    collision_record = tmp_path / "legacy-collision-path"
+    transaction_record = tmp_path / "transaction-record"
+    shim = shim_dir / "mv"
+    shim.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$(basename -- \"$3\")\" = bd-stale ]; then\n"
+        "  collision=\"$BD_LINK_DEST/.bdsuite-backup.$PPID.bd-stale\"\n"
+        "  printf 'operator-owned\\n' > \"$collision\"\n"
+        "  printf '%s\\n' \"$collision\" > \"$BD_COLLISION_RECORD\"\n"
+        "  parent=$(dirname -- \"$4\")\n"
+        "  printf '%s %s\\n' \"$parent\" \"$(stat -c %a -- \"$parent\")\" > \"$BD_TRANSACTION_RECORD\"\n"
+        "fi\n"
+        f"exec {real_mv} \"$@\"\n",
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    run_env = {
+        **env,
+        "PATH": str(shim_dir) + os.pathsep + env["PATH"],
+        "BD_LINK_DEST": str(link_bin),
+        "BD_COLLISION_RECORD": str(collision_record),
+        "BD_TRANSACTION_RECORD": str(transaction_record),
+    }
+    updated = _install(run_env, source)
+    assert updated.returncode == 0, updated.stdout + updated.stderr
+    collision = Path(collision_record.read_text(encoding="utf-8").strip())
+    assert collision.read_text(encoding="utf-8") == "operator-owned\n"
+    transaction, mode = transaction_record.read_text(encoding="utf-8").strip().rsplit(" ", 1)
+    assert Path(transaction).parent == link_bin
+    assert Path(transaction).name.startswith(".bdsuite-txn.")
+    assert mode == "700"
+    assert not (link_bin / "bd-stale").exists()
+
+
+def test_failed_obsolete_backup_restore_preserves_private_transaction_area(tmp_path):
+    """If rollback restoration faults, the owned link backup remains recoverable."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    source = tmp_path / "backup-restore-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    env["BD_WORK_TREE"] = str(REPO)
+    first = _install(env, source)
+    assert first.returncode == 0, first.stderr
+    stale = _add_owned_stale_command(suite_bin, link_bin)
+    old_bd = (suite_bin / "bd").read_bytes()
+    resolver = source / "bin" / "_bd_work_tree.py"
+    _mutate_python(
+        resolver,
+        "from __future__ import annotations\n",
+        "from __future__ import annotations\n"
+        "import pathlib\n"
+        "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+        "    raise SystemExit(2)\n",
+    )
+    shim = _failure_shim(tmp_path, "mv", 2)
+    failed = _install({**env, "PATH": str(shim) + os.pathsep + env["PATH"]}, source)
+    assert failed.returncode == 2
+    assert _shim_count(shim) == 2
+    assert "BD-INSTALL-ROLLBACK-INCOMPLETE" in failed.stderr
+    assert (suite_bin / "bd").read_bytes() == old_bd
+    assert stale.read_text(encoding="utf-8") == "owned stale command\n"
+    assert not (link_bin / "bd-stale").exists()
+    transaction_areas = list(link_bin.glob(".bdsuite-txn.*"))
+    assert len(transaction_areas) == 1
+    assert transaction_areas[0].stat().st_mode & 0o777 == 0o700
+    backup = transaction_areas[0] / "backup.bd-stale"
+    assert backup.is_symlink()
+    assert backup.readlink() == stale
 
 
 def test_installer_preserves_recovery_generation_when_reverse_exchange_fails(tmp_path):
@@ -460,16 +771,13 @@ def test_installer_preserves_recovery_generation_when_reverse_exchange_fails(tmp
     source = tmp_path / "reverse-failure-toolchain"
     shutil.copytree(REPO / "toolchain", source)
     resolver = source / "bin" / "_bd_work_tree.py"
-    resolver.write_text(
-        resolver.read_text(encoding="utf-8").replace(
-            "from __future__ import annotations\n",
-            "from __future__ import annotations\n"
-            "import pathlib\n"
-            "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
-            "    raise SystemExit(2)\n",
-            1,
-        ),
-        encoding="utf-8",
+    _mutate_python(
+        resolver,
+        "from __future__ import annotations\n",
+        "from __future__ import annotations\n"
+        "import pathlib\n"
+        "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+        "    raise SystemExit(2)\n",
     )
     exchange = source / "install_exchange.py"
     real_exchange = source / "install_exchange_real.py"

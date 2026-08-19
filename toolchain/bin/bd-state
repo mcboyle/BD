@@ -36,7 +36,7 @@ try:
         raise ImportError(f"cannot load {_RESOLVER_PATH}")
     _resolver = importlib.util.module_from_spec(_resolver_spec)
     _resolver_spec.loader.exec_module(_resolver)
-except (ImportError, OSError) as exc:
+except (Exception, SystemExit) as exc:
     _resolver = None
     _RESOLVER_LOAD_ERROR = exc
 else:

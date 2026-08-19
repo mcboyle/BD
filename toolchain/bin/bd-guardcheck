@@ -34,15 +34,17 @@ report every guard ok.  A gate that cries wolf gets switched off.
 import argparse, glob, hashlib, importlib.util, json, os, re, sys, zipfile
 
 _RESOLVER_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_bd_work_tree.py")
-_resolver_spec = importlib.util.spec_from_file_location("_bd_guard_work_tree", _RESOLVER_PATH)
-if _resolver_spec is not None and _resolver_spec.loader is not None:
+try:
+    _resolver_spec = importlib.util.spec_from_file_location("_bd_guard_work_tree", _RESOLVER_PATH)
+    if _resolver_spec is None or _resolver_spec.loader is None:
+        raise ImportError(f"cannot load {_RESOLVER_PATH}")
     _resolver = importlib.util.module_from_spec(_resolver_spec)
-    try:
-        _resolver_spec.loader.exec_module(_resolver)
-    except OSError:
-        _resolver = None
-else:
+    _resolver_spec.loader.exec_module(_resolver)
+except (Exception, SystemExit) as exc:
     _resolver = None
+    _RESOLVER_LOAD_ERROR = exc
+else:
+    _RESOLVER_LOAD_ERROR = None
 
 MANIFEST_NAME = "guards.json"
 UNRUNNABLE = 2
@@ -140,7 +142,9 @@ def resolve_tree(explicit):
     if explicit:
         return os.path.abspath(explicit), "--tree"
     if _resolver is None:
-        raise RuntimeError("checkout resolver is missing beside physical tool")
+        raise RuntimeError(
+            f"checkout resolver failed to load beside physical tool: {_RESOLVER_LOAD_ERROR}"
+        )
     return str(_resolver.resolve_work_tree(__file__)), "checkout authority"
 
 

@@ -46,8 +46,10 @@ def _validated_checkout(value: str, source: str) -> Path:
 def _read_pointer(pointer: Path) -> str:
     try:
         info = pointer.lstat()
-    except FileNotFoundError as exc:
-        raise WorkTreeResolutionError(f"installed pointer is missing: {pointer}") from exc
+    except OSError as exc:
+        raise WorkTreeResolutionError(
+            f"installed pointer metadata is unreadable: {pointer}"
+        ) from exc
     if not stat.S_ISREG(info.st_mode) or pointer.is_symlink():
         raise WorkTreeResolutionError(f"installed pointer is not a regular file: {pointer}")
     if info.st_uid != os.getuid() or info.st_nlink != 1:
@@ -86,6 +88,10 @@ def resolve_work_tree(
         pointer.lstat()
     except FileNotFoundError:
         pass
+    except OSError as exc:
+        raise WorkTreeResolutionError(
+            f"installed pointer metadata is unreadable: {pointer}"
+        ) from exc
     else:
         return _validated_checkout(_read_pointer(pointer), str(pointer))
 
