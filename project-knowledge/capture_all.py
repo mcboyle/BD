@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Comprehensive SPA capture for the functional navigator.
 
-Captures, in BOTH themes, into /home/claude/capture/:
+Captures, in BOTH themes, into BD_CAPTURE_DIR (or reports/capture):
   - every nav route (29) + every site drill-in (5)
   - in-page filter subtabs (Sites/Activity/History)
   - the cockpit console (/cockpit)
@@ -14,7 +14,8 @@ import os, json, asyncio
 from playwright.async_api import async_playwright
 
 BASE = "http://127.0.0.1:5599"
-OUT  = "/home/claude/capture"
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+OUT = os.environ.get("BD_CAPTURE_DIR", os.path.join(ROOT, "reports", "capture"))
 VP   = {"width": 1440, "height": 900}
 
 # (route, label) — nav tabs

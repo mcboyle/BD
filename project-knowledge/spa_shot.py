@@ -8,12 +8,14 @@ Usage: python3 spa_shot.py [route] [outprefix]
 Captures desktop (1280x900) + mobile (390x844). Waits for react-query to settle.
 Assumes the Flask backend is serving the built dist on 127.0.0.1:5599.
 """
-import sys, asyncio
+import sys, asyncio, os
 from playwright.async_api import async_playwright
 
 BASE = "http://127.0.0.1:5599"
 ROUTE = sys.argv[1] if len(sys.argv) > 1 else "/"
 PREFIX = sys.argv[2] if len(sys.argv) > 2 else "home"
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+OUT = os.environ.get("BD_OUT", os.path.join(ROOT, "reports", "render"))
 
 VIEWPORTS = [("desktop", 1280, 900), ("mobile", 390, 844)]
 
@@ -32,7 +34,8 @@ async def shot(pw, name, w, h):
     except Exception:
         pass
     await page.wait_for_timeout(1200)
-    out = f"/home/claude/{PREFIX}_{name}.png"
+    os.makedirs(OUT, exist_ok=True)
+    out = os.path.join(OUT, f"{PREFIX}_{name}.png")
     await page.screenshot(path=out, full_page=True)
     # quick measurements
     dims = await page.evaluate("""() => {

@@ -33,9 +33,7 @@ def _resolve_default_work():
       2. a bounded walk up from this file to the repo root, marker
          bulk_downloader/__init__.py (works when toolchain/ is inside the tree,
          i.e. a git clone);
-      3. the legacy sandbox default /home/claude/work (the sandbox keeps the
-         toolchain in /home/claude/bin, a sibling of /home/claude/work, so the
-         walk finds nothing and this fallback preserves sandbox behaviour).
+      3. the current directory, but only when it is itself a checkout.
     """
     env = os.environ.get("BD_ROOT")
     if env and os.path.isfile(os.path.join(env, "bulk_downloader", "__init__.py")):
@@ -48,7 +46,9 @@ def _resolve_default_work():
         if parent == d:
             break
         d = parent
-    return "/home/claude/work"
+    if os.path.isfile(os.path.join(os.getcwd(), "bulk_downloader", "__init__.py")):
+        return os.getcwd()
+    raise RuntimeError("cannot resolve repository root; set BD_ROOT")
 
 
 DEFAULT_WORK = _resolve_default_work()
@@ -649,7 +649,8 @@ def require_source_tree(work=DEFAULT_WORK, label="--work/--tree"):
                           label=label, patterns=("*.py",))
 
 
-def require_bundle(home="/home/claude", label="--home"):
+def require_bundle(home=None, label="--home"):
+    home = home or os.environ.get("BD_BUNDLE_HOME", DEFAULT_WORK)
     """The other root: the bundle (release zips + STATE) a composer derives its
     reference from. The predicate asserts what a bundle IS -- min_files=1 over any
     file let a directory containing one readme.txt pass as a release bundle, and
@@ -839,15 +840,17 @@ def emit(obj, as_json=False, stream=None):
 
 
 # ---------------------------------------------------------------- STATE helpers
-def find_state_zip(home="/home/claude"):
+def find_state_zip(home=None):
     """Newest BulkDL_next_session_*.zip carrying STATE.json."""
+    home = home or os.environ.get("BD_BUNDLE_HOME", DEFAULT_WORK)
     cands = sorted(glob.glob(os.path.join(home, "BulkDL_next_session_*.zip")),
                    key=os.path.getmtime, reverse=True)
     return cands[0] if cands else None
 
 
-def load_state(home="/home/claude"):
+def load_state(home=None):
     """Load STATE.json from disk (nextsess dir) or the newest version pack."""
+    home = home or os.environ.get("BD_BUNDLE_HOME", DEFAULT_WORK)
     for p in (os.path.join(home, "nextsess", "STATE.json"),
               os.path.join(home, "STATE.json")):
         if os.path.exists(p):
@@ -885,8 +888,9 @@ _GUARD_FALLBACK = (
 )
 
 
-def _guard_map(home="/home/claude"):
+def _guard_map(home=None):
     """(guard_paths_tuple, source_string). Never raises; never returns empty."""
+    home = home or os.environ.get("BD_BUNDLE_HOME", DEFAULT_WORK)
     try:
         st = load_state(home)
         if st:
@@ -898,17 +902,17 @@ def _guard_map(home="/home/claude"):
     return _GUARD_FALLBACK, "fallback literal (no STATE guards_full_sha256 found)"
 
 
-def guard_paths(home="/home/claude"):
+def guard_paths(home=None):
     """Release-guard file paths, DERIVED from STATE when it is readable."""
     return _guard_map(home)[0]
 
 
-def guard_basenames(home="/home/claude"):
+def guard_basenames(home=None):
     """Just the basenames -- what a changed-file check compares against."""
     return tuple(sorted({os.path.basename(p) for p in guard_paths(home)}))
 
 
-def guard_source(home="/home/claude"):
+def guard_source(home=None):
     """Where the guard set came from. A caller that wants to SAY SO can."""
     return _guard_map(home)[1]
 

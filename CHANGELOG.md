@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1186 - make live tool defaults repository-portable
+
+- Close the 46-file live-path phase: tools now derive this checkout or honor
+  explicit operator roots for work, review, state, browser, and capture data.
+- Remove the unreferenced sandbox-only supervisord configuration and preserve
+  the six load-bearing adversarial path controls unchanged.
+- Remove the consumer oracle's machine-identity gate and pass its validated
+  repository root explicitly to the specialist command.
+
 ## v3.66.1185 - classify retired sandbox-home carriers
 
 - Replace the flat retired-home allowlist with an exact reason mapping and

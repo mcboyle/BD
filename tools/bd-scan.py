@@ -22,6 +22,11 @@ import shutil
 import subprocess
 import sys
 
+DEFAULT_ROOT = os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
+REVIEW_ROOT = os.environ.get("BD_REVIEW_ROOT", os.path.join(DEFAULT_ROOT, "review"))
+
 PROD_DIRS = ["bulk_downloader", "tools"]
 
 
@@ -179,9 +184,9 @@ def from_jscpd(root, venv):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default="/home/claude/work")
+    ap.add_argument("--root", default=DEFAULT_ROOT)
     ap.add_argument("--venv", default=os.path.expanduser("~/rev"))
-    ap.add_argument("--out", default="/home/claude/review/artifacts/SCAN_FINDINGS.json")
+    ap.add_argument("--out", default=os.path.join(REVIEW_ROOT, "artifacts", "SCAN_FINDINGS.json"))
     ap.add_argument("--semgrep", action="store_true",
                     help="run semgrep over the Python tree (heavy)")
     ap.add_argument("--ts", action="store_true",

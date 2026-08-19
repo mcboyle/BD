@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Capture every nav tab of the SPA at desktop width, uniform viewport tiles.
 Boots nothing itself — expects backend on 127.0.0.1:5599 (the wrapper boots it).
-Writes /home/claude/tabs/<slug>.png and prints a per-tab report (overflow + errors).
+Writes BD_OUT/<slug>.png and prints a per-tab report (overflow + errors).
 """
 import asyncio, os
 from playwright.async_api import async_playwright
 
 BASE = "http://127.0.0.1:5599"
 THEME = os.environ.get("BD_THEME", "light")   # 'light' | 'dark'
-OUT = os.environ.get("BD_OUT", "/home/claude/tabs")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+OUT = os.environ.get("BD_OUT", os.path.join(ROOT, "reports", "tabs"))
 W, H = 1280, 900
 
 TABS = [

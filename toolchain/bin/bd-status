@@ -6,7 +6,7 @@ case " $* " in *" --selftest "*)
   echo "SKIP: needs a provisioned session (run it directly to see live status)"
   echo "SELFTEST PASS"; exit 0;; esac
 # @878 -- FAIL CLOSED when the env this tool exists to load is absent.
-# Both of these used to source /home/claude/bdenv.sh and carry on regardless:
+# Earlier versions sourced a fixed sandbox env file and carried on regardless:
 # `bd` had no `set -e` and exec'd the command anyway, so it ran with NONE of the
 # environment its whole purpose is to provide, and exited 0. A tool whose output
 # is a verdict an operator acts on must not produce one over an environment it
@@ -94,34 +94,18 @@ echo "  DISPLAY=$DISPLAY   BD_HOME=$BD_HOME   BD_DISABLE_KEEPALIVE=$BD_DISABLE_K
 echo "  PATH head: $(echo $PATH | cut -d: -f1-3)"
 
 echo
-echo "=== KITS (file/import checks, 21 total) ==="
-# Core kits (always required)
+echo "=== CURRENT TOOLCHAIN ==="
+WORK="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
 check_path "core (prestaged python)" /tmp/prestaged_site_packages
-check_path "venv (stash runtime)"     /home/claude/work/venv/bin/python
+check_path "venv (service runtime)"  "$WORK/venv/bin/python"
 check_import "optional (yt-dlp)"      yt_dlp
-check_path "media (ffmpeg)"           /tmp/media/tools_bin/ffmpeg
-check_path "tools (rg)"               /tmp/tools_bin/rg
-check_path "node"                     /home/claude/.local/node/bin/node
-check_path "gtk"                      /home/claude/.local/gtk
-check_path "chromium (playwright)"    /home/claude/.cache/ms-playwright
-check_path "frontend (node_modules)"  /home/claude/work/frontend/node_modules
-check_path "vitest (harness)"         /home/claude/work/frontend/node_modules/.bin/vitest
-check_path "rsuite"                   /home/claude/rsuite_kit/node_modules/rsuite
-check_path "pypy"                     /home/claude/pypy_kit/pypy/bin/pypy3
-check_path "bd_home"                  /home/claude/bd_home
-check_path "apprise"                  /home/claude/apprise_kit/bin/fake_webhook_server.py
-check_path "mocks"                    /home/claude/mocks_kit/bin/mock_plex.py
-
-# Auxiliary kits (added in bd-status v2 — were silently missing before)
-# Note: profiling unpacks to /tmp, not /home/claude.
-check_any_path "profiling (py-spy)"   /tmp/profiling_kit/tools_bin/py-spy \
-                                       /tmp/profiling_kit
-check_path "supervisord"              /home/claude/supervisord_kit/conf
-check_path "recordings"               /home/claude/recordings_kit
-check_path "webproxy (Caddyfile)"     /home/claude/webproxy_kit/conf/Caddyfile
-check_path "datastores (psql)"        /home/claude/datastores_kit/tools_bin/psql
-check_path "lsp"                      /home/claude/lsp_kit
-check_path "precommit"                /home/claude/precommit_kit
+check_path "chromium (playwright)"    "$PLAYWRIGHT_BROWSERS_PATH"
+check_path "frontend (node_modules)"  "$WORK/frontend/node_modules"
+check_path "vitest (harness)"         "$WORK/frontend/node_modules/.bin/vitest"
+check_path "bd_home"                  "$BD_HOME"
+[ -z "${GTK_ROOT:-}" ] || check_path "gtk" "$GTK_ROOT"
+[ -z "${APPRISE_BIN:-}" ] || check_path "apprise" "$APPRISE_BIN"
+[ -z "${MOCKS_DIR:-}" ] || check_path "mocks" "$MOCKS_DIR/mock_plex.py"
 
 echo
 echo "=== SERVICES (processes + ports) ==="
@@ -137,15 +121,15 @@ check_port "  stash"         9999
 
 echo
 echo "=== SOURCE TREE ==="
-check_path "BulkDownloader source" /home/claude/work/bulk_downloader
-check_path "package_json"          /home/claude/work/frontend/package.json
+check_path "BulkDownloader source" "$WORK/bulk_downloader"
+check_path "package_json"          "$WORK/frontend/package.json"
 
 # v3.66.721: the SERVICE VENV. Its loss is completely silent -- bd-install does
 # `rm -rf work/*` before extracting and the zip has NO venv/, so re-running
 # bd-boot/bd-install DESTROYS it and nothing restores it. Every tool hardcoding
 # venv/bin/python then probes NOTHING (how bd-sbcap reported "chromium build
 # resolvable" having verified nothing). Surface it here, every status call.
-if [ -x /home/claude/work/venv/bin/python3 ] || [ -x /home/claude/work/venv/bin/python ]; then
+if [ -x "$WORK/venv/bin/python3" ] || [ -x "$WORK/venv/bin/python" ]; then
   printf "  %-24s %s\n" "service venv" "OK (work/venv)"
 else
   printf "  %-24s %s\n" "service venv" "MISSING -- re-running bd-boot/bd-install destroys it. Tools hardcoding venv/bin/python probe NOTHING. FIX: bd-venv"
@@ -153,4 +137,4 @@ fi
 
 echo
 echo "=== DISK ==="
-df -h /home/claude /tmp 2>/dev/null | tail -2 | awk '{printf "  %-12s %s used, %s free (%s)\n", $6, $3, $4, $5}'
+df -h "$WORK" /tmp 2>/dev/null | tail -2 | awk '{printf "  %-12s %s used, %s free (%s)\n", $6, $3, $4, $5}'

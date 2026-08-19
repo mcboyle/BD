@@ -27,8 +27,10 @@ import json
 import os
 from collections import defaultdict
 
-ADV_GLOB = "/home/claude/review/*_advanced.json"
-SS = "/home/claude/review/artifacts/SECURITY_SURFACE.json"
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(ROOT, "review"))
+ADV_GLOB = os.path.join(REVIEW, "*_advanced.json")
+SS = os.path.join(REVIEW, "artifacts", "SECURITY_SURFACE.json")
 
 
 def topology(gate):

@@ -38,6 +38,8 @@ from bd_defect_suppressions import (  # noqa: E402
 # finding = {dp, severity, precision, line, title, snippet}
 HIGH = "high-precision"
 TRIAGE = "triage"
+DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW_ROOT = os.environ.get("BD_REVIEW_ROOT", os.path.join(DEFAULT_ROOT, "review"))
 
 REDACT_NAME = re.compile(r"(redact|scrub|mask|sanitiz|_is_secret)", re.I)
 
@@ -557,7 +559,7 @@ def main():
     ap.add_argument("--scan", metavar="ROOT")
     ap.add_argument("--file", metavar="PATH")
     ap.add_argument("--check", action="store_true")
-    ap.add_argument("--corpus", default="/home/claude/review/regression_corpus")
+    ap.add_argument("--corpus", default=os.path.join(REVIEW_ROOT, "regression_corpus"))
     ap.add_argument("--out")
     a = ap.parse_args()
 

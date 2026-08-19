@@ -20,6 +20,9 @@ import subprocess
 import sys
 
 R, Y, DIM, RST = "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+DEFAULT_WORK = os.environ.get(
+    "BD_WORK_TREE", os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+)
 
 
 def _ver(name):
@@ -37,8 +40,7 @@ def auto_zip():
 
 
 def find_tool(work):
-    for c in (os.path.join(work, "tools", "rollback.py"),
-              "/home/claude/work/tools/rollback.py"):
+    for c in (os.path.join(work, "tools", "rollback.py"),):
         if os.path.isfile(c):
             return c
     return None
@@ -57,7 +59,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-rollback", add_help=True)
     ap.add_argument("--archive", help="version to roll back to, e.g. 3.66.363")
     ap.add_argument("--from", dest="frm", help="source zip (default: highest found)")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--work","--tree", default=DEFAULT_WORK)
     ap.add_argument("passthrough", nargs=argparse.REMAINDER,
                     help="args after -- go to tools/rollback.py")
     ap.add_argument("--selftest",action="store_true")

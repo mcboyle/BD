@@ -27,8 +27,11 @@ import json
 import os
 import re
 
-CONTRACTS = "/home/claude/review/artifacts/CONTRACTS.json"
-ROOT = "/home/claude/work"
+ROOT = os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
+REVIEW_ROOT = os.environ.get("BD_REVIEW_ROOT", os.path.join(ROOT, "review"))
+CONTRACTS = os.path.join(REVIEW_ROOT, "artifacts", "CONTRACTS.json")
 
 
 def _fn_sources(path):
@@ -43,7 +46,9 @@ def _fn_sources(path):
     return out
 
 
-def check(contracts_path, gate):
+def check(contracts_path, gate, root=None):
+    global ROOT
+    ROOT = root or ROOT
     contracts = json.load(open(contracts_path))["contracts"]
     failures = []
     print("CONSUMER-AGREEMENT (shared-symbol guard contracts)")
@@ -86,9 +91,10 @@ def check(contracts_path, gate):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--contracts", default=CONTRACTS)
+    ap.add_argument("--root", default=ROOT)
     ap.add_argument("--gate", action="store_true")
     a = ap.parse_args()
-    raise SystemExit(check(a.contracts, a.gate))
+    raise SystemExit(check(a.contracts, a.gate, a.root))
 
 
 if __name__ == "__main__":

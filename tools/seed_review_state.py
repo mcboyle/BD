@@ -39,6 +39,8 @@ def _derive_version():
 
 
 VERSION = _derive_version()
+DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(DEFAULT_ROOT, "review"))
 
 # F0001 + the 16 deduped VR-P findings (VERIFY_MATRIX_v3_66_520.md), each mapped
 # to its file, severity, the DP class it seeded, and the version that fixed it.
@@ -200,9 +202,9 @@ def check(state_path, db, root):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default="/home/claude/review/artifacts/KNOWLEDGE_GRAPH.db")
-    ap.add_argument("--root", default="/home/claude/work")
-    ap.add_argument("--out", default="/home/claude/review/artifacts/REVIEW_STATE.json")
+    ap.add_argument("--db", default=os.path.join(REVIEW, "artifacts", "KNOWLEDGE_GRAPH.db"))
+    ap.add_argument("--root", default=DEFAULT_ROOT)
+    ap.add_argument("--out", default=os.path.join(REVIEW, "artifacts", "REVIEW_STATE.json"))
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     if a.check:

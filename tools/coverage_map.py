@@ -32,8 +32,9 @@ from tools.code_intelligence.coverage_service import run_coverage_map
 from tools.code_intelligence.paths import discover_repo_root
 from tools.code_intelligence.results import CheckResult, ResultState, exit_code
 
-DB = "/home/claude/review/artifacts/KNOWLEDGE_GRAPH.db"
-OUT = "/home/claude/review/artifacts/COVERAGE_GAPS.json"
+_REVIEW = os.environ.get("BD_REVIEW_ROOT", str(discover_repo_root(Path(__file__))) + "/review")
+DB = os.path.join(_REVIEW, "artifacts", "KNOWLEDGE_GRAPH.db")
+OUT = os.path.join(_REVIEW, "artifacts", "COVERAGE_GAPS.json")
 
 
 def _fn_spans(path):

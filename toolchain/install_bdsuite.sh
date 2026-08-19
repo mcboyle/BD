@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# install_bdsuite -- land the bd-* toolchain: real files -> /home/claude/bin,
+# install_bdsuite -- land the bd-* toolchain into an operator-owned bin dir,
 # symlinks -> /usr/local/bin (on PATH). Idempotent; safe to re-run.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DEST=/home/claude/bin
+DEST="${BD_SUITE_BIN:-$HOME/.local/bin}"
 mkdir -p "$DEST"
 cp -f "$HERE"/bin/* "$DEST"/ 2>/dev/null
 chmod +x "$DEST"/* 2>/dev/null || true
@@ -19,4 +19,4 @@ command -v bd-tools >/dev/null 2>&1 && echo "  run 'bd-tools' for the categorize
 
 # v605: install bdenv.sh so `bd` sources it (fixes the "file not found" noise).
 HERE="$(cd "$(dirname "$0")" && pwd)"
-[ -f "$HERE/bdenv.sh" ] && cp "$HERE/bdenv.sh" /home/claude/bdenv.sh && echo "installed bdenv.sh -> /home/claude/bdenv.sh"
+[ -f "$HERE/bdenv.sh" ] && cp "$HERE/bdenv.sh" "${BD_ENV_FILE_DEST:-$DEST/bdenv.sh}" && echo "installed bdenv.sh"

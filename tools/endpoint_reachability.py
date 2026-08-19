@@ -30,7 +30,9 @@ import re
 import os
 import sys
 
-DEFAULT_ROOT = "/home/claude/work"
+DEFAULT_ROOT = os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
 

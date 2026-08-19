@@ -4,13 +4,15 @@
 # so spawned services survive parent shell exit.
 
 # --- env ---
-export PATH=/tmp/tools_bin:/tmp/media/tools_bin:/home/claude/.local/node/bin:/home/claude/.local/bin:$PATH
+_bd_env_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+export BD_WORK_TREE="${BD_WORK_TREE:-$_bd_env_root}"
+export PATH="$BD_WORK_TREE/toolchain/bin:$PATH"
 export PYTHONPATH="/tmp/prestaged_site_packages:${PYTHONPATH:-}"
-export BD_HOME=/home/claude/bd_home
+export BD_HOME="${BD_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/bulkdownloader}"
 export BD_DISABLE_KEEPALIVE=1
 export DISPLAY=:99
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/home/claude/.cache/ms-playwright}"
-export GTK_ROOT=/home/claude/.local/gtk
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
+export GTK_ROOT="${GTK_ROOT:-}"
 export LD_LIBRARY_PATH="$GTK_ROOT/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 export GI_TYPELIB_PATH="$GTK_ROOT/usr/lib/x86_64-linux-gnu/girepository-1.0:${GI_TYPELIB_PATH:-}"
 export XDG_DATA_DIRS="$GTK_ROOT/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
@@ -45,19 +47,19 @@ _bdspawn() {
 }
 
 # --- Xvfb (display :99) ---
-if ! _bd_running "Xvfb :99"; then
+if [ "${BD_ENV_NO_SERVICES:-0}" != 1 ] && ! _bd_running "Xvfb :99"; then
     _bdspawn /tmp/xvfb.log Xvfb :99 -screen 0 1024x768x24
     sleep 1
 fi
 
 # --- Apprise fake webhook receiver (port 8765) ---
-APPRISE_BIN=/home/claude/apprise_kit/bin/fake_webhook_server.py
+APPRISE_BIN="${APPRISE_BIN:-}"
 if [ -f "$APPRISE_BIN" ] && ! _bd_running "fake_webhook_server.py"; then
     _bdspawn /tmp/apprise.log python3 "$APPRISE_BIN"
 fi
 
 # --- Mock servers (Plex 32400, Jellyfin 8096, Stash 9999) ---
-MOCKS_DIR=/home/claude/mocks_kit/bin
+MOCKS_DIR="${MOCKS_DIR:-}"
 if [ -d "$MOCKS_DIR" ]; then
     for mock in plex jellyfin stash; do
         script="$MOCKS_DIR/mock_${mock}.py"

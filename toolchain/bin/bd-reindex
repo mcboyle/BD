@@ -8,18 +8,18 @@
 # 602/603). Run this after bd-cut's bump and BEFORE build_release, then run
 # build_release + verify_release under the venv too.
 #
-# Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR]   (default: /home/claude/work)
+# Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR] (default: this checkout)
 #   env: BD_VENV_PY (default <work>/venv/bin/python; REFUSES if it cannot
 #        import the project deps -- see @878)
 set -u
 # default to the canonical work tree, NOT the caller's cwd: invoked from
-# /home/claude every tools/ path missed and all regens ERR'd (first-ever
+# outside the checkout every tools/ path missed and all regens ERR'd (first-ever
 # execution, v3.66.688 review). --work/--tree accepted per suite convention.
 # --selftest: this is a bootstrap/orchestration script; a real run IS its test.
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a full source tree to reindex"
   echo "SELFTEST PASS"; exit 0;; esac
-WORK="/home/claude/work"
+WORK="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
 if [ "${1:-}" = "--work" ] || [ "${1:-}" = "--tree" ]; then
     WORK="${2:?--work needs a dir}"
 elif [ -n "${1:-}" ]; then

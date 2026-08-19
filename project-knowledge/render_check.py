@@ -13,7 +13,7 @@ WHY THIS EXISTS (durable lesson, learned @347/348):
   false-passed on exactly that.
 
 WHAT IT DOES:
-  1. Imports the cockpit blueprint from BD_RENDER_ROOT (default: /home/claude/work,
+  1. Imports the cockpit blueprint from BD_RENDER_ROOT (default: repository root,
      set BD_RENDER_ROOT=<extracted-zip-dir> to validate a built zip instead of the
      work tree -- this is the pre-cut gate for cockpit work).
   2. Serves it from a background Flask thread on a free localhost port.
@@ -36,7 +36,9 @@ import time
 import urllib.request
 
 # ----------------------------------------------------------------------------- config
-ROOT = os.environ.get("BD_RENDER_ROOT", "/home/claude/work")
+ROOT = os.environ.get(
+    "BD_RENDER_ROOT", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
 ROOT = os.path.abspath(ROOT)
 VIEWPORT = (int(os.environ.get("BD_RENDER_W", "1280")),
             int(os.environ.get("BD_RENDER_H", "800")))

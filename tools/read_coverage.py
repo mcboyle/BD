@@ -27,7 +27,9 @@ import os
 import re
 import sqlite3
 
-DB = "/home/claude/review/artifacts/KNOWLEDGE_GRAPH.db"
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(ROOT, "review"))
+DB = os.path.join(REVIEW, "artifacts", "KNOWLEDGE_GRAPH.db")
 
 
 def _spans(cx, path):
