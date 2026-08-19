@@ -406,6 +406,7 @@ bd_start_display() {
     local sink="/dev/null"
     local errlog=""
     local xvfb_pid=""
+    local inherited_close_fd=""
 
     # Accept ":99" and "99" alike - the two spellings would otherwise pick
     # different lock files while naming the same display.
@@ -458,14 +459,21 @@ bd_start_display() {
     # a SIGHUP at the end of the provisioning run does not take the display with
     # it. Plain `&` is the fallback; both write /tmp/.X<n>-lock, which is one of
     # the things the readiness poll reads.
-    if [ -n "${BD_HEARTBEAT_CLOSE_FD:-}" ]; then
+    case "${BD_HEARTBEAT_CLOSE_FD:-}" in
+        '') ;;
+        *[!0-9]*)
+            printf 'bd_start_display: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\n' >&2
+            ;;
+        *) inherited_close_fd="$BD_HEARTBEAT_CLOSE_FD" ;;
+    esac
+    if [ -n "$inherited_close_fd" ]; then
         if command -v setsid >/dev/null 2>&1; then
-            setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
-                bd-close-fd-exec "$BD_HEARTBEAT_CLOSE_FD" \
+            setsid bash -c 'fd=$1; shift; exec {fd}>&-; exec "$@"' \
+                bd-close-fd-exec "$inherited_close_fd" \
                 Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
         else
-            bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
-                bd-close-fd-exec "$BD_HEARTBEAT_CLOSE_FD" \
+            bash -c 'fd=$1; shift; exec {fd}>&-; exec "$@"' \
+                bd-close-fd-exec "$inherited_close_fd" \
                 Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
         fi
     elif command -v setsid >/dev/null 2>&1; then

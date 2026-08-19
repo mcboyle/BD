@@ -226,3 +226,27 @@ def test_fake_xvfb_started_by_real_helper_does_not_inherit_capture_lock(tmp_path
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     finally:
         os.close(fd); os.kill(pid, signal.SIGTERM)
+
+
+@pytest.mark.parametrize("without_setsid", [False, True], ids=["setsid", "fallback"])
+def test_shared_display_helper_rejects_malicious_close_fd_without_eval(tmp_path, without_setsid):
+    fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    pid_file = tmp_path / "xvfb.pid"; pwned = tmp_path / "injected"
+    fake = fake_bin / "Xvfb"
+    fake.write_text("#!/bin/sh\necho $$ >\"$XVFB_PID_FILE\"\nexec /bin/sleep 30\n")
+    fake.chmod(0o755)
+    hide_setsid = ('command(){ if [ "$1" = -v ] && [ "$2" = setsid ]; then '
+                   'return 1; fi; builtin command "$@"; }; ' if without_setsid else '')
+    script = (f'. "{FRAGMENT}"; {hide_setsid}_bd_display_active(){{ return 1; }}; '
+              'sleep(){ command sleep 0.01; }; bd_start_display :87 >/dev/null || true')
+    malicious = '9>&-; touch "$PWNED" #'
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}",
+           "XVFB_PID_FILE": str(pid_file), "PWNED": str(pwned),
+           "BD_HEARTBEAT_CLOSE_FD": malicious}
+    result = subprocess.run(["bash", "-c", script], env=env,
+                            capture_output=True, text=True, timeout=10)
+    assert "invalid BD_HEARTBEAT_CLOSE_FD" in result.stderr
+    assert not pwned.exists(), "environment value was evaluated as shell code"
+    pid = int(pid_file.read_text().strip())
+    try: os.kill(pid, 0)
+    finally: os.kill(pid, signal.SIGTERM)

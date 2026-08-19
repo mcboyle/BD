@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1191 - validate inherited display descriptors
+
+- Validate the shared display helper's inherited close descriptor as decimal,
+  diagnose and safely ignore invalid values, and close valid descriptors with
+  Bash descriptor-variable syntax rather than evaluating environment text.
+- Exercise malicious input through both the setsid and fallback Xvfb launchers.
+
 ## v3.66.1190 - close every persistent capture launcher
 
 - Close the capture singleton descriptor in the real shared Xvfb launcher as
