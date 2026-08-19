@@ -40,7 +40,7 @@ def _derive_version():
 
 VERSION = _derive_version()
 DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(DEFAULT_ROOT, "review"))
+REVIEW = os.path.join(DEFAULT_ROOT, "review")
 
 # F0001 + the 16 deduped VR-P findings (VERIFY_MATRIX_v3_66_520.md), each mapped
 # to its file, severity, the DP class it seeded, and the version that fixed it.

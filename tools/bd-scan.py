@@ -25,7 +25,7 @@ import sys
 DEFAULT_ROOT = os.environ.get(
     "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 )
-REVIEW_ROOT = os.environ.get("BD_REVIEW_ROOT", os.path.join(DEFAULT_ROOT, "review"))
+REVIEW_ROOT = os.path.join(DEFAULT_ROOT, "review")
 
 PROD_DIRS = ["bulk_downloader", "tools"]
 

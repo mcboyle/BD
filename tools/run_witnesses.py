@@ -22,9 +22,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _INTREE_WDIR = os.path.join(_HERE, "audit", "witnesses")
 _ROOT = os.environ.get("BD_WORK", os.path.dirname(_HERE))
-_REVIEW_WDIR = os.path.join(
-    os.environ.get("BD_REVIEW_ROOT", os.path.join(_ROOT, "review")), "witnesses"
-)
+_REVIEW_WDIR = os.path.join(_ROOT, "review", "witnesses")
 WDIR = _INTREE_WDIR if os.path.isdir(_INTREE_WDIR) else _REVIEW_WDIR
 
 

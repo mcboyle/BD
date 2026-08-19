@@ -12,7 +12,7 @@ import os
 import sys
 
 ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(ROOT, "review"))
+REVIEW = os.path.join(ROOT, "review")
 SRC = os.path.join(REVIEW, "CAP-01_advanced.json")
 OUT = os.path.join(REVIEW, "ADVANCED_PK_CAP-01.md")
 

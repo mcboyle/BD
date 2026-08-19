@@ -35,7 +35,7 @@ JsonValue: TypeAlias = (
 
 SCHEMA = 1
 DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(DEFAULT_ROOT, "review"))
+REVIEW = os.path.join(DEFAULT_ROOT, "review")
 
 # Files that carried a confirmed defect (VERIFY_MATRIX 520 + F0001) -> prior risk.
 PRIOR_DEFECT_SUBSTR = [

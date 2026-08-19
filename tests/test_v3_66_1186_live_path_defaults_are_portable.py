@@ -1,6 +1,8 @@
 """RED-first behavior controls for row 161's live-path phase."""
 from __future__ import annotations
 
+BD_GATE_SCOPE = "module"
+
 import importlib.machinery
 import importlib.util
 import json

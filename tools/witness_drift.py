@@ -24,7 +24,7 @@ import json
 import os
 
 ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(ROOT, "review"))
+REVIEW = os.path.join(ROOT, "review")
 WDIR = os.path.join(REVIEW, "witnesses")
 LOGDIR = os.path.join(REVIEW, "witness_logs")
 

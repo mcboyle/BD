@@ -23,7 +23,7 @@ import os
 import sys
 
 ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-REVIEW = os.environ.get("BD_REVIEW_ROOT", os.path.join(ROOT, "review"))
+REVIEW = os.path.join(ROOT, "review")
 ART = os.path.join(REVIEW, "artifacts")
 STATE = os.path.join(ART, "REVIEW_STATE.json")
 MAN = os.path.join(REVIEW, "audit_manifests")
