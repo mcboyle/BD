@@ -23,12 +23,93 @@
       "catcher": "tests/test_v3_66_1194_write_recorder.py::test_byte_movers_use_destination_operand_and_short_result_arithmetic"
     },
     {
-      "label": "disable the live raw-byte deadline",
+      "label": "M1 restore the post-hoc polling threshold in place of the drain budget",
       "file": "toolchain/bin/bd-writerec",
-      "old": "if size > args.max_raw_bytes or time.monotonic() > deadline:",
-      "new": "if False:",
+      "_why": "this is the F1 defect shape: read unbounded chunks, notice the overshoot afterwards",
+      "old": "            if len(buf) >= budget:\n                raw_limit = True\n                break\n            remaining = deadline - time.monotonic()\n            if remaining <= 0:\n                time_limit = True\n                break\n            if not select.select([read_fd], [], [], min(remaining, .2))[0]:\n                continue\n            chunk = os.read(read_fd, min(_DRAIN_CHUNK, budget - len(buf)))",
+      "new": "            if len(buf) > budget:\n                raw_limit = True\n                break\n            remaining = deadline - time.monotonic()\n            if remaining <= 0:\n                time_limit = True\n                break\n            if not select.select([read_fd], [], [], min(remaining, .2))[0]:\n                continue\n            chunk = os.read(read_fd, _DRAIN_CHUNK)",
       "direction": "regression",
-      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_raw_bound_reaps_tracer_and_child_and_atomically_attests_UNKNOWN"
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_on_disk"
+    },
+    {
+      "label": "M2 drop the whole termination and reap step after the budget fires",
+      "file": "toolchain/bin/bd-writerec",
+      "_why": "removing only the SIGTERM is equivalent, because escalation still reaps the group; the contract that can actually be broken is terminate-and-prove-empty",
+      "old": "        if raw_limit or time_limit:\n            _signal_group(pgid, signal.SIGTERM)\n        os.close(read_fd); read_fd = -1\n        reaped = _reap_group(proc, pgid, escalate=raw_limit or time_limit)",
+      "new": "        os.close(read_fd); read_fd = -1\n        reaped = proc.poll() is not None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_bound_reaps_the_whole_tracer_process_group_and_leaves_no_orphan"
+    },
+    {
+      "label": "M3 force a completed verdict when the recorder terminated the workload",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "        if capture[\"workload_terminated_by_recorder\"] or partial_tail or not reaped:\n            footer.update(complete=False, result=\"UNKNOWN\")",
+      "new": "        footer.update(complete=True, result=\"PASS\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_on_disk"
+    },
+    {
+      "label": "M4 drop the partial-final-line guard so a half-written line is parsed",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "    raw_bytes = len(buf)\n    if pending:\n        del buf[raw_bytes - len(pending):]",
+      "new": "    raw_bytes = len(buf)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_on_disk"
+    },
+    {
+      "label": "M5 keep a combined trace copy beside the streaming per-pid writes",
+      "file": "toolchain/bin/bd-writerec",
+      "_why": "structural memory/disk control: any second full copy of the capture doubles disk",
+      "old": "                for line in whole.splitlines(keepends=True):\n                    _sink_for(sinks, raw_dir, line).write(line)\n                disk += len(whole)",
+      "new": "                for line in whole.splitlines(keepends=True):\n                    _sink_for(sinks, raw_dir, line).write(line)\n                with open(raw_dir / \"trace\", \"ab\") as combined:\n                    combined.write(whole)\n                disk += len(whole)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_on_disk"
+    },
+    {
+      "label": "M6 hardcode raw_limit_exceeded so every run reports truncation",
+      "file": "toolchain/bin/bd-writerec",
+      "_why": "non-vacuity: an always-UNKNOWN recorder must not satisfy the bound contracts",
+      "old": "            \"partial_tail_bytes\": partial_tail, \"raw_limit_exceeded\": raw_limit,",
+      "new": "            \"partial_tail_bytes\": partial_tail, \"raw_limit_exceeded\": True,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_generous_budget_neither_truncates_nor_terminates_the_workload"
+    },
+    {
+      "label": "M7 keep the parent write end open so the drain never sees EOF",
+      "file": "toolchain/bin/bd-writerec",
+      "_why": "R6 carries its own timeout so this regression fails the gate instead of wedging the suite",
+      "old": "        os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF",
+      "new": "        pass  # mutant: the parent keeps its write end open",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_generous_budget_neither_truncates_nor_terminates_the_workload"
+    },
+    {
+      "label": "M8 collapse the time limit back into the raw-byte flag",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "            if remaining <= 0:\n                time_limit = True\n                break",
+      "new": "            if remaining <= 0:\n                raw_limit = True\n                break",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_time_limit_is_distinguishable_from_the_raw_byte_limit"
+    },
+    {
+      "label": "M9 drop the second exit witness so the tracer status is never compared",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "        footer[\"exit_witness\"] = _exit_witness(footer.get(\"root_exit\"), proc.returncode)",
+      "new": "        footer[\"exit_witness\"] = \"unknown\"; footer[\"tracer_exit_code\"] = None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_exit_propagation_fork_per_pid_raw_logs_and_recorder_failure"
+    },
+    {
+      "label": "OVER-CORRECTION: refuse every capture as recorder-terminated",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "        if capture[\"workload_terminated_by_recorder\"] or partial_tail or not reaped:\n            footer.update(complete=False, result=\"UNKNOWN\")\n",
+      "new": "        if True:\n            footer.update(complete=False, result=\"UNKNOWN\")\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1194_write_recorder.py::test_live_generous_budget_neither_truncates_nor_terminates_the_workload",
+      "preserves": [
+        "tests/test_v3_66_1194_write_recorder.py::test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_on_disk",
+        "tests/test_v3_66_1194_write_recorder.py::test_live_bound_reaps_the_whole_tracer_process_group_and_leaves_no_orphan"
+      ]
     },
     {
       "label": "OVER-CORRECTION: make root classification discard outside events",
