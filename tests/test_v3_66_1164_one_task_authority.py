@@ -106,7 +106,7 @@ def test_the_backlog_publishes_and_matches_its_exact_denominator():
 
 def test_pending_spec_obligations_have_exact_lifecycle_owners():
     rows = _rows()
-    expected = {"S5-RESIDUE": "OPEN", "NESTED-PART": "CLOSED"}
+    expected = {"S5-RESIDUE": "CLOSED", "NESTED-PART": "CLOSED"}
     for token, wanted_status in expected.items():
         matches = [
             (status, text)

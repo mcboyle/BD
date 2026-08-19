@@ -16,7 +16,9 @@ Checks at 420px:
 """
 import os, sys, time, socket, threading, urllib.request
 
-ROOT = os.environ.get("BD_RENDER_ROOT", "/home/claude/work")
+ROOT = os.environ.get(
+    "BD_RENDER_ROOT", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
 
 
 def build_app():

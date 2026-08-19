@@ -9,7 +9,9 @@ import shutil
 import subprocess
 
 RESULTS = []
-WORK = os.environ.get("BD_WORK", "/home/claude/work")
+WORK = os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+)
 RUNNER = os.path.join(WORK, "bulk_downloader/runner.py")
 EXTRACT = os.path.join(WORK, "bulk_downloader/runner_extractors.py")
 

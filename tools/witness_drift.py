@@ -23,8 +23,10 @@ import importlib.util
 import json
 import os
 
-WDIR = "/home/claude/review/witnesses"
-LOGDIR = "/home/claude/review/witness_logs"
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(ROOT, "review")
+WDIR = os.path.join(REVIEW, "witnesses")
+LOGDIR = os.path.join(REVIEW, "witness_logs")
 
 
 def snapshot(version):

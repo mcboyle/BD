@@ -8,10 +8,13 @@ you'd onboard an engineer with, the schema is right; if it reads like a DB dump,
 it isn't. Stdlib only.
 """
 import json
+import os
 import sys
 
-SRC = "/home/claude/review/CAP-01_advanced.json"
-OUT = "/home/claude/review/ADVANCED_PK_CAP-01.md"
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(ROOT, "review")
+SRC = os.path.join(REVIEW, "CAP-01_advanced.json")
+OUT = os.path.join(REVIEW, "ADVANCED_PK_CAP-01.md")
 
 
 def topo_order(concepts):

@@ -40,9 +40,10 @@ case "${1:-}" in
         exit 2 ;;
 esac
 
-SBCAP=/home/claude/.sbcap
+_BD_ROOT="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
+SBCAP="${BD_SBCAP_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/bulkdownloader/sbcap}"
 mkdir -p "$SBCAP/axe" /tmp/sbcap
-VENV=/home/claude/work/venv/bin
+VENV="$_BD_ROOT/venv/bin"
 PRESTAGE=/tmp/prestaged_site_packages
 DEPS="aiosmtpd pywebpush pyzbar freezegun locust memray qrcode pillow prometheus-client pytesseract"
 
@@ -119,8 +120,9 @@ else ok "prestaged deps (metrics/qr/notify/soak visible to bd env)"; fi
 # real render_check.py sat in /mnt/project the whole time. Select on the artifact that
 # actually ships; _sb is optional (bd-opv's chk_render already falls back to render_check.py).
 _rsrc=""
-for d in /home/claude/f1_extract/toolkit/render /mnt/project /home/claude/render_kit \
-         /home/claude/sbcap_offline/render /tmp/bulkdl_staging/render "$SBCAP"; do
+for d in "${BD_RENDER_KIT:-}" /mnt/project "$_BD_ROOT/project-knowledge" \
+         /tmp/bulkdl_staging/render "$SBCAP"; do
+  [ -n "$d" ] || continue
   [ -f "$d/render_check.py" ] && { _rsrc="$d"; break; }
 done
 rmiss=""
@@ -140,8 +142,8 @@ else ok "render_check files staged"; fi
 # may resolve a build dir that isn't the one the cloak pack installed; symlink it. MUST pin
 # PLAYWRIGHT_BROWSERS_PATH to the cache render_check/bd-opv use (else playwright reports
 # its /opt/pw-browsers default and we'd false-alarm). ----
-_pwcache=/home/claude/.cache/ms-playwright
-_expected="$(env -u PYTHONPATH PYTHONPATH=/home/claude/work PLAYWRIGHT_BROWSERS_PATH="$_pwcache" "$VENV/python3" - <<'PY' 2>/dev/null
+_pwcache="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
+_expected="$(env -u PYTHONPATH PYTHONPATH="$_BD_ROOT" PLAYWRIGHT_BROWSERS_PATH="$_pwcache" "$VENV/python3" - <<'PY' 2>/dev/null
 try:
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:

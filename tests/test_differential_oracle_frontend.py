@@ -620,7 +620,7 @@ def test_builtin_registration_is_sorted_and_missing_wrapper_is_unknown(
     assert result.state is ResultState.UNKNOWN
 
 
-def test_consumer_wrapper_with_unbindable_hard_coded_root_is_unknown(
+def test_consumer_wrapper_rejects_an_absent_contract_input(
     tmp_path,
 ):
     clear_adapters_for_test()
@@ -639,8 +639,8 @@ def test_consumer_wrapper_with_unbindable_hard_coded_root_is_unknown(
         context,
     )
 
-    assert result.state is ResultState.UNKNOWN
-    assert result.summary == "wrapper lacks explicit root"
+    assert result.state is ResultState.ERROR
+    assert result.summary == "adapter input invalid"
 
 
 def test_rollback_wrapper_preserves_informational_decision(tmp_path):

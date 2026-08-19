@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1192 - retire the sandbox-era paths and make the installer prove itself
+
+- Retire the uncalled `scripts/build_release.sh` zip-era wrapper and its frozen
+  v3.66.137/v3.66.148 packaging path; `tools/build_release.py` remains the
+  supported builder, and a repo-wide tombstone rejects restoration or any
+  executable reference. The execution scan fails closed when its tracked-source
+  denominator collapses.
+- Close all three `/home/claude` residue phases as one exact required set: 46
+  live tool paths now derive this checkout or honour explicit operator roots, 33
+  obsolete prose occurrences across 11 current operator documents are replaced
+  by repository-derived or operator-named variables, and the 20 external test
+  carriers are hand-adjudicated as runtime fixtures, retired-path detectors,
+  historical regressions, or one security-boundary fixture. Each phase
+  independently rejects removal.
+- Replace the flat retired-home allowlist with an exact reason mapping and phase
+  ownership, failing on missing reasons, unowned unswept entries, and unswept
+  entries surviving their phase. The gate reuses its assembled needle so it stays
+  outside its own denominator; final current source is 71 carrier files and 259
+  intentional occurrences with zero `UNSWEPT`.
+- Remove the unreferenced sandbox-only supervisord configuration, keep the
+  shared security helper importable beside an installed tool that supplies
+  `--work`, and pass a validated repository root explicitly to the specialist
+  command instead of gating on machine identity.
+- Give installed `bd` and `bd-status` one physically resolved layout beside
+  their install prefix. The installer now validates the checkout and every
+  destination relationship before its first `mkdir`, `cp`, `chmod`, `printf`, or
+  `ln`, so an invalid checkout leaves a pre-existing installed layout
+  byte-identical; wrappers propagate a failed environment source, and a missing
+  or corrupt checkout pointer fails closed through the public symlink.
+
 ## v3.66.1191 - decide, bound, and isolate capture and test-root retention
 
 - Define five disk-decidable test-root states in

@@ -17,8 +17,8 @@ adv + semgrep + jscpd) into one upload. Layout: `wheels/` · `eslint/` (node_mod
 
 **Verified install (sandbox AND stash, offline):**
 ```sh
-unzip -oq bd_review_tools_FULL_kit.zip -d /home/claude/review_kit
-bash /home/claude/review_kit/INSTALL.sh
+unzip -oq bd_review_tools_FULL_kit.zip -d "${BD_REVIEW_KIT:?set BD_REVIEW_KIT}"
+bash "$BD_REVIEW_KIT/INSTALL.sh"
 # == what INSTALL.sh runs ==
 pip install --break-system-packages --no-index --find-links=<kit>/wheels/ \
   vulture radon detect-secrets coverage hypothesis bandit pip-audit libcst
@@ -63,7 +63,7 @@ isolation rule as semgrep). Three tools:
   Semgrep CE that restores **cross-function taint** the battery's Semgrep CE lacks.
   Run WITH `--taint-intrafile`. Byte-compatible with Semgrep rules/JSON/SARIF.
   Wrapper: **`bd-audit-taint <BATCH>`** runs it over a batch's manifest against
-  `/home/claude/work` with `rules/ssrf_cmdi_starters.yaml` (tune per batch).
+  `$BD_WORK` with `rules/ssrf_cmdi_starters.yaml` (tune per batch).
   **Boundary:** cross-*function within a file*, NOT cross-*file* — cross-file flows
   stay the manual read + `reachability_ledger`. Tool hits are LEADS, not verdicts;
   a finding still needs a RED repro, tagged `source:"opengrep:<rule-id>"`.

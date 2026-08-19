@@ -52,7 +52,7 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs the cloak pack wheels + service venv"
   echo "SELFTEST PASS"; exit 0;; esac
-WORK="${BD_WORK_TREE:-/home/claude/work}"
+WORK="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
 VENV="$WORK/venv"
 PY="$VENV/bin/python"
 # ALL venv-python invocations go through vpy: the bd env exports
@@ -64,7 +64,7 @@ PY="$VENV/bin/python"
 vpy() { env -u PYTHONPATH "$PY" "$@"; }
 UPLOADS="${BD_UPLOADS:-/mnt/user-data/uploads}"
 CHROMROOT="${CLOAKBROWSER_HOME:-/root/.cloakbrowser}"
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/home/claude/.cache/ms-playwright}"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
 
 MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1
 while [ $# -gt 0 ]; do

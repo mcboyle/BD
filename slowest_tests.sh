@@ -23,7 +23,8 @@ N="${SLOWEST_N:-30}"
 PY="${BD_PYTHON:-}"
 if [ -z "$PY" ]; then
   for c in "$ROOT/venv/bin/python" "$ROOT/.venv/bin/python" \
-           /home/claude/work/venv/bin/python; do
+           "${BD_TEST_PYTHON:-}"; do
+    [ -n "$c" ] || continue
     [ -x "$c" ] && PY="$c" && break
   done
 fi
