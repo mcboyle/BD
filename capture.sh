@@ -119,6 +119,7 @@ BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"
 # shellcheck source=scripts/lib/capture_run_dir.sh
 . "$(dirname "$0")/scripts/lib/capture_run_dir.sh"
 CAPTURE_KEEP="${CAPTURE_KEEP:-5}"
+bd_test_root_gc "$(dirname "$0")" || true
 bd_capture_prune "$CAPTURE_KEEP" || true
 CAPTURE_RUN_ID="$(bd_capture_run_id "$(dirname "$0")")"
 OUT="/tmp/bd_capture-${CAPTURE_RUN_ID}"
@@ -214,6 +215,10 @@ fi
 # Blank, or no TTY, means skip: L6/L8 then WARN exactly as they do today.
 # A prompt that blocked an unattended run would turn a capture into a hang.
 CAPTURE_VAULT=0
+CAPTURE_VAULT_LOCK_FD=""
+CAPTURE_VAULT_GLOBAL_DIR_FD=""
+CAPTURE_VAULT_DIR_FD=""
+CAPTURE_VAULT_DIR_LOCK_FD=""
 # DO NOT CLOBBER AN INHERITED VALUE. This line was a bare
 # CAPTURE_VAULT_PW="" and it ran BEFORE the branch that reads the
 # variable, so `CAPTURE_VAULT_PW=x ./capture.sh` was wiped to empty and
@@ -222,9 +227,150 @@ CAPTURE_VAULT=0
 # own environment. Initialising a variable and honouring an inherited one
 # are different operations, and `:-` is the difference.
 CAPTURE_VAULT_PW="${CAPTURE_VAULT_PW:-}"
-CAPTURE_VAULT_DIR="/tmp/bd_capture_vault"
+CAPTURE_VAULT_DIR="/tmp/bd_capture_vault-${CAPTURE_RUN_ID:-$$}"
 CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"
 CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-vault.conf"
+
+capture_vault_claim() {
+  local lock="${CAPTURE_VAULT_GLOBAL_LOCK:-/tmp/bd-capture-${EUID}/capture-vault.lock}"
+  local lock_dir="${lock%/*}"
+  local lock_name="${lock##*/}"
+  local lock_fd_path dir_before dir_after file_before file_after
+  local dev ino owner mode links mode_bits
+  local holder="unknown"
+
+  capture_vault_global_refuse() {
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: $1: $lock" >&2
+    [ -z "$CAPTURE_VAULT_LOCK_FD" ] || { exec {CAPTURE_VAULT_LOCK_FD}>&-; CAPTURE_VAULT_LOCK_FD=""; }
+    [ -z "$CAPTURE_VAULT_GLOBAL_DIR_FD" ] || { exec {CAPTURE_VAULT_GLOBAL_DIR_FD}>&-; CAPTURE_VAULT_GLOBAL_DIR_FD=""; }
+    return 73
+  }
+
+  case "$lock" in
+    /*) ;;
+    *) capture_vault_global_refuse "singleton lock path must be absolute"; return 73 ;;
+  esac
+  case "$lock_name" in
+    ''|.|..) capture_vault_global_refuse "singleton lock name is invalid"; return 73 ;;
+  esac
+
+  if [ -z "${CAPTURE_VAULT_GLOBAL_LOCK:-}" ] && [ ! -d "$lock_dir" ]; then
+    (umask 077; mkdir -- "$lock_dir") 2>/dev/null || true
+  fi
+  dir_before=$(stat -c '%d:%i:%u:%a:%f' -- "$lock_dir" 2>/dev/null) || {
+    capture_vault_global_refuse "singleton lock directory is unavailable"
+    return 73
+  }
+  IFS=: read -r dev ino owner mode mode_bits <<<"$dir_before"
+  if [ $((16#$mode_bits & 0170000)) -ne $((0040000)) ] || \
+     [ "$owner" != "$EUID" ] || [ "$mode" != 700 ]; then
+    capture_vault_global_refuse "singleton lock directory must be a real owner-only directory"
+    return 73
+  fi
+  if ! exec {CAPTURE_VAULT_GLOBAL_DIR_FD}<"$lock_dir/."; then
+    capture_vault_global_refuse "cannot bind singleton lock directory"
+    return 73
+  fi
+  dir_after=$(stat -Lc '%d:%i:%u:%a:%f' -- "/proc/self/fd/$CAPTURE_VAULT_GLOBAL_DIR_FD" 2>/dev/null) || {
+    capture_vault_global_refuse "cannot verify singleton lock directory descriptor"
+    return 73
+  }
+  if [ "$dir_after" != "$dir_before" ]; then
+    capture_vault_global_refuse "singleton lock directory identity changed"
+    return 73
+  fi
+
+  lock_fd_path="/proc/self/fd/$CAPTURE_VAULT_GLOBAL_DIR_FD/$lock_name"
+  if ! stat -c '%d:%i:%u:%a:%h:%f' -- "$lock_fd_path" >/dev/null 2>&1; then
+    (umask 077; set -o noclobber; : >"$lock_fd_path") 2>/dev/null || true
+  fi
+  file_before=$(stat -c '%d:%i:%u:%a:%h:%f' -- "$lock_fd_path" 2>/dev/null) || {
+    capture_vault_global_refuse "singleton lock file is unavailable"
+    return 73
+  }
+  IFS=: read -r dev ino owner mode links mode_bits <<<"$file_before"
+  if [ $((16#$mode_bits & 0170000)) -ne $((0100000)) ]; then
+    capture_vault_global_refuse "singleton lock must be a regular file"
+    return 73
+  fi
+  if [ "$owner" != "$EUID" ] || [ "$mode" != 600 ] || [ "$links" != 1 ]; then
+    capture_vault_global_refuse "singleton lock must be owner-only with one name"
+    return 73
+  fi
+  if ! exec {CAPTURE_VAULT_LOCK_FD}<>"$lock_fd_path"; then
+    capture_vault_global_refuse "cannot open singleton lock descriptor"
+    return 73
+  fi
+  file_after=$(stat -Lc '%d:%i:%u:%a:%h:%f' -- "/proc/self/fd/$CAPTURE_VAULT_LOCK_FD" 2>/dev/null) || {
+    capture_vault_global_refuse "cannot verify singleton lock descriptor"
+    return 73
+  }
+  if [ "$file_after" != "$file_before" ]; then
+    capture_vault_global_refuse "singleton lock identity changed during open"
+    return 73
+  fi
+  exec {CAPTURE_VAULT_GLOBAL_DIR_FD}>&-
+  CAPTURE_VAULT_GLOBAL_DIR_FD=""
+
+  if ! flock -n "$CAPTURE_VAULT_LOCK_FD"; then
+    read -r holder _ <&"$CAPTURE_VAULT_LOCK_FD" || holder="unknown"
+    case "$holder" in ''|*[!0-9]*) holder="unknown" ;; esac
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: another capture owns the singleton service/drop-in; holder_pid=$holder; inspect with: ps -fp $holder; fuser $lock" >&2
+    exec {CAPTURE_VAULT_LOCK_FD}>&-
+    CAPTURE_VAULT_LOCK_FD=""
+    return 73
+  fi
+  if ! printf '%-32s\n' "$$" >&"$CAPTURE_VAULT_LOCK_FD"; then
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: cannot publish holder pid to $lock" >&2
+    exec {CAPTURE_VAULT_LOCK_FD}>&-; CAPTURE_VAULT_LOCK_FD=""
+    return 73
+  fi
+  BD_HEARTBEAT_CLOSE_FD="$CAPTURE_VAULT_LOCK_FD"
+  export BD_HEARTBEAT_CLOSE_FD
+}
+
+capture_vault_setup_refuse() {
+  local why="$1"
+  local removed=0
+  echo "CAPTURE-VAULT-SETUP-REFUSED: $why; refusing to write secrets: $CAPTURE_VAULT_DIR" >&2
+  [ -z "$CAPTURE_VAULT_DIR_LOCK_FD" ] || { exec {CAPTURE_VAULT_DIR_LOCK_FD}>&-; CAPTURE_VAULT_DIR_LOCK_FD=""; }
+  if [ -n "$CAPTURE_VAULT_DIR_FD" ] && [ -x venv/bin/python ] && \
+     venv/bin/python toolchain/bin/bd-gc --finish-capture-vault \
+       "$CAPTURE_VAULT_DIR" --owned-fd "$CAPTURE_VAULT_DIR_FD" >/dev/null 2>&1; then
+    removed=1
+  fi
+  [ -z "$CAPTURE_VAULT_DIR_FD" ] || { exec {CAPTURE_VAULT_DIR_FD}>&-; CAPTURE_VAULT_DIR_FD=""; }
+  if [ "$removed" != 1 ]; then
+    echo "CAPTURE-VAULT-SETUP-PRESERVED: identity-bound cleanup unavailable or refused; public pathname untouched" >&2
+  fi
+  exit 73
+}
+
+capture_vault_open_dir() {
+  exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR/."
+}
+
+capture_vault_open_lock() {
+  exec {CAPTURE_VAULT_DIR_LOCK_FD}<>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
+}
+
+capture_vault_dir_claim() {
+  if ! mkdir "$CAPTURE_VAULT_DIR"; then
+    echo "CAPTURE-VAULT-OWNERSHIP-REFUSED: keyed vault already exists: $CAPTURE_VAULT_DIR" >&2
+    exit 73
+  fi
+  capture_vault_open_dir || capture_vault_setup_refuse "directory descriptor open failed"
+  chmod 700 "$CAPTURE_VAULT_DIR" || capture_vault_setup_refuse "chmod 0700 failed"
+  : > "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock" || capture_vault_setup_refuse "lock creation failed"
+  capture_vault_open_lock || capture_vault_setup_refuse "lock descriptor open failed"
+  flock -n "$CAPTURE_VAULT_DIR_LOCK_FD" || capture_vault_setup_refuse "lock acquisition failed"
+}
+
+# Every capture below rewrites/restarts the same unit and probes the same fixed
+# ports, even when credential-backed vault checks are skipped.  Claim the
+# singleton before deciding whether a vault is enabled, and hold it until the
+# process EXIT cleanup after every service-dependent stage has finished.
+capture_vault_claim || exit 73
 
 # AN UNATTENDED CAPTURE MUST REACH THE SAME CHECKS AS AN ATTENDED ONE (@1064).
 #
@@ -338,9 +484,31 @@ cleanup_capture_vault() {
     sudo rm -f "$CAPTURE_VAULT_DROPIN" 2>/dev/null || true
     sudo systemctl daemon-reload 2>/dev/null || true
     sudo systemctl restart bulkdownloader 2>/dev/null || true
-    rm -rf "$CAPTURE_VAULT_DIR"
-    echo "  capture vault removed; service restarted on the operator vault"
+    if [ -n "$CAPTURE_VAULT_DIR_LOCK_FD" ]; then
+      exec {CAPTURE_VAULT_DIR_LOCK_FD}>&-
+      CAPTURE_VAULT_DIR_LOCK_FD=""
+    fi
+    if [ -n "$CAPTURE_VAULT_DIR_FD" ] && \
+       venv/bin/python toolchain/bin/bd-gc \
+         --finish-capture-vault "$CAPTURE_VAULT_DIR" \
+         --owned-fd "$CAPTURE_VAULT_DIR_FD"; then
+      echo "  descriptor-owned capture vault removed"
+    else
+      echo "  WARNING: capture vault removal refused; preserved for bounded forensics: $CAPTURE_VAULT_DIR" >&2
+    fi
+    if [ -n "$CAPTURE_VAULT_DIR_FD" ]; then
+      exec {CAPTURE_VAULT_DIR_FD}>&-
+      CAPTURE_VAULT_DIR_FD=""
+    fi
+    echo "  service restarted on the operator vault"
     wait_for_service_ready || true
+  fi
+}
+
+release_capture_singleton() {
+  if [ -n "$CAPTURE_VAULT_LOCK_FD" ]; then
+    exec {CAPTURE_VAULT_LOCK_FD}>&-
+    CAPTURE_VAULT_LOCK_FD=""
   fi
 }
 
@@ -364,6 +532,7 @@ cleanup_all() {
     cleanup_live_seed
   fi
   cleanup_capture_vault
+  release_capture_singleton
 }
 trap cleanup_all EXIT
 
@@ -850,9 +1019,7 @@ echo "=== [4/9] Install + start systemd service ==="
 # invisible to the GUI editor's model, while a stale drop-in is the first
 # thing `systemctl cat bulkdownloader` shows.
 if [ "$CAPTURE_VAULT" = "1" ]; then
-  rm -rf "$CAPTURE_VAULT_DIR"
-  mkdir -p "$CAPTURE_VAULT_DIR"
-  chmod 700 "$CAPTURE_VAULT_DIR"
+  capture_vault_dir_claim
   sudo mkdir -p "$(dirname "$CAPTURE_VAULT_DROPIN")"
   sudo tee "$CAPTURE_VAULT_DROPIN" >/dev/null <<DROPIN
 [Service]
@@ -1009,7 +1176,9 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
   # The seeded URLs point at the local fixture origin, so it has to be
   # serving before anything is queued. setsid detaches it into its own
   # process group so _stop_process_group can take the whole tree down.
-  setsid venv/bin/python tools/fixture_site.py --port 8899 \
+  setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
+    bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" \
+    venv/bin/python tools/fixture_site.py --port 8899 \
     > "$OUT/05a_fixture_site.log" 2>&1 &
   FIXTURE_PID=$!
   _fixture_up=0

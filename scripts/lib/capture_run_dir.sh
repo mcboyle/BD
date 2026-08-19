@@ -39,6 +39,15 @@ bd_capture_run_id() {
   printf '%s' "$id"
 }
 
+# Apply the test-root policy on the way into a long-running harness. The tool
+# owns classification and object-bound removal; this shell wrapper owns no
+# destructive primitive and propagates the diagnostic exit status.
+bd_test_root_gc() {
+  local repo="${1:?bd_test_root_gc needs the repository root}"
+  "$repo/venv/bin/python" "$repo/toolchain/bin/bd-gc" \
+    --apply --older-than 1440 --only classified
+}
+
 # bd_capture_prune <keep> [glob]
 #   Remove all but the newest <keep> capture directories and their tarballs.
 #   Prints what it removed, one per line, so the run's own log records it.

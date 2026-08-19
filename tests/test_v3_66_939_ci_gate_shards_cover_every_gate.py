@@ -148,6 +148,7 @@ _DECLARED = {
     "tests/test_v3_66_1188_bd_mutate_review_controls.py",
     "tests/test_v3_66_1189_bd_mutate_durable_contract.py",
     "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py",
+    "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py",
     "tests/test_frontend_secret_keys_in_sync.py",
     "tests/test_templates_list_identity.py",
     "tests/test_defect_scan_precision.py",
@@ -229,6 +230,7 @@ _DECLARED = {
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1031_socket_recorder_stages.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",
+    "tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py",
     # @1085. The isolation shard. Its subject is the test SESSION's module
     # table, not the tree -- the same reason 1034 and 1031 sit here. A
     # patch.dict(sys.modules) that evicts a lazily-imported module poisons an
@@ -268,6 +270,9 @@ _DECLARED = {
     # axis-6 table. Split across five shards drawn from MEASURED time
     # (196s total locally), not count, per the @939 precedent.
     # tree-gates-1
+    "tests/test_capture_vault_is_isolated.py",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+    "tests/test_v3_66_1191_retention_review_edges.py",
     "tests/test_v3_66_1018_registrable_domain_drain.py",
     "tests/test_census_file_size_drift.py",
     "tests/test_zip_era_tools_stay_retired.py",

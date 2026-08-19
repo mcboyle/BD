@@ -176,6 +176,19 @@ class _TmpRoot(_Subject):
             if keep is not None:
                 os.environ["KEEP_TEST_TMPDIRS"] = keep
         assert root, "install() built no root -- the fixture has nothing to test"
+        # This matrix compares the three destructive primitives over the same
+        # payload and asserts exact syscall counts.  The run marker and lock
+        # are separately covered by the v3.66.1191 lifecycle gate; remove that
+        # bookkeeping from this synthetic root so it is not mistaken for an
+        # extra subject of the generic remover matrix.
+        ident = self.m._ROOT_IDENT
+        lock_fd = self.m._MARKER_LOCK_FDS.pop(ident, None)
+        self.m._RUN_RECORDS.pop(ident, None)
+        if lock_fd is not None:
+            os.close(lock_fd)
+        for name in (self.m._MARKER_NAME, self.m._LOCK_NAME):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(os.path.join(root, name))
         return root
 
     def discard(self, d):
