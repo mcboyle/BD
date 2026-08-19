@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1189 - make durable mutation selection exact
+
+- Require every durable regression mutant to name its catcher while retaining
+  aggregate exit-code compatibility only for legacy bare-list scratch specs.
+- Refuse `--emit-spec` with a filtered `--direction`; a published durable spec
+  must describe exactly the complete battery that produced its verdict.
+- Correct the remaining timeout residue probe to match `band.xml` and the real
+  temporary-directory prefix rather than a substring the artifact never uses.
+
 ## v3.66.1188 - publish only measured mutation evidence
 
 - Validate emitted subjects, bands, anchors, and named nodeids against the same

@@ -160,6 +160,7 @@ def _apply(src: str, old: str, new: str) -> str:
 
 def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], list[str]]:
     """Accept durable object specs while keeping cheap scratch lists valid."""
+    durable = isinstance(document, dict)
     if isinstance(document, list):
         mutants = document
         band = cli_band
@@ -197,6 +198,9 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
             raise ValueError(
                 f"mutant {index} direction must be 'regression' or 'overcorrection', "
                 f"got {direction!r}")
+        if direction == "regression" and durable and not mutant.get("catcher"):
+            raise ValueError(
+                f"mutant {index} in a durable spec requires a named catcher")
         if direction == "overcorrection":
             control = mutant.get("control")
             preserves = mutant.get("preserves")
@@ -1131,6 +1135,11 @@ def main() -> int:
         return 2
     prepared_emit = None
     if a.emit_spec:
+        if a.direction != "all":
+            print("BD-MUTATE-UNRUNNABLE: --emit-spec requires --direction all; "
+                  "a durable spec cannot publish mutants this run did not measure",
+                  file=sys.stderr)
+            return 2
         try:
             prepared_emit = _prepare_emitted_spec(
                 work, a.emit_spec, a.subject, band, spec)

@@ -110,6 +110,6 @@ def test_an_execution_timeout_is_UNKNOWN_exit_2_and_leaves_no_junit(tmp_path):
     residue = [
         p.relative_to(work).as_posix()
         for p in work.rglob("*")
-        if "junit" in p.name.lower()
+        if p.name == "band.xml" or p.name.startswith("bd-mutate-junit-")
     ]
     assert residue == [], residue
