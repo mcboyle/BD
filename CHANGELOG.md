@@ -19,19 +19,30 @@ archive is not present in this repository; consult source-control history.
   of which mention the enqueue lane; every corpus file that does mention it
   postdates the window by three weeks. The row's first option, closing on
   evidence already collected, was never available. Nothing replaces the
-  criterion, and the row records that it closes on a retirement rather than on
-  evidence of the behaviour.
-- Close backlog row 120 (JW-TMPL). The corpus already holds 17 authenticated
-  live UltraFilms captures with JWPlayer entitlement calls, signed renditions up
-  to 7680x4320 and mid-stream seeks, all predating the row's own re-derivation,
-  so its "blocked on a live capture" clause was already stale. Recorded
-  explicitly: the sandbox-verification criterion is not in the corpus, so this
-  closes on a stale-clause reading and not on a stated criterion.
-- Close backlog row 123 (RPTYL). The `api_patterns >= 1` criterion is MET by 17
-  conforming Reptyle captures. The reported zero came from a capture named
-  `reptyle.wacz` that is actually WowGirls data, and from a thin Reptyle session
-  that never exercised the movie path. The criterion is neither relaxed nor
-  retired.
+  criterion, and the row is CLOSED on that retirement rather than on evidence of
+  the behaviour. The row now also records why restarting the clock was declined,
+  since retirement was a third option its own text did not offer, and corrects
+  its release arithmetic from 325 to 377.
+- Close backlog row 120 (JW-TMPL). The corpus already holds 21 authenticated
+  live UltraFilms files carrying 14 distinct capture sessions, all 21 of 21
+  JWPlayer-bearing, with signed renditions up to 7680x4320 and mid-stream seeks,
+  all predating the row's own re-derivation, so its "blocked on a live capture"
+  clause was already stale. Recorded explicitly: the sandbox-verification
+  criterion is not in the corpus, so this closes on a stale-clause reading and
+  not on a stated criterion.
+- Close backlog row 123 (RPTYL). The `api_patterns >= 1` criterion is MET by 53
+  files carrying 20 distinct conforming Reptyle sessions, at 720, 1080 and 2160.
+  The reported zero came from a capture named `reptyle.wacz` that is actually
+  WowGirls data, and from a thin Reptyle session that never exercised the movie
+  path. The criterion is neither relaxed nor retired.
+- Measure both of those over the page host recorded in the capture, not over a
+  filename glob. `*reptyle*` and `*ultrafilm*` are a denominator choice, and the
+  wrong one: they count `.redacted`/`.scrubbed`/`t_*` variants of one session as
+  separate captures while missing genuine captures of the same site named
+  something else. Reptyle is 67 files / 26 sessions by host against 28 by name;
+  UltraFilms is 21 by host against 14 by name. Every count either row previously
+  carried -- 17 in both, and 19 in review -- was a filename count and is
+  superseded here.
 - Open backlog row 176 for the mislabel that explained it. The name Reptyle runs
   from raw WACZ through the derived draft into
   `tests/corpus/recognizer/reptyle.cap.json` while the payload is WowGirls, so a
@@ -46,7 +57,19 @@ archive is not present in this repository; consult source-control history.
   OPEN row may carry no evidence marker, so a parked or re-scoped verdict is
   recorded in the row body and the status column stays parseable. Written the
   other way, row 127 parsed as the unknown status `OPERATOR` and dropped out of
-  the open count entirely -- the exact failure that gate names.
+  the open count entirely -- the exact failure that gate names. Row 127 states
+  the resulting limitation in its own text: a parked row is indistinguishable in
+  the status column from an actionable one and is counted in `open=`.
+- Re-derive row 127's preflight by running it rather than by citing line
+  numbers, and record host, tree, interpreter, timestamp and exit status with
+  the result. Running it surfaced a fourth refusal reason the source-reading
+  derivation never had: postgres is not reachable on this host.
+- Open backlog row 177 for a defect the cut's own verification surfaced: the
+  cloud-bootstrap probe-list test fails on every non-canonical worktree because
+  it silently assumes the checkout under test sits at a probed location. Proven
+  ambient with an identical failure at the base commit in a fresh worktree; the
+  87/88 affected-floor result carries that one failure with the control that
+  clears this diff of it.
 
 ## v3.66.1194 - record filesystem writes as bounded evidence
 
