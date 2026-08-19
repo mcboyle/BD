@@ -165,6 +165,8 @@ def test_capture_and_wedge_hunt_sweep_on_the_way_in(monkeypatch):
     assert 'bd_test_root_gc "$(dirname "$0")" || true' in capture
 
     hunt = _load("bd_wedge_hunt_1185", HUNT_PATH)
+    assert hunt._TESTS_ROOT == REPO.resolve()
+    assert hunt._TESTS_ROOT.exists()
     calls = []
     monkeypatch.setattr(
         hunt, "ssh",
@@ -176,6 +178,19 @@ def test_capture_and_wedge_hunt_sweep_on_the_way_in(monkeypatch):
     assert "bd-gc --apply" in calls[0][1]
     assert calls[0][2] <= 300
     assert "sweep_test_roots(addr)" in HUNT_PATH.read_text()
+
+
+def test_wedge_hunt_refuses_a_tool_copy_not_bound_to_its_checkout(tmp_path):
+    hunt = _load("bd_wedge_hunt_1185_bad_root", HUNT_PATH)
+    copied_tool = tmp_path / "not-a-checkout" / "toolchain" / "bin" / "bd-wedge-hunt"
+    copied_tool.parent.mkdir(parents=True)
+    copied_tool.write_text("copy")
+    try:
+        hunt._checkout_for(copied_tool)
+    except SystemExit as exc:
+        assert str(exc).count("resolved tool root is not a git checkout") == 1
+    else:
+        raise AssertionError("unbound tool copy was accepted as a checkout")
 
 
 def test_bd_gc_selftest_still_passes():

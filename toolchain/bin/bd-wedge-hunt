@@ -332,7 +332,27 @@ ARM_FULL_TMPFS = ("full-tmpfs", [], True, dict(_FAULTHANDLER, TMPDIR="/mnt/bdtmp
 # False, so their pass/fail counts must never be read as a whole-suite result.
 # Only the wedged/not-wedged field is comparable, and only against other size
 # arms on the same host.
-_TESTS_ROOT = pathlib.Path.home() / "BulkDownloader"
+def _checkout_for(tool_path):
+    """Return the checkout containing this tool, or refuse an unbound copy."""
+    root = tool_path.resolve().parents[2]
+    if not root.is_dir():
+        raise SystemExit(
+            "BD-HUNT-UNRUNNABLE: resolved checkout does not exist: %s" % root)
+    found = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=str(root),
+        capture_output=True, text=True)
+    if found.returncode != 0:
+        raise SystemExit(
+            "BD-HUNT-UNRUNNABLE: resolved tool root is not a git checkout: %s" % root)
+    checkout = pathlib.Path(found.stdout.strip()).resolve()
+    if checkout != root:
+        raise SystemExit(
+            "BD-HUNT-UNRUNNABLE: tool belongs to %s, not containing checkout %s"
+            % (root, checkout))
+    return root
+
+
+_TESTS_ROOT = _checkout_for(pathlib.Path(__file__))
 
 
 def _tracked_test_files():

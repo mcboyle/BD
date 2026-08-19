@@ -6,6 +6,7 @@ import importlib.machinery
 import importlib.util
 import os
 import signal
+import select
 import shutil
 import subprocess
 import tempfile
@@ -67,8 +68,8 @@ def test_a_second_concurrent_vault_capture_refuses_with_a_named_reason(tmp_path)
             ["bash", "-s"], input=block, capture_output=True, text=True,
             env=env, timeout=10)
         assert second.returncode != 0
-        assert "CAPTURE-VAULT-CONCURRENCY-REFUSED" in second.stderr
-        assert f"holder_pid={first.pid}" in second.stderr
+        assert second.stderr.count("CAPTURE-VAULT-CONCURRENCY-REFUSED") == 1
+        assert second.stderr.count(f"holder_pid={first.pid}") == 1
     finally:
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=10)
@@ -112,20 +113,34 @@ def test_a_non_vault_capture_claims_the_same_singleton(tmp_path):
 def test_singleton_is_not_inherited_by_a_detached_descendant(tmp_path):
     block = _vault_block(); lock = tmp_path / "global.lock"
     env = dict(os.environ, CAPTURE_VAULT_GLOBAL_LOCK=str(lock))
-    script = (block + "setsid bash -c 'fd=$1; shift; eval \"exec ${fd}>&-\"; exec \"$@\"' "
-              'bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" sleep 30 '
+    ready_read, ready_write = os.pipe()
+    script = (block + "setsid bash -c 'fd=$1; ready=$2; shift 2; "
+              'eval "exec ${fd}>&-"; printf "LOCK_FD_CLOSED\\n" >&${ready}; '
+              'eval "exec ${ready}>&-"; exec "$@"\' '
+              'bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" "$READY_FD" sleep 30 '
               '</dev/null >/dev/null 2>&1 &\necho DESCENDANT=$!\n')
-    first = subprocess.run(["bash", "-s"], input=script, capture_output=True,
-                           text=True, env=env, timeout=10)
+    try:
+        first = subprocess.run(
+            ["bash", "-s"], input=script, capture_output=True, text=True,
+            env={**env, "READY_FD": str(ready_write)}, pass_fds=(ready_write,),
+            timeout=10)
+    finally:
+        os.close(ready_write)
     assert first.returncode == 0, first.stderr
     pid = int(next(x.split("=", 1)[1] for x in first.stdout.splitlines()
                    if x.startswith("DESCENDANT=")))
     try:
         os.kill(pid, 0)
+        readable, _, _ = select.select([ready_read], [], [], 10)
+        assert readable, "descendant never reached the post-close barrier"
+        assert os.read(ready_read, 4096) == b"LOCK_FD_CLOSED\n"
         second = subprocess.run(["bash", "-s"], input=block,
                                 capture_output=True, text=True, env=env, timeout=10)
         assert second.returncode == 0, second.stderr
-    finally: os.kill(pid, signal.SIGTERM)
+        assert second.stdout.count("capture vault skipped") == 1
+    finally:
+        os.close(ready_read)
+        os.kill(pid, signal.SIGTERM)
 
     heartbeat = (REPO / "scripts/lib/heartbeat.sh").read_text()
     assert 'eval "exec ${fd}>&-"' in heartbeat
