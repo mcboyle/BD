@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 75,
+    "total": 76,
     "version": 1,
-    "count_dict": 74,
+    "count_dict": 75,
     "test_files_scanned": 1395,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -38,6 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
+      "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
       "tests/test_v3_66_1159_fleet_prune_is_object_bound.py": 1,
@@ -236,7 +237,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1192",
+      "value": "3.66.1193",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -288,6 +289,17 @@
         "app.reptyle.com": 62
       },
       "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs — Capture counts per host, because that is how the operator recognises the"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "line": 980,
+      "value": {
+        "noreturn_calls_seen": 2,
+        "noreturn_calls_excluded_catchable": 1,
+        "noreturn_calls_excluded_rebound": 0
+      },
+      "gates_what": "test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries"
     },
     {
       "form": "count_dict",

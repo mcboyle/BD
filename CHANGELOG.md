@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1193 - measure one more sound vacuous-test slice
+
+- Extend the vacuous-test census with a conservative conventional-NoReturn
+  reachability slice. It refuses lexical and cross-scope rebinding, catchable
+  exceptions, and deferred definitions rather than guessing; the live census
+  has 174 candidate roots, 12 lexical refusals, one catchable root, and 161
+  eligible roots with no finding. Row 26 remains OPEN because general
+  variable-mediated vacuity, unreachability, and assertions true for every
+  possible implementation remain undecidable by this slice.
+- Pin the census population and exact metrics contract so an empty eligible
+  denominator cannot pass silently. Fifteen non-equivalent executable mutants
+  cover the new behavior; redundant Global/Nonlocal visitor mutations are not
+  misreported as behavioral evidence.
+
 ## v3.66.1192 - retire the sandbox-era paths and make the installer prove itself
 
 - Retire the uncalled `scripts/build_release.sh` zip-era wrapper and its frozen
