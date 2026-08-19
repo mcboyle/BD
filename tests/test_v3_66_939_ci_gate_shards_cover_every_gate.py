@@ -143,6 +143,7 @@ _DECLARED = {
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",
+    "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
     "tests/test_frontend_secret_keys_in_sync.py",
     "tests/test_templates_list_identity.py",
     "tests/test_defect_scan_precision.py",

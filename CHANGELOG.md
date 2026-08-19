@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1187 - bound mutation measurements
+
+- Bound pytest collection and execution independently with `bd-mutate
+  --timeout`, defaulting to 900 seconds per phase.
+- Convert either subprocess timeout into UNKNOWN/exit 2 while preserving
+  subject restoration, journal cleanup, and external temporary JUnit storage.
+- Add real collection-wedge and execution-wedge controls, including a wall-time
+  assertion that prevents an unbounded subprocess from imitating UNKNOWN.
+
 ## v3.66.1186 - execute named mutation controls
 
 - Add authoritative per-mutant `direction` plus

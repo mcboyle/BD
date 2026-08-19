@@ -38,6 +38,8 @@ THE CONTRACT
 
   bd-mutate --spec tests/mutants/v3_66_N_slug.json [--work DIR]
   bd-mutate --spec scratch-list.json --band "tests/a.py tests/b.py" [--work DIR]
+  bd-mutate --spec scratch-list.json --band "tests/a.py" \
+      --emit-spec v3_66_N_slug.json --subject "what this battery pins"
   bd-mutate --selftest
 
   A durable spec is an object tagged ``bd-mutate-spec/1`` with ``subject``,
@@ -57,6 +59,7 @@ THE CONTRACT
 
   --direction {regression,overcorrection,all} filters a recorded battery;
   filtering to zero mutants is UNKNOWN rather than vacuous success.
+  --timeout SECONDS bounds collection and execution separately (default: 900).
 
   Exit 0 only when every selected mutant is CAUGHT. Exit 1 if any ESCAPED or is
   INDISCRIMINATE. Exit 2 if the battery could not be measured -- an empty
@@ -89,6 +92,7 @@ CAUGHT, ESCAPED = "CAUGHT", "ESCAPED"
 INDISCRIMINATE, UNKNOWN = "INDISCRIMINATE", "UNKNOWN"
 INVALID, ERROR = "INVALID", "ERROR"
 SPEC_SCHEMA = "bd-mutate-spec/1"
+DEFAULT_BAND_TIMEOUT_SECONDS = 900.0
 _EMIT_NAME = re.compile(r"v3_66_[0-9]+_[a-z0-9_]+\.json\Z")
 
 
@@ -357,11 +361,34 @@ def _read_junit(path: Path, collected: list[str]) -> tuple[dict[str, list[str]],
     return outcomes, None
 
 
-def _run_band(band: list[str], work: Path) -> dict:
+def _timeout_tail(exc: subprocess.TimeoutExpired) -> str:
+    """Keep any partial pytest diagnostics without assuming text=True honoured it."""
+    parts: list[str] = []
+    for value in (exc.stdout, exc.stderr):
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        if value:
+            parts.append(value)
+    return "".join(parts)[-4000:]
+
+
+def _run_band(band: list[str], work: Path,
+              timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS) -> dict:
     py = _python_for(work)
     collect_cmd = [py, "-m", "pytest", "--collect-only", "-q", "-p", "no:randomly", *band]
-    collected_run = subprocess.run(
-        collect_cmd, cwd=str(work), capture_output=True, text=True, env=_child_env())
+    try:
+        collected_run = subprocess.run(
+            collect_cmd, cwd=str(work), capture_output=True, text=True,
+            env=_child_env(), timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "rc": 2,
+            "tail": _timeout_tail(exc),
+            "collected": [],
+            "outcomes": {},
+            "measurement_error": f"pytest collection exceeded {timeout:g}s",
+            "collection_error": False,
+        }
     collect_output = collected_run.stdout + collected_run.stderr
     collected = _collected_nodeids(collect_output, work)
     if collected_run.returncode != 0:
@@ -389,8 +416,19 @@ def _run_band(band: list[str], work: Path) -> dict:
             py, "-m", "pytest", "-q", "-p", "no:randomly",
             "--junitxml", str(junit), *band,
         ]
-        run = subprocess.run(
-            cmd, cwd=str(work), capture_output=True, text=True, env=_child_env())
+        try:
+            run = subprocess.run(
+                cmd, cwd=str(work), capture_output=True, text=True,
+                env=_child_env(), timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "rc": 2,
+                "tail": _timeout_tail(exc),
+                "collected": collected,
+                "outcomes": {},
+                "measurement_error": f"pytest execution exceeded {timeout:g}s",
+                "collection_error": False,
+            }
         output = run.stdout + run.stderr
         outcomes, measurement_error = _read_junit(junit, collected)
     return {
@@ -629,7 +667,8 @@ def journal_recover(work: Path) -> int:
 
 
 def run_battery(spec: list[dict], band: list[str], work: Path,
-                verbose: bool = True) -> tuple[int, list[dict]]:
+                verbose: bool = True,
+                timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS) -> tuple[int, list[dict]]:
     out: list[dict] = []
 
     # ---- DENOMINATOR. An empty battery must never read as "all caught". -----
@@ -652,7 +691,7 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
 
     # ---- BASELINE. Red afterwards proves nothing if it was red before. ------
     _purge_pycache(work)
-    baseline = _run_band(band, work)
+    baseline = _run_band(band, work, timeout=timeout)
     if baseline["rc"] != 0 or baseline.get("measurement_error"):
         print("BD-MUTATE-UNRUNNABLE: BASELINE IS RED. Every verdict below would "
               "be evidence about the baseline, not about a mutant.\n"
@@ -711,7 +750,7 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         try:
             _purge_pycache(work)
             path.write_text(mutated, encoding="utf-8")
-            result = _run_band(band, work)
+            result = _run_band(band, work, timeout=timeout)
             row["verdict"], row["why"] = _grade_mutant(m, result)
         finally:
             path.write_text(original, encoding="utf-8")
@@ -973,6 +1012,8 @@ def main() -> int:
                     help="human-readable subject required by --emit-spec")
     ap.add_argument("--direction", choices=("regression", "overcorrection", "all"),
                     default="all", help="run only one mutant direction (default: all)")
+    ap.add_argument("--timeout", type=float, default=DEFAULT_BAND_TIMEOUT_SECONDS,
+                    help="seconds per pytest collection/execution (default: 900)")
     ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -980,6 +1021,9 @@ def main() -> int:
                     help="restore originals recorded by an interrupted battery")
     a = ap.parse_args()
     work = Path(a.work).resolve()
+
+    if not (0 < a.timeout < float("inf")):
+        ap.error("--timeout must be a positive finite number")
 
     if a.selftest:
         return _selftest(work)
@@ -1007,7 +1051,7 @@ def main() -> int:
         print(f"BD-MUTATE-UNRUNNABLE: 0 of {total} mutants after "
               f"--direction {a.direction}", file=sys.stderr)
         return 2
-    rc, rows = run_battery(selected, band, work)
+    rc, rows = run_battery(selected, band, work, timeout=a.timeout)
     if a.json:
         print(json.dumps({
             "exit": rc,
