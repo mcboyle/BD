@@ -14,10 +14,12 @@ archive is not present in this repository; consult source-control history.
   Parked is terminal for re-derivation, not closed; it reopens when a soak
   starts.
 - Retire backlog row 128's criterion (OPV-F3.1) in writing. The seven-day
-  saved-search enqueue window lapsed on 2026-07-30, 325 releases ago. The
+  saved-search enqueue window lapsed on 2026-07-30, 377 releases ago. The
   retained corpus holds 48 artifacts inside that window, covering one day, none
-  of which mention the enqueue lane; every corpus file that does mention it
-  postdates the window by three weeks. The row's first option, closing on
+  of which mention the enqueue lane; over the complete 1343-file corpus 49 files
+  mention it (42 fleet-capture text plus 7 WACZ a `!*.wacz` grep had hidden) and
+  every one postdates the window -- the WACZ by 2 to 10 days, the fleet text by
+  three weeks. The row's first option, closing on
   evidence already collected, was never available. Nothing replaces the
   criterion, and the row is CLOSED on that retirement rather than on evidence of
   the behaviour. The row now also records why restarting the clock was declined,
@@ -52,6 +54,14 @@ archive is not present in this repository; consult source-control history.
   operator capture tool and never by BD's own saved-flow driver, and
   `derive_login_flow` against those same captures emits a plan that cannot log
   in. The live drive sits downstream of that and cannot pass before it.
+- Reopen backlog row 120 (JW-TMPL) by operator ruling. Its subject names signed
+  JWPlayer BEHIND AKAMAI/CLOUDFLARE, and measurement of all 21 UltraFilms
+  captures shows 0 of 21 serve a player or media asset from an akamai/cloudflare
+  host -- the entitlement and signed-rendition fetches come from jwplayer.com and
+  ultrafilms.com. The operator ruled that CDN topology essential rather than
+  descriptive, so the akamai/cloudflare-fronted case is now the row's explicit
+  criterion and a capture of such a site is its blocker; the UltraFilms corpus
+  is retained as adjacent evidence.
 - Keep every adjudication inside the register's own status grammar. The
   machine-visible gate at @1052 admits exactly OPEN, CLOSED and MOOT, and an
   OPEN row may carry no evidence marker, so a parked or re-scoped verdict is
