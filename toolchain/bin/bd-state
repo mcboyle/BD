@@ -18,6 +18,7 @@ Usage:
 Exit 0 = pin matches zip, 1 = mismatch.
 """
 import argparse
+import atexit
 import glob
 import hashlib
 import importlib.util
@@ -52,6 +53,20 @@ except RuntimeError as exc:
     _WORK_TREE_ERROR = exc
 STATE_ROOT = os.environ.get("BD_STATE_ROOT", DEFAULT_WORK)
 UPLOAD_ROOT = os.environ.get("BD_UPLOADS", "/mnt/user-data/uploads")
+_TEMP_STATE_PATHS = set()
+
+
+def _cleanup_temp_states():
+    """Remove only private state extracts created by this process."""
+    while _TEMP_STATE_PATHS:
+        path = _TEMP_STATE_PATHS.pop()
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+
+atexit.register(_cleanup_temp_states)
 
 
 def find_zip():
@@ -116,11 +131,17 @@ def find_state():
                     member = min(members, key=lambda n: (n.count("/"), n))
                     payload = zf.read(member)
                     json.loads(payload)
-                tmp = os.path.join(
-                    tempfile.gettempdir(), f"bd_canonical_STATE_{os.getpid()}.json"
-                )
-                with open(tmp, "wb") as handle:
-                    handle.write(payload)
+                fd, tmp = tempfile.mkstemp(prefix="bd_canonical_STATE_", suffix=".json")
+                try:
+                    with os.fdopen(fd, "wb") as handle:
+                        handle.write(payload)
+                except BaseException:
+                    try:
+                        os.unlink(tmp)
+                    except FileNotFoundError:
+                        pass
+                    raise
+                _TEMP_STATE_PATHS.add(tmp)
                 return tmp, f"{label}: {os.path.basename(candidate)} -> {member}"
             except Exception as exc:
                 print(f"WARN: corrupt {label} candidate {candidate}: {exc}", file=sys.stderr)

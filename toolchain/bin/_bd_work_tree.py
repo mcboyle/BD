@@ -21,11 +21,18 @@ def _validated_checkout(value: str, source: str) -> Path:
     if not candidate.is_dir():
         raise WorkTreeResolutionError(f"{source} does not name a directory: {candidate}")
     candidate = candidate.resolve()
-    found = subprocess.run(
-        ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise WorkTreeResolutionError(
+            f"cannot validate {source} with Git: {candidate}"
+        ) from exc
     if found.returncode != 0 or not found.stdout.strip():
         raise WorkTreeResolutionError(f"{source} is not a Git checkout: {candidate}")
     checkout = Path(found.stdout.strip()).resolve()

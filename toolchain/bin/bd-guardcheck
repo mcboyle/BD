@@ -231,7 +231,7 @@ def sha(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tree", "--work", default=None,
-                    help="tree to hash (default: discovered from cwd / this script)")
+                    help="tree to hash (default: resolved checkout authority)")
     ap.add_argument("--guards", default=None,
                     help="explicit guards.json manifest (absent/malformed => exit 2)")
     ap.add_argument("--state", default=None,

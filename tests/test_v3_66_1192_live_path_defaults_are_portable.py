@@ -172,6 +172,24 @@ def test_work_tree_resolver_authority_table_fails_closed(tmp_path, monkeypatch):
         resolver.resolve_work_tree(tool)
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [FileNotFoundError("git missing"), subprocess.TimeoutExpired(["git"], 1)],
+)
+def test_work_tree_resolver_translates_git_launch_failures(monkeypatch, failure):
+    """Missing or hung Git is a named resolver error, never a traceback or hang."""
+    resolver = _load_extensionless("bd_work_tree_git_failure", BIN / "_bd_work_tree.py")
+
+    def fail_git(*_args, **kwargs):
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        assert 0 < kwargs["timeout"] <= 10
+        raise failure
+
+    monkeypatch.setattr(resolver.subprocess, "run", fail_git)
+    with pytest.raises(resolver.WorkTreeResolutionError):
+        resolver.resolve_work_tree(BIN / "_bd_work_tree.py", explicit=str(REPO))
+
+
 def test_installed_public_tools_share_pointer_authority(tmp_path):
     """Public symlinks derive their checkout from the installed transaction."""
     env, suite_bin, link_bin, _installed_env, pointer = _installed_layout(tmp_path)
@@ -230,6 +248,18 @@ def test_installed_public_tools_share_pointer_authority(tmp_path):
     assert trace.read_text(encoding="utf-8").splitlines()
     assert set(trace.read_text(encoding="utf-8").splitlines()) == {str(REPO.resolve())}
 
+    reindex_help = subprocess.run(
+        [str(link_bin / "bd-reindex"), "--help"], cwd=foreign, env=reindex_env,
+        text=True, capture_output=True, timeout=10,
+    )
+    assert reindex_help.returncode == 0
+    assert "Usage:" in reindex_help.stdout
+    reindex_missing = subprocess.run(
+        [str(link_bin / "bd-reindex"), "--work"], cwd=foreign, env=reindex_env,
+        text=True, capture_output=True, timeout=10,
+    )
+    assert reindex_missing.returncode == 2
+
     guard = subprocess.run(
         [str(link_bin / "bd-guardcheck")], cwd=foreign, env=run_env,
         text=True, capture_output=True, timeout=10,
@@ -259,12 +289,21 @@ def test_installer_publishes_exact_population_and_removes_owned_stale_paths(tmp_
 
     old_bd = suite_bin / "bd"
     old_bytes = old_bd.read_bytes()
+    old_public_inode = (link_bin / "bd").lstat().st_ino
     (source / "bin" / "bd").write_bytes(old_bytes + b"\n# next generation\n")
     stale = suite_bin / "bd-stale-owned"
     stale.write_text("stale\n", encoding="utf-8")
     (link_bin / stale.name).symlink_to(stale)
+    prior_manifest = json.loads((suite_bin / ".bdsuite-manifest.json").read_text())
+    prior_manifest["source_basenames"].append(stale.name)
+    prior_manifest["public_commands"].append(stale.name)
+    (suite_bin / ".bdsuite-manifest.json").write_text(
+        json.dumps(prior_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     unrelated = link_bin / "operator-file"
     unrelated.write_text("keep\n", encoding="utf-8")
+    alias = link_bin / "bulkdl"
+    alias.symlink_to(suite_bin / "bd")
 
     updated = _install(env, source)
     assert updated.returncode == 0, updated.stdout + updated.stderr
@@ -272,6 +311,10 @@ def test_installer_publishes_exact_population_and_removes_owned_stale_paths(tmp_
     assert not stale.exists()
     assert not (link_bin / stale.name).exists()
     assert unrelated.read_text(encoding="utf-8") == "keep\n"
+    assert alias.is_symlink()
+    assert alias.readlink() == suite_bin / "bd"
+    assert (link_bin / "bd").lstat().st_ino == old_public_inode
+    assert suite_bin.stat().st_mode & 0o777 == 0o755
 
     manifest = json.loads((suite_bin / ".bdsuite-manifest.json").read_text())
     source_names = sorted(
@@ -288,7 +331,9 @@ def test_installer_publishes_exact_population_and_removes_owned_stale_paths(tmp_
     assert manifest["source_basenames"] == source_names
     assert manifest["public_commands"] == public_names
     assert installed_names == source_names
-    assert sorted(path.name for path in link_bin.iterdir() if path.is_symlink()) == public_names
+    assert sorted(path.name for path in link_bin.iterdir() if path.is_symlink()) == sorted(
+        public_names + ["bulkdl"]
+    )
 
 
 @pytest.mark.parametrize("command", ["cp", "chmod", "ln"])
@@ -345,6 +390,79 @@ def test_installer_rejects_a_staged_pointer_that_cannot_resolve(tmp_path):
     refused = _install(env, source)
     assert refused.returncode == 2
     assert _tree_snapshot(suite_bin, link_bin) == before
+
+
+def test_installer_rolls_back_a_live_validation_failure(tmp_path):
+    """A failure reachable only through the published name restores the old generation."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    first = _install(env)
+    assert first.returncode == 0, first.stderr
+    before = _tree_snapshot(suite_bin, link_bin)
+
+    source = tmp_path / "live-invalid-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    resolver = source / "bin" / "_bd_work_tree.py"
+    resolver.write_text(
+        resolver.read_text(encoding="utf-8").replace(
+            "from __future__ import annotations\n",
+            "from __future__ import annotations\n"
+            "import pathlib\n"
+            "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+            "    raise SystemExit(2)\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    env["BD_WORK_TREE"] = str(REPO)
+    failed = _install(env, source)
+    assert failed.returncode == 2
+    assert _tree_snapshot(suite_bin, link_bin) == before
+    assert _run_installed_bd(link_bin, env, tmp_path).returncode == 0
+
+
+def test_installer_preserves_recovery_generation_when_reverse_exchange_fails(tmp_path):
+    """A failed automatic rollback never deletes the only old-generation copy."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    first = _install(env)
+    assert first.returncode == 0, first.stderr
+    old_bd = (suite_bin / "bd").read_bytes()
+
+    source = tmp_path / "reverse-failure-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    resolver = source / "bin" / "_bd_work_tree.py"
+    resolver.write_text(
+        resolver.read_text(encoding="utf-8").replace(
+            "from __future__ import annotations\n",
+            "from __future__ import annotations\n"
+            "import pathlib\n"
+            "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+            "    raise SystemExit(2)\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    exchange = source / "install_exchange.py"
+    real_exchange = source / "install_exchange_real.py"
+    exchange.rename(real_exchange)
+    counter = tmp_path / "exchange-count"
+    exchange.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, subprocess, sys\n"
+        f"counter = {str(counter)!r}\n"
+        "try:\n    n = int(open(counter).read()) + 1\n"
+        "except Exception:\n    n = 1\n"
+        "open(counter, 'w').write(str(n))\n"
+        "if n > 1:\n    raise SystemExit(2)\n"
+        f"raise SystemExit(subprocess.run([sys.executable, {str(real_exchange)!r}, *sys.argv[1:]]).returncode)\n",
+        encoding="utf-8",
+    )
+    env["BD_WORK_TREE"] = str(REPO)
+    failed = _install(env, source)
+    assert failed.returncode == 2
+    assert "BD-INSTALL-ROLLBACK-INCOMPLETE" in failed.stderr
+    recovery = [path for path in suite_bin.parent.glob(".bdsuite-stage.*") if path.is_dir()]
+    assert len(recovery) == 1
+    assert (recovery[0] / "bd").read_bytes() == old_bd
 
 
 def test_shared_tool_defaults_are_repo_derived_and_operator_overridable(monkeypatch, tmp_path):
@@ -507,6 +625,23 @@ def test_bd_state_uses_explicit_local_first_precedence(tmp_path, monkeypatch):
     selected, label = state.find_state()
     assert json.loads(Path(selected).read_text())["marker"] == "recursive"
     assert "WARN:" in label
+
+
+def test_bd_state_pack_extraction_uses_private_random_temporary_files(tmp_path, monkeypatch):
+    """Pack extraction cannot follow a predictable attacker-created /tmp symlink."""
+    state_root = tmp_path / "state-root"
+    state_root.mkdir()
+    monkeypatch.setenv("BD_STATE_ROOT", str(state_root))
+    monkeypatch.setenv("BD_UPLOADS", str(tmp_path / "uploads"))
+    state = _load_extensionless("bd_state_private_temp", BIN / "bd-state")
+    _write_state_pack(state_root / "BulkDL_next_session_7.zip", "secure-temp")
+    selected, _label = state.find_state()
+    path = Path(selected)
+    assert path.name.startswith("bd_canonical_STATE_")
+    assert path.name != f"bd_canonical_STATE_{os.getpid()}.json"
+    assert path.stat().st_mode & 0o777 == 0o600
+    state._cleanup_temp_states()
+    assert not path.exists()
 
 
 def test_dependent_defaults_follow_root_and_explicit_values_win(tmp_path):

@@ -83,6 +83,48 @@ done
   exit 2
 }
 
+# The prior manifest is the ownership boundary for obsolete public links.  A
+# target under DEST alone is not ownership evidence: operators may deliberately
+# keep aliases into the suite.
+OLD_PUBLIC_NAMES=()
+if [ -e "$DEST/.bdsuite-manifest.json" ] || [ -L "$DEST/.bdsuite-manifest.json" ]; then
+  [ -f "$DEST/.bdsuite-manifest.json" ] && [ ! -L "$DEST/.bdsuite-manifest.json" ] || {
+    echo "ERROR: prior suite manifest is not a regular file" >&2
+    exit 2
+  }
+  old_public="$({ python3 - "$DEST/.bdsuite-manifest.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+try:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    names = value["public_commands"]
+except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+    raise SystemExit(f"invalid prior suite manifest: {exc}")
+if value.get("schema") != "bdsuite-manifest/1" or not isinstance(names, list):
+    raise SystemExit("invalid prior suite manifest schema")
+if any(not isinstance(n, str) or not n or Path(n).name != n or
+       not (n == "bd" or n.startswith("bd-")) for n in names):
+    raise SystemExit("invalid prior public command roster")
+if len(names) != len(set(names)):
+    raise SystemExit("duplicate prior public command")
+print("\n".join(names))
+PY
+  } 2>&1)" || { echo "ERROR: $old_public" >&2; exit 2; }
+  while IFS= read -r name; do [ -z "$name" ] || OLD_PUBLIC_NAMES+=("$name"); done <<< "$old_public"
+elif [ -d "$DEST" ] && [ -d "$LINK_DEST" ]; then
+  # Compatibility with an install predating manifests: only basename-preserving
+  # bd command links are attributable to the old installer.
+  for public in "$LINK_DEST"/bd "$LINK_DEST"/bd-*; do
+    [ -L "$public" ] || continue
+    name="$(basename -- "$public")"
+    [ "$(readlink -- "$public")" = "$DEST/$name" ] || continue
+    OLD_PUBLIC_NAMES+=("$name")
+  done
+fi
+
 for name in "${PUBLIC_NAMES[@]}"; do
   public="$LINK_DEST/$name"
   if [ -e "$public" ] || [ -L "$public" ]; then
@@ -101,6 +143,13 @@ done
 DEST_PARENT="$(dirname -- "$DEST")"
 mkdir -p -- "$DEST_PARENT" "$LINK_DEST" || exit 2
 STAGE="$(mktemp -d "$DEST_PARENT/.bdsuite-stage.XXXXXX")" || exit 2
+if [ -d "$DEST" ]; then
+  DEST_MODE="$(stat -c '%a' -- "$DEST")" || exit 2
+else
+  DEST_MODE=755
+fi
+case "$DEST_MODE" in *[!0-7]*|'') echo "ERROR: invalid suite directory mode" >&2; exit 2;; esac
+chmod "$DEST_MODE" -- "$STAGE" || { echo "ERROR: staging chmod failed for suite directory" >&2; exit 2; }
 PUBLISHED=0
 EXCHANGED=0
 COMMITTED=0
@@ -111,27 +160,34 @@ NEW_LINKS=()
 rollback() {
   local status=$?
   trap - EXIT
+  local rollback_ok=1
   if [ "$COMMITTED" -ne 1 ]; then
     local record original backup
-    for record in "${BACKUP_LINKS[@]}"; do
-      original="${record%%|*}"; backup="${record#*|}"
-      [ ! -e "$backup" ] && [ ! -L "$backup" ] || mv -Tf -- "$backup" "$original" >/dev/null 2>&1 || true
-    done
-    for original in "${NEW_LINKS[@]}"; do
-      [ ! -e "$original" ] && [ ! -L "$original" ] || rm -f -- "$original"
-    done
     if [ "$PUBLISHED" -eq 1 ]; then
       if [ "$EXCHANGED" -eq 1 ]; then
-        python3 "$HERE/install_exchange.py" "$DEST" "$STAGE" >/dev/null 2>&1 || true
+        python3 "$HERE/install_exchange.py" "$DEST" "$STAGE" >/dev/null 2>&1 || rollback_ok=0
       else
-        [ ! -e "$DEST" ] || mv -T -- "$DEST" "$STAGE" >/dev/null 2>&1 || true
+        [ ! -e "$DEST" ] || mv -T -- "$DEST" "$STAGE" >/dev/null 2>&1 || rollback_ok=0
       fi
     fi
+    for record in "${BACKUP_LINKS[@]}"; do
+      original="${record%%|*}"; backup="${record#*|}"
+      if [ -e "$backup" ] || [ -L "$backup" ]; then
+        mv -Tf -- "$backup" "$original" >/dev/null 2>&1 || rollback_ok=0
+      fi
+    done
+    for original in "${NEW_LINKS[@]}"; do
+      [ ! -e "$original" ] && [ ! -L "$original" ] || rm -f -- "$original" || rollback_ok=0
+    done
   fi
   for record in "${PREPARED_LINKS[@]}"; do
     [ ! -e "$record" ] && [ ! -L "$record" ] || rm -f -- "$record"
   done
-  [ ! -e "$STAGE" ] || rm -rf -- "$STAGE"
+  if [ "$rollback_ok" -eq 1 ]; then
+    [ ! -e "$STAGE" ] || rm -rf -- "$STAGE"
+  else
+    echo "BD-INSTALL-ROLLBACK-INCOMPLETE: prior generation preserved at $STAGE; live destination $DEST requires recovery" >&2
+  fi
   exit "$status"
 }
 trap rollback EXIT
@@ -181,6 +237,54 @@ manifest = {
 )
 PY
 chmod 644 -- "$STAGE/.bdsuite-manifest.json" || exit 2
+validate_generation() {
+  python3 - "$HERE/bin" "$1" "$VALID_ROOT" "$DEST_MODE" "$LINK_DEST" "$2" <<'PY'
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+source, generation = map(Path, sys.argv[1:3])
+expected_root = sys.argv[3]
+expected_dir_mode = int(sys.argv[4], 8)
+links = Path(sys.argv[5])
+check_links = sys.argv[6] == "links"
+source_names = sorted(p.name for p in source.iterdir() if p.is_file() and not p.is_symlink())
+public = sorted(n for n in source_names if n == "bd" or n.startswith("bd-"))
+expected_entries = set(source_names) | {".bdenv.sh", ".bd-work-tree", ".bdsuite-manifest.json"}
+if set(p.name for p in generation.iterdir()) != expected_entries:
+    raise SystemExit("generation population does not exactly match source and metadata")
+info = generation.lstat()
+if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_dir_mode:
+    raise SystemExit("generation directory mode mismatch")
+for name in source_names:
+    info = (generation / name).lstat()
+    expected_mode = 0o755 if name in public else 0o644
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_mode:
+        raise SystemExit(f"generation file type or mode mismatch: {name}")
+for name, expected_mode in ((".bdenv.sh", 0o644), (".bd-work-tree", 0o600),
+                            (".bdsuite-manifest.json", 0o644)):
+    info = (generation / name).lstat()
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_mode:
+        raise SystemExit(f"generation metadata type or mode mismatch: {name}")
+pointer = generation / ".bd-work-tree"
+if pointer.stat().st_uid != os.getuid() or pointer.stat().st_nlink != 1:
+    raise SystemExit("checkout pointer ownership or link count mismatch")
+if pointer.read_bytes() != (expected_root + "\n").encode():
+    raise SystemExit("checkout pointer content mismatch")
+manifest = json.loads((generation / ".bdsuite-manifest.json").read_text(encoding="utf-8"))
+if manifest != {"schema": "bdsuite-manifest/1", "source_basenames": source_names,
+               "public_commands": public}:
+    raise SystemExit("generation manifest mismatch")
+if check_links:
+    for name in public:
+        link = links / name
+        if not link.is_symlink() or link.readlink() != generation / name:
+            raise SystemExit(f"live public link mismatch: {name}")
+PY
+}
+validate_generation "$STAGE" no-links || exit 2
 STAGED_ROOT="$(env -u BD_WORK_TREE python3 "$STAGE/_bd_work_tree.py")" || {
   echo "ERROR: staged checkout pointer did not resolve" >&2; exit 2;
 }
@@ -209,47 +313,39 @@ for name in "${PUBLIC_NAMES[@]}"; do
   public="$LINK_DEST/$name"
   prepared="$LINK_DEST/.bdsuite-link.$txn.$name"
   if [ -e "$public" ] || [ -L "$public" ]; then
-    backup="$LINK_DEST/.bdsuite-backup.$txn.$name"
-    mv -T -- "$public" "$backup" || exit 2
-    BACKUP_LINKS+=("$public|$backup")
+    # Prevalidation proved this is already the exact stable link.  Keep it in
+    # place so upgrades never introduce a missing-public-command interval.
+    rm -f -- "$prepared" || exit 2
   else
     NEW_LINKS+=("$public")
+    mv -T -- "$prepared" "$public" || exit 2
   fi
-  mv -T -- "$prepared" "$public" || exit 2
 done
 
-# Remove obsolete installer-owned public links only. Their stable target names
-# may no longer exist in the new exact generation, which is why readlink is used.
-for public in "$LINK_DEST"/*; do
-  [ -L "$public" ] || continue
-  name="$(basename -- "$public")"
+# Remove only names in the prior owned roster. Their stable target names may no
+# longer exist in the new exact generation, which is why readlink is used.
+for name in "${OLD_PUBLIC_NAMES[@]}"; do
   keep=0
   for required in "${PUBLIC_NAMES[@]}"; do [ "$name" != "$required" ] || keep=1; done
   [ "$keep" -eq 0 ] || continue
+  public="$LINK_DEST/$name"
+  [ -L "$public" ] || continue
   target="$(readlink -- "$public")" || continue
-  case "$target" in "$DEST/"*)
+  case "$target" in "$DEST/$name")
     backup="$LINK_DEST/.bdsuite-backup.$txn.$name"
     mv -T -- "$public" "$backup" || exit 2
     BACKUP_LINKS+=("$public|$backup")
   esac
 done
 
-env -u BD_WORK_TREE python3 "$DEST/_bd_work_tree.py" >/dev/null || exit 2
-python3 - "$DEST" "$LINK_DEST" <<'PY' || exit 2
-import json
-from pathlib import Path
-import sys
-
-dest, links = map(Path, sys.argv[1:])
-manifest = json.loads((dest / ".bdsuite-manifest.json").read_text(encoding="utf-8"))
-installed = sorted(p.name for p in dest.iterdir() if not p.name.startswith("."))
-if installed != manifest["source_basenames"] or not manifest["public_commands"]:
-    raise SystemExit("live manifest or population mismatch")
-for name in manifest["public_commands"]:
-    link = links / name
-    if not link.is_symlink() or link.readlink() != dest / name:
-        raise SystemExit(f"live public link mismatch: {name}")
-PY
+LIVE_ROOT="$(env -u BD_WORK_TREE python3 "$DEST/_bd_work_tree.py")" || {
+  echo "ERROR: live checkout pointer did not resolve" >&2; exit 2;
+}
+[ "$LIVE_ROOT" = "$VALID_ROOT" ] || {
+  echo "ERROR: live checkout pointer resolved to $LIVE_ROOT, expected $VALID_ROOT" >&2
+  exit 2
+}
+validate_generation "$DEST" links || exit 2
 
 COMMITTED=1
 for record in "${BACKUP_LINKS[@]}"; do rm -f -- "${record#*|}"; done

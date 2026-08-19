@@ -19,15 +19,30 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a full source tree to reindex"
   echo "SELFTEST PASS"; exit 0;; esac
+_bd_usage='Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR]'
 _bd_explicit=""
 _bd_has_explicit=0
-if [ "${1:-}" = "--work" ] || [ "${1:-}" = "--tree" ]; then
-    _bd_explicit="${2:?--work needs a dir}"
-    _bd_has_explicit=1
-elif [ -n "${1:-}" ]; then
+case "${1:-}" in
+  -h|--help)
+    [ "$#" -eq 1 ] || { echo "$_bd_usage" >&2; exit 2; }
+    echo "$_bd_usage"; exit 0;;
+  --work|--tree)
+    [ "$#" -eq 2 ] && [ -n "${2:-}" ] || {
+      echo "bd-reindex: ${1} needs exactly one directory" >&2
+      echo "$_bd_usage" >&2
+      exit 2
+    }
+    _bd_explicit="$2"
+    _bd_has_explicit=1;;
+  -*)
+    echo "bd-reindex: unknown option: $1" >&2
+    echo "$_bd_usage" >&2
+    exit 2;;
+  ?*)
+    [ "$#" -eq 1 ] || { echo "$_bd_usage" >&2; exit 2; }
     _bd_explicit="$1"
-    _bd_has_explicit=1
-fi
+    _bd_has_explicit=1;;
+esac
 _bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
 _bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
 [ -f "$_bd_tool_dir/_bd_work_tree.py" ] || {
