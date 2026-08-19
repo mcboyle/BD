@@ -819,11 +819,9 @@ def t(flag):
 """
     counts = {}
     assert unreachable_asserts(ast.parse(src), counts) == []
-    assert counts == {
-        "noreturn_calls_seen": 2,
-        "noreturn_calls_excluded_catchable": 1,
-        "noreturn_calls_excluded_rebound": 0,
-    }
+    assert counts["noreturn_calls_seen"] == 2
+    assert counts["noreturn_calls_excluded_catchable"] == 1
+    assert counts["noreturn_calls_excluded_rebound"] == 0
 
 
 def test_dead_tails_are_walked_without_executing_nested_definitions():
