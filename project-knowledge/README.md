@@ -34,7 +34,7 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
    changes runtime, build, version, a guard, or cuts a release needs an explicit
    per-task go. Terse directives ("go", "cut", "1", a file upload) = full
    authorization *within the established scope*. "hold"/"wait" = stop immediately.
-3. **Claude never deploys.** Claude works only in `/home/claude`. Matt deploys on
+3. **The agent never deploys.** It works only in the isolated `$BD_WORK`. Matt deploys on
    stash. The binding confirmation is `capture.sh --workers=180` returning **GREEN**.
    *(Note v3.66.805: the 805 stash-green was reported as `--workers=60` —
    12466 / 12391 pass / 0 fail / 75 skip. The worker count is operator practice and
@@ -52,10 +52,10 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
 
 - **stash** — the headless host Matt runs. `mboyle@10.0.70.20`, app at
   `~/BulkDownloader`, systemd `bulkdownloader.service`, localhost:5555.
-- **sandbox** — Claude's Linux box. Key dirs:
-  - `/home/claude/work` — the extracted source tree (the SERVICE venv is
-    `work/venv`, **not** `.venv`).
-  - `/home/claude/bin` — installed toolchain (`install_bdsuite.sh` lands tools here
+- **workspace** — the isolated Linux checkout. Key dirs:
+  - `$BD_WORK` — the extracted source tree (the SERVICE venv is
+    `$BD_WORK/venv`, **not** `.venv`).
+  - `$BD_SUITE_BIN` — installed toolchain (`install_bdsuite.sh` lands tools here
     + symlinks into `/usr/local/bin`).
   - `/mnt/user-data/uploads` — **READ-ONLY and EVICTS files mid-session.** Copy
     everything out FIRST (`bd-intake`).
@@ -83,14 +83,14 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
 0. **`setup.sh` FAILS by design — do not run it.**
 1. **Intake first.** `bd-intake` copies uploaded zips out of the evicting uploads
    dir, `unzip -t`-validates them, and reports what's missing from the set. (Or copy
-   manually to `/home/claude/`.) "Save and wait" = copy everything present, report
+   manually to `$BD_ARTIFACT_ROOT`.) "Save and wait" = copy everything present, report
    what's missing, hold without bootstrapping until the full set arrives.
 2. **Install the toolchain.** Unzip `bdsuite_v3_66_<n>.zip` and run
-   `install_bdsuite.sh` (globs `bin/*` → symlinks). Create symlinks by hand if they
-   don't land.
+   `install_bdsuite.sh`; continue only after its zero exit. A failed transaction
+   preserves the previous install: do not create replacement links by hand.
 3. **The chain:** run `bd-boot` and **re-run it until it prints READY.**
    It is budgeted (~230s per call, under the harness limit) + checkpointed
-   (`/home/claude/.bd_boot`), so each call finishes what it can, exits 0 with a
+   (`$BD_STATE_ROOT/.bd_boot`), so each call finishes what it can, exits 0 with a
    loud `PARTIAL` + phase ledger, and the next call resumes. Internally:
    `prestage → install → venv → preflight → state → status → footguns → kbsync`.
    - No manual prestage loop and no expected timeout-kill anymore. `--fresh`
@@ -168,7 +168,7 @@ bd-precut (predicts the cut) · bd-cut (**`--skip-fe`** backend-only) · bd-band
 bd-bump (`bd-bump 3.66.N --title "…"` → **`--check` default**, `--write` applies).
 
 ### Close / package
-`scripts/build_release.sh` builds the release tree; `tools/verify_release.py`
+`tools/build_release.py` builds the release tree; `tools/verify_release.py`
 validates it; bd-kb-sync stages static-PK updates; bd-repin-dist is used only for
 frontend-rebuilding cuts. Exact-head evidence, not a session ZIP, authorizes merge.
 
@@ -257,7 +257,7 @@ declares a new SHA:
   ```
   timeout 90 env BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
     PYTHONPATH=/tmp/prestaged_site_packages \
-    PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright \
+    PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright" \
     python3 run_tests.py tests/<file>
   ```
 - **Band-naming trap:** `test_spa_wired_join_is_faithful` is a FUNCTION inside
@@ -342,10 +342,10 @@ overlay so tool changes win at boot (if absent, updated tools ride the PK + bdsu
 
 The `audit_state` zip (audit ledger + witnesses/ + tools/) is uploaded but not
 auto-hydrated.
-- **`bd-audit hydrate`** — unzip newest `audit_state_*.zip` → `/home/claude/audit_state`
+- **`bd-audit hydrate`** — unzip newest `audit_state_*.zip` into `$BD_AUDIT_ROOT`
   (+ symlink `review`), exec bits preserved, idempotent.
 - **`bd-audit analyze`** — classify every `audit_state/tools/` script by cross-checking
-  BOTH `/home/claude/bin` AND the static PK (`/mnt/project`), with a per-script
+  BOTH `$BD_SUITE_BIN` AND the static PK (`/mnt/project`), with a per-script
   summary, an import + **runtime-coupling** portability verdict (stdlib-only vs
   shells-out-to-siblings / audit-venv / third-party), and byte-divergence vs any
   existing copy. Buckets: candidate bd tool · candidate static PK · overlaps
@@ -479,7 +479,7 @@ bd-repin-dist                  # FE-changing cuts only
 git diff --name-only <base>...HEAD ; bd-band-derive --files <changed> ; bd-bandcheck <list> ; bd-band <files>
 
 # close
-scripts/build_release.sh ; venv/bin/python tools/verify_release.py --help
+venv/bin/python tools/build_release.py --help ; venv/bin/python tools/verify_release.py --help
 
 # situational
 bd-audit ; bd-audit promote <name>

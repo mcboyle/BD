@@ -34,6 +34,8 @@ JsonValue: TypeAlias = (
 )
 
 SCHEMA = 1
+DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(DEFAULT_ROOT, "review")
 
 # Files that carried a confirmed defect (VERIFY_MATRIX 520 + F0001) -> prior risk.
 PRIOR_DEFECT_SUBSTR = [
@@ -198,11 +200,11 @@ def rerank(scores, manifests_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default="/home/claude/review/artifacts/KNOWLEDGE_GRAPH.db")
-    ap.add_argument("--root", default="/home/claude/work")
-    ap.add_argument("--manifests", default="/home/claude/review/audit_manifests")
+    ap.add_argument("--db", default=os.path.join(REVIEW, "artifacts", "KNOWLEDGE_GRAPH.db"))
+    ap.add_argument("--root", default=DEFAULT_ROOT)
+    ap.add_argument("--manifests", default=os.path.join(REVIEW, "audit_manifests"))
     ap.add_argument("--radon", default=os.path.expanduser("~/rev/bin/radon"))
-    ap.add_argument("--outdir", default="/home/claude/review/artifacts")
+    ap.add_argument("--outdir", default=os.path.join(REVIEW, "artifacts"))
     a = ap.parse_args()
     scores = score(a.db, a.root, a.radon)
     with open(os.path.join(a.outdir, "RISK_SCORES.json"), "w") as f:

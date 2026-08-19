@@ -334,27 +334,36 @@ ARM_FULL_TMPFS = ("full-tmpfs", [], True, dict(_FAULTHANDLER, TMPDIR="/mnt/bdtmp
 # arms on the same host.
 def _checkout_for(tool_path):
     """Return the checkout containing this tool, or refuse an unbound copy."""
-    resolved = tool_path.resolve()
-    if len(resolved.parents) < 3:
+    import importlib.util
+    resolved = pathlib.Path(tool_path).resolve()
+    helper = resolved.parent / "_bd_work_tree.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_bd_hunt_work_tree", helper)
+        if spec is None or spec.loader is None:
+            raise ImportError(str(helper))
+        resolver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(resolver)
+    except (Exception, SystemExit):
+        if (len(resolved.parents) >= 3 and resolved.parent.name == "bin"
+                and resolved.parent.parent.name == "toolchain"):
+            raise SystemExit(
+                "BD-HUNT-UNRUNNABLE: resolved tool root is not a git checkout: %s"
+                % resolved.parents[2]
+            ) from None
         raise SystemExit(
-            "BD-HUNT-UNRUNNABLE: resolved tool path is too shallow to identify "
-            "a containing checkout: %s" % resolved)
-    root = resolved.parents[2]
-    if not root.is_dir():
-        raise SystemExit(
-            "BD-HUNT-UNRUNNABLE: resolved checkout does not exist: %s" % root)
-    found = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=str(root),
-        capture_output=True, text=True)
-    if found.returncode != 0:
-        raise SystemExit(
-            "BD-HUNT-UNRUNNABLE: resolved tool root is not a git checkout: %s" % root)
-    checkout = pathlib.Path(found.stdout.strip()).resolve()
-    if checkout != root:
-        raise SystemExit(
-            "BD-HUNT-UNRUNNABLE: tool belongs to %s, not containing checkout %s"
-            % (root, checkout))
-    return root
+            "BD-HUNT-UNRUNNABLE: checkout resolver is missing beside physical tool"
+        ) from None
+    try:
+        return resolver.resolve_work_tree(tool_path)
+    except resolver.WorkTreeResolutionError as exc:
+        if (len(resolved.parents) >= 3 and resolved.parent.name == "bin"
+                and resolved.parent.parent.name == "toolchain"
+                and not (resolved.parent / ".bd-work-tree").exists()):
+            raise SystemExit(
+                "BD-HUNT-UNRUNNABLE: resolved tool root is not a git checkout: %s"
+                % resolved.parents[2]
+            ) from None
+        raise SystemExit("BD-HUNT-UNRUNNABLE: %s" % exc) from None
 
 
 _TESTS_ROOT = _checkout_for(pathlib.Path(__file__))

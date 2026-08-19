@@ -12,7 +12,14 @@
 # never loaded. BD_ENV_FILE overrides the location; BD_SKIP_ENV_CHECK=1 is the
 # single documented escape hatch, named in the refusal so it is a gate and not
 # a wall.
-BD_ENV_FILE="${BD_ENV_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/bdenv.sh}"
+_bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
+_bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
+if [ -f "$_bd_tool_dir/.bdenv.sh" ]; then
+  _bd_default_env="$_bd_tool_dir/.bdenv.sh"
+else
+  _bd_default_env="$(dirname "$_bd_tool_dir")/bdenv.sh"
+fi
+BD_ENV_FILE="${BD_ENV_FILE:-$_bd_default_env}"
 if [ "${BD_SKIP_ENV_CHECK:-0}" != "1" ]; then
   if [ ! -f "$BD_ENV_FILE" ]; then
     echo "BD-UNEVALUABLE: no env file at $BD_ENV_FILE." >&2
@@ -21,7 +28,7 @@ if [ "${BD_SKIP_ENV_CHECK:-0}" != "1" ]; then
     echo "  Set BD_ENV_FILE=<path>, or BD_SKIP_ENV_CHECK=1 to proceed bare." >&2
     exit 2
   fi
-  . "$BD_ENV_FILE"
+  . "$BD_ENV_FILE" || exit $?
 fi
 if [ $# -eq 0 ]; then
     exec bash -i

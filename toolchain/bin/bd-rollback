@@ -10,16 +10,32 @@ Usage:
     bd-rollback --archive 3.66.363                 # auto-find --from (highest zip)
     bd-rollback --archive 3.66.363 --from <zip>    # explicit source zip
     bd-rollback -- --help                          # pass --help through to rollback.py
-Exit = rollback.py's exit code (2 if the tool/zip can't be located).
+Exit = rollback.py's exit code. Exit 2 + BD-ROLLBACK-UNRUNNABLE means checkout
+authority could not be resolved; missing tool/zip inputs also exit 2.
 """
 import argparse
 import glob
+import importlib.util
 import os
 import re
 import subprocess
 import sys
 
 R, Y, DIM, RST = "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+_RESOLVER_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_bd_work_tree.py")
+try:
+    _resolver_spec = importlib.util.spec_from_file_location(
+        "_bd_rollback_work_tree", _RESOLVER_PATH
+    )
+    if _resolver_spec is None or _resolver_spec.loader is None:
+        raise ImportError(f"cannot load {_RESOLVER_PATH}")
+    _resolver = importlib.util.module_from_spec(_resolver_spec)
+    _resolver_spec.loader.exec_module(_resolver)
+except (Exception, SystemExit) as exc:
+    _resolver = None
+    _RESOLVER_LOAD_ERROR = exc
+else:
+    _RESOLVER_LOAD_ERROR = None
 
 
 def _ver(name):
@@ -37,8 +53,7 @@ def auto_zip():
 
 
 def find_tool(work):
-    for c in (os.path.join(work, "tools", "rollback.py"),
-              "/home/claude/work/tools/rollback.py"):
+    for c in (os.path.join(work, "tools", "rollback.py"),):
         if os.path.isfile(c):
             return c
     return None
@@ -57,13 +72,23 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-rollback", add_help=True)
     ap.add_argument("--archive", help="version to roll back to, e.g. 3.66.363")
     ap.add_argument("--from", dest="frm", help="source zip (default: highest found)")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=None)
     ap.add_argument("passthrough", nargs=argparse.REMAINDER,
                     help="args after -- go to tools/rollback.py")
     ap.add_argument("--selftest",action="store_true")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+
+    try:
+        if _resolver is None:
+            raise RuntimeError(
+                f"checkout resolver failed beside physical tool: {_RESOLVER_LOAD_ERROR}"
+            )
+        a.work = str(_resolver.resolve_work_tree(__file__, explicit=a.work))
+    except (Exception, SystemExit) as exc:
+        print(f"BD-ROLLBACK-UNRUNNABLE: {exc}", file=sys.stderr)
+        return 2
 
     tool = find_tool(a.work)
     if not tool:

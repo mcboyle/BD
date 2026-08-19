@@ -9,7 +9,8 @@ navigation of the live mock SPA.
 import os, json, base64, io, html
 from PIL import Image
 
-CAP = "/home/claude/capture"
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+CAP = os.environ.get("BD_CAPTURE_DIR", os.path.join(ROOT, "reports", "capture"))
 OUT = "/mnt/user-data/outputs/functional.html"
 MAXW = 1100
 

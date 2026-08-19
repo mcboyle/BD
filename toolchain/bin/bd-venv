@@ -52,7 +52,12 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs the cloak pack wheels + service venv"
   echo "SELFTEST PASS"; exit 0;; esac
-WORK="${BD_WORK_TREE:-/home/claude/work}"
+_bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
+_bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
+[ -f "$_bd_tool_dir/_bd_work_tree.py" ] || {
+  echo "BD-WORK-TREE-UNRUNNABLE: resolver missing beside physical tool" >&2; exit 2;
+}
+WORK="$(python3 "$_bd_tool_dir/_bd_work_tree.py")" || exit 2
 VENV="$WORK/venv"
 PY="$VENV/bin/python"
 # ALL venv-python invocations go through vpy: the bd env exports
@@ -64,7 +69,7 @@ PY="$VENV/bin/python"
 vpy() { env -u PYTHONPATH "$PY" "$@"; }
 UPLOADS="${BD_UPLOADS:-/mnt/user-data/uploads}"
 CHROMROOT="${CLOAKBROWSER_HOME:-/root/.cloakbrowser}"
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/home/claude/.cache/ms-playwright}"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
 
 MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1
 while [ $# -gt 0 ]; do

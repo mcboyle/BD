@@ -23,18 +23,34 @@ import importlib.util
 import json
 import os
 
-WDIR = "/home/claude/review/witnesses"
-LOGDIR = "/home/claude/review/witness_logs"
+_RUNNER_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "run_witnesses.py")
+_runner_spec = importlib.util.spec_from_file_location("_witness_drift_runner", _RUNNER_PATH)
+if _runner_spec is None or _runner_spec.loader is None:
+    raise ImportError(f"cannot load witness policy: {_RUNNER_PATH}")
+_runner = importlib.util.module_from_spec(_runner_spec)
+_runner_spec.loader.exec_module(_runner)
+discover_suites = _runner.discover_suites
+load_suite = _runner.load_suite
+
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(ROOT, "review")
+WDIR = os.path.join(REVIEW, "witnesses")
+LOGDIR = os.path.join(REVIEW, "witness_logs")
 
 
-def snapshot(version):
-    os.makedirs(LOGDIR, exist_ok=True)
+def snapshot(version, *, root=ROOT, logdir=None):
+    root = os.path.abspath(os.fspath(root))
+    destination = os.path.abspath(os.fspath(logdir or os.path.join(root, "review", "witness_logs")))
+    suites = discover_suites(root)
+    if not suites:
+        print(f"witness_drift snapshot v{version}: no witness suites found")
+        return 2
     results = {}
-    for s in sorted(glob.glob(os.path.join(WDIR, "*_witnesses.py"))):
-        spec = importlib.util.spec_from_file_location(os.path.basename(s)[:-3], s)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        for entry in getattr(mod, "RESULTS", []):
+    total = 0
+    for s in suites:
+        entries = load_suite(s)
+        total += len(entries)
+        for entry in entries:
             if isinstance(entry, dict):
                 cid = entry.get("id"); ok = entry.get("ok")
                 kind = entry.get("kind") or ("finding_repro" if str(cid).startswith("F-") else "claim")
@@ -44,8 +60,18 @@ def snapshot(version):
                 kind = "finding_repro" if str(cid).startswith("F-") else "claim"
                 flips_to = ""
             results[cid] = {"ok": ok, "kind": kind, "flips_to": flips_to}
-    out = os.path.join(LOGDIR, f"WITNESS_LOG_v{version}.json")
-    json.dump({"version": version, "results": results}, open(out, "w"), indent=1)
+    if total == 0 or not results:
+        print(f"witness_drift snapshot v{version}: suites produced zero results")
+        return 2
+    os.makedirs(destination, exist_ok=True)
+    out = os.path.join(destination, f"WITNESS_LOG_v{version}.json")
+    payload = {
+        "version": version,
+        "sources": [os.path.relpath(path, root) for path in suites],
+        "results": results,
+    }
+    with open(out, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=1)
     print(f"witness_drift snapshot v{version}: {len(results)} witnesses -> {out}")
     return 0
 
@@ -102,10 +128,11 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("snapshot"); s.add_argument("--version", required=True)
+    s.add_argument("--root", default=ROOT); s.add_argument("--logdir", default=None)
     d = sub.add_parser("diff"); d.add_argument("--from", dest="a", required=True); d.add_argument("--to", dest="b", required=True)
     a = ap.parse_args()
     if a.cmd == "snapshot":
-        raise SystemExit(snapshot(a.version))
+        raise SystemExit(snapshot(a.version, root=a.root, logdir=a.logdir))
     raise SystemExit(diff(a.a, a.b))
 
 

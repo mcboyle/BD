@@ -80,7 +80,7 @@ offline matters; it applies the same G1/G2/G3 fixes.
 | :5599 returns 000 right after boot | spa_serve does FTS/migrations (~3 s) before bind | poll up to ~12 s |
 | `/metrics` shot blank | it's Prometheus **text** | `curl`/parse it, don't screenshot |
 | OCR/A11Y sparse render when run after many browser checks | sequential `sync_playwright` contexts + shared display contention | treat a too-sparse render as SKIP (transient), not FAIL; each check passes standalone |
-| uploads vanish mid-session | `/mnt/user-data/uploads` is read-only AND evicts | copy uploaded files to /home/claude immediately |
+| uploads vanish mid-session | `/mnt/user-data/uploads` is read-only AND evicts | copy uploaded files to `$BD_ARTIFACT_ROOT` immediately |
 
 ## 5. OPV check families (what's proven in-sandbox)
 The runner is `bd-opv`; each check drives REAL BD code with synthetic/mock inputs (never

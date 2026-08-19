@@ -2,6 +2,7 @@ import asyncio, os
 from playwright.async_api import async_playwright
 
 THEME = os.environ.get("BD_THEME", "light")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 # (route, [tab button texts], slug-prefix)
 GROUPS = [
@@ -11,7 +12,7 @@ GROUPS = [
 ]
 
 async def main():
-    OUTDIR = os.environ.get("BD_OUT", "/home/claude/subtabs")
+    OUTDIR = os.environ.get("BD_OUT", os.path.join(ROOT, "reports", "subtabs"))
     os.makedirs(OUTDIR, exist_ok=True)
     async with async_playwright() as pw:
         b = await pw.chromium.launch()

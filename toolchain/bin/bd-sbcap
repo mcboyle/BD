@@ -22,6 +22,7 @@
 #
 # Run after bd-boot:  bd-sbcap
 # Check only:         bd-sbcap --check
+# Exit 2 + BD-SBCAP-UNRUNNABLE means checkout authority could not be resolved.
 set -u
 # --selftest: this is a bootstrap/orchestration script; a real run IS its test.
 case " $* " in *" --selftest "*)
@@ -40,9 +41,23 @@ case "${1:-}" in
         exit 2 ;;
 esac
 
-SBCAP=/home/claude/.sbcap
+_bd_sbcap_unrunnable() {
+  echo "BD-SBCAP-UNRUNNABLE: $1" >&2
+  exit 2
+}
+_BD_PHYSICAL_SELF="$(readlink -f -- "$0" 2>/dev/null)" || \
+  _bd_sbcap_unrunnable "cannot resolve physical tool path"
+[ -n "$_BD_PHYSICAL_SELF" ] && [ -f "$_BD_PHYSICAL_SELF" ] || \
+  _bd_sbcap_unrunnable "physical tool is not a regular file"
+_BD_RESOLVER="$(dirname -- "$_BD_PHYSICAL_SELF")/_bd_work_tree.py"
+[ -f "$_BD_RESOLVER" ] || \
+  _bd_sbcap_unrunnable "checkout resolver is missing beside physical tool"
+_BD_ROOT="$(python3 "$_BD_RESOLVER" 2>/dev/null)" || \
+  _bd_sbcap_unrunnable "checkout resolver failed beside physical tool"
+[ -n "$_BD_ROOT" ] || _bd_sbcap_unrunnable "checkout resolver returned an empty root"
+SBCAP="${BD_SBCAP_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/bulkdownloader/sbcap}"
 mkdir -p "$SBCAP/axe" /tmp/sbcap
-VENV=/home/claude/work/venv/bin
+VENV="$_BD_ROOT/venv/bin"
 PRESTAGE=/tmp/prestaged_site_packages
 DEPS="aiosmtpd pywebpush pyzbar freezegun locust memray qrcode pillow prometheus-client pytesseract"
 
@@ -119,8 +134,9 @@ else ok "prestaged deps (metrics/qr/notify/soak visible to bd env)"; fi
 # real render_check.py sat in /mnt/project the whole time. Select on the artifact that
 # actually ships; _sb is optional (bd-opv's chk_render already falls back to render_check.py).
 _rsrc=""
-for d in /home/claude/f1_extract/toolkit/render /mnt/project /home/claude/render_kit \
-         /home/claude/sbcap_offline/render /tmp/bulkdl_staging/render "$SBCAP"; do
+for d in "${BD_RENDER_KIT:-}" /mnt/project "$_BD_ROOT/project-knowledge" \
+         /tmp/bulkdl_staging/render "$SBCAP"; do
+  [ -n "$d" ] || continue
   [ -f "$d/render_check.py" ] && { _rsrc="$d"; break; }
 done
 rmiss=""
@@ -140,8 +156,8 @@ else ok "render_check files staged"; fi
 # may resolve a build dir that isn't the one the cloak pack installed; symlink it. MUST pin
 # PLAYWRIGHT_BROWSERS_PATH to the cache render_check/bd-opv use (else playwright reports
 # its /opt/pw-browsers default and we'd false-alarm). ----
-_pwcache=/home/claude/.cache/ms-playwright
-_expected="$(env -u PYTHONPATH PYTHONPATH=/home/claude/work PLAYWRIGHT_BROWSERS_PATH="$_pwcache" "$VENV/python3" - <<'PY' 2>/dev/null
+_pwcache="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
+_expected="$(env -u PYTHONPATH PYTHONPATH="$_BD_ROOT" PLAYWRIGHT_BROWSERS_PATH="$_pwcache" "$VENV/python3" - <<'PY' 2>/dev/null
 try:
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:

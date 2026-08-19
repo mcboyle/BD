@@ -19,7 +19,7 @@ suite), it refuses the deliverable unless ALL of:
 
 Usage:
   bd python3 verify_audit.py --audit AUDIT_RUN-01_v3_66_532.json \
-      [--witnesses witnesses/run01_witnesses.py] [--root /home/claude/work] \
+      [--witnesses witnesses/run01_witnesses.py] [--root <repository>] \
       [--signatures sigs.json]   # {finding_id: regex} sidecar for (5)
 rc!=0 on any hard failure (schema/sha/witness/emit or a signature mismatch).
 Runs under `bd` (the witness suite imports bulk_downloader).
@@ -34,6 +34,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_ROOT = os.environ.get("BD_WORK", os.path.dirname(HERE))
 REQ_TOP = ["batch", "version", "files", "findings",
            "guard_touch", "tracker_write", "tree_reverified_byte_identical"]
 REQ_FILE = ["path", "sha256", "rubric"]
@@ -184,7 +185,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--audit", required=True)
     ap.add_argument("--witnesses")
-    ap.add_argument("--root", default=os.environ.get("BD_WORK", "/home/claude/work"))
+    ap.add_argument("--root", default=DEFAULT_ROOT)
     ap.add_argument("--signatures")
     ap.add_argument("--advanced",
                     help="explicit advanced sidecar (constraints/exceptions/beliefs); "
