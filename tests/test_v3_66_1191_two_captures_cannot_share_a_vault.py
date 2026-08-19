@@ -88,6 +88,25 @@ def test_two_sequential_vault_claims_both_succeed(tmp_path):
         assert "ENABLED" in result.stdout
 
 
+def test_empty_singleton_lock_export_creates_and_validates_its_default_parent(tmp_path):
+    """An empty override means the same isolated default as no override."""
+    default_parent = tmp_path / f"bd-capture-{os.geteuid()}"
+    default_lock = default_parent / "capture-vault.lock"
+    block = _vault_block()
+    default = "/tmp/bd-capture-${EUID}/capture-vault.lock"
+    isolated = f"{tmp_path}/bd-capture-${{EUID}}/capture-vault.lock"
+    assert block.count(default) == 1
+    assert not default_parent.exists(), "test requires an absent default parent"
+    result = subprocess.run(
+        ["bash", "-s"], input=block.replace(default, isolated),
+        capture_output=True, text=True,
+        env={**os.environ, "CAPTURE_VAULT_GLOBAL_LOCK": ""}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert default_parent.stat().st_mode & 0o777 == 0o700
+    assert default_lock.is_file()
+    assert default_lock.stat().st_mode & 0o777 == 0o600
+
+
 def test_singleton_refuses_a_symlink_without_touching_its_target(tmp_path):
     victim = tmp_path / "operator-data"
     victim.write_text("must survive\n")

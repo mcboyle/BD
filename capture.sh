@@ -254,7 +254,7 @@ capture_vault_claim() {
     ''|.|..) capture_vault_global_refuse "singleton lock name is invalid"; return 73 ;;
   esac
 
-  if [ -z "${CAPTURE_VAULT_GLOBAL_LOCK+x}" ] && [ ! -d "$lock_dir" ]; then
+  if [ -z "${CAPTURE_VAULT_GLOBAL_LOCK:-}" ] && [ ! -d "$lock_dir" ]; then
     (umask 077; mkdir -- "$lock_dir") 2>/dev/null || true
   fi
   dir_before=$(stat -c '%d:%i:%u:%a:%f' -- "$lock_dir" 2>/dev/null) || {

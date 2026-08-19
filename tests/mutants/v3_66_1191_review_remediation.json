@@ -24,6 +24,14 @@
       "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_singleton_refuses_a_lock_in_a_peer_writable_directory"
     },
     {
+      "label": "an empty singleton override no longer selects the default parent",
+      "file": "capture.sh",
+      "old": "if [ -z \"${CAPTURE_VAULT_GLOBAL_LOCK:-}\" ] && [ ! -d \"$lock_dir\" ]; then",
+      "new": "if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_empty_singleton_lock_export_creates_and_validates_its_default_parent"
+    },
+    {
       "label": "clean refusal falls back to the lost original root descriptor",
       "file": "tests/_tmproot.py",
       "old": "if not ok and record_fd is not None:",
