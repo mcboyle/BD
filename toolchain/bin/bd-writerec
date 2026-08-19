@@ -202,7 +202,16 @@ def parse_trace(text, launch_cwd="/", roots=(), max_events=1000000, root_pid=Non
         resumed = re.match(r"<\.\.\. ([a-zA-Z0-9_]+) resumed>\)(.*)", body)
         if resumed:
             if pid not in pending:
-                unpaired += 1; failures += 1; continue
+                unpaired += 1; failures += 1
+                event = {"schema": SCHEMA, "record_type": "event", "seq": 0, "pid": pid,
+                         "root_pid": root_pid, "syscall": resumed.group(1), "operation": "parse_failure",
+                         "operation_count": 0, "success": False, "retval": None, "errno": None,
+                         "path": None, "path_raw": None, "path_source": "unresolved", "target_path": None,
+                         "target_path_raw": None, "target_path_source": None, "requested_bytes": None,
+                         "written_bytes": None, "flags": [], "mode": None, "in_root": False,
+                         "status": "unpaired_resumed", "split": True, "_order": order + 1}
+                order += 1
+                events.append(event); continue
             name, args_text, event_order = pending.pop(pid)
             event = _parse_call(pid, name, args_text, resumed.group(2), cwd[pid], roots, root_pid, True)
             event["_order"] = event_order
@@ -243,7 +252,7 @@ def parse_trace(text, launch_cwd="/", roots=(), max_events=1000000, root_pid=Non
     for index, event in enumerate(events, 1): event["seq"] = index
     unfinished = len(pending)
     successful = [e for e in events if e["success"] and e["operation"] not in {"metadata", "coverage_gap"}]
-    complete = not (failures or unpaired or unfinished or truncated or gaps) and (not text or root_pid in terminal)
+    complete = bool(text) and not (failures or unpaired or unfinished or truncated or gaps) and root_pid in terminal
     footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": len(events)+2, "events": len(events),
               "successful_mutations": len(successful), "requested_bytes": sum(e["requested_bytes"] or 0 for e in successful),
               "written_bytes": sum(e["written_bytes"] or 0 for e in successful), "pids_seen": len(pids),
@@ -281,7 +290,9 @@ def _write_evidence(out, header, events, footer):
     fd, temp = tempfile.mkstemp(prefix="." + out.name + ".", dir=out.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as sink:
-            for record in [header, *events, footer]: sink.write(json.dumps(record, sort_keys=True) + "\n")
+            for seq, record in enumerate([header, *events, footer], 1):
+                record = dict(record); record["seq"] = seq
+                sink.write(json.dumps(record, sort_keys=True) + "\n")
             sink.flush(); os.fsync(sink.fileno())
         os.replace(temp, out)
     finally:
@@ -357,6 +368,7 @@ def main(argv=None):
     if not args.out: print("UNKNOWN: --out is required", file=sys.stderr); return 2
     try:
         if args.parse:
+            if not _outside_git(Path(args.out)): raise ValueError("--out must be outside every Git worktree")
             text = Path(args.parse).read_text(encoding="utf-8"); events, footer = parse_trace(text, args.launch_cwd, args.root, args.max_events)
             header = _header([], args.launch_cwd, args.root, None, None, args.max_events); _write_evidence(Path(args.out), header, events, footer)
             raw_bytes, exceeded = len(text.encode()), False

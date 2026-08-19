@@ -1,0 +1,45 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "@1194 recorder correction battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1194_write_recorder.json",
+  "subject": "v3.66.1194 -- bounded strace filesystem mutation evidence recorder",
+  "band": [
+    "tests/test_v3_66_1194_write_recorder.py"
+  ],
+  "mutants": [
+    {
+      "label": "force every open-family call back to metadata",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "elif name in {\"openat\", \"openat2\"}: operation = \"open_mutation\" if set(flags) & {\"O_CREAT\", \"O_EXCL\", \"O_TRUNC\"} else \"metadata\"",
+      "new": "elif name in {\"openat\", \"openat2\"}: operation = \"metadata\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_create_truncate_opens_are_one_mutation_operation_and_failures_are_attempts"
+    },
+    {
+      "label": "delete copy_file_range destination handler while argv entry remains",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "\"splice\": 2, \"fchmod\": 0, \"fchown\": 0, \"fchdir\": 0}",
+      "new": "\"splice\": 2, \"fchmod\": 0, \"fchown\": 0, \"fchdir\": 0}\n    fdidx.pop(\"copy_file_range\", None)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_byte_movers_use_destination_operand_and_short_result_arithmetic"
+    },
+    {
+      "label": "disable the live raw-byte deadline",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "if size > args.max_raw_bytes or time.monotonic() > deadline:",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_raw_bound_reaps_tracer_and_child_and_atomically_attests_UNKNOWN"
+    },
+    {
+      "label": "OVER-CORRECTION: make root classification discard outside events",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "event[\"seq\"] = len(events) + 1; events.append(event)",
+      "new": "event[\"seq\"] = len(events) + 1\n        if event[\"in_root\"]: events.append(event)",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1194_write_recorder.py::test_root_classifies_but_never_filters_and_read_only_open_is_metadata",
+      "preserves": [
+        "tests/test_v3_66_1194_write_recorder.py::test_create_truncate_opens_are_one_mutation_operation_and_failures_are_attempts"
+      ]
+    }
+  ]
+}

@@ -146,3 +146,53 @@ def test_cli_selftest_help_and_nonvacuous_trace_argv():
     assert all(flag in argv for flag in ["-f", "-y", "-s", "0", "-o", "--"])
     assert "-qq" not in argv and "-ff" not in argv
     assert set(mod.TRACE_SET) == set(mod.coverage_document()["policies"])
+
+
+def test_unpaired_and_eof_unfinished_calls_are_retained_and_UNKNOWN():
+    text = "100 <... write resumed>) = 2\n101 write(3</x>, NULL, 4 <unfinished ...>\n"
+    events, footer = mod.parse_trace(text, root_pid=100)
+    assert len(events) == 2
+    assert {e["status"] for e in events} == {"unpaired_resumed", "unfinished"}
+    assert footer["unpaired_resumed"] == footer["unfinished_at_eof"] == 1
+    assert footer["complete"] is False and footer["result"] == "UNKNOWN"
+
+
+def test_empty_trace_is_UNKNOWN_and_max_events_truncates_nonvacuously():
+    events, footer = mod.parse_trace("", root_pid=100)
+    assert events == [] and footer["complete"] is False
+    text = (FIXTURES / "families.strace").read_text()
+    events, footer = mod.parse_trace(text, root_pid=100, max_events=2)
+    assert len(events) == 2 and footer["truncated"] is True and footer["result"] == "UNKNOWN"
+
+
+def test_root_classifies_but_never_filters_and_read_only_open_is_metadata():
+    events, _ = _parse("opens.strace")
+    assert len(events) == 11
+    assert any(e["in_root"] for e in events)
+    outside, _ = mod.parse_trace('100 write(3</outside/x>, NULL, 2) = 2\n100 +++ exited with 0 +++\n',
+                                 roots=("/work",), root_pid=100)
+    assert len(outside) == 1 and outside[0]["in_root"] is False
+    assert events[-1]["operation"] == "metadata" and events[-1]["success"] is True
+
+
+def test_symlink_content_is_not_resolved_as_a_source_path():
+    events, _ = _parse("families.strace")
+    symlink = next(e for e in events if e["syscall"] == "symlink" and e["success"])
+    symlinkat = next(e for e in events if e["syscall"] == "symlinkat" and e["success"])
+    assert (symlink["path"], symlink["target_path"]) == ("/work/sym", "content")
+    assert (symlinkat["path"], symlinkat["target_path"]) == ("/dst/sym", "content")
+
+
+def test_parse_cli_is_atomic_and_rejects_output_inside_a_git_worktree(tmp_path):
+    trace = FIXTURES / "opens.strace"
+    out = tmp_path / "parsed.jsonl"
+    run = subprocess.run([sys.executable, str(TOOL), "--parse", str(trace), "--out", str(out),
+                          "--exit-mode", "recorder", "--json"], capture_output=True, text=True)
+    assert run.returncode == 0 and json.loads(run.stdout)["result"] == "PASS"
+    records = [json.loads(line) for line in out.read_text().splitlines()]
+    assert records[0]["record_type"] == "run_header" and records[-1]["record_type"] == "run_footer"
+    assert [r["seq"] for r in records] == list(range(1, len(records) + 1))
+    rejected = subprocess.run([sys.executable, str(TOOL), "--parse", str(trace), "--out", str(REPO / "no.jsonl"),
+                               "--exit-mode", "recorder", "--json"], capture_output=True, text=True)
+    assert rejected.returncode == 2 and json.loads(rejected.stdout)["result"] == "UNKNOWN"
+    assert not (REPO / "no.jsonl").exists()
