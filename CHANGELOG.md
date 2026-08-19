@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1195 - adjudicate the Phase 10 rows that evidence could already decide
+
+- Park backlog row 127 (EXIT-3). The PostgreSQL cutover criterion needs an
+  operator soak of at least two weeks, and the preflight re-derives at this tree
+  exactly as it did at v3.66.965: `ok=False`, dual-write and shadow-read both
+  off, zero shadow comparisons, `cutover_engaged()` false. Zero comparisons is an
+  empty denominator rather than agreement, and no code change moves the row.
+  Parked is terminal for re-derivation, not closed; it reopens when a soak
+  starts.
+- Retire backlog row 128's criterion (OPV-F3.1) in writing. The seven-day
+  saved-search enqueue window lapsed on 2026-07-30, 325 releases ago. The
+  retained corpus holds 48 artifacts inside that window, covering one day, none
+  of which mention the enqueue lane; every corpus file that does mention it
+  postdates the window by three weeks. The row's first option, closing on
+  evidence already collected, was never available. Nothing replaces the
+  criterion, and the row records that it closes on a retirement rather than on
+  evidence of the behaviour.
+- Close backlog row 120 (JW-TMPL). The corpus already holds 17 authenticated
+  live UltraFilms captures with JWPlayer entitlement calls, signed renditions up
+  to 7680x4320 and mid-stream seeks, all predating the row's own re-derivation,
+  so its "blocked on a live capture" clause was already stale. Recorded
+  explicitly: the sandbox-verification criterion is not in the corpus, so this
+  closes on a stale-clause reading and not on a stated criterion.
+- Close backlog row 123 (RPTYL). The `api_patterns >= 1` criterion is MET by 17
+  conforming Reptyle captures. The reported zero came from a capture named
+  `reptyle.wacz` that is actually WowGirls data, and from a thin Reptyle session
+  that never exercised the movie path. The criterion is neither relaxed nor
+  retired.
+- Open backlog row 176 for the mislabel that explained it. The name Reptyle runs
+  from raw WACZ through the derived draft into
+  `tests/corpus/recognizer/reptyle.cap.json` while the payload is WowGirls, so a
+  future reader measuring Reptyle against that fixture measures the wrong site.
+- Re-scope backlog row 121 (LOGIN-NSTEP) to the defect that actually blocks it.
+  The corpus proves cross-origin login twice, but both runs were driven by the
+  operator capture tool and never by BD's own saved-flow driver, and
+  `derive_login_flow` against those same captures emits a plan that cannot log
+  in. The live drive sits downstream of that and cannot pass before it.
+- Keep every adjudication inside the register's own status grammar. The
+  machine-visible gate at @1052 admits exactly OPEN, CLOSED and MOOT, and an
+  OPEN row may carry no evidence marker, so a parked or re-scoped verdict is
+  recorded in the row body and the status column stays parseable. Written the
+  other way, row 127 parsed as the unknown status `OPERATOR` and dropped out of
+  the open count entirely -- the exact failure that gate names.
+
 ## v3.66.1194 - record filesystem writes as bounded evidence
 
 - Add `bd-writerec`, an opt-in Linux/strace evidence lane that follows process
