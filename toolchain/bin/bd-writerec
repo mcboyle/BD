@@ -307,15 +307,25 @@ def _write_evidence(out, header, events, footer):
 _DRAIN_CHUNK = 64 * 1024
 def _capture(max_raw_bytes, raw_bytes=0, disk_bytes=0, partial_tail=0, raw_limit=False,
              time_limit=False, tracer_pid=None, tracer_pgid=None, tracer_exit_code=None,
-             group_reaped=True, parsed_bytes=None):
-    # raw_bytes == parsed_bytes + partial_tail_bytes, and parsed_bytes == raw_disk_bytes:
-    # every byte read is either parsed and retained, or declared as a discarded tail.
-    return {"max_raw_bytes": max_raw_bytes, "raw_bytes": raw_bytes, "raw_disk_bytes": disk_bytes,
+             group_reaped=True, parsed_bytes=None, residual_terminated=False):
+    # Live acquisition accounting.  raw_bytes == parsed_bytes + partial_tail_bytes and
+    # parsed_bytes == raw_disk_bytes: every byte read is either parsed and retained, or
+    # declared as a discarded tail.  These identities describe bytes the recorder read
+    # from a tracer, so they belong to live mode only -- see _parse_capture.
+    return {"mode": "live",
+            "max_raw_bytes": max_raw_bytes, "raw_bytes": raw_bytes, "raw_disk_bytes": disk_bytes,
             "parsed_bytes": raw_bytes - partial_tail if parsed_bytes is None else parsed_bytes,
             "partial_tail_bytes": partial_tail, "raw_limit_exceeded": raw_limit,
             "time_limit_exceeded": time_limit, "workload_terminated_by_recorder": raw_limit or time_limit,
             "tracer_pid": tracer_pid, "tracer_pgid": tracer_pgid,
-            "tracer_exit_code": tracer_exit_code, "process_group_reaped": group_reaped}
+            "tracer_exit_code": tracer_exit_code, "process_group_reaped": group_reaped,
+            "residual_group_terminated": residual_terminated}
+
+
+def _parse_capture(source_bytes):
+    """Offline accounting.  Parse mode acquires nothing, so publishing live acquisition
+    fields would assert an identity it never measured; it reports what it actually read."""
+    return {"mode": "parse", "source_bytes": source_bytes}
 
 
 def _summary(footer, capture):
@@ -343,26 +353,39 @@ def _group_gone(pgid):
 def _reap_group(proc, pgid, escalate, hard_after=1.0, timeout=10.0):
     """Wait for the tracer and every surviving member of its group.
 
-    Returns True only when the group is provably empty: a tracer that detached from a
-    still-running tracee is an orphan, and an unproven reap is UNKNOWN, not success.
-    Escalation to SIGKILL happens only on a path the recorder itself terminated, so a
-    slow but clean tracer is never killed out from under a valid capture.
+    Returns (reaped, residual_terminated).  `reaped` is True only when the group is
+    provably empty; an unproven reap is UNKNOWN, not success.
+
+    Escalation while the tracer is still running is gated on `escalate`, so a slow but
+    clean tracer is never killed out from under a valid capture.  Once the tracer is
+    gone, that courtesy no longer applies: anything still in its group is orphaned by
+    definition, and nothing legitimate can still be running there.  Such residue is
+    terminated unconditionally and reported, because observing an orphan and leaving it
+    alive is the failure this function exists to prevent.
     """
     start = time.monotonic()
-    escalated = False
+    escalated = residual_terminated = False
+    residual_deadline = None
     while time.monotonic() - start < timeout:
         if proc.poll() is None:
             try:
                 proc.wait(timeout=.05)
             except subprocess.TimeoutExpired:
                 pass
+            if escalate and not escalated and time.monotonic() - start >= hard_after:
+                _signal_group(pgid, signal.SIGKILL)
+                escalated = True
         elif _group_gone(pgid):
-            return True
-        if escalate and not escalated and time.monotonic() - start >= hard_after:
+            return True, residual_terminated
+        elif not residual_terminated:
+            _signal_group(pgid, signal.SIGTERM)
+            residual_terminated = True
+            residual_deadline = time.monotonic() + hard_after
+        elif residual_deadline is not None and time.monotonic() >= residual_deadline:
             _signal_group(pgid, signal.SIGKILL)
-            escalated = True
+            residual_deadline = None
         time.sleep(.01)
-    return proc.poll() is not None and _group_gone(pgid)
+    return (proc.poll() is not None and _group_gone(pgid)), residual_terminated
 
 
 def _sink_for(sinks, raw_dir, line):
@@ -430,31 +453,50 @@ def _exit_witness(root_exit, tracer_code):
     return "agree" if tracer_code in expected else "disagree"
 
 
+def _refusal(out, header, capture, error):
+    """Atomically publish a schema-shaped complete:false record for a refused run.
+
+    A refusal is a measurement outcome, not the absence of one, so it gets the same
+    header/footer artifact as any other UNKNOWN.  It never cites a raw_log_dir,
+    because a refused run retains no raw directory to cite.
+    """
+    footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": 2, "events": 0,
+              "successful_mutations": 0, "written_bytes": 0, "coverage_gaps": [],
+              "complete": False, "result": "UNKNOWN", "root_exit": None,
+              "ended_utc": _utc(), "error": error, "blind_spots": BLIND_SPOTS}
+    footer.update(capture)
+    _write_evidence(out, header, [], footer)
+    return footer
+
+
 def _live(args):
     out = Path(args.out)
     if not _outside_git(out): raise ValueError("--out must be outside every Git worktree")
     strace = os.path.abspath(args.strace or shutil.which("strace") or "")
     header = _header(args.command, os.getcwd(), args.root, strace, None, args.max_events)
+    capture = _capture(args.max_raw_bytes)
     if not strace or not os.path.isfile(strace) or not sys.platform.startswith("linux") or (_ptrace_scope() or 0) >= 2:
-        footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": 2, "events": 0, "successful_mutations": 0,
-                  "written_bytes": 0, "coverage_gaps": [], "complete": False, "result": "UNKNOWN", "root_exit": None,
-                  "blind_spots": BLIND_SPOTS}
-        capture = _capture(args.max_raw_bytes)
-        footer.update(capture); _write_evidence(out, header, [], footer); return footer, capture
+        return _refusal(out, header, capture, "no usable tracer: strace path, platform or ptrace_scope"), capture
     # Prove the evidence destination is writable before spawning anything irreversible.
     out.parent.mkdir(parents=True, exist_ok=True)
     raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent))
     err_fd, err_path = tempfile.mkstemp(prefix=".bd-writerec-tracer-stderr.", dir=out.parent)
     read_fd, write_fd = os.pipe()
     proc = pgid = None
+    retained = False  # raw_dir survives only once an artifact actually cites it
     try:
         try:
-            proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
-                                    start_new_session=True, pass_fds=(write_fd,),
-                                    stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
-        finally:
-            os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF
-            os.close(err_fd)
+            try:
+                proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
+                                        start_new_session=True, pass_fds=(write_fd,),
+                                        stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
+            finally:
+                os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF
+                os.close(err_fd)
+        except OSError as exc:
+            # The tracer never started: nothing was traced, nothing is retained, and the
+            # refusal is still recorded as a real artifact rather than only on stdout.
+            return _refusal(out, header, capture, "tracer could not be started: %s" % exc), capture
         pgid = proc.pid  # start_new_session makes the tracer its own group and session leader
         deadline = time.monotonic() + args.max_seconds
         text, raw_bytes, disk, partial_tail, raw_limit, time_limit, parsed = _drain_bounded(
@@ -464,33 +506,36 @@ def _live(args):
         if raw_limit or time_limit:
             _signal_group(pgid, signal.SIGTERM)
         os.close(read_fd); read_fd = -1
-        reaped = _reap_group(proc, pgid, escalate=raw_limit or time_limit)
+        reaped, residual = _reap_group(proc, pgid, escalate=raw_limit or time_limit)
         capture = _capture(args.max_raw_bytes, raw_bytes, disk, partial_tail, raw_limit, time_limit,
-                           proc.pid, pgid, proc.returncode, reaped, parsed)
+                           proc.pid, pgid, proc.returncode, reaped, parsed, residual)
         events, footer = parse_trace(text, os.getcwd(), args.root, args.max_events)
         footer["ended_utc"] = _utc(); footer["raw_log_dir"] = str(raw_dir)
         footer.update(capture)
         footer["tracer_stderr"] = _read_head(err_path, 4096)
         footer["exit_witness"] = _exit_witness(footer.get("root_exit"), proc.returncode)
-        if capture["workload_terminated_by_recorder"] or partial_tail or not reaped:
+        if (capture["workload_terminated_by_recorder"] or partial_tail
+                or not reaped or residual):
             footer.update(complete=False, result="UNKNOWN")
         if footer["exit_witness"] == "disagree":
             footer.update(complete=False, result="UNKNOWN")
         header["raw_log_dir"] = str(raw_dir)
         _write_evidence(out, header, events, footer)
+        retained = True
         return footer, capture
     except BaseException:
-        # A tracer that never spawned has no group to reap, but its scratch state is ours.
+        # The exception path owes the same bounded proof as the success path.
         if pgid is not None:
             _signal_group(pgid, signal.SIGKILL)
-            if proc.poll() is None:
-                proc.wait()
+            _reap_group(proc, pgid, escalate=True)
         raise
     finally:
         if read_fd >= 0:
             os.close(read_fd)
         try: os.unlink(err_path)
         except FileNotFoundError: pass
+        if not retained:
+            shutil.rmtree(raw_dir, ignore_errors=True)
 
 
 def _read_head(path, limit):
@@ -521,11 +566,19 @@ def main(argv=None):
         print("SELFTEST PASS"); return 0
     if not args.out: print("UNKNOWN: --out is required", file=sys.stderr); return 2
     try:
+        # A budget that cannot bound anything is not a budget; refuse before creating
+        # or spawning anything, so a nonsensical declared limit is never published.
+        for flag, value in (("--max-raw-bytes", args.max_raw_bytes),
+                            ("--max-events", args.max_events),
+                            ("--max-seconds", args.max_seconds)):
+            if value <= 0:
+                raise ValueError("%s must be positive, got %r" % (flag, value))
         if args.parse:
             if not _outside_git(Path(args.out)): raise ValueError("--out must be outside every Git worktree")
             text = Path(args.parse).read_text(encoding="utf-8"); events, footer = parse_trace(text, args.launch_cwd, args.root, args.max_events)
+            capture = _parse_capture(len(text.encode()))
+            footer.update(capture)  # artifact and summary must report the same accounting
             header = _header([], args.launch_cwd, args.root, None, None, args.max_events); _write_evidence(Path(args.out), header, events, footer)
-            capture = _capture(args.max_raw_bytes, len(text.encode()))
         else:
             if not args.command or args.command[0] != "--" or len(args.command) == 1: raise ValueError("live mode requires -- COMMAND")
             args.command = args.command[1:]; footer, capture = _live(args)
@@ -535,7 +588,8 @@ def main(argv=None):
         root = footer.get("root_exit")
         return root.get("code", 125) if footer["complete"] and root else 125
     except (OSError, ValueError) as exc:
-        print(json.dumps({"result": "UNKNOWN", "error": str(exc)}) if args.json else "UNKNOWN: " + str(exc))
+        print(json.dumps({"result": "UNKNOWN", "complete": False, "error": str(exc)})
+              if args.json else "UNKNOWN: " + str(exc))
         return 2 if args.exit_mode == "recorder" else 125
 
 

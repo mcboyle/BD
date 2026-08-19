@@ -112,6 +112,19 @@ HOT_CHILD = ("import os, signal\n"
              "while True: os.pwrite(f.fileno(), b'x', 0)\n")
 
 
+# A controlled stand-in for strace: emits a complete two-line trace to the -o target,
+# leaves one same-group survivor, and exits cleanly.
+FAKE_TRACER = """#!/usr/bin/env python3
+import os, subprocess, sys
+argv = sys.argv[1:]
+with open(argv[argv.index('-o') + 1], 'w') as sink:
+    sink.write('4242 write(1</tmp/residual-probe>, ""..., 3) = 3\\n')
+    sink.write('4242 +++ exited with 0 +++\\n')
+subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(25)  # %s'], close_fds=True)
+os._exit(0)
+"""
+
+
 def _hot(tmp_path, marker):
     return [sys.executable, "-c", HOT_CHILD % str(tmp_path / marker)]
 
@@ -256,8 +269,13 @@ def test_live_time_limit_is_distinguishable_from_the_raw_byte_limit(tmp_path):
 
 @LIVE
 @pytest.mark.timeout(90)
-def test_live_unspawnable_tracer_is_UNKNOWN_and_leaves_no_recorder_temp(tmp_path):
-    """The recorder's own scratch state must not survive a tracer that never starts."""
+def test_live_unspawnable_tracer_leaves_no_scratch_and_attests_schema_full_UNKNOWN(tmp_path):
+    """IR-1: every recorder-owned path is removed, and the refusal is a real artifact.
+
+    A tracer that never starts must leave no scratch of any kind -- not the stderr
+    temp, not the evidence temp, and not the raw directory -- and must still produce
+    an atomic, schema-shaped complete:false record rather than only a stdout string.
+    """
     blocked = tmp_path / "strace-not-executable"
     blocked.write_text("#!/bin/sh\nexit 0\n")
     blocked.chmod(0o644)  # a real file, so the isfile probe passes, but exec must fail
@@ -265,9 +283,107 @@ def test_live_unspawnable_tracer_is_UNKNOWN_and_leaves_no_recorder_temp(tmp_path
     run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--strace", str(blocked),
                     command=["/bin/true"])
     assert run.returncode == 2, run.stdout + run.stderr
-    assert json.loads(run.stdout.splitlines()[0])["result"] == "UNKNOWN"
-    assert not list(tmp_path.glob(".bd-writerec-tracer-stderr.*")), "recorder temp survived"
-    assert not list(tmp_path.glob(".unspawnable.jsonl.*"))
+    # IR-1a: no recorder-owned scratch of any kind survives
+    assert not list(tmp_path.glob("bd-writerec-*")), "raw directory survived an unspawnable tracer"
+    assert not list(tmp_path.glob(".bd-writerec-tracer-stderr.*")), "stderr temp survived"
+    assert not list(tmp_path.glob(".unspawnable.jsonl.*")), "evidence temp survived"
+    # IR-1b: the refusal is atomic and schema-shaped, not just a stdout string
+    assert out.exists(), "an unspawnable tracer wrote no evidence artifact"
+    records = _records(out)
+    assert records[0]["record_type"] == "run_header"
+    footer = records[-1]
+    assert footer["record_type"] == "run_footer"
+    assert footer["complete"] is False and footer["result"] == "UNKNOWN"
+    assert footer["schema"] == records[0]["schema"]
+    for field in ("max_raw_bytes", "raw_bytes", "raw_limit_exceeded",
+                  "time_limit_exceeded", "process_group_reaped"):
+        assert field in footer, f"refusal footer is missing {field}"
+    assert footer["error"], "the refusal must name its own reason"
+    assert "raw_log_dir" not in footer, "a removed directory must not be cited as evidence"
+    summary = json.loads(run.stdout.splitlines()[0])
+    assert summary["result"] == "UNKNOWN" and summary["complete"] is False
+
+
+@LIVE
+@pytest.mark.timeout(120)
+def test_live_residual_process_group_is_terminated_and_proven_gone(tmp_path):
+    """IR-2: a tracer that exits leaving a same-group survivor is an orphan.
+
+    The drain sees a clean EOF and neither limit fires, so nothing asked the recorder
+    to terminate anything -- which is exactly when the old escalation gate refused to
+    act.  A tracer is not permitted to hand back a live process group.
+    """
+    marker = "bd-writerec-residual-" + str(os.getpid())
+    fake = tmp_path / "fake-tracer"
+    # Writes a COMPLETE, well-formed trace, then leaves a same-group sleeper that does
+    # not inherit the trace pipe (close_fds), then exits.  The recorder therefore sees a
+    # clean EOF, a parseable capture with a real root exit, and neither limit set -- so
+    # the only thing that may refuse this run is the surviving process group itself.
+    fake.write_text(FAKE_TRACER % marker)
+    fake.chmod(0o755)
+    out = tmp_path / "residual.jsonl"
+    started = time.monotonic()
+    run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--strace", str(fake),
+                    command=["/bin/true"], timeout=60)
+    assert time.monotonic() - started < 60
+    try:
+        footer = _records(out)[-1]
+        pgid = footer["tracer_pgid"]
+        assert isinstance(pgid, int) and pgid > 0
+        # preconditions: this is the clean-EOF path, and the capture is otherwise good,
+        # so nothing but the residual group can be responsible for the refusal
+        assert footer["raw_limit_exceeded"] is False and footer["time_limit_exceeded"] is False
+        assert footer["events"] >= 1 and footer["partial_tail_bytes"] == 0
+        assert footer["root_exit"] == {"how": "exited", "code": 0}
+        assert footer["exit_witness"] == "agree"
+        # IR-2: the residual group is terminated and proven gone
+        assert footer["residual_group_terminated"] is True, (
+            "a surviving same-group process was not detected as residue")
+        assert footer["process_group_reaped"] is True, "the residual group was not proven empty"
+        with pytest.raises(ProcessLookupError):
+            os.killpg(pgid, 0)
+        assert footer["complete"] is False and footer["result"] == "UNKNOWN"
+        assert run.returncode == 2, run.stdout + run.stderr
+        ps = subprocess.run(["ps", "-eo", "args="], capture_output=True, text=True, check=True).stdout
+        assert marker not in ps, "the same-group survivor outlived the recorder"
+    finally:  # never let a failed run leak the sleeper into the host
+        subprocess.run(["pkill", "-f", marker], capture_output=True)
+
+
+def test_parse_mode_accounting_declares_its_mode_and_omits_live_acquisition_fields(tmp_path):
+    """IR-3: parse mode acquired nothing, so it must not report live acquisition bytes."""
+    out = tmp_path / "parsed-accounting.jsonl"
+    run = subprocess.run([sys.executable, str(TOOL), "--parse", str(FIXTURES / "opens.strace"),
+                          "--out", str(out), "--exit-mode", "recorder", "--json"],
+                         capture_output=True, text=True, cwd=tmp_path)
+    assert run.returncode == 0, run.stdout + run.stderr
+    summary = json.loads(run.stdout)
+    assert summary["mode"] == "parse"
+    assert summary["source_bytes"] == (FIXTURES / "opens.strace").stat().st_size
+    for live_only in ("raw_bytes", "raw_disk_bytes", "parsed_bytes", "partial_tail_bytes",
+                      "raw_limit_exceeded", "time_limit_exceeded", "tracer_pid",
+                      "process_group_reaped"):
+        assert live_only not in summary, (
+            f"parse mode published the live acquisition field {live_only}")
+    # the artifact and the summary must agree, so the footer carries the same accounting
+    footer = _records(out)[-1]
+    assert footer["mode"] == "parse" and footer["source_bytes"] == summary["source_bytes"]
+
+
+def test_a_nonpositive_raw_budget_is_refused_instead_of_published(tmp_path):
+    """IR-3: a declared budget that cannot bound anything is not a budget."""
+    for bad in ("0", "-1"):
+        out = tmp_path / f"budget{bad}.jsonl"
+        run = subprocess.run([sys.executable, str(TOOL), "--out", str(out), "--json",
+                              "--exit-mode", "recorder", "--max-raw-bytes", bad,
+                              "--", "/bin/true"], capture_output=True, text=True, cwd=tmp_path)
+        assert run.returncode == 2, run.stdout + run.stderr
+        # a refusal happens before anything is spawned, so nothing is published at all
+        assert not out.exists(), "a nonpositive budget was published as a bounded capture"
+        assert not list(tmp_path.glob("bd-writerec-*")), "refused run left a raw directory"
+        payload = json.loads(run.stdout)
+        assert payload["result"] == "UNKNOWN" and payload["complete"] is False
+        assert "max-raw-bytes" in payload["error"]
 
 
 @LIVE
