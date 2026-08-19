@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1188 - adjudicate retired-path test fixtures
+
+- Close the separately measured 21-file fixture phase without rewriting its 51
+  intentional literals.
+- Classify every carrier as a runtime fixture, retired-path detector, historical
+  regression, or security-boundary fixture and keep the exact-set ratchet.
+
 ## v3.66.1187 - retire sandbox-specific operator prose
 
 - Close the separately measured 11-file prose phase by replacing 33 obsolete

@@ -77,7 +77,7 @@ ALLOWLIST: Mapping[str, str] = {
     "tests/test_route_index_in_sync.py": ADVERSARIAL_FIXTURE,
     "tests/test_sandbox_home_stays_retired.py": ADVERSARIAL_FIXTURE,
     "tests/test_toolchain_534.py": ADVERSARIAL_FIXTURE,
-    "tests/test_u27_security_cluster.py": UNSWEPT,
+    "tests/test_u27_security_cluster.py": ADVERSARIAL_FIXTURE,
     "tests/test_v3_66_1167_safety_authorities_are_single_source.py": ADVERSARIAL_FIXTURE,
     "tests/test_v3_66_245_floor_signed_url_nondom.py": ADVERSARIAL_FIXTURE,
     "tests/test_v3_66_252_dom_excerpt.py": ADVERSARIAL_FIXTURE,
@@ -144,7 +144,31 @@ UNSWEPT_PHASES: Mapping[str, str] = {
     for path, reason in ALLOWLIST.items()
     if reason == UNSWEPT
 }
-CLOSED_PHASES: AbstractSet[str] = frozenset({"live", "prose"})
+CLOSED_PHASES: AbstractSet[str] = frozenset({"live", "prose", "fixture"})
+
+FIXTURE_JUDGMENTS: Mapping[str, str] = {
+    "tests/test_bd_doctor_probes_the_real_environment.py": "retired_path_detector",
+    "tests/test_capture_fixture_roots.py": "retired_path_detector",
+    "tests/test_desandbox_tool_verifiers.py": "retired_path_detector",
+    "tests/test_element_pick_bridge.py": "runtime_fixture",
+    "tests/test_element_pick_selector.py": "runtime_fixture",
+    "tests/test_env_parity_sees_the_real_browser_pool.py": "retired_path_detector",
+    "tests/test_fixture_recognizer_loop.py": "runtime_fixture",
+    "tests/test_fresh_install_gui_smoke.py": "runtime_fixture",
+    "tests/test_generated_artifact_workflow.py": "retired_path_detector",
+    "tests/test_guardcheck_fails_closed.py": "retired_path_detector",
+    "tests/test_route_index_in_sync.py": "runtime_fixture",
+    "tests/test_sandbox_home_stays_retired.py": "retired_path_detector",
+    "tests/test_toolchain_534.py": "historical_regression",
+    "tests/test_u27_security_cluster.py": "security_boundary_fixture",
+    "tests/test_v3_66_1167_safety_authorities_are_single_source.py": "retired_path_detector",
+    "tests/test_v3_66_245_floor_signed_url_nondom.py": "runtime_fixture",
+    "tests/test_v3_66_252_dom_excerpt.py": "runtime_fixture",
+    "tests/test_v3_66_276_row_selector_robust.py": "runtime_fixture",
+    "tests/test_v3_66_527_numeric_integer_backstop.py": "historical_regression",
+    "tests/test_v3_66_653_dep_freshness.py": "historical_regression",
+    "tests/test_v3_66_799_audit_tool_selftests.py": "historical_regression",
+}
 
 
 def _tracked_carriers() -> set[str]:
@@ -309,6 +333,20 @@ def test_intentional_adversarial_and_historical_literals_remain():
         assert "RETIRED ENVIRONMENT - HISTORICAL RECORD" in historical
         assert historical.count(PRESERVED_NEEDLE) == 39, relative
         assert PRESERVED_NEEDLE not in current, relative
+
+
+def test_every_test_fixture_carrier_has_a_hand_adjudicated_role():
+    fixture_carriers = {
+        path for path in _tracked_carriers() if path.startswith("tests/")
+    }
+    assert fixture_carriers == set(FIXTURE_JUDGMENTS)
+    assert set(FIXTURE_JUDGMENTS.values()) == {
+        "historical_regression",
+        "retired_path_detector",
+        "runtime_fixture",
+        "security_boundary_fixture",
+    }
+    assert all(ALLOWLIST[path] == ADVERSARIAL_FIXTURE for path in fixture_carriers)
 
 
 BD_GATE_SCOPE = "repo-wide"
