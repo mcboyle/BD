@@ -92,7 +92,7 @@ if [ -e "$DEST/.bdsuite-manifest.json" ] || [ -L "$DEST/.bdsuite-manifest.json" 
     echo "ERROR: prior suite manifest is not a regular file" >&2
     exit 2
   }
-  old_public="$({ python3 - "$DEST/.bdsuite-manifest.json" <<'PY'
+  old_public="$(python3 - "$DEST/.bdsuite-manifest.json" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -112,7 +112,7 @@ if len(names) != len(set(names)):
     raise SystemExit("duplicate prior public command")
 print("\n".join(names))
 PY
-  } 2>&1)" || { echo "ERROR: $old_public" >&2; exit 2; }
+  )" || { echo "ERROR: invalid prior suite manifest" >&2; exit 2; }
   while IFS= read -r name; do [ -z "$name" ] || OLD_PUBLIC_NAMES+=("$name"); done <<< "$old_public"
 elif [ -d "$DEST" ] && [ -d "$LINK_DEST" ]; then
   # Compatibility with an install predating manifests: only basename-preserving
@@ -154,7 +154,8 @@ PUBLISHED=0
 EXCHANGED=0
 COMMITTED=0
 PREPARED_LINKS=()
-BACKUP_LINKS=()
+BACKUP_ORIGINALS=()
+BACKUP_PATHS=()
 NEW_LINKS=()
 
 rollback() {
@@ -162,7 +163,7 @@ rollback() {
   trap - EXIT
   local rollback_ok=1
   if [ "$COMMITTED" -ne 1 ]; then
-    local record original backup
+    local index original backup
     if [ "$PUBLISHED" -eq 1 ]; then
       if [ "$EXCHANGED" -eq 1 ]; then
         python3 "$HERE/install_exchange.py" "$DEST" "$STAGE" >/dev/null 2>&1 || rollback_ok=0
@@ -170,8 +171,8 @@ rollback() {
         [ ! -e "$DEST" ] || mv -T -- "$DEST" "$STAGE" >/dev/null 2>&1 || rollback_ok=0
       fi
     fi
-    for record in "${BACKUP_LINKS[@]}"; do
-      original="${record%%|*}"; backup="${record#*|}"
+    for index in "${!BACKUP_PATHS[@]}"; do
+      original="${BACKUP_ORIGINALS[$index]}"; backup="${BACKUP_PATHS[$index]}"
       if [ -e "$backup" ] || [ -L "$backup" ]; then
         mv -Tf -- "$backup" "$original" >/dev/null 2>&1 || rollback_ok=0
       fi
@@ -334,7 +335,8 @@ for name in "${OLD_PUBLIC_NAMES[@]}"; do
   case "$target" in "$DEST/$name")
     backup="$LINK_DEST/.bdsuite-backup.$txn.$name"
     mv -T -- "$public" "$backup" || exit 2
-    BACKUP_LINKS+=("$public|$backup")
+    BACKUP_ORIGINALS+=("$public")
+    BACKUP_PATHS+=("$backup")
   esac
 done
 
@@ -348,9 +350,14 @@ LIVE_ROOT="$(env -u BD_WORK_TREE python3 "$DEST/_bd_work_tree.py")" || {
 validate_generation "$DEST" links || exit 2
 
 COMMITTED=1
-for record in "${BACKUP_LINKS[@]}"; do rm -f -- "${record#*|}"; done
-[ "$EXCHANGED" -eq 0 ] || rm -rf -- "$STAGE"
+cleanup_ok=1
+for backup in "${BACKUP_PATHS[@]}"; do rm -f -- "$backup" || cleanup_ok=0; done
+[ "$EXCHANGED" -eq 0 ] || rm -rf -- "$STAGE" || cleanup_ok=0
 trap - EXIT
+[ "$cleanup_ok" -eq 1 ] || {
+  echo "BD-INSTALL-CLEANUP-INCOMPLETE: published generation is valid; transaction residue requires cleanup" >&2
+  exit 2
+}
 echo "bdsuite installed: ${#SOURCE_NAMES[@]} tools in $DEST; ${#PUBLIC_NAMES[@]} public links"
 echo "installed .bdenv.sh and checkout authority for $VALID_ROOT"
 exit 0

@@ -131,8 +131,8 @@ def resolve_tree(explicit):
     """Find the tree whose guards we are checking.
 
     Explicit --tree always wins (that is the version-pack / fault-injection path).
-    Otherwise: walk up from CWD for a guards.json, then the repo root implied by
-    this script's own location.
+    Otherwise the shared resolver requires installed pointer authority or this
+    script's exact physical source-checkout layout; caller cwd is not authority.
 
     The old code hardcoded a sandbox tree as the default, which is why a run
     from a git checkout hashed nothing at all.

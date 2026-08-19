@@ -420,6 +420,36 @@ def test_installer_rolls_back_a_live_validation_failure(tmp_path):
     assert _run_installed_bd(link_bin, env, tmp_path).returncode == 0
 
 
+def test_installer_rollback_handles_every_legal_link_directory_character(tmp_path):
+    """Rollback metadata is structural, so a pipe in the link path is not syntax."""
+    env, suite_bin, _link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    link_bin = tmp_path / "usr|local|bin"
+    env["BD_SUITE_LINK_BIN"] = str(link_bin)
+    first = _install(env)
+    assert first.returncode == 0, first.stderr
+    before = _tree_snapshot(suite_bin, link_bin)
+
+    source = tmp_path / "pipe-path-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    (source / "bin" / "bd-status").unlink()
+    resolver = source / "bin" / "_bd_work_tree.py"
+    resolver.write_text(
+        resolver.read_text(encoding="utf-8").replace(
+            "from __future__ import annotations\n",
+            "from __future__ import annotations\n"
+            "import pathlib\n"
+            "if '.bdsuite-stage.' not in str(pathlib.Path(__file__).resolve()):\n"
+            "    raise SystemExit(2)\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    env["BD_WORK_TREE"] = str(REPO)
+    failed = _install(env, source)
+    assert failed.returncode == 2
+    assert _tree_snapshot(suite_bin, link_bin) == before
+
+
 def test_installer_preserves_recovery_generation_when_reverse_exchange_fails(tmp_path):
     """A failed automatic rollback never deletes the only old-generation copy."""
     env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
