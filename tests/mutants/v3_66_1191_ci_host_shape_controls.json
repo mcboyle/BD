@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "CI host-shape controls. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1191_ci_host_shape_controls.json",
+  "subject": "v3.66.1191 -- gates bind to their checkout and observe detached lock release",
+  "band": [
+    "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py"
+  ],
+  "mutants": [
+    {
+      "label": "wedge hunt returns to the verifier-host HOME assumption",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "_TESTS_ROOT = _checkout_for(pathlib.Path(__file__))",
+      "new": "_TESTS_ROOT = pathlib.Path.home() / \"BulkDownloader\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py::test_capture_and_wedge_hunt_sweep_on_the_way_in"
+    },
+    {
+      "label": "detached descendant retains the singleton descriptor",
+      "file": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+      "old": "eval \"exec ${fd}>&-\"; printf \"LOCK_FD_CLOSED\\\\n\" >&${ready};",
+      "new": "printf \"LOCK_FD_CLOSED\\\\n\" >&${ready};",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_singleton_is_not_inherited_by_a_detached_descendant"
+    }
+  ]
+}

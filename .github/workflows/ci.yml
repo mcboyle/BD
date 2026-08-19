@@ -265,6 +265,7 @@ jobs:
               tests/test_v3_66_1177_ai_boot_observation_is_bounded.py
               tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
               tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py
+              tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py
               tests/test_frontend_secret_keys_in_sync.py
               tests/test_templates_list_identity.py
               tests/test_defect_scan_precision.py
@@ -335,9 +336,13 @@ jobs:
               tests/test_no_test_writes_the_repo_plugins_dir.py
               tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
               tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py
+              tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py
               tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
           - name: tree-gates-1
             suites: >-
+              tests/test_capture_vault_is_isolated.py
+              tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py
+              tests/test_v3_66_1191_retention_review_edges.py
               tests/test_v3_66_1018_registrable_domain_drain.py
               tests/test_census_file_size_drift.py
               tests/test_zip_era_tools_stay_retired.py
