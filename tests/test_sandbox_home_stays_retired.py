@@ -54,24 +54,13 @@ ALLOWLIST: Mapping[str, str] = {
     "FOOTGUNS.json": HISTORICAL_RECORD,
     "SANDBOX.md": HISTORICAL_RECORD,
     "VERSION.txt": PROVENANCE_ARTIFACT,
-    "conf/README.md": UNSWEPT,
-    "docs/UX_IMPROVEMENT_PLAN.md": UNSWEPT,
     "docs/archive/2026-07-22-doc-hygiene/docs/audit/CODE_INTELLIGENCE_DELIVERABLES.md": HISTORICAL_RECORD,
     "docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md": HISTORICAL_RECORD,
     "docs/repo/SANDBOX_SPEC_AND_LAYOUT_v3_66_805.md": PROVENANCE_ARTIFACT,
     "kb/decomp/app_py_F5.1/APP_DECOMP_MAP.json": PROVENANCE_ARTIFACT,
-    "project-knowledge/10_SANDBOX_SHELL_PREFLIGHT.md": UNSWEPT,
-    "project-knowledge/ADVANCED_PROJECT_KNOWLEDGE.md": UNSWEPT,
-    "project-knowledge/CODE_INTELLIGENCE_TOOLING.md": UNSWEPT,
     "project-knowledge/IMPROVEMENT_BACKLOG.md": OPERATOR_PROSE,
     "project-knowledge/KB_JUDGMENT.md": HISTORICAL_RECORD,
-    "project-knowledge/KB_SYNC_WORKFLOW.md": UNSWEPT,
-    "project-knowledge/PRESTAGE_GUIDE.md": UNSWEPT,
-    "project-knowledge/README.md": UNSWEPT,
-    "project-knowledge/RELEASE_DISCIPLINE_TIERS.md": UNSWEPT,
-    "project-knowledge/RENDER_CAPTURE_AUDIT_GUIDE.md": UNSWEPT,
     "project-knowledge/SANDBOX.md": HISTORICAL_RECORD,
-    "project-knowledge/SANDBOX_CAPABILITY_LAYER.md": UNSWEPT,
     "scripts/classify_toolchain.py": ADVERSARIAL_FIXTURE,
     "scripts/classify_toolchain_verdict.py": ADVERSARIAL_FIXTURE,
     "scripts/refine_degraded.py": ADVERSARIAL_FIXTURE,
@@ -155,7 +144,7 @@ UNSWEPT_PHASES: Mapping[str, str] = {
     for path, reason in ALLOWLIST.items()
     if reason == UNSWEPT
 }
-CLOSED_PHASES: AbstractSet[str] = frozenset({"live"})
+CLOSED_PHASES: AbstractSet[str] = frozenset({"live", "prose"})
 
 
 def _tracked_carriers() -> set[str]:

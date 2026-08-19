@@ -61,8 +61,8 @@ When the cut is ready, drop these into the waiting chat:
 Bootstrap then runs `bd-boot` (budgeted + checkpointed: re-run until it prints
 READY; internally prestage → install → venv → preflight → state → status →
 footguns → kbsync) and the offline set is picked up automatically — from the
-`/home/claude` intake copies first, the evicting uploads mount second. Bootstrap
-halts if no `KB_HANDOFF_v3_66_*.md` is present in uploads (or /home/claude).
+the operator intake directory first, the evicting uploads mount second. Bootstrap
+halts if no `KB_HANDOFF_v3_66_*.md` is present in uploads or `$BD_ARTIFACT_ROOT`.
 
 ## The one guard that makes pre-staging SAFE
 A pre-staged offline set is valid **only while dependencies haven't changed.** If a

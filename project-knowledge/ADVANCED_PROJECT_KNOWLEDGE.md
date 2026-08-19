@@ -63,7 +63,7 @@ truth over every doc here.**
   a stale banner -- run `tools/verify_release.py --zip <zip>` and gate on `$?` (exit 1 FAIL
   / 0 PASS), never on a piped `tail`/`grep`. **[8_BUILD_RELEASE_CHEATSHEET.md]**
 - **Band always from the EXTRACTED/built zip, never the work tree.** An overlay zip
-  sitting in `/home/claude/out` causes the cutter to extract the wrong archive.
+  sitting in an unscoped artifact directory causes the cutter to extract the wrong archive.
 - **A non-ASCII CHANGELOG entry bands `test_v3_43_78_static_analysis_fixes.py`** (an
   on-stash emoji/ASCII gate). CHANGELOG entries must be ASCII-only; re-verify zero
   non-ASCII before a cut. **[2_RELEASE_TEST_BAND.md]**
@@ -125,7 +125,7 @@ truth over every doc here.**
   hang is a denial-of-service, not a safety feature.
 - **Rendering a generated session-pack artifact INTO the work tree leaks it into the
   zip.** The full-tree build walks `work/` and "tree wins", so any handoff/pack file
-  rendered under `work/` ships inside the release. Render packs to `/home/claude/out`,
+  rendered under `work/` ships inside the release. Render packs to `$BD_ARTIFACT_ROOT/out`,
   never under `work/`; bd-preflight catches the contamination if you forget.
 - **Predicate-level pins don't substitute for content-level pins.** A test asserting "a
   match exists" / "the call returned truthy" stays green when the CONTENT is wrong. Pin

@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-18T23:55:56+00:00",
- "version_context": "v3.66.1186",
+ "generated": "2026-08-19T00:05:44+00:00",
+ "version_context": "v3.66.1187",
  "file_count": 85,
  "files": {
   "0_INDEX.md": {
@@ -9,8 +9,8 @@
    "bytes": 2195
   },
   "10_SANDBOX_SHELL_PREFLIGHT.md": {
-   "sha256": "9f7069c5dc681b9cd151dda78bbcbf463eff938236186c54402520de7ad57b9b",
-   "bytes": 1878
+   "sha256": "34f62f0b141fad3d6bc93b00734cbebb04015714f3bf34b257faa7fd924cd540",
+   "bytes": 1908
   },
   "2_RELEASE_TEST_BAND.md": {
    "sha256": "0624bffa6ffaf5f9cae17127088af0de6a2f0c970af38c191aad207cc2fd8f6e",
@@ -41,8 +41,8 @@
    "bytes": 2483
   },
   "ADVANCED_PROJECT_KNOWLEDGE.md": {
-   "sha256": "da9a4e6b2395470b17d8a613ad3bdcbb3c2143144584385fc211987c70737465",
-   "bytes": 22765
+   "sha256": "920e832dff46622360c14cba01dd6251c671d6fc4b69986e7333af9403cd240b",
+   "bytes": 22782
   },
   "ARCHITECTURE_MAP.md": {
    "sha256": "743b95dacc2270fe44d720cc4979dc8e49e8eb61e72a1fa2b4c3110accf4418e",
@@ -89,8 +89,8 @@
    "bytes": 7736
   },
   "CODE_INTELLIGENCE_TOOLING.md": {
-   "sha256": "5e9f9412b253403b57ed844c14158063dd0a5e5c12ef524b40c18f0609984a6e",
-   "bytes": 9842
+   "sha256": "6a223e97e0c697765d27c269267e1c24ce34d9d34bed867494b8bad8ee38ea12",
+   "bytes": 9840
   },
   "CODE_REVIEW_INDEX.md": {
    "sha256": "9da0df2ac73da5907ff327afbd44a2c6f706a42fe3fd13cbc4a78e972fd6845f",
@@ -145,8 +145,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "79552b03c1bf60dcef8e696aaf177ccca308da8f44d0f04827364972c14adb56",
-   "bytes": 110179
+   "sha256": "4f398363683b0fb5460b730183c15fa1590ec072b4c55cbfa055d994f62d01f4",
+   "bytes": 110071
   },
   "KB_ACTIVE_INDEX.md": {
    "sha256": "78c4d7785f3a952ec17e45039812f132a080d169bb6444504b0ebccb09685855",
@@ -161,8 +161,8 @@
    "bytes": 9645
   },
   "KB_SYNC_WORKFLOW.md": {
-   "sha256": "2a160ddd22309401273b698ee38841fc08258a94978e0cf36d3c926956f4dd3a",
-   "bytes": 4554
+   "sha256": "fa08dc39d29112916a909179d18ccf5b976eced6b6b9c2629d2d8fc7d617da3a",
+   "bytes": 4551
   },
   "KNOWN_FLAKES.md": {
    "sha256": "ec564baad2bf241560241be58c87426334ece47ff6355487bc89b56ca789fe6b",
@@ -193,8 +193,8 @@
    "bytes": 10535
   },
   "PRESTAGE_GUIDE.md": {
-   "sha256": "c1721ae6da2860e88a2289af93928a6ae7b15eb0adc84aaf368f7d8e5bf84a71",
-   "bytes": 6787
+   "sha256": "c214b32ad78170aff220d8225c348c5e8f53ff3f51debb0b10a72ef1d5382108",
+   "bytes": 6793
   },
   "PROJECT_CHARTER.md": {
    "sha256": "39928b79f5a74df2ad1dfe34c7cc4f6eb44dc31b1a643322dc6ad48b76b490ad",
@@ -213,20 +213,20 @@
    "bytes": 2617
   },
   "README.md": {
-   "sha256": "c146b1ff07c02ce2c230044464387fa8396bad4eb0ea452acd3b18a37ebc2376",
-   "bytes": 25646
+   "sha256": "f38640d25cd32bf3bc87d3751ac7fbc709797653a7e8ffd2c515e16ccc215b77",
+   "bytes": 25661
   },
   "README_KB.md": {
    "sha256": "a3433738fbe027390505e6a9a424dc584f4b09e5ec8bbf1446ab1705798e90bc",
    "bytes": 1292
   },
   "RELEASE_DISCIPLINE_TIERS.md": {
-   "sha256": "fb8065e475e37a1724d5621b5fb0c24fab8e32967d04aea88de38503dcffc6f7",
-   "bytes": 7795
+   "sha256": "0b9f3b9907ab09dadaa0e2411f2d14d37e81ffa3264d9cbf93679ce6e2b8e2f5",
+   "bytes": 7776
   },
   "RENDER_CAPTURE_AUDIT_GUIDE.md": {
-   "sha256": "25e5b218eb113613b40b6af306fc569dfd1e00d9e78ecf03d5cd1ea36b9085cc",
-   "bytes": 19891
+   "sha256": "328db81eeb66fa9d0c9f5f3c71fd7b2d3df25b4dbb13c5c43c31a3f77158450f",
+   "bytes": 19877
   },
   "REPTYLE_CAPTURE_RUNBOOK.md": {
    "sha256": "2312be24f28c032c4c1099db8fcbeaf8ed46e4a2ab15c1d96282edd35b038b8e",
@@ -245,8 +245,8 @@
    "bytes": 34497
   },
   "SANDBOX_CAPABILITY_LAYER.md": {
-   "sha256": "bbff052c633037e49d91dee185ba3c135a01853a6414b29a0f5efb29a7af71d2",
-   "bytes": 8442
+   "sha256": "0e3207a808c0e64ba939a5b308fa20416423089c695cfed48b42e80242bd8bb1",
+   "bytes": 8449
   },
   "SCHEMAS.md": {
    "sha256": "6bddb0bc6c012902b7261b2fb782f1e3a5713e1115114f017a22febb22aad1aa",

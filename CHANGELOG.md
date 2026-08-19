@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1187 - retire sandbox-specific operator prose
+
+- Close the separately measured 11-file prose phase by replacing 33 obsolete
+  machine paths with repository-derived or explicit operator variables.
+- Keep upload-mount instructions intact while naming writable artifact, review,
+  browser, capture, and toolchain locations through their current controls.
+
 ## v3.66.1186 - make live tool defaults repository-portable
 
 - Close the 46-file live-path phase: tools now derive this checkout or honor
