@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import select
 import shutil
 import signal
 import socket
@@ -43,6 +44,9 @@ BLIND_SPOTS = [
     "payload bytes are deliberately absent",
     "ptrace overhead invalidates timing conclusions",
     "containers and remote filesystems may hide the ultimate writer",
+    "a capture stopped at --max-raw-bytes loses its tail: late syscalls are absent",
+    "a recorder-terminated workload did not run to completion and has no exit status of its own",
+    "peak recorder memory is bounded by --max-raw-bytes, not by the workload's true trace size",
 ]
 
 
@@ -300,8 +304,130 @@ def _write_evidence(out, header, events, footer):
         except FileNotFoundError: pass
 
 
-def _summary(footer, raw_bytes=0, raw_limit=False):
-    return {k: footer[k] for k in ("result", "complete", "events", "successful_mutations", "written_bytes", "coverage_gaps")} | {"raw_bytes": raw_bytes, "raw_limit_exceeded": raw_limit, "blind_spots": BLIND_SPOTS}
+_DRAIN_CHUNK = 64 * 1024
+def _capture(max_raw_bytes, raw_bytes=0, disk_bytes=0, partial_tail=0, raw_limit=False,
+             time_limit=False, tracer_pid=None, tracer_pgid=None, tracer_exit_code=None,
+             group_reaped=True, parsed_bytes=None):
+    # raw_bytes == parsed_bytes + partial_tail_bytes, and parsed_bytes == raw_disk_bytes:
+    # every byte read is either parsed and retained, or declared as a discarded tail.
+    return {"max_raw_bytes": max_raw_bytes, "raw_bytes": raw_bytes, "raw_disk_bytes": disk_bytes,
+            "parsed_bytes": raw_bytes - partial_tail if parsed_bytes is None else parsed_bytes,
+            "partial_tail_bytes": partial_tail, "raw_limit_exceeded": raw_limit,
+            "time_limit_exceeded": time_limit, "workload_terminated_by_recorder": raw_limit or time_limit,
+            "tracer_pid": tracer_pid, "tracer_pgid": tracer_pgid,
+            "tracer_exit_code": tracer_exit_code, "process_group_reaped": group_reaped}
+
+
+def _summary(footer, capture):
+    keys = ("result", "complete", "events", "successful_mutations", "written_bytes", "coverage_gaps")
+    return {k: footer[k] for k in keys} | dict(capture) | {"blind_spots": BLIND_SPOTS}
+
+
+def _signal_group(pgid, sig):
+    try:
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _group_gone(pgid):
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
+def _reap_group(proc, pgid, escalate, hard_after=1.0, timeout=10.0):
+    """Wait for the tracer and every surviving member of its group.
+
+    Returns True only when the group is provably empty: a tracer that detached from a
+    still-running tracee is an orphan, and an unproven reap is UNKNOWN, not success.
+    Escalation to SIGKILL happens only on a path the recorder itself terminated, so a
+    slow but clean tracer is never killed out from under a valid capture.
+    """
+    start = time.monotonic()
+    escalated = False
+    while time.monotonic() - start < timeout:
+        if proc.poll() is None:
+            try:
+                proc.wait(timeout=.05)
+            except subprocess.TimeoutExpired:
+                pass
+        elif _group_gone(pgid):
+            return True
+        if escalate and not escalated and time.monotonic() - start >= hard_after:
+            _signal_group(pgid, signal.SIGKILL)
+            escalated = True
+        time.sleep(.01)
+    return proc.poll() is not None and _group_gone(pgid)
+
+
+def _sink_for(sinks, raw_dir, line):
+    match = re.match(rb"\s*(\d+)\s+", line)
+    name = (match.group(1).decode("ascii") if match else "unattributed") + ".strace"
+    sink = sinks.get(name)
+    if sink is None:
+        sink = sinks[name] = open(raw_dir / name, "wb")
+    return sink
+
+
+def _drain_bounded(read_fd, raw_dir, budget, deadline):
+    """Read at most `budget` bytes from the tracer pipe, streaming whole lines to per-pid files.
+
+    The recorder -- not strace -- owns the artifact, so the budget is the number of bytes
+    the recorder consents to read.  That single number bounds the raw capture, the bytes
+    written to disk, and the bytes retained in memory alike.  Only whole lines are kept:
+    a half-written trailing line is counted, declared, and discarded rather than parsed.
+    """
+    sinks = {}
+    buf = bytearray()
+    pending = b""
+    disk = 0
+    raw_limit = time_limit = False
+    try:
+        while True:
+            if len(buf) >= budget:
+                raw_limit = True
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                time_limit = True
+                break
+            if not select.select([read_fd], [], [], min(remaining, .2))[0]:
+                continue
+            chunk = os.read(read_fd, min(_DRAIN_CHUNK, budget - len(buf)))
+            if not chunk:
+                break  # the tracer closed its end: this capture is whole
+            buf += chunk
+            pending += chunk
+            cut = pending.rfind(b"\n")
+            if cut >= 0:
+                whole, pending = pending[:cut + 1], pending[cut + 1:]
+                for line in whole.splitlines(keepends=True):
+                    _sink_for(sinks, raw_dir, line).write(line)
+                disk += len(whole)
+    finally:
+        for sink in sinks.values():
+            sink.close()
+    raw_bytes = len(buf)
+    if pending:
+        del buf[raw_bytes - len(pending):]
+    # len(buf) is measured after the trim, not inferred from it: an evidence recorder that
+    # derives its own denominator from the assumption under test cannot fail open.
+    return buf.decode("utf-8", "replace"), raw_bytes, disk, len(pending), raw_limit, time_limit, len(buf)
+
+
+def _exit_witness(root_exit, tracer_code):
+    """Compare the parsed terminal record against the tracer's own status."""
+    if not root_exit or tracer_code is None:
+        return "unknown"
+    if root_exit.get("how") == "exited":
+        return "agree" if root_exit.get("code") == tracer_code else "disagree"
+    expected = {root_exit.get("code"), -(root_exit.get("code", 0) - 128)}
+    return "agree" if tracer_code in expected else "disagree"
 
 
 def _live(args):
@@ -312,39 +438,65 @@ def _live(args):
     if not strace or not os.path.isfile(strace) or not sys.platform.startswith("linux") or (_ptrace_scope() or 0) >= 2:
         footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": 2, "events": 0, "successful_mutations": 0,
                   "written_bytes": 0, "coverage_gaps": [], "complete": False, "result": "UNKNOWN", "root_exit": None,
-                  "blind_spots": BLIND_SPOTS}; _write_evidence(out, header, [], footer); return footer, 0, False
-    raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent)); trace = raw_dir / "trace"
-    proc = subprocess.Popen(build_strace_argv(strace, str(trace), args.command), start_new_session=True,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    exceeded = False; deadline = time.monotonic() + args.max_seconds
+                  "blind_spots": BLIND_SPOTS}
+        capture = _capture(args.max_raw_bytes)
+        footer.update(capture); _write_evidence(out, header, [], footer); return footer, capture
+    # Prove the evidence destination is writable before spawning anything irreversible.
+    out.parent.mkdir(parents=True, exist_ok=True)
+    raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent))
+    err_fd, err_path = tempfile.mkstemp(prefix=".bd-writerec-tracer-stderr.", dir=out.parent)
+    read_fd, write_fd = os.pipe()
+    proc = None
     try:
-        while proc.poll() is None:
-            size = trace.stat().st_size if trace.exists() else 0
-            if size > args.max_raw_bytes or time.monotonic() > deadline:
-                exceeded = True; os.killpg(proc.pid, signal.SIGTERM)
-                try: proc.wait(timeout=1)
-                except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL); proc.wait(timeout=2)
-                break
-            time.sleep(.01)
-        raw = trace.read_text(encoding="utf-8", errors="replace") if trace.exists() else ""
-        per_pid = {}
-        for line in raw.splitlines(keepends=True):
-            match = re.match(r"\s*(\d+)\s+", line)
-            if match: per_pid.setdefault(match.group(1), []).append(line)
-        for pid, pid_lines in per_pid.items():
-            (raw_dir / (pid + ".strace")).write_text("".join(pid_lines), encoding="utf-8")
-        events, footer = parse_trace(raw, os.getcwd(), args.root, args.max_events)
+        proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
+                                start_new_session=True, pass_fds=(write_fd,),
+                                stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
+    finally:
+        os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF
+        os.close(err_fd)
+    pgid = proc.pid  # start_new_session makes the tracer its own group and session leader
+    try:
+        deadline = time.monotonic() + args.max_seconds
+        text, raw_bytes, disk, partial_tail, raw_limit, time_limit, parsed = _drain_bounded(
+            read_fd, raw_dir, args.max_raw_bytes, deadline)
+        # Ordering is load-bearing: stop reading, signal the group, only then close the
+        # read end.  Waiting on a full pipe before either would deadlock the tracer.
+        if raw_limit or time_limit:
+            _signal_group(pgid, signal.SIGTERM)
+        os.close(read_fd); read_fd = -1
+        reaped = _reap_group(proc, pgid, escalate=raw_limit or time_limit)
+        capture = _capture(args.max_raw_bytes, raw_bytes, disk, partial_tail, raw_limit, time_limit,
+                           proc.pid, pgid, proc.returncode, reaped, parsed)
+        events, footer = parse_trace(text, os.getcwd(), args.root, args.max_events)
         footer["ended_utc"] = _utc(); footer["raw_log_dir"] = str(raw_dir)
-        raw_bytes = len(raw.encode())
-        if exceeded:
-            footer.update(complete=False, result="UNKNOWN", raw_limit_exceeded=True)
+        footer.update(capture)
+        footer["tracer_stderr"] = _read_head(err_path, 4096)
+        footer["exit_witness"] = _exit_witness(footer.get("root_exit"), proc.returncode)
+        if capture["workload_terminated_by_recorder"] or partial_tail or not reaped:
+            footer.update(complete=False, result="UNKNOWN")
+        if footer["exit_witness"] == "disagree":
+            footer.update(complete=False, result="UNKNOWN")
         header["raw_log_dir"] = str(raw_dir)
         _write_evidence(out, header, events, footer)
-        return footer, raw_bytes, exceeded
+        return footer, capture
     except BaseException:
+        _signal_group(pgid, signal.SIGKILL)
         if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL); proc.wait()
+            proc.wait()
         raise
+    finally:
+        if read_fd >= 0:
+            os.close(read_fd)
+        try: os.unlink(err_path)
+        except FileNotFoundError: pass
+
+
+def _read_head(path, limit):
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(limit).decode("utf-8", "replace").strip()
+    except OSError:
+        return None
 
 
 def _parser():
@@ -371,11 +523,11 @@ def main(argv=None):
             if not _outside_git(Path(args.out)): raise ValueError("--out must be outside every Git worktree")
             text = Path(args.parse).read_text(encoding="utf-8"); events, footer = parse_trace(text, args.launch_cwd, args.root, args.max_events)
             header = _header([], args.launch_cwd, args.root, None, None, args.max_events); _write_evidence(Path(args.out), header, events, footer)
-            raw_bytes, exceeded = len(text.encode()), False
+            capture = _capture(args.max_raw_bytes, len(text.encode()))
         else:
             if not args.command or args.command[0] != "--" or len(args.command) == 1: raise ValueError("live mode requires -- COMMAND")
-            args.command = args.command[1:]; footer, raw_bytes, exceeded = _live(args)
-        summary = _summary(footer, raw_bytes, exceeded)
+            args.command = args.command[1:]; footer, capture = _live(args)
+        summary = _summary(footer, capture)
         print(json.dumps(summary, sort_keys=True) if args.json else summary["result"])
         if args.exit_mode == "recorder": return 0 if footer["complete"] else 2
         root = footer.get("root_exit")

@@ -103,10 +103,17 @@ def _live_capable():
 
 
 LIVE = pytest.mark.skipif(not _live_capable(), reason="live strace capability unavailable")
-# An unbounded high-rate writer: it provably outruns any finite byte budget.
-HOT_CHILD = ("import os\n"
-             "f = open('/tmp/' + %r, 'wb')\n"
-             "while True: os.write(f.fileno(), b'x')\n")
+# An unbounded high-rate writer: it provably outruns any finite byte budget.  It rewrites
+# offset 0 forever, so a mutant that lets it escape cannot grow a file, and it carries its
+# own alarm so an escaped child cannot outlive the lane.
+HOT_CHILD = ("import os, signal\n"
+             "signal.alarm(20)\n"
+             "f = open(%r, 'wb')\n"
+             "while True: os.pwrite(f.fileno(), b'x', 0)\n")
+
+
+def _hot(tmp_path, marker):
+    return [sys.executable, "-c", HOT_CHILD % str(tmp_path / marker)]
 
 
 def _recorder(tmp_path, out, *extra, command, timeout=25):
@@ -132,7 +139,7 @@ def test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_o
     out = tmp_path / "bounded.jsonl"
     marker = "bd-writerec-bound-" + str(os.getpid())
     run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--max-raw-bytes", "4096",
-                    command=[sys.executable, "-c", HOT_CHILD % marker])
+                    command=_hot(tmp_path, marker))
     assert run.returncode == 2, run.stdout + run.stderr
     summary = json.loads(run.stdout.splitlines()[0])
     records = _records(out)
@@ -154,8 +161,11 @@ def test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_o
     # R3 -- the retained artifact is whole lines only, and the dropped tail is declared
     text = "".join(p.read_text(encoding="utf-8") for p in files)
     assert text and text.endswith("\n") and "\n\n" not in text
+    # complete byte accounting: every byte read is parsed and retained, or declared dropped
     assert footer["raw_disk_bytes"] == disk
+    assert footer["parsed_bytes"] == disk
     assert footer["partial_tail_bytes"] == summary["raw_bytes"] - disk >= 0
+    assert footer["parsed_bytes"] + footer["partial_tail_bytes"] == summary["raw_bytes"]
     assert footer["workload_terminated_by_recorder"] is True
     # R5 -- atomic UNKNOWN attestation, no temp residue
     assert not list(tmp_path.glob(".bounded.jsonl.*"))
@@ -172,7 +182,7 @@ def test_live_bound_reaps_the_whole_tracer_process_group_and_leaves_no_orphan(tm
     marker = "bd-writerec-orphan-" + str(os.getpid())
     started = time.monotonic()
     run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--max-raw-bytes", "4096",
-                    command=[sys.executable, "-c", HOT_CHILD % marker])
+                    command=_hot(tmp_path, marker))
     assert time.monotonic() - started < 25
     assert run.returncode == 2, run.stdout + run.stderr
     footer = _records(out)[-1]
@@ -216,6 +226,8 @@ def test_live_generous_budget_neither_truncates_nor_terminates_the_workload(tmp_
     assert footer["root_exit"] == {"how": "exited", "code": 0}
     assert footer["workload_terminated_by_recorder"] is False
     assert footer["partial_tail_bytes"] == 0
+    assert footer["parsed_bytes"] == footer["raw_disk_bytes"] == summary["raw_bytes"]
+    assert footer["exit_witness"] == "agree"
     assert footer["process_group_reaped"] is True
     assert footer["successful_mutations"] >= 64
     assert payload.stat().st_size == 64
