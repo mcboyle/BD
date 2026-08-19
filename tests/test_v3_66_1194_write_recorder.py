@@ -256,6 +256,22 @@ def test_live_time_limit_is_distinguishable_from_the_raw_byte_limit(tmp_path):
 
 @LIVE
 @pytest.mark.timeout(90)
+def test_live_unspawnable_tracer_is_UNKNOWN_and_leaves_no_recorder_temp(tmp_path):
+    """The recorder's own scratch state must not survive a tracer that never starts."""
+    blocked = tmp_path / "strace-not-executable"
+    blocked.write_text("#!/bin/sh\nexit 0\n")
+    blocked.chmod(0o644)  # a real file, so the isfile probe passes, but exec must fail
+    out = tmp_path / "unspawnable.jsonl"
+    run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--strace", str(blocked),
+                    command=["/bin/true"])
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert json.loads(run.stdout.splitlines()[0])["result"] == "UNKNOWN"
+    assert not list(tmp_path.glob(".bd-writerec-tracer-stderr.*")), "recorder temp survived"
+    assert not list(tmp_path.glob(".unspawnable.jsonl.*"))
+
+
+@LIVE
+@pytest.mark.timeout(90)
 def test_live_exit_propagation_fork_per_pid_raw_logs_and_recorder_failure(tmp_path):
     """R7: the child exit is witnessed twice -- parsed terminal record and tracer status."""
     out = tmp_path / "exit.jsonl"

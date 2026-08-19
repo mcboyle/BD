@@ -446,16 +446,16 @@ def _live(args):
     raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent))
     err_fd, err_path = tempfile.mkstemp(prefix=".bd-writerec-tracer-stderr.", dir=out.parent)
     read_fd, write_fd = os.pipe()
-    proc = None
+    proc = pgid = None
     try:
-        proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
-                                start_new_session=True, pass_fds=(write_fd,),
-                                stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
-    finally:
-        os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF
-        os.close(err_fd)
-    pgid = proc.pid  # start_new_session makes the tracer its own group and session leader
-    try:
+        try:
+            proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
+                                    start_new_session=True, pass_fds=(write_fd,),
+                                    stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
+        finally:
+            os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF
+            os.close(err_fd)
+        pgid = proc.pid  # start_new_session makes the tracer its own group and session leader
         deadline = time.monotonic() + args.max_seconds
         text, raw_bytes, disk, partial_tail, raw_limit, time_limit, parsed = _drain_bounded(
             read_fd, raw_dir, args.max_raw_bytes, deadline)
@@ -480,9 +480,11 @@ def _live(args):
         _write_evidence(out, header, events, footer)
         return footer, capture
     except BaseException:
-        _signal_group(pgid, signal.SIGKILL)
-        if proc.poll() is None:
-            proc.wait()
+        # A tracer that never spawned has no group to reap, but its scratch state is ours.
+        if pgid is not None:
+            _signal_group(pgid, signal.SIGKILL)
+            if proc.poll() is None:
+                proc.wait()
         raise
     finally:
         if read_fd >= 0:

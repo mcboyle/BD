@@ -100,6 +100,15 @@
       "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_exit_propagation_fork_per_pid_raw_logs_and_recorder_failure"
     },
     {
+      "label": "M10 leave the recorder's tracer-stderr temp behind",
+      "file": "toolchain/bin/bd-writerec",
+      "_why": "missing cleanup evidence is a failure, not a successful no-op",
+      "old": "        try: os.unlink(err_path)\n        except FileNotFoundError: pass",
+      "new": "        pass  # mutant: the recorder keeps its own scratch state",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1194_write_recorder.py::test_live_unspawnable_tracer_is_UNKNOWN_and_leaves_no_recorder_temp"
+    },
+    {
       "label": "OVER-CORRECTION: refuse every capture as recorder-terminated",
       "file": "toolchain/bin/bd-writerec",
       "old": "        if capture[\"workload_terminated_by_recorder\"] or partial_tail or not reaped:\n            footer.update(complete=False, result=\"UNKNOWN\")\n",
