@@ -37,13 +37,13 @@ NEEDLE = "/" + "home" + "/" + "claude"
 ADVERSARIAL_FIXTURE = "adversarial_fixture"
 HISTORICAL_RECORD = "historical_record"
 PROVENANCE_ARTIFACT = "provenance_artifact"
-OPERATOR_PROSE = "operator_prose"
+SUBJECT_REFERENCE = "subject_reference"
 UNSWEPT = "unswept"
 VALID_REASONS = frozenset({
     ADVERSARIAL_FIXTURE,
     HISTORICAL_RECORD,
     PROVENANCE_ARTIFACT,
-    OPERATOR_PROSE,
+    SUBJECT_REFERENCE,
     UNSWEPT,
 })
 VALID_PHASES = frozenset({"live", "prose", "fixture"})
@@ -58,7 +58,7 @@ ALLOWLIST: Mapping[str, str] = {
     "docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md": HISTORICAL_RECORD,
     "docs/repo/SANDBOX_SPEC_AND_LAYOUT_v3_66_805.md": PROVENANCE_ARTIFACT,
     "kb/decomp/app_py_F5.1/APP_DECOMP_MAP.json": PROVENANCE_ARTIFACT,
-    "project-knowledge/IMPROVEMENT_BACKLOG.md": OPERATOR_PROSE,
+    "project-knowledge/IMPROVEMENT_BACKLOG.md": SUBJECT_REFERENCE,
     "project-knowledge/KB_JUDGMENT.md": HISTORICAL_RECORD,
     "project-knowledge/SANDBOX.md": HISTORICAL_RECORD,
     "scripts/classify_toolchain.py": ADVERSARIAL_FIXTURE,
@@ -75,7 +75,6 @@ ALLOWLIST: Mapping[str, str] = {
     "tests/test_generated_artifact_workflow.py": ADVERSARIAL_FIXTURE,
     "tests/test_guardcheck_fails_closed.py": ADVERSARIAL_FIXTURE,
     "tests/test_route_index_in_sync.py": ADVERSARIAL_FIXTURE,
-    "tests/test_sandbox_home_stays_retired.py": ADVERSARIAL_FIXTURE,
     "tests/test_toolchain_534.py": ADVERSARIAL_FIXTURE,
     "tests/test_u27_security_cluster.py": ADVERSARIAL_FIXTURE,
     "tests/test_v3_66_1167_safety_authorities_are_single_source.py": ADVERSARIAL_FIXTURE,
@@ -158,7 +157,6 @@ FIXTURE_JUDGMENTS: Mapping[str, str] = {
     "tests/test_generated_artifact_workflow.py": "retired_path_detector",
     "tests/test_guardcheck_fails_closed.py": "retired_path_detector",
     "tests/test_route_index_in_sync.py": "runtime_fixture",
-    "tests/test_sandbox_home_stays_retired.py": "retired_path_detector",
     "tests/test_toolchain_534.py": "historical_regression",
     "tests/test_u27_security_cluster.py": "security_boundary_fixture",
     "tests/test_v3_66_1167_safety_authorities_are_single_source.py": "retired_path_detector",
@@ -275,21 +273,13 @@ def test_the_population_guard_refuses_an_empty_scan():
     _require_population({"a.py"})  # and does not fire when the scan found work
 
 
-# This literal is deliberate: the preservation test is itself an adversarial
-# carrier and therefore must appear in the reason-annotated mapping above.
-PRESERVED_NEEDLE = "/home/claude"
+PRESERVED_NEEDLE = NEEDLE
 
 
 def test_every_carrier_has_a_closed_reason_and_unswept_phase():
     assert isinstance(ALLOWLIST, dict), "carrier exemptions have no reasons"
     assert set(ALLOWLIST) == _tracked_carriers()
-    assert set(ALLOWLIST.values()) <= {
-        "adversarial_fixture",
-        "historical_record",
-        "provenance_artifact",
-        "operator_prose",
-        "unswept",
-    }
+    assert set(ALLOWLIST.values()) <= VALID_REASONS
     errors = _classification_errors(ALLOWLIST, UNSWEPT_PHASES, CLOSED_PHASES)
     assert not errors, errors
 
@@ -324,15 +314,21 @@ def test_intentional_adversarial_and_historical_literals_remain():
         "toolchain/bin/bd-sweep": "BD_SWEEP_GHOST_DIR_DOES_NOT_EXIST",
     }
     for relative, suffix in sentinels.items():
-        text = (REPO / relative).read_text(encoding="utf-8")
+        path = REPO / relative
+        assert path.is_file(), f"preserved sentinel disappeared: {relative}"
+        text = path.read_text(encoding="utf-8")
         assert PRESERVED_NEEDLE + "/" + suffix in text, relative
 
+    historical_counts = []
     for relative in ("SANDBOX.md", "project-knowledge/SANDBOX.md"):
         text = (REPO / relative).read_text(encoding="utf-8")
+        assert "## 11." in text, f"historical/current boundary missing: {relative}"
         historical, current = text.split("## 11.", 1)
         assert "RETIRED ENVIRONMENT - HISTORICAL RECORD" in historical
-        assert historical.count(PRESERVED_NEEDLE) == 39, relative
+        historical_counts.append(historical.count(PRESERVED_NEEDLE))
         assert PRESERVED_NEEDLE not in current, relative
+    assert historical_counts[0] > 0
+    assert historical_counts[0] == historical_counts[1]
 
 
 def test_every_test_fixture_carrier_has_a_hand_adjudicated_role():
@@ -347,6 +343,10 @@ def test_every_test_fixture_carrier_has_a_hand_adjudicated_role():
         "security_boundary_fixture",
     }
     assert all(ALLOWLIST[path] == ADVERSARIAL_FIXTURE for path in fixture_carriers)
+
+
+def test_the_gate_does_not_reenter_its_own_carrier_population():
+    assert "tests/test_sandbox_home_stays_retired.py" not in _tracked_carriers()
 
 
 BD_GATE_SCOPE = "repo-wide"

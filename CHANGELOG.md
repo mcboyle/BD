@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1189 - harden release-wrapper and carrier tombstones
+
+- Make the release-wrapper execution scan fail closed when its tracked-source
+  denominator collapses and exercise Python, live shell, and shell-comment cases.
+- Keep the retired-home gate out of its own population by reusing the assembled
+  needle; final current-source census is 71 carriers / 259 intentional occurrences.
+- Guard survivor identity, retirement documentation, sentinel files, and the
+  historical/current document boundary with explicit diagnostics.
+
 ## v3.66.1188 - adjudicate retired-path test fixtures
 
 - Close the separately measured 21-file fixture phase without rewriting its 51
