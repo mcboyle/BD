@@ -956,6 +956,17 @@ def host_loop(label: str, addr: str, offset: int, cfg) -> None:
             return
 
 
+def sweep_test_roots(addr: str) -> subprocess.CompletedProcess:
+    """Bound abandoned/forensics roots before this harness adds another."""
+    return ssh(
+        addr,
+        'cd "$HOME/BulkDownloader" && '
+        'venv/bin/python toolchain/bin/bd-gc --apply --older-than 1440 '
+        '--only classified',
+        timeout=300,
+    )
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bd-wedge-hunt", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -984,6 +995,12 @@ def main(argv=None) -> int:
         % "  ".join("%s:%s" % (h, [a[0] for a in ARMS_BY_HOST[h]])
                     for h, _ in HOSTS))
     say("rows -> %s" % (out / "rows.jsonl"))
+
+    for label, addr in HOSTS:
+        swept = sweep_test_roots(addr)
+        if swept.returncode:
+            say("%s: test-root sweep UNKNOWN/failed rc=%d; continuing without "
+                "treating cleanup as complete" % (label, swept.returncode))
 
     threads = []
     for i, (label, addr) in enumerate(HOSTS):

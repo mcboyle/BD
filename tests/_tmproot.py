@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import fcntl
+import json
 import os
 import pathlib
 import platform
@@ -31,6 +33,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import time
 
 # The real system temp directory, captured before anything redirects it.
 SYSTEM_TMP = pathlib.Path(tempfile.gettempdir())
@@ -69,6 +72,128 @@ _ROOT_IDENT: tuple | None = None
 _LAST_REASON: str | None = None
 _ROOT_FD: int | None = None
 _ROOT_FD_PATH: str | None = None
+
+# A kernel-owned lock is the liveness fact a SIGKILL cannot fake.  The marker
+# remains RUNNING when the process dies without reaching finish(); once the
+# kernel releases this descriptor's flock, a sweeper can classify that same
+# on-disk state as ABANDONED rather than LIVE.
+_MARKER_NAME = ".bd-testrun"
+_LOCK_NAME = ".bd-testrun.lock"
+DURABLE_STATES = (
+    "LIVE", "KEPT_FOR_FORENSICS", "RECLAIMABLE", "ABANDONED", "UNKNOWN")
+_MARKER_LOCK_FDS: dict[tuple, int] = {}
+_RUN_RECORDS: dict[tuple, dict] = {}
+
+
+def _write_run_record(fd: int, state: str, *, exitstatus=None,
+                      reason: str | None = None) -> None:
+    """Atomically publish the durable outcome inside the held root object."""
+    st = os.fstat(fd)
+    ident = (st.st_dev, st.st_ino)
+    if ident not in _RUN_RECORDS:
+        raise RuntimeError("run-root identity has no registered marker record")
+    record = dict(_RUN_RECORDS[ident])
+    record["state"] = state
+    record["updated_at"] = time.time()
+    if exitstatus is not None:
+        record["exitstatus"] = exitstatus
+    if reason:
+        record["reason"] = reason
+    payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+    tmp = "%s.tmp-%d-%s" % (_MARKER_NAME, os.getpid(), os.urandom(4).hex())
+    out = None
+    published = False
+    try:
+        out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                      0o600, dir_fd=fd)
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(out, view):]
+        os.fsync(out)
+        os.close(out)
+        out = None
+        os.rename(tmp, _MARKER_NAME, src_dir_fd=fd, dst_dir_fd=fd)
+        published = True
+        os.fsync(fd)
+    finally:
+        if out is not None:
+            os.close(out)
+        if not published:
+            try:
+                os.unlink(tmp, dir_fd=fd)
+            except FileNotFoundError:
+                pass
+
+
+def _publish_run_record(fd: int, state: str, *, exitstatus=None,
+                        reason: str | None = None) -> None:
+    """Publish while restoring a root whose owner-write bit was removed."""
+    st = os.fstat(fd)
+    mode = stat.S_IMODE(st.st_mode)
+    relaxed = False
+    try:
+        try:
+            _write_run_record(fd, state, exitstatus=exitstatus, reason=reason)
+        except PermissionError:
+            os.fchmod(fd, mode | stat.S_IWUSR | stat.S_IXUSR)
+            relaxed = True
+            _write_run_record(fd, state, exitstatus=exitstatus, reason=reason)
+    finally:
+        if relaxed:
+            os.fchmod(fd, mode)
+            if stat.S_IMODE(os.fstat(fd).st_mode) != mode:
+                raise OSError(errno.EIO, "run-root mode restoration did not verify")
+
+
+def _retention_degraded(detail: str) -> None:
+    """Make a lost marker decision visible without preventing the test run."""
+    if not _LAST_REASON:
+        _mark("[retention-marker]", detail)
+    sys.stderr.write("\n_tmproot: RETENTION MARKER DEGRADED: %s\n" % detail)
+
+
+def _publish_or_degrade(fd: int, state: str, *, exitstatus=None,
+                        reason: str | None = None) -> bool:
+    try:
+        _publish_run_record(fd, state, exitstatus=exitstatus, reason=reason)
+        return True
+    except Exception as exc:
+        _retention_degraded("%s publish failed (%s: %s)" %
+                            (state, type(exc).__name__, exc))
+        return False
+
+
+def _release_marker_lock(ident) -> None:
+    fd = _MARKER_LOCK_FDS.pop(ident, None)
+    _RUN_RECORDS.pop(ident, None)
+    if fd is not None:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _ensure_named_lock(fd: int, ident) -> None:
+    """Leave a lock entry inside a root that survived partial removal."""
+    if ident not in _RUN_RECORDS:
+        return
+    lock_fd = None
+    try:
+        try:
+            lock_fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=fd)
+        except FileNotFoundError:
+            lock_fd = os.open(
+                _LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL,
+                0o600, dir_fd=fd)
+        lock_st = os.fstat(lock_fd)
+        if not stat.S_ISREG(lock_st.st_mode):
+            raise OSError(errno.EINVAL, "run-root lock is not a regular file")
+        if ident in _RUN_RECORDS:
+            _RUN_RECORDS[ident]["lock_dev"] = lock_st.st_dev
+            _RUN_RECORDS[ident]["lock_ino"] = lock_st.st_ino
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
 
 
 def _release_root_fd(ident):
@@ -138,6 +263,50 @@ def install() -> str | None:
     _ROOT_FD, _ROOT_FD_PATH = _fd, _ROOT
     _st = os.fstat(_fd)
     _ROOT_IDENT = (_st.st_dev, _st.st_ino)
+    marker_lock_fd = None
+    try:
+        marker_lock_fd = os.open(
+            _LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=_fd)
+        fcntl.flock(marker_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _MARKER_LOCK_FDS[_ROOT_IDENT] = marker_lock_fd
+        _RUN_RECORDS[_ROOT_IDENT] = {
+            "schema": 1,
+            "pid": os.getpid(),
+            "host": platform.node(),
+            "started_at": time.time(),
+            "root_dev": _st.st_dev,
+            "root_ino": _st.st_ino,
+        }
+        _lock_st = os.fstat(marker_lock_fd)
+        _RUN_RECORDS[_ROOT_IDENT].update(
+            lock_dev=_lock_st.st_dev, lock_ino=_lock_st.st_ino)
+        _publish_run_record(_fd, "RUNNING")
+    except Exception as exc:
+        # Marker/lock accounting is retention metadata, not a prerequisite for
+        # running tests.  A full tmpfs or exhausted descriptor table must not
+        # abort pytest_configure.  Drop every partial in-memory authority,
+        # release the kernel lock if acquired, and make the degraded state
+        # unmissable; the descriptor-bound session cleanup still operates.
+        _RUN_RECORDS.pop(_ROOT_IDENT, None)
+        held = _MARKER_LOCK_FDS.pop(_ROOT_IDENT, None)
+        if held is not None:
+            try:
+                fcntl.flock(held, fcntl.LOCK_UN)
+            finally:
+                os.close(held)
+            marker_lock_fd = None
+        elif marker_lock_fd is not None:
+            os.close(marker_lock_fd)
+            marker_lock_fd = None
+        try:
+            os.unlink(_LOCK_NAME, dir_fd=_fd)
+        except FileNotFoundError:
+            pass
+        except OSError as cleanup_exc:
+            _retention_degraded("unheld lock-name cleanup failed (%s: %s)" %
+                                (type(cleanup_exc).__name__, cleanup_exc))
+        _retention_degraded("initial publish failed (%s: %s)" %
+                            (type(exc).__name__, exc))
     _LAST_FAILURE = None
     tempfile.tempdir = _ROOT
     return _ROOT
@@ -822,6 +991,21 @@ def finish(exitstatus: int) -> bool:
             if _ROOT_FD == fd and _ROOT_FD_PATH == root:
                 _ROOT_FD, _ROOT_FD_PATH = None, None
             fd, fd_stat = None, None
+    record_fd, record_fd_owned = fd, False
+    if record_fd is None and ident in _RUN_RECORDS:
+        try:
+            reopened = os.open(
+                root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            reopened_st = os.fstat(reopened)
+            if (reopened_st.st_dev, reopened_st.st_ino) != ident:
+                raise OSError(errno.ESTALE,
+                              "reopened run root has a different identity")
+            record_fd, record_fd_owned = reopened, True
+        except Exception as exc:
+            if "reopened" in locals():
+                os.close(reopened)
+            _retention_degraded("terminal record descriptor unavailable "
+                                "(%s: %s)" % (type(exc).__name__, exc))
     # WHERE THE ROOT ACTUALLY IS, read while the descriptor is still open.
     # The report below runs AFTER the finally that releases it, so resolving
     # it there produced "its new location could not be read" -- a remedy line
@@ -838,12 +1022,27 @@ def finish(exitstatus: int) -> bool:
         # An unreadable status is treated as a FAILING run, which KEEPS the
         # artifacts -- the safe direction, since the alternative is deleting a
         # debugging tree on a guess.
+        status_readable = True
         try:
             _status = int(exitstatus)
         except (TypeError, ValueError):
             _status = 1
+            status_readable = False
         if _status != 0:
+            if record_fd is not None:
+                if status_readable:
+                    _publish_or_degrade(
+                        record_fd, "KEPT_FOR_FORENSICS", exitstatus=_status,
+                        reason="pytest exitstatus is nonzero")
+                else:
+                    _publish_or_degrade(
+                        record_fd, "UNKNOWN",
+                        reason="pytest exitstatus is unreadable")
             return False                   # KEPT ON PURPOSE, not a failure
+        if (record_fd is not None and
+                (fd_stat is None or fd_stat.st_nlink != 0)):
+            _publish_or_degrade(record_fd, "RECLAIMABLE", exitstatus=0,
+                                reason="clean run; removal is beginning")
         _mark("")
         if ident is None:
             # UNKNOWN, AND UNKNOWN FAILS. This read `if ident is None and
@@ -876,6 +1075,14 @@ def finish(exitstatus: int) -> bool:
             ok = False
         else:
             ok = _force_rmtree(root, ident)
+        if not ok and fd is not None:
+            # The removal walk deletes the first terminal marker along with
+            # the contents.  If the root itself survives, recreate the marker
+            # through the held object descriptor so the refusal is still
+            # decidable after the process exits (even after rename-away).
+            _ensure_named_lock(fd, ident)
+            _publish_or_degrade(fd, "RECLAIMABLE", exitstatus=0,
+                                reason=_LAST_REASON or R_UNPROVEN)
     except BaseException as error:
         propagating = error
         _LAST_FAILURE = root
@@ -883,11 +1090,28 @@ def finish(exitstatus: int) -> bool:
             _mark(R_UNPROVEN, "%s: %s" % (type(error).__name__, error))
         raise
     finally:
+        if record_fd_owned and record_fd is not None:
+            try:
+                os.close(record_fd)
+            except BaseException as release_error:
+                if propagating is None:
+                    raise
+                _add_note(propagating,
+                          "record descriptor release failed (%s: %s)" %
+                          (type(release_error).__name__, release_error))
         if fd is not None:
             try:
                 _actual = os.readlink("/proc/self/fd/%d" % fd)
             except OSError:
                 pass
+        try:
+            _release_marker_lock(ident)
+        except BaseException as release_error:
+            if propagating is None:
+                raise
+            _add_note(propagating,
+                      "run-root lock release failed (%s: %s)" %
+                      (type(release_error).__name__, release_error))
         try:
             _release_root_fd(ident)
         except BaseException as release_error:

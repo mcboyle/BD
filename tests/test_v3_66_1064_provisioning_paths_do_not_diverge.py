@@ -284,7 +284,7 @@ def _vault_block() -> str:
     return "\n".join(lines[start:end + 1]) + "\n"
 
 
-def test_an_inherited_vault_password_is_honoured_when_executed():
+def test_an_inherited_vault_password_is_honoured_when_executed(tmp_path):
     """RUN IT. THIS TEST EXISTS BECAUSE A DEFECT SHIPPED PAST SOURCE READING.
 
     @1065 added the unattended branch and every assertion here read capture.sh's
@@ -305,7 +305,11 @@ def test_an_inherited_vault_password_is_honoured_when_executed():
     syn = subprocess.run(["bash", "-n"], input=block, text=True, capture_output=True)
     assert syn.returncode == 0, syn.stderr
 
+    real_lock = Path("/tmp/bd_capture_vault.lock")
+    before = ((real_lock.stat().st_dev, real_lock.stat().st_ino,
+               real_lock.stat().st_mtime_ns) if real_lock.exists() else None)
     env = {k: v for k, v in os.environ.items() if k != "CAPTURE_VAULT_PW"}
+    env["CAPTURE_VAULT_GLOBAL_LOCK"] = str(tmp_path / "vault-global.lock")
     on = subprocess.run(["bash", "-s"], input=block, text=True, capture_output=True,
                         timeout=60,
                         env={**env, "CAPTURE_VAULT_PW": "unit-test-value"})
@@ -321,3 +325,6 @@ def test_an_inherited_vault_password_is_honoured_when_executed():
         f"unchanged. Output: {off.stdout.strip()[:200]}"
     )
     assert "skip" in off.stdout.lower(), off.stdout.strip()[:200]
+    after = ((real_lock.stat().st_dev, real_lock.stat().st_ino,
+              real_lock.stat().st_mtime_ns) if real_lock.exists() else None)
+    assert after == before, "executed unit block touched the real /tmp lock"

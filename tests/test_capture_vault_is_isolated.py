@@ -44,6 +44,8 @@ import pytest
 
 from bulk_downloader import secrets_store as ss
 
+BD_GATE_SCOPE = "repo-wide"
+
 
 DEFAULT_NAME = "secrets.json"
 DEFAULT_META_NAME = "secrets_meta.json"

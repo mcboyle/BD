@@ -35,6 +35,7 @@
     "BD_FRAMEWORK_PORT": "display-only",
     "BD_FRAMEWORK_REPORTS": "full",
     "BD_GRAPH_HASH_PIN": "display-only",
+    "BD_HEARTBEAT_CLOSE_FD": "display-only",
     "BD_HELD_OUT_STALE_DAYS": "full",
     "BD_HLS_INPUT_TIMEOUT_US": "full",
     "BD_HLS_MAX_RUNTIME_S": "full",

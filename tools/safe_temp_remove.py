@@ -41,7 +41,10 @@ def _destroy_private(path: Path) -> None:
         os.unlink(path)
 
 
-def rename_verify_destroy(path: str | os.PathLike[str]) -> tuple[bool, str | None]:
+def rename_verify_destroy(
+        path: str | os.PathLike[str],
+        expected_identity: tuple[int, int] | None = None,
+) -> tuple[bool, str | None]:
     """Move the observed inode to an unguessable name, verify, then destroy.
 
     These janitors did not create the object, so creation-time identity is not
@@ -59,7 +62,11 @@ def rename_verify_destroy(path: str | os.PathLike[str]) -> tuple[bool, str | Non
             held = os.open(target, os.O_PATH | os.O_NOFOLLOW)
         except FileNotFoundError:
             return True, None
-        expected = (before.st_dev, before.st_ino)
+        observed = (before.st_dev, before.st_ino)
+        if expected_identity is not None and observed != expected_identity:
+            return False, ("creation identity mismatch: expected %r, found %r"
+                           % (expected_identity, observed))
+        expected = observed
         acquired = os.fstat(held)
         if (acquired.st_dev, acquired.st_ino) != expected:
             return False, "identity changed during acquisition"
