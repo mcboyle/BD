@@ -37,6 +37,17 @@ def _vault_block() -> str:
     return "\n".join(lines[start:end + 1]) + "\n"
 
 
+def _fixture_launch_block() -> str:
+    """The real detached fixture launch, without the surrounding wait loop."""
+    lines = CAPTURE.read_text().splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if line.startswith("  setsid bash -c") or
+                 line.startswith("  _start_capture_detached"))
+    end = next(i for i in range(start, len(lines))
+               if lines[i].strip().startswith("FIXTURE_PID="))
+    return "\n".join(lines[start:end + 1]) + "\n"
+
+
 def _wait_claimed(proc):
     assert proc.stdout is not None
     for _ in range(4):
@@ -295,6 +306,212 @@ def test_setup_fault_never_removes_a_substituted_peer(tmp_path):
         assert moved.is_dir(), "descriptor-owned original was lost"
     finally:
         shutil.rmtree(vault,ignore_errors=True); shutil.rmtree(moved,ignore_errors=True)
+
+
+def test_successful_path_substitution_after_open_fails_closed(tmp_path):
+    """A successful chmod seam must not split directory and lock authority."""
+    run_id = f"pytest-success-substitute-{os.getpid()}-{time.time_ns()}"
+    vault = Path("/tmp") / f"bd_capture_vault-{run_id}"
+    moved = Path(str(vault) + "-owned")
+    env = dict(os.environ, CAPTURE_VAULT_PW="unit-test-value",
+               CAPTURE_RUN_ID=run_id,
+               CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path / "global.lock"))
+    override = (
+        'chmod(){ command mv "$CAPTURE_VAULT_DIR" '
+        '"$CAPTURE_VAULT_DIR-owned"; command mkdir "$CAPTURE_VAULT_DIR"; '
+        'command chmod "$@"; }')
+    try:
+        result = subprocess.run(
+            ["bash", "-s"],
+            input=(_vault_block() + override + "\ncapture_vault_dir_claim\n"
+                   ': >"$CAPTURE_VAULT_FILE"\necho CONTINUED\n'),
+            capture_output=True, text=True, env=env, timeout=10)
+        assert result.returncode == 73, result.stdout + result.stderr
+        assert "CAPTURE-VAULT-SETUP-REFUSED" in result.stderr
+        assert "identity" in result.stderr
+        assert "CONTINUED" not in result.stdout
+        for candidate in (vault, moved):
+            assert not (candidate / ".bd-capture-vault.lock").exists()
+            assert not (candidate / "secrets.json").exists()
+    finally:
+        shutil.rmtree(vault, ignore_errors=True)
+        shutil.rmtree(moved, ignore_errors=True)
+
+
+def test_creation_identity_rejects_substitution_during_directory_open(tmp_path):
+    run_id = f"pytest-open-substitute-{os.getpid()}-{time.time_ns()}"
+    vault = Path("/tmp") / f"bd_capture_vault-{run_id}"
+    moved = Path(str(vault) + "-owned")
+    env = dict(os.environ, CAPTURE_VAULT_PW="unit-test-value",
+               CAPTURE_RUN_ID=run_id,
+               CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path / "global.lock"))
+    override = (
+        'capture_vault_open_dir(){ mv "$CAPTURE_VAULT_DIR" '
+        '"$CAPTURE_VAULT_DIR-owned"; mkdir "$CAPTURE_VAULT_DIR"; '
+        'exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR/."; }')
+    try:
+        result = subprocess.run(
+            ["bash", "-s"],
+            input=(_vault_block() + override + "\ncapture_vault_dir_claim\n"
+                   ': >"$CAPTURE_VAULT_FILE"\necho CONTINUED\n'),
+            capture_output=True, text=True, env=env, timeout=10)
+        assert result.returncode == 73, result.stdout + result.stderr
+        assert "created directory identity changed" in result.stderr
+        assert "CONTINUED" not in result.stdout
+        for candidate in (vault, moved):
+            assert not (candidate / ".bd-capture-vault.lock").exists()
+            assert not (candidate / "secrets.json").exists()
+    finally:
+        shutil.rmtree(vault, ignore_errors=True)
+        shutil.rmtree(moved, ignore_errors=True)
+
+
+def test_substitution_after_prelock_identity_check_still_fails_closed(tmp_path):
+    """The last pathname check cannot precede descriptor-relative setup."""
+    run_id = f"pytest-postcheck-substitute-{os.getpid()}-{time.time_ns()}"
+    vault = Path("/tmp") / f"bd_capture_vault-{run_id}"
+    moved = Path(str(vault) + "-owned")
+    counter = tmp_path / "public-stat-count"
+    env = dict(os.environ, CAPTURE_VAULT_PW="unit-test-value",
+               CAPTURE_RUN_ID=run_id, STAT_COUNTER=str(counter),
+               CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path / "global.lock"))
+    override = r'''stat(){
+      local arg output rc count=0
+      for arg in "$@"; do :; done
+      output=$(command stat "$@"); rc=$?
+      printf '%s\n' "$output"
+      if [ "$arg" = "$CAPTURE_VAULT_DIR" ]; then
+        [ ! -f "$STAT_COUNTER" ] || read -r count <"$STAT_COUNTER"
+        count=$((count + 1)); printf '%s\n' "$count" >"$STAT_COUNTER"
+        if [ "$count" -eq 2 ]; then
+          command mv "$CAPTURE_VAULT_DIR" "$CAPTURE_VAULT_DIR-owned"
+          command mkdir "$CAPTURE_VAULT_DIR"
+        fi
+      fi
+      return "$rc"
+    }'''
+    try:
+        result = subprocess.run(
+            ["bash", "-s"],
+            input=(_vault_block() + override + "\ncapture_vault_dir_claim\n"
+                   ': >"$CAPTURE_VAULT_FILE"\necho CONTINUED\n'),
+            capture_output=True, text=True, env=env, timeout=10)
+        assert result.returncode == 73, result.stdout + result.stderr
+        assert "identity" in result.stderr
+        assert "CONTINUED" not in result.stdout
+        assert not (vault / ".bd-capture-vault.lock").exists()
+        assert not (vault / "secrets.json").exists()
+    finally:
+        shutil.rmtree(vault, ignore_errors=True)
+        shutil.rmtree(moved, ignore_errors=True)
+
+
+def test_secret_path_remains_bound_to_the_claimed_directory_descriptor(tmp_path):
+    """A later public-name replacement receives no capture secret bytes."""
+    run_id = f"pytest-secret-bind-{os.getpid()}-{time.time_ns()}"
+    vault = Path("/tmp") / f"bd_capture_vault-{run_id}"
+    moved = Path(str(vault) + "-owned")
+    env = dict(os.environ, CAPTURE_VAULT_PW="unit-test-value",
+               CAPTURE_RUN_ID=run_id,
+               CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path / "global.lock"))
+    driver = (
+        _vault_block() + "capture_vault_dir_claim\n"
+        'mv "$CAPTURE_VAULT_DIR" "$CAPTURE_VAULT_DIR-owned"\n'
+        'mkdir "$CAPTURE_VAULT_DIR"\n'
+        'printf descriptor-secret >"$CAPTURE_VAULT_FILE"\n')
+    try:
+        result = subprocess.run(["bash", "-s"], input=driver,
+                                capture_output=True, text=True, env=env,
+                                timeout=10)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert (moved / "secrets.json").read_text() == "descriptor-secret"
+        assert not (vault / "secrets.json").exists()
+    finally:
+        shutil.rmtree(vault, ignore_errors=True)
+        shutil.rmtree(moved, ignore_errors=True)
+
+
+def test_enabled_fixture_child_closes_all_vault_descriptors_and_releases_locks(
+        tmp_path):
+    """The real fixture launch cannot outlive either capture-vault lock."""
+    work = tmp_path / "work"
+    python = work / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    result_path = tmp_path / "child-result"
+    ready = tmp_path / "child-ready"
+    python.write_text(
+        "#!/usr/bin/env bash\n"
+        "result=closed\n"
+        "for fd in $CHECK_FDS; do\n"
+        "  if [ -e /proc/$$/fd/$fd ]; then result=inherited; fi\n"
+        "done\n"
+        "printf '%s\\n' \"$result\" >\"$CHILD_RESULT\"\n"
+        ": >\"$CHILD_READY\"\n"
+        "sleep 30\n")
+    python.chmod(0o755)
+    (work / "out").mkdir()
+    singleton = tmp_path / "singleton.lock"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    keyed_lock = vault / ".bd-capture-vault.lock"
+    keyed_lock.touch()
+    script = (
+        'source "$HEARTBEAT"\n'
+        'exec {singleton}<>"$SINGLETON"; flock -n "$singleton"\n'
+        'exec {vault_dir}<"$VAULT/."\n'
+        'exec {vault_lock}<>"$KEYED_LOCK"; flock -n "$vault_lock"\n'
+        'export BD_HEARTBEAT_CLOSE_FD="$singleton"\n'
+        'CAPTURE_VAULT_DIR_FD="$vault_dir"\n'
+        'CAPTURE_VAULT_DIR_LOCK_FD="$vault_lock"\n'
+        'export CHECK_FDS="$singleton $vault_dir $vault_lock"\n'
+        'OUT="$OUT_DIR"\n' + _fixture_launch_block() +
+        'echo "DESCENDANT=$FIXTURE_PID"\n')
+    parent = subprocess.run(
+        ["bash", "-c", script], cwd=work, capture_output=True, text=True,
+        env={**os.environ, "HEARTBEAT": str(HEARTBEAT),
+             "SINGLETON": str(singleton), "VAULT": str(vault),
+             "KEYED_LOCK": str(keyed_lock), "OUT_DIR": str(work / "out"),
+             "CHILD_RESULT": str(result_path), "CHILD_READY": str(ready)},
+        timeout=10)
+    assert parent.returncode == 0, parent.stdout + parent.stderr
+    pid = int(next(line.split("=", 1)[1] for line in parent.stdout.splitlines()
+                   if line.startswith("DESCENDANT=")))
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert ready.exists(), "fixture descendant never reached its probe"
+        assert result_path.read_text() == "closed\n"
+        for lock_path in (singleton, keyed_lock):
+            fd = os.open(lock_path, os.O_RDWR)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(fd)
+    finally:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
+def test_keyed_child_descriptor_text_is_validated_without_evaluation(tmp_path):
+    for variable in ("CAPTURE_VAULT_DIR_FD", "CAPTURE_VAULT_DIR_LOCK_FD"):
+        victim = tmp_path / f"{variable}-evaluated"
+        log = tmp_path / f"{variable}.log"
+        script = (
+            'source "$HEARTBEAT"\n'
+            f'{variable}=\'2>&-; touch "$VICTIM"; #\'\n'
+            '_start_capture_detached "$LOG" bash -c \'echo CHILD-RAN\'\n'
+            'wait "$CAPTURE_DETACHED_PID"\n')
+        result = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True,
+            env={**os.environ, "HEARTBEAT": str(HEARTBEAT),
+                 "VICTIM": str(victim), "LOG": str(log)}, timeout=10)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "invalid descriptor" in result.stderr
+        assert log.read_text() == "CHILD-RAN\n"
+        assert not victim.exists()
 
 
 def test_teardown_removes_only_the_descriptor_owned_vault(tmp_path):

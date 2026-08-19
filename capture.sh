@@ -219,6 +219,7 @@ CAPTURE_VAULT_LOCK_FD=""
 CAPTURE_VAULT_GLOBAL_DIR_FD=""
 CAPTURE_VAULT_DIR_FD=""
 CAPTURE_VAULT_DIR_LOCK_FD=""
+CAPTURE_VAULT_FD_PATH=""
 # DO NOT CLOBBER AN INHERITED VALUE. This line was a bare
 # CAPTURE_VAULT_PW="" and it ran BEFORE the branch that reads the
 # variable, so `CAPTURE_VAULT_PW=x ./capture.sh` was wiped to empty and
@@ -351,19 +352,59 @@ capture_vault_open_dir() {
 }
 
 capture_vault_open_lock() {
-  exec {CAPTURE_VAULT_DIR_LOCK_FD}<>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
+  exec {CAPTURE_VAULT_DIR_LOCK_FD}<>"$CAPTURE_VAULT_FD_PATH/.bd-capture-vault.lock"
 }
 
 capture_vault_dir_claim() {
-  if ! mkdir "$CAPTURE_VAULT_DIR"; then
+  local dir_created dir_opened dir_public lock_before lock_after
+  local dev ino owner mode links mode_bits
+  if ! (umask 077; mkdir "$CAPTURE_VAULT_DIR"); then
     echo "CAPTURE-VAULT-OWNERSHIP-REFUSED: keyed vault already exists: $CAPTURE_VAULT_DIR" >&2
     exit 73
   fi
+  dir_created=$(stat -c '%d:%i:%u:%a:%f' -- "$CAPTURE_VAULT_DIR" 2>/dev/null) || \
+    capture_vault_setup_refuse "cannot record created directory identity"
   capture_vault_open_dir || capture_vault_setup_refuse "directory descriptor open failed"
-  chmod 700 "$CAPTURE_VAULT_DIR" || capture_vault_setup_refuse "chmod 0700 failed"
-  : > "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock" || capture_vault_setup_refuse "lock creation failed"
+  CAPTURE_VAULT_FD_PATH="/proc/self/fd/$CAPTURE_VAULT_DIR_FD"
+  dir_opened=$(stat -Lc '%d:%i:%u:%a:%f' -- "$CAPTURE_VAULT_FD_PATH" 2>/dev/null) || \
+    capture_vault_setup_refuse "cannot verify directory descriptor identity"
+  if [ "$dir_opened" != "$dir_created" ]; then
+    capture_vault_setup_refuse "created directory identity changed during descriptor open"
+  fi
+  chmod 700 "$CAPTURE_VAULT_FD_PATH" || capture_vault_setup_refuse "chmod 0700 failed"
+  dir_public=$(stat -c '%d:%i:%u:%a:%f' -- "$CAPTURE_VAULT_DIR" 2>/dev/null) || \
+    capture_vault_setup_refuse "keyed vault public identity became unavailable"
+  if [ "$dir_public" != "$dir_created" ]; then
+    capture_vault_setup_refuse "keyed vault public identity changed after descriptor bind"
+  fi
+  if ! (umask 077; set -o noclobber; : > "$CAPTURE_VAULT_FD_PATH/.bd-capture-vault.lock") 2>/dev/null; then
+    capture_vault_setup_refuse "lock creation failed"
+  fi
+  lock_before=$(stat -c '%d:%i:%u:%a:%h:%f' -- \
+    "$CAPTURE_VAULT_FD_PATH/.bd-capture-vault.lock" 2>/dev/null) || \
+    capture_vault_setup_refuse "lock identity unavailable"
+  IFS=: read -r dev ino owner mode links mode_bits <<<"$lock_before"
+  if [ $((16#$mode_bits & 0170000)) -ne $((0100000)) ] || \
+     [ "$owner" != "$EUID" ] || [ "$mode" != 600 ] || [ "$links" != 1 ]; then
+    capture_vault_setup_refuse "lock must be an owner-only regular file with one name"
+  fi
   capture_vault_open_lock || capture_vault_setup_refuse "lock descriptor open failed"
+  lock_after=$(stat -Lc '%d:%i:%u:%a:%h:%f' -- \
+    "/proc/self/fd/$CAPTURE_VAULT_DIR_LOCK_FD" 2>/dev/null) || \
+    capture_vault_setup_refuse "cannot verify lock descriptor identity"
+  if [ "$lock_after" != "$lock_before" ]; then
+    capture_vault_setup_refuse "lock identity changed during descriptor open"
+  fi
   flock -n "$CAPTURE_VAULT_DIR_LOCK_FD" || capture_vault_setup_refuse "lock acquisition failed"
+  dir_public=$(stat -c '%d:%i:%u:%a:%f' -- "$CAPTURE_VAULT_DIR" 2>/dev/null) || \
+    capture_vault_setup_refuse "keyed vault public identity unavailable after lock setup"
+  if [ "$dir_public" != "$dir_created" ]; then
+    capture_vault_setup_refuse "keyed vault public identity changed during lock setup"
+  fi
+  # The service opens secrets and metadata through the capture process's held
+  # directory descriptor. A later pathname substitution therefore cannot
+  # redirect credential bytes into a replacement directory.
+  CAPTURE_VAULT_FILE="/proc/$$/fd/$CAPTURE_VAULT_DIR_FD/secrets.json"
 }
 
 # Every capture below rewrites/restarts the same unit and probes the same fixed
@@ -1176,11 +1217,9 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
   # The seeded URLs point at the local fixture origin, so it has to be
   # serving before anything is queued. setsid detaches it into its own
   # process group so _stop_process_group can take the whole tree down.
-  setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
-    bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" \
-    venv/bin/python tools/fixture_site.py --port 8899 \
-    > "$OUT/05a_fixture_site.log" 2>&1 &
-  FIXTURE_PID=$!
+  _start_capture_detached "$OUT/05a_fixture_site.log" \
+    venv/bin/python tools/fixture_site.py --port 8899
+  FIXTURE_PID="$CAPTURE_DETACHED_PID"
   _fixture_up=0
   _tries=0
   while [ "$_tries" -lt 20 ]; do

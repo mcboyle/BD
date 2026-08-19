@@ -27,9 +27,10 @@ archive is not present in this repository; consult source-control history.
   `CAPTURE-VAULT-CONCURRENCY-REFUSED` and names the holder instead of
   overwriting or tearing down its peer.
 - Stop detached pytest, live-test, and fixture descendants from inheriting the
-  singleton descriptor, including through the real shared Xvfb launcher, and
-  validate that helper's inherited descriptor as decimal so no environment text
-  is ever evaluated in the setsid or fallback branches.
+  singleton or enabled keyed-vault directory/lock descriptors, including
+  through the real shared Xvfb launcher, and validate every inherited
+  descriptor as decimal so no environment text is ever evaluated in the setsid
+  or fallback branches.
 - Bind `bd-wedge-hunt` to its containing checkout and refuse shallow or unbound
   tool copies instead of assuming `$HOME/BulkDownloader`.
 - True same-host parallel capture services and ports remain explicit open work

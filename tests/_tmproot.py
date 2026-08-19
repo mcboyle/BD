@@ -177,8 +177,12 @@ def _ensure_named_lock(fd: int, ident) -> None:
     """Leave a lock entry inside a root that survived partial removal."""
     if ident not in _RUN_RECORDS:
         return
+    mode = stat.S_IMODE(os.fstat(fd).st_mode)
+    relaxed_mode = mode | stat.S_IWUSR | stat.S_IXUSR
     lock_fd = None
     try:
+        if relaxed_mode != mode:
+            os.fchmod(fd, relaxed_mode)
         try:
             lock_fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=fd)
         except FileNotFoundError:
@@ -194,6 +198,11 @@ def _ensure_named_lock(fd: int, ident) -> None:
     finally:
         if lock_fd is not None:
             os.close(lock_fd)
+        if relaxed_mode != mode:
+            os.fchmod(fd, mode)
+            if stat.S_IMODE(os.fstat(fd).st_mode) != mode:
+                raise OSError(
+                    errno.EIO, "run-root lock mode restoration did not verify")
 
 
 def _release_root_fd(ident):

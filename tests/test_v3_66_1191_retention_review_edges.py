@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import stat
 import sys
 import time
 from pathlib import Path
@@ -251,6 +252,75 @@ def test_clean_refusal_republishes_through_the_reopened_root_descriptor(
         if root.exists():
             import shutil
             shutil.rmtree(root)
+
+
+def test_mode_0500_lost_fd_clean_refusal_is_durably_reclaimable(monkeypatch):
+    script = (
+        "import json, os, stat, _tmproot\n"
+        "root = _tmproot.install()\n"
+        "os.chmod(root, 0o500)\n"
+        "os.close(_tmproot._ROOT_FD)\n"
+        "_tmproot._ROOT_FD = None; _tmproot._ROOT_FD_PATH = None\n"
+        "def refuse(*a, **k):\n"
+        "    os.chmod(root, 0o700)\n"
+        "    os.unlink(root + '/.bd-testrun')\n"
+        "    os.unlink(root + '/.bd-testrun.lock')\n"
+        "    os.chmod(root, 0o500)\n"
+        "    return False\n"
+        "_tmproot._force_rmtree = refuse\n"
+        "print('REMOVED', _tmproot.finish(0))\n"
+        "print('ROOT', root)\n"
+        "print('MODE', oct(stat.S_IMODE(os.stat(root).st_mode)))\n"
+        "print('STATE', json.load(open(root + '/.bd-testrun'))['state'])\n"
+    )
+    env = dict(os.environ, PYTHONPATH=str(REPO / "tests"))
+    env.pop("KEEP_TEST_TMPDIRS", None)
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO, env=env,
+                            text=True, capture_output=True, timeout=30)
+    root_line = next((line for line in result.stdout.splitlines()
+                      if line.startswith("ROOT ")), None)
+    root = Path(root_line.split(" ", 1)[1]) if root_line else None
+    try:
+        assert result.returncode == 0, result.stderr
+        assert "REMOVED False" in result.stdout
+        assert "MODE 0o500" in result.stdout
+        assert "STATE RECLAIMABLE" in result.stdout
+        gc = _load("bd_gc_1191_mode_0500_refusal", GC_PATH)
+        monkeypatch.setattr(gc, "PREFIXES", (str(root.parent / "bd-testrun-"),))
+        ok, why = gc.is_candidate(root, time.time(), 60)
+        assert not ok and "RECLAIMABLE" in why and "UNKNOWN" not in why
+    finally:
+        if root is not None and root.exists():
+            root.chmod(0o700)
+            import shutil
+            shutil.rmtree(root)
+
+
+def test_named_lock_refuses_when_original_mode_cannot_be_restored(
+        tmp_path, monkeypatch):
+    tmproot = _load("bd_tmproot_1191_mode_restore", TMPROOT_PATH)
+    root = tmp_path / "bd-testrun-mode-restore"
+    root.mkdir(mode=0o500)
+    root.chmod(0o500)
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    ident = (root.stat().st_dev, root.stat().st_ino)
+    tmproot._RUN_RECORDS[ident] = {}
+    real_fchmod = tmproot.os.fchmod
+    calls = 0
+
+    def lose_restore(target_fd, mode):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            real_fchmod(target_fd, mode)
+
+    monkeypatch.setattr(tmproot.os, "fchmod", lose_restore)
+    try:
+        with pytest.raises(OSError, match="mode restoration did not verify"):
+            tmproot._ensure_named_lock(fd, ident)
+    finally:
+        real_fchmod(fd, 0o700)
+        os.close(fd)
 
 
 def _assert_bd_gc_closes_lock_fd_on_post_open_error(

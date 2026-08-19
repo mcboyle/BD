@@ -57,6 +57,55 @@ _stop_process_group() {
   wait "$child_pid" 2>/dev/null || true
 }
 
+_capture_add_close_fd() {
+  local value="$1"
+  local label="$2"
+  local existing
+  [ -n "$value" ] || return 0
+  case "$value" in
+    *[!0-9]*)
+      printf '%s: invalid descriptor (decimal descriptor required); ignoring it safely\n' "$label" >&2
+      return 0
+      ;;
+  esac
+  for existing in "${_CAPTURE_CLOSE_FDS[@]}"; do
+    [ "$existing" != "$value" ] || return 0
+  done
+  _CAPTURE_CLOSE_FDS+=("$value")
+}
+
+_start_capture_detached() {
+  local logfile="$1"
+  shift
+  _CAPTURE_CLOSE_FDS=()
+  case "${BD_HEARTBEAT_CLOSE_FD:-}" in
+    '') ;;
+    *[!0-9]*)
+      printf 'run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\n' >&2
+      ;;
+    *) _capture_add_close_fd "$BD_HEARTBEAT_CLOSE_FD" "run_with_heartbeat" ;;
+  esac
+  _capture_add_close_fd "${CAPTURE_VAULT_DIR_FD:-}" "capture vault directory"
+  _capture_add_close_fd "${CAPTURE_VAULT_DIR_LOCK_FD:-}" "capture vault lock"
+  if [ "${#_CAPTURE_CLOSE_FDS[@]}" -gt 0 ]; then
+    setsid bash -c '
+      count=$1; shift
+      case "$count" in ""|*[!0-9]*) exit 73 ;; esac
+      while [ "$count" -gt 0 ]; do
+        fd=$1; shift
+        case "$fd" in ""|*[!0-9]*) exit 73 ;; esac
+        exec {fd}>&- || exit 73
+        count=$((count - 1))
+      done
+      exec "$@"
+    ' bd-close-fds-exec "${#_CAPTURE_CLOSE_FDS[@]}" \
+      "${_CAPTURE_CLOSE_FDS[@]}" "$@" > "$logfile" 2>&1 &
+  else
+    setsid "$@" > "$logfile" 2>&1 &
+  fi
+  CAPTURE_DETACHED_PID=$!
+}
+
 # Keep long commands quiet while reporting elapsed progress once a minute.
 # Polling here avoids a second monitor process and delays completion by at most
 # one second; the child command's complete output still lands in its artifact.
@@ -64,23 +113,11 @@ run_with_heartbeat() {
   local label="$1"
   local logfile="$2"
   shift 2
-  local started pid elapsed last_report inherited_close_fd=""
+  local started pid elapsed last_report
   started=$(date +%s)
   last_report=$started
-  case "${BD_HEARTBEAT_CLOSE_FD:-}" in
-    '') ;;
-    *[!0-9]*)
-      printf 'run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\n' >&2
-      ;;
-    *) inherited_close_fd="$BD_HEARTBEAT_CLOSE_FD" ;;
-  esac
-  if [ -n "$inherited_close_fd" ]; then
-    setsid bash -c 'fd=$1; shift; exec {fd}>&-; exec "$@"' \
-      bd-close-fd-exec "$inherited_close_fd" "$@" > "$logfile" 2>&1 &
-  else
-    setsid "$@" > "$logfile" 2>&1 &
-  fi
-  pid=$!
+  _start_capture_detached "$logfile" "$@"
+  pid="$CAPTURE_DETACHED_PID"
   trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 130' INT
   trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 143' TERM
   trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 129' HUP
