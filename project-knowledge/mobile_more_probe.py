@@ -2,10 +2,12 @@
 """Slice 4b runtime probe: at 390px, the BottomTabBar 'More' button opens a
 bottom-sheet drawer anchored to the viewport bottom (NOT trapped inside the
 backdrop-blur bar, footgun[2]), grouped nav reachable, closes on scrim+Esc.
-Theme-aware via BD_THEME. Screenshots to /home/claude/more_{theme}.png."""
+Theme-aware via BD_THEME. Screenshots to BD_OUT (or reports/render)."""
 import os, asyncio
 from playwright.async_api import async_playwright
 BASE="http://127.0.0.1:5599"; THEME=os.environ.get("BD_THEME","light")
+ROOT=os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+OUT=os.environ.get("BD_OUT", os.path.join(ROOT, "reports", "render"))
 async def main():
     async with async_playwright() as pw:
         b=await pw.chromium.launch()
@@ -34,7 +36,8 @@ async def main():
                   vh:window.innerHeight, vw:window.innerWidth,
                   trappedInBlur: blurred? blurred.contains(dlg): false};
         }""")
-        await p.screenshot(path=f"/home/claude/more_{THEME}.png")
+        os.makedirs(OUT, exist_ok=True)
+        await p.screenshot(path=os.path.join(OUT, f"more_{THEME}.png"))
         ofx1=await p.evaluate("()=>document.body.scrollWidth>window.innerWidth+2")
         # 3. Esc closes
         await p.keyboard.press("Escape"); await p.wait_for_timeout(250)

@@ -25,8 +25,8 @@ a paste-ready update.
 
 ## The loop
 
-1. **Mid-session**, Claude maintains the static-KB working copy (a dir, e.g.
-   `/home/claude/static_kb`) and edits durable docs there as they change.
+1. **Mid-session**, the operator maintains the static-KB working copy (for
+   example `$BD_STATIC_KB`) and edits durable docs there as they change.
 2. **Session close** -- run `bd-kb-sync stage <static_kb_working_dir> --out <out>`:
    - it diffs the working copy vs the manifest, **reseeds the
      manifest to the new state**, and (on drift) writes `BulkDownloader_project_files_v<ver>.zip`

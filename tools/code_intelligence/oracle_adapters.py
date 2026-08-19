@@ -476,11 +476,6 @@ class CommandOracleAdapter:
         assert isinstance(payload, Mapping)
         command = [sys.executable, str(script)]
         if self.name == "consumer-agreement":
-            # The specialist has no root argument and hard-codes this location.
-            # Do not inspect or execute caller inputs when that binding cannot
-            # represent the explicit repository root.
-            if context.repo_root.resolve() != Path("/home/claude/work"):
-                raise RuntimeError("consumer wrapper lacks explicit root")
             contracts = _safe_path(
                 context,
                 payload.get("contracts"),
@@ -501,7 +496,9 @@ class CommandOracleAdapter:
                     record.get("file"),
                     directory=False,
                 )
-            command.extend(["--contracts", str(contracts), "--gate"])
+            command.extend(
+                ["--contracts", str(contracts), "--root", str(context.repo_root), "--gate"]
+            )
         elif self.name == "schema-oracle":
             work = _safe_path(
                 context,

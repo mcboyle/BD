@@ -26,7 +26,7 @@ Never claim a slice green without the re-render.
 ## Slice 0 — Regression baseline (DONE this session; formalize as the gate)
 Pulled to the front from the original "item 51." We already have the both-theme render
 sweep; this slice just *locks it as the pre-slice diff target*.
-- Baseline PNGs: `/home/claude/tabs{,_dark}/`, `/home/claude/subtabs{,_dark}/`, Settings slices.
+- Baseline PNGs: `$BD_OUT/tabs{,_dark}/`, `$BD_OUT/subtabs{,_dark}/`, Settings slices.
 - Add a `vitest` smoke that mounts Home / Settings / a form page and asserts no thrown render.
 - **Deferred-honestly:** live browser/noVNC routes (Capture wizard steps 2+) and populated
   data states (Queue/History/Library with jobs) are not sandbox-renderable.

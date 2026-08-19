@@ -2,7 +2,7 @@
 """run_witnesses -- discover + run every witness suite; the Tier-2 'KB announces
 its own lies' gate. Wired into bd-audit-gate to run on every cut.
 
-Discovers /home/claude/review/witnesses/*_witnesses.py, imports each, runs every
+Discovers the repository's review/witnesses suites, imports each, runs every
 @w-registered witness, and aggregates. A witness whose claim id starts with 'F-'
 is a FINDING-REPRO (green = the vuln still reproduces -- informational until the
 fix lands, at which point it flips red and the finding is updated). Every other
@@ -18,11 +18,12 @@ import os
 import sys
 
 # Witness suites ship in-tree at tools/audit/witnesses/ (promoted @533); the
-# sandbox review/ location is a fallback for pre-promotion pack runs.
+# operator review/ location is a fallback for pre-promotion pack runs.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _INTREE_WDIR = os.path.join(_HERE, "audit", "witnesses")
-_SANDBOX_WDIR = "/home/claude/review/witnesses"
-WDIR = _INTREE_WDIR if os.path.isdir(_INTREE_WDIR) else _SANDBOX_WDIR
+_ROOT = os.environ.get("BD_WORK", os.path.dirname(_HERE))
+_REVIEW_WDIR = os.path.join(_ROOT, "review", "witnesses")
+WDIR = _INTREE_WDIR if os.path.isdir(_INTREE_WDIR) else _REVIEW_WDIR
 
 
 def _load_suite(path):

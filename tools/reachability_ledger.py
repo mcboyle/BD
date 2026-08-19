@@ -24,8 +24,10 @@ import json
 import os
 import re
 
-LEDGER = "/home/claude/review/artifacts/REACHABILITY_DEFERRALS.json"
-AUDIT_GLOB = "/home/claude/review/AUDIT_*.json"
+ROOT = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = os.path.join(ROOT, "review")
+LEDGER = os.path.join(REVIEW, "artifacts", "REACHABILITY_DEFERRALS.json")
+AUDIT_GLOB = os.path.join(REVIEW, "AUDIT_*.json")
 SUBSYS = ["APP", "CORE_BD", "COCKPIT", "REC", "RUN", "AUTH", "SETTINGS", "FE"]
 DEFERRED_RE = re.compile(r"probable|boundary", re.I)
 

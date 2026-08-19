@@ -12,14 +12,14 @@
 #   bd bash spa_render.sh --no-boot  # assume the backend is already up on :5599
 #   bd bash spa_render.sh --stop     # tear the backend down and exit
 #
-# Env: BD_PORT (5599) · BD_WORK (/home/claude/work) · HARNESS_DIR (/home/claude)
+# Env: BD_PORT (5599) · BD_WORK (repository root) · HARNESS_DIR (this directory)
 #
 # The backend is launched detached via setsid so it SURVIVES this script (and a
 # `bd -c` exit) -- follow-up probes can reuse it. Kill with: pkill -f spa_serve.py
 set -eu
 
 PORT="${BD_PORT:-5599}"
-HARNESS_DIR="${HARNESS_DIR:-/home/claude}"
+HARNESS_DIR="${HARNESS_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)}"
 BASE="http://127.0.0.1:${PORT}"
 BOOT=1
 MODE=default

@@ -23,10 +23,10 @@ command failures trace back to forgetting one of these. Read before the first co
   `isolated_bd_home` sets `BD_HOME=tmp_path`.
 
 ## Before-you-edit
-- **Snapshot originals** into `/home/claude/patches/originals/` (one per file per version baseline) before any
+- **Snapshot originals** into an operator-owned `$BD_PATCH_ROOT/originals/` directory (one per file per version baseline) before any
   edit.
 
 ## Quick template (the shape that works)
 ```
-bd bash -c 'cd /home/claude/work && BD_DISABLE_KEEPALIVE=1 python3 run_tests.py tests/<file>.py'
+bd bash -c 'cd "${BD_WORK:?set BD_WORK}" && BD_DISABLE_KEEPALIVE=1 python3 run_tests.py tests/<file>.py'
 ```

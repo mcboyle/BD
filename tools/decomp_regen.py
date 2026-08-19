@@ -19,7 +19,7 @@ the first failure. NO Vite, ever (decomposition cuts are no-FE-churn). Stdlib-on
 Usage:
     decomp_regen.py <target>                 # dry-run: print the ordered plan
     decomp_regen.py <target> --apply         # run the generators in order (no Vite)
-    decomp_regen.py <target> --root /home/claude/work
+    decomp_regen.py <target> --root <repository>
 """
 from __future__ import annotations
 
@@ -27,6 +27,10 @@ import argparse
 import os
 import subprocess
 import sys
+
+DEFAULT_ROOT = os.environ.get(
+    "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+)
 
 # tools/<name>.py, in the order they MUST run.
 PLANS = {
@@ -79,7 +83,7 @@ def _run_one(name: str, root: str) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="run a decomposition target's regens in the enforced order")
     ap.add_argument("target", choices=sorted(PLANS), help="which monolith's cut you just made")
-    ap.add_argument("--root", default="/home/claude/work", help="work-tree root")
+    ap.add_argument("--root", default=DEFAULT_ROOT, help="work-tree root")
     ap.add_argument("--apply", action="store_true", help="actually run the generators (default: dry-run)")
     a = ap.parse_args(argv)
 

@@ -18,7 +18,7 @@ numbers honest) are scripted and **tested against the live tree**. Don't
 re-derive by hand. Don't trust a substring grep of the bundle (see §4.5).
 
 ```
-# from /home/claude/work, after a green bd-boot:
+# from $BD_WORK, after a green bd-boot:
 
 # (A) ONE verdict, fast — answers "is the GUI surface healthy, yes/no?" (~12s, no browser):
 bd python3 gui_audit_kit/gui_gate.py                  # -> reports/gui_gate_verdict.json, exit 0/1
@@ -40,7 +40,7 @@ If `gui_audit_kit/` isn't attached, §8 has the raw primitives to rebuild it.
 
 ## 1. The toolkit (use this)
 
-All resolve the repo (`/home/claude/work` default; `$BD_WORK` / `--root` to
+All resolve the current repository by default; use `$BD_WORK` / `--root` to
 override); wrap in `bd` for Flask+PATH. Steps that don't screenshot need **no
 server**.
 
@@ -100,7 +100,7 @@ links + param families); flags orphans. **@510: SPA orphans 0**, bridges
 
 ### 1.6 `capture_gui.py` — both-theme capture incl. hidden surfaces *(self-boots)*
 ```
-bd python3 gui_audit_kit/capture_gui.py --out /home/claude/shots   # full
+bd python3 gui_audit_kit/capture_gui.py --out "$BD_OUT/shots"   # full
 bd python3 gui_audit_kit/capture_gui.py --dry-run                  # list targets, no server
 ```
 Boots its **own** backend (own session → guaranteed teardown), seeds a site,
@@ -111,7 +111,7 @@ records a real JS-error count per shot, writes `manifest.json` (dict schema:
 
 ### 1.7 `montage.py` — manifest-driven contact sheets *(no server)*
 ```
-bd python3 gui_audit_kit/montage.py --cap /home/claude/shots --out /mnt/user-data/outputs
+bd python3 gui_audit_kit/montage.py --cap "$BD_OUT/shots" --out /mnt/user-data/outputs
 ```
 Tiles `capture_gui`'s shots into `montage_{light,dark}_{spa,hidden}.png`. Reads
 the **dict-manifest** (the old `/mnt/project/build_montage.py` expected a
@@ -125,11 +125,11 @@ held; exits non-zero if any gate fails.
 ---
 
 ## 2. Prerequisites & bootstrap
-- [ ] `bash /mnt/project/setup.sh` → `bd-boot` **green** (tree at `/home/claude/work`
+- [ ] `bash /mnt/project/setup.sh` → `bd-boot` **green** (tree at `$BD_WORK`
   == source zip, version matches). The render backend imports
   `bulk_downloader.app` from the work tree — a stale tree renders the wrong
   version, and every number is then wrong. Run `bd-preflight` + `bd-state` first.
-- [ ] Playwright + Chromium: `PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright`.
+- [ ] Playwright + Chromium: `PLAYWRIGHT_BROWSERS_PATH=${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright`.
   Launch **`headless=True`** — no `DISPLAY`/Xvfb needed.
 - [ ] `bd <cmd>` injects Flask + PATH + services. `bash_tool` is **dash** (fresh
   shell per call, no auto-env).
@@ -157,9 +157,9 @@ shell; a shell-backgrounded (`&`) server is reaped when the call ends (you'll se
 
 Manual one-call boot+probe (when you must drive it yourself):
 ```
-cd /home/claude/work
+cd "$BD_WORK"
 ( setsid env PYTHONPATH=$PWD BD_DISABLE_KEEPALIVE=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright \
+    PLAYWRIGHT_BROWSERS_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright" \
     python3 /mnt/project/spa_serve.py >/tmp/spa.log 2>&1 < /dev/null & )
 for i in $(seq 1 24); do curl -sf -o /dev/null http://127.0.0.1:5599/ && break; sleep 0.5; done
 ```
@@ -308,7 +308,7 @@ on `documentElement`, `full_page=True`.
 | `mkdir -p a/{x,y}` made ONE dir `{x,y}` | `bash_tool` is **dash**, no brace expansion | explicit dirs, or `bd bash -c '…'` |
 | call returns **-1**, server gone next call | shell-backgrounded (`&`) process reaped at call end | use `capture_gui`/`render_check`/`gui_gate` (self-boot) or do boot+use in **one** call |
 | `:5599` returns `000` right after boot | server still doing FTS/migrations (~3 s) before bind | poll up to ~12 s |
-| route renders the wrong version | stale `/home/claude/work` | `bd-install` + `bd-preflight` + `bd-state` before serving |
+| route renders the wrong version | stale `$BD_WORK` | `bd-install` + `bd-preflight` + `bd-state` before serving |
 | false orphans (`/schedules`, `/cockpit/review`) | grepped JSX `to=`, missed object-literal `to:`/`href:` | match both forms — `discoverability_audit` does |
 | `/framework/` counted as reachable | substring match on hint text, not a link | match link *forms*, not substrings |
 | site-scoped pages empty | no seeded site | `POST /api/sites` first |

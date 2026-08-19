@@ -13,7 +13,7 @@ Guards baseline, in order of precedence:
   --state PATH    an explicit STATE.json (version-pack workflow).
   <tree>/guards.json   the repo-root manifest.  This is the default and the
                   single source of truth for a git checkout.
-  legacy STATE discovery (/home/claude/nextsess, work_pack, newest version zip).
+  operator STATE discovery (BD_STATE_ROOT, then newest version pack).
 
 Exit codes:
   0  every guard resolved and matched.
@@ -22,7 +22,7 @@ Exit codes:
      with no pin, or a summary whose buckets do not account for every guard.
 
 CLAUDE.md 0 -- why exit 2 exists at all.  This tool used to default --tree to
-/home/claude/work.  Run from a git checkout that path does not exist, so all 7
+an absent sandbox tree. Run from a git checkout and all 7
 guards read as FILE MISSING; and `if drift: return 1` was the only non-zero path,
 so the gate printed "0 ok, 0 drifted, 7 missing." and exited 0.  It certified a
 tree it had never read.  A gate that cannot see its subject reports OK, and that
@@ -40,9 +40,9 @@ DRIFTED = 1
 
 
 def _bd_pick_newest(paths):
-    """Highest VERSION wins; ties resolve to /home/claude.
+    """Highest VERSION wins; ties resolve to the operator artifact root.
 
-    These lists glob BOTH /mnt/user-data/uploads AND /home/claude, then sorted the PATH
+    These lists can span uploads and the operator artifact root; sorting the PATH
     STRINGS with reverse=True. Lexicographically "/mnt..." > "/home...", so the READ-ONLY
     UPLOADS COPY ALWAYS WON -- regardless of version. bd-since cheerfully diffed the work
     tree against a FOUR-RELEASE-STALE zip (722 against a live 726) while looking entirely
@@ -53,7 +53,7 @@ def _bd_pick_newest(paths):
     """
     def _k(p):
         nums = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
-        return (nums, p.startswith("/home/claude"))
+        return nums
     return sorted(paths, key=_k, reverse=True)
 
 
@@ -122,9 +122,9 @@ def resolve_tree(explicit):
 
     Explicit --tree always wins (that is the version-pack / fault-injection path).
     Otherwise: walk up from CWD for a guards.json, then the repo root implied by
-    this script's own location, then the legacy /home/claude/work.
+    this script's own location.
 
-    The old code hardcoded /home/claude/work as the default, which is why a run
+    The old code hardcoded a sandbox tree as the default, which is why a run
     from a git checkout hashed nothing at all.
     """
     if explicit:
@@ -139,7 +139,7 @@ def resolve_tree(explicit):
     for d in _upward(os.getcwd()) + [script_root]:
         if all(os.path.isfile(os.path.join(d, g)) for g in GUARDS):
             return d, "guard files found on disk"
-    return "/home/claude/work", "legacy default"
+    raise RuntimeError("cannot resolve repository root; pass --tree")
 
 
 def load_manifest(path):
@@ -172,8 +172,10 @@ def load_manifest(path):
 
 def resolve_state(explicit):
     """Find STATE.json: --state, common pack dirs, or newest version-pack zip."""
+    state_root = os.environ.get("BD_STATE_ROOT", os.getcwd())
     for p in ([explicit] if explicit else []) + [
-            "/home/claude/nextsess/STATE.json", "/home/claude/work_pack/STATE.json"]:
+            os.path.join(state_root, "nextsess", "STATE.json"),
+            os.path.join(state_root, "work_pack", "STATE.json")]:
         if p and os.path.isfile(p):
             try:
                 return json.load(open(p)), p

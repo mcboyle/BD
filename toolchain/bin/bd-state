@@ -28,15 +28,20 @@ import tempfile
 import zipfile
 
 G, R, Y, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
+DEFAULT_WORK = os.environ.get(
+    "BD_WORK_TREE", os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+)
+STATE_ROOT = os.environ.get("BD_STATE_ROOT", DEFAULT_WORK)
 
 
 def find_zip():
-    # Same rule as find_state(): /home/claude FIRST, then uploads. uploads is READ-ONLY
-    # and EVICTS, so a zip BUILT this session can only ever live in /home/claude --
+    # Same rule as find_state(): operator artifact root first, then uploads.
+    # uploads may be read-only and evict, so a freshly built zip can live locally.
     # globbing uploads alone means this gate cannot see the artifact it was just asked
     # to check, and it happily reports FAIL against last session's zip instead.
     best, key = None, None
-    for z in glob.glob("/mnt/user-data/uploads/BulkDownloader_v*.zip"):
+    for z in (glob.glob(os.path.join(STATE_ROOT, "BulkDownloader_v*.zip")) +
+              glob.glob("/mnt/user-data/uploads/BulkDownloader_v*.zip")):
         try:
             with zipfile.ZipFile(z) as zf:
                 init = next((n for n in zf.namelist()
@@ -64,21 +69,21 @@ def find_state():
          uploads) -- the canonical pin per the operating instructions. uploads is read-only
          and the pack isn't auto-extracted, so we read it straight out of the zip.
       2) a loose STATE.json in uploads, then ./STATE.json.
-      3) LAST: /home/claude/**/STATE.json -- the copy the source zip embeds, whose
+      3) LAST: the operator artifact tree's STATE.json -- the embedded copy, whose
          self-referential zip.sha can't match the finished zip. Fallback only, WARNED.
     Returns (path, label). STATE_schema.json is never matched.
     """
     def _ok(n):
         return n.rstrip("/").endswith("STATE.json") and not n.endswith("STATE_schema.json")
 
-    # Search /home/claude FIRST, then uploads. uploads is READ-ONLY and EVICTS mid-session,
-    # so a pin corrected in-session can only ever live in /home/claude; globbing uploads alone
+    # Search the operator artifact root first, then uploads. A pin corrected in-session
+    # can only live in writable local storage; globbing uploads alone
     # makes this gate structurally unable to see the artifact it is being asked about (it
-    # reported FAIL on an already-reconciled pin). Bootstrap copies uploads -> /home/claude,
+    # reported FAIL on an already-reconciled pin). Bootstrap copies uploads locally,
     # so the local copy is at worst identical and at best the corrected one. Ties (same version
-    # number) resolve to /home/claude because it is ordered first and the compare is strict >.
+    # number) resolve locally because it is ordered first and the compare is strict >.
     best, bkey = None, None
-    for p in (glob.glob("/home/claude/BulkDL_next_session_*.zip")
+    for p in (glob.glob(os.path.join(STATE_ROOT, "BulkDL_next_session_*.zip"))
               + glob.glob("/mnt/user-data/uploads/BulkDL_next_session_*.zip")):
         k = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
         if bkey is None or k > bkey:
@@ -100,7 +105,7 @@ def find_state():
         if _ok(c):
             return c, c
 
-    wt = [c for c in glob.glob("/home/claude/**/STATE.json", recursive=True) if _ok(c)]
+    wt = [c for c in glob.glob(os.path.join(STATE_ROOT, "**", "STATE.json"), recursive=True) if _ok(c)]
     if wt:
         return wt[0], (wt[0] + "  [WARN: work-tree copy from the source zip -- its zip.sha is "
                        "self-referential and cannot match; attach the session pack or pass --state]")
