@@ -458,7 +458,17 @@ bd_start_display() {
     # a SIGHUP at the end of the provisioning run does not take the display with
     # it. Plain `&` is the fallback; both write /tmp/.X<n>-lock, which is one of
     # the things the readiness poll reads.
-    if command -v setsid >/dev/null 2>&1; then
+    if [ -n "${BD_HEARTBEAT_CLOSE_FD:-}" ]; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
+                bd-close-fd-exec "$BD_HEARTBEAT_CLOSE_FD" \
+                Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
+        else
+            bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
+                bd-close-fd-exec "$BD_HEARTBEAT_CLOSE_FD" \
+                Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
+        fi
+    elif command -v setsid >/dev/null 2>&1; then
         setsid Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
     else
         Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &

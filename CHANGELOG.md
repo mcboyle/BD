@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1190 - close every persistent capture launcher
+
+- Close the capture singleton descriptor in the real shared Xvfb launcher as
+  well as pytest, live-test, and fixture descendants; a fake-Xvfb gate executes
+  the production helper and proves the lock is immediately reclaimable.
+- Exercise the exact directory- and lock-descriptor refusal branches, and make
+  setup-fault cleanup descriptor/identity-bound so a substituted claim survives.
+
 ## v3.66.1189 - close capture ownership lifecycle gaps
 
 - Close the singleton descriptor before detached pytest, live-test, and fixture

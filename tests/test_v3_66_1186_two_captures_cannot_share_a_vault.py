@@ -147,8 +147,8 @@ def test_keyed_vault_ownership_refuses_without_clobbering(tmp_path):
 
 
 def test_vault_acquisition_failures_are_named_and_do_not_continue(tmp_path):
-    cases = {"chmod": "chmod(){ return 1; }", "directory-open": 'chmod(){ command chmod "$@"; rmdir "$CAPTURE_VAULT_DIR"; : >"$CAPTURE_VAULT_DIR"; }', "lock-open": 'chmod(){ command chmod "$@"; mkdir "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"; }', "flock": "flock(){ return 1; }"}
-    for name, override in cases.items():
+    cases = {"chmod": ("chmod(){ return 1; }", "chmod 0700 failed"), "directory-open": ('capture_vault_open_dir(){ return 1; }', "directory descriptor open failed"), "lock-open": ('capture_vault_open_lock(){ return 1; }', "lock descriptor open failed"), "flock": ("flock(){ return 1; }", "lock acquisition failed")}
+    for name, (override, expected_reason) in cases.items():
         run_id=f"pytest-{name}-{os.getpid()}-{time.time_ns()}"; vault=Path("/tmp")/f"bd_capture_vault-{run_id}"
         env=dict(os.environ, CAPTURE_VAULT_PW="unit-test-value", CAPTURE_RUN_ID=run_id,
                  CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path/f"{name}.lock"))
@@ -156,10 +156,28 @@ def test_vault_acquisition_failures_are_named_and_do_not_continue(tmp_path):
             result=subprocess.run(["bash","-s"], input=_vault_block()+override+"\ncapture_vault_dir_claim\necho CONTINUED\n", capture_output=True,text=True,env=env,timeout=10)
             assert result.returncode == 73, (name,result.stderr)
             assert "CAPTURE-VAULT-SETUP-REFUSED" in result.stderr
+            assert expected_reason in result.stderr
             assert "CONTINUED" not in result.stdout
         finally:
             if vault.is_dir(): shutil.rmtree(vault,ignore_errors=True)
             elif vault.exists(): vault.unlink()
+
+
+def test_setup_fault_never_removes_a_substituted_peer(tmp_path):
+    run_id=f"pytest-substitute-{os.getpid()}-{time.time_ns()}"; vault=Path("/tmp")/f"bd_capture_vault-{run_id}"
+    moved=Path(str(vault)+"-owned")
+    env=dict(os.environ, CAPTURE_VAULT_PW="unit-test-value", CAPTURE_RUN_ID=run_id,
+             CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path/"global.lock"))
+    override=('chmod(){ command mv "$CAPTURE_VAULT_DIR" "$CAPTURE_VAULT_DIR-owned"; '
+              'command mkdir "$CAPTURE_VAULT_DIR"; return 1; }')
+    try:
+        result=subprocess.run(["bash","-s"], input=_vault_block()+override+"\ncapture_vault_dir_claim\n",
+                              capture_output=True,text=True,env=env,timeout=10)
+        assert result.returncode == 73
+        assert vault.is_dir(), "replacement claim was removed"
+        assert moved.is_dir(), "descriptor-owned original was lost"
+    finally:
+        shutil.rmtree(vault,ignore_errors=True); shutil.rmtree(moved,ignore_errors=True)
 
 
 def test_teardown_removes_only_the_descriptor_owned_vault(tmp_path):

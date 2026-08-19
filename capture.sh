@@ -256,13 +256,27 @@ capture_vault_claim() {
 
 capture_vault_setup_refuse() {
   local why="$1"
-  echo "CAPTURE-VAULT-SETUP-REFUSED: $why; refusing to write secrets; empty owned directory cleanup attempted, other residue preserved: $CAPTURE_VAULT_DIR" >&2
+  local removed=0
+  echo "CAPTURE-VAULT-SETUP-REFUSED: $why; refusing to write secrets: $CAPTURE_VAULT_DIR" >&2
   [ -z "$CAPTURE_VAULT_DIR_LOCK_FD" ] || { exec {CAPTURE_VAULT_DIR_LOCK_FD}>&-; CAPTURE_VAULT_DIR_LOCK_FD=""; }
+  if [ -n "$CAPTURE_VAULT_DIR_FD" ] && [ -x venv/bin/python ] && \
+     venv/bin/python toolchain/bin/bd-gc --finish-capture-vault \
+       "$CAPTURE_VAULT_DIR" --owned-fd "$CAPTURE_VAULT_DIR_FD" >/dev/null 2>&1; then
+    removed=1
+  fi
   [ -z "$CAPTURE_VAULT_DIR_FD" ] || { exec {CAPTURE_VAULT_DIR_FD}>&-; CAPTURE_VAULT_DIR_FD=""; }
-  # Never unlink by the public pathname on a setup fault: a concurrent rename
-  # could otherwise turn cleanup into deletion of a peer's lock object.
-  rmdir "$CAPTURE_VAULT_DIR" 2>/dev/null || true
+  if [ "$removed" != 1 ]; then
+    echo "CAPTURE-VAULT-SETUP-PRESERVED: identity-bound cleanup unavailable or refused; public pathname untouched" >&2
+  fi
   exit 73
+}
+
+capture_vault_open_dir() {
+  exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR/."
+}
+
+capture_vault_open_lock() {
+  exec {CAPTURE_VAULT_DIR_LOCK_FD}<>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
 }
 
 capture_vault_dir_claim() {
@@ -270,10 +284,10 @@ capture_vault_dir_claim() {
     echo "CAPTURE-VAULT-OWNERSHIP-REFUSED: keyed vault already exists: $CAPTURE_VAULT_DIR" >&2
     exit 73
   fi
+  capture_vault_open_dir || capture_vault_setup_refuse "directory descriptor open failed"
   chmod 700 "$CAPTURE_VAULT_DIR" || capture_vault_setup_refuse "chmod 0700 failed"
-  if ! exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR/."; then capture_vault_setup_refuse "directory descriptor open failed"; fi
   : > "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock" || capture_vault_setup_refuse "lock creation failed"
-  if ! exec {CAPTURE_VAULT_DIR_LOCK_FD}<>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"; then capture_vault_setup_refuse "lock descriptor open failed"; fi
+  capture_vault_open_lock || capture_vault_setup_refuse "lock descriptor open failed"
   flock -n "$CAPTURE_VAULT_DIR_LOCK_FD" || capture_vault_setup_refuse "lock acquisition failed"
 }
 

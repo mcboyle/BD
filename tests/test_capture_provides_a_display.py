@@ -22,6 +22,8 @@ import os
 import re
 import shutil
 import subprocess
+import fcntl
+import signal
 from pathlib import Path
 
 import pytest
@@ -200,3 +202,27 @@ def test_the_fragment_is_the_only_place_that_launches_xvfb():
         f"{offenders} launch Xvfb directly; the launch belongs in "
         f"{FRAGMENT.name} so idempotency and probing live in one place"
     )
+
+
+def test_fake_xvfb_started_by_real_helper_does_not_inherit_capture_lock(tmp_path):
+    fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    pid_file = tmp_path / "xvfb.pid"; fake = fake_bin / "Xvfb"
+    fake.write_text("#!/bin/sh\necho $$ >\"$XVFB_PID_FILE\"\nexec /bin/sleep 30\n")
+    fake.chmod(0o755); lock = tmp_path / "capture.lock"
+    script = (
+        'exec {owned}>"$CAPTURE_LOCK"; flock -n "$owned"; '
+        'export BD_HEARTBEAT_CLOSE_FD="$owned"; '
+        f'. "{FRAGMENT}"; _bd_display_active(){{ return 1; }}; '
+        'sleep(){ command sleep 0.01; }; bd_start_display :86 >/dev/null 2>&1 || true'
+    )
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}",
+           "CAPTURE_LOCK": str(lock), "XVFB_PID_FILE": str(pid_file)}
+    result = subprocess.run(["bash", "-c", script], env=env,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    pid = int(pid_file.read_text().strip()); fd = os.open(lock, os.O_RDWR)
+    try:
+        os.kill(pid, 0)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(fd); os.kill(pid, signal.SIGTERM)
