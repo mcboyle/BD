@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1108_assertion_gate.json",
+  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1108_assertion_gate.json  visit_Nonlocal is deliberately NOT mutated here: any valid `nonlocal` requires an enclosing binding that already refuses the root, so a mutant neutering it is behaviourally equivalent at the verdict level and must never be recorded as caught. It is pinned instead at implementation level by tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_nonlocal_visitor_is_pinned_at_implementation_level_only.",
   "subject": "v3.66.1108 -- the impossible-assertion gate detects defects without folding valid assertions",
   "band": [
     "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py"
@@ -105,6 +105,50 @@
       "new": "        if False:\n            raise _Unfoldable(\"value longer than the fold bound\")",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_folder_refuses_an_oversized_RESULT"
+    },
+    {
+      "label": "the canonical-import exemption is dropped, zeroing the eligible population",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "            canonical = (self.module and alias.asname is None\n                         and alias.name in _NORETURN_ROOTS)",
+      "new": "            canonical = False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled"
+    },
+    {
+      "label": "visit_Global stops recording the declaration",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    def visit_Global(self, node):  # noqa: N802\n        self.bound.update(node.names)",
+      "new": "    def visit_Global(self, node):  # noqa: N802\n        return",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_global_alone_refuses_the_root_with_no_other_binding"
+    },
+    {
+      "label": "module-wide global collection removed (cross-scope rebinding invisible again)",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "        walk_scope(tree, _module_global_rebindings(tree), module=True)",
+      "new": "        walk_scope(tree, set(), module=True)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_global_declared_in_another_scope_refuses_the_root"
+    },
+    {
+      "label": "a spurious counter key is added to the metrics contract",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    for key in (\"noreturn_calls_seen\", \"noreturn_calls_excluded_catchable\",\n                \"noreturn_calls_excluded_rebound\"):",
+      "new": "    for key in (\"noreturn_calls_seen\", \"noreturn_calls_excluded_catchable\",\n                \"noreturn_calls_excluded_rebound\", \"noreturn_calls_spurious\"):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries"
+    },
+    {
+      "label": "OVER-CORRECTION: cross-scope collection also takes plain stores, over-refusing the corpus",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "        if isinstance(node, ast.Global):\n            names.update(node.names)",
+      "new": "        if isinstance(node, ast.Global):\n            names.update(node.names)\n        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):\n            names.add(node.id)",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_global_declared_in_another_scope_refuses_the_root",
+      "preserves": [
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled",
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable"
+      ]
     }
   ]
 }

@@ -65,17 +65,24 @@ the same statement list. The current tree contains 174 recognized spellings;
 1 is refused because a surrounding try can catch it and 12 are refused because
 the root name is lexically rebound, leaving 161 eligible and ZERO findings.
 Parameters, assignments, named expressions, imports, exception/with/loop
-targets, global, and nonlocal all trigger the binding refusal. Runtime mutation
-of `pytest.skip`/`fail`/`xfail`/`exit`, `sys.exit`, or `os._exit` remains
-unproved. This is therefore a syntactic heuristic, NOT proof that a callee has
-NoReturn identity or that an assertion is unreachable.
+targets, global, and nonlocal all trigger the binding refusal. `global` is
+collected module-wide at any nesting depth, because a declaration inside a
+helper rebinds the same module-level name the tests use; `nonlocal` can never
+be the sole cause of a refusal, since the enclosing binding the language
+requires is itself one. Runtime mutation of `pytest.skip`/`fail`/`xfail`/
+`exit`, `sys.exit`, or `os._exit` remains unproved. This is therefore a
+syntactic heuristic, NOT proof that a callee has NoReturn identity or that an
+assertion is unreachable.
 
 WHAT THIS CANNOT SEE, so backlog 26 stays open above it:
   - an assertion vacuous or false through a VARIABLE bound elsewhere;
   - an assertion unreachable for a reason other than a preceding terminator
     (a fixture that skips, a guard that returns, an exception raised upstream);
   - anything whose truth depends on a call this folder will not make;
-  - an assertion true of every possible implementation.
+  - an assertion true of every possible implementation;
+  - a root rebound by any mechanism that is not a lexical binding or a module-
+    wide `global` declaration -- notably `globals()['pytest'] = ...`, a
+    `setattr` on the module object, or a fixture that patches the attribute.
 """
 
 from __future__ import annotations
@@ -534,6 +541,26 @@ def _scope_bindings(node: ast.AST, *, module: bool) -> set[str]:
     return visitor.bound & _NORETURN_ROOTS
 
 
+def _module_global_rebindings(tree: ast.AST) -> set[str]:
+    """Roots declared `global` ANYWHERE in the module, at any nesting depth.
+
+    `_scope_bindings` deliberately stops at a nested lexical scope, which is
+    right for stores: a name assigned inside a helper is that helper's. A
+    `global` declaration is the exception -- it reaches back out and rebinds the
+    module-level name, so a helper containing `global pytest` rebinds the same
+    `pytest` the tests use, from a scope the walk never enters.
+
+    Collected once per module and folded into the module-level bindings. This
+    can only ADD refusals, never remove one, so it cannot turn a reachable tail
+    into a reported-unreachable tail.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Global):
+            names.update(node.names)
+    return names & _NORETURN_ROOTS
+
+
 def _noreturn_root(statement: ast.stmt) -> str | None:
     if not (isinstance(statement, ast.Expr)
             and isinstance(statement.value, ast.Call)
@@ -558,7 +585,8 @@ def unreachable_asserts(tree: ast.AST, counts: dict | None = None) -> list[int]:
     """Return syntactically dead assertions under a conservative heuristic.
 
     Conventional NoReturn spellings are accepted only when their root is not
-    lexically rebound in the relevant scope. Runtime mutation of module
+    lexically rebound in the relevant scope, and only when no scope anywhere in
+    the module declares that root `global`. Runtime mutation of module
     attributes remains unproved, so this is not proof of unreachability.
     """
     metrics = counts if counts is not None else {}
@@ -611,7 +639,7 @@ def unreachable_asserts(tree: ast.AST, counts: dict | None = None) -> list[int]:
         walk_list(scope.body)
 
     if isinstance(tree, ast.Module):
-        walk_scope(tree, set(), module=True)
+        walk_scope(tree, _module_global_rebindings(tree), module=True)
     return sorted(set(hits))
 
 
@@ -795,12 +823,103 @@ def test_every_required_lexical_binding_form_refuses_the_root():
         "def t():\n    for os in values:\n        pass\n    os._exit(1)\n    assert reached\n",
         "pytest = fake\ndef t():\n    pytest.xfail('x')\n    assert reached\n",
         "def outer():\n    pytest = fake\n    def t():\n        nonlocal pytest\n        pytest.exit('x')\n        assert reached\n",
-        "pytest = fake\ndef t():\n    global pytest\n    pytest.skip('x')\n    assert reached\n",
+        "def t():\n    global pytest\n    pytest.skip('x')\n    assert reached\n",
     )
     for src in controls:
         tree = ast.parse(src)
         assert len([n for n in ast.walk(tree) if isinstance(n, ast.Assert)]) == 1
         assert unreachable_asserts(tree) == [], src
+
+
+def test_a_global_declared_in_another_scope_refuses_the_root():
+    """A `global` in a helper rebinds the MODULE-level name at runtime.
+
+    The scope walk deliberately does not cross into a nested lexical scope, so
+    the declaration was invisible and the tail was reported unreachable. The
+    binding is real; only our view of it was scoped.
+    """
+    src = ("import pytest\n"
+           "def helper():\n"
+           "    global pytest\n"
+           "    pytest = fake\n"
+           "def t():\n"
+           "    pytest.skip('x')\n"
+           "    assert reached\n")
+    counts = {}
+    assert unreachable_asserts(ast.parse(src), counts) == [], (
+        "a root rebound by a `global` declaration in another scope was "
+        "accepted as a conventional NoReturn call")
+    assert counts["noreturn_calls_excluded_rebound"] == 1, counts
+
+
+def test_global_alone_refuses_the_root_with_no_other_binding():
+    """`global` as the OPERATIVE cause, with nothing else to refuse it.
+
+    The shipped control for this form carried a module-level `pytest = fake`,
+    which refuses the root on its own; the `global` statement was never the
+    reason the control passed.
+    """
+    src = ("def t():\n"
+           "    global pytest\n"
+           "    pytest.skip('x')\n"
+           "    assert reached\n")
+    counts = {}
+    assert unreachable_asserts(ast.parse(src), counts) == [], (
+        "a root declared `global` in the analysed scope was accepted")
+    assert counts["noreturn_calls_excluded_rebound"] == 1, counts
+
+
+def test_nonlocal_cannot_be_isolated_and_that_is_the_language_not_the_gate():
+    """`nonlocal` can never be the sole cause of a refusal, measured.
+
+    `nonlocal x` is a SyntaxError unless an enclosing function scope already
+    binds `x`, and that enclosing binding is itself a refusal. So there is no
+    program in which `visit_Nonlocal` decides the outcome alone. This records
+    the entanglement as a fact rather than leaving it as an excuse for an
+    unfalsifiable control.
+    """
+    isolated = ("def t():\n"
+                "    nonlocal pytest\n"
+                "    pytest.skip('x')\n"
+                "    assert reached\n")
+    try:
+        compile(isolated, "<isolated-nonlocal>", "exec")
+    except SyntaxError:
+        pass
+    else:
+        raise AssertionError(
+            "an isolated `nonlocal` compiled; the entanglement this gate "
+            "records no longer holds and the nonlocal controls must be redone")
+
+    entangled = ("def outer():\n"
+                 "    pytest = fake\n"
+                 "    def helper():\n"
+                 "        nonlocal pytest\n"
+                 "        pytest = other\n"
+                 "    def t():\n"
+                 "        pytest.skip('x')\n"
+                 "        assert reached\n")
+    compile(entangled, "<entangled-nonlocal>", "exec")
+    counts = {}
+    assert unreachable_asserts(ast.parse(entangled), counts) == []
+    assert counts["noreturn_calls_excluded_rebound"] == 1, counts
+
+
+def test_the_nonlocal_visitor_is_pinned_at_implementation_level_only():
+    """`visit_Nonlocal` is pinned where it is falsifiable: the binding set.
+
+    Deliberately NOT an end-to-end control. As the test above measures, any
+    valid `nonlocal` requires an enclosing binding that already refuses the
+    root, so a mutant that neuters this visitor is BEHAVIOURALLY EQUIVALENT at
+    the verdict level and must never be recorded as caught there. It is kept
+    because dropping it would silently depend on that entanglement holding for
+    every future traversal change; this assertion is what makes the dependency
+    visible instead.
+    """
+    scope = ast.parse("def t():\n    nonlocal pytest\n    pass\n").body[0]
+    assert _scope_bindings(scope, module=False) == {"pytest"}, (
+        "the nonlocal declaration did not contribute its name to the scope's "
+        "binding set")
 
 
 def test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries():
@@ -819,9 +938,16 @@ def t(flag):
 """
     counts = {}
     assert unreachable_asserts(ast.parse(src), counts) == []
-    assert counts["noreturn_calls_seen"] == 2
-    assert counts["noreturn_calls_excluded_catchable"] == 1
-    assert counts["noreturn_calls_excluded_rebound"] == 0
+    # The COMPLETE metrics contract, not three keys of it: the exact-dict form
+    # fixes the key SET, so a spurious or renamed counter cannot slip in
+    # unnoticed. This shape is indexed by tools/build_pin_index.py as a
+    # count_dict pin; the lifecycle answer to a new pin is to regenerate and
+    # inspect the diff, not to weaken the assertion.
+    assert counts == {
+        "noreturn_calls_seen": 2,
+        "noreturn_calls_excluded_catchable": 1,
+        "noreturn_calls_excluded_rebound": 0,
+    }, counts
 
 
 def test_dead_tails_are_walked_without_executing_nested_definitions():
@@ -853,7 +979,16 @@ def test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled():
                 + counts["noreturn_calls_excluded_rebound"])
     assert seen > 100, f"only {seen} conventional NoReturn calls were seen"
     assert excluded <= seen
-    assert seen - excluded >= 0
+    # `seen` is NOT the population this heuristic acts on. Every seen call that
+    # is catchable or lexically rebound is excluded, and what remains -- the
+    # ELIGIBLE set -- is the only thing the slice can actually decide. Guarding
+    # `seen` alone lets a one-line change collapse the eligible set to zero
+    # while every other assertion in this file stays green.
+    eligible = seen - excluded
+    assert eligible > 100, (
+        f"{seen} conventional NoReturn calls were seen but only {eligible} are "
+        "eligible; the heuristic is deciding nothing, so a clean result below "
+        "is a statement about an empty population")
 
 
 def test_if_false_remains_a_structural_terminator():
