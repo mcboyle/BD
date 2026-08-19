@@ -1,6 +1,7 @@
 """@1194 contract for the opt-in Linux filesystem mutation recorder."""
 from __future__ import annotations
 
+import errno
 import importlib.machinery
 import json
 import os
@@ -265,6 +266,107 @@ def test_live_time_limit_is_distinguishable_from_the_raw_byte_limit(tmp_path):
     footer = _records(out)[-1]
     assert footer["workload_terminated_by_recorder"] is True
     assert footer["process_group_reaped"] is True
+
+
+class _FailingModule:
+    """Delegates to a real module but fails one named callable on demand.
+
+    Patched onto the tool module's own global binding, so nothing in the stdlib is
+    mutated and no test-only hook is added to the production path.
+    """
+
+    def __init__(self, real, fail_on, match=None):
+        self._real = real
+        self._fail_on = fail_on
+        self._match = match  # fail only the recorder's own call, not the atomic writer's
+
+    def __getattr__(self, name):
+        if name == self._fail_on:
+            real = getattr(self._real, name)
+
+            def boom(*args, **kwargs):
+                if self._match is None or self._match(kwargs):
+                    raise OSError(errno.EMFILE, "injected failure in %s" % name)
+                return real(*args, **kwargs)
+            return boom
+        return getattr(self._real, name)
+
+
+@LIVE
+@pytest.mark.timeout(120)
+def test_live_setup_failure_after_each_allocation_cleans_up_and_refuses(tmp_path, monkeypatch):
+    """RR-1: every owned allocation sits inside one sentinel-safe cleanup boundary.
+
+    Injects a failure immediately after the raw directory is created, and again after
+    the tracer-stderr temp is created.  Each must leave nothing behind and still
+    publish a schema-shaped refusal.
+    """
+    strace = shutil.which("strace")
+    # The stderr-temp injection is keyed on the recorder's own prefix so that the atomic
+    # evidence writer -- which also uses mkstemp -- stays usable; otherwise the control
+    # would be testing the writer rather than the cleanup boundary.
+    stderr_temp = lambda kw: kw.get("prefix", "").startswith(".bd-writerec-tracer-stderr")
+    for label, target, attr, match in (("after raw_dir", "tempfile", "mkstemp", stderr_temp),
+                                       ("after stderr temp", "os", "pipe", None)):
+        out = tmp_path / ("setupfail-%s.jsonl" % attr)
+        with monkeypatch.context() as mp:
+            mp.setattr(mod, target, _FailingModule(getattr(mod, target), attr, match))
+            rc = mod.main(["--out", str(out), "--exit-mode", "recorder", "--json",
+                           "--strace", strace, "--", "/bin/true"])
+        assert rc == 2, label
+        # nothing the recorder allocated may survive its own setup failure
+        assert not list(tmp_path.glob("bd-writerec-*")), f"{label}: raw directory survived"
+        assert not list(tmp_path.glob(".bd-writerec-tracer-stderr.*")), f"{label}: stderr temp survived"
+        assert not list(tmp_path.glob(".setupfail-*")), f"{label}: evidence temp survived"
+        # and the refusal is a real artifact, not only a line on stdout
+        assert out.exists(), f"{label}: setup failure published no refusal artifact"
+        footer = _records(out)[-1]
+        assert footer["record_type"] == "run_footer", label
+        assert footer["complete"] is False and footer["result"] == "UNKNOWN", label
+        assert "injected failure in %s" % attr in footer["error"], label
+        assert "raw_log_dir" not in footer, f"{label}: cited a directory it removed"
+        out.unlink()
+
+
+@LIVE
+@pytest.mark.timeout(120)
+def test_live_post_spawn_exception_reaps_the_group_and_records_the_proof(tmp_path, monkeypatch):
+    """RR-2: an exception after the tracer is running still leaves no orphan, and the
+    reap proof is surfaced rather than discarded."""
+    marker = "bd-writerec-exc-" + str(os.getpid())
+    out = tmp_path / "exception.jsonl"
+
+    def boom(read_fd, raw_dir, budget, deadline):
+        raise OSError(errno.EIO, "injected post-spawn failure")
+
+    try:
+        with monkeypatch.context() as mp:
+            mp.setattr(mod, "_drain_bounded", boom)
+            rc = mod.main(["--out", str(out), "--exit-mode", "recorder", "--json",
+                           "--strace", shutil.which("strace"), "--max-raw-bytes", "4096",
+                           "--"] + _hot(tmp_path, marker))
+        assert rc == 2
+        assert out.exists(), "the exception path left no record of its own cleanup"
+        footer = _records(out)[-1]
+        assert footer["complete"] is False and footer["result"] == "UNKNOWN"
+        assert "injected post-spawn failure" in footer["error"]
+        pgid = footer["tracer_pgid"]
+        assert isinstance(pgid, int) and pgid > 0, "the spawned tracer was not recorded"
+        assert footer["process_group_reaped"] is True, "exception cleanup published no proof"
+        with pytest.raises(ProcessLookupError):
+            os.killpg(pgid, 0)
+        assert not list(tmp_path.glob("bd-writerec-*")), "exception path retained scratch"
+        deadline = time.monotonic() + 5
+        ps = ""
+        while time.monotonic() < deadline:
+            ps = subprocess.run(["ps", "-eo", "args="], capture_output=True, text=True,
+                                check=True).stdout
+            if marker not in ps:
+                break
+            time.sleep(.1)
+        assert marker not in ps, "the traced child outlived the exception path"
+    finally:
+        subprocess.run(["pkill", "-f", marker], capture_output=True)
 
 
 @LIVE

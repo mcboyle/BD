@@ -477,26 +477,37 @@ def _live(args):
     capture = _capture(args.max_raw_bytes)
     if not strace or not os.path.isfile(strace) or not sys.platform.startswith("linux") or (_ptrace_scope() or 0) >= 2:
         return _refusal(out, header, capture, "no usable tracer: strace path, platform or ptrace_scope"), capture
-    # Prove the evidence destination is writable before spawning anything irreversible.
-    out.parent.mkdir(parents=True, exist_ok=True)
-    raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent))
-    err_fd, err_path = tempfile.mkstemp(prefix=".bd-writerec-tracer-stderr.", dir=out.parent)
-    read_fd, write_fd = os.pipe()
-    proc = pgid = None
-    retained = False  # raw_dir survives only once an artifact actually cites it
+    # Every resource below is owned by this call.  Each starts as a sentinel and is
+    # allocated INSIDE the cleanup boundary, so a failure at any step -- including the
+    # first -- releases exactly what had been created and nothing else.
+    raw_dir = err_path = proc = pgid = None
+    err_fd = read_fd = write_fd = -1
+    retained = False   # raw_dir survives only once an artifact actually cites it
+    setup_error = None
     try:
         try:
-            try:
-                proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
-                                        start_new_session=True, pass_fds=(write_fd,),
-                                        stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
-            finally:
-                os.close(write_fd)  # the parent must drop its write end or the drain never sees EOF
-                os.close(err_fd)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent))
+            err_fd, err_path = tempfile.mkstemp(prefix=".bd-writerec-tracer-stderr.", dir=out.parent)
+            read_fd, write_fd = os.pipe()
+            proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
+                                    start_new_session=True, pass_fds=(write_fd,),
+                                    stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
         except OSError as exc:
-            # The tracer never started: nothing was traced, nothing is retained, and the
-            # refusal is still recorded as a real artifact rather than only on stdout.
-            return _refusal(out, header, capture, "tracer could not be started: %s" % exc), capture
+            setup_error = exc
+        finally:
+            if write_fd >= 0:
+                os.close(write_fd); write_fd = -1  # the parent must drop its write end or the drain never sees EOF
+            if err_fd >= 0:
+                os.close(err_fd); err_fd = -1
+        if setup_error is not None:
+            # Nothing was traced and nothing is retained.  The refusal is still recorded
+            # as a real artifact rather than only on stdout -- best effort, because a
+            # destination that cannot be written is itself the failure being reported.
+            try:
+                return _refusal(out, header, capture, "recorder setup failed: %s" % setup_error), capture
+            except OSError:
+                raise setup_error
         pgid = proc.pid  # start_new_session makes the tracer its own group and session leader
         deadline = time.monotonic() + args.max_seconds
         text, raw_bytes, disk, partial_tail, raw_limit, time_limit, parsed = _drain_bounded(
@@ -523,18 +534,33 @@ def _live(args):
         _write_evidence(out, header, events, footer)
         retained = True
         return footer, capture
-    except BaseException:
-        # The exception path owes the same bounded proof as the success path.
+    except BaseException as exc:
+        # The exception path owes the same bounded proof as the success path, and the
+        # proof is recorded rather than discarded: an unreaped group on an abandoned
+        # run is exactly the orphan this recorder must never hand back silently.
         if pgid is not None:
             _signal_group(pgid, signal.SIGKILL)
-            _reap_group(proc, pgid, escalate=True)
+            reaped, residual = _reap_group(proc, pgid, escalate=True)
+            capture = _capture(args.max_raw_bytes, tracer_pid=proc.pid, tracer_pgid=pgid,
+                               tracer_exit_code=proc.returncode, group_reaped=reaped,
+                               residual_terminated=residual)
+            try:
+                _refusal(out, header, capture, "run abandoned: %s: %s"
+                         % (type(exc).__name__, exc))
+            except OSError:
+                pass  # the destination is unusable; the raised exception is the report
         raise
     finally:
         if read_fd >= 0:
             os.close(read_fd)
-        try: os.unlink(err_path)
-        except FileNotFoundError: pass
-        if not retained:
+        if write_fd >= 0:
+            os.close(write_fd)
+        if err_fd >= 0:
+            os.close(err_fd)
+        if err_path is not None:
+            try: os.unlink(err_path)
+            except FileNotFoundError: pass
+        if raw_dir is not None and not retained:
             shutil.rmtree(raw_dir, ignore_errors=True)
 
 
