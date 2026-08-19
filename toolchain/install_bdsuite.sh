@@ -158,19 +158,8 @@ done
 
 DEST_PARENT="$(dirname -- "$DEST")"
 mkdir -p -- "$DEST_PARENT" "$LINK_DEST" || exit 2
-STAGE="$(mktemp -d "$DEST_PARENT/.bdsuite-stage.XXXXXX")" || exit 2
-TXN_DIR="$(mktemp -d "$LINK_DEST/.bdsuite-txn.XXXXXX")" || exit 2
-[ "$(stat -c '%a' -- "$TXN_DIR")" = 700 ] || {
-  echo "ERROR: transaction directory is not mode 0700: $TXN_DIR" >&2
-  exit 2
-}
-if [ -d "$DEST" ]; then
-  DEST_MODE="$(stat -c '%a' -- "$DEST")" || exit 2
-else
-  DEST_MODE=755
-fi
-case "$DEST_MODE" in *[!0-7]*|'') echo "ERROR: invalid suite directory mode" >&2; exit 2;; esac
-chmod "$DEST_MODE" -- "$STAGE" || { echo "ERROR: staging chmod failed for suite directory" >&2; exit 2; }
+STAGE=
+TXN_DIR=
 PUBLISHED=0
 EXCHANGED=0
 COMMITTED=0
@@ -178,6 +167,11 @@ PREPARED_LINKS=()
 BACKUP_ORIGINALS=()
 BACKUP_PATHS=()
 NEW_LINKS=()
+
+owned_path_exists() {
+  local owned_path="${1:-}"
+  [ -n "$owned_path" ] && { [ -e "$owned_path" ] || [ -L "$owned_path" ]; }
+}
 
 rollback() {
   local status=$?
@@ -203,17 +197,54 @@ rollback() {
     done
   fi
   for record in "${PREPARED_LINKS[@]}"; do
-    [ ! -e "$record" ] && [ ! -L "$record" ] || rm -f -- "$record"
+    if owned_path_exists "$record"; then
+      rm -f -- "$record" || rollback_ok=0
+    fi
   done
   if [ "$rollback_ok" -eq 1 ]; then
-    [ ! -e "$STAGE" ] || rm -rf -- "$STAGE"
-    [ ! -e "$TXN_DIR" ] || rm -rf -- "$TXN_DIR"
-  else
-    echo "BD-INSTALL-ROLLBACK-INCOMPLETE: recovery data preserved at $STAGE and $TXN_DIR; live destination $DEST requires recovery" >&2
+    if owned_path_exists "${STAGE:-}"; then
+      rm -rf -- "$STAGE" || rollback_ok=0
+    fi
+    if owned_path_exists "${TXN_DIR:-}"; then
+      rm -rf -- "$TXN_DIR" || rollback_ok=0
+    fi
+  fi
+  if [ "$rollback_ok" -ne 1 ]; then
+    local retained=() path
+    for path in "${STAGE:-}" "${TXN_DIR:-}"; do
+      owned_path_exists "$path" && retained+=("$path")
+    done
+    printf 'BD-INSTALL-ROLLBACK-INCOMPLETE: recovery data retained at' >&2
+    if [ "${#retained[@]}" -gt 0 ]; then
+      printf ' %s' "${retained[@]}" >&2
+    else
+      printf ' no remaining owned path (restoration or cleanup still failed)' >&2
+    fi
+    printf '; live destination %s requires recovery\n' "$DEST" >&2
   fi
   exit "$status"
 }
 trap rollback EXIT
+
+STAGE="$(mktemp -d "$DEST_PARENT/.bdsuite-stage.XXXXXX")" || {
+  echo "ERROR: staging directory creation failed" >&2
+  exit 2
+}
+TXN_DIR="$(mktemp -d "$LINK_DEST/.bdsuite-txn.XXXXXX")" || {
+  echo "ERROR: transaction directory creation failed" >&2
+  exit 2
+}
+[ "$(stat -c '%a' -- "$TXN_DIR")" = 700 ] || {
+  echo "ERROR: transaction directory is not mode 0700: $TXN_DIR" >&2
+  exit 2
+}
+if [ -d "$DEST" ]; then
+  DEST_MODE="$(stat -c '%a' -- "$DEST")" || exit 2
+else
+  DEST_MODE=755
+fi
+case "$DEST_MODE" in *[!0-7]*|'') echo "ERROR: invalid suite directory mode" >&2; exit 2;; esac
+chmod "$DEST_MODE" -- "$STAGE" || { echo "ERROR: staging chmod failed for suite directory" >&2; exit 2; }
 
 for name in "${SOURCE_NAMES[@]}"; do
   cp -p -- "$HERE/bin/$name" "$STAGE/$name" || {

@@ -144,6 +144,15 @@ def _add_owned_stale_command(suite_bin: Path, link_bin: Path, name: str = "bd-st
     return stale
 
 
+def _visible_install_snapshot(suite_bin: Path, link_bin: Path) -> dict[str, tuple]:
+    """Snapshot live entries while excluding explicitly retained transaction residue."""
+    return {
+        key: value
+        for key, value in _tree_snapshot(suite_bin, link_bin).items()
+        if "/.bdsuite-stage." not in key and "/.bdsuite-txn." not in key
+    }
+
+
 def _write_state_pack(path: Path, marker: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
@@ -488,6 +497,71 @@ def test_installer_failure_preserves_the_complete_old_install(
     assert diagnostic in failed.stderr
     assert "bdsuite installed" not in failed.stdout
     assert _tree_snapshot(suite_bin, link_bin) == before
+    still_runs = _run_installed_bd(link_bin, env, tmp_path)
+    assert still_runs.returncode == 0, still_runs.stdout + still_runs.stderr
+    assert Path(still_runs.stdout).resolve() == REPO.resolve()
+
+
+@pytest.mark.parametrize(
+    ("command", "fail_on", "diagnostic"),
+    [
+        ("mktemp", 2, "transaction directory creation failed"),
+        ("chmod", 1, "staging chmod failed for suite directory"),
+    ],
+)
+def test_installer_setup_failure_cleans_owned_residue_and_preserves_live_install(
+    tmp_path, command, fail_on, diagnostic,
+):
+    """The trap owns the stage and transaction paths from their first creation."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    source = tmp_path / "setup-failure-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    env["BD_WORK_TREE"] = str(REPO)
+    first = _install(env, source)
+    assert first.returncode == 0, first.stderr
+    before = _tree_snapshot(suite_bin, link_bin)
+    shim = _failure_shim(tmp_path, command, fail_on)
+    failed = _install({**env, "PATH": str(shim) + os.pathsep + env["PATH"]}, source)
+    assert failed.returncode == 2, failed.stdout + failed.stderr
+    assert _shim_count(shim) == fail_on
+    assert diagnostic in failed.stderr
+    assert "BD-INSTALL-ROLLBACK-INCOMPLETE" not in failed.stderr
+    assert _tree_snapshot(suite_bin, link_bin) == before
+    assert not list(suite_bin.parent.glob(".bdsuite-stage.*"))
+    assert not list(link_bin.glob(".bdsuite-txn.*"))
+    still_runs = _run_installed_bd(link_bin, env, tmp_path)
+    assert still_runs.returncode == 0, still_runs.stdout + still_runs.stderr
+    assert Path(still_runs.stdout).resolve() == REPO.resolve()
+
+
+def test_installer_cleanup_rm_failure_names_retained_recovery_paths(tmp_path):
+    """A failed prepared-link cleanup is never silent and preserves recovery data."""
+    env, suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    source = tmp_path / "cleanup-rm-failure-toolchain"
+    shutil.copytree(REPO / "toolchain", source)
+    env["BD_WORK_TREE"] = str(REPO)
+    first = _install(env, source)
+    assert first.returncode == 0, first.stderr
+    before = _visible_install_snapshot(suite_bin, link_bin)
+    public_count = len(json.loads(
+        (suite_bin / ".bdsuite-manifest.json").read_text(encoding="utf-8")
+    )["public_commands"])
+    (source / "install_exchange.py").write_text(
+        "#!/usr/bin/env python3\nraise SystemExit(2)\n", encoding="utf-8"
+    )
+    shim = _failure_shim(tmp_path, "rm", 1)
+    failed = _install({**env, "PATH": str(shim) + os.pathsep + env["PATH"]}, source)
+    assert failed.returncode == 2
+    assert _shim_count(shim) == public_count
+    assert "BD-INSTALL-ROLLBACK-INCOMPLETE" in failed.stderr
+    assert _visible_install_snapshot(suite_bin, link_bin) == before
+    stages = list(suite_bin.parent.glob(".bdsuite-stage.*"))
+    transactions = list(link_bin.glob(".bdsuite-txn.*"))
+    assert len(stages) == 1
+    assert len(transactions) == 1
+    assert str(stages[0]) in failed.stderr
+    assert str(transactions[0]) in failed.stderr
+    assert any(transactions[0].iterdir())
     still_runs = _run_installed_bd(link_bin, env, tmp_path)
     assert still_runs.returncode == 0, still_runs.stdout + still_runs.stderr
     assert Path(still_runs.stdout).resolve() == REPO.resolve()
