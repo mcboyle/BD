@@ -200,13 +200,22 @@ def check(state_path, db, root):
     return 0 if ok else 1
 
 
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default=os.path.join(REVIEW, "artifacts", "KNOWLEDGE_GRAPH.db"))
-    ap.add_argument("--root", default=DEFAULT_ROOT)
-    ap.add_argument("--out", default=os.path.join(REVIEW, "artifacts", "REVIEW_STATE.json"))
+    ap.add_argument("--db", default=None)
+    ap.add_argument("--root", default=None)
+    ap.add_argument("--out", default=None)
     ap.add_argument("--check", action="store_true")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    a.root = os.path.abspath(a.root or DEFAULT_ROOT)
+    artifacts = os.path.join(a.root, "review", "artifacts")
+    a.db = os.path.abspath(a.db or os.path.join(artifacts, "KNOWLEDGE_GRAPH.db"))
+    a.out = os.path.abspath(a.out or os.path.join(artifacts, "REVIEW_STATE.json"))
+    return a
+
+
+def main(argv=None):
+    a = parse_args(argv)
     if a.check:
         sys.exit(check(a.out, a.db, a.root))
     state = build(a.db, a.root)

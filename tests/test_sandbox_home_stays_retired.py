@@ -239,6 +239,23 @@ def _tracked_carriers() -> set[str]:
     return carriers
 
 
+def _tracked_occurrences() -> int:
+    """Whole-tree occurrence denominator over the same tracked decoded files."""
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=str(REPO),
+                         capture_output=True, text=True, check=True).stdout
+    total = 0
+    for rel in out.split("\0"):
+        if not rel:
+            continue
+        try:
+            total += (REPO / rel).read_text(
+                encoding="utf-8", errors="replace"
+            ).count(NEEDLE)
+        except (OSError, UnicodeDecodeError):
+            continue
+    return total
+
+
 def _classification_errors(
     allowlist: Mapping[str, str],
     unswept_phases: Mapping[str, str],
@@ -322,6 +339,18 @@ def test_no_new_sandbox_home_carriers():
         f"{len(stale)} allowlist entr(ies) no longer carry it -- the list is "
         f"claiming something false and must shrink: {sorted(stale)[:10]}"
     )
+
+
+def test_current_release_census_matches_the_executable_whole_tree_denominator():
+    carriers = _tracked_carriers()
+    occurrences = _tracked_occurrences()
+    assert len(carriers) == 71
+    assert occurrences == 260
+
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    current = changelog.split("## v3.66.1192", 1)[1].split("## v3.66.1191", 1)[0]
+    assert "71 carrier files and 260" in current
+    assert "71 carrier files and 259" not in current
 
 
 def test_the_ratchet_fires_on_a_new_carrier():

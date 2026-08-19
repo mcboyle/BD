@@ -21,18 +21,23 @@ archive is not present in this repository; consult source-control history.
 - Replace the flat retired-home allowlist with an exact reason mapping and phase
   ownership, failing on missing reasons, unowned unswept entries, and unswept
   entries surviving their phase. The gate reuses its assembled needle so it stays
-  outside its own denominator; final current source is 71 carrier files and 259
+  outside its own denominator; final current source is 71 carrier files and 260
   intentional occurrences with zero `UNSWEPT`.
 - Remove the unreferenced sandbox-only supervisord configuration, keep the
   shared security helper importable beside an installed tool that supplies
   `--work`, and pass a validated repository root explicitly to the specialist
   command instead of gating on machine identity.
-- Give installed `bd` and `bd-status` one physically resolved layout beside
-  their install prefix. The installer now validates the checkout and every
-  destination relationship before its first `mkdir`, `cp`, `chmod`, `printf`, or
-  `ln`, so an invalid checkout leaves a pre-existing installed layout
-  byte-identical; wrappers propagate a failed environment source, and a missing
-  or corrupt checkout pointer fails closed through the public symlink.
+- Give every source and installed verdict tool one fail-closed checkout resolver,
+  with explicit authority first, a validated installed pointer second, and only
+  the exact source layout as fallback. Empty, malformed, symlinked, non-Git, or
+  missing installed pointers cannot launder the caller's cwd into authority.
+- Publish the exact tool, environment, pointer, manifest, and public-link roster
+  as one staged transaction. Copy, mode, pointer, exchange, or link failure exits
+  nonzero and restores the prior usable install; successful updates remove stale
+  installer-owned tools and links without overwriting unrelated public entries.
+- Make witness drift refuse an empty suite or result population, restore the two
+  shipped suites and 17 results, put direct local state ahead of packs/uploads/cwd,
+  and derive review DB/output/contracts defaults only after `--root` is parsed.
 
 ## v3.66.1191 - decide, bound, and isolate capture and test-root retention
 

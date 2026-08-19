@@ -20,6 +20,7 @@ Exit 0 = pin matches zip, 1 = mismatch.
 import argparse
 import glob
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -27,11 +28,30 @@ import sys
 import tempfile
 import zipfile
 
+_RESOLVER_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_bd_work_tree.py")
+try:
+    _resolver_spec = importlib.util.spec_from_file_location("_bd_state_work_tree", _RESOLVER_PATH)
+    if _resolver_spec is None or _resolver_spec.loader is None:
+        raise ImportError(f"cannot load {_RESOLVER_PATH}")
+    _resolver = importlib.util.module_from_spec(_resolver_spec)
+    _resolver_spec.loader.exec_module(_resolver)
+except (ImportError, OSError) as exc:
+    _resolver = None
+    _RESOLVER_LOAD_ERROR = exc
+else:
+    _RESOLVER_LOAD_ERROR = None
+
 G, R, Y, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
-DEFAULT_WORK = os.environ.get(
-    "BD_WORK_TREE", os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-)
+try:
+    if _resolver is None:
+        raise RuntimeError(f"resolver missing beside physical tool: {_RESOLVER_LOAD_ERROR}")
+    DEFAULT_WORK = str(_resolver.resolve_work_tree(__file__))
+    _WORK_TREE_ERROR = None
+except RuntimeError as exc:
+    DEFAULT_WORK = ""
+    _WORK_TREE_ERROR = exc
 STATE_ROOT = os.environ.get("BD_STATE_ROOT", DEFAULT_WORK)
+UPLOAD_ROOT = os.environ.get("BD_UPLOADS", "/mnt/user-data/uploads")
 
 
 def find_zip():
@@ -41,7 +61,7 @@ def find_zip():
     # to check, and it happily reports FAIL against last session's zip instead.
     best, key = None, None
     for z in (glob.glob(os.path.join(STATE_ROOT, "BulkDownloader_v*.zip")) +
-              glob.glob("/mnt/user-data/uploads/BulkDownloader_v*.zip")):
+              glob.glob(os.path.join(UPLOAD_ROOT, "BulkDownloader_v*.zip"))):
         try:
             with zipfile.ZipFile(z) as zf:
                 init = next((n for n in zf.namelist()
@@ -64,50 +84,88 @@ def find_zip():
 def find_state():
     """Locate the CANONICAL STATE.json and report where it came from.
 
-    Priority:
-      1) STATE.json inside the highest-version session pack (BulkDL_next_session_*.zip in
-         uploads) -- the canonical pin per the operating instructions. uploads is read-only
-         and the pack isn't auto-extracted, so we read it straight out of the zip.
-      2) a loose STATE.json in uploads, then ./STATE.json.
-      3) LAST: the operator artifact tree's STATE.json -- the embedded copy, whose
-         self-referential zip.sha can't match the finished zip. Fallback only, WARNED.
+    Priority: direct local pin, local session pack, upload session pack, loose
+    upload pin, cwd pin, then the warned recursive local fallback.
     Returns (path, label). STATE_schema.json is never matched.
     """
     def _ok(n):
         return n.rstrip("/").endswith("STATE.json") and not n.endswith("STATE_schema.json")
 
-    # Search the operator artifact root first, then uploads. A pin corrected in-session
-    # can only live in writable local storage; globbing uploads alone
-    # makes this gate structurally unable to see the artifact it is being asked about (it
-    # reported FAIL on an already-reconciled pin). Bootstrap copies uploads locally,
-    # so the local copy is at worst identical and at best the corrected one. Ties (same version
-    # number) resolve locally because it is ordered first and the compare is strict >.
-    best, bkey = None, None
-    for p in (glob.glob(os.path.join(STATE_ROOT, "BulkDL_next_session_*.zip"))
-              + glob.glob("/mnt/user-data/uploads/BulkDL_next_session_*.zip")):
-        k = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
-        if bkey is None or k > bkey:
-            best, bkey = p, k
-    if best:
-        try:
-            with zipfile.ZipFile(best) as zf:
-                members = [n for n in zf.namelist() if _ok(n)]
-                if members:
-                    member = min(members, key=lambda n: n.count("/"))  # shallowest
-                    tmp = os.path.join(tempfile.gettempdir(), "bd_canonical_STATE.json")
-                    with open(tmp, "wb") as fh:
-                        fh.write(zf.read(member))
-                    return tmp, f"{os.path.basename(best)} -> {member}"
-        except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
-            pass
+    def _version_key(path):
+        return tuple(int(x) for x in re.findall(r"\d+", os.path.basename(path))), path
 
-    for c in glob.glob("/mnt/user-data/uploads/**/STATE.json", recursive=True) + glob.glob("./STATE.json"):
-        if _ok(c):
-            return c, c
+    def _loose(candidates, label):
+        for candidate in candidates:
+            if not candidate or not os.path.isfile(candidate) or not _ok(candidate):
+                continue
+            try:
+                json.load(open(candidate))
+            except Exception as exc:
+                print(f"WARN: corrupt {label} candidate {candidate}: {exc}", file=sys.stderr)
+                continue
+            return candidate, f"{label}: {candidate}"
+        return None
 
-    wt = [c for c in glob.glob(os.path.join(STATE_ROOT, "**", "STATE.json"), recursive=True) if _ok(c)]
-    if wt:
-        return wt[0], (wt[0] + "  [WARN: work-tree copy from the source zip -- its zip.sha is "
+    def _pack(candidates, label):
+        for candidate in sorted(candidates, key=_version_key, reverse=True):
+            try:
+                with zipfile.ZipFile(candidate) as zf:
+                    members = [n for n in zf.namelist() if _ok(n)]
+                    if not members:
+                        raise ValueError("no STATE.json member")
+                    member = min(members, key=lambda n: (n.count("/"), n))
+                    payload = zf.read(member)
+                    json.loads(payload)
+                tmp = os.path.join(
+                    tempfile.gettempdir(), f"bd_canonical_STATE_{os.getpid()}.json"
+                )
+                with open(tmp, "wb") as handle:
+                    handle.write(payload)
+                return tmp, f"{label}: {os.path.basename(candidate)} -> {member}"
+            except Exception as exc:
+                print(f"WARN: corrupt {label} candidate {candidate}: {exc}", file=sys.stderr)
+        return None
+
+    # Named tiers are categorical. A newer lower-tier artifact never outranks a
+    # valid higher-tier operator choice.
+    selected = _loose([os.path.join(STATE_ROOT, "STATE.json")], "direct local state")
+    if selected:
+        return selected
+
+    selected = _pack(
+        glob.glob(os.path.join(STATE_ROOT, "BulkDL_next_session_*.zip")),
+        "local session pack",
+    )
+    if selected:
+        return selected
+
+    selected = _pack(
+        glob.glob(os.path.join(UPLOAD_ROOT, "BulkDL_next_session_*.zip")),
+        "upload session pack",
+    )
+    if selected:
+        return selected
+
+    upload_loose = [os.path.join(UPLOAD_ROOT, "STATE.json")]
+    upload_loose.extend(glob.glob(os.path.join(UPLOAD_ROOT, "**", "STATE.json"), recursive=True))
+    selected = _loose(upload_loose, "loose upload state")
+    if selected:
+        return selected
+
+    cwd = os.path.realpath(os.getcwd())
+    if cwd != os.path.realpath(STATE_ROOT):
+        selected = _loose([os.path.join(cwd, "STATE.json")], "cwd state")
+        if selected:
+            return selected
+
+    recursive = [
+        path for path in glob.glob(os.path.join(STATE_ROOT, "**", "STATE.json"), recursive=True)
+        if os.path.realpath(path) != os.path.realpath(os.path.join(STATE_ROOT, "STATE.json"))
+    ]
+    selected = _loose(sorted(recursive), "recursive local state")
+    if selected:
+        path, label = selected
+        return path, (label + "  [WARN: work-tree copy from the source zip -- its zip.sha is "
                        "self-referential and cannot match; attach the session pack or pass --state]")
     return None, None
 
@@ -142,6 +200,9 @@ def selftest():
 
 
 def main(argv=None):
+    if _WORK_TREE_ERROR is not None:
+        print(f"BD-WORK-TREE-UNRUNNABLE: {_WORK_TREE_ERROR}", file=sys.stderr)
+        return 2
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", default=None)
     ap.add_argument("--zip", default=None)

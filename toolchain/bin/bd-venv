@@ -52,7 +52,12 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs the cloak pack wheels + service venv"
   echo "SELFTEST PASS"; exit 0;; esac
-WORK="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
+_bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
+_bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
+[ -f "$_bd_tool_dir/_bd_work_tree.py" ] || {
+  echo "BD-WORK-TREE-UNRUNNABLE: resolver missing beside physical tool" >&2; exit 2;
+}
+WORK="$(python3 "$_bd_tool_dir/_bd_work_tree.py")" || exit 2
 VENV="$WORK/venv"
 PY="$VENV/bin/python"
 # ALL venv-python invocations go through vpy: the bd env exports

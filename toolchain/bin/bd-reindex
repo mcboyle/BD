@@ -19,11 +19,24 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a full source tree to reindex"
   echo "SELFTEST PASS"; exit 0;; esac
-WORK="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
+_bd_explicit=""
+_bd_has_explicit=0
 if [ "${1:-}" = "--work" ] || [ "${1:-}" = "--tree" ]; then
-    WORK="${2:?--work needs a dir}"
+    _bd_explicit="${2:?--work needs a dir}"
+    _bd_has_explicit=1
 elif [ -n "${1:-}" ]; then
-    WORK="$1"
+    _bd_explicit="$1"
+    _bd_has_explicit=1
+fi
+_bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
+_bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
+[ -f "$_bd_tool_dir/_bd_work_tree.py" ] || {
+  echo "BD-WORK-TREE-UNRUNNABLE: resolver missing beside physical tool" >&2; exit 2;
+}
+if [ "$_bd_has_explicit" -eq 1 ]; then
+  WORK="$(python3 "$_bd_tool_dir/_bd_work_tree.py" --work "$_bd_explicit")" || exit 2
+else
+  WORK="$(python3 "$_bd_tool_dir/_bd_work_tree.py")" || exit 2
 fi
 # @878 -- REFUSE an interpreter that cannot import the deps.
 # This defaulted to a venv under the retired sandbox work root and fell through

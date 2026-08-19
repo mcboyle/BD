@@ -1,6 +1,6 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-19T02:38:41+00:00",
+ "generated": "2026-08-19T05:56:38+00:00",
  "version_context": "v3.66.1192",
  "file_count": 86,
  "files": {
@@ -213,8 +213,8 @@
    "bytes": 2617
   },
   "README.md": {
-   "sha256": "f38640d25cd32bf3bc87d3751ac7fbc709797653a7e8ffd2c515e16ccc215b77",
-   "bytes": 25661
+   "sha256": "eee35a23d248d6bba8479049ba688945f0778c0dc5a556a3579bec195cfe416e",
+   "bytes": 25721
   },
   "README_KB.md": {
    "sha256": "a3433738fbe027390505e6a9a424dc584f4b09e5ec8bbf1446ab1705798e90bc",
@@ -225,8 +225,8 @@
    "bytes": 7776
   },
   "RENDER_CAPTURE_AUDIT_GUIDE.md": {
-   "sha256": "328db81eeb66fa9d0c9f5f3c71fd7b2d3df25b4dbb13c5c43c31a3f77158450f",
-   "bytes": 19877
+   "sha256": "875251980897595f0e079f64685e0e985f1682501d3e294d3b3d2b8e83e29ae5",
+   "bytes": 19909
   },
   "REPTYLE_CAPTURE_RUNBOOK.md": {
    "sha256": "2312be24f28c032c4c1099db8fcbeaf8ed46e4a2ab15c1d96282edd35b038b8e",

@@ -5,17 +5,16 @@
 
 # --- env ---
 _bd_env_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-if [ -n "${BD_WORK_TREE:-}" ]; then
-    _bd_work_candidate="$BD_WORK_TREE"
-elif [ -f "$_bd_env_dir/.bd-work-tree" ]; then
-    IFS= read -r _bd_work_candidate < "$_bd_env_dir/.bd-work-tree"
+if [ -f "$_bd_env_dir/_bd_work_tree.py" ]; then
+    _bd_work_resolver="$_bd_env_dir/_bd_work_tree.py"
 else
-    _bd_work_candidate=$(CDPATH= cd -- "$_bd_env_dir/.." && pwd -P)
+    _bd_work_resolver="$_bd_env_dir/bin/_bd_work_tree.py"
 fi
-_bd_valid_root=$(git -C "$_bd_work_candidate" rev-parse --show-toplevel 2>/dev/null) || {
-    echo "BD-UNEVALUABLE: BD_WORK_TREE is not a Git checkout: $_bd_work_candidate" >&2
+if [ ! -f "$_bd_work_resolver" ]; then
+    echo "BD-WORK-TREE-UNRUNNABLE: resolver missing beside $_bd_env_dir" >&2
     return 2 2>/dev/null || exit 2
-}
+fi
+_bd_valid_root=$(python3 "$_bd_work_resolver") || return 2 2>/dev/null || exit 2
 export BD_WORK_TREE="$_bd_valid_root"
 export PATH="$BD_WORK_TREE/toolchain/bin:$PATH"
 export PYTHONPATH="/tmp/prestaged_site_packages:${PYTHONPATH:-}"

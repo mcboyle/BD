@@ -34,9 +34,9 @@ REVIEW_ROOT = os.path.join(ROOT, "review")
 CONTRACTS = os.path.join(REVIEW_ROOT, "artifacts", "CONTRACTS.json")
 
 
-def _fn_sources(path):
+def _fn_sources(path, root):
     """name -> source slice for every top-level + nested function in a file."""
-    src = open(os.path.join(ROOT, path)).read()
+    src = open(os.path.join(root, path)).read()
     lines = src.splitlines()
     out = {}
     for node in ast.walk(ast.parse(src)):
@@ -47,14 +47,13 @@ def _fn_sources(path):
 
 
 def check(contracts_path, gate, root=None):
-    global ROOT
-    ROOT = root or ROOT
+    selected_root = os.path.abspath(os.fspath(root or ROOT))
     contracts = json.load(open(contracts_path))["contracts"]
     failures = []
     print("CONSUMER-AGREEMENT (shared-symbol guard contracts)")
     print("=" * 70)
     for c in contracts:
-        fns = _fn_sources(c["file"])
+        fns = _fn_sources(c["file"], selected_root)
         guard = re.compile(c["guard_signature"])
         print(f"\n{c['id']} — symbol `{c['symbol']}` in {c['file']}")
         print(f"  guard: /{c['guard_signature']}/")
@@ -88,12 +87,21 @@ def check(contracts_path, gate, root=None):
     return 0
 
 
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--contracts", default=CONTRACTS)
-    ap.add_argument("--root", default=ROOT)
+    ap.add_argument("--contracts", default=None)
+    ap.add_argument("--root", default=None)
     ap.add_argument("--gate", action="store_true")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    a.root = os.path.abspath(a.root or ROOT)
+    a.contracts = os.path.abspath(
+        a.contracts or os.path.join(a.root, "review", "artifacts", "CONTRACTS.json")
+    )
+    return a
+
+
+def main(argv=None):
+    a = parse_args(argv)
     raise SystemExit(check(a.contracts, a.gate, a.root))
 
 

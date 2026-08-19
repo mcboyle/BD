@@ -54,7 +54,7 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
   `~/BulkDownloader`, systemd `bulkdownloader.service`, localhost:5555.
 - **workspace** — the isolated Linux checkout. Key dirs:
   - `$BD_WORK` — the extracted source tree (the SERVICE venv is
-    `work/venv`, **not** `.venv`).
+    `$BD_WORK/venv`, **not** `.venv`).
   - `$BD_SUITE_BIN` — installed toolchain (`install_bdsuite.sh` lands tools here
     + symlinks into `/usr/local/bin`).
   - `/mnt/user-data/uploads` — **READ-ONLY and EVICTS files mid-session.** Copy
@@ -86,8 +86,8 @@ UPLOAD SET  →  bootstrap chain  →  work (read-only free / changes gated)
    manually to `$BD_ARTIFACT_ROOT`.) "Save and wait" = copy everything present, report
    what's missing, hold without bootstrapping until the full set arrives.
 2. **Install the toolchain.** Unzip `bdsuite_v3_66_<n>.zip` and run
-   `install_bdsuite.sh` (globs `bin/*` → symlinks). Create symlinks by hand if they
-   don't land.
+   `install_bdsuite.sh`; continue only after its zero exit. A failed transaction
+   preserves the previous install: do not create replacement links by hand.
 3. **The chain:** run `bd-boot` and **re-run it until it prints READY.**
    It is budgeted (~230s per call, under the harness limit) + checkpointed
    (`$BD_STATE_ROOT/.bd_boot`), so each call finishes what it can, exits 0 with a

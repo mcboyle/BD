@@ -26,26 +26,38 @@ _REVIEW_WDIR = os.path.join(_ROOT, "review", "witnesses")
 WDIR = _INTREE_WDIR if os.path.isdir(_INTREE_WDIR) else _REVIEW_WDIR
 
 
-def _load_suite(path):
+def discover_suites(root):
+    """Prefer in-tree witness suites, falling back to operator review suites."""
+    root = os.path.abspath(os.fspath(root))
+    in_tree = os.path.join(root, "tools", "audit", "witnesses")
+    review = os.path.join(root, "review", "witnesses")
+    selected = in_tree if os.path.isdir(in_tree) else review
+    return [os.path.abspath(path) for path in sorted(
+        glob.glob(os.path.join(selected, "*_witnesses.py"))
+    )]
+
+
+def load_suite(path):
+    """Import one witness suite and return a copy of its RESULTS population."""
     spec = importlib.util.spec_from_file_location(
         os.path.basename(path)[:-3], path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load witness suite: {path}")
     mod = importlib.util.module_from_spec(spec)
-    # reset the module-level RESULTS each import
     spec.loader.exec_module(mod)
-    return mod
+    return list(getattr(mod, "RESULTS", []))
 
 
 def main():
-    suites = sorted(glob.glob(os.path.join(WDIR, "*_witnesses.py")))
+    suites = discover_suites(_ROOT)
     if not suites:
         print("run_witnesses: no witness suites found")
-        return 0
+        return 2
     claim_red, claim_total, repro_green, repro_total = [], 0, 0, 0
     print("run_witnesses")
     print("=" * 60)
     for s in suites:
-        mod = _load_suite(s)
-        for entry in getattr(mod, "RESULTS", []):
+        for entry in load_suite(s):
             # normalize BOTH schemas: dict {id,kind,ok,flips_to,detail} (standard)
             # and the legacy 3-tuple (id, ok, detail).
             if isinstance(entry, dict):
@@ -73,6 +85,9 @@ def main():
     print("=" * 60)
     print(f"claim-witnesses: {claim_total - len(claim_red)}/{claim_total} green | "
           f"finding-repros: {repro_green}/{repro_total} still reproducing")
+    if claim_total + repro_total == 0:
+        print("run_witnesses: suites produced zero witness results")
+        return 2
     if claim_red:
         print("  STALE CLAIMS (a KB belief no longer matches behavior):")
         for cid, detail in claim_red:

@@ -31,8 +31,18 @@ is worse than no gate: unknown is a THIRD STATE and it FAILS.
 The inverse rule binds just as hard: on an intact tree this must exit 0 and
 report every guard ok.  A gate that cries wolf gets switched off.
 """
-import argparse, glob, hashlib, json, os, re, sys, zipfile
-import sys
+import argparse, glob, hashlib, importlib.util, json, os, re, sys, zipfile
+
+_RESOLVER_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_bd_work_tree.py")
+_resolver_spec = importlib.util.spec_from_file_location("_bd_guard_work_tree", _RESOLVER_PATH)
+if _resolver_spec is not None and _resolver_spec.loader is not None:
+    _resolver = importlib.util.module_from_spec(_resolver_spec)
+    try:
+        _resolver_spec.loader.exec_module(_resolver)
+    except OSError:
+        _resolver = None
+else:
+    _resolver = None
 
 MANIFEST_NAME = "guards.json"
 UNRUNNABLE = 2
@@ -129,17 +139,9 @@ def resolve_tree(explicit):
     """
     if explicit:
         return os.path.abspath(explicit), "--tree"
-    for d in _upward(os.getcwd()):
-        if os.path.isfile(os.path.join(d, MANIFEST_NAME)):
-            return d, f"{MANIFEST_NAME} found above cwd"
-    # this file lives at <root>/toolchain/bin/bd-guardcheck
-    script_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-    if os.path.isfile(os.path.join(script_root, MANIFEST_NAME)):
-        return script_root, "repo root of this script"
-    for d in _upward(os.getcwd()) + [script_root]:
-        if all(os.path.isfile(os.path.join(d, g)) for g in GUARDS):
-            return d, "guard files found on disk"
-    raise RuntimeError("cannot resolve repository root; pass --tree")
+    if _resolver is None:
+        raise RuntimeError("checkout resolver is missing beside physical tool")
+    return str(_resolver.resolve_work_tree(__file__)), "checkout authority"
 
 
 def load_manifest(path):
@@ -236,7 +238,10 @@ def main():
                     help="explicit STATE.json baseline (version-pack workflow)")
     a = ap.parse_args()
 
-    tree, how = resolve_tree(a.tree)
+    try:
+        tree, how = resolve_tree(a.tree)
+    except RuntimeError as exc:
+        return unrunnable(str(exc), "pass --tree to name the intended checkout")
     names, pinned_full, pinned_short, src = resolve_baseline(a, tree)
     print(f"(tree: {tree}  [{how}])")
     if names is None:

@@ -125,10 +125,11 @@ held; exits non-zero if any gate fails.
 ---
 
 ## 2. Prerequisites & bootstrap
-- [ ] `bash /mnt/project/setup.sh` → `bd-boot` **green** (tree at `$BD_WORK`
-  == source zip, version matches). The render backend imports
+- [ ] Start in `$BD_WORK` and run `bd-boot` until it reports **READY**, then run
+  `bd-preflight` and `bd-state` before rendering (tree at `$BD_WORK` == source
+  zip, version matches). The render backend imports
   `bulk_downloader.app` from the work tree — a stale tree renders the wrong
-  version, and every number is then wrong. Run `bd-preflight` + `bd-state` first.
+  version, and every number is then wrong.
 - [ ] Playwright + Chromium: `PLAYWRIGHT_BROWSERS_PATH=${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright`.
   Launch **`headless=True`** — no `DISPLAY`/Xvfb needed.
 - [ ] `bd <cmd>` injects Flask + PATH + services. `bash_tool` is **dash** (fresh
