@@ -46,6 +46,16 @@ def _foreign_checkout(tmp_path: Path) -> Path:
     return foreign
 
 
+def _scratch_authority_checkout(tmp_path: Path) -> Path:
+    """Build an installed-tool authority whose root-dependent actions are observable."""
+    checkout = tmp_path / "authority-checkout"
+    shutil.copytree(REPO / "toolchain", checkout / "toolchain")
+    (checkout / "tools").mkdir()
+    (checkout / "venv" / "bin").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    return checkout
+
+
 def _install(
     env: dict[str, str], toolchain: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -404,6 +414,109 @@ def test_installed_public_tools_share_pointer_authority(tmp_path):
     combined = no_root.stdout + no_root.stderr
     assert no_root.returncode == 2
     assert combined.count("BD-GATE-UNRUNNABLE") == 1
+    assert "Traceback" not in combined
+
+
+def test_installed_public_sbcap_uses_physical_sibling_checkout_authority(tmp_path):
+    """The documented public command reaches the pointer checkout from another cwd."""
+    checkout = _scratch_authority_checkout(tmp_path)
+    trace = tmp_path / "sbcap-python-trace"
+    fake_python = checkout / "venv" / "bin" / "python"
+    fake_python.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$0\" >> \"$BD_SBCAP_PYTHON_TRACE\"\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    shutil.copy2(fake_python, checkout / "venv" / "bin" / "python3")
+
+    env, _suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    env["BD_WORK_TREE"] = str(checkout)
+    installed = _install(env, checkout / "toolchain")
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    unrelated = tmp_path / "unrelated-cwd"
+    unrelated.mkdir()
+    run_env = {key: value for key, value in env.items() if not key.startswith("BD_")}
+    run_env.update({
+        "BD_SBCAP_ROOT": str(tmp_path / "sbcap-state"),
+        "BD_SBCAP_PYTHON_TRACE": str(trace),
+    })
+
+    result = subprocess.run(
+        [str(link_bin / "bd-sbcap"), "--check"], cwd=unrelated, env=run_env,
+        text=True, capture_output=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert set(trace.read_text(encoding="utf-8").splitlines()) == {
+        str(checkout / "venv" / "bin" / "python"),
+        str(checkout / "venv" / "bin" / "python3"),
+    }
+
+
+def test_installed_public_rollback_uses_physical_sibling_checkout_authority(tmp_path):
+    """Rollback dispatches the checkout-local implementation from another cwd."""
+    checkout = _scratch_authority_checkout(tmp_path)
+    (checkout / "tools" / "rollback.py").write_text(
+        "print('rollback-from-authorized-checkout')\n", encoding="utf-8"
+    )
+    env, _suite_bin, link_bin, _installed_env, _pointer = _installed_layout(tmp_path)
+    env["BD_WORK_TREE"] = str(checkout)
+    installed = _install(env, checkout / "toolchain")
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    unrelated = tmp_path / "unrelated-cwd"
+    unrelated.mkdir()
+    run_env = {key: value for key, value in env.items() if not key.startswith("BD_")}
+
+    result = subprocess.run(
+        [str(link_bin / "bd-rollback")], cwd=unrelated, env=run_env,
+        text=True, capture_output=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "rollback-from-authorized-checkout" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("consumer", "args", "named_refusal"),
+    [
+        ("bd-sbcap", ["--check"], "BD-SBCAP-UNRUNNABLE"),
+        ("bd-rollback", [], "BD-ROLLBACK-UNRUNNABLE"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("failure", "corrupt_helper"),
+    [
+        ("missing-pointer", None),
+        ("corrupt-helper-runtime", "raise RuntimeError('injected resolver corruption')\n"),
+        ("corrupt-helper-exit", "raise SystemExit(73)\n"),
+    ],
+)
+def test_installed_public_sbcap_and_rollback_translate_authority_failures(
+    tmp_path, consumer, args, named_refusal, failure, corrupt_helper,
+):
+    """Resolution and sibling-import failures are named exit 2 without traceback."""
+    env, suite_bin, link_bin, _installed_env, pointer = _installed_layout(tmp_path)
+    installed = _install(env)
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    if failure == "missing-pointer":
+        pointer.unlink()
+    else:
+        (suite_bin / "_bd_work_tree.py").write_text(
+            corrupt_helper, encoding="utf-8"
+        )
+    unrelated = tmp_path / "unrelated-cwd"
+    unrelated.mkdir()
+    run_env = {key: value for key, value in env.items() if not key.startswith("BD_")}
+    if consumer == "bd-sbcap":
+        run_env["BD_SBCAP_ROOT"] = str(tmp_path / "sbcap-state")
+
+    result = subprocess.run(
+        [str(link_bin / consumer), *args], cwd=unrelated, env=run_env,
+        text=True, capture_output=True, timeout=10,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 2, combined
+    assert combined.count(named_refusal) == 1
     assert "Traceback" not in combined
 
 

@@ -22,6 +22,7 @@
 #
 # Run after bd-boot:  bd-sbcap
 # Check only:         bd-sbcap --check
+# Exit 2 + BD-SBCAP-UNRUNNABLE means checkout authority could not be resolved.
 set -u
 # --selftest: this is a bootstrap/orchestration script; a real run IS its test.
 case " $* " in *" --selftest "*)
@@ -40,7 +41,20 @@ case "${1:-}" in
         exit 2 ;;
 esac
 
-_BD_ROOT="${BD_WORK_TREE:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)}"
+_bd_sbcap_unrunnable() {
+  echo "BD-SBCAP-UNRUNNABLE: $1" >&2
+  exit 2
+}
+_BD_PHYSICAL_SELF="$(readlink -f -- "$0" 2>/dev/null)" || \
+  _bd_sbcap_unrunnable "cannot resolve physical tool path"
+[ -n "$_BD_PHYSICAL_SELF" ] && [ -f "$_BD_PHYSICAL_SELF" ] || \
+  _bd_sbcap_unrunnable "physical tool is not a regular file"
+_BD_RESOLVER="$(dirname -- "$_BD_PHYSICAL_SELF")/_bd_work_tree.py"
+[ -f "$_BD_RESOLVER" ] || \
+  _bd_sbcap_unrunnable "checkout resolver is missing beside physical tool"
+_BD_ROOT="$(python3 "$_BD_RESOLVER" 2>/dev/null)" || \
+  _bd_sbcap_unrunnable "checkout resolver failed beside physical tool"
+[ -n "$_BD_ROOT" ] || _bd_sbcap_unrunnable "checkout resolver returned an empty root"
 SBCAP="${BD_SBCAP_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/bulkdownloader/sbcap}"
 mkdir -p "$SBCAP/axe" /tmp/sbcap
 VENV="$_BD_ROOT/venv/bin"
