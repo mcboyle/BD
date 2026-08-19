@@ -50,7 +50,7 @@ def test_bdenv_preserves_operator_paths_and_can_skip_optional_services(tmp_path)
         "BD_HOME": tmp_path / "state",
         "PLAYWRIGHT_BROWSERS_PATH": tmp_path / "browsers",
         "GTK_ROOT": tmp_path / "gtk",
-        "BD_WORK_TREE": tmp_path / "tree",
+        "BD_WORK_TREE": REPO,
     }
     env = {**os.environ, **{key: str(value) for key, value in values.items()}}
     env["BD_ENV_NO_SERVICES"] = "1"
@@ -64,6 +64,33 @@ def test_bdenv_preserves_operator_paths_and_can_skip_optional_services(tmp_path)
         capture_output=True, timeout=10, check=True,
     )
     assert result.stdout.splitlines()[-4:] == [str(value) for value in values.values()]
+
+
+def test_installed_bd_resolves_shared_env_and_validated_checkout(tmp_path):
+    """The installer layout must execute through its public symlink."""
+    home = tmp_path / "home"
+    suite_bin = home / ".local" / "bin"
+    link_bin = tmp_path / "usr-local-bin"
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "BD_SUITE_BIN": str(suite_bin),
+        "BD_SUITE_LINK_BIN": str(link_bin),
+    }
+    subprocess.run(
+        ["bash", str(REPO / "toolchain" / "install_bdsuite.sh")],
+        cwd=REPO, env=env, text=True, capture_output=True, check=True,
+    )
+
+    installed_env = home / ".local" / "bdenv.sh"
+    assert installed_env.is_file()
+    result = subprocess.run(
+        [str(link_bin / "bd"), "/bin/sh", "-c", "printf '%s' \"$BD_WORK_TREE\""],
+        cwd=tmp_path, env={**env, "BD_ENV_NO_SERVICES": "1"}, text=True,
+        capture_output=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout).resolve() == REPO.resolve()
 
 
 def test_consumer_oracle_accepts_the_explicit_repository_root(tmp_path):

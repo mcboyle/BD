@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1192 - make residue closure mutation-resistant
+
+- Give installed `bd` wrappers and `bdenv.sh` one physically resolved layout
+  and provision a validated checkout root during installation.
+- Require all three residue phases to remain closed and pin the intentional
+  test-fixture denominator at exact per-file counts, 50 total, and semantic
+  anchors.
+
 ## v3.66.1191 - close live-path parity and gate-scope findings
 
 - Reuse the existing repository-root override for review artifacts instead of

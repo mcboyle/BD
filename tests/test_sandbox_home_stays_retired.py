@@ -168,6 +168,54 @@ FIXTURE_JUDGMENTS: Mapping[str, str] = {
     "tests/test_v3_66_799_audit_tool_selftests.py": "historical_regression",
 }
 
+FIXTURE_OCCURRENCE_COUNTS: Mapping[str, int] = {
+    "tests/test_bd_doctor_probes_the_real_environment.py": 3,
+    "tests/test_capture_fixture_roots.py": 1,
+    "tests/test_desandbox_tool_verifiers.py": 8,
+    "tests/test_element_pick_bridge.py": 1,
+    "tests/test_element_pick_selector.py": 1,
+    "tests/test_env_parity_sees_the_real_browser_pool.py": 6,
+    "tests/test_fixture_recognizer_loop.py": 2,
+    "tests/test_fresh_install_gui_smoke.py": 1,
+    "tests/test_generated_artifact_workflow.py": 1,
+    "tests/test_guardcheck_fails_closed.py": 3,
+    "tests/test_route_index_in_sync.py": 3,
+    "tests/test_toolchain_534.py": 8,
+    "tests/test_u27_security_cluster.py": 3,
+    "tests/test_v3_66_1167_safety_authorities_are_single_source.py": 2,
+    "tests/test_v3_66_245_floor_signed_url_nondom.py": 1,
+    "tests/test_v3_66_252_dom_excerpt.py": 1,
+    "tests/test_v3_66_276_row_selector_robust.py": 1,
+    "tests/test_v3_66_527_numeric_integer_backstop.py": 1,
+    "tests/test_v3_66_653_dep_freshness.py": 2,
+    "tests/test_v3_66_799_audit_tool_selftests.py": 1,
+}
+
+# One load-bearing subject per fixture. Prefix with NEEDLE at evaluation time so
+# this gate remains outside the carrier population it measures.
+FIXTURE_ANCHORS: Mapping[str, str] = {
+    "tests/test_bd_doctor_probes_the_real_environment.py": "/work",
+    "tests/test_capture_fixture_roots.py": "/corpus/wacz",
+    "tests/test_desandbox_tool_verifiers.py": "/bin",
+    "tests/test_element_pick_bridge.py": "/.cache/ms-playwright/chromium-1223",
+    "tests/test_element_pick_selector.py": "/.cache/ms-playwright/chromium-1223",
+    "tests/test_env_parity_sees_the_real_browser_pool.py": "",
+    "tests/test_fixture_recognizer_loop.py": "/.cache/ms-playwright",
+    "tests/test_fresh_install_gui_smoke.py": "/.cache/ms-playwright/chromium-1223",
+    "tests/test_generated_artifact_workflow.py": "/bin/bd-regen-order",
+    "tests/test_guardcheck_fails_closed.py": "/nextsess/STATE.json",
+    "tests/test_route_index_in_sync.py": "/work/bulk_downloader/app.py",
+    "tests/test_toolchain_534.py": "/work/venv/bin/python",
+    "tests/test_u27_security_cluster.py": "/bd/downloads",
+    "tests/test_v3_66_1167_safety_authorities_are_single_source.py": "",
+    "tests/test_v3_66_245_floor_signed_url_nondom.py": "/work",
+    "tests/test_v3_66_252_dom_excerpt.py": "/.cache/ms-playwright/chromium-1223",
+    "tests/test_v3_66_276_row_selector_robust.py": "/.cache/ms-playwright/chromium-1223",
+    "tests/test_v3_66_527_numeric_integer_backstop.py": "/fixture_numeric_sites.json",
+    "tests/test_v3_66_653_dep_freshness.py": "/capture",
+    "tests/test_v3_66_799_audit_tool_selftests.py": "/bin",
+}
+
 
 def _tracked_carriers() -> set[str]:
     """Tracked files whose bytes contain the needle.
@@ -197,6 +245,10 @@ def _classification_errors(
     closed_phases: AbstractSet[str],
 ) -> list[str]:
     errors: list[str] = []
+    for phase in sorted(VALID_PHASES - set(closed_phases)):
+        errors.append(f"required phase is not closed: {phase}")
+    for phase in sorted(set(closed_phases) - VALID_PHASES):
+        errors.append(f"unknown closed phase: {phase}")
     for path, reason in sorted(allowlist.items()):
         if reason not in VALID_REASONS:
             errors.append(f"invalid reason for {path}: {reason}")
@@ -211,6 +263,25 @@ def _classification_errors(
             errors.append(f"invalid phase for {path}: {phase}")
         elif phase in closed_phases:
             errors.append(f"closed {phase} phase still has UNSWEPT entry: {path}")
+    return errors
+
+
+def _fixture_preservation_errors(
+    expected_counts: Mapping[str, int],
+    anchors: Mapping[str, str],
+    texts: Mapping[str, str],
+) -> list[str]:
+    errors: list[str] = []
+    if set(expected_counts) != set(anchors):
+        errors.append("fixture count and anchor denominators differ")
+    for path, expected in sorted(expected_counts.items()):
+        text = texts.get(path, "")
+        actual = text.count(NEEDLE)
+        if actual != expected:
+            errors.append(f"fixture occurrence count moved for {path}: {actual} != {expected}")
+        anchor = anchors.get(path)
+        if anchor is not None and NEEDLE + anchor not in text:
+            errors.append(f"fixture semantic anchor disappeared: {path}")
     return errors
 
 
@@ -286,23 +357,32 @@ def test_every_carrier_has_a_closed_reason_and_unswept_phase():
 
 def test_classification_rejects_an_invalid_reason():
     errors = _classification_errors(
-        {"bad.py": "made_up"}, {}, frozenset()
+        {"bad.py": "made_up"}, {}, VALID_PHASES
     )
     assert errors == ["invalid reason for bad.py: made_up"]
 
 
 def test_classification_rejects_an_unphased_unswept_entry():
     errors = _classification_errors(
-        {"left.py": "unswept"}, {}, frozenset()
+        {"left.py": "unswept"}, {}, VALID_PHASES
     )
     assert errors == ["UNSWEPT entry has no phase: left.py"]
 
 
 def test_classification_rejects_unswept_work_after_its_phase_closes():
     errors = _classification_errors(
-        {"left.py": "unswept"}, {"left.py": "live"}, frozenset({"live"})
+        {"left.py": "unswept"}, {"left.py": "live"}, VALID_PHASES
     )
     assert errors == ["closed live phase still has UNSWEPT entry: left.py"]
+
+
+def test_classification_rejects_each_missing_closed_phase():
+    for phase in sorted(VALID_PHASES):
+        errors = _classification_errors({}, {}, VALID_PHASES - {phase})
+        assert errors == [f"required phase is not closed: {phase}"]
+
+    errors = _classification_errors({}, {}, VALID_PHASES | {"invented"})
+    assert errors == ["unknown closed phase: invented"]
 
 
 def test_intentional_adversarial_and_historical_literals_remain():
@@ -343,6 +423,40 @@ def test_every_test_fixture_carrier_has_a_hand_adjudicated_role():
         "security_boundary_fixture",
     }
     assert all(ALLOWLIST[path] == ADVERSARIAL_FIXTURE for path in fixture_carriers)
+
+
+def test_fixture_occurrences_and_semantic_anchors_are_exact():
+    expected_counts = {
+        "tests/test_bd_doctor_probes_the_real_environment.py": 3,
+        "tests/test_capture_fixture_roots.py": 1,
+        "tests/test_desandbox_tool_verifiers.py": 8,
+        "tests/test_element_pick_bridge.py": 1,
+        "tests/test_element_pick_selector.py": 1,
+        "tests/test_env_parity_sees_the_real_browser_pool.py": 6,
+        "tests/test_fixture_recognizer_loop.py": 2,
+        "tests/test_fresh_install_gui_smoke.py": 1,
+        "tests/test_generated_artifact_workflow.py": 1,
+        "tests/test_guardcheck_fails_closed.py": 3,
+        "tests/test_route_index_in_sync.py": 3,
+        "tests/test_toolchain_534.py": 8,
+        "tests/test_u27_security_cluster.py": 3,
+        "tests/test_v3_66_1167_safety_authorities_are_single_source.py": 2,
+        "tests/test_v3_66_245_floor_signed_url_nondom.py": 1,
+        "tests/test_v3_66_252_dom_excerpt.py": 1,
+        "tests/test_v3_66_276_row_selector_robust.py": 1,
+        "tests/test_v3_66_527_numeric_integer_backstop.py": 1,
+        "tests/test_v3_66_653_dep_freshness.py": 2,
+        "tests/test_v3_66_799_audit_tool_selftests.py": 1,
+    }
+    assert globals().get("FIXTURE_OCCURRENCE_COUNTS") == expected_counts
+    assert sum(FIXTURE_OCCURRENCE_COUNTS.values()) == 50
+    assert set(FIXTURE_ANCHORS) == set(expected_counts)
+
+    errors = _fixture_preservation_errors(
+        FIXTURE_OCCURRENCE_COUNTS, FIXTURE_ANCHORS,
+        {path: (REPO / path).read_text(encoding="utf-8") for path in expected_counts},
+    )
+    assert not errors, errors
 
 
 def test_the_gate_does_not_reenter_its_own_carrier_population():

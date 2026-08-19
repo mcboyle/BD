@@ -4,8 +4,19 @@
 # so spawned services survive parent shell exit.
 
 # --- env ---
-_bd_env_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-export BD_WORK_TREE="${BD_WORK_TREE:-$_bd_env_root}"
+_bd_env_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+if [ -n "${BD_WORK_TREE:-}" ]; then
+    _bd_work_candidate="$BD_WORK_TREE"
+elif [ -f "$_bd_env_dir/.bd-work-tree" ]; then
+    IFS= read -r _bd_work_candidate < "$_bd_env_dir/.bd-work-tree"
+else
+    _bd_work_candidate=$(CDPATH= cd -- "$_bd_env_dir/.." && pwd -P)
+fi
+_bd_valid_root=$(git -C "$_bd_work_candidate" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "BD-UNEVALUABLE: BD_WORK_TREE is not a Git checkout: $_bd_work_candidate" >&2
+    return 2 2>/dev/null || exit 2
+}
+export BD_WORK_TREE="$_bd_valid_root"
 export PATH="$BD_WORK_TREE/toolchain/bin:$PATH"
 export PYTHONPATH="/tmp/prestaged_site_packages:${PYTHONPATH:-}"
 export BD_HOME="${BD_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/bulkdownloader}"
