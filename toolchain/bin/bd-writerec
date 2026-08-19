@@ -1,58 +1,377 @@
 #!/usr/bin/env python3
-"""Evidence-only filesystem mutation recorder (deliberately incomplete RED skeleton)."""
+"""Opt-in strace filesystem mutation evidence recorder."""
+from __future__ import annotations
+
 import argparse
+import datetime as dt
 import json
 import os
+import platform
+import re
+import shutil
+import signal
+import socket
+import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 
 SCHEMA = "bd-writerec/1"
-TRACE_SET = ("clone", "fork", "vfork", "write", "openat", "rename", "unlink")
-COVERAGE_MATRIX = {
-    "clone": "parsed_metadata", "fork": "parsed_metadata", "vfork": "parsed_metadata",
-    "write": "parsed_mutation", "openat": "parsed_metadata",
-    "rename": "parsed_mutation", "unlink": "parsed_mutation",
-}
+TRACE_SET = (
+    "clone", "clone3", "fork", "vfork", "execve", "execveat", "chdir", "fchdir",
+    "write", "pwrite64", "writev", "pwritev", "pwritev2", "openat", "openat2", "creat",
+    "truncate", "ftruncate", "fallocate", "sendfile", "copy_file_range", "splice",
+    "rename", "renameat", "renameat2", "unlink", "unlinkat", "mkdir", "mkdirat", "rmdir",
+    "link", "linkat", "symlink", "symlinkat", "chmod", "fchmod", "fchmodat", "chown",
+    "fchown", "fchownat", "lchown", "mmap", "munmap", "msync", "io_uring_setup",
+    "io_uring_enter",
+)
+META = {"clone", "clone3", "fork", "vfork", "execve", "execveat", "chdir", "fchdir",
+        "munmap", "msync", "io_uring_setup"}
+GAPS = {"mmap", "io_uring_enter"}
+MUTATIONS = set(TRACE_SET) - META - GAPS - {"openat", "openat2"}
+COVERAGE_MATRIX = {name: ("coverage_gap_UNKNOWN" if name in GAPS else
+                          "parsed_metadata" if name in META else
+                          "parsed_mutation") for name in TRACE_SET}
+BLIND_SPOTS = [
+    "MAP_SHARED writes and io_uring cannot be fully attributed",
+    "processes outside the launched descendant tree are invisible",
+    "successful syscalls do not prove durable media persistence",
+    "syscalls absent from the declared trace set are outside schema v1",
+    "paths are syscall-time namespace views, not inode histories",
+    "payload bytes are deliberately absent",
+    "ptrace overhead invalidates timing conclusions",
+    "containers and remote filesystems may hide the ultimate writer",
+]
+
+
+def coverage_document():
+    return {"schema": SCHEMA, "trace_set": list(TRACE_SET), "policies": dict(COVERAGE_MATRIX)}
+
+
+def _utc():
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _split_args(text):
+    out, start, quote, esc, angle, brace, bracket, paren = [], 0, False, False, 0, 0, 0, 0
+    for i, char in enumerate(text):
+        if quote:
+            if esc:
+                esc = False
+            elif char == "\\":
+                esc = True
+            elif char == '"':
+                quote = False
+            continue
+        if char == '"': quote = True
+        elif char == "<": angle += 1
+        elif char == ">" and angle: angle -= 1
+        elif char == "{": brace += 1
+        elif char == "}": brace -= 1
+        elif char == "[": bracket += 1
+        elif char == "]": bracket -= 1
+        elif char == "(": paren += 1
+        elif char == ")": paren -= 1
+        elif char == "," and not (angle or brace or bracket or paren):
+            out.append(text[start:i].strip()); start = i + 1
+    out.append(text[start:].strip())
+    return out
+
+
+def _cstring(token):
+    token = token.strip()
+    if not token.startswith('"'):
+        return token
+    end, esc = None, False
+    for i in range(1, len(token)):
+        if esc: esc = False
+        elif token[i] == "\\": esc = True
+        elif token[i] == '"': end = i; break
+    raw = token[1:end] if end is not None else token[1:]
+    def repl(match):
+        value = match.group(1)
+        if value and value[0].isdigit(): return chr(int(value, 8))
+        return {"n": "\n", "t": "\t", "r": "\r"}.get(value, value)
+    return re.sub(r"\\([0-7]{1,3}|.)", repl, raw)
+
+
+def _annotation(token):
+    match = re.search(r"<((?:\\.|[^>])*)>", token)
+    return _cstring('"' + match.group(1) + '"') if match else None
+
+
+def _retval(text):
+    match = re.search(r"=\s+(-?\d+|0x[0-9a-f]+|\?)\s*(?:([A-Z][A-Z0-9_]+))?", text)
+    if not match: return None, None
+    raw, errno = match.groups()
+    return (int(raw, 0) if raw != "?" else None), errno
+
+
+def _resolve(token, cwd):
+    raw = _cstring(token)
+    annotated = _annotation(token)
+    if annotated:
+        return annotated, raw, "fd-annotation"
+    if token.startswith('"'):
+        if raw.startswith("/"): return os.path.normpath(raw), raw, "absolute"
+        if cwd: return os.path.normpath(os.path.join(cwd, raw)), raw, "cwd-resolved"
+    return None, raw, "unresolved"
+
+
+def _resolve_at(dirfd, path, cwd):
+    raw = _cstring(path)
+    if raw.startswith("/"): return os.path.normpath(raw), raw, "absolute"
+    base = _annotation(dirfd) or (cwd if dirfd.startswith("AT_FDCWD") else None)
+    if base: return os.path.normpath(os.path.join(base, raw)), raw, "fd-annotation"
+    return None, raw, "unresolved"
+
+
+def _requested(name, args):
+    indexes = {"write": 2, "pwrite64": 2, "sendfile": 3, "copy_file_range": 4,
+               "splice": 4}
+    if name in {"writev", "pwritev", "pwritev2"}:
+        return sum(int(x) for x in re.findall(r"iov_len=(\d+)", args[1]))
+    try: return int(args[indexes[name]], 0)
+    except (KeyError, IndexError, ValueError): return None
+
+
+def _path_fields(name, args, cwd):
+    fdidx = {"write": 0, "pwrite64": 0, "writev": 0, "pwritev": 0, "pwritev2": 0,
+             "ftruncate": 0, "fallocate": 0, "sendfile": 0, "copy_file_range": 2,
+             "splice": 2, "fchmod": 0, "fchown": 0, "fchdir": 0}
+    if name in fdidx: return (*_resolve(args[fdidx[name]], cwd), None, None, None)
+    at_one = {"openat", "openat2", "unlinkat", "mkdirat", "fchmodat", "fchownat"}
+    if name in at_one: return (*_resolve_at(args[0], args[1], cwd), None, None, None)
+    if name in {"renameat", "renameat2", "linkat"}:
+        a = _resolve_at(args[0], args[1], cwd); b = _resolve_at(args[2], args[3], cwd)
+        return (*a, *b)
+    if name == "symlinkat":
+        b = _resolve_at(args[1], args[2], cwd); return b[0], b[1], b[2], _cstring(args[0]), _cstring(args[0]), "literal"
+    if name in {"rename", "link"}:
+        a = _resolve(args[0], cwd); b = _resolve(args[1], cwd); return (*a, *b)
+    if name == "symlink":
+        b = _resolve(args[1], cwd); return b[0], b[1], b[2], _cstring(args[0]), _cstring(args[0]), "literal"
+    if args: return (*_resolve(args[0], cwd), None, None, None)
+    return None, None, "unresolved", None, None, None
+
+
+def _parse_call(pid, name, args_text, tail, cwd, roots, root_pid, split=False, status="complete"):
+    args = _split_args(args_text); retval, errno = _retval(tail)
+    success = retval is not None and retval >= 0
+    path, raw, source, target, target_raw, target_source = _path_fields(name, args, cwd)
+    flags = []
+    if name in {"openat", "openat2"}:
+        flag_text = args[2] if name == "openat" else (args[2] if len(args) > 2 else "")
+        if name == "openat2":
+            match = re.search(r"flags=([^,}]+)", flag_text); flag_text = match.group(1) if match else ""
+        flags = re.findall(r"O_[A-Z0-9_]+", flag_text)
+    elif name == "creat": flags = ["O_WRONLY", "O_CREAT", "O_TRUNC"]
+    if name in GAPS: operation = "coverage_gap"
+    elif name in META: operation = "metadata"
+    elif name in {"openat", "openat2"}: operation = "open_mutation" if set(flags) & {"O_CREAT", "O_EXCL", "O_TRUNC"} else "metadata"
+    elif name == "creat": operation = "open_mutation"
+    else: operation = name
+    requested = _requested(name, args)
+    event = {"schema": SCHEMA, "record_type": "event", "seq": 0, "pid": pid, "root_pid": root_pid,
+             "syscall": name, "operation": operation, "operation_count": 1, "success": success,
+             "retval": retval, "errno": errno, "path": path, "path_raw": raw, "path_source": source,
+             "target_path": target, "target_path_raw": target_raw, "target_path_source": target_source,
+             "requested_bytes": requested, "written_bytes": retval if success and requested is not None else None,
+             "flags": flags, "mode": None, "in_root": bool(path and any(path == r or path.startswith(r + os.sep) for r in roots)),
+             "status": status, "split": split}
+    return event
+
 
 def parse_trace(text, launch_cwd="/", roots=(), max_events=1000000, root_pid=None):
-    """Naive semantic skeleton: enough interface for defect-specific RED tests."""
-    events = []
-    for line in text.splitlines():
-        if "write(" in line:
-            events.append({"schema": SCHEMA, "record_type": "event", "seq": len(events)+1,
-                           "syscall": "write", "operation": "write", "success": " = -1 " not in line})
-        elif "openat(" in line:
-            events.append({"schema": SCHEMA, "record_type": "event", "seq": len(events)+1,
-                           "syscall": "openat", "operation": "metadata", "success": " = -1 " not in line})
-    return events, {"events": len(events), "complete": True, "result": "PASS",
-                    "successful_mutations": sum(e["operation"] != "metadata" and e["success"] for e in events)}
+    roots = tuple(os.path.abspath(r) for r in roots); cwd = {}; shared = {}; pending = {}; events = []
+    failures = unpaired = 0; terminal = {}; gaps = set(); pids = set(); truncated = False
+    lines = text.splitlines()
+    order = 0
+    for rawline in lines:
+        match = re.match(r"\s*(\d+)\s+(.*)", rawline)
+        if not match: continue
+        pid, body = int(match.group(1)), match.group(2); pids.add(pid)
+        if root_pid is None: root_pid = pid
+        cwd.setdefault(pid, launch_cwd); shared.setdefault(pid, {pid})
+        term = re.match(r"\+\+\+ (exited with (\d+)|killed by (SIG[A-Z0-9]+)) \+\+\+", body)
+        if term:
+            terminal[pid] = {"how": "exited", "code": int(term.group(2))} if term.group(2) else {"how": "signalled", "signal": term.group(3), "code": 128 + getattr(signal, term.group(3), 0)}
+            continue
+        resumed = re.match(r"<\.\.\. ([a-zA-Z0-9_]+) resumed>\)(.*)", body)
+        if resumed:
+            if pid not in pending:
+                unpaired += 1; failures += 1; continue
+            name, args_text, event_order = pending.pop(pid)
+            event = _parse_call(pid, name, args_text, resumed.group(2), cwd[pid], roots, root_pid, True)
+            event["_order"] = event_order
+        else:
+            call = re.match(r"([a-zA-Z0-9_]+)\((.*)", body)
+            if not call: continue
+            name, rest = call.groups()
+            if rest.endswith("<unfinished ...>"):
+                order += 1
+                pending[pid] = (name, rest[:-len("<unfinished ...>")].rstrip(), order); continue
+            boundary = re.search(r"\)\s+=\s+", rest)
+            close = boundary.start() if boundary else -1
+            if close < 0 and rest.endswith(")"): close = len(rest) - 1
+            if close < 0: failures += 1; continue
+            event = _parse_call(pid, name, rest[:close], rest[close+1:], cwd[pid], roots, root_pid)
+            order += 1; event["_order"] = order
+        name = event["syscall"]
+        if name in {"clone", "clone3", "fork", "vfork"} and event["success"]:
+            child = event["retval"]; cwd[child] = cwd[pid]; pids.add(child)
+            flags = event["path_raw"] or ""
+            if "CLONE_FS" in flags:
+                group = shared[pid]; group.add(child); shared[child] = group
+            else: shared[child] = {child}
+        if name == "chdir" and event["success"] and event["path"]:
+            for member in shared[pid]: cwd[member] = event["path"]
+        if name == "fchdir" and event["success"] and event["path"]:
+            for member in shared[pid]: cwd[member] = event["path"]
+        if name == "mmap" and event["success"]:
+            args = _split_args(rest[:rest.rfind(")")]) if not resumed else []
+            if any("MAP_SHARED" in a for a in args) and any("PROT_WRITE" in a for a in args): gaps.add("mmap_shared_write")
+        if name == "io_uring_enter": gaps.add("io_uring")
+        event["seq"] = len(events) + 1; events.append(event)
+        if len(events) >= max_events: truncated = True; break
+    for pid, (name, args_text, event_order) in pending.items():
+        event = _parse_call(pid, name, args_text, "", cwd[pid], roots, root_pid, True, "unfinished")
+        event["_order"] = event_order; events.append(event)
+    events.sort(key=lambda item: item.pop("_order", 10**12))
+    for index, event in enumerate(events, 1): event["seq"] = index
+    unfinished = len(pending)
+    successful = [e for e in events if e["success"] and e["operation"] not in {"metadata", "coverage_gap"}]
+    complete = not (failures or unpaired or unfinished or truncated or gaps) and (not text or root_pid in terminal)
+    footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": len(events)+2, "events": len(events),
+              "successful_mutations": len(successful), "requested_bytes": sum(e["requested_bytes"] or 0 for e in successful),
+              "written_bytes": sum(e["written_bytes"] or 0 for e in successful), "pids_seen": len(pids),
+              "unfinished_at_eof": unfinished, "unpaired_resumed": unpaired, "parse_failures": failures,
+              "truncated": truncated, "coverage_gaps": sorted(gaps), "root_exit": terminal.get(root_pid),
+              "complete": complete, "result": "PASS" if complete else "UNKNOWN", "blind_spots": BLIND_SPOTS}
+    return events, footer
+
 
 def build_strace_argv(strace, trace, command):
     return [strace, "-f", "-y", "-s", "0", "-o", trace, "-e", "trace=" + ",".join(TRACE_SET), "--", *command]
 
+
+def _header(command, cwd, roots, strace_path=None, version=None, max_events=1000000):
+    return {"schema": SCHEMA, "record_type": "run_header", "seq": 1, "host": socket.gethostname(),
+            "argv": command, "launch_cwd": cwd, "roots": list(roots), "strace_path": strace_path,
+            "strace_version": version, "trace_set": list(TRACE_SET), "kernel": platform.release(),
+            "ptrace_scope": _ptrace_scope(), "started_utc": _utc(), "max_events": max_events,
+            "blind_spots": BLIND_SPOTS}
+
+
+def _ptrace_scope():
+    try: return int(Path("/proc/sys/kernel/yama/ptrace_scope").read_text().strip())
+    except (OSError, ValueError): return None
+
+
+def _outside_git(path):
+    parent = path.resolve().parent
+    probe = subprocess.run(["git", "-C", str(parent), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return probe.returncode != 0
+
+
+def _write_evidence(out, header, events, footer):
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix="." + out.name + ".", dir=out.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as sink:
+            for record in [header, *events, footer]: sink.write(json.dumps(record, sort_keys=True) + "\n")
+            sink.flush(); os.fsync(sink.fileno())
+        os.replace(temp, out)
+    finally:
+        try: os.unlink(temp)
+        except FileNotFoundError: pass
+
+
+def _summary(footer, raw_bytes=0, raw_limit=False):
+    return {k: footer[k] for k in ("result", "complete", "events", "successful_mutations", "written_bytes", "coverage_gaps")} | {"raw_bytes": raw_bytes, "raw_limit_exceeded": raw_limit, "blind_spots": BLIND_SPOTS}
+
+
+def _live(args):
+    out = Path(args.out)
+    if not _outside_git(out): raise ValueError("--out must be outside every Git worktree")
+    strace = os.path.abspath(args.strace or shutil.which("strace") or "")
+    header = _header(args.command, os.getcwd(), args.root, strace, None, args.max_events)
+    if not strace or not os.path.isfile(strace) or not sys.platform.startswith("linux") or (_ptrace_scope() or 0) >= 2:
+        footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": 2, "events": 0, "successful_mutations": 0,
+                  "written_bytes": 0, "coverage_gaps": [], "complete": False, "result": "UNKNOWN", "root_exit": None,
+                  "blind_spots": BLIND_SPOTS}; _write_evidence(out, header, [], footer); return footer, 0, False
+    raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent)); trace = raw_dir / "trace"
+    proc = subprocess.Popen(build_strace_argv(strace, str(trace), args.command), start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    exceeded = False; deadline = time.monotonic() + args.max_seconds
+    try:
+        while proc.poll() is None:
+            size = trace.stat().st_size if trace.exists() else 0
+            if size > args.max_raw_bytes or time.monotonic() > deadline:
+                exceeded = True; os.killpg(proc.pid, signal.SIGTERM)
+                try: proc.wait(timeout=1)
+                except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL); proc.wait(timeout=2)
+                break
+            time.sleep(.01)
+        raw = trace.read_text(encoding="utf-8", errors="replace") if trace.exists() else ""
+        per_pid = {}
+        for line in raw.splitlines(keepends=True):
+            match = re.match(r"\s*(\d+)\s+", line)
+            if match: per_pid.setdefault(match.group(1), []).append(line)
+        for pid, pid_lines in per_pid.items():
+            (raw_dir / (pid + ".strace")).write_text("".join(pid_lines), encoding="utf-8")
+        events, footer = parse_trace(raw, os.getcwd(), args.root, args.max_events)
+        footer["ended_utc"] = _utc(); footer["raw_log_dir"] = str(raw_dir)
+        raw_bytes = len(raw.encode())
+        if exceeded:
+            footer.update(complete=False, result="UNKNOWN", raw_limit_exceeded=True)
+        header["raw_log_dir"] = str(raw_dir)
+        _write_evidence(out, header, events, footer)
+        return footer, raw_bytes, exceeded
+    except BaseException:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL); proc.wait()
+        raise
+
+
+def _parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--parse", metavar="TRACE"); parser.add_argument("--out")
+    parser.add_argument("--launch-cwd", default=os.getcwd()); parser.add_argument("--root", action="append", default=[])
+    parser.add_argument("--exit-mode", choices=("child", "recorder"), default="child")
+    parser.add_argument("--max-events", type=int, default=1000000); parser.add_argument("--max-raw-bytes", type=int, default=64*1024*1024)
+    parser.add_argument("--max-seconds", type=float, default=86400); parser.add_argument("--strace")
+    parser.add_argument("--coverage-matrix", action="store_true"); parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--json", action="store_true"); parser.add_argument("command", nargs=argparse.REMAINDER)
+    return parser
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--parse")
-    parser.add_argument("--out")
-    parser.add_argument("--coverage-matrix", action="store_true")
-    parser.add_argument("--selftest", action="store_true")
-    parser.add_argument("--json", action="store_true")
-    parser.add_argument("command", nargs="*")
-    args = parser.parse_args(argv)
-    if args.coverage_matrix:
-        print(json.dumps({"schema": SCHEMA, "trace_set": list(TRACE_SET), "policies": COVERAGE_MATRIX}, sort_keys=True))
-        return 0
+    args = _parser().parse_args(argv)
+    if args.coverage_matrix: print(json.dumps(coverage_document(), sort_keys=True)); return 0
     if args.selftest:
-        print("SELFTEST PASS")
-        return 0
-    if args.parse:
-        events, summary = parse_trace(open(args.parse, encoding="utf-8").read(), os.getcwd())
-        if args.out:
-            with open(args.out, "w", encoding="utf-8") as sink:
-                for event in events:
-                    sink.write(json.dumps(event, sort_keys=True) + "\n")
+        assert _split_args('3</a b>, "x,y", [1,2]') == ['3</a b>', '"x,y"', '[1,2]']
+        print("SELFTEST PASS"); return 0
+    if not args.out: print("UNKNOWN: --out is required", file=sys.stderr); return 2
+    try:
+        if args.parse:
+            text = Path(args.parse).read_text(encoding="utf-8"); events, footer = parse_trace(text, args.launch_cwd, args.root, args.max_events)
+            header = _header([], args.launch_cwd, args.root, None, None, args.max_events); _write_evidence(Path(args.out), header, events, footer)
+            raw_bytes, exceeded = len(text.encode()), False
+        else:
+            if not args.command or args.command[0] != "--" or len(args.command) == 1: raise ValueError("live mode requires -- COMMAND")
+            args.command = args.command[1:]; footer, raw_bytes, exceeded = _live(args)
+        summary = _summary(footer, raw_bytes, exceeded)
         print(json.dumps(summary, sort_keys=True) if args.json else summary["result"])
-        return 0
-    return 2
+        if args.exit_mode == "recorder": return 0 if footer["complete"] else 2
+        root = footer.get("root_exit")
+        return root.get("code", 125) if footer["complete"] and root else 125
+    except (OSError, ValueError) as exc:
+        print(json.dumps({"result": "UNKNOWN", "error": str(exc)}) if args.json else "UNKNOWN: " + str(exc))
+        return 2 if args.exit_mode == "recorder" else 125
+
 
 if __name__ == "__main__":
     sys.exit(main())

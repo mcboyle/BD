@@ -31,15 +31,15 @@ def _parse(name: str):
 def test_create_truncate_opens_are_one_mutation_operation_and_failures_are_attempts():
     events, footer = _parse("opens.strace")
     opens = [e for e in events if e["syscall"] in {"openat", "openat2", "creat"}]
-    assert len(opens) == 9
+    assert len(opens) == 11
     assert [e["operation"] for e in opens] == [
         "open_mutation", "open_mutation", "open_mutation", "open_mutation",
-        "open_mutation", "open_mutation", "open_mutation", "open_mutation", "metadata",
+        "open_mutation", "open_mutation", "open_mutation", "open_mutation", "open_mutation", "open_mutation", "metadata",
     ]
-    assert [e["success"] for e in opens] == [True, False, True, False, True, False, True, False, True]
+    assert [e["success"] for e in opens] == [True, False, True, False, True, False, True, True, False, True, True]
     assert opens[0]["flags"] == ["O_WRONLY", "O_CREAT", "O_TRUNC"]
     assert opens[0]["operation_count"] == 1  # schema pin: one syscall is one operation
-    assert footer["successful_mutations"] == 4
+    assert footer["successful_mutations"] == 6
 
 
 def test_trace_set_has_exactly_one_machine_readable_policy_and_real_oracles():
@@ -84,7 +84,7 @@ def test_reverse_resumes_process_trees_paths_renames_and_unknown_gaps():
         (102, "/work/fork/a file", 3, True), (101, "/work/thread/b", 2, True)
     ]
     rename = next(e for e in events if e["syscall"] == "rename")
-    assert (rename["path"], rename["target_path"]) == ("/work/a>b", "/work/c>d")
+    assert (rename["path"], rename["target_path"]) == ("/work/thread/a>b", "/work/thread/c>d")
     assert footer["coverage_gaps"] == ["io_uring", "mmap_shared_write"]
     assert footer["complete"] is False and footer["result"] == "UNKNOWN"
 
