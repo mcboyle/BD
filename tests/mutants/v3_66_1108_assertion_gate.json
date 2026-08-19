@@ -44,10 +44,51 @@
     {
       "label": "unreachable-assert detection disabled",
       "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
-      "old": "                if isinstance(st, _TERMINATORS):",
+      "old": "                if isinstance(statement, _TERMINATORS):",
       "new": "                if False:",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_it_finds_an_unreachable_assert"
+    },
+    {
+      "label": "conventional NoReturn recognition disabled",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    return pair[0] if pair in _NORETURN_CALLS else None",
+      "new": "    return None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable"
+    },
+    {
+      "label": "lexical rebinding refusal removed (reachable tail called dead)",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "                    elif root in bindings:\n                        metrics[\"noreturn_calls_excluded_rebound\"] += 1",
+      "new": "                    elif False:\n                        metrics[\"noreturn_calls_excluded_rebound\"] += 1",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_lexically_rebound_roots_are_refused_for_their_distinctive_reason",
+      "preserves": [
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable"
+      ]
+    },
+    {
+      "label": "catchable try refusal removed",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "                    if catchable:\n                        metrics[\"noreturn_calls_excluded_catchable\"] += 1",
+      "new": "                    if False:\n                        metrics[\"noreturn_calls_excluded_catchable\"] += 1",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries",
+      "preserves": [
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable"
+      ]
+    },
+    {
+      "label": "dead-tail collection descends into deferred definitions",
+      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+      "old": "    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,\n                         ast.Lambda)):\n        return []",
+      "new": "    if False:\n        return []",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_dead_tails_are_walked_without_executing_nested_definitions",
+      "preserves": [
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable"
+      ]
     },
     {
       "label": "boolean-context walk stops descending (the @1098 shape goes blind)",
