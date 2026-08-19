@@ -216,6 +216,7 @@ fi
 # A prompt that blocked an unattended run would turn a capture into a hang.
 CAPTURE_VAULT=0
 CAPTURE_VAULT_LOCK_FD=""
+CAPTURE_VAULT_GLOBAL_DIR_FD=""
 CAPTURE_VAULT_DIR_FD=""
 CAPTURE_VAULT_DIR_LOCK_FD=""
 # DO NOT CLOBBER AN INHERITED VALUE. This line was a bare
@@ -231,21 +232,95 @@ CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"
 CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-vault.conf"
 
 capture_vault_claim() {
-  local lock="${CAPTURE_VAULT_GLOBAL_LOCK:-/tmp/bd_capture_vault.lock}"
+  local lock="${CAPTURE_VAULT_GLOBAL_LOCK:-/tmp/bd-capture-${EUID}/capture-vault.lock}"
+  local lock_dir="${lock%/*}"
+  local lock_name="${lock##*/}"
+  local lock_fd_path dir_before dir_after file_before file_after
+  local dev ino owner mode links mode_bits
   local holder="unknown"
-  if ! exec {CAPTURE_VAULT_LOCK_FD}<>"$lock"; then
-    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: cannot open singleton lock $lock" >&2
+
+  capture_vault_global_refuse() {
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: $1: $lock" >&2
+    [ -z "$CAPTURE_VAULT_LOCK_FD" ] || { exec {CAPTURE_VAULT_LOCK_FD}>&-; CAPTURE_VAULT_LOCK_FD=""; }
+    [ -z "$CAPTURE_VAULT_GLOBAL_DIR_FD" ] || { exec {CAPTURE_VAULT_GLOBAL_DIR_FD}>&-; CAPTURE_VAULT_GLOBAL_DIR_FD=""; }
+    return 73
+  }
+
+  case "$lock" in
+    /*) ;;
+    *) capture_vault_global_refuse "singleton lock path must be absolute"; return 73 ;;
+  esac
+  case "$lock_name" in
+    ''|.|..) capture_vault_global_refuse "singleton lock name is invalid"; return 73 ;;
+  esac
+
+  if [ -z "${CAPTURE_VAULT_GLOBAL_LOCK+x}" ] && [ ! -d "$lock_dir" ]; then
+    (umask 077; mkdir -- "$lock_dir") 2>/dev/null || true
+  fi
+  dir_before=$(stat -c '%d:%i:%u:%a:%f' -- "$lock_dir" 2>/dev/null) || {
+    capture_vault_global_refuse "singleton lock directory is unavailable"
+    return 73
+  }
+  IFS=: read -r dev ino owner mode mode_bits <<<"$dir_before"
+  if [ $((16#$mode_bits & 0170000)) -ne $((0040000)) ] || \
+     [ "$owner" != "$EUID" ] || [ "$mode" != 700 ]; then
+    capture_vault_global_refuse "singleton lock directory must be a real owner-only directory"
     return 73
   fi
+  if ! exec {CAPTURE_VAULT_GLOBAL_DIR_FD}<"$lock_dir/."; then
+    capture_vault_global_refuse "cannot bind singleton lock directory"
+    return 73
+  fi
+  dir_after=$(stat -Lc '%d:%i:%u:%a:%f' -- "/proc/self/fd/$CAPTURE_VAULT_GLOBAL_DIR_FD" 2>/dev/null) || {
+    capture_vault_global_refuse "cannot verify singleton lock directory descriptor"
+    return 73
+  }
+  if [ "$dir_after" != "$dir_before" ]; then
+    capture_vault_global_refuse "singleton lock directory identity changed"
+    return 73
+  fi
+
+  lock_fd_path="/proc/self/fd/$CAPTURE_VAULT_GLOBAL_DIR_FD/$lock_name"
+  if ! stat -c '%d:%i:%u:%a:%h:%f' -- "$lock_fd_path" >/dev/null 2>&1; then
+    (umask 077; set -o noclobber; : >"$lock_fd_path") 2>/dev/null || true
+  fi
+  file_before=$(stat -c '%d:%i:%u:%a:%h:%f' -- "$lock_fd_path" 2>/dev/null) || {
+    capture_vault_global_refuse "singleton lock file is unavailable"
+    return 73
+  }
+  IFS=: read -r dev ino owner mode links mode_bits <<<"$file_before"
+  if [ $((16#$mode_bits & 0170000)) -ne $((0100000)) ]; then
+    capture_vault_global_refuse "singleton lock must be a regular file"
+    return 73
+  fi
+  if [ "$owner" != "$EUID" ] || [ "$mode" != 600 ] || [ "$links" != 1 ]; then
+    capture_vault_global_refuse "singleton lock must be owner-only with one name"
+    return 73
+  fi
+  if ! exec {CAPTURE_VAULT_LOCK_FD}<>"$lock_fd_path"; then
+    capture_vault_global_refuse "cannot open singleton lock descriptor"
+    return 73
+  fi
+  file_after=$(stat -Lc '%d:%i:%u:%a:%h:%f' -- "/proc/self/fd/$CAPTURE_VAULT_LOCK_FD" 2>/dev/null) || {
+    capture_vault_global_refuse "cannot verify singleton lock descriptor"
+    return 73
+  }
+  if [ "$file_after" != "$file_before" ]; then
+    capture_vault_global_refuse "singleton lock identity changed during open"
+    return 73
+  fi
+  exec {CAPTURE_VAULT_GLOBAL_DIR_FD}>&-
+  CAPTURE_VAULT_GLOBAL_DIR_FD=""
+
   if ! flock -n "$CAPTURE_VAULT_LOCK_FD"; then
-    holder=$(sed -n '1{s/[^0-9].*$//;p;q}' "$lock" 2>/dev/null || true)
-    [ -n "$holder" ] || holder="unknown"
+    read -r holder _ <&"$CAPTURE_VAULT_LOCK_FD" || holder="unknown"
+    case "$holder" in ''|*[!0-9]*) holder="unknown" ;; esac
     echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: another capture owns the singleton service/drop-in; holder_pid=$holder; inspect with: ps -fp $holder; fuser $lock" >&2
     exec {CAPTURE_VAULT_LOCK_FD}>&-
     CAPTURE_VAULT_LOCK_FD=""
     return 73
   fi
-  if ! printf '%s\n' "$$" >"$lock"; then
+  if ! printf '%-32s\n' "$$" >&"$CAPTURE_VAULT_LOCK_FD"; then
     echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: cannot publish holder pid to $lock" >&2
     exec {CAPTURE_VAULT_LOCK_FD}>&-; CAPTURE_VAULT_LOCK_FD=""
     return 73

@@ -64,12 +64,19 @@ run_with_heartbeat() {
   local label="$1"
   local logfile="$2"
   shift 2
-  local started pid elapsed last_report
+  local started pid elapsed last_report inherited_close_fd=""
   started=$(date +%s)
   last_report=$started
-  if [ -n "${BD_HEARTBEAT_CLOSE_FD:-}" ]; then
-    setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
-      bd-close-fd-exec "$BD_HEARTBEAT_CLOSE_FD" "$@" > "$logfile" 2>&1 &
+  case "${BD_HEARTBEAT_CLOSE_FD:-}" in
+    '') ;;
+    *[!0-9]*)
+      printf 'run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\n' >&2
+      ;;
+    *) inherited_close_fd="$BD_HEARTBEAT_CLOSE_FD" ;;
+  esac
+  if [ -n "$inherited_close_fd" ]; then
+    setsid bash -c 'fd=$1; shift; exec {fd}>&-; exec "$@"' \
+      bd-close-fd-exec "$inherited_close_fd" "$@" > "$logfile" 2>&1 &
   else
     setsid "$@" > "$logfile" 2>&1 &
   fi

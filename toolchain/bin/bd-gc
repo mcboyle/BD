@@ -55,6 +55,22 @@ DURABLE_STATES = (
 CAPTURE_VAULT_LOCK = ".bd-capture-vault.lock"
 
 
+def _open_regular_lock(path, not_regular):
+    """Open and validate a lock, closing it whenever validation raises."""
+    lock_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        lock_st = os.fstat(lock_fd)
+        if not stat.S_ISREG(lock_st.st_mode):
+            raise OSError(not_regular)
+        return lock_fd, lock_st
+    except BaseException:
+        try:
+            os.close(lock_fd)
+        except OSError:
+            pass
+        raise
+
+
 def _capture_vault_state(path, now):
     try:
         root_st = os.lstat(path)
@@ -65,11 +81,9 @@ def _capture_vault_state(path, now):
                 not os.path.lexists(os.path.join(path, CAPTURE_VAULT_LOCK))):
             return ("RECLAIMABLE", root_st.st_mtime,
                     "interrupted authenticated vault removal residue")
-        lock_fd = os.open(
+        lock_fd, _lock_st = _open_regular_lock(
             os.path.join(path, CAPTURE_VAULT_LOCK),
-            os.O_RDONLY | os.O_NOFOLLOW)
-        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
-            raise OSError("capture-vault lock is not a regular file")
+            "capture-vault lock is not a regular file")
     except OSError as exc:
         return "UNKNOWN", None, "vault lock cannot be evaluated (%s)" % exc
     acquired = False
@@ -124,11 +138,9 @@ def _test_root_state(path, now):
                 not os.path.lexists(os.path.join(path, RUN_MARKER))):
             return ("RECLAIMABLE", root_st.st_mtime,
                     "interrupted object-bound removal residue")
-        lock_fd = os.open(
-            os.path.join(path, RUN_LOCK), os.O_RDONLY | os.O_NOFOLLOW)
-        lock_st = os.fstat(lock_fd)
-        if not stat.S_ISREG(lock_st.st_mode):
-            raise OSError("run-root lock is not a regular file")
+        lock_fd, lock_st = _open_regular_lock(
+            os.path.join(path, RUN_LOCK),
+            "run-root lock is not a regular file")
     except OSError as exc:
         return "UNKNOWN", None, "lock cannot be evaluated (%s)" % exc
     acquired = False

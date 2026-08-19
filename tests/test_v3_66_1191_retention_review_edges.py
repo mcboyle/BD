@@ -220,6 +220,106 @@ def test_terminal_publish_reopens_a_lost_root_descriptor():
             shutil.rmtree(root)
 
 
+def test_clean_refusal_republishes_through_the_reopened_root_descriptor(
+        monkeypatch):
+    script = (
+        "import os, _tmproot\n"
+        "root = _tmproot.install()\n"
+        "os.close(_tmproot._ROOT_FD)\n"
+        "_tmproot._ROOT_FD = None; _tmproot._ROOT_FD_PATH = None\n"
+        "def refuse(*a, **k):\n"
+        "    os.unlink(root + '/.bd-testrun')\n"
+        "    os.unlink(root + '/.bd-testrun.lock')\n"
+        "    return False\n"
+        "_tmproot._force_rmtree = refuse\n"
+        "print('REMOVED', _tmproot.finish(0))\n"
+        "print('ROOT', root)\n"
+    )
+    env = dict(os.environ, PYTHONPATH=str(REPO / "tests"))
+    env.pop("KEEP_TEST_TMPDIRS", None)
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO, env=env,
+                            text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    root = Path(next(line.split(" ", 1)[1] for line in result.stdout.splitlines()
+                     if line.startswith("ROOT ")))
+    try:
+        gc = _load("bd_gc_1191_lost_fd_refusal", GC_PATH)
+        monkeypatch.setattr(gc, "PREFIXES", (str(root.parent / "bd-testrun-"),))
+        ok, why = gc.is_candidate(root, time.time(), 60)
+        assert not ok and "RECLAIMABLE" in why and "UNKNOWN" not in why
+    finally:
+        if root.exists():
+            import shutil
+            shutil.rmtree(root)
+
+
+def _assert_bd_gc_closes_lock_fd_on_post_open_error(
+        tmp_path, monkeypatch, state_fn, lock_name, failure):
+    gc = _load("bd_gc_1191_close_%s_%s" %
+               (state_fn.strip("_"), failure.replace("-", "_")))
+    root = tmp_path / ("bd_capture_vault-case" if "capture" in state_fn
+                       else "bd-testrun-case")
+    root.mkdir()
+    lock = root / lock_name
+    if failure == "non-regular":
+        lock.mkdir()
+    else:
+        lock.touch()
+
+    real_open, real_fstat = gc.os.open, gc.os.fstat
+    opened = []
+
+    def recording_open(path, *args, **kwargs):
+        fd = real_open(path, *args, **kwargs)
+        if os.fspath(path) == str(lock):
+            opened.append(fd)
+        return fd
+
+    def injected_fstat(fd):
+        if failure == "fstat" and fd in opened:
+            raise OSError(errno.EIO, "injected fstat failure")
+        return real_fstat(fd)
+
+    monkeypatch.setattr(gc.os, "open", recording_open)
+    monkeypatch.setattr(gc.os, "fstat", injected_fstat)
+    state, _stamp, _why = getattr(gc, state_fn)(root, time.time())
+    assert state == "UNKNOWN"
+    assert len(opened) == 1
+    try:
+        with pytest.raises(OSError, match="Bad file descriptor"):
+            real_fstat(opened[0])
+    finally:
+        try:
+            os.close(opened[0])
+        except OSError:
+            pass
+
+
+def test_bd_gc_closes_capture_lock_fd_when_fstat_fails(tmp_path, monkeypatch):
+    _assert_bd_gc_closes_lock_fd_on_post_open_error(
+        tmp_path, monkeypatch, "_capture_vault_state",
+        ".bd-capture-vault.lock", "fstat")
+
+
+def test_bd_gc_closes_test_root_lock_fd_when_fstat_fails(tmp_path, monkeypatch):
+    _assert_bd_gc_closes_lock_fd_on_post_open_error(
+        tmp_path, monkeypatch, "_test_root_state", ".bd-testrun.lock", "fstat")
+
+
+def test_bd_gc_closes_capture_lock_fd_when_it_is_not_regular(
+        tmp_path, monkeypatch):
+    _assert_bd_gc_closes_lock_fd_on_post_open_error(
+        tmp_path, monkeypatch, "_capture_vault_state",
+        ".bd-capture-vault.lock", "non-regular")
+
+
+def test_bd_gc_closes_test_root_lock_fd_when_it_is_not_regular(
+        tmp_path, monkeypatch):
+    _assert_bd_gc_closes_lock_fd_on_post_open_error(
+        tmp_path, monkeypatch, "_test_root_state", ".bd-testrun.lock",
+        "non-regular")
+
+
 def test_a_skipped_terminal_publish_is_never_silent():
     script = (
         "import _tmproot\n"

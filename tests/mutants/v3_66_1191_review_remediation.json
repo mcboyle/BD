@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Review-remediation authority checks. Re-run only in a disposable scratch checkout: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1191_review_remediation.json",
+  "subject": "v3.66.1191 -- descriptor-bound capture ownership and durable retention refusal",
+  "band": [
+    "tests/test_v3_66_1191_retention_review_edges.py",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py"
+  ],
+  "mutants": [
+    {
+      "label": "holder PID publication reopens the replaceable lock pathname",
+      "file": "capture.sh",
+      "old": "if ! printf '%-32s\\n' \"$$\" >&\"$CAPTURE_VAULT_LOCK_FD\"; then",
+      "new": "if ! printf '%-32s\\n' \"$$\" >\"$lock\"; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_holder_pid_publication_stays_bound_to_the_locked_descriptor"
+    },
+    {
+      "label": "peer-writable directories are accepted as singleton authority",
+      "file": "capture.sh",
+      "old": "if [ $((16#$mode_bits & 0170000)) -ne $((0040000)) ] || \\\n     [ \"$owner\" != \"$EUID\" ] || [ \"$mode\" != 700 ]; then",
+      "new": "if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_singleton_refuses_a_lock_in_a_peer_writable_directory"
+    },
+    {
+      "label": "clean refusal falls back to the lost original root descriptor",
+      "file": "tests/_tmproot.py",
+      "old": "if not ok and record_fd is not None:",
+      "new": "if not ok and fd is not None:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_clean_refusal_republishes_through_the_reopened_root_descriptor"
+    },
+    {
+      "label": "bd-gc leaves a validated-open lock descriptor behind on error",
+      "file": "toolchain/bin/bd-gc",
+      "old": "    except BaseException:\n        try:\n            os.close(lock_fd)\n        except OSError:\n            pass\n        raise",
+      "new": "    except BaseException:\n        raise",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_retention_review_edges.py::test_bd_gc_closes_capture_lock_fd_when_fstat_fails"
+    },
+    {
+      "label": "heartbeat accepts non-decimal descriptor text",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "    *[!0-9]*)\n      printf 'run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\\n' >&2\n      ;;",
+      "new": "    *[!0-9]*) inherited_close_fd=\"$BD_HEARTBEAT_CLOSE_FD\" ;;",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it"
+    }
+  ]
+}

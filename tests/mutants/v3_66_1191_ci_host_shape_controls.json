@@ -18,7 +18,7 @@
     {
       "label": "detached descendant retains the singleton descriptor",
       "file": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
-      "old": "eval \"exec ${fd}>&-\"; printf \"LOCK_FD_CLOSED\\\\n\" >&${ready};",
+      "old": "exec {fd}>&-; printf \"LOCK_FD_CLOSED\\\\n\" >&${ready};",
       "new": "printf \"LOCK_FD_CLOSED\\\\n\" >&${ready};",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_singleton_is_not_inherited_by_a_detached_descendant"

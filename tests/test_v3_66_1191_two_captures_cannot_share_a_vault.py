@@ -18,6 +18,7 @@ BD_GATE_SCOPE = "repo-wide"
 REPO = Path(__file__).resolve().parent.parent
 CAPTURE = REPO / "capture.sh"
 GC_PATH = REPO / "toolchain" / "bin" / "bd-gc"
+HEARTBEAT = REPO / "scripts" / "lib" / "heartbeat.sh"
 
 
 def _load_gc(name: str):
@@ -67,7 +68,7 @@ def test_a_second_concurrent_vault_capture_refuses_with_a_named_reason(tmp_path)
         second = subprocess.run(
             ["bash", "-s"], input=block, capture_output=True, text=True,
             env=env, timeout=10)
-        assert second.returncode != 0
+        assert second.returncode == 73
         assert second.stderr.count("CAPTURE-VAULT-CONCURRENCY-REFUSED") == 1
         assert second.stderr.count(f"holder_pid={first.pid}") == 1
     finally:
@@ -85,6 +86,55 @@ def test_two_sequential_vault_claims_both_succeed(tmp_path):
                                 timeout=10)
         assert result.returncode == 0, result.stderr
         assert "ENABLED" in result.stdout
+
+
+def test_singleton_refuses_a_symlink_without_touching_its_target(tmp_path):
+    victim = tmp_path / "operator-data"
+    victim.write_text("must survive\n")
+    lock = tmp_path / "global.lock"
+    lock.symlink_to(victim)
+    result = subprocess.run(
+        ["bash", "-s"], input=_vault_block(), capture_output=True, text=True,
+        env={**os.environ, "CAPTURE_VAULT_GLOBAL_LOCK": str(lock)},
+        timeout=10)
+    assert result.returncode == 73
+    assert "CAPTURE-VAULT-CONCURRENCY-REFUSED" in result.stderr
+    assert victim.read_text() == "must survive\n"
+    assert lock.is_symlink()
+
+
+def test_singleton_refuses_a_lock_in_a_peer_writable_directory(tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o777)
+    shared.chmod(0o777)
+    lock = shared / "global.lock"
+    result = subprocess.run(
+        ["bash", "-s"], input=_vault_block(), capture_output=True, text=True,
+        env={**os.environ, "CAPTURE_VAULT_GLOBAL_LOCK": str(lock)},
+        timeout=10)
+    assert result.returncode == 73
+    assert "CAPTURE-VAULT-CONCURRENCY-REFUSED" in result.stderr
+    assert not lock.exists()
+
+
+def test_holder_pid_publication_stays_bound_to_the_locked_descriptor(tmp_path):
+    lock = tmp_path / "global.lock"
+    held = tmp_path / "locked-object"
+    script = (
+        'printf "CLAIM_PID=%s\\n" "$$"\n'
+        'flock(){ command flock "$@" || return; '
+        'command mv -- "$CAPTURE_VAULT_GLOBAL_LOCK" "$HELD_LOCK"; '
+        'printf "replacement\\n" >"$CAPTURE_VAULT_GLOBAL_LOCK"; }\n'
+        + _vault_block())
+    result = subprocess.run(
+        ["bash", "-s"], input=script, capture_output=True, text=True,
+        env={**os.environ, "CAPTURE_VAULT_GLOBAL_LOCK": str(lock),
+             "HELD_LOCK": str(held)}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    claim_pid = next(line.split("=", 1)[1] for line in result.stdout.splitlines()
+                     if line.startswith("CLAIM_PID="))
+    assert held.read_text().split()[0] == claim_pid
+    assert lock.read_text() == "replacement\n"
 
 
 def test_a_non_vault_capture_claims_the_same_singleton(tmp_path):
@@ -115,7 +165,7 @@ def test_singleton_is_not_inherited_by_a_detached_descendant(tmp_path):
     env = dict(os.environ, CAPTURE_VAULT_GLOBAL_LOCK=str(lock))
     ready_read, ready_write = os.pipe()
     script = (block + "setsid bash -c 'fd=$1; ready=$2; shift 2; "
-              'eval "exec ${fd}>&-"; printf "LOCK_FD_CLOSED\\n" >&${ready}; '
+              'exec {fd}>&-; printf "LOCK_FD_CLOSED\\n" >&${ready}; '
               'eval "exec ${ready}>&-"; exec "$@"\' '
               'bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" "$READY_FD" sleep 30 '
               '</dev/null >/dev/null 2>&1 &\necho DESCENDANT=$!\n')
@@ -142,9 +192,42 @@ def test_singleton_is_not_inherited_by_a_detached_descendant(tmp_path):
         os.close(ready_read)
         os.kill(pid, signal.SIGTERM)
 
-    heartbeat = (REPO / "scripts/lib/heartbeat.sh").read_text()
-    assert 'eval "exec ${fd}>&-"' in heartbeat
-    assert 'eval "exec ${fd}>&-"' in CAPTURE.read_text()
+
+
+def test_heartbeat_closes_a_valid_decimal_descriptor_in_its_child(tmp_path):
+    script = (
+        'source "$HEARTBEAT"\n'
+        'exec {owned}<>"$OWNED"\n'
+        'export BD_HEARTBEAT_CLOSE_FD="$owned" CHECK_FD="$owned"\n'
+        'run_with_heartbeat close-check "$LOG" '
+        "bash -c 'test ! -e /proc/self/fd/$CHECK_FD'\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True,
+        env={**os.environ, "HEARTBEAT": str(HEARTBEAT),
+             "OWNED": str(tmp_path / "owned"), "LOG": str(tmp_path / "log")},
+        timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it(tmp_path):
+    victim = tmp_path / "eval-ran"
+    log = tmp_path / "heartbeat.log"
+    script = (
+        'source "$HEARTBEAT"\n'
+        'run_with_heartbeat invalid-fd "$LOG" '
+        "bash -c 'echo CHILD-RAN'\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True,
+        env={**os.environ, "HEARTBEAT": str(HEARTBEAT), "LOG": str(log),
+             "VICTIM": str(victim),
+             "BD_HEARTBEAT_CLOSE_FD": '2>&-; touch "$VICTIM"; #'},
+        timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "invalid BD_HEARTBEAT_CLOSE_FD" in result.stderr
+    assert log.read_text() == "CHILD-RAN\n"
+    assert not victim.exists()
 
 
 def test_keyed_vault_ownership_refuses_without_clobbering(tmp_path):

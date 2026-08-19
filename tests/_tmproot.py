@@ -1075,13 +1075,13 @@ def finish(exitstatus: int) -> bool:
             ok = False
         else:
             ok = _force_rmtree(root, ident)
-        if not ok and fd is not None:
+        if not ok and record_fd is not None:
             # The removal walk deletes the first terminal marker along with
             # the contents.  If the root itself survives, recreate the marker
             # through the held object descriptor so the refusal is still
             # decidable after the process exits (even after rename-away).
-            _ensure_named_lock(fd, ident)
-            _publish_or_degrade(fd, "RECLAIMABLE", exitstatus=0,
+            _ensure_named_lock(record_fd, ident)
+            _publish_or_degrade(record_fd, "RECLAIMABLE", exitstatus=0,
                                 reason=_LAST_REASON or R_UNPROVEN)
     except BaseException as error:
         propagating = error
