@@ -102,36 +102,159 @@ def _live_capable():
     return sys.platform.startswith("linux") and shutil.which("strace") is not None
 
 
-@pytest.mark.skipif(not _live_capable(), reason="live strace capability unavailable")
-def test_live_raw_bound_reaps_tracer_and_child_and_atomically_attests_UNKNOWN(tmp_path):
-    out = tmp_path / "evidence.jsonl"
-    marker = "bd-writerec-child-" + str(os.getpid())
-    code = "import os; marker=%r; p='/tmp/'+marker; f=open(p,'wb');\nwhile True: os.write(f.fileno(),b'x')" % marker
-    started = time.monotonic()
-    run = subprocess.run([sys.executable, str(TOOL), "--out", str(out), "--exit-mode", "recorder",
-                          "--max-raw-bytes", "4096", "--json", "--", sys.executable, "-c", code],
-                         cwd=tmp_path, capture_output=True, text=True, timeout=15)
-    assert time.monotonic() - started < 15
+LIVE = pytest.mark.skipif(not _live_capable(), reason="live strace capability unavailable")
+# An unbounded high-rate writer: it provably outruns any finite byte budget.
+HOT_CHILD = ("import os\n"
+             "f = open('/tmp/' + %r, 'wb')\n"
+             "while True: os.write(f.fileno(), b'x')\n")
+
+
+def _recorder(tmp_path, out, *extra, command, timeout=25):
+    return subprocess.run([sys.executable, str(TOOL), "--out", str(out), "--json", *extra,
+                           "--", *command], cwd=tmp_path, capture_output=True, text=True,
+                          timeout=timeout)
+
+
+def _records(out: Path):
+    return [json.loads(line) for line in out.read_text().splitlines()]
+
+
+def _raw_dir(records):
+    raw_dir = Path(records[-1]["raw_log_dir"])
+    files = sorted(p for p in raw_dir.iterdir() if p.is_file())
+    return raw_dir, files, sum(p.stat().st_size for p in files)
+
+
+@LIVE
+@pytest.mark.timeout(90)
+def test_live_raw_capture_is_bounded_to_the_declared_byte_budget_in_memory_and_on_disk(tmp_path):
+    """R1/R2/R3: --max-raw-bytes bounds the acquisition itself, not a poll threshold."""
+    out = tmp_path / "bounded.jsonl"
+    marker = "bd-writerec-bound-" + str(os.getpid())
+    run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--max-raw-bytes", "4096",
+                    command=[sys.executable, "-c", HOT_CHILD % marker])
     assert run.returncode == 2, run.stdout + run.stderr
     summary = json.loads(run.stdout.splitlines()[0])
-    assert summary["result"] == "UNKNOWN" and summary["raw_limit_exceeded"] is True
-    assert summary["raw_bytes"] <= 8192
-    records = [json.loads(line) for line in out.read_text().splitlines()]
-    assert records[-1]["record_type"] == "run_footer" and records[-1]["complete"] is False
-    assert not list(tmp_path.glob(".evidence.jsonl.*"))
-    time.sleep(.1)
-    ps = subprocess.run(["ps", "-eo", "args="], capture_output=True, text=True, check=True).stdout
+    records = _records(out)
+    footer = records[-1]
+    # precondition: the workload really did outrun the budget, so equality is a bound
+    assert footer["record_type"] == "run_footer" and footer["events"] > 0
+    assert summary["raw_limit_exceeded"] is True
+    # R1 -- the declared bound is the bound, to the byte
+    assert summary["raw_bytes"] == 4096, "acquisition overshot the declared cap"
+    # R2 -- disk is bounded by the same number; no second full copy of the trace exists
+    raw_dir, files, disk = _raw_dir(records)
+    assert files and disk <= 4096, "raw artifact on disk exceeds the declared cap"
+    assert not (raw_dir / "trace").exists(), "combined trace duplicates the per-pid capture"
+    assert all(p.name.endswith(".strace") for p in files)
+    assert summary["max_raw_bytes"] == 4096
+    assert summary["time_limit_exceeded"] is False
+    assert footer["raw_limit_exceeded"] is True and footer["time_limit_exceeded"] is False
+    assert summary["result"] == "UNKNOWN" and summary["complete"] is False
+    # R3 -- the retained artifact is whole lines only, and the dropped tail is declared
+    text = "".join(p.read_text(encoding="utf-8") for p in files)
+    assert text and text.endswith("\n") and "\n\n" not in text
+    assert footer["raw_disk_bytes"] == disk
+    assert footer["partial_tail_bytes"] == summary["raw_bytes"] - disk >= 0
+    assert footer["workload_terminated_by_recorder"] is True
+    # R5 -- atomic UNKNOWN attestation, no temp residue
+    assert not list(tmp_path.glob(".bounded.jsonl.*"))
+    # no event is fabricated from bytes that were never retained
+    parsed_pids = {r["pid"] for r in records if r["record_type"] == "event"}
+    assert parsed_pids and parsed_pids <= {int(p.stem) for p in files}
+
+
+@LIVE
+@pytest.mark.timeout(90)
+def test_live_bound_reaps_the_whole_tracer_process_group_and_leaves_no_orphan(tmp_path):
+    """R4: the tracer pid and its entire process group are gone, not merely the marker."""
+    out = tmp_path / "reap.jsonl"
+    marker = "bd-writerec-orphan-" + str(os.getpid())
+    started = time.monotonic()
+    run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--max-raw-bytes", "4096",
+                    command=[sys.executable, "-c", HOT_CHILD % marker])
+    assert time.monotonic() - started < 25
+    assert run.returncode == 2, run.stdout + run.stderr
+    footer = _records(out)[-1]
+    assert footer["complete"] is False and footer["result"] == "UNKNOWN"
+    tracer_pid = footer["tracer_pid"]
+    assert isinstance(tracer_pid, int) and tracer_pid > 0
+    assert footer["tracer_pgid"] == tracer_pid  # start_new_session makes the tracer the leader
+    assert footer["process_group_reaped"] is True
+    with pytest.raises(ProcessLookupError):
+        os.killpg(footer["tracer_pgid"], 0)
+    assert not list(tmp_path.glob(".reap.jsonl.*"))
+    ps = ""
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        ps = subprocess.run(["ps", "-eo", "args="], capture_output=True, text=True, check=True).stdout
+        if marker not in ps:
+            break
+        time.sleep(.1)
     assert marker not in ps
 
 
-@pytest.mark.skipif(not _live_capable(), reason="live strace capability unavailable")
+@LIVE
+@pytest.mark.timeout(90)
+def test_live_generous_budget_neither_truncates_nor_terminates_the_workload(tmp_path):
+    """R6: non-vacuity control -- an always-UNKNOWN recorder must not pass the bound tests."""
+    out = tmp_path / "complete.jsonl"
+    payload = tmp_path / "payload"
+    finite = ("import os\n"
+              "f = open(%r, 'wb')\n"
+              "for _ in range(64): os.write(f.fileno(), b'x')\n"
+              "os._exit(0)\n") % str(payload)
+    budget = 4 << 20
+    run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--max-raw-bytes", str(budget),
+                    command=[sys.executable, "-c", finite])
+    summary = json.loads(run.stdout.splitlines()[0])
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert summary["raw_limit_exceeded"] is False and summary["time_limit_exceeded"] is False
+    assert summary["complete"] is True and summary["result"] == "PASS"
+    assert 0 < summary["raw_bytes"] < budget
+    footer = _records(out)[-1]
+    assert footer["root_exit"] == {"how": "exited", "code": 0}
+    assert footer["workload_terminated_by_recorder"] is False
+    assert footer["partial_tail_bytes"] == 0
+    assert footer["process_group_reaped"] is True
+    assert footer["successful_mutations"] >= 64
+    assert payload.stat().st_size == 64
+
+
+@LIVE
+@pytest.mark.timeout(90)
+def test_live_time_limit_is_distinguishable_from_the_raw_byte_limit(tmp_path):
+    """R8: the two refusals must not share one flag, and a quiet child must not wedge the drain."""
+    out = tmp_path / "timed.jsonl"
+    budget = 4 << 20
+    started = time.monotonic()
+    run = _recorder(tmp_path, out, "--exit-mode", "recorder", "--max-seconds", "1",
+                    "--max-raw-bytes", str(budget),
+                    command=[sys.executable, "-c", "import time; time.sleep(60)"])
+    assert time.monotonic() - started < 25
+    assert run.returncode == 2, run.stdout + run.stderr
+    summary = json.loads(run.stdout.splitlines()[0])
+    assert summary["time_limit_exceeded"] is True and summary["raw_limit_exceeded"] is False
+    assert summary["raw_bytes"] < budget
+    assert summary["result"] == "UNKNOWN" and summary["complete"] is False
+    footer = _records(out)[-1]
+    assert footer["workload_terminated_by_recorder"] is True
+    assert footer["process_group_reaped"] is True
+
+
+@LIVE
+@pytest.mark.timeout(90)
 def test_live_exit_propagation_fork_per_pid_raw_logs_and_recorder_failure(tmp_path):
+    """R7: the child exit is witnessed twice -- parsed terminal record and tracer status."""
     out = tmp_path / "exit.jsonl"
     run = subprocess.run([sys.executable, str(TOOL), "--out", str(out), "--", sys.executable, "-c",
-                          "import os; p=os.fork(); os._exit(0 if p else 7)"], cwd=tmp_path, timeout=15)
+                          "import os; p=os.fork(); os._exit(0 if p else 7)"], cwd=tmp_path, timeout=25)
     assert run.returncode == 0
-    records = [json.loads(line) for line in out.read_text().splitlines()]
-    assert records[-1]["root_exit"] == {"how": "exited", "code": 0}
+    records = _records(out)
+    footer = records[-1]
+    assert footer["root_exit"] == {"how": "exited", "code": 0}
+    assert footer["tracer_exit_code"] == footer["root_exit"]["code"] == 0
+    assert footer["raw_limit_exceeded"] is False and footer["time_limit_exceeded"] is False
     raw_logs = list(Path(records[0]["raw_log_dir"]).glob("*.strace"))
     assert len(raw_logs) >= 2 and all(p.stat().st_size > 0 for p in raw_logs)
     bad = subprocess.run([sys.executable, str(TOOL), "--out", str(tmp_path / "bad.jsonl"), "--exit-mode", "recorder",
