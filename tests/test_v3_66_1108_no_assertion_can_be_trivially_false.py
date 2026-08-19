@@ -600,6 +600,44 @@ def test_it_finds_an_unreachable_assert():
     tree = ast.parse("def t():\n    return 1\n    assert 0 == 1\n")
     assert unreachable_asserts(tree) == [3], unreachable_asserts(tree)
 
+
+def test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable():
+    """RED @1193: exact unconditional spellings terminate only their list."""
+    src = """\
+def test_pytest():
+    pytest.skip('stop')
+    assert reached_pytest
+def test_sys():
+    sys.exit(2)
+    assert reached_sys
+def test_os():
+    os._exit(2)
+    assert reached_os
+"""
+    tree = ast.parse(src)
+    call_lines = [n.lineno for n in ast.walk(tree)
+                  if isinstance(n, ast.Call)]
+    assert call_lines == [2, 5, 8], (
+        f"positive fixture did not build exactly three calls: {call_lines}")
+    assert unreachable_asserts(tree) == [3, 6, 9], unreachable_asserts(tree)
+
+
+def test_lexically_rebound_roots_are_refused_for_their_distinctive_reason():
+    """Parameters, local stores, and module stores destroy root identity."""
+    controls = {
+        "parameter": "def test_it(pytest):\n    pytest.skip('returns')\n    assert reached\n",
+        "local": "def test_it():\n    sys = fake_sys\n    sys.exit(2)\n    assert reached\n",
+        "module": "pytest = fake_pytest\ndef test_it():\n    pytest.fail('returns')\n    assert reached\n",
+    }
+    for reason, src in controls.items():
+        tree = ast.parse(src)
+        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+        asserts = [n for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+        assert len(calls) == 1 and len(asserts) == 1, (
+            f"{reason} control did not build one call and one assertion")
+        assert unreachable_asserts(tree) == [], (
+            f"{reason} rebinding must refuse the conventional NoReturn spelling")
+
     tree = ast.parse("def t():\n    if False:\n        assert x == 1\n")
     assert unreachable_asserts(tree) == [3], unreachable_asserts(tree)
 
