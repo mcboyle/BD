@@ -128,6 +128,15 @@ _BINOP = {
 }
 
 _TERMINATORS = (ast.Return, ast.Raise, ast.Break, ast.Continue)
+_NORETURN_CALLS = frozenset({
+    ("pytest", "skip"),
+    ("pytest", "fail"),
+    ("pytest", "xfail"),
+    ("pytest", "exit"),
+    ("sys", "exit"),
+    ("os", "_exit"),
+})
+_NORETURN_ROOTS = frozenset(root for root, _ in _NORETURN_CALLS)
 
 
 class _Unfoldable(Exception):
@@ -453,26 +462,145 @@ def _bool_contexts(node: ast.expr):
         yield from _bool_contexts(node.operand)
 
 
-def unreachable_asserts(tree: ast.AST) -> list[int]:
-    """Asserts that follow a terminator in the same statement list, or sit
-    under `if False:`. Both are decidable; neither has a live instance."""
+class _RootBindings(ast.NodeVisitor):
+    """Find lexical stores without crossing into a nested lexical scope."""
+
+    def __init__(self, *, module: bool):
+        self.module = module
+        self.bound: set[str] = set()
+
+    def visit_Name(self, node):  # noqa: N802
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.bound.add(node.id)
+
+    def visit_arg(self, node):
+        self.bound.add(node.arg)
+
+    def visit_Global(self, node):  # noqa: N802
+        self.bound.update(node.names)
+
+    def visit_Nonlocal(self, node):  # noqa: N802
+        self.bound.update(node.names)
+
+    def visit_ExceptHandler(self, node):  # noqa: N802
+        if node.name:
+            self.bound.add(node.name)
+        self.generic_visit(node)
+
+    def visit_Import(self, node):  # noqa: N802
+        for alias in node.names:
+            root = alias.asname or alias.name.split(".", 1)[0]
+            canonical = (self.module and alias.asname is None
+                         and alias.name in _NORETURN_ROOTS)
+            if not canonical:
+                self.bound.add(root)
+
+    def visit_ImportFrom(self, node):  # noqa: N802
+        for alias in node.names:
+            self.bound.add(alias.asname or alias.name)
+
+    def visit_FunctionDef(self, node):  # noqa: N802
+        self.bound.add(node.name)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_ClassDef(self, node):  # noqa: N802
+        self.bound.add(node.name)
+
+
+def _scope_bindings(node: ast.AST, *, module: bool) -> set[str]:
+    visitor = _RootBindings(module=module)
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for arg in (*node.args.posonlyargs, *node.args.args,
+                    *node.args.kwonlyargs):
+            visitor.visit(arg)
+        if node.args.vararg:
+            visitor.visit(node.args.vararg)
+        if node.args.kwarg:
+            visitor.visit(node.args.kwarg)
+    for statement in getattr(node, "body", []):
+        visitor.visit(statement)
+    return visitor.bound & _NORETURN_ROOTS
+
+
+def _noreturn_root(statement: ast.stmt) -> str | None:
+    if not (isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Attribute)
+            and isinstance(statement.value.func.value, ast.Name)):
+        return None
+    pair = (statement.value.func.value.id, statement.value.func.attr)
+    return pair[0] if pair in _NORETURN_CALLS else None
+
+
+def _assert_lines_without_definitions(node: ast.AST) -> list[int]:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                         ast.Lambda)):
+        return []
+    hits = [node.lineno] if isinstance(node, ast.Assert) else []
+    for child in ast.iter_child_nodes(node):
+        hits.extend(_assert_lines_without_definitions(child))
+    return hits
+
+
+def unreachable_asserts(tree: ast.AST, counts: dict | None = None) -> list[int]:
+    """Return syntactically dead assertions under a conservative heuristic.
+
+    Conventional NoReturn spellings are accepted only when their root is not
+    lexically rebound in the relevant scope. Runtime mutation of module
+    attributes remains unproved, so this is not proof of unreachability.
+    """
+    metrics = counts if counts is not None else {}
+    for key in ("noreturn_calls_seen", "noreturn_calls_excluded_catchable",
+                "noreturn_calls_excluded_rebound"):
+        metrics.setdefault(key, 0)
     hits: list[int] = []
-    for node in ast.walk(tree):
-        for field in ("body", "orelse", "finalbody"):
-            stmts = getattr(node, field, None)
-            if not isinstance(stmts, list):
-                continue
+
+    def walk_scope(scope, inherited_bindings: set[str], *, module=False):
+        bindings = inherited_bindings | _scope_bindings(scope, module=module)
+
+        def walk_list(stmts, *, catchable=False):
             terminated = False
-            for st in stmts:
+            for statement in stmts:
                 if terminated:
-                    hits += [s.lineno for s in ast.walk(st)
-                             if isinstance(s, ast.Assert)]
-                if isinstance(st, _TERMINATORS):
+                    hits.extend(_assert_lines_without_definitions(statement))
+                    continue
+                root = _noreturn_root(statement)
+                if root is not None:
+                    metrics["noreturn_calls_seen"] += 1
+                    if catchable:
+                        metrics["noreturn_calls_excluded_catchable"] += 1
+                    elif root in bindings:
+                        metrics["noreturn_calls_excluded_rebound"] += 1
+                    else:
+                        terminated = True
+                        continue
+                if (isinstance(statement, ast.If)
+                        and isinstance(statement.test, ast.Constant)
+                        and not statement.test.value):
+                    hits.extend(_assert_lines_without_definitions(statement))
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                          ast.ClassDef)):
+                    walk_scope(statement, bindings)
+                    continue
+                for field in ("body", "orelse", "finalbody"):
+                    child = getattr(statement, field, None)
+                    if isinstance(child, list):
+                        child_catchable = (catchable or
+                                           (isinstance(statement, ast.Try)
+                                            and field == "body"
+                                            and bool(statement.handlers)))
+                        walk_list(child, catchable=child_catchable)
+                if isinstance(statement, ast.Try):
+                    for handler in statement.handlers:
+                        walk_list(handler.body, catchable=catchable)
+                if isinstance(statement, _TERMINATORS):
                     terminated = True
-        if (isinstance(node, ast.If) and isinstance(node.test, ast.Constant)
-                and not node.test.value):
-            hits += [s.lineno for s in ast.walk(node)
-                     if isinstance(s, ast.Assert)]
+
+        walk_list(scope.body)
+
+    if isinstance(tree, ast.Module):
+        walk_scope(tree, set(), module=True)
     return sorted(set(hits))
 
 
@@ -489,7 +617,10 @@ def _scan() -> tuple[list[str], dict]:
     are reported with the verdict so a green result cannot be read as more
     than it is."""
     offenders: list[str] = []
-    counts = {"files": 0, "asserts": 0, "bool_contexts": 0, "decided": 0}
+    counts = {"files": 0, "asserts": 0, "bool_contexts": 0, "decided": 0,
+              "noreturn_calls_seen": 0,
+              "noreturn_calls_excluded_catchable": 0,
+              "noreturn_calls_excluded_rebound": 0}
     for path in _tracked_test_files():
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -509,10 +640,14 @@ def _scan() -> tuple[list[str], dict]:
                 offenders.append("%s:%d  %s\n      assert %s"
                                  % (rel, node.lineno, why,
                                     ast.unparse(node.test)[:160]))
-        for lineno in unreachable_asserts(tree):
-            offenders.append("%s:%d  the assert is unreachable -- a return, "
-                             "raise, break or continue precedes it in the same "
-                             "block" % (rel, lineno))
+        for lineno in unreachable_asserts(tree, counts):
+            offenders.append("%s:%d  the assert follows a structural terminator "
+                             "or a syntactically recognized conventional "
+                             "NoReturn call. Root names lexically rebound in "
+                             "the relevant scope are refused; runtime attribute "
+                             "mutation is unproved, so this is a syntactic "
+                             "heuristic, not proof of unreachability" %
+                             (rel, lineno))
     return offenders, counts
 
 
@@ -638,6 +773,81 @@ def test_lexically_rebound_roots_are_refused_for_their_distinctive_reason():
         assert unreachable_asserts(tree) == [], (
             f"{reason} rebinding must refuse the conventional NoReturn spelling")
 
+
+def test_every_required_lexical_binding_form_refuses_the_root():
+    controls = (
+        "def t(pytest):\n    pytest.skip('x')\n    assert reached\n",
+        "def t():\n    (sys := fake).exit(1)\n    sys.exit(1)\n    assert reached\n",
+        "def t():\n    import fake as os\n    os._exit(1)\n    assert reached\n",
+        "def t():\n    try:\n        work()\n    except Error as pytest:\n        pass\n    pytest.fail('x')\n    assert reached\n",
+        "def t():\n    with cm() as sys:\n        pass\n    sys.exit(1)\n    assert reached\n",
+        "def t():\n    for os in values:\n        pass\n    os._exit(1)\n    assert reached\n",
+        "pytest = fake\ndef t():\n    pytest.xfail('x')\n    assert reached\n",
+        "def outer():\n    pytest = fake\n    def t():\n        nonlocal pytest\n        pytest.exit('x')\n        assert reached\n",
+        "pytest = fake\ndef t():\n    global pytest\n    pytest.skip('x')\n    assert reached\n",
+    )
+    for src in controls:
+        tree = ast.parse(src)
+        assert len([n for n in ast.walk(tree) if isinstance(n, ast.Assert)]) == 1
+        assert unreachable_asserts(tree) == [], src
+
+
+def test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries():
+    src = """\
+def t(flag):
+    if flag:
+        pytest.skip('conditional')
+    assert outer_reachable
+    try:
+        pytest.fail('catchable')
+        assert caught_tail_reachable
+    except BaseException:
+        pass
+    callback(lambda: pytest.exit('callback'))
+    assert callback_tail_reachable
+"""
+    counts = {}
+    assert unreachable_asserts(ast.parse(src), counts) == []
+    assert counts == {
+        "noreturn_calls_seen": 2,
+        "noreturn_calls_excluded_catchable": 1,
+        "noreturn_calls_excluded_rebound": 0,
+    }
+
+
+def test_dead_tails_are_walked_without_executing_nested_definitions():
+    src = """\
+def t():
+    pytest.skip('stop')
+    if condition:
+        assert nested_if_dead
+    def callback():
+        assert definition_not_executed
+    class Deferred:
+        assert class_not_executed
+"""
+    assert unreachable_asserts(ast.parse(src)) == [4]
+
+
+def test_the_conventional_NoReturn_registry_is_frozen():
+    assert _NORETURN_CALLS == frozenset({
+        ("pytest", "skip"), ("pytest", "fail"),
+        ("pytest", "xfail"), ("pytest", "exit"),
+        ("sys", "exit"), ("os", "_exit"),
+    })
+
+
+def test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled():
+    _, counts = _scan()
+    seen = counts["noreturn_calls_seen"]
+    excluded = (counts["noreturn_calls_excluded_catchable"]
+                + counts["noreturn_calls_excluded_rebound"])
+    assert seen > 100, f"only {seen} conventional NoReturn calls were seen"
+    assert excluded <= seen
+    assert seen - excluded >= 0
+
+
+def test_if_false_remains_a_structural_terminator():
     tree = ast.parse("def t():\n    if False:\n        assert x == 1\n")
     assert unreachable_asserts(tree) == [3], unreachable_asserts(tree)
 
