@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1190 - preserve explicit-work toolchain fixtures
+
+- Keep the shared security helper importable when copied beside an installed
+  tool that supplies `--work`; its current-directory fallback is provisional,
+  while verdict-bearing consumers still validate their actual subjects.
+
 ## v3.66.1189 - harden release-wrapper and carrier tombstones
 
 - Make the release-wrapper execution scan fail closed when its tracked-source

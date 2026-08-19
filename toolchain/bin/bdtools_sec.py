@@ -46,9 +46,11 @@ def _resolve_default_work():
         if parent == d:
             break
         d = parent
-    if os.path.isfile(os.path.join(os.getcwd(), "bulk_downloader", "__init__.py")):
-        return os.getcwd()
-    raise RuntimeError("cannot resolve repository root; set BD_ROOT")
+    # Installed/copy-fixture consumers import this module before parsing their
+    # explicit --work option. Keep import side-effect free: cwd is only a
+    # provisional default and every verdict-bearing consumer validates its
+    # subject before reporting a result.
+    return os.environ.get("BD_WORK_TREE", os.getcwd())
 
 
 DEFAULT_WORK = _resolve_default_work()
