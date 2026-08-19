@@ -905,20 +905,54 @@ def test_nonlocal_cannot_be_isolated_and_that_is_the_language_not_the_gate():
     assert counts["noreturn_calls_excluded_rebound"] == 1, counts
 
 
-def test_the_nonlocal_visitor_is_pinned_at_implementation_level_only():
-    """`visit_Nonlocal` is pinned where it is falsifiable: the binding set.
+def test_a_local_store_in_another_scope_does_not_refuse_the_root():
+    """The opposite direction from the `global` closure, and its boundary.
 
-    Deliberately NOT an end-to-end control. As the test above measures, any
-    valid `nonlocal` requires an enclosing binding that already refuses the
-    root, so a mutant that neuters this visitor is BEHAVIOURALLY EQUIVALENT at
-    the verdict level and must never be recorded as caught there. It is kept
-    because dropping it would silently depend on that entanglement holding for
-    every future traversal change; this assertion is what makes the dependency
-    visible instead.
+    A `global` declaration reaches out of its scope; a plain assignment does
+    not. `pytest = fake` inside a helper binds that helper's local name and
+    leaves the module-level `pytest` alone, so the tail below is genuinely
+    unreachable and must still be reported. Widening the module-wide collector
+    from `ast.Global` to every `ast.Name` store would silence it -- an
+    over-sensitivity failure, which section 0 counts as a soundness bug rather
+    than a safe default.
     """
-    scope = ast.parse("def t():\n    nonlocal pytest\n    pass\n").body[0]
-    assert _scope_bindings(scope, module=False) == {"pytest"}, (
+    src = ("import pytest\n"
+           "def helper():\n"
+           "    pytest = fake\n"
+           "def t():\n"
+           "    pytest.skip('x')\n"
+           "    assert reached\n")
+    counts = {}
+    assert unreachable_asserts(ast.parse(src), counts) == [6], (
+        "a root that is only shadowed by another scope's LOCAL store was "
+        "refused; the module-level name it actually uses is untouched")
+    assert counts["noreturn_calls_excluded_rebound"] == 0, counts
+
+
+def test_the_scope_visitors_for_global_and_nonlocal_are_pinned_privately():
+    """Both visitors are pinned where they are falsifiable: the binding set.
+
+    Deliberately NOT end-to-end controls, for two different reasons, and
+    neither may be presented as verdict-level mutation evidence:
+
+      * `nonlocal` -- any valid `nonlocal x` requires an enclosing binding that
+        already refuses the root, so no program exists in which this visitor
+        decides the verdict alone;
+      * `global` -- since `_module_global_rebindings` collects every
+        `ast.Global` in the module independently and at any depth, the visitor
+        is redundant at verdict level; disabling it changes no reported result.
+
+    Both are kept because dropping them would make the analyser silently depend
+    on that redundancy holding through every future traversal change. These
+    assertions are what make the dependency visible instead.
+    """
+    nonlocal_scope = ast.parse("def t():\n    nonlocal pytest\n    pass\n").body[0]
+    assert _scope_bindings(nonlocal_scope, module=False) == {"pytest"}, (
         "the nonlocal declaration did not contribute its name to the scope's "
+        "binding set")
+    global_scope = ast.parse("def t():\n    global sys\n    pass\n").body[0]
+    assert _scope_bindings(global_scope, module=False) == {"sys"}, (
+        "the global declaration did not contribute its name to the scope's "
         "binding set")
 
 

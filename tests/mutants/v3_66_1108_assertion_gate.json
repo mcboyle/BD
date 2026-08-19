@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1108_assertion_gate.json  visit_Nonlocal is deliberately NOT mutated here: any valid `nonlocal` requires an enclosing binding that already refuses the root, so a mutant neutering it is behaviourally equivalent at the verdict level and must never be recorded as caught. It is pinned instead at implementation level by tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_nonlocal_visitor_is_pinned_at_implementation_level_only.",
+  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1108_assertion_gate.json  Neither visit_Global nor visit_Nonlocal is mutated here. Both are redundant at verdict level -- nonlocal because the language requires an enclosing binding that already refuses the root, global because _module_global_rebindings collects every declaration independently -- so a mutant of either is behaviourally equivalent and must never be recorded as caught. Measured: with visit_Global neutered, both global controls still pass. They are pinned instead as a private implementation contract by tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_scope_visitors_for_global_and_nonlocal_are_pinned_privately.",
   "subject": "v3.66.1108 -- the impossible-assertion gate detects defects without folding valid assertions",
   "band": [
     "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py"
@@ -115,14 +115,6 @@
       "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled"
     },
     {
-      "label": "visit_Global stops recording the declaration",
-      "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
-      "old": "    def visit_Global(self, node):  # noqa: N802\n        self.bound.update(node.names)",
-      "new": "    def visit_Global(self, node):  # noqa: N802\n        return",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_global_alone_refuses_the_root_with_no_other_binding"
-    },
-    {
       "label": "module-wide global collection removed (cross-scope rebinding invisible again)",
       "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
       "old": "        walk_scope(tree, _module_global_rebindings(tree), module=True)",
@@ -139,15 +131,15 @@
       "catcher": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries"
     },
     {
-      "label": "OVER-CORRECTION: cross-scope collection also takes plain stores, over-refusing the corpus",
+      "label": "OVER-CORRECTION: cross-scope collection also takes plain stores, silencing a genuinely unreachable tail",
       "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
       "old": "        if isinstance(node, ast.Global):\n            names.update(node.names)",
       "new": "        if isinstance(node, ast.Global):\n            names.update(node.names)\n        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):\n            names.add(node.id)",
       "direction": "overcorrection",
-      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_global_declared_in_another_scope_refuses_the_root",
+      "control": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_local_store_in_another_scope_does_not_refuse_the_root",
       "preserves": [
-        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled",
-        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_direct_conventional_NoReturn_call_makes_the_same_block_tail_unreachable"
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_a_global_declared_in_another_scope_refuses_the_root",
+        "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py::test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled"
       ]
     }
   ]

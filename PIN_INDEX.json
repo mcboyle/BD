@@ -293,7 +293,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
-      "line": 946,
+      "line": 980,
       "value": {
         "noreturn_calls_seen": 2,
         "noreturn_calls_excluded_catchable": 1,
