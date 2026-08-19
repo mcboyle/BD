@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1186 - isolate and serialize capture vaults
+
+- Key each capture vault by run id and hold a named singleton lock for the
+  fixed systemd service, drop-in, and ports; a concurrent vault capture now
+  refuses explicitly instead of overwriting or tearing down its peer.
+- Hold the vault directory from creation through descriptor-bound teardown,
+  reject pathname replacement, and include crashed keyed vaults in `bd-gc`'s
+  live-lock, 24-hour, newest-20 forensics policy.
+- Promote both vault safety suites into CI. True simultaneous captures require
+  per-run services and ports and remain explicit in backlog row 175.
+
 ## v3.66.1185 - bound abandoned test roots safely
 
 - Make `bd-gc` refuse held-lock roots and unknown or contradictory markers,

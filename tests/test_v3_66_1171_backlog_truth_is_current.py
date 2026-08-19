@@ -121,9 +121,10 @@ def test_cut_a_rows_have_exact_terminal_statuses_and_atomic_remainder() -> None:
         assert evidence
 
     status, text = rows[165]
-    assert status == "OPEN"
-    assert text.startswith("CAPTURE-VAULT-CONCURRENCY --")
-    assert "backlog 165" in rows[5][1]
+    assert status == "CLOSED @1186"
+    assert "singleton systemd unit" in text
+    assert "remainder -> backlog 175" in rows[5][1]
+    assert rows[175][0] == "OPEN"
 
 
 def test_status_parser_cannot_be_satisfied_by_prose_or_duplicates() -> None:
@@ -163,8 +164,9 @@ def test_the_eight_bare_closed_remainders_are_terminal_or_transferred() -> None:
                 "remains OPEN",
             )
         ), row_id
-    assert "remainder -> backlog 165" in rows[5][1]
-    assert rows[165][0] == "OPEN"
+    assert "remainder -> backlog 175" in rows[5][1]
+    assert rows[165][0] == "CLOSED @1186"
+    assert rows[175][0] == "OPEN"
     assert "transferred to backlog 133" in rows[99][1]
     assert rows[133][0] == "CLOSED @1173"
     assert "exact 24 pre-policy repository gates" in rows[133][1]

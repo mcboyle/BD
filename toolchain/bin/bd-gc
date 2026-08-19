@@ -41,7 +41,8 @@ from tools.safe_temp_remove import rename_verify_destroy
 
 # Structural, not configurable. A cleanup tool with a --path flag is a wrapper
 # around rm -rf with better manners.
-PREFIXES = ("/tmp/bd-", "/tmp/bdcut_", "/tmp/pytest-of-")
+PREFIXES = ("/tmp/bd-", "/tmp/bdcut_", "/tmp/pytest-of-",
+            "/tmp/bd_capture_vault-")
 NEVER = ("/tmp/bd-jobs", "/tmp/bd-runctx")
 MIN_AGE_MIN = 10
 RUN_MARKER = ".bd-testrun"
@@ -49,6 +50,55 @@ RUN_LOCK = ".bd-testrun.lock"
 POLICY_MIN_AGE_S = 24 * 60 * 60
 FORENSICS_KEEP = 20
 PROTECTED_STATES = {"KEPT_FOR_FORENSICS", "ABANDONED"}
+CAPTURE_VAULT_LOCK = ".bd-capture-vault.lock"
+
+
+def _capture_vault_state(path, now):
+    try:
+        root_st = os.lstat(path)
+        lock_fd = os.open(
+            os.path.join(path, CAPTURE_VAULT_LOCK),
+            os.O_RDONLY | os.O_NOFOLLOW)
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise OSError("capture-vault lock is not a regular file")
+    except OSError as exc:
+        return "UNKNOWN", None, "vault lock cannot be evaluated (%s)" % exc
+    acquired = False
+    try:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except BlockingIOError:
+            return "LIVE", None, "capture-vault lock is held"
+        except OSError as exc:
+            return "UNKNOWN", None, "vault lock cannot be evaluated (%s)" % exc
+    finally:
+        if acquired:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(lock_fd)
+    return "ABANDONED", root_st.st_mtime, "keyed vault has no held lock"
+
+
+def finish_capture_vault(path, owned_fd, allowed_parent=pathlib.Path("/tmp")):
+    """Remove only the capture-vault object held from its creation."""
+    target = pathlib.Path(path)
+    parent = pathlib.Path(allowed_parent)
+    if (target.parent != parent or
+            not target.name.startswith("bd_capture_vault-") or
+            target.name in ("bd_capture_vault-", ".", "..")):
+        return False, "capture-vault path is outside the owned keyed namespace"
+    try:
+        held = os.fstat(owned_fd)
+        named = os.lstat(target)
+    except OSError as exc:
+        return False, "capture-vault identity is unavailable (%s)" % exc
+    expected = (held.st_dev, held.st_ino)
+    if (named.st_dev, named.st_ino) != expected:
+        return False, "creation identity mismatch at capture-vault pathname"
+    return rename_verify_destroy(target, expected_identity=expected)
 
 
 def _test_root_state(path, now):
@@ -150,6 +200,12 @@ def is_candidate(path, now, older_than_s):
         return False, "resolves outside /tmp (%s)" % real
     if os.path.basename(p).startswith("bd-testrun-"):
         state, stamp, detail = _test_root_state(p, now)
+        if state in ("LIVE", "UNKNOWN"):
+            return False, "[%s] %s" % (state, detail)
+        age = now - stamp
+        threshold = max(older_than_s, POLICY_MIN_AGE_S)
+    elif os.path.basename(p).startswith("bd_capture_vault-"):
+        state, stamp, detail = _capture_vault_state(p, now)
         if state in ("LIVE", "UNKNOWN"):
             return False, "[%s] %s" % (state, detail)
         age = now - stamp
@@ -372,7 +428,21 @@ def main(argv=None):
     p.add_argument("--show", type=int, default=20)
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--selftest", action="store_true")
+    p.add_argument("--finish-capture-vault")
+    p.add_argument("--owned-fd", type=int)
     args = p.parse_args(argv)
+    if args.finish_capture_vault is not None:
+        if args.owned_fd is None:
+            p.error("--finish-capture-vault requires --owned-fd")
+        ok, why = finish_capture_vault(args.finish_capture_vault, args.owned_fd)
+        if ok:
+            print("bd-gc: removed descriptor-owned capture vault")
+            return 0
+        print("bd-gc: REFUSED capture-vault removal: %s" % why,
+              file=sys.stderr)
+        return 1
+    if args.owned_fd is not None:
+        p.error("--owned-fd requires --finish-capture-vault")
     if args.selftest:
         return selftest(args)
     return run(args)

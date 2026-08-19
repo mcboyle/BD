@@ -215,6 +215,9 @@ fi
 # Blank, or no TTY, means skip: L6/L8 then WARN exactly as they do today.
 # A prompt that blocked an unattended run would turn a capture into a hang.
 CAPTURE_VAULT=0
+CAPTURE_VAULT_LOCK_FD=""
+CAPTURE_VAULT_DIR_FD=""
+CAPTURE_VAULT_DIR_LOCK_FD=""
 # DO NOT CLOBBER AN INHERITED VALUE. This line was a bare
 # CAPTURE_VAULT_PW="" and it ran BEFORE the branch that reads the
 # variable, so `CAPTURE_VAULT_PW=x ./capture.sh` was wiped to empty and
@@ -223,9 +226,23 @@ CAPTURE_VAULT=0
 # own environment. Initialising a variable and honouring an inherited one
 # are different operations, and `:-` is the difference.
 CAPTURE_VAULT_PW="${CAPTURE_VAULT_PW:-}"
-CAPTURE_VAULT_DIR="/tmp/bd_capture_vault"
+CAPTURE_VAULT_DIR="/tmp/bd_capture_vault-${CAPTURE_RUN_ID:-$$}"
 CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"
 CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-vault.conf"
+
+capture_vault_claim() {
+  local lock="${CAPTURE_VAULT_GLOBAL_LOCK:-/tmp/bd_capture_vault.lock}"
+  if ! exec {CAPTURE_VAULT_LOCK_FD}>"$lock"; then
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: cannot open singleton lock $lock" >&2
+    return 73
+  fi
+  if ! flock -n "$CAPTURE_VAULT_LOCK_FD"; then
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: another capture owns the singleton service/drop-in" >&2
+    exec {CAPTURE_VAULT_LOCK_FD}>&-
+    CAPTURE_VAULT_LOCK_FD=""
+    return 73
+  fi
+}
 
 # AN UNATTENDED CAPTURE MUST REACH THE SAME CHECKS AS AN ATTENDED ONE (@1064).
 #
@@ -245,6 +262,7 @@ CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-va
 # enters test_gui_parity's config-surface ledger, and this is a capture-time
 # argument, not a runtime config key.
 if [ -n "${CAPTURE_VAULT_PW:-}" ]; then
+  if ! capture_vault_claim; then exit 73; fi
   CAPTURE_VAULT=1
   echo "  capture vault ENABLED from CAPTURE_VAULT_PW -- the operator vault is not opened"
 elif [ -t 0 ]; then
@@ -252,6 +270,7 @@ elif [ -t 0 ]; then
   read -rs CAPTURE_VAULT_PW
   printf '\n' >&2
   if [ -n "$CAPTURE_VAULT_PW" ]; then
+    if ! capture_vault_claim; then exit 73; fi
     CAPTURE_VAULT=1
     echo "  capture vault ENABLED -- the operator vault is not opened"
   else
@@ -339,9 +358,28 @@ cleanup_capture_vault() {
     sudo rm -f "$CAPTURE_VAULT_DROPIN" 2>/dev/null || true
     sudo systemctl daemon-reload 2>/dev/null || true
     sudo systemctl restart bulkdownloader 2>/dev/null || true
-    rm -rf "$CAPTURE_VAULT_DIR"
-    echo "  capture vault removed; service restarted on the operator vault"
+    if [ -n "$CAPTURE_VAULT_DIR_LOCK_FD" ]; then
+      exec {CAPTURE_VAULT_DIR_LOCK_FD}>&-
+      CAPTURE_VAULT_DIR_LOCK_FD=""
+    fi
+    if [ -n "$CAPTURE_VAULT_DIR_FD" ] && \
+       venv/bin/python toolchain/bin/bd-gc \
+         --finish-capture-vault "$CAPTURE_VAULT_DIR" \
+         --owned-fd "$CAPTURE_VAULT_DIR_FD"; then
+      echo "  descriptor-owned capture vault removed"
+    else
+      echo "  WARNING: capture vault removal refused; preserved for bounded forensics: $CAPTURE_VAULT_DIR" >&2
+    fi
+    if [ -n "$CAPTURE_VAULT_DIR_FD" ]; then
+      exec {CAPTURE_VAULT_DIR_FD}>&-
+      CAPTURE_VAULT_DIR_FD=""
+    fi
+    echo "  service restarted on the operator vault"
     wait_for_service_ready || true
+    if [ -n "$CAPTURE_VAULT_LOCK_FD" ]; then
+      exec {CAPTURE_VAULT_LOCK_FD}>&-
+      CAPTURE_VAULT_LOCK_FD=""
+    fi
   fi
 }
 
@@ -851,9 +889,16 @@ echo "=== [4/9] Install + start systemd service ==="
 # invisible to the GUI editor's model, while a stale drop-in is the first
 # thing `systemctl cat bulkdownloader` shows.
 if [ "$CAPTURE_VAULT" = "1" ]; then
-  rm -rf "$CAPTURE_VAULT_DIR"
-  mkdir -p "$CAPTURE_VAULT_DIR"
+  if ! mkdir "$CAPTURE_VAULT_DIR"; then
+    echo "CAPTURE-VAULT-OWNERSHIP-REFUSED: keyed vault already exists: $CAPTURE_VAULT_DIR" >&2
+    CAPTURE_VAULT=0
+    exit 73
+  fi
   chmod 700 "$CAPTURE_VAULT_DIR"
+  : > "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
+  exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR"
+  exec {CAPTURE_VAULT_DIR_LOCK_FD}>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
+  flock -n "$CAPTURE_VAULT_DIR_LOCK_FD"
   sudo mkdir -p "$(dirname "$CAPTURE_VAULT_DROPIN")"
   sudo tee "$CAPTURE_VAULT_DROPIN" >/dev/null <<DROPIN
 [Service]
