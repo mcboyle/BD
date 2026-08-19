@@ -961,7 +961,8 @@ def sweep_test_roots(addr: str) -> subprocess.CompletedProcess:
     return ssh(
         addr,
         'cd "$HOME/BulkDownloader" && '
-        'venv/bin/python toolchain/bin/bd-gc --apply --older-than 1440',
+        'venv/bin/python toolchain/bin/bd-gc --apply --older-than 1440 '
+        '--only bd-testrun',
         timeout=300,
     )
 

@@ -50,6 +50,7 @@ def _root(tmp_path: Path, name: str, state: str, age_hours: int = 30) -> Path:
     lock_st = (path / ".bd-testrun.lock").stat()
     marker.update(lock_dev=lock_st.st_dev, lock_ino=lock_st.st_ino)
     (path / ".bd-testrun").write_text(json.dumps(marker))
+    os.utime(path / ".bd-testrun", (stamp, stamp))
     os.utime(path, (stamp, stamp))
     return path
 

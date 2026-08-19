@@ -79,6 +79,8 @@ _ROOT_FD_PATH: str | None = None
 # on-disk state as ABANDONED rather than LIVE.
 _MARKER_NAME = ".bd-testrun"
 _LOCK_NAME = ".bd-testrun.lock"
+DURABLE_STATES = (
+    "LIVE", "KEPT_FOR_FORENSICS", "RECLAIMABLE", "ABANDONED", "UNKNOWN")
 _MARKER_LOCK_FDS: dict[tuple, int] = {}
 _RUN_RECORDS: dict[tuple, dict] = {}
 
@@ -89,7 +91,7 @@ def _write_run_record(fd: int, state: str, *, exitstatus=None,
     st = os.fstat(fd)
     ident = (st.st_dev, st.st_ino)
     if ident not in _RUN_RECORDS:
-        return
+        raise RuntimeError("run-root identity has no registered marker record")
     record = dict(_RUN_RECORDS[ident])
     record["state"] = state
     record["updated_at"] = time.time()
@@ -141,6 +143,24 @@ def _publish_run_record(fd: int, state: str, *, exitstatus=None,
             os.fchmod(fd, mode)
             if stat.S_IMODE(os.fstat(fd).st_mode) != mode:
                 raise OSError(errno.EIO, "run-root mode restoration did not verify")
+
+
+def _retention_degraded(detail: str) -> None:
+    """Make a lost marker decision visible without preventing the test run."""
+    if not _LAST_REASON:
+        _mark("[retention-marker]", detail)
+    sys.stderr.write("\n_tmproot: RETENTION MARKER DEGRADED: %s\n" % detail)
+
+
+def _publish_or_degrade(fd: int, state: str, *, exitstatus=None,
+                        reason: str | None = None) -> bool:
+    try:
+        _publish_run_record(fd, state, exitstatus=exitstatus, reason=reason)
+        return True
+    except Exception as exc:
+        _retention_degraded("%s publish failed (%s: %s)" %
+                            (state, type(exc).__name__, exc))
+        return False
 
 
 def _release_marker_lock(ident) -> None:
@@ -243,22 +263,43 @@ def install() -> str | None:
     _ROOT_FD, _ROOT_FD_PATH = _fd, _ROOT
     _st = os.fstat(_fd)
     _ROOT_IDENT = (_st.st_dev, _st.st_ino)
-    marker_lock_fd = os.open(
-        _LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=_fd)
-    fcntl.flock(marker_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    _MARKER_LOCK_FDS[_ROOT_IDENT] = marker_lock_fd
-    _RUN_RECORDS[_ROOT_IDENT] = {
-        "schema": 1,
-        "pid": os.getpid(),
-        "host": platform.node(),
-        "started_at": time.time(),
-        "root_dev": _st.st_dev,
-        "root_ino": _st.st_ino,
-    }
-    _lock_st = os.fstat(marker_lock_fd)
-    _RUN_RECORDS[_ROOT_IDENT].update(
-        lock_dev=_lock_st.st_dev, lock_ino=_lock_st.st_ino)
-    _publish_run_record(_fd, "RUNNING")
+    marker_lock_fd = None
+    try:
+        marker_lock_fd = os.open(
+            _LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=_fd)
+        fcntl.flock(marker_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _MARKER_LOCK_FDS[_ROOT_IDENT] = marker_lock_fd
+        _RUN_RECORDS[_ROOT_IDENT] = {
+            "schema": 1,
+            "pid": os.getpid(),
+            "host": platform.node(),
+            "started_at": time.time(),
+            "root_dev": _st.st_dev,
+            "root_ino": _st.st_ino,
+        }
+        _lock_st = os.fstat(marker_lock_fd)
+        _RUN_RECORDS[_ROOT_IDENT].update(
+            lock_dev=_lock_st.st_dev, lock_ino=_lock_st.st_ino)
+        _publish_run_record(_fd, "RUNNING")
+    except Exception as exc:
+        # Marker/lock accounting is retention metadata, not a prerequisite for
+        # running tests.  A full tmpfs or exhausted descriptor table must not
+        # abort pytest_configure.  Drop every partial in-memory authority,
+        # release the kernel lock if acquired, and make the degraded state
+        # unmissable; the descriptor-bound session cleanup still operates.
+        _RUN_RECORDS.pop(_ROOT_IDENT, None)
+        held = _MARKER_LOCK_FDS.pop(_ROOT_IDENT, None)
+        if held is not None:
+            try:
+                fcntl.flock(held, fcntl.LOCK_UN)
+            finally:
+                os.close(held)
+            marker_lock_fd = None
+        elif marker_lock_fd is not None:
+            os.close(marker_lock_fd)
+            marker_lock_fd = None
+        _retention_degraded("initial publish failed (%s: %s)" %
+                            (type(exc).__name__, exc))
     _LAST_FAILURE = None
     tempfile.tempdir = _ROOT
     return _ROOT
@@ -943,6 +984,21 @@ def finish(exitstatus: int) -> bool:
             if _ROOT_FD == fd and _ROOT_FD_PATH == root:
                 _ROOT_FD, _ROOT_FD_PATH = None, None
             fd, fd_stat = None, None
+    record_fd, record_fd_owned = fd, False
+    if record_fd is None and ident in _RUN_RECORDS:
+        try:
+            reopened = os.open(
+                root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            reopened_st = os.fstat(reopened)
+            if (reopened_st.st_dev, reopened_st.st_ino) != ident:
+                raise OSError(errno.ESTALE,
+                              "reopened run root has a different identity")
+            record_fd, record_fd_owned = reopened, True
+        except Exception as exc:
+            if "reopened" in locals():
+                os.close(reopened)
+            _retention_degraded("terminal record descriptor unavailable "
+                                "(%s: %s)" % (type(exc).__name__, exc))
     # WHERE THE ROOT ACTUALLY IS, read while the descriptor is still open.
     # The report below runs AFTER the finally that releases it, so resolving
     # it there produced "its new location could not be read" -- a remedy line
@@ -966,17 +1022,19 @@ def finish(exitstatus: int) -> bool:
             _status = 1
             status_readable = False
         if _status != 0:
-            if fd is not None:
+            if record_fd is not None:
                 if status_readable:
-                    _publish_run_record(fd, "KEPT_FOR_FORENSICS",
-                                        exitstatus=_status,
-                                        reason="pytest exitstatus is nonzero")
+                    _publish_or_degrade(
+                        record_fd, "KEPT_FOR_FORENSICS", exitstatus=_status,
+                        reason="pytest exitstatus is nonzero")
                 else:
-                    _publish_run_record(fd, "UNKNOWN",
-                                        reason="pytest exitstatus is unreadable")
+                    _publish_or_degrade(
+                        record_fd, "UNKNOWN",
+                        reason="pytest exitstatus is unreadable")
             return False                   # KEPT ON PURPOSE, not a failure
-        if fd is not None and fd_stat is not None and fd_stat.st_nlink != 0:
-            _publish_run_record(fd, "RECLAIMABLE", exitstatus=0,
+        if (record_fd is not None and
+                (fd_stat is None or fd_stat.st_nlink != 0)):
+            _publish_or_degrade(record_fd, "RECLAIMABLE", exitstatus=0,
                                 reason="clean run; removal is beginning")
         _mark("")
         if ident is None:
@@ -1016,7 +1074,7 @@ def finish(exitstatus: int) -> bool:
             # through the held object descriptor so the refusal is still
             # decidable after the process exits (even after rename-away).
             _ensure_named_lock(fd, ident)
-            _publish_run_record(fd, "RECLAIMABLE", exitstatus=0,
+            _publish_or_degrade(fd, "RECLAIMABLE", exitstatus=0,
                                 reason=_LAST_REASON or R_UNPROVEN)
     except BaseException as error:
         propagating = error
@@ -1025,6 +1083,15 @@ def finish(exitstatus: int) -> bool:
             _mark(R_UNPROVEN, "%s: %s" % (type(error).__name__, error))
         raise
     finally:
+        if record_fd_owned and record_fd is not None:
+            try:
+                os.close(record_fd)
+            except BaseException as release_error:
+                if propagating is None:
+                    raise
+                _add_note(propagating,
+                          "record descriptor release failed (%s: %s)" %
+                          (type(release_error).__name__, release_error))
         if fd is not None:
             try:
                 _actual = os.readlink("/proc/self/fd/%d" % fd)

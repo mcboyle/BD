@@ -335,6 +335,7 @@ jobs:
             suites: >-
               tests/test_capture_vault_is_isolated.py
               tests/test_v3_66_1186_two_captures_cannot_share_a_vault.py
+              tests/test_v3_66_1187_retention_review_edges.py
               tests/test_v3_66_1018_registrable_domain_drain.py
               tests/test_census_file_size_drift.py
               tests/test_zip_era_tools_stay_retired.py

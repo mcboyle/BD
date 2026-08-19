@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1187 - close retention review fault paths
+
+- Rank the newest-20 forensics floor only over old roots that are actually at
+  risk; young roots retain their independent 24-hour floor without consuming
+  that budget.
+- Degrade marker/lock resource failures observably without aborting pytest,
+  recover terminal publication through a revalidated root descriptor, reject
+  impossible marker times, and classify interrupted publish/removal residues.
+- Scope automatic capture and wedge-hunt cleanup to marker-classified
+  `bd-testrun-*` roots. The operator-facing tool keeps its wider dry-run and
+  explicit-apply families, while live `bdcut_*`/`pytest-of-*` objects are never
+  exposed to automatic mtime-only deletion.
+
 ## v3.66.1186 - isolate and serialize capture vaults
 
 - Key each capture vault by run id and hold a named singleton lock for the

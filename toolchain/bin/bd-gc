@@ -50,6 +50,8 @@ RUN_LOCK = ".bd-testrun.lock"
 POLICY_MIN_AGE_S = 24 * 60 * 60
 FORENSICS_KEEP = 20
 PROTECTED_STATES = {"KEPT_FOR_FORENSICS", "ABANDONED"}
+DURABLE_STATES = (
+    "LIVE", "KEPT_FOR_FORENSICS", "RECLAIMABLE", "ABANDONED", "UNKNOWN")
 CAPTURE_VAULT_LOCK = ".bd-capture-vault.lock"
 
 
@@ -105,6 +107,16 @@ def _test_root_state(path, now):
     """Return the disk-decidable policy state and its outcome timestamp."""
     try:
         root_st = os.lstat(path)
+        name = os.path.basename(path)
+        private_tail = name.rpartition(".bdrm-")[2]
+        removal_residue = (
+            ".bdrm-" in name and len(private_tail) == 16 and
+            all(ch in "0123456789abcdef" for ch in private_tail))
+        if (removal_residue and
+                not os.path.lexists(os.path.join(path, RUN_LOCK)) and
+                not os.path.lexists(os.path.join(path, RUN_MARKER))):
+            return ("RECLAIMABLE", root_st.st_mtime,
+                    "interrupted object-bound removal residue")
         lock_fd = os.open(
             os.path.join(path, RUN_LOCK), os.O_RDONLY | os.O_NOFOLLOW)
         lock_st = os.fstat(lock_fd)
@@ -146,6 +158,12 @@ def _test_root_state(path, now):
         if total > 65536:
             return "UNKNOWN", None, "marker exceeds 65536 bytes"
         record = json.loads(b"".join(chunks).decode("ascii"))
+    except FileNotFoundError:
+        # The exact lock name plus a released flock is the durable remainder
+        # of a producer killed between lock creation and first marker publish.
+        # Markerless legacy roots have no lock and remain UNKNOWN above.
+        return ("ABANDONED", root_st.st_mtime,
+                "run-root lock exists but initial marker was interrupted")
     except (OSError, UnicodeError, ValueError, TypeError) as exc:
         return "UNKNOWN", None, "marker is unreadable (%s)" % exc
     finally:
@@ -160,10 +178,14 @@ def _test_root_state(path, now):
             lock_st.st_dev, lock_st.st_ino):
         return "UNKNOWN", None, "marker identity does not match the lock"
     try:
-        stamp = float(record.get("updated_at", record["started_at"]))
+        started = float(record["started_at"])
+        stamp = float(record.get("updated_at", started))
     except (KeyError, TypeError, ValueError):
         return "UNKNOWN", None, "marker timestamp is unreadable"
-    if not math.isfinite(stamp) or stamp > now + 300:
+    if (not math.isfinite(started) or not math.isfinite(stamp) or
+            started > stamp or stamp > now + 300 or
+            stamp < marker_st.st_mtime - 300 or
+            stamp > marker_st.st_mtime + 300):
         return "UNKNOWN", None, "marker timestamp is impossible"
     state = record.get("state")
     if state == "RUNNING":
@@ -223,7 +245,7 @@ def is_candidate(path, now, older_than_s):
     return True, "%seligible" % prefix
 
 
-def scan(now, older_than_s, root="/tmp"):  # noqa: D401
+def scan(now, older_than_s, root="/tmp", only_family=None):  # noqa: D401
     """(eligible, skipped) over the allowed prefixes. Reports both, always."""
     eligible, skipped = [], []
     base = pathlib.Path(root)
@@ -233,10 +255,13 @@ def scan(now, older_than_s, root="/tmp"):  # noqa: D401
         else:
             here, pattern = base, os.path.basename(pre) + "*"
         for path in sorted(here.glob(pattern)):
+            if (only_family == "bd-testrun" and
+                    not path.name.startswith("bd-testrun-")):
+                continue
             ok, why = is_candidate(path, now, older_than_s)
             (eligible if ok else skipped).append((str(path), why))
     protected = [
-        (path, why) for path, why in eligible + skipped
+        (path, why) for path, why in eligible
         if any(why.startswith("[%s]" % state) for state in PROTECTED_STATES)
     ]
     def observed_mtime(item):
@@ -282,7 +307,9 @@ def run(args):
         return 2
 
     now = time.time()
-    eligible, skipped = scan(now, args.older_than * 60)
+    only_family = getattr(args, "only", None)
+    eligible, skipped = scan(now, args.older_than * 60,
+                             only_family=only_family)
     total = len(eligible) + len(skipped)
     # STATE THE DENOMINATOR. "142 removed" over an unstated total is the shape
     # this repo keeps finding.
@@ -427,6 +454,8 @@ def main(argv=None):
                    help="du each candidate (slow on thousands of paths)")
     p.add_argument("--show", type=int, default=20)
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--only", choices=("bd-testrun",),
+                   help="scope automatic cleanup to a classified family")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("--finish-capture-vault")
     p.add_argument("--owned-fd", type=int)
