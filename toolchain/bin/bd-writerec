@@ -1,0 +1,624 @@
+#!/usr/bin/env python3
+"""Opt-in strace filesystem mutation evidence recorder."""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import platform
+import re
+import select
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+SCHEMA = "bd-writerec/1"
+TRACE_SET = (
+    "clone", "clone3", "fork", "vfork", "execve", "execveat", "chdir", "fchdir",
+    "write", "pwrite64", "writev", "pwritev", "pwritev2", "openat", "openat2", "creat",
+    "truncate", "ftruncate", "fallocate", "sendfile", "copy_file_range", "splice",
+    "rename", "renameat", "renameat2", "unlink", "unlinkat", "mkdir", "mkdirat", "rmdir",
+    "link", "linkat", "symlink", "symlinkat", "chmod", "fchmod", "fchmodat", "chown",
+    "fchown", "fchownat", "lchown", "mmap", "munmap", "msync", "io_uring_setup",
+    "io_uring_enter",
+)
+META = {"clone", "clone3", "fork", "vfork", "execve", "execveat", "chdir", "fchdir",
+        "munmap", "msync", "io_uring_setup"}
+GAPS = {"mmap", "io_uring_enter"}
+MUTATIONS = set(TRACE_SET) - META - GAPS - {"openat", "openat2"}
+COVERAGE_MATRIX = {name: ("coverage_gap_UNKNOWN" if name in GAPS else
+                          "parsed_metadata" if name in META else
+                          "parsed_mutation") for name in TRACE_SET}
+BLIND_SPOTS = [
+    "MAP_SHARED writes and io_uring cannot be fully attributed",
+    "processes outside the launched descendant tree are invisible",
+    "successful syscalls do not prove durable media persistence",
+    "syscalls absent from the declared trace set are outside schema v1",
+    "paths are syscall-time namespace views, not inode histories",
+    "payload bytes are deliberately absent",
+    "ptrace overhead invalidates timing conclusions",
+    "containers and remote filesystems may hide the ultimate writer",
+    "a capture stopped at --max-raw-bytes loses its tail: late syscalls are absent",
+    "a recorder-terminated workload did not run to completion and has no exit status of its own",
+    "peak recorder memory is bounded by --max-raw-bytes, not by the workload's true trace size",
+]
+
+
+def coverage_document():
+    return {"schema": SCHEMA, "trace_set": list(TRACE_SET), "policies": dict(COVERAGE_MATRIX)}
+
+
+def _utc():
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _split_args(text):
+    out, start, quote, esc, angle, brace, bracket, paren = [], 0, False, False, 0, 0, 0, 0
+    for i, char in enumerate(text):
+        if quote:
+            if esc:
+                esc = False
+            elif char == "\\":
+                esc = True
+            elif char == '"':
+                quote = False
+            continue
+        if char == '"': quote = True
+        elif char == "<": angle += 1
+        elif char == ">" and angle: angle -= 1
+        elif char == "{": brace += 1
+        elif char == "}": brace -= 1
+        elif char == "[": bracket += 1
+        elif char == "]": bracket -= 1
+        elif char == "(": paren += 1
+        elif char == ")": paren -= 1
+        elif char == "," and not (angle or brace or bracket or paren):
+            out.append(text[start:i].strip()); start = i + 1
+    out.append(text[start:].strip())
+    return out
+
+
+def _cstring(token):
+    token = token.strip()
+    if not token.startswith('"'):
+        return token
+    end, esc = None, False
+    for i in range(1, len(token)):
+        if esc: esc = False
+        elif token[i] == "\\": esc = True
+        elif token[i] == '"': end = i; break
+    raw = token[1:end] if end is not None else token[1:]
+    def repl(match):
+        value = match.group(1)
+        if value and value[0].isdigit(): return chr(int(value, 8))
+        return {"n": "\n", "t": "\t", "r": "\r"}.get(value, value)
+    return re.sub(r"\\([0-7]{1,3}|.)", repl, raw)
+
+
+def _annotation(token):
+    match = re.search(r"<((?:\\.|[^>])*)>", token)
+    return _cstring('"' + match.group(1) + '"') if match else None
+
+
+def _retval(text):
+    match = re.search(r"=\s+(-?\d+|0x[0-9a-f]+|\?)\s*(?:([A-Z][A-Z0-9_]+))?", text)
+    if not match: return None, None
+    raw, errno = match.groups()
+    return (int(raw, 0) if raw != "?" else None), errno
+
+
+def _resolve(token, cwd):
+    raw = _cstring(token)
+    annotated = _annotation(token)
+    if annotated:
+        return annotated, raw, "fd-annotation"
+    if token.startswith('"'):
+        if raw.startswith("/"): return os.path.normpath(raw), raw, "absolute"
+        if cwd: return os.path.normpath(os.path.join(cwd, raw)), raw, "cwd-resolved"
+    return None, raw, "unresolved"
+
+
+def _resolve_at(dirfd, path, cwd):
+    raw = _cstring(path)
+    if raw.startswith("/"): return os.path.normpath(raw), raw, "absolute"
+    base = _annotation(dirfd) or (cwd if dirfd.startswith("AT_FDCWD") else None)
+    if base: return os.path.normpath(os.path.join(base, raw)), raw, "fd-annotation"
+    return None, raw, "unresolved"
+
+
+def _requested(name, args):
+    indexes = {"write": 2, "pwrite64": 2, "sendfile": 3, "copy_file_range": 4,
+               "splice": 4}
+    if name in {"writev", "pwritev", "pwritev2"}:
+        return sum(int(x) for x in re.findall(r"iov_len=(\d+)", args[1]))
+    try: return int(args[indexes[name]], 0)
+    except (KeyError, IndexError, ValueError): return None
+
+
+def _path_fields(name, args, cwd):
+    fdidx = {"write": 0, "pwrite64": 0, "writev": 0, "pwritev": 0, "pwritev2": 0,
+             "ftruncate": 0, "fallocate": 0, "sendfile": 0, "copy_file_range": 2,
+             "splice": 2, "fchmod": 0, "fchown": 0, "fchdir": 0}
+    if name in fdidx: return (*_resolve(args[fdidx[name]], cwd), None, None, None)
+    at_one = {"openat", "openat2", "unlinkat", "mkdirat", "fchmodat", "fchownat"}
+    if name in at_one: return (*_resolve_at(args[0], args[1], cwd), None, None, None)
+    if name in {"renameat", "renameat2", "linkat"}:
+        a = _resolve_at(args[0], args[1], cwd); b = _resolve_at(args[2], args[3], cwd)
+        return (*a, *b)
+    if name == "symlinkat":
+        b = _resolve_at(args[1], args[2], cwd); return b[0], b[1], b[2], _cstring(args[0]), _cstring(args[0]), "literal"
+    if name in {"rename", "link"}:
+        a = _resolve(args[0], cwd); b = _resolve(args[1], cwd); return (*a, *b)
+    if name == "symlink":
+        b = _resolve(args[1], cwd); return b[0], b[1], b[2], _cstring(args[0]), _cstring(args[0]), "literal"
+    if args: return (*_resolve(args[0], cwd), None, None, None)
+    return None, None, "unresolved", None, None, None
+
+
+def _parse_call(pid, name, args_text, tail, cwd, roots, root_pid, split=False, status="complete"):
+    args = _split_args(args_text); retval, errno = _retval(tail)
+    success = retval is not None and retval >= 0
+    path, raw, source, target, target_raw, target_source = _path_fields(name, args, cwd)
+    flags = []
+    if name in {"openat", "openat2"}:
+        flag_text = args[2] if name == "openat" else (args[2] if len(args) > 2 else "")
+        if name == "openat2":
+            match = re.search(r"flags=([^,}]+)", flag_text); flag_text = match.group(1) if match else ""
+        flags = re.findall(r"O_[A-Z0-9_]+", flag_text)
+    elif name == "creat": flags = ["O_WRONLY", "O_CREAT", "O_TRUNC"]
+    if name in GAPS: operation = "coverage_gap"
+    elif name in META: operation = "metadata"
+    elif name in {"openat", "openat2"}: operation = "open_mutation" if set(flags) & {"O_CREAT", "O_EXCL", "O_TRUNC"} else "metadata"
+    elif name == "creat": operation = "open_mutation"
+    else: operation = name
+    requested = _requested(name, args)
+    event = {"schema": SCHEMA, "record_type": "event", "seq": 0, "pid": pid, "root_pid": root_pid,
+             "syscall": name, "operation": operation, "operation_count": 1, "success": success,
+             "retval": retval, "errno": errno, "path": path, "path_raw": raw, "path_source": source,
+             "target_path": target, "target_path_raw": target_raw, "target_path_source": target_source,
+             "requested_bytes": requested, "written_bytes": retval if success and requested is not None else None,
+             "flags": flags, "mode": None, "in_root": bool(path and any(path == r or path.startswith(r + os.sep) for r in roots)),
+             "status": status, "split": split}
+    return event
+
+
+def parse_trace(text, launch_cwd="/", roots=(), max_events=1000000, root_pid=None):
+    roots = tuple(os.path.abspath(r) for r in roots); cwd = {}; shared = {}; pending = {}; events = []
+    failures = unpaired = 0; terminal = {}; gaps = set(); pids = set(); truncated = False
+    lines = text.splitlines()
+    order = 0
+    for rawline in lines:
+        match = re.match(r"\s*(\d+)\s+(.*)", rawline)
+        if not match: continue
+        pid, body = int(match.group(1)), match.group(2); pids.add(pid)
+        if root_pid is None: root_pid = pid
+        cwd.setdefault(pid, launch_cwd); shared.setdefault(pid, {pid})
+        term = re.match(r"\+\+\+ (exited with (\d+)|killed by (SIG[A-Z0-9]+)) \+\+\+", body)
+        if term:
+            terminal[pid] = {"how": "exited", "code": int(term.group(2))} if term.group(2) else {"how": "signalled", "signal": term.group(3), "code": 128 + getattr(signal, term.group(3), 0)}
+            continue
+        resumed = re.match(r"<\.\.\. ([a-zA-Z0-9_]+) resumed>\)(.*)", body)
+        if resumed:
+            if pid not in pending:
+                unpaired += 1; failures += 1
+                event = {"schema": SCHEMA, "record_type": "event", "seq": 0, "pid": pid,
+                         "root_pid": root_pid, "syscall": resumed.group(1), "operation": "parse_failure",
+                         "operation_count": 0, "success": False, "retval": None, "errno": None,
+                         "path": None, "path_raw": None, "path_source": "unresolved", "target_path": None,
+                         "target_path_raw": None, "target_path_source": None, "requested_bytes": None,
+                         "written_bytes": None, "flags": [], "mode": None, "in_root": False,
+                         "status": "unpaired_resumed", "split": True, "_order": order + 1}
+                order += 1
+                events.append(event); continue
+            name, args_text, event_order = pending.pop(pid)
+            event = _parse_call(pid, name, args_text, resumed.group(2), cwd[pid], roots, root_pid, True)
+            event["_order"] = event_order
+        else:
+            call = re.match(r"([a-zA-Z0-9_]+)\((.*)", body)
+            if not call: continue
+            name, rest = call.groups()
+            if rest.endswith("<unfinished ...>"):
+                order += 1
+                pending[pid] = (name, rest[:-len("<unfinished ...>")].rstrip(), order); continue
+            boundary = re.search(r"\)\s+=\s+", rest)
+            close = boundary.start() if boundary else -1
+            if close < 0 and rest.endswith(")"): close = len(rest) - 1
+            if close < 0: failures += 1; continue
+            event = _parse_call(pid, name, rest[:close], rest[close+1:], cwd[pid], roots, root_pid)
+            order += 1; event["_order"] = order
+        name = event["syscall"]
+        if name in {"clone", "clone3", "fork", "vfork"} and event["success"]:
+            child = event["retval"]; cwd[child] = cwd[pid]; pids.add(child)
+            flags = event["path_raw"] or ""
+            if "CLONE_FS" in flags:
+                group = shared[pid]; group.add(child); shared[child] = group
+            else: shared[child] = {child}
+        if name == "chdir" and event["success"] and event["path"]:
+            for member in shared[pid]: cwd[member] = event["path"]
+        if name == "fchdir" and event["success"] and event["path"]:
+            for member in shared[pid]: cwd[member] = event["path"]
+        if name == "mmap" and event["success"]:
+            args = _split_args(rest[:rest.rfind(")")]) if not resumed else []
+            if any("MAP_SHARED" in a for a in args) and any("PROT_WRITE" in a for a in args): gaps.add("mmap_shared_write")
+        if name == "io_uring_enter": gaps.add("io_uring")
+        event["seq"] = len(events) + 1; events.append(event)
+        if len(events) >= max_events: truncated = True; break
+    for pid, (name, args_text, event_order) in pending.items():
+        event = _parse_call(pid, name, args_text, "", cwd[pid], roots, root_pid, True, "unfinished")
+        event["_order"] = event_order; events.append(event)
+    events.sort(key=lambda item: item.pop("_order", 10**12))
+    for index, event in enumerate(events, 1): event["seq"] = index
+    unfinished = len(pending)
+    successful = [e for e in events if e["success"] and e["operation"] not in {"metadata", "coverage_gap"}]
+    complete = bool(text) and not (failures or unpaired or unfinished or truncated or gaps) and root_pid in terminal
+    footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": len(events)+2, "events": len(events),
+              "successful_mutations": len(successful), "requested_bytes": sum(e["requested_bytes"] or 0 for e in successful),
+              "written_bytes": sum(e["written_bytes"] or 0 for e in successful), "pids_seen": len(pids),
+              "unfinished_at_eof": unfinished, "unpaired_resumed": unpaired, "parse_failures": failures,
+              "truncated": truncated, "coverage_gaps": sorted(gaps), "root_exit": terminal.get(root_pid),
+              "complete": complete, "result": "PASS" if complete else "UNKNOWN", "blind_spots": BLIND_SPOTS}
+    return events, footer
+
+
+def build_strace_argv(strace, trace, command):
+    return [strace, "-f", "-y", "-s", "0", "-o", trace, "-e", "trace=" + ",".join(TRACE_SET), "--", *command]
+
+
+def _header(command, cwd, roots, strace_path=None, version=None, max_events=1000000):
+    return {"schema": SCHEMA, "record_type": "run_header", "seq": 1, "host": socket.gethostname(),
+            "argv": command, "launch_cwd": cwd, "roots": list(roots), "strace_path": strace_path,
+            "strace_version": version, "trace_set": list(TRACE_SET), "kernel": platform.release(),
+            "ptrace_scope": _ptrace_scope(), "started_utc": _utc(), "max_events": max_events,
+            "blind_spots": BLIND_SPOTS}
+
+
+def _ptrace_scope():
+    try: return int(Path("/proc/sys/kernel/yama/ptrace_scope").read_text().strip())
+    except (OSError, ValueError): return None
+
+
+def _outside_git(path):
+    parent = path.resolve().parent
+    probe = subprocess.run(["git", "-C", str(parent), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return probe.returncode != 0
+
+
+def _write_evidence(out, header, events, footer):
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix="." + out.name + ".", dir=out.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as sink:
+            for seq, record in enumerate([header, *events, footer], 1):
+                record = dict(record); record["seq"] = seq
+                sink.write(json.dumps(record, sort_keys=True) + "\n")
+            sink.flush(); os.fsync(sink.fileno())
+        os.replace(temp, out)
+    finally:
+        try: os.unlink(temp)
+        except FileNotFoundError: pass
+
+
+_DRAIN_CHUNK = 64 * 1024
+def _capture(max_raw_bytes, raw_bytes=0, disk_bytes=0, partial_tail=0, raw_limit=False,
+             time_limit=False, tracer_pid=None, tracer_pgid=None, tracer_exit_code=None,
+             group_reaped=True, parsed_bytes=None, residual_terminated=False):
+    # Live acquisition accounting.  raw_bytes == parsed_bytes + partial_tail_bytes and
+    # parsed_bytes == raw_disk_bytes: every byte read is either parsed and retained, or
+    # declared as a discarded tail.  These identities describe bytes the recorder read
+    # from a tracer, so they belong to live mode only -- see _parse_capture.
+    return {"mode": "live",
+            "max_raw_bytes": max_raw_bytes, "raw_bytes": raw_bytes, "raw_disk_bytes": disk_bytes,
+            "parsed_bytes": raw_bytes - partial_tail if parsed_bytes is None else parsed_bytes,
+            "partial_tail_bytes": partial_tail, "raw_limit_exceeded": raw_limit,
+            "time_limit_exceeded": time_limit, "workload_terminated_by_recorder": raw_limit or time_limit,
+            "tracer_pid": tracer_pid, "tracer_pgid": tracer_pgid,
+            "tracer_exit_code": tracer_exit_code, "process_group_reaped": group_reaped,
+            "residual_group_terminated": residual_terminated}
+
+
+def _parse_capture(source_bytes):
+    """Offline accounting.  Parse mode acquires nothing, so publishing live acquisition
+    fields would assert an identity it never measured; it reports what it actually read."""
+    return {"mode": "parse", "source_bytes": source_bytes}
+
+
+def _summary(footer, capture):
+    keys = ("result", "complete", "events", "successful_mutations", "written_bytes", "coverage_gaps")
+    return {k: footer[k] for k in keys} | dict(capture) | {"blind_spots": BLIND_SPOTS}
+
+
+def _signal_group(pgid, sig):
+    try:
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _group_gone(pgid):
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
+def _reap_group(proc, pgid, escalate, hard_after=1.0, timeout=10.0):
+    """Wait for the tracer and every surviving member of its group.
+
+    Returns (reaped, residual_terminated).  `reaped` is True only when the group is
+    provably empty; an unproven reap is UNKNOWN, not success.
+
+    Escalation while the tracer is still running is gated on `escalate`, so a slow but
+    clean tracer is never killed out from under a valid capture.  Once the tracer is
+    gone, that courtesy no longer applies: anything still in its group is orphaned by
+    definition, and nothing legitimate can still be running there.  Such residue is
+    terminated unconditionally and reported, because observing an orphan and leaving it
+    alive is the failure this function exists to prevent.
+    """
+    start = time.monotonic()
+    escalated = residual_terminated = False
+    residual_deadline = None
+    while time.monotonic() - start < timeout:
+        if proc.poll() is None:
+            try:
+                proc.wait(timeout=.05)
+            except subprocess.TimeoutExpired:
+                pass
+            if escalate and not escalated and time.monotonic() - start >= hard_after:
+                _signal_group(pgid, signal.SIGKILL)
+                escalated = True
+        elif _group_gone(pgid):
+            return True, residual_terminated
+        elif not residual_terminated:
+            _signal_group(pgid, signal.SIGTERM)
+            residual_terminated = True
+            residual_deadline = time.monotonic() + hard_after
+        elif residual_deadline is not None and time.monotonic() >= residual_deadline:
+            _signal_group(pgid, signal.SIGKILL)
+            residual_deadline = None
+        time.sleep(.01)
+    return (proc.poll() is not None and _group_gone(pgid)), residual_terminated
+
+
+def _sink_for(sinks, raw_dir, line):
+    match = re.match(rb"\s*(\d+)\s+", line)
+    name = (match.group(1).decode("ascii") if match else "unattributed") + ".strace"
+    sink = sinks.get(name)
+    if sink is None:
+        sink = sinks[name] = open(raw_dir / name, "wb")
+    return sink
+
+
+def _drain_bounded(read_fd, raw_dir, budget, deadline):
+    """Read at most `budget` bytes from the tracer pipe, streaming whole lines to per-pid files.
+
+    The recorder -- not strace -- owns the artifact, so the budget is the number of bytes
+    the recorder consents to read.  That single number bounds the raw capture, the bytes
+    written to disk, and the bytes retained in memory alike.  Only whole lines are kept:
+    a half-written trailing line is counted, declared, and discarded rather than parsed.
+    """
+    sinks = {}
+    buf = bytearray()
+    pending = b""
+    disk = 0
+    raw_limit = time_limit = False
+    try:
+        while True:
+            if len(buf) >= budget:
+                raw_limit = True
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                time_limit = True
+                break
+            if not select.select([read_fd], [], [], min(remaining, .2))[0]:
+                continue
+            chunk = os.read(read_fd, min(_DRAIN_CHUNK, budget - len(buf)))
+            if not chunk:
+                break  # the tracer closed its end: this capture is whole
+            buf += chunk
+            pending += chunk
+            cut = pending.rfind(b"\n")
+            if cut >= 0:
+                whole, pending = pending[:cut + 1], pending[cut + 1:]
+                for line in whole.splitlines(keepends=True):
+                    _sink_for(sinks, raw_dir, line).write(line)
+                disk += len(whole)
+    finally:
+        for sink in sinks.values():
+            sink.close()
+    raw_bytes = len(buf)
+    if pending:
+        del buf[raw_bytes - len(pending):]
+    # len(buf) is measured after the trim, not inferred from it: an evidence recorder that
+    # derives its own denominator from the assumption under test cannot fail open.
+    return buf.decode("utf-8", "replace"), raw_bytes, disk, len(pending), raw_limit, time_limit, len(buf)
+
+
+def _exit_witness(root_exit, tracer_code):
+    """Compare the parsed terminal record against the tracer's own status."""
+    if not root_exit or tracer_code is None:
+        return "unknown"
+    if root_exit.get("how") == "exited":
+        return "agree" if root_exit.get("code") == tracer_code else "disagree"
+    expected = {root_exit.get("code"), -(root_exit.get("code", 0) - 128)}
+    return "agree" if tracer_code in expected else "disagree"
+
+
+def _refusal(out, header, capture, error):
+    """Atomically publish a schema-shaped complete:false record for a refused run.
+
+    A refusal is a measurement outcome, not the absence of one, so it gets the same
+    header/footer artifact as any other UNKNOWN.  It never cites a raw_log_dir,
+    because a refused run retains no raw directory to cite.
+    """
+    footer = {"schema": SCHEMA, "record_type": "run_footer", "seq": 2, "events": 0,
+              "successful_mutations": 0, "written_bytes": 0, "coverage_gaps": [],
+              "complete": False, "result": "UNKNOWN", "root_exit": None,
+              "ended_utc": _utc(), "error": error, "blind_spots": BLIND_SPOTS}
+    footer.update(capture)
+    _write_evidence(out, header, [], footer)
+    return footer
+
+
+def _live(args):
+    out = Path(args.out)
+    if not _outside_git(out): raise ValueError("--out must be outside every Git worktree")
+    strace = os.path.abspath(args.strace or shutil.which("strace") or "")
+    header = _header(args.command, os.getcwd(), args.root, strace, None, args.max_events)
+    capture = _capture(args.max_raw_bytes)
+    if not strace or not os.path.isfile(strace) or not sys.platform.startswith("linux") or (_ptrace_scope() or 0) >= 2:
+        return _refusal(out, header, capture, "no usable tracer: strace path, platform or ptrace_scope"), capture
+    # Every resource below is owned by this call.  Each starts as a sentinel and is
+    # allocated INSIDE the cleanup boundary, so a failure at any step -- including the
+    # first -- releases exactly what had been created and nothing else.
+    raw_dir = err_path = proc = pgid = None
+    err_fd = read_fd = write_fd = -1
+    retained = False   # raw_dir survives only once an artifact actually cites it
+    setup_error = None
+    try:
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            raw_dir = Path(tempfile.mkdtemp(prefix="bd-writerec-", dir=out.parent))
+            err_fd, err_path = tempfile.mkstemp(prefix=".bd-writerec-tracer-stderr.", dir=out.parent)
+            read_fd, write_fd = os.pipe()
+            proc = subprocess.Popen(build_strace_argv(strace, "/dev/fd/%d" % write_fd, args.command),
+                                    start_new_session=True, pass_fds=(write_fd,),
+                                    stdout=subprocess.DEVNULL, stderr=err_fd, close_fds=True)
+        except OSError as exc:
+            setup_error = exc
+        finally:
+            if write_fd >= 0:
+                os.close(write_fd); write_fd = -1  # the parent must drop its write end or the drain never sees EOF
+            if err_fd >= 0:
+                os.close(err_fd); err_fd = -1
+        if setup_error is not None:
+            # Nothing was traced and nothing is retained.  The refusal is still recorded
+            # as a real artifact rather than only on stdout -- best effort, because a
+            # destination that cannot be written is itself the failure being reported.
+            try:
+                return _refusal(out, header, capture, "recorder setup failed: %s" % setup_error), capture
+            except OSError:
+                raise setup_error
+        pgid = proc.pid  # start_new_session makes the tracer its own group and session leader
+        deadline = time.monotonic() + args.max_seconds
+        text, raw_bytes, disk, partial_tail, raw_limit, time_limit, parsed = _drain_bounded(
+            read_fd, raw_dir, args.max_raw_bytes, deadline)
+        # Ordering is load-bearing: stop reading, signal the group, only then close the
+        # read end.  Waiting on a full pipe before either would deadlock the tracer.
+        if raw_limit or time_limit:
+            _signal_group(pgid, signal.SIGTERM)
+        os.close(read_fd); read_fd = -1
+        reaped, residual = _reap_group(proc, pgid, escalate=raw_limit or time_limit)
+        capture = _capture(args.max_raw_bytes, raw_bytes, disk, partial_tail, raw_limit, time_limit,
+                           proc.pid, pgid, proc.returncode, reaped, parsed, residual)
+        events, footer = parse_trace(text, os.getcwd(), args.root, args.max_events)
+        footer["ended_utc"] = _utc(); footer["raw_log_dir"] = str(raw_dir)
+        footer.update(capture)
+        footer["tracer_stderr"] = _read_head(err_path, 4096)
+        footer["exit_witness"] = _exit_witness(footer.get("root_exit"), proc.returncode)
+        if (capture["workload_terminated_by_recorder"] or partial_tail
+                or not reaped or residual):
+            footer.update(complete=False, result="UNKNOWN")
+        if footer["exit_witness"] == "disagree":
+            footer.update(complete=False, result="UNKNOWN")
+        header["raw_log_dir"] = str(raw_dir)
+        _write_evidence(out, header, events, footer)
+        retained = True
+        return footer, capture
+    except BaseException as exc:
+        # The exception path owes the same bounded proof as the success path, and the
+        # proof is recorded rather than discarded: an unreaped group on an abandoned
+        # run is exactly the orphan this recorder must never hand back silently.
+        if pgid is not None:
+            _signal_group(pgid, signal.SIGKILL)
+            reaped, residual = _reap_group(proc, pgid, escalate=True)
+            capture = _capture(args.max_raw_bytes, tracer_pid=proc.pid, tracer_pgid=pgid,
+                               tracer_exit_code=proc.returncode, group_reaped=reaped,
+                               residual_terminated=residual)
+            try:
+                _refusal(out, header, capture, "run abandoned: %s: %s"
+                         % (type(exc).__name__, exc))
+            except OSError:
+                pass  # the destination is unusable; the raised exception is the report
+        raise
+    finally:
+        if read_fd >= 0:
+            os.close(read_fd)
+        if write_fd >= 0:
+            os.close(write_fd)
+        if err_fd >= 0:
+            os.close(err_fd)
+        if err_path is not None:
+            try: os.unlink(err_path)
+            except FileNotFoundError: pass
+        if raw_dir is not None and not retained:
+            shutil.rmtree(raw_dir, ignore_errors=True)
+
+
+def _read_head(path, limit):
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(limit).decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+
+
+def _parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--parse", metavar="TRACE"); parser.add_argument("--out")
+    parser.add_argument("--launch-cwd", default=os.getcwd()); parser.add_argument("--root", action="append", default=[])
+    parser.add_argument("--exit-mode", choices=("child", "recorder"), default="child")
+    parser.add_argument("--max-events", type=int, default=1000000); parser.add_argument("--max-raw-bytes", type=int, default=64*1024*1024)
+    parser.add_argument("--max-seconds", type=float, default=86400); parser.add_argument("--strace")
+    parser.add_argument("--coverage-matrix", action="store_true"); parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--json", action="store_true"); parser.add_argument("command", nargs=argparse.REMAINDER)
+    return parser
+
+
+def main(argv=None):
+    args = _parser().parse_args(argv)
+    if args.coverage_matrix: print(json.dumps(coverage_document(), sort_keys=True)); return 0
+    if args.selftest:
+        ok = _split_args('3</a b>, "x,y", [1,2]') == ['3</a b>', '"x,y"', '[1,2]']
+        print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+        return 0 if ok else 1
+    if not args.out: print("UNKNOWN: --out is required", file=sys.stderr); return 2
+    try:
+        # A budget that cannot bound anything is not a budget; refuse before creating
+        # or spawning anything, so a nonsensical declared limit is never published.
+        for flag, value in (("--max-raw-bytes", args.max_raw_bytes),
+                            ("--max-events", args.max_events),
+                            ("--max-seconds", args.max_seconds)):
+            if value <= 0:
+                raise ValueError("%s must be positive, got %r" % (flag, value))
+        if args.parse:
+            if not _outside_git(Path(args.out)): raise ValueError("--out must be outside every Git worktree")
+            text = Path(args.parse).read_text(encoding="utf-8"); events, footer = parse_trace(text, args.launch_cwd, args.root, args.max_events)
+            capture = _parse_capture(len(text.encode()))
+            footer.update(capture)  # artifact and summary must report the same accounting
+            header = _header([], args.launch_cwd, args.root, None, None, args.max_events); _write_evidence(Path(args.out), header, events, footer)
+        else:
+            if not args.command or args.command[0] != "--" or len(args.command) == 1: raise ValueError("live mode requires -- COMMAND")
+            args.command = args.command[1:]; footer, capture = _live(args)
+        summary = _summary(footer, capture)
+        print(json.dumps(summary, sort_keys=True) if args.json else summary["result"])
+        if args.exit_mode == "recorder": return 0 if footer["complete"] else 2
+        root = footer.get("root_exit")
+        return root.get("code", 125) if footer["complete"] and root else 125
+    except (OSError, ValueError) as exc:
+        print(json.dumps({"result": "UNKNOWN", "complete": False, "error": str(exc)})
+              if args.json else "UNKNOWN: " + str(exc))
+        return 2 if args.exit_mode == "recorder" else 125
+
+
+if __name__ == "__main__":
+    sys.exit(main())

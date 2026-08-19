@@ -1,0 +1,67 @@
+100 write(3</dst/write>, NULL, 9) = 3
+100 write(3</dst/write>, NULL, 9) = -1 EIO (Input/output error)
+100 pwrite64(4</dst/pwrite>, NULL, 9, 0) = 3
+100 pwrite64(4</dst/pwrite>, NULL, 9, 0) = -1 EIO (Input/output error)
+100 writev(5</dst/writev>, [{iov_base=NULL, iov_len=2}, {iov_base=NULL, iov_len=5}], 2) = 3
+100 writev(5</dst/writev>, [{iov_base=NULL, iov_len=2}], 1) = -1 EIO (Input/output error)
+100 pwritev(6</dst/pwritev>, [{iov_base=NULL, iov_len=4}, {iov_base=NULL, iov_len=7}], 2, 0) = 3
+100 pwritev(6</dst/pwritev>, [{iov_base=NULL, iov_len=4}], 1, 0) = -1 EIO (Input/output error)
+100 pwritev2(7</dst/pwritev2>, [{iov_base=NULL, iov_len=6}, {iov_base=NULL, iov_len=9}], 2, 0, 0) = 3
+100 pwritev2(7</dst/pwritev2>, [{iov_base=NULL, iov_len=6}], 1, 0, 0) = -1 EIO (Input/output error)
+100 truncate("/dst/truncate", 10) = 0
+100 truncate("/dst/truncate", 10) = -1 EACCES (Permission denied)
+100 ftruncate(8</dst/ftruncate>, 10) = 0
+100 ftruncate(8</dst/ftruncate>, 10) = -1 EIO (Input/output error)
+100 fallocate(9</dst/fallocate>, 0, 0, 10) = 0
+100 fallocate(9</dst/fallocate>, 0, 0, 10) = -1 EIO (Input/output error)
+100 sendfile(10</dst/sendfile>, 11</src/sendfile>, NULL, 9) = 3
+100 sendfile(10</dst/sendfile>, 11</src/sendfile>, NULL, 9) = -1 EIO (Input/output error)
+100 copy_file_range(12</src/copy>, NULL, 13</dst/copy>, NULL, 9, 0) = 3
+100 copy_file_range(12</src/copy>, NULL, 13</dst/copy>, NULL, 9, 0) = -1 EIO (Input/output error)
+100 splice(14</src/splice>, NULL, 15</dst/splice>, NULL, 9, 0) = 3
+100 splice(14</src/splice>, NULL, 15</dst/splice>, NULL, 9, 0) = -1 EIO (Input/output error)
+100 rename("old", "new") = 0
+100 rename("old", "new") = -1 ENOENT (No such file or directory)
+100 unlink("gone") = 0
+100 unlink("gone") = -1 ENOENT (No such file or directory)
+100 mkdir("made", 0777) = 0
+100 mkdir("made", 0777) = -1 EACCES (Permission denied)
+100 link("source", "target") = 0
+100 link("source", "target") = -1 ENOENT (No such file or directory)
+100 symlink("content", "sym") = 0
+100 symlink("content", "sym") = -1 EACCES (Permission denied)
+100 chmod("mode", 0600) = 0
+100 chmod("mode", 0600) = -1 EACCES (Permission denied)
+100 chown("owner", 1, 1) = 0
+100 chown("owner", 1, 1) = -1 EPERM (Operation not permitted)
+100 write(99, NULL, 1) = 1
+100 openat(AT_FDCWD</dst>, "openat", O_WRONLY|O_CREAT, 0644) = 16</dst/openat>
+100 openat(AT_FDCWD</dst>, "openat", O_WRONLY|O_CREAT|O_EXCL, 0644) = -1 EEXIST (File exists)
+100 openat2(AT_FDCWD</dst>, "openat2", {flags=O_WRONLY|O_TRUNC, mode=0}, 24) = 17</dst/openat2>
+100 openat2(AT_FDCWD</dst>, "openat2", {flags=O_WRONLY|O_TRUNC, mode=0}, 24) = -1 EACCES (Permission denied)
+100 creat("/dst/creat", 0644) = 18</dst/creat>
+100 creat("/dst/creat", 0644) = -1 EACCES (Permission denied)
+100 renameat(AT_FDCWD</dst>, "a", AT_FDCWD</dst>, "b") = 0
+100 renameat(AT_FDCWD</dst>, "a", AT_FDCWD</dst>, "b") = -1 ENOENT (No such file or directory)
+100 renameat2(AT_FDCWD</dst>, "a", AT_FDCWD</dst>, "b", RENAME_NOREPLACE) = 0
+100 renameat2(AT_FDCWD</dst>, "a", AT_FDCWD</dst>, "b", RENAME_NOREPLACE) = -1 EEXIST (File exists)
+100 unlinkat(AT_FDCWD</dst>, "gone", 0) = 0
+100 unlinkat(AT_FDCWD</dst>, "gone", 0) = -1 ENOENT (No such file or directory)
+100 mkdirat(AT_FDCWD</dst>, "made", 0777) = 0
+100 mkdirat(AT_FDCWD</dst>, "made", 0777) = -1 EACCES (Permission denied)
+100 rmdir("/dst/rmdir") = 0
+100 rmdir("/dst/rmdir") = -1 ENOENT (No such file or directory)
+100 linkat(AT_FDCWD</src>, "a", AT_FDCWD</dst>, "b", 0) = 0
+100 linkat(AT_FDCWD</src>, "a", AT_FDCWD</dst>, "b", 0) = -1 ENOENT (No such file or directory)
+100 symlinkat("content", AT_FDCWD</dst>, "sym") = 0
+100 symlinkat("content", AT_FDCWD</dst>, "sym") = -1 EACCES (Permission denied)
+100 fchmod(19</dst/fchmod>, 0600) = 0
+100 fchmod(19</dst/fchmod>, 0600) = -1 EIO (Input/output error)
+100 fchmodat(AT_FDCWD</dst>, "fchmodat", 0600) = 0
+100 fchmodat(AT_FDCWD</dst>, "fchmodat", 0600) = -1 EACCES (Permission denied)
+100 fchown(20</dst/fchown>, 1, 1) = 0
+100 fchown(20</dst/fchown>, 1, 1) = -1 EIO (Input/output error)
+100 fchownat(AT_FDCWD</dst>, "fchownat", 1, 1, 0) = 0
+100 fchownat(AT_FDCWD</dst>, "fchownat", 1, 1, 0) = -1 EPERM (Operation not permitted)
+100 lchown("/dst/lchown", 1, 1) = 0
+100 lchown("/dst/lchown", 1, 1) = -1 EPERM (Operation not permitted)

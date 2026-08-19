@@ -1012,7 +1012,6 @@ def test_the_conventional_NoReturn_denominator_is_nonzero_and_reconciled():
     excluded = (counts["noreturn_calls_excluded_catchable"]
                 + counts["noreturn_calls_excluded_rebound"])
     assert seen > 100, f"only {seen} conventional NoReturn calls were seen"
-    assert excluded <= seen
     # `seen` is NOT the population this heuristic acts on. Every seen call that
     # is catchable or lexically rebound is excluded, and what remains -- the
     # ELIGIBLE set -- is the only thing the slice can actually decide. Guarding

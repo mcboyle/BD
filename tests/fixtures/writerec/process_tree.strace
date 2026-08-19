@@ -1,0 +1,12 @@
+100 clone(child_stack=NULL, flags=SIGCHLD) = 102
+100 clone(child_stack=NULL, flags=CLONE_FS|CLONE_VM) = 101
+100 chdir("thread") = 0
+102 chdir("fork") = 0
+102 write(3</work/fork/a file>, ""..., 8 <unfinished ...>
+101 write(4</work/thread/b>, ""..., 9 <unfinished ...>
+101 <... write resumed>) = 2
+102 <... write resumed>) = 3
+100 rename("a>b", "c>d") = 0
+100 mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_SHARED, 3</work/mm>, 0) = 0x1234
+100 io_uring_enter(5, 1, 0, 0, NULL, 8) = 1
+100 +++ exited with 0 +++

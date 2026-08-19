@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1194 - record filesystem writes as bounded evidence
+
+- Add `bd-writerec`, an opt-in Linux/strace evidence lane that follows process
+  trees, preserves the workload exit contract, retains per-PID raw traces, and
+  normalizes successful and failed mutating syscalls into deterministic JSONL.
+  It resolves descriptor-relative paths where evidence permits and declares
+  unresolved descriptors, shared-memory writes, io_uring, namespaces, and
+  truncated-tail cases instead of silently calling them complete.
+- Bound raw evidence and termination, publish atomic schema-shaped UNKNOWN on
+  refusal, and prove the tracer process group empty after limit or exception
+  cleanup. Synthetic trace fixtures, live process-tree controls, and 24/24
+  executable mutants cover parsing, accounting, exit witnesses, owned-resource
+  cleanup, and no-vacuity paths.
+- Isolate capture-order probe locks from unrelated xdist workers so scheduler
+  contention cannot refuse the fixture before it records its subject.
+
 ## v3.66.1193 - measure one more sound vacuous-test slice
 
 - Extend the vacuous-test census with a conservative conventional-NoReturn

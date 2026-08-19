@@ -27,6 +27,7 @@ the floor, not the ceiling. The on-stash full suite remains the binding gate.
 | `tools/capture_session.py` *(GUARD)* | `test_capture_session_nav_resilience`, `test_v3_66_153_capture_finish_sentinel`, `test_v3_66_158_capture_finish_endpoint` + **declare the guard sha change** |
 | `bulk_downloader/dom_recorder.py` *(GUARD)* | `test_dom_recorder_asi` (5 static ASI checks) + the Node A/B (`asi_node_ab.js`) + **declare guard sha** |
 | `capture.sh` | `test_u45_capture_sh_shipped`; re-run `verify_release --zip` (banner gate) |
+| `toolchain/bin/bd-writerec` | `test_v3_66_1194_write_recorder` |
 | VPN / killswitch transport | `test_u46_vpn_kill_switch_probe`, `test_t14_vpn_probe_egress` (binding validation is stash) |
 | Settings Center routes/secrets | `test_settings_center_slice4/5`, `test_settings_center_wiring`, `test_settings_center_secret_classifier`, `test_put_numeric_range_backstop` |
 

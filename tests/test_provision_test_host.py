@@ -3297,6 +3297,12 @@ def _run_capture_probe(
     env.update(
         {
             "BD_HOME": str(fake_home),
+            # This probe exercises capture ordering, not singleton contention.
+            # A process-wide /tmp lock lets an unrelated xdist worker refuse
+            # the probe before it records any calls, laundering scheduler order
+            # into the test result. Keep that distinct contract in its owning
+            # concurrency tests and give this fixture an isolated real lock.
+            "CAPTURE_VAULT_GLOBAL_LOCK": str(tmp_path / "capture-vault.lock"),
             "CAPTURE_TEST_OUT": str(tmp_path / "capture-out"),
             "CAPTURE_TEST_ARCHIVE": str(tmp_path / "capture.tar.gz"),
             "PROBE_ORDER_LOG": str(order_log),
