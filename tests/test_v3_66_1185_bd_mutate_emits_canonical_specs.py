@@ -26,6 +26,8 @@ def _tree(tmp_path: Path) -> tuple[Path, str]:
         "    assert m.value() == 1\n",
         encoding="utf-8",
     )
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "--", "m.py", band], cwd=tmp_path, check=True)
     return tmp_path, band
 
 

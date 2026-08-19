@@ -53,7 +53,7 @@ THE CONTRACT
     old     required  the exact text to replace. MUST occur exactly once.
     new     required  what to replace it with
     direction         regression (default) or overcorrection
-    catcher optional  regression nodeid that must fail when named
+    catcher required for durable/emitted regression; optional for legacy scratch
     control  required for overcorrection; this nodeid must fail
     preserves required for overcorrection; these nodeids must still pass
 
@@ -222,9 +222,37 @@ def _battery_exit(rows: list[dict]) -> int:
     return 0 if rows and all(row.get("verdict") == CAUGHT for row in rows) else 1
 
 
-def _emit_spec(work: Path, name: str, subject: str, band: list[str],
-               mutants: list[dict]) -> Path:
-    """Write one canonical spec atomically without taking another cut's name."""
+def _defined_test_nodeids(work: Path, rel: str) -> set[str]:
+    path = work / rel
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError) as exc:
+        raise ValueError(f"cannot read defined tests from {rel}: {exc}") from exc
+    found: set[str] = set()
+
+    def walk(body: list[ast.stmt], owners: tuple[str, ...] = ()) -> None:
+        for node in body:
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name.startswith("test")):
+                found.add("::".join((rel, *owners, node.name)))
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body, (*owners, node.name))
+
+    walk(tree.body)
+    return found
+
+
+def _tracked_paths(work: Path) -> set[str]:
+    run = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=str(work), capture_output=True, text=True)
+    if run.returncode != 0:
+        raise ValueError("--emit-spec requires a git work tree with tracked subjects/tests")
+    return {rel for rel in run.stdout.split("\0") if rel}
+
+
+def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
+                          mutants: list[dict]) -> tuple[Path, Path, bytes]:
+    """Validate one canonical candidate; publication waits for a real verdict."""
     if not _EMIT_NAME.fullmatch(name):
         raise ValueError(
             "--emit-spec must be a canonical basename like "
@@ -235,6 +263,17 @@ def _emit_spec(work: Path, name: str, subject: str, band: list[str],
         raise ValueError("cannot emit a spec with an empty band")
     if len(band) != len(set(band)):
         raise ValueError("cannot emit a spec with duplicate band targets")
+
+    tracked = _tracked_paths(work)
+    band_paths = {target.split("::", 1)[0] for target in band}
+    for target in band:
+        rel = target.split("::", 1)[0]
+        if rel not in tracked:
+            raise ValueError(f"untracked band target: {rel}")
+        if not (work / rel).is_file():
+            raise ValueError(f"emitted band target does not exist: {target}")
+        if "::" in target and target not in _defined_test_nodeids(work, rel):
+            raise ValueError(f"band nodeid is not a defined test: {target}")
 
     for index, mutant in enumerate(mutants, 1):
         required = {"label", "file", "old", "new", "direction"}
@@ -250,16 +289,33 @@ def _emit_spec(work: Path, name: str, subject: str, band: list[str],
                 raise ValueError(
                     f"emitted mutant {index} field {field!r} must be a non-empty string")
         subject_path = work / mutant["file"]
+        if mutant["file"] not in tracked:
+            raise ValueError(f"emitted mutant {index} has untracked subject: {mutant['file']}")
         if not subject_path.is_file():
             raise ValueError(f"emitted mutant {index} subject does not exist: {mutant['file']}")
-    for target in band:
-        path = work / target.split("::", 1)[0]
-        if not path.is_file():
-            raise ValueError(f"emitted band target does not exist: {target}")
+        count = subject_path.read_text(encoding="utf-8").count(mutant["old"])
+        if count != 1:
+            raise ValueError(
+                f"emitted mutant {index} anchor occurs {count} times, must be exactly 1")
+        named = (
+            [mutant["catcher"]]
+            if mutant["direction"] == "regression"
+            else [mutant["control"], *mutant["preserves"]]
+        )
+        for nodeid in named:
+            node_path = nodeid.split("::", 1)[0]
+            if node_path not in tracked:
+                raise ValueError(f"named test path is absent or untracked: {nodeid}")
+            if node_path not in band_paths:
+                raise ValueError(f"named test is outside the emitted band: {nodeid}")
+            if nodeid not in _defined_test_nodeids(work, node_path):
+                raise ValueError(f"nodeid is not a defined test: {nodeid}")
 
     rel = Path("tests") / "mutants" / name
     destination = work / rel
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise ValueError(f"canonical spec already exists: {rel.as_posix()}")
     document = {
         "schema": SPEC_SCHEMA,
         "_comment": f"Re-run: toolchain/bin/bd-mutate --spec {rel.as_posix()}",
@@ -269,8 +325,13 @@ def _emit_spec(work: Path, name: str, subject: str, band: list[str],
     }
     payload = (json.dumps(document, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
 
+    return destination, rel, payload
+
+
+def _publish_emitted_spec(destination: Path, rel: Path, payload: bytes) -> None:
+    """Publish after exit 0/1, atomically and without clobbering another writer."""
     fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{name}.", suffix=".tmp", dir=str(destination.parent))
+        prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent))
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(payload)
@@ -284,7 +345,6 @@ def _emit_spec(work: Path, name: str, subject: str, band: list[str],
     finally:
         Path(tmp_name).unlink(missing_ok=True)
     print(f"emitted canonical spec: {rel.as_posix()}")
-    return destination
 
 
 def _python_for(work: Path) -> str:
@@ -391,6 +451,26 @@ def _run_band(band: list[str], work: Path,
         }
     collect_output = collected_run.stdout + collected_run.stderr
     collected = _collected_nodeids(collect_output, work)
+    if collected_run.returncode == 5:
+        return {
+            "rc": 2,
+            "tail": collect_output[-4000:],
+            "collected": [],
+            "outcomes": {},
+            "measurement_error": "pytest collected zero tests",
+            "collection_error": False,
+        }
+    if collected_run.returncode != 0 and collected:
+        return {
+            "rc": collected_run.returncode,
+            "tail": collect_output[-4000:],
+            "collected": collected,
+            "outcomes": {},
+            "measurement_error": (
+                f"pytest collection process exited {collected_run.returncode} "
+                f"after collecting {len(collected)} test(s)"),
+            "collection_error": False,
+        }
     if collected_run.returncode != 0:
         return {
             "rc": collected_run.returncode,
@@ -410,7 +490,18 @@ def _run_band(band: list[str], work: Path,
             "collection_error": False,
         }
 
-    with tempfile.TemporaryDirectory(prefix="bd-mutate-junit-") as td:
+    junit_parent = work.parent.resolve()
+    if junit_parent == work.resolve():
+        return {
+            "rc": 2,
+            "tail": "",
+            "collected": collected,
+            "outcomes": {},
+            "measurement_error": "cannot place JUnit evidence outside the work tree",
+            "collection_error": False,
+        }
+    with tempfile.TemporaryDirectory(
+            prefix="bd-mutate-junit-", dir=str(junit_parent)) as td:
         junit = Path(td) / "band.xml"
         cmd = [
             py, "-m", "pytest", "-q", "-p", "no:randomly",
@@ -1038,9 +1129,11 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as e:
         print(f"BD-MUTATE-UNRUNNABLE: invalid spec: {e}", file=sys.stderr)
         return 2
+    prepared_emit = None
     if a.emit_spec:
         try:
-            _emit_spec(work, a.emit_spec, a.subject, band, spec)
+            prepared_emit = _prepare_emitted_spec(
+                work, a.emit_spec, a.subject, band, spec)
         except (OSError, ValueError) as e:
             print(f"BD-MUTATE-UNRUNNABLE: cannot emit spec: {e}", file=sys.stderr)
             return 2
@@ -1052,6 +1145,12 @@ def main() -> int:
               f"--direction {a.direction}", file=sys.stderr)
         return 2
     rc, rows = run_battery(selected, band, work, timeout=a.timeout)
+    if prepared_emit is not None and rc in (0, 1):
+        try:
+            _publish_emitted_spec(*prepared_emit)
+        except (OSError, ValueError) as e:
+            print(f"BD-MUTATE-UNRUNNABLE: cannot publish spec: {e}", file=sys.stderr)
+            rc = 2
     if a.json:
         print(json.dumps({
             "exit": rc,

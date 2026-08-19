@@ -198,9 +198,9 @@ def test_a_regression_caught_only_by_a_bandmate_is_ESCAPED(tmp_path):
     assert _CONTROL in row["why"], row
 
 
-def test_junit_evidence_never_becomes_worktree_residue(tmp_path):
+def test_junit_xml_never_becomes_worktree_residue(tmp_path):
     work = _tree(tmp_path)
     run = _run(work, [_overcorrection()])
     assert run.returncode == 0, run.stdout + run.stderr
-    residue = [p.relative_to(work).as_posix() for p in work.rglob("*") if "junit" in p.name.lower()]
+    residue = [p.relative_to(work).as_posix() for p in work.rglob("*.xml")]
     assert residue == [], residue

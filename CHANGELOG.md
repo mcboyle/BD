@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1188 - publish only measured mutation evidence
+
+- Validate emitted subjects, bands, anchors, and named nodeids against the same
+  tracked-tree contract as the durable-spec gate, then publish atomically only
+  after a measured CAUGHT/ESCAPED/INDISCRIMINATE exit 0/1. Exit 2 publishes
+  neither a canonical spec nor a staging file.
+- Place JUnit beside rather than inside the work tree even when `TMPDIR` points
+  into it, and assert pytest's actual `xmlpath` rather than a filename substring.
+- Distinguish zero collection (UNKNOWN), a process failure after successful
+  collection (UNKNOWN with its observed cause), and a genuine collection error
+  (INVALID); pin both emitter/review gates into CI.
+
 ## v3.66.1187 - bound mutation measurements
 
 - Bound pytest collection and execution independently with `bd-mutate
