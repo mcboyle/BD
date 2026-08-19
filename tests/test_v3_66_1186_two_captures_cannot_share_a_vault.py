@@ -6,6 +6,7 @@ import importlib.machinery
 import importlib.util
 import os
 import signal
+import shutil
 import subprocess
 import tempfile
 import time
@@ -34,6 +35,15 @@ def _vault_block() -> str:
     return "\n".join(lines[start:end + 1]) + "\n"
 
 
+def _wait_claimed(proc):
+    assert proc.stdout is not None
+    for _ in range(4):
+        line = proc.stdout.readline()
+        assert line, "capture exited before CLAIMED barrier"
+        if line.strip() == "CLAIMED": return
+    raise AssertionError("capture never emitted CLAIMED barrier")
+
+
 def test_the_vault_path_carries_the_run_id():
     block = _vault_block()
     assert 'CAPTURE_VAULT_DIR="/tmp/bd_capture_vault-${CAPTURE_RUN_ID:-$$}"' in block
@@ -52,17 +62,13 @@ def test_a_second_concurrent_vault_capture_refuses_with_a_named_reason(tmp_path)
     first.stdin.write(block + "echo CLAIMED\nsleep 30\n")
     first.stdin.close()
     try:
-        for _ in range(200):
-            if lock.exists():
-                break
-            time.sleep(0.01)
-        assert lock.exists(), "first preamble never created the lock"
-        time.sleep(0.05)
+        _wait_claimed(first)
         second = subprocess.run(
             ["bash", "-s"], input=block, capture_output=True, text=True,
             env=env, timeout=10)
         assert second.returncode != 0
         assert "CAPTURE-VAULT-CONCURRENCY-REFUSED" in second.stderr
+        assert f"holder_pid={first.pid}" in second.stderr
     finally:
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=10)
@@ -92,7 +98,7 @@ def test_a_non_vault_capture_claims_the_same_singleton(tmp_path):
     first.stdin.write(block + "echo CLAIMED\nsleep 30\n")
     first.stdin.close()
     try:
-        time.sleep(0.1)
+        _wait_claimed(first)
         second = subprocess.run(
             ["bash", "-s"], input=block, capture_output=True, text=True,
             env={**env, "CAPTURE_VAULT_PW": "unit-test-value"}, timeout=10)
@@ -101,6 +107,59 @@ def test_a_non_vault_capture_claims_the_same_singleton(tmp_path):
     finally:
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=10)
+
+
+def test_singleton_is_not_inherited_by_a_detached_descendant(tmp_path):
+    block = _vault_block(); lock = tmp_path / "global.lock"
+    env = dict(os.environ, CAPTURE_VAULT_GLOBAL_LOCK=str(lock))
+    script = (block + "setsid bash -c 'fd=$1; shift; eval \"exec ${fd}>&-\"; exec \"$@\"' "
+              'bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" sleep 30 '
+              '</dev/null >/dev/null 2>&1 &\necho DESCENDANT=$!\n')
+    first = subprocess.run(["bash", "-s"], input=script, capture_output=True,
+                           text=True, env=env, timeout=10)
+    assert first.returncode == 0, first.stderr
+    pid = int(next(x.split("=", 1)[1] for x in first.stdout.splitlines()
+                   if x.startswith("DESCENDANT=")))
+    try:
+        os.kill(pid, 0)
+        second = subprocess.run(["bash", "-s"], input=block,
+                                capture_output=True, text=True, env=env, timeout=10)
+        assert second.returncode == 0, second.stderr
+    finally: os.kill(pid, signal.SIGTERM)
+
+    heartbeat = (REPO / "scripts/lib/heartbeat.sh").read_text()
+    assert 'eval "exec ${fd}>&-"' in heartbeat
+    assert 'eval "exec ${fd}>&-"' in CAPTURE.read_text()
+
+
+def test_keyed_vault_ownership_refuses_without_clobbering(tmp_path):
+    run_id = f"pytest-{os.getpid()}-{time.time_ns()}"; vault = Path("/tmp") / f"bd_capture_vault-{run_id}"
+    vault.mkdir(); (vault / "peer-secret").write_text("keep")
+    env = dict(os.environ, CAPTURE_VAULT_PW="unit-test-value", CAPTURE_RUN_ID=run_id,
+               CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path / "global.lock"))
+    try:
+        result = subprocess.run(["bash", "-s"], input=_vault_block()+"capture_vault_dir_claim\n",
+                                capture_output=True, text=True, env=env, timeout=10)
+        assert result.returncode == 73
+        assert "CAPTURE-VAULT-OWNERSHIP-REFUSED" in result.stderr
+        assert (vault / "peer-secret").read_text() == "keep"
+    finally: shutil.rmtree(vault, ignore_errors=True)
+
+
+def test_vault_acquisition_failures_are_named_and_do_not_continue(tmp_path):
+    cases = {"chmod": "chmod(){ return 1; }", "directory-open": 'chmod(){ command chmod "$@"; rmdir "$CAPTURE_VAULT_DIR"; : >"$CAPTURE_VAULT_DIR"; }', "lock-open": 'chmod(){ command chmod "$@"; mkdir "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"; }', "flock": "flock(){ return 1; }"}
+    for name, override in cases.items():
+        run_id=f"pytest-{name}-{os.getpid()}-{time.time_ns()}"; vault=Path("/tmp")/f"bd_capture_vault-{run_id}"
+        env=dict(os.environ, CAPTURE_VAULT_PW="unit-test-value", CAPTURE_RUN_ID=run_id,
+                 CAPTURE_VAULT_GLOBAL_LOCK=str(tmp_path/f"{name}.lock"))
+        try:
+            result=subprocess.run(["bash","-s"], input=_vault_block()+override+"\ncapture_vault_dir_claim\necho CONTINUED\n", capture_output=True,text=True,env=env,timeout=10)
+            assert result.returncode == 73, (name,result.stderr)
+            assert "CAPTURE-VAULT-SETUP-REFUSED" in result.stderr
+            assert "CONTINUED" not in result.stdout
+        finally:
+            if vault.is_dir(): shutil.rmtree(vault,ignore_errors=True)
+            elif vault.exists(): vault.unlink()
 
 
 def test_teardown_removes_only_the_descriptor_owned_vault(tmp_path):

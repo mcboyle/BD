@@ -273,3 +273,24 @@ def test_real_failed_producer_marker_is_consumed_as_kept_forensics():
         if root.exists():
             import shutil
             shutil.rmtree(root)
+
+
+def test_interrupted_private_vault_removal_is_reclaimable(tmp_path):
+    gc = _load("bd_gc_1189_vault_residue")
+    residue = tmp_path / "bd_capture_vault-run.bdrm-0123456789abcdef"
+    residue.mkdir(); (residue / "secrets.json").write_text("credential")
+    state, _stamp, why = gc._capture_vault_state(residue, time.time())
+    assert state == "RECLAIMABLE", why
+
+
+def test_only_summary_names_its_actual_scope(tmp_path, monkeypatch, capsys):
+    gc = _load("bd_gc_1189_scope")
+    monkeypatch.setattr(gc, "PREFIXES", (str(tmp_path / "bdcut_"),
+                                         str(tmp_path / "bd-testrun-")))
+    args = type("Args", (), {"older_than": 120, "only": "classified",
+                              "verbose": False, "show": 10,
+                              "apply": False})()
+    assert gc.run(args) == 0
+    line = capsys.readouterr().out.splitlines()[0]
+    assert "classified" in line
+    assert "bdcut_" not in line

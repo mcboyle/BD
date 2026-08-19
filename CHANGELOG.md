@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1189 - close capture ownership lifecycle gaps
+
+- Close the singleton descriptor before detached pytest, live-test, and fixture
+  descendants exec, and publish the lock holder PID for actionable refusals.
+- Check every keyed-vault permission, descriptor, and flock acquisition before
+  credentials are written; keyed ownership refusal remains non-destructive.
+- Reclaim authenticated interrupted vault-removal residues and report the
+  actual filtered `bd-gc --only` denominator.
+
 ## v3.66.1188 - bind every capture to the singleton lifetime
 
 - Claim the singleton lock for vault and non-vault captures alike, retain it

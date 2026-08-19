@@ -67,7 +67,12 @@ run_with_heartbeat() {
   local started pid elapsed last_report
   started=$(date +%s)
   last_report=$started
-  setsid "$@" > "$logfile" 2>&1 &
+  if [ -n "${BD_HEARTBEAT_CLOSE_FD:-}" ]; then
+    setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
+      bd-close-fd-exec "$BD_HEARTBEAT_CLOSE_FD" "$@" > "$logfile" 2>&1 &
+  else
+    setsid "$@" > "$logfile" 2>&1 &
+  fi
   pid=$!
   trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 130' INT
   trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 143' TERM

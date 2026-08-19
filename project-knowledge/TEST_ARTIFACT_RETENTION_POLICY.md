@@ -54,6 +54,9 @@ the same 24-hour/newest-20 bound required by row 165, after which automatic
 capture/wedge entry cleanup may remove it object-bound. Test roots and capture
 vaults have independent newest-20 budgets; activity in one family never spends
 the other's forensic floor.
+An interrupted object-bound vault removal has an authenticated private
+`.bdrm-<16 hex>` name and is `RECLAIMABLE` even if the removal already unlinked
+its lock; a public lockless vault remains `UNKNOWN`.
 
 Dry-run is the default for an operator-invoked cleanup tool. Destruction is
 object-bound: the implementation must acquire and verify the object before it

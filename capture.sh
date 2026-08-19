@@ -232,16 +232,49 @@ CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-va
 
 capture_vault_claim() {
   local lock="${CAPTURE_VAULT_GLOBAL_LOCK:-/tmp/bd_capture_vault.lock}"
-  if ! exec {CAPTURE_VAULT_LOCK_FD}>"$lock"; then
+  local holder="unknown"
+  if ! exec {CAPTURE_VAULT_LOCK_FD}<>"$lock"; then
     echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: cannot open singleton lock $lock" >&2
     return 73
   fi
   if ! flock -n "$CAPTURE_VAULT_LOCK_FD"; then
-    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: another capture owns the singleton service/drop-in" >&2
+    holder=$(sed -n '1{s/[^0-9].*$//;p;q}' "$lock" 2>/dev/null || true)
+    [ -n "$holder" ] || holder="unknown"
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: another capture owns the singleton service/drop-in; holder_pid=$holder; inspect with: ps -fp $holder; fuser $lock" >&2
     exec {CAPTURE_VAULT_LOCK_FD}>&-
     CAPTURE_VAULT_LOCK_FD=""
     return 73
   fi
+  if ! printf '%s\n' "$$" >"$lock"; then
+    echo "CAPTURE-VAULT-CONCURRENCY-REFUSED: cannot publish holder pid to $lock" >&2
+    exec {CAPTURE_VAULT_LOCK_FD}>&-; CAPTURE_VAULT_LOCK_FD=""
+    return 73
+  fi
+  BD_HEARTBEAT_CLOSE_FD="$CAPTURE_VAULT_LOCK_FD"
+  export BD_HEARTBEAT_CLOSE_FD
+}
+
+capture_vault_setup_refuse() {
+  local why="$1"
+  echo "CAPTURE-VAULT-SETUP-REFUSED: $why; refusing to write secrets; empty owned directory cleanup attempted, other residue preserved: $CAPTURE_VAULT_DIR" >&2
+  [ -z "$CAPTURE_VAULT_DIR_LOCK_FD" ] || { exec {CAPTURE_VAULT_DIR_LOCK_FD}>&-; CAPTURE_VAULT_DIR_LOCK_FD=""; }
+  [ -z "$CAPTURE_VAULT_DIR_FD" ] || { exec {CAPTURE_VAULT_DIR_FD}>&-; CAPTURE_VAULT_DIR_FD=""; }
+  # Never unlink by the public pathname on a setup fault: a concurrent rename
+  # could otherwise turn cleanup into deletion of a peer's lock object.
+  rmdir "$CAPTURE_VAULT_DIR" 2>/dev/null || true
+  exit 73
+}
+
+capture_vault_dir_claim() {
+  if ! mkdir "$CAPTURE_VAULT_DIR"; then
+    echo "CAPTURE-VAULT-OWNERSHIP-REFUSED: keyed vault already exists: $CAPTURE_VAULT_DIR" >&2
+    exit 73
+  fi
+  chmod 700 "$CAPTURE_VAULT_DIR" || capture_vault_setup_refuse "chmod 0700 failed"
+  if ! exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR/."; then capture_vault_setup_refuse "directory descriptor open failed"; fi
+  : > "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock" || capture_vault_setup_refuse "lock creation failed"
+  if ! exec {CAPTURE_VAULT_DIR_LOCK_FD}<>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"; then capture_vault_setup_refuse "lock descriptor open failed"; fi
+  flock -n "$CAPTURE_VAULT_DIR_LOCK_FD" || capture_vault_setup_refuse "lock acquisition failed"
 }
 
 # Every capture below rewrites/restarts the same unit and probes the same fixed
@@ -897,16 +930,7 @@ echo "=== [4/9] Install + start systemd service ==="
 # invisible to the GUI editor's model, while a stale drop-in is the first
 # thing `systemctl cat bulkdownloader` shows.
 if [ "$CAPTURE_VAULT" = "1" ]; then
-  if ! mkdir "$CAPTURE_VAULT_DIR"; then
-    echo "CAPTURE-VAULT-OWNERSHIP-REFUSED: keyed vault already exists: $CAPTURE_VAULT_DIR" >&2
-    CAPTURE_VAULT=0
-    exit 73
-  fi
-  chmod 700 "$CAPTURE_VAULT_DIR"
-  : > "$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
-  exec {CAPTURE_VAULT_DIR_FD}<"$CAPTURE_VAULT_DIR"
-  exec {CAPTURE_VAULT_DIR_LOCK_FD}>"$CAPTURE_VAULT_DIR/.bd-capture-vault.lock"
-  flock -n "$CAPTURE_VAULT_DIR_LOCK_FD"
+  capture_vault_dir_claim
   sudo mkdir -p "$(dirname "$CAPTURE_VAULT_DROPIN")"
   sudo tee "$CAPTURE_VAULT_DROPIN" >/dev/null <<DROPIN
 [Service]
@@ -1063,7 +1087,9 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
   # The seeded URLs point at the local fixture origin, so it has to be
   # serving before anything is queued. setsid detaches it into its own
   # process group so _stop_process_group can take the whole tree down.
-  setsid venv/bin/python tools/fixture_site.py --port 8899 \
+  setsid bash -c 'fd=$1; shift; eval "exec ${fd}>&-"; exec "$@"' \
+    bd-close-fd-exec "$CAPTURE_VAULT_LOCK_FD" \
+    venv/bin/python tools/fixture_site.py --port 8899 \
     > "$OUT/05a_fixture_site.log" 2>&1 &
   FIXTURE_PID=$!
   _fixture_up=0

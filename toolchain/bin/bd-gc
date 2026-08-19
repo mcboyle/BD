@@ -58,6 +58,13 @@ CAPTURE_VAULT_LOCK = ".bd-capture-vault.lock"
 def _capture_vault_state(path, now):
     try:
         root_st = os.lstat(path)
+        name = os.path.basename(path)
+        private_tail = name.rpartition(".bdrm-")[2]
+        if (".bdrm-" in name and len(private_tail) == 16 and
+                all(ch in "0123456789abcdef" for ch in private_tail) and
+                not os.path.lexists(os.path.join(path, CAPTURE_VAULT_LOCK))):
+            return ("RECLAIMABLE", root_st.st_mtime,
+                    "interrupted authenticated vault removal residue")
         lock_fd = os.open(
             os.path.join(path, CAPTURE_VAULT_LOCK),
             os.O_RDONLY | os.O_NOFOLLOW)
@@ -327,8 +334,12 @@ def run(args):
     total = len(eligible) + len(skipped)
     # STATE THE DENOMINATOR. "142 removed" over an unstated total is the shape
     # this repo keeps finding.
+    scope = ("classified prefixes /tmp/bd-testrun-* and /tmp/bd_capture_vault-*"
+             if only_family == "classified" else
+             "bd-testrun prefix /tmp/bd-testrun-*" if only_family == "bd-testrun"
+             else " and ".join(PREFIXES))
     print("bd-gc: %d path(s) under %s; %d eligible, %d skipped (older-than=%dm)"
-          % (total, " and ".join(PREFIXES), len(eligible), len(skipped),
+          % (total, scope, len(eligible), len(skipped),
              args.older_than))
     state_counts = {
         state: sum(why.startswith("[%s]" % state)
