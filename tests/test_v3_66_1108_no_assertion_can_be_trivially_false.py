@@ -59,6 +59,17 @@ TWO EXEMPTIONS, BOTH LEARNED FROM A LIVE FALSE POSITIVE RATHER THAN GUESSED:
      only live finding is a false positive is one that gets switched off in
      week one.
 
+SLICE 3 @1193 ADDS ONE MORE DELIBERATELY NARROW HEURISTIC: an assertion
+following an unconditional statement-level conventional NoReturn spelling in
+the same statement list. The current tree contains 174 recognized spellings;
+1 is refused because a surrounding try can catch it and 12 are refused because
+the root name is lexically rebound, leaving 161 eligible and ZERO findings.
+Parameters, assignments, named expressions, imports, exception/with/loop
+targets, global, and nonlocal all trigger the binding refusal. Runtime mutation
+of `pytest.skip`/`fail`/`xfail`/`exit`, `sys.exit`, or `os._exit` remains
+unproved. This is therefore a syntactic heuristic, NOT proof that a callee has
+NoReturn identity or that an assertion is unreachable.
+
 WHAT THIS CANNOT SEE, so backlog 26 stays open above it:
   - an assertion vacuous or false through a VARIABLE bound elsewhere;
   - an assertion unreachable for a reason other than a preceding terminator
@@ -977,9 +988,19 @@ def test_no_tracked_test_carries_an_assertion_that_cannot_pass():
         "live instance was hiding inside an `assert ... or True`. Fix the "
         "assertion or fix the code; do not delete it without deciding which.\n"
         "\nDenominator for this run: %d files, %d asserts, %d boolean-context "
-        "expressions, of which %d could be decided at all."
+        "expressions, of which %d could be decided at all; conventional "
+        "NoReturn spellings: %d seen, %d catchable exclusions, %d lexical-"
+        "rebind exclusions, %d eligible. Runtime attribute mutation is "
+        "unproved: this is a syntactic heuristic, not proof of callee identity "
+        "or unreachability."
         % (len(offenders), "\n  ".join(offenders), counts["files"],
-           counts["asserts"], counts["bool_contexts"], counts["decided"])
+           counts["asserts"], counts["bool_contexts"], counts["decided"],
+           counts["noreturn_calls_seen"],
+           counts["noreturn_calls_excluded_catchable"],
+           counts["noreturn_calls_excluded_rebound"],
+           counts["noreturn_calls_seen"]
+           - counts["noreturn_calls_excluded_catchable"]
+           - counts["noreturn_calls_excluded_rebound"])
     )
 
 
