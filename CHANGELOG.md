@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1202 - make the gate-behavioral rule standing authority
+
+- Land the textual-proxy audit's shared fix pattern as a standing rule in
+  project-knowledge/CUT_TIERING.md: a gate whose subject is runtime behavior
+  must exercise that behavior, not scan the source implementing it; where a
+  text scan is an unavoidable floor it must comment-strip and normalize,
+  declare its evasion surface, and ship an evasion fixture. Genuinely textual
+  subjects (freshness diffs, version-pin coupling, structural CI parsing) stay
+  textual. Docs-only; no runtime change. Evidence: gate-antipattern-audit.md
+  section 3; backlog rows 182-211 consume the rule.
+
 ## v3.66.1201 - open the gate-hardening backlog from the textual-proxy audit
 
 - Open backlog rows 182-211, one per gate the textual-proxy audit found evadable
