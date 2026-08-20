@@ -162,14 +162,39 @@ def write_assignment(directory, chains, ctx):
     return path
 
 
+def _newest_touch(run_dir):
+    """The most recent mtime of a run directory OR anything inside it.
+
+    Ranking runs by the DIRECTORY's own mtime is wrong for this recorder: a
+    chain is append-only, and appending to a file updates the FILE's mtime, not
+    the containing directory's, so an actively-written run's directory mtime
+    freezes when its chain files are first created and then looks stale. A nested
+    pytest's prune then evicted the live outer run mid-suite, losing most of its
+    chain (row 179). Keying on the newest content instead keeps a run that is
+    still being appended ranked as recent.
+    """
+    newest = run_dir.stat().st_mtime
+    try:
+        for f in run_dir.iterdir():
+            try:
+                newest = max(newest, f.stat().st_mtime)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return newest
+
+
 def prune(keep=20):
     """Bounded retention. Creating a path is a promise to remove it -- 744
-    leaked directories, measured, from a recorder that forgot this."""
+    leaked directories, measured, from a recorder that forgot this. Runs are
+    ranked by newest CONTENT mtime (see `_newest_touch`) so a live run being
+    appended is never in the eviction set even when a nested pytest calls this."""
     d = sink_dir()
     if not d.is_dir():
         return 0
     runs = sorted((p for p in d.iterdir() if p.is_dir()),
-                  key=lambda p: p.stat().st_mtime, reverse=True)
+                  key=_newest_touch, reverse=True)
     removed = 0
     for stale in runs[keep:]:
         try:

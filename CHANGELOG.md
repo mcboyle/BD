@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1199 - the run-context recorder no longer loses a live run to prune
+
+- Rank retained run directories by newest CONTENT mtime, not directory mtime.
+  A chain is append-only, and appending to a file leaves the containing
+  directory's mtime frozen at the moment the chain files were created, so an
+  actively-running suite ranked as stale. About 35 tests spawn a nested pytest,
+  and each nested run's pytest_unconfigure calls the shared _run_context.prune;
+  once 20 dirs had a newer directory mtime, that prune evicted the LIVE outer
+  run mid-suite -- all 24 worker chains vanished and only the post-eviction tail
+  survived. Measured across three canonical -n 24 runs: 126, 151, 171 of ~1386
+  files recorded. With the fix a full -n 24 suite records 24/24 chains and all
+  1388 files, so bd-ladder replay and every chain-derived denominator are
+  trustworthy again (backlog row 179). Retention stays bounded at keep=20 for
+  genuinely idle runs, proven by a negative control.
+
 ## v3.66.1198 - stop a worktree's symlinked venv from failing a healthy test
 
 - Make `test_v3_66_938`'s positive control worktree-aware. Its `definitely_ignored`

@@ -143,7 +143,12 @@ def test_the_recorder_bounds_its_own_retention(tmp_path, monkeypatch):
     for i in range(6):
         run = tmp_path / ("run%d" % i)
         run.mkdir()
-        (run / "gw0.chain").write_text("x\n")
+        chain = run / "gw0.chain"
+        chain.write_text("x\n")
+        # Age the CONTENT, not just the directory: prune ranks by the newest
+        # file mtime (v3.66.1199 / row 179), because an append-only chain leaves
+        # the directory mtime frozen while the run is still live.
+        os.utime(chain, (1000 + i, 1000 + i))
         os.utime(run, (1000 + i, 1000 + i))
     assert rc.prune(keep=2) == 4
     left = sorted(p.name for p in tmp_path.iterdir())
