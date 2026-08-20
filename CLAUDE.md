@@ -379,6 +379,7 @@ and selftest before hand-writing a replacement.
 | How are generated artifacts ordered? | `toolchain/bin/bd-regen-order` |
 | How is affected scope derived? | `toolchain/bin/bd-band-derive` |
 | How are mutations run safely? | `toolchain/bin/bd-mutate` |
+| How is a cut's robustness tier chosen? | `project-knowledge/CUT_TIERING.md` |
 | How does CI classify gates? | `.github/workflows/ci.yml` and `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py` |
 
 Repository populations are distinct: `bulk_downloader/` is application Python,

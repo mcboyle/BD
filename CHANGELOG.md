@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1196 - land the cut-tiering framework as standing authority
+
+- Add `project-knowledge/CUT_TIERING.md`, a T0-T3 robustness framework that
+  matches a cut's required gate floor to its failure mode, so a small cut no
+  longer carries a major cut's ceremony. It is authoritative but proportionate:
+  the tier sets a required floor an agent may escalate but not drop below.
+  Motivated by v3.66.1195, which ran seven fleet full-suite runs on a
+  docs/register cut and still carried six wrong numbers, because that ceremony
+  cannot see a wrong count in a backlog row while number-re-derivation can.
+- Reference it from the CLAUDE.md A8 routing table so the tier decision is
+  discoverable from the contract without enlarging A3/A5.
+
 ## v3.66.1195 - adjudicate the Phase 10 rows that evidence could already decide
 
 - Park backlog row 127 (EXIT-3). The PostgreSQL cutover criterion needs an
