@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1201 - open the gate-hardening backlog from the textual-proxy audit
+
+- Open backlog rows 182-211, one per gate the textual-proxy audit found evadable
+  (30 gates: 5 high, 13 medium, 12 low). Each records the gate's file, the
+  runtime/behaviour property it stands a source-text scan in for, the reported
+  evasion, and the fix per the CUT_TIERING gate rule (behavioralize, or
+  comment-strip+declare+evasion-fixture). The 12 LOW rows are marked UNVERIFIED
+  CANDIDATE: their verdicts were flagged without per-line replay, and the audit's
+  own synthesis calls two of them (test_v3_66_1098/1108) the sound model -- so
+  each low row is to be verified or closed NON-REPRODUCING, not assumed broken.
+  Evidence: gate-antipattern-audit.md.
+
 ## v3.66.1200 - reconcile the shared-state flake class around row 179
 
 - Close backlog row 179 and correct its root cause: the row hypothesised a
