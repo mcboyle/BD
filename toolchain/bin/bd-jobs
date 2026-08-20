@@ -164,6 +164,9 @@ def register(pid, purpose, cmd, origin=None, log=None):
         # for it rather than guessing.
         "log": log,
     }
+    run_marker = os.environ.get("BD_JOBS_RUN_MARKER")
+    if run_marker:
+        entry["run_marker"] = run_marker
     (JOBS_DIR / ("%s.json" % entry["id"])).write_text(
         json.dumps(entry, indent=2), encoding="utf-8")
     return entry

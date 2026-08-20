@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1204 - attribute shared job-registry leak evidence to its writer
+
+- Replace two schedule-sensitive global `/tmp/bd-jobs` population assertions
+  with evidence attributable to the test invocation. `bd-jobs` conditionally
+  stamps entries with a dedicated unique run marker; the long leak detector
+  judges only newly added, well-formed entries bearing that marker and their
+  named new in-registry logs. The shorter harness judges only a newly added
+  exact `<host>-<pid>.json` identity. Foreign concurrent churn, deletions,
+  malformed entries, and unrelated logs can no longer create false failures.
+  Direct controls preserve leak detection, the ordinary operator JSON schema,
+  the inner-run preconditions, and the sole production registry-JSON writer.
+  Rows 180 and 181 are closed; torn-write and failure-residue handling remain
+  explicit follow-up row 212.
+
 ## v3.66.1203 - keep capture's own executable tests inside their sandbox
 
 - Give the two synthetic `capture.sh` harnesses their own owner-only singleton

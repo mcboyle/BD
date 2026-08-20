@@ -23,10 +23,12 @@ requires them to stay fixed.
 import ast
 import importlib.machinery
 import importlib.util
+import json
 import os
 import pathlib
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -289,20 +291,190 @@ _REAL_STATE = ("/tmp/bd-jobs",)
 _PER_RUN_STATE = "/tmp/bd-runctx"
 
 
-def _state_offenders(added):
-    """Which must-not-grow directories grew. Pure, so it can be controlled --
-    a mutant replacing this with an empty dict escaped while it was inline,
-    because a clean run adds nothing and the assertion held either way."""
-    return {d: added[d] for d in _REAL_STATE if added.get(d)}
+def _bd_jobs_offenders(jobs_dir, added_names, run_marker):
+    """Added registry evidence attributable to one named inner run.
+
+    The directory is shared with sibling workers and operators.  Only a
+    well-formed JSON entry stamped by this invocation is ours.  Its log joins
+    the offender set only when it is both inside the registry and newly added;
+    unrelated and unparseable names remain unattributed rather than becoming a
+    schedule-sensitive false red.
+    """
+    jobs_dir = pathlib.Path(jobs_dir)
+    added = set(added_names)
+    offenders = []
+    for name in sorted(added):
+        if not name.endswith(".json"):
+            continue
+        try:
+            entry = json.loads((jobs_dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if entry.get("run_marker") != run_marker:
+            continue
+        offenders.append(name)
+        log = entry.get("log")
+        if isinstance(log, str):
+            log_path = pathlib.Path(log)
+            if log_path.parent == jobs_dir and log_path.name in added:
+                offenders.append(log_path.name)
+    return sorted(set(offenders))
 
 
-def test_the_state_diff_can_actually_see_an_added_entry():
-    assert _state_offenders({"/tmp/bd-jobs": ["test5-1.json"],
-                             _PER_RUN_STATE: ["12345"]}) == {
-        "/tmp/bd-jobs": ["test5-1.json"]}, (
-        "the diff did not report a new registry entry, or it reported the "
-        "per-run directory, which is created by design")
-    assert _state_offenders({"/tmp/bd-jobs": [], _PER_RUN_STATE: ["1"]}) == {}
+def test_the_state_diff_can_actually_see_an_added_entry(tmp_path):
+    jobs = tmp_path / "bd-jobs"
+    jobs.mkdir()
+    token = "control"
+    entry = jobs / "test5-1.json"
+    entry.write_text(json.dumps({"run_marker": token}), encoding="utf-8")
+    assert _bd_jobs_offenders(jobs, [entry.name], token) == [entry.name], (
+        "the attribution helper cannot see an entry stamped by its own run")
+
+
+def test_bd_jobs_diff_attributes_only_this_inner_run(tmp_path):
+    jobs = tmp_path / "bd-jobs"
+    jobs.mkdir()
+    token = "row180-%d" % os.getpid()
+    foreign = jobs / "test5-99999.json"
+    foreign.write_text(json.dumps({"run_marker": "another-run"}),
+                       encoding="utf-8")
+    old = jobs / "preexisting.json"
+    old.write_text(json.dumps({"run_marker": token}), encoding="utf-8")
+    mine = jobs / "test5-4242.json"
+    mine_log = jobs / "mine.log"
+    mine_log.write_text("evidence", encoding="utf-8")
+    mine.write_text(json.dumps({"run_marker": token,
+                                "log": str(mine_log)}), encoding="utf-8")
+    torn = jobs / "torn.json"
+    torn.write_text("{not json", encoding="utf-8")
+    unrelated = jobs / "operator.log"
+    unrelated.write_text("foreign evidence", encoding="utf-8")
+
+    got = _bd_jobs_offenders(
+        jobs,
+        [foreign.name, mine.name, mine_log.name, torn.name, unrelated.name],
+        token)
+
+    assert got == sorted([mine.name, mine_log.name])
+
+
+def test_bd_jobs_diff_attributes_a_marked_entry_without_a_log(tmp_path):
+    """Direct ``register(..., log=None)`` calls are legal.  Requiring a log
+    would let their marked JSON escape the gate."""
+    jobs = tmp_path / "bd-jobs"
+    jobs.mkdir()
+    token = "row180-%d" % os.getpid()
+    mine = jobs / "test5-4242.json"
+    mine.write_text(json.dumps({"run_marker": token, "log": None}),
+                    encoding="utf-8")
+
+    assert _bd_jobs_offenders(jobs, [mine.name], token) == [mine.name]
+
+
+def test_bd_jobs_diff_does_not_trust_a_log_outside_the_registry(tmp_path):
+    jobs = tmp_path / "bd-jobs"
+    jobs.mkdir()
+    token = "row180-%d" % os.getpid()
+    entry = jobs / "test5-4242.json"
+    entry.write_text(json.dumps({"run_marker": token,
+                                 "log": str(tmp_path / "outside.log")}),
+                     encoding="utf-8")
+    assert _bd_jobs_offenders(jobs, [entry.name, "outside.log"], token) == [
+        entry.name]
+
+
+def test_the_tool_state_gate_calls_the_bd_jobs_attribution_helper():
+    """Structural wiring floor paired with behavioral controls above.
+
+    The unique marker must both reach the child environment and grade the
+    resulting state.  A present-but-unused helper or token would make a clean
+    run vacuously green.
+    """
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+    target = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name ==
+                  "test_the_tool_suites_do_not_write_the_real_tool_state_directories")
+    calls = {n.func.id for n in ast.walk(target)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "_bd_jobs_offenders" in calls
+    marker_keywords = [
+        keyword for call in ast.walk(target) if isinstance(call, ast.Call)
+        for keyword in call.keywords
+        if keyword.arg == "BD_JOBS_RUN_MARKER"]
+    assert len(marker_keywords) == 1
+    assert isinstance(marker_keywords[0].value, ast.Name)
+    assert marker_keywords[0].value.id == "run_marker"
+    subprocess_envs = [
+        keyword.value for call in ast.walk(target)
+        if (isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "subprocess"
+            and call.func.attr == "run")
+        for keyword in call.keywords if keyword.arg == "env"]
+    assert len(subprocess_envs) == 1
+    assert isinstance(subprocess_envs[0], ast.Name)
+    assert subprocess_envs[0].id == "env"
+
+
+def test_the_tool_state_gate_denominator_includes_the_real_bd_jobs_writer():
+    """1054 is the one in-band test that really registers and reaps a job.
+    Leaving it outside this denominator would make the leak gate claim a wider
+    writer surface than it executes."""
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+    target = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name ==
+                  "test_the_tool_suites_do_not_write_the_real_tool_state_directories")
+    literals = {n.value for n in ast.walk(target)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    assert "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py" in literals
+
+
+def test_the_tool_state_gate_rejects_a_failed_inner_run_even_with_passes(
+        monkeypatch, tmp_path):
+    jobs = tmp_path / "bd-jobs"
+    runctx = tmp_path / "bd-runctx"
+    jobs.mkdir()
+    runctx.mkdir()
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "_REAL_STATE", (str(jobs),))
+    monkeypatch.setattr(module, "_PER_RUN_STATE", str(runctx))
+
+    def mixed_result(argv, **kwargs):
+        mine = runctx / "failed-inner"
+        mine.mkdir()
+        return subprocess.CompletedProcess(
+            argv, 1,
+            stdout="1 failed, 70 passed\n1 worker chain(s): %s\n" % mine,
+            stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mixed_result)
+    with pytest.raises(AssertionError, match="inner pytest failed"):
+        test_the_tool_suites_do_not_write_the_real_tool_state_directories()
+
+
+def test_the_tool_state_gate_propagates_and_grades_the_same_marker(
+        monkeypatch, tmp_path):
+    """End-to-end non-vacuity: the marker passed to the child is the marker
+    whose resulting registry evidence reaches the failing assertion."""
+    jobs = tmp_path / "bd-jobs"
+    runctx = tmp_path / "bd-runctx"
+    jobs.mkdir()
+    runctx.mkdir()
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "_REAL_STATE", (str(jobs),))
+    monkeypatch.setattr(module, "_PER_RUN_STATE", str(runctx))
+
+    def marked_leak(argv, **kwargs):
+        marker = kwargs["env"]["BD_JOBS_RUN_MARKER"]
+        (jobs / "inner-leak.json").write_text(
+            json.dumps({"run_marker": marker, "log": None}),
+            encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0, stdout="1 passed\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", marked_leak)
+    with pytest.raises(AssertionError, match="added entries to real tool state"):
+        test_the_tool_suites_do_not_write_the_real_tool_state_directories()
 
 
 def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
@@ -316,11 +488,13 @@ def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
 
     DENOMINATOR: the tool suites, named here, run in one subprocess. Not the
     whole tree -- that would be a five-minute gate -- and these are the files
-    that touch the tools that own those directories.
+    that touch the tools that own those directories.  1054 is included because
+    it is the one in-band suite that really registers and reaps a job.
     """
     suites = ["tests/test_v3_66_1043_measurement_and_fleet_tools.py",
               "tests/test_v3_66_1040_remote_job_registry.py",
-              "tests/test_v3_66_1044_run_context_and_chains.py"]
+              "tests/test_v3_66_1044_run_context_and_chains.py",
+              "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py"]
     for rel in suites:
         assert (_REPO / rel).is_file(), "%s is missing from the denominator" % rel
 
@@ -332,8 +506,9 @@ def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
         return out
 
     before = snapshot()
+    run_marker = "1046-%d-%d" % (os.getpid(), time.time_ns())
     env = dict(os.environ, BD_DISABLE_KEEPALIVE="1", NO_COLOR="1",
-               BD_NESTED_PYTEST="1")
+               BD_NESTED_PYTEST="1", BD_JOBS_RUN_MARKER=run_marker)
     env.pop("FORCE_COLOR", None)
     r = subprocess.run([sys.executable, "-m", "pytest", *suites, "-q",
                         "-p", "no:randomly"],
@@ -341,13 +516,19 @@ def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
                        cwd=str(_REPO), env=env)
     after = snapshot()
 
+    assert r.returncode == 0, (
+        "inner pytest failed, so its state evidence is not a valid completed "
+        "denominator (rc=%d):\n%s" %
+        (r.returncode, (r.stdout + r.stderr)[-1200:]))
     assert "passed" in (r.stdout + r.stderr), (
         "the inner run produced no summary, so it may not have run at all:\n%s"
         % (r.stdout + r.stderr)[-1200:])
 
     added = {d: sorted(set(after[d]) - set(before[d]))
              for d in _REAL_STATE + (_PER_RUN_STATE,)}
-    offenders = _state_offenders(added)
+    attributed = _bd_jobs_offenders(
+        pathlib.Path(_REAL_STATE[0]), added[_REAL_STATE[0]], run_marker)
+    offenders = {_REAL_STATE[0]: attributed} if attributed else {}
     assert not offenders, (
         "running the tool suites added entries to real tool state: %s. Point "
         "the tool's directory at tmp_path in the test." % offenders)

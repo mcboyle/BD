@@ -1,0 +1,166 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1204 shared-state attribution battery: 17 behavioral/data-flow mutants plus one explicitly structural mutant (M3). The behavioral controls distinguish this run's unique marker/PID from foreign, pre-existing, torn, and outside-registry evidence and prove the complete inner denominator, zero-exit precondition, marker propagation, helper call, and failing assertion as one data flow. M3 pins only the current direct Path.write_text JSON-writer surface; it is not counted as runtime behavior. Re-run: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1204_shared_state_attribution.json --work .",
+  "subject": "v3.66.1204 -- attribute shared bd-jobs evidence only to the named run",
+  "band": [
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_stamps_only_an_explicit_run_marker",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_preserves_the_operator_schema_without_a_marker",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_registry_leak_attribution_ignores_foreign_concurrent_churn",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_the_real_registry_guard_calls_the_attribution_helper",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_state_diff_can_actually_see_an_added_entry",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_only_this_inner_run",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_a_marked_entry_without_a_log",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_does_not_trust_a_log_outside_the_registry",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_calls_the_bd_jobs_attribution_helper",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_denominator_includes_the_real_bd_jobs_writer",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_rejects_a_failed_inner_run_even_with_passes",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_propagates_and_grades_the_same_marker"
+  ],
+  "mutants": [
+    {
+      "label": "M1 stop register from stamping the explicit run marker",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if run_marker:\n        entry[\"run_marker\"] = run_marker",
+      "new": "    if False:\n        entry[\"run_marker\"] = run_marker",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_stamps_only_an_explicit_run_marker"
+    },
+    {
+      "label": "M2 change every ordinary operator entry's schema",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if run_marker:",
+      "new": "    if True:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_preserves_the_operator_schema_without_a_marker"
+    },
+    {
+      "label": "STRUCTURAL M3 add a direct unmarked JOBS_DIR JSON writer outside register",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "def load_all():\n    if not JOBS_DIR.is_dir():",
+      "new": "def _unmarked_registry_bypass():\n    (JOBS_DIR / \"unmarked-bypass.json\").write_text(\n        \"{}\", encoding=\"utf-8\")\n\ndef load_all():\n    if not JOBS_DIR.is_dir():",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer"
+    },
+    {
+      "label": "M4 widen the own-PID registry predicate to any JSON",
+      "file": "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
+      "old": "    return sorted(name for name in set(after_names) - set(before_names)\n                  if name == mine)",
+      "new": "    return sorted(name for name in set(after_names) - set(before_names)\n                  if name.endswith(\".json\"))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_registry_leak_attribution_ignores_foreign_concurrent_churn"
+    },
+    {
+      "label": "M5 count a pre-existing own-PID entry as a new leak",
+      "file": "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
+      "old": "set(after_names) - set(before_names)",
+      "new": "set(after_names)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_registry_leak_attribution_ignores_foreign_concurrent_churn"
+    },
+    {
+      "label": "M6 leave the own-PID helper present but bypass it in the real guard",
+      "file": "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
+      "old": "    leaked = _my_new_registry_entries(real_before, real_after, os.getpid())",
+      "new": "    leaked = []",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_the_real_registry_guard_calls_the_attribution_helper"
+    },
+    {
+      "label": "M7 accept every well-formed new entry regardless of marker identity",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "        if entry.get(\"run_marker\") != run_marker:\n            continue",
+      "new": "        if False:\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_only_this_inner_run"
+    },
+    {
+      "label": "M8 turn torn foreign JSON into attributed evidence",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "        except (OSError, ValueError):\n            continue",
+      "new": "        except (OSError, ValueError):\n            offenders.append(name)\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_only_this_inner_run"
+    },
+    {
+      "label": "M9 require a marked JSON entry to name a log before reporting it",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "        offenders.append(name)\n        log = entry.get(\"log\")",
+      "new": "        log = entry.get(\"log\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_a_marked_entry_without_a_log"
+    },
+    {
+      "label": "M10 trust a marked entry's newly added log outside JOBS_DIR",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "            if log_path.parent == jobs_dir and log_path.name in added:\n                offenders.append(log_path.name)",
+      "new": "            if log_path.name in added:\n                offenders.append(log_path.name)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_does_not_trust_a_log_outside_the_registry"
+    },
+    {
+      "label": "M11 make the attribution helper unable to see its own marked leak",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    return sorted(set(offenders))",
+      "new": "    return []",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_state_diff_can_actually_see_an_added_entry"
+    },
+    {
+      "label": "M12 leave the marker helper present but bypass it in the real gate",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    attributed = _bd_jobs_offenders(\n        pathlib.Path(_REAL_STATE[0]), added[_REAL_STATE[0]], run_marker)",
+      "new": "    attributed = []",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_propagates_and_grades_the_same_marker"
+    },
+    {
+      "label": "M13 stop propagating the unique marker to the inner pytest",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "               BD_NESTED_PYTEST=\"1\", BD_JOBS_RUN_MARKER=run_marker)",
+      "new": "               BD_NESTED_PYTEST=\"1\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_propagates_and_grades_the_same_marker"
+    },
+    {
+      "label": "M14 ignore the before-after boundary and scan pre-existing entries",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    for name in sorted(added):",
+      "new": "    for name in sorted(p.name for p in jobs_dir.iterdir()):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_only_this_inner_run"
+    },
+    {
+      "label": "M15 omit the one in-band suite that writes the real registry",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "              \"tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py\"]",
+      "new": "              ]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_denominator_includes_the_real_bd_jobs_writer"
+    },
+    {
+      "label": "M16 accept a mixed failing inner pytest result",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    assert r.returncode == 0, (",
+      "new": "    assert True, (",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_rejects_a_failed_inner_run_even_with_passes"
+    },
+    {
+      "label": "M17 replace the child marker after building its environment",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    env.pop(\"FORCE_COLOR\", None)",
+      "new": "    env.pop(\"FORCE_COLOR\", None)\n    env[\"BD_JOBS_RUN_MARKER\"] = \"scrubbed\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_propagates_and_grades_the_same_marker"
+    },
+    {
+      "label": "M18 discard attributed evidence after the real helper returns",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    offenders = {_REAL_STATE[0]: attributed} if attributed else {}",
+      "new": "    attributed = []\n    offenders = {_REAL_STATE[0]: attributed} if attributed else {}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_propagates_and_grades_the_same_marker"
+    }
+  ]
+}
