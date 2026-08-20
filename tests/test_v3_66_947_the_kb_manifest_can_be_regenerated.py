@@ -48,13 +48,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
-_PY = _REPO / "venv" / "bin" / "python"
+_PY = Path(sys.executable)
 _TOOL = _REPO / "toolchain" / "bin" / "bd-kb-sync"
 _REGEN = _REPO / "toolchain" / "bin" / "bd-regen-order"
 _MANIFEST_NAME = "STATIC_KB_MANIFEST.json"
@@ -95,6 +96,31 @@ def _tree() -> Path:
     (d / "a.md").write_text("alpha\n", encoding="utf-8")
     (d / "b.md").write_text("beta\n", encoding="utf-8")
     return d
+
+
+def test_subprocesses_use_the_running_repository_interpreter(
+    monkeypatch, tmp_path: Path,
+):
+    """A Git worktree need not contain its own untracked ``venv`` directory."""
+    assert _PY == Path(sys.executable)
+    probe = subprocess.run(
+        [str(_PY), "-c", "from pathlib import Path; import sys; "
+         "print(Path(sys.executable).resolve())"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert Path(probe.stdout.strip()) == Path(sys.executable).resolve()
+
+    # Replay the binding under a different executable identity. This makes a
+    # worktree-local ``venv/bin/python`` substitution observably wrong even in
+    # the canonical checkout, where that path and sys.executable coincide.
+    alternate = tmp_path / "interpreter-selected-by-the-runner"
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "executable", str(alternate))
+        replayed = runpy.run_path(
+            str(Path(__file__).resolve()), run_name="_kb_replay"
+        )
+    assert replayed["_PY"] == alternate
 
 
 # ── idempotence, which is what the chain entry requires ──────────────────────

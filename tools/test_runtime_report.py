@@ -9,9 +9,10 @@ import os as _os_rc, sys as _sys_rc
 _sys_rc.path.insert(0, _os_rc.path.dirname(_os_rc.path.abspath(__file__)))
 import report_core as _RC  # shared write/render helpers
 
-import argparse, json, os, re, sys
+import argparse, os, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_skip_baseline as SB  # type: ignore
 import test_inventory as TI  # type: ignore
 import test_coverage_catalog as TC  # type: ignore
 
@@ -22,47 +23,13 @@ class ReportEvidenceError(ValueError):
     """The report cannot truthfully render its skip authority."""
 
 
-def _reject_duplicate_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ReportEvidenceError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
-
 def _skip_baseline(root):
     p = os.path.join(root, "tests", "SKIP_BASELINE.json")
     try:
-        payload = json.loads(
-            Path(p).read_text(encoding="utf-8"),
-            object_pairs_hook=_reject_duplicate_keys)
-    except OSError as exc:
-        raise ReportEvidenceError(f"skip authority is unreadable: {p}") from exc
-    except (ValueError, AttributeError) as exc:
-        raise ReportEvidenceError(f"skip authority is malformed: {p}") from exc
-    if not isinstance(payload, dict) or payload.get("schema") != "bd-skip-baseline/1":
-        raise ReportEvidenceError(f"skip authority has the wrong schema: {p}")
-    rows = payload.get("skips")
-    if not isinstance(rows, list):
-        raise ReportEvidenceError(f"skip authority skips must be a list: {p}")
-    identities = set()
-    for row in rows:
-        if not isinstance(row, dict) or set(row) != {"identity", "reason"}:
-            raise ReportEvidenceError(
-                f"skip authority row has unknown or missing fields: {p}")
-        identity = row.get("identity")
-        reason = row.get("reason")
-        if not isinstance(identity, str) or not identity.strip():
-            raise ReportEvidenceError(f"skip authority row has no identity: {p}")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ReportEvidenceError(
-                f"skip authority row has no reason: {identity}")
-        if identity in identities:
-            raise ReportEvidenceError(
-                f"skip authority has duplicate identity: {identity}")
-        identities.add(identity)
-    return len(rows)
+        ordinary, collection = SB._read_baseline(Path(p))
+    except SB.EvidenceError as exc:
+        raise ReportEvidenceError(f"skip authority is invalid: {exc}") from exc
+    return len(ordinary) + len(collection)
 
 
 def build(root=".", summary=None):

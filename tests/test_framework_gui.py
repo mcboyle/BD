@@ -7,11 +7,16 @@ its own fixtures so it has no dependency on any out-of-tree artifacts.
 import json
 import os
 import sys
-import tempfile
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
+
+BD_GATE_SCOPE = "repo-wide"
+
+
+def _set_reports_root(monkeypatch, path):
+    monkeypatch.setenv("BD_FRAMEWORK_REPORTS", str(path))
 
 
 def _minimal_cockpit():
@@ -28,21 +33,27 @@ def _minimal_cockpit():
     }
 
 
-def test_dashboard_serves_cockpit_and_reports():
-    d = tempfile.mkdtemp()
-    with open(os.path.join(d, "operator_cockpit.json"), "w", encoding="utf-8") as f:
+def _dashboard_client(tmp_path, monkeypatch):
+    with open(tmp_path / "operator_cockpit.json", "w", encoding="utf-8") as f:
         json.dump(_minimal_cockpit(), f)
-    with open(os.path.join(d, "site_health_report.md"), "w", encoding="utf-8") as f:
-        f.write("# Health\n\n- maturity: Mature\n")
-    os.environ["BD_FRAMEWORK_REPORTS"] = d
+    report_text = "# Health\n\n- maturity: Mature\n\n<unsafe&tag>\n"
+    with open(tmp_path / "site_health_report.md", "w", encoding="utf-8") as f:
+        f.write(report_text)
+    _set_reports_root(monkeypatch, tmp_path)
 
-    import importlib
     import tools.framework_dashboard as dash
-    importlib.reload(dash)  # re-read env-derived root
     from flask import Flask
     app = Flask(__name__)
     app.register_blueprint(dash.bp)
-    c = app.test_client()
+    return app.test_client(), dash, report_text
+
+
+def _force_markdown(monkeypatch, dash, renderer):
+    monkeypatch.setattr(dash, "_md", renderer)
+
+
+def test_dashboard_serves_cockpit_and_markdown_rendered_report(tmp_path, monkeypatch):
+    c, dash, report_text = _dashboard_client(tmp_path, monkeypatch)
 
     r = c.get("/framework/")
     assert r.status_code == 200
@@ -50,20 +61,85 @@ def test_dashboard_serves_cockpit_and_reports():
     assert b"sites_trending_broken" in r.data
     assert b"fragilesite" in r.data
 
-    r2 = c.get("/framework/report/site_health_report.md")
-    assert r2.status_code == 200
-    assert b"<h1" in r2.data or b"<h2" in r2.data  # markdown rendered
+    class _HermeticMarkdown:
+        def __init__(self):
+            self.calls = []
+
+        def markdown(self, text, extensions):
+            self.calls.append((text, extensions))
+            return "<h1>Hermetic rendered heading</h1>"
+
+    renderer = _HermeticMarkdown()
+    _force_markdown(monkeypatch, dash, renderer)
+    rendered = c.get("/framework/report/site_health_report.md")
+    assert rendered.status_code == 200
+    assert b"<h1>Hermetic rendered heading</h1>" in rendered.data
+    assert b"<pre># Health" not in rendered.data
+    assert renderer.calls == [(report_text, ["fenced_code", "tables"])]
 
     r3 = c.get("/framework/api/cockpit.json")
     assert r3.status_code == 200 and r3.is_json
 
 
-def test_dashboard_blocks_path_traversal():
-    d = tempfile.mkdtemp()
-    os.environ["BD_FRAMEWORK_REPORTS"] = d
-    import importlib
+def test_dashboard_serves_pre_fallback_without_markdown(tmp_path, monkeypatch):
+    c, dash, _report_text = _dashboard_client(tmp_path, monkeypatch)
+    _force_markdown(monkeypatch, dash, None)
+
+    fallback = c.get("/framework/report/site_health_report.md")
+
+    assert fallback.status_code == 200
+    assert b"<pre># Health" in fallback.data
+    assert b"&lt;unsafe&amp;tag>" in fallback.data
+    assert b"<unsafe&tag>" not in fallback.data
+    assert b"Hermetic rendered heading" not in fallback.data
+
+
+def test_dashboard_optional_renderer_seams_restore_state_in_either_order(
+        tmp_path, monkeypatch):
     import tools.framework_dashboard as dash
-    importlib.reload(dash)
+    original_md = dash._md
+    original_env_present = "BD_FRAMEWORK_REPORTS" in os.environ
+    original_env = os.environ.get("BD_FRAMEWORK_REPORTS")
+
+    def assert_restored():
+        assert dash._md is original_md
+        assert ("BD_FRAMEWORK_REPORTS" in os.environ) is original_env_present
+        assert os.environ.get("BD_FRAMEWORK_REPORTS") == original_env
+
+    class Renderer:
+        def markdown(self, _text, extensions):
+            assert extensions == ["fenced_code", "tables"]
+            return "<h1>ORDER-INDEPENDENT</h1>"
+
+    def rendered(path):
+        path.mkdir()
+        with monkeypatch.context() as scoped:
+            client, current_dash, _text = _dashboard_client(path, scoped)
+            _force_markdown(scoped, current_dash, Renderer())
+            response = client.get("/framework/report/site_health_report.md")
+            assert response.status_code == 200
+            assert b"<h1>ORDER-INDEPENDENT</h1>" in response.data
+        assert_restored()
+
+    def fallback(path):
+        path.mkdir()
+        with monkeypatch.context() as scoped:
+            client, current_dash, _text = _dashboard_client(path, scoped)
+            _force_markdown(scoped, current_dash, None)
+            response = client.get("/framework/report/site_health_report.md")
+            assert response.status_code == 200
+            assert b"<pre># Health" in response.data
+        assert_restored()
+
+    fallback(tmp_path / "fallback-one")
+    rendered(tmp_path / "rendered-one")
+    rendered(tmp_path / "rendered-two")
+    fallback(tmp_path / "fallback-two")
+
+
+def test_dashboard_blocks_path_traversal(tmp_path, monkeypatch):
+    _set_reports_root(monkeypatch, tmp_path)
+    import tools.framework_dashboard as dash
     from flask import Flask
     app = Flask(__name__)
     app.register_blueprint(dash.bp)

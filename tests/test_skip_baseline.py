@@ -39,6 +39,20 @@ def _junit(tmp_path, body: str) -> Path:
     return path
 
 
+def _passing_lanes(tmp_path) -> tuple[Path, Path]:
+    paths = []
+    for lane in ("parallel", "serial"):
+        path = tmp_path / f"{lane}.xml"
+        path.write_text(
+            "<testsuites><testsuite tests='1' failures='0' errors='0' "
+            "skipped='0'><testcase classname='tests.%s' name='test_runs'/>"
+            "</testsuite></testsuites>" % lane,
+            encoding="utf-8",
+        )
+        paths.append(path)
+    return paths[0], paths[1]
+
+
 def test_junit_reader_returns_exact_skip_identities_and_reasons(tmp_path):
     path = _junit(tmp_path, '''<?xml version="1.0"?>
 <testsuites><testsuite name="pytest" tests="3" failures="0" errors="0" skipped="2">
@@ -163,6 +177,43 @@ def test_baseline_rejects_duplicate_json_keys(tmp_path):
         _TOOL._read_identity_baseline(baseline)
 
 
+def test_main_refuses_schema_only_baseline_without_required_skips(
+        tmp_path, monkeypatch, capsys):
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    baseline.write_text(json.dumps({
+        "schema": "bd-skip-baseline/1",
+    }), encoding="utf-8")
+    parallel, serial = _passing_lanes(tmp_path)
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--junit", str(parallel),
+        "--junit", str(serial), "--baseline", str(baseline),
+    ])
+
+    assert _TOOL.main() == 2
+    assert "required skips list is missing" in capsys.readouterr().err
+
+
+def test_main_refuses_ordinary_identity_in_collection_skip_namespace(
+        tmp_path, monkeypatch, capsys):
+    baseline = tmp_path / "SKIP_BASELINE.json"
+    baseline.write_text(json.dumps({
+        "schema": "bd-skip-baseline/1",
+        "skips": [],
+        "collection_skips": [{
+            "identity": "tests.required::test_must_execute",
+            "reason": "must execute",
+        }],
+    }), encoding="utf-8")
+    parallel, serial = _passing_lanes(tmp_path)
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--junit", str(parallel),
+        "--junit", str(serial), "--baseline", str(baseline),
+    ])
+
+    assert _TOOL.main() == 2
+    assert "outside the <collection>:: namespace" in capsys.readouterr().err
+
+
 def test_runtime_report_counts_the_canonical_identity_baseline(tmp_path):
     tests = tmp_path / "tests"
     tests.mkdir()
@@ -172,8 +223,11 @@ def test_runtime_report_counts_the_canonical_identity_baseline(tmp_path):
             {"identity": "tests.a::test_one", "reason": "parked"},
             {"identity": "tests.b::test_two", "reason": "external"},
         ],
+        "collection_skips": [
+            {"identity": "<collection>::tests.c", "reason": "optional"},
+        ],
     }), encoding="utf-8")
-    assert _load_runtime_report()._skip_baseline(str(tmp_path)) == 2
+    assert _load_runtime_report()._skip_baseline(str(tmp_path)) == 3
 
 
 @pytest.mark.parametrize("contents, match", [
@@ -192,6 +246,31 @@ def test_runtime_report_refuses_invalid_skip_authority(tmp_path, contents, match
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "SKIP_BASELINE.json").write_text(contents, encoding="utf-8")
+    report = _load_runtime_report()
+    with pytest.raises(report.ReportEvidenceError, match=match):
+        report._skip_baseline(str(tmp_path))
+
+
+@pytest.mark.parametrize("collection_skips, skips, match", [
+    ({}, [], "list"),
+    ([{"identity": "tests.a::test_one", "reason": "ordinary"}], [],
+     "<collection>::"),
+    ([{"identity": "<collection>::tests.a", "reason": "one"}], [
+        {"identity": "<collection>::tests.a", "reason": "two"}],
+     "two policies"),
+    ([{"identity": "<collection>::tests.a", "reason": "one"},
+      {"identity": "<collection>::tests.a", "reason": "two"}], [],
+     "duplicate"),
+])
+def test_runtime_report_shares_collection_policy_validation(
+        tmp_path, collection_skips, skips, match):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "SKIP_BASELINE.json").write_text(json.dumps({
+        "schema": "bd-skip-baseline/1",
+        "skips": skips,
+        "collection_skips": collection_skips,
+    }), encoding="utf-8")
     report = _load_runtime_report()
     with pytest.raises(report.ReportEvidenceError, match=match):
         report._skip_baseline(str(tmp_path))

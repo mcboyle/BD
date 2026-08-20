@@ -1,9 +1,10 @@
 """Cut 8: live tests state current contracts and skip evidence is exact."""
 
-import json
 import os
 import subprocess
 from pathlib import Path
+
+from tools import check_skip_baseline as SB
 
 ROOT = Path(__file__).resolve().parents[1]
 BD_GATE_SCOPE = "repo-wide"
@@ -70,14 +71,12 @@ def test_current_behavior_contracts_are_tracked_and_directly_ci_wired():
 
 def test_skip_baseline_is_exact_identity_reason_data_not_a_count():
     path = ROOT / "tests/SKIP_BASELINE.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload.get("schema") == "bd-skip-baseline/1"
-    rows = payload.get("skips")
-    assert isinstance(rows, list) and rows
-    identities = [row.get("identity") for row in rows]
-    assert len(identities) == len(set(identities))
-    assert all(isinstance(row.get("reason"), str) and row["reason"].strip()
-               for row in rows)
+    ordinary, collection = SB._read_baseline(path)
+
+    assert (len(ordinary), len(collection)) == (39, 2)
+    assert len(ordinary | collection) == 41
+    assert set(ordinary).isdisjoint(collection)
+    assert all(identity.startswith("<collection>::") for identity in collection)
 
 
 def test_config_parity_parking_is_visible_as_skip_not_pass():

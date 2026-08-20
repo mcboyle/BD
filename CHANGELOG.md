@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1205 - make capture truthful without optional requests or Markdown
+
+- Accept pytest module collection skips with an empty classname by assigning
+  the filename-shaped name to the collision-safe `<collection>` namespace.
+  Exact repeated collection skips from the parallel and serial lanes reconcile
+  once; same-lane, ordinary-test, and conflicting duplicates still refuse. The
+  location tuple is reduced to its stable diagnostic, and the skip-baseline
+  checker consumes the same reconciliation with an exact known-skip policy.
+- Inject a minimal requests API into the v3.66.552 requests-branch SSRF tests.
+  All seven nodeids, including the Playwright guard and missing-requests
+  fallback, execute when requests is absent; the public-fetch control proves
+  the requests branch is reached instead of mistaking an early dependency
+  return for safety.
+- Make the framework dashboard test drive the real report route under both
+  dependency postures in separate real-route tests: a hermetic Markdown
+  renderer produces rendered HTML, while forced absence produces the designed
+  escaped `<pre>` fallback. Make the KB-manifest harness use the repository
+  interpreter that launched pytest, so the cut's gates also run from verifier
+  worktrees without a local `venv`, and make the runtime report consume the
+  same validated skip-authority parser (including collection-policy rows) as
+  the capture checker. This closes backlog row 213. The two requests-dependent
+  SSRF modules that remain deliberately skipped without that optional package
+  stay visible as open row 215; the separate measured `bd-writerec` zombie race
+  stays visible as open row 214.
+
 ## v3.66.1204 - attribute shared job-registry leak evidence to its writer
 
 - Replace two schedule-sensitive global `/tmp/bd-jobs` population assertions

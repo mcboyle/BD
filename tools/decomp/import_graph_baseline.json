@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3866,
+  "edge_count": 3868,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4453,6 +4453,9 @@
       "bulk_downloader/vpn_kill_switch.py",
       "tools/body_contract.py"
     ],
+    "tests/test_v3_66_1168_tests_are_current_contracts.py": [
+      "tools/check_skip_baseline.py"
+    ],
     "tests/test_v3_66_1169_openapi_has_one_producer.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/app.py",
@@ -6922,6 +6925,7 @@
       "bulk_downloader/temporal_benchmark.py"
     ],
     "tools/test_runtime_report.py": [
+      "tools/check_skip_baseline.py",
       "tools/report_core.py",
       "tools/test_coverage_catalog.py",
       "tools/test_inventory.py"

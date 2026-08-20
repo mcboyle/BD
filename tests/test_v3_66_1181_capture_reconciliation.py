@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,11 +47,19 @@ def _junit(path: Path, cases: list[str], *, failures: int = 0, errors: int = 0,
     return path
 
 
-def _baseline(path: Path, rows: list[tuple[str, str]]) -> Path:
+def _baseline(
+    path: Path,
+    rows: list[tuple[str, str]],
+    collection_rows: list[tuple[str, str]] | None = None,
+) -> Path:
     path.write_text(json.dumps({
         "schema": "bd-skip-baseline/1",
         "skips": [{"identity": identity, "reason": reason}
                   for identity, reason in rows],
+        "collection_skips": [
+            {"identity": identity, "reason": reason}
+            for identity, reason in (collection_rows or [])
+        ],
     }), encoding="utf-8")
     return path
 
@@ -224,6 +233,52 @@ def test_converter_cli_requires_two_distinct_nonempty_lanes(tmp_path):
         assert exc.value.code == 2
 
 
+def test_converter_and_skip_checker_real_clis_complete_known_collection_round_trip(
+        tmp_path):
+    identity = "<collection>::tests.test_optional_module"
+    reason = "could not import 'requests': No module named 'requests'"
+    collection = _case(
+        "", "tests.test_optional_module", "0.0",
+        '<skipped message="collection skipped">'
+        "('/tmp/run/tests/test_optional_module.py', 7, \"Skipped: "
+        + reason
+        + '\")</skipped>',
+    )
+    parallel = _junit(tmp_path / "parallel.xml", [
+        _case("tests.parallel", "test_runs", "0.1"), collection,
+    ], skipped=1)
+    serial = _junit(tmp_path / "serial.xml", [
+        _case("tests.serial", "test_runs", "0.1"), collection,
+    ], skipped=1)
+    baseline = _baseline(tmp_path / "baseline.json", [], [(identity, reason)])
+    json_path = tmp_path / "results.json"
+    summary_path = tmp_path / "SUMMARY.txt"
+
+    converter = subprocess.run([
+        sys.executable, str(REPO_ROOT / "tools" / "pytest_capture_results.py"),
+        "--junit", str(parallel), "--junit", str(serial),
+        "--json", str(json_path), "--summary", str(summary_path),
+    ], cwd=REPO_ROOT, capture_output=True, text=True, timeout=30)
+    assert converter.returncode == 0, converter.stdout + converter.stderr
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert (payload["total"], payload["passed"], payload["skipped"]) == (3, 2, 1)
+    assert payload["skips"] == [{
+        "identity": identity,
+        "file": "tests.test_optional_module",
+        "test": "tests.test_optional_module",
+        "reason": reason,
+    }]
+    assert f"  {identity} :: {reason}" in summary_path.read_text(encoding="utf-8")
+
+    checker = subprocess.run([
+        sys.executable, str(REPO_ROOT / "tools" / "check_skip_baseline.py"),
+        "--junit", str(parallel), "--junit", str(serial),
+        "--baseline", str(baseline),
+    ], cwd=REPO_ROOT, capture_output=True, text=True, timeout=30)
+    assert checker.returncode == 0, checker.stdout + checker.stderr
+    assert "across 3 executed tests" in checker.stdout
+
+
 def test_skip_checker_allows_each_baseline_identity_to_pass_or_exactly_skip(
         tmp_path, monkeypatch, capsys):
     checker = _load_skip_tool()
@@ -270,6 +325,82 @@ def test_skip_checker_reconciles_fleet_shaped_18_pass_21_exact_skips(
 
     assert checker.main() == 0
     assert "39 baseline identities executed" in capsys.readouterr().out
+
+
+def test_skip_checker_reconciles_permitted_collection_skip_across_lanes(
+        tmp_path, monkeypatch, capsys):
+    checker = _load_skip_tool()
+    identity = "<collection>::tests.test_optional_module"
+    reason = "could not import 'requests': No module named 'requests'"
+    baseline = _baseline(
+        tmp_path / "baseline.json", [], [(identity, reason)]
+    )
+    collection = _case(
+        "", "tests.test_optional_module", "0.0",
+        '<skipped message="collection skipped">'
+        "('/tmp/run/tests/test_optional_module.py', 7, \"Skipped: "
+        + reason
+        + '\")</skipped>',
+    )
+    parallel = _junit(
+        tmp_path / "parallel.xml",
+        [_case("tests.parallel", "test_runs", "0.1"), collection],
+        skipped=1,
+    )
+    serial = _junit(
+        tmp_path / "serial.xml",
+        [_case("tests.serial", "test_runs", "0.1"), collection],
+        skipped=1,
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--baseline", str(baseline),
+        "--junit", str(parallel), "--junit", str(serial),
+    ])
+
+    assert checker.main() == 0
+    assert "across 3 executed tests" in capsys.readouterr().out
+
+    unexpected = _baseline(tmp_path / "unexpected.json", [])
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--baseline", str(unexpected),
+        "--junit", str(parallel), "--junit", str(serial),
+    ])
+    assert checker.main() == 1
+    assert "unexpected collection skip" in capsys.readouterr().err
+
+
+def test_skip_checker_refuses_changed_collection_baseline_reason(
+        tmp_path, monkeypatch, capsys):
+    checker = _load_skip_tool()
+    identity = "<collection>::tests.test_optional_module"
+    observed_reason = "could not import 'requests': No module named 'requests'"
+    baseline = _baseline(
+        tmp_path / "baseline.json", [], [(identity, "different reason")]
+    )
+    collection = _case(
+        "", "tests.test_optional_module", "0.0",
+        '<skipped message="collection skipped">'
+        "('/tmp/run/tests/test_optional_module.py', 7, \"Skipped: "
+        + observed_reason
+        + '\")</skipped>',
+    )
+    parallel = _junit(
+        tmp_path / "parallel.xml",
+        [_case("tests.parallel", "test_runs", "0.1"), collection],
+        skipped=1,
+    )
+    serial = _junit(
+        tmp_path / "serial.xml",
+        [_case("tests.serial", "test_runs", "0.1"), collection],
+        skipped=1,
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "check_skip_baseline.py", "--baseline", str(baseline),
+        "--junit", str(parallel), "--junit", str(serial),
+    ])
+
+    assert checker.main() == 1
+    assert "collection reason changed" in capsys.readouterr().err
 
 
 def test_skip_reason_uses_xunit_message_not_location_prefixed_text(tmp_path, monkeypatch):

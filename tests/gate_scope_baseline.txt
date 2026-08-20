@@ -265,7 +265,6 @@ tests/test_fixture_recognizer_loop.py
 tests/test_fixture_serves_a_decodable_mp4.py
 tests/test_fixture_site.py
 tests/test_fixture_site2.py
-tests/test_framework_gui.py
 tests/test_fresh_install_gui_smoke.py
 tests/test_frontend_dependency_security_floor.py
 tests/test_fts_external_content_delete.py
@@ -427,7 +426,6 @@ tests/test_promote_accept_api.py
 tests/test_provider_resolve_surface_lock.py
 tests/test_provision_test_host.py
 tests/test_put_numeric_range_backstop.py
-tests/test_pytest_capture_results.py
 tests/test_pytest_module_graph.py
 tests/test_pytest_runner_boundary.py
 tests/test_pytest_runtime_requirement.py
@@ -996,7 +994,6 @@ tests/test_v3_66_540_ssrf_classifier_consolidation.py
 tests/test_v3_66_541_jsonapi_probe_ssrf.py
 tests/test_v3_66_542_tier_probe_ssrf.py
 tests/test_v3_66_550_weather_ssrf.py
-tests/test_v3_66_552_playground_ssrf.py
 tests/test_v3_66_555_candidate_ssrf.py
 tests/test_v3_66_558_marketplace_export_secret_fields.py
 tests/test_v3_66_559_validate_config_nonfinite.py

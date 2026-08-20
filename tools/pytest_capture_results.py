@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as dt
 import json
 import math
@@ -40,10 +41,39 @@ def _identity(classname: str, test_name: str) -> str:
     return f"{classname}::{test_name}"
 
 
+def _collection_skip_reason(node: ET.Element, test_name: str) -> str:
+    """Extract pytest's stable module-skip diagnostic from its JUnit tuple."""
+    if (node.get("message") or "").strip() != "collection skipped":
+        raise ValueError("malformed pytest collection skip")
+    try:
+        location = ast.literal_eval((node.text or "").strip())
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError("malformed pytest collection skip") from exc
+    if (
+        not isinstance(location, tuple)
+        or len(location) != 3
+        or not isinstance(location[0], str)
+        or not location[0].endswith(".py")
+        or not isinstance(location[1], int)
+        or location[1] < 1
+        or not isinstance(location[2], str)
+        or not location[2].startswith("Skipped: ")
+    ):
+        raise ValueError("malformed pytest collection skip")
+    module_name = Path(location[0]).stem
+    if test_name.rsplit(".", 1)[-1] != module_name:
+        raise ValueError("collection skip identity disagrees with its module")
+    reason = location[2].removeprefix("Skipped: ").strip()
+    if not reason:
+        raise ValueError("skip reason missing for collection testcase")
+    return reason
+
+
 def _record(testcase: ET.Element) -> dict:
     """Parse one testcase, refusing ambiguous or untrustworthy state."""
     classname = (testcase.get("classname") or "").strip()
     test_name = (testcase.get("name") or "").strip()
+    is_collection_fallback = not classname
     if not test_name:
         raise ValueError("testcase has no stable identity")
     raw_duration = testcase.get("time", "0") or "0"
@@ -66,9 +96,10 @@ def _record(testcase: ET.Element) -> dict:
             f"testcase has multiple result states: {_identity(classname, test_name)}"
         )
     if not classname:
-        # pytest collection errors have no testcase classname, but their
-        # filename-shaped name is still an actionable, collision-safe identity.
-        if len(children) != 1 or children[0].tag != "error":
+        # Pytest collection errors and module-level collection skips have no
+        # testcase classname, but their filename-shaped name is still an
+        # actionable, collision-safe identity.
+        if len(children) != 1 or children[0].tag not in {"error", "skipped"}:
             raise ValueError("testcase has no stable identity")
         classname = "<collection>"
         file_name = testcase.get("file") or test_name
@@ -94,11 +125,17 @@ def _record(testcase: ET.Element) -> dict:
     else:
         # pytest's xunit2 body commonly holds a location-prefixed expansion;
         # the canonical skip reason is the stable ``message`` attribute.
-        reason = (node.get("message") or "").strip()
+        reason = (
+            _collection_skip_reason(node, test_name)
+            if is_collection_fallback
+            else (node.get("message") or "").strip()
+        )
         if not reason:
             raise ValueError(f"skip reason missing for {record['identity']}")
         record["status"] = "skip"
         record["reason"] = reason
+        if is_collection_fallback:
+            record["_collection_skip"] = True
     return record
 
 
@@ -176,6 +213,32 @@ def _read_lane(path: Path) -> list[dict]:
     return records
 
 
+def _read_lanes(paths: Iterable[Path]) -> list[dict]:
+    """Reconcile disjoint lanes, collapsing pytest's repeated collect-skips."""
+    records: list[dict] = []
+    by_identity: dict[str, dict] = {}
+    for path in paths:
+        lane_records = _read_lane(path)
+        lane_identities: set[str] = set()
+        for record in lane_records:
+            identity = record["identity"]
+            if identity in lane_identities:
+                raise ValueError(
+                    f"duplicate testcase identity within JUnit lane: {identity}"
+                )
+            lane_identities.add(identity)
+            previous = by_identity.get(identity)
+            if previous is not None:
+                if record.get("_collection_skip") and record == previous:
+                    continue
+                raise ValueError(
+                    f"duplicate testcase identity across JUnit lanes: {identity}"
+                )
+            by_identity[identity] = record
+            records.append(record)
+    return records
+
+
 def _diagnostic_row(record: dict) -> dict:
     return {
         "identity": record["identity"],
@@ -205,17 +268,11 @@ def convert_junit(
     if not paths:
         raise ValueError("at least one JUnit XML path is required")
 
-    records: list[dict] = []
-    identities: set[str] = set()
-    for path in paths:
-        for record in _read_lane(path):
-            identity = record["identity"]
-            if identity in identities:
-                raise ValueError(f"duplicate testcase identity across JUnit lanes: {identity}")
-            identities.add(identity)
-            records.append(record)
+    records = _read_lanes(paths)
     if not records:
         raise ValueError("zero tests executed")
+    for record in records:
+        record.pop("_collection_skip", None)
 
     passed = sum(row["status"] == "pass" for row in records)
     failed = sum(row["status"] == "fail" for row in records)

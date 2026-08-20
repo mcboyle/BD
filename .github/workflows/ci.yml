@@ -292,6 +292,9 @@ jobs:
               tests/test_t11_approval_wired.py
               tests/test_config_parity_ratchet.py
               tests/test_skip_baseline.py
+              tests/test_pytest_capture_results.py
+              tests/test_framework_gui.py
+              tests/test_v3_66_552_playground_ssrf.py
               tests/test_v3_66_1181_capture_reconciliation.py
               tests/test_csrf_session_bootstrap.py
               tests/test_csrf_contract_reachability.py

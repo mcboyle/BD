@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1643,
+    "edge_count": 1644,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4905,6 +4905,9 @@
         "tools/kb_core.py",
         "tools/kb_staleness_report.py",
         "tools/verify_release.py"
+      ],
+      "tools/check_skip_baseline.py": [
+        "tools/test_runtime_report.py"
       ],
       "tools/check_version_consistency.py": [
         "tools/verify_release.py"
@@ -7710,6 +7713,7 @@
         "bulk_downloader/temporal_benchmark.py"
       ],
       "tools/test_runtime_report.py": [
+        "tools/check_skip_baseline.py",
         "tools/report_core.py",
         "tools/test_coverage_catalog.py",
         "tools/test_inventory.py"

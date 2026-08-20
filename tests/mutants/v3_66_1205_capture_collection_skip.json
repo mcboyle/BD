@@ -1,0 +1,293 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1205 supported-posture battery. Re-run from the repository root with: /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1205_capture_collection_skip.json --work .",
+  "subject": "v3.66.1205 -- reconcile exact repeated pytest module collection skips and exercise SSRF/report branches without optional packages",
+  "band": [
+    "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip",
+    "tests/test_pytest_capture_results.py::test_convert_junit_refuses_exact_duplicate_ordinary_identity_across_lanes",
+    "tests/test_pytest_capture_results.py::test_convert_junit_refuses_exact_duplicate_ordinary_skip_across_lanes",
+    "tests/test_pytest_capture_results.py::test_convert_junit_refuses_conflicting_repeated_collection_skip",
+    "tests/test_v3_66_1181_capture_reconciliation.py::test_skip_checker_reconciles_permitted_collection_skip_across_lanes",
+    "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_loopback_requests",
+    "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_loopback_playwright",
+    "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_redirect_to_loopback_requests",
+    "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_allows_public_requests",
+    "tests/test_framework_gui.py::test_dashboard_serves_cockpit_and_markdown_rendered_report",
+    "tests/test_framework_gui.py::test_dashboard_serves_pre_fallback_without_markdown",
+    "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py::test_subprocesses_use_the_running_repository_interpreter",
+    "tests/test_skip_baseline.py::test_main_refuses_schema_only_baseline_without_required_skips",
+    "tests/test_skip_baseline.py::test_main_refuses_ordinary_identity_in_collection_skip_namespace",
+    "tests/test_v3_66_1181_capture_reconciliation.py::test_skip_checker_refuses_changed_collection_baseline_reason",
+    "tests/test_skip_baseline.py::test_runtime_report_counts_the_canonical_identity_baseline",
+    "tests/test_pytest_capture_results.py::test_convert_junit_preserves_collection_errors_with_a_stable_fallback_identity",
+    "tests/test_pytest_capture_results.py::test_convert_junit_refuses_malformed_collection_skip_body",
+    "tests/test_pytest_capture_results.py::test_convert_junit_refuses_collection_file_or_name_drift",
+    "tests/test_pytest_capture_results.py::test_convert_junit_refuses_malformed_empty_class_collection_candidates",
+    "tests/test_pytest_capture_results.py::test_convert_junit_preserves_outputs_when_a_later_lane_is_malformed",
+    "tests/test_v3_66_1181_capture_reconciliation.py::test_converter_and_skip_checker_real_clis_complete_known_collection_round_trip",
+    "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_reports_supported_missing_requests_posture",
+    "tests/test_v3_66_552_playground_ssrf.py::test_requests_dependency_seams_restore_state_in_either_order",
+    "tests/test_framework_gui.py::test_dashboard_optional_renderer_seams_restore_state_in_either_order",
+    "tests/test_v3_66_1168_tests_are_current_contracts.py::test_skip_baseline_is_exact_identity_reason_data_not_a_count"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the refusal of a legitimate identity-less module collection skip",
+      "file": "tools/pytest_capture_results.py",
+      "old": "if len(children) != 1 or children[0].tag not in {\"error\", \"skipped\"}:",
+      "new": "if len(children) != 1 or children[0].tag != \"error\":",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+    },
+    {
+      "label": "M2 overcorrect by collapsing an exact ordinary testcase duplicate",
+      "file": "tools/pytest_capture_results.py",
+      "old": "if record.get(\"_collection_skip\") and record == previous:",
+      "new": "if record == previous:",
+      "direction": "overcorrection",
+      "control": "tests/test_pytest_capture_results.py::test_convert_junit_refuses_exact_duplicate_ordinary_skip_across_lanes",
+      "preserves": [
+        "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+      ]
+    },
+    {
+      "label": "M3 overcorrect by collapsing conflicting collection-skip evidence",
+      "file": "tools/pytest_capture_results.py",
+      "old": "if record.get(\"_collection_skip\") and record == previous:",
+      "new": "if record.get(\"_collection_skip\"):",
+      "direction": "overcorrection",
+      "control": "tests/test_pytest_capture_results.py::test_convert_junit_refuses_conflicting_repeated_collection_skip",
+      "preserves": [
+        "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+      ]
+    },
+    {
+      "label": "M4 take the volatile location-prefixed body instead of the stable skip message",
+      "file": "tools/pytest_capture_results.py",
+      "old": "_collection_skip_reason(node, test_name)",
+      "new": "(node.get(\"message\") or \"\").strip()",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+    },
+    {
+      "label": "M5 stop assigning collection rows to the collision-safe collection namespace",
+      "file": "tools/pytest_capture_results.py",
+      "old": "classname = \"<collection>\"",
+      "new": "classname = test_name",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+    },
+    {
+      "label": "M6 let the skip checker consume only the first complete lane",
+      "file": "tools/check_skip_baseline.py",
+      "old": "for record in _read_lanes(paths):",
+      "new": "for record in _read_lanes(paths[:1]):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1181_capture_reconciliation.py::test_skip_checker_reconciles_permitted_collection_skip_across_lanes"
+    },
+    {
+      "label": "M7 bypass the selector-playground entry SSRF guard",
+      "file": "bulk_downloader/selector_playground.py",
+      "old": "    if not _ok:\n        return {\"ok\": False, \"error\": f\"blocked: {_why}\", \"html\": \"\"}",
+      "new": "    if False and not _ok:\n        return {\"ok\": False, \"error\": f\"blocked: {_why}\", \"html\": \"\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_loopback_playwright"
+    },
+    {
+      "label": "M8 bypass selector-playground redirect-hop validation",
+      "file": "bulk_downloader/selector_playground.py",
+      "old": "            if not _hop_ok:\n                raise SSRFBlocked(_hop_why)",
+      "new": "            if False and not _hop_ok:\n                raise SSRFBlocked(_hop_why)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_redirect_to_loopback_requests"
+    },
+    {
+      "label": "M9 force the missing-requests return despite the injected requests API",
+      "file": "bulk_downloader/selector_playground.py",
+      "old": "    if not _HAS_REQUESTS:\n        return {\"ok\": False, \"error\": \"requests not installed\", \"html\": \"\"}",
+      "new": "    if True:\n        return {\"ok\": False, \"error\": \"requests not installed\", \"html\": \"\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_allows_public_requests"
+    },
+    {
+      "label": "M10 overcorrect by forcing every Markdown report through fallback",
+      "file": "tools/framework_dashboard.py",
+      "old": "        if _md:\n            rendered = _md.markdown(text, extensions=[\"fenced_code\", \"tables\"])",
+      "new": "        if False and _md:\n            rendered = _md.markdown(text, extensions=[\"fenced_code\", \"tables\"])",
+      "direction": "overcorrection",
+      "control": "tests/test_framework_gui.py::test_dashboard_serves_cockpit_and_markdown_rendered_report",
+      "preserves": [
+        "tests/test_framework_gui.py::test_dashboard_serves_pre_fallback_without_markdown"
+      ]
+    },
+    {
+      "label": "M11 overcorrect by forcing every Markdown report through the renderer",
+      "file": "tools/framework_dashboard.py",
+      "old": "        if _md:\n            rendered = _md.markdown(text, extensions=[\"fenced_code\", \"tables\"])",
+      "new": "        if True:\n            rendered = _md.markdown(text, extensions=[\"fenced_code\", \"tables\"])",
+      "direction": "overcorrection",
+      "control": "tests/test_framework_gui.py::test_dashboard_serves_pre_fallback_without_markdown",
+      "preserves": [
+        "tests/test_framework_gui.py::test_dashboard_serves_cockpit_and_markdown_rendered_report"
+      ]
+    },
+    {
+      "label": "M12 remove escaping from the Markdown fallback",
+      "file": "tools/framework_dashboard.py",
+      "old": "            rendered = \"<pre>\" + text.replace(\"&\", \"&amp;\").replace(\"<\", \"&lt;\") + \"</pre>\"",
+      "new": "            rendered = \"<pre>\" + text + \"</pre>\"",
+      "direction": "regression",
+      "catcher": "tests/test_framework_gui.py::test_dashboard_serves_pre_fallback_without_markdown"
+    },
+    {
+      "label": "M13 return unrelated rendered HTML without invoking the renderer",
+      "file": "tools/framework_dashboard.py",
+      "old": "            rendered = _md.markdown(text, extensions=[\"fenced_code\", \"tables\"])",
+      "new": "            rendered = \"<h1>Hermetic rendered heading</h1>\"",
+      "direction": "regression",
+      "catcher": "tests/test_framework_gui.py::test_dashboard_serves_cockpit_and_markdown_rendered_report"
+    },
+    {
+      "label": "M14 restore the worktree-local venv assumption in the regeneration harness",
+      "file": "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
+      "old": "_PY = Path(sys.executable)",
+      "new": "_PY = _REPO / \"venv\" / \"bin\" / \"python\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py::test_subprocesses_use_the_running_repository_interpreter"
+    },
+    {
+      "label": "M15 restore the schema-only baseline loophole",
+      "file": "tools/check_skip_baseline.py",
+      "old": "ordinary = parse_rows(\"skips\", required=True)",
+      "new": "ordinary = parse_rows(\"skips\")",
+      "direction": "regression",
+      "catcher": "tests/test_skip_baseline.py::test_main_refuses_schema_only_baseline_without_required_skips"
+    },
+    {
+      "label": "M16 accept ordinary test identities as collection policy",
+      "file": "tools/check_skip_baseline.py",
+      "old": "if not identity.startswith(prefix) or not identity[len(prefix):].strip():",
+      "new": "if False and (not identity.startswith(prefix) or not identity[len(prefix):].strip()):",
+      "direction": "regression",
+      "catcher": "tests/test_skip_baseline.py::test_main_refuses_ordinary_identity_in_collection_skip_namespace"
+    },
+    {
+      "label": "M17 overcorrect by coalescing every exact ordinary skip",
+      "file": "tools/pytest_capture_results.py",
+      "old": "if record.get(\"_collection_skip\") and record == previous:",
+      "new": "if record[\"status\"] == \"skip\" and record == previous:",
+      "direction": "overcorrection",
+      "control": "tests/test_pytest_capture_results.py::test_convert_junit_refuses_exact_duplicate_ordinary_skip_across_lanes",
+      "preserves": [
+        "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+      ]
+    },
+    {
+      "label": "M18 ignore changed reasons for permitted collection skips",
+      "file": "tools/check_skip_baseline.py",
+      "old": "if collection[identity] != permitted_collection[identity]",
+      "new": "if False and collection[identity] != permitted_collection[identity]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1181_capture_reconciliation.py::test_skip_checker_refuses_changed_collection_baseline_reason"
+    },
+    {
+      "label": "M19 restore the runtime report's ordinary-only policy count",
+      "file": "tools/test_runtime_report.py",
+      "old": "return len(ordinary) + len(collection)",
+      "new": "return len(ordinary)",
+      "direction": "regression",
+      "catcher": "tests/test_skip_baseline.py::test_runtime_report_counts_the_canonical_identity_baseline"
+    },
+    {
+      "label": "M20 accept a malformed collection-skip body as its reason",
+      "file": "tools/pytest_capture_results.py",
+      "old": "except (SyntaxError, ValueError) as exc:\n        raise ValueError(\"malformed pytest collection skip\") from exc",
+      "new": "except (SyntaxError, ValueError):\n        location = (test_name.rsplit(\".\", 1)[-1] + \".py\", 1, \"Skipped: \" + (node.text or \"\").strip())",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_refuses_malformed_collection_skip_body"
+    },
+    {
+      "label": "M21 ignore collection-skip module-name drift",
+      "file": "tools/pytest_capture_results.py",
+      "old": "if test_name.rsplit(\".\", 1)[-1] != module_name:",
+      "new": "if False and test_name.rsplit(\".\", 1)[-1] != module_name:",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_refuses_collection_file_or_name_drift"
+    },
+    {
+      "label": "M22 discard the exact reported collection-error file",
+      "file": "tools/pytest_capture_results.py",
+      "old": "file_name = testcase.get(\"file\") or test_name",
+      "new": "file_name = test_name",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_preserves_collection_errors_with_a_stable_fallback_identity"
+    },
+    {
+      "label": "M23 overwrite JSON before validating every lane",
+      "file": "tools/pytest_capture_results.py",
+      "old": "records = _read_lanes(paths)",
+      "new": "Path(json_path).write_text(\"{}\\n\", encoding=\"utf-8\")\n    records = _read_lanes(paths)",
+      "direction": "regression",
+      "catcher": "tests/test_pytest_capture_results.py::test_convert_junit_preserves_outputs_when_a_later_lane_is_malformed"
+    },
+    {
+      "label": "M24 make the converter CLI silently consume only its first lane",
+      "file": "tools/pytest_capture_results.py",
+      "old": "payload = convert_junit(args.junit, args.json, args.summary)",
+      "new": "payload = convert_junit(args.junit[:1], args.json, args.summary)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1181_capture_reconciliation.py::test_converter_and_skip_checker_real_clis_complete_known_collection_round_trip"
+    },
+    {
+      "label": "M25 leak the injected requests object past monkeypatch teardown",
+      "file": "tests/test_v3_66_552_playground_ssrf.py",
+      "old": "monkeypatch.setattr(sp, \"requests\", fake, raising=False)",
+      "new": "sp.requests = fake",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_552_playground_ssrf.py::test_requests_dependency_seams_restore_state_in_either_order"
+    },
+    {
+      "label": "M26 leak the forced requests capability flag past monkeypatch teardown",
+      "file": "tests/test_v3_66_552_playground_ssrf.py",
+      "old": "monkeypatch.setattr(sp, \"_HAS_REQUESTS\", True)",
+      "new": "sp._HAS_REQUESTS = True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_552_playground_ssrf.py::test_requests_dependency_seams_restore_state_in_either_order"
+    },
+    {
+      "label": "M27 leak the forced Markdown renderer past monkeypatch teardown",
+      "file": "tests/test_framework_gui.py",
+      "old": "monkeypatch.setattr(dash, \"_md\", renderer)",
+      "new": "dash._md = renderer",
+      "direction": "regression",
+      "catcher": "tests/test_framework_gui.py::test_dashboard_optional_renderer_seams_restore_state_in_either_order"
+    },
+    {
+      "label": "M28 leak the forced report root environment past monkeypatch teardown",
+      "file": "tests/test_framework_gui.py",
+      "old": "monkeypatch.setenv(\"BD_FRAMEWORK_REPORTS\", str(path))",
+      "new": "os.environ[\"BD_FRAMEWORK_REPORTS\"] = str(path)",
+      "direction": "regression",
+      "catcher": "tests/test_framework_gui.py::test_dashboard_optional_renderer_seams_restore_state_in_either_order"
+    },
+    {
+      "label": "M29 restore the tests-current-contracts ordinary-only consumer census",
+      "file": "tests/test_v3_66_1168_tests_are_current_contracts.py",
+      "old": "ordinary, collection = SB._read_baseline(path)",
+      "new": "ordinary, collection = SB._read_baseline(path)[0], {}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1168_tests_are_current_contracts.py::test_skip_baseline_is_exact_identity_reason_data_not_a_count"
+    },
+    {
+      "label": "M30 overcorrect by rejecting legitimate collection errors",
+      "file": "tools/pytest_capture_results.py",
+      "old": "if len(children) != 1 or children[0].tag not in {\"error\", \"skipped\"}:",
+      "new": "if len(children) != 1 or children[0].tag != \"skipped\":",
+      "direction": "overcorrection",
+      "control": "tests/test_pytest_capture_results.py::test_convert_junit_preserves_collection_errors_with_a_stable_fallback_identity",
+      "preserves": [
+        "tests/test_pytest_capture_results.py::test_convert_junit_reconciles_repeated_module_collection_skip"
+      ]
+    }
+  ]
+}
