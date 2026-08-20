@@ -309,6 +309,7 @@ def test_an_inherited_vault_password_is_honoured_when_executed(tmp_path):
     before = ((real_lock.stat().st_dev, real_lock.stat().st_ino,
                real_lock.stat().st_mtime_ns) if real_lock.exists() else None)
     env = {k: v for k, v in os.environ.items() if k != "CAPTURE_VAULT_PW"}
+    env["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     env["CAPTURE_VAULT_GLOBAL_LOCK"] = str(tmp_path / "vault-global.lock")
     on = subprocess.run(["bash", "-s"], input=block, text=True, capture_output=True,
                         timeout=60,

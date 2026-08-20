@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1197 - stop the host locale from deciding a test's verdict (rows 177, 178)
+
+- Pin the installer's staging order to C collation. `toolchain/install_bdsuite.sh`
+  globbed `bin/*` under the caller's LC_COLLATE, so glibc en_US collation (which
+  folds out a leading underscore) staged a different first file than C collation,
+  and the v3.66.1192 installer test -- which inherits the host LANG and hard-codes
+  the C-order first file -- passed on a C-collating launcher and failed on a
+  UTF-8 one, same tree (row 178). The glob now sorts under C; the test is green
+  under both locales.
+- Add `tests/test_v3_66_1197_ambient_locale_into_subprocess.py`, a repo-wide gate:
+  any test that builds a child env by iterating `os.environ.items()` and hands it
+  to a subprocess (any spacing; `subprocess.*` and `create_subprocess_*` forms)
+  must pin `LC_ALL` -- not merely `LC_COLLATE`, which an inherited `LC_ALL`
+  defeats -- to a C-family value, so its verdict cannot depend on the launcher's
+  locale. The seven current such tests pin `LC_ALL=C`. The gate strips comments
+  before checking (a pin in a comment does not count), ships an evasion self-test
+  fixture so a future weakening of detection fails loudly, and declares its
+  residual textual-proxy surface (the copy()/dict()/** inheritance forms and a
+  decoy pin dict) rather than hiding it.
+- Make `test_the_probe_list_finds_THIS_checkout` location-aware (row 177). It
+  asserted the cloud-bootstrap probe finds THIS tree, which holds for a canonical
+  checkout but not for an integration worktree at a non-probed path, where the
+  probe correctly resolves the canonical checkout instead. It now asserts the
+  strong identity only when this tree sits at a probed location and otherwise
+  requires the probe to find A valid checkout and skips identity with a reason.
+  The canonical-checkout invariant is unchanged.
+
 ## v3.66.1196 - land the cut-tiering framework as standing authority
 
 - Add `project-knowledge/CUT_TIERING.md`, a T0-T3 robustness framework that

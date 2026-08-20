@@ -99,8 +99,9 @@ def test_rotate_token_creates_config(tmp_path):
     r = subprocess.run(
         [sys.executable, _ROTATE, "--config", str(cfg)],
         capture_output=True, text=True, timeout=15,
-        env={k: v for k, v in os.environ.items()
-             if k != "BD_AUTH_TOKEN"})
+        env={**{k: v for k, v in os.environ.items()
+                if k != "BD_AUTH_TOKEN"},
+             "LC_ALL": "C"})  # row 178: collation must not depend on the host locale
     assert r.returncode == 0, r.stderr
     assert cfg.exists()
     data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -114,8 +115,9 @@ def test_rotate_token_preserves_other_keys(tmp_path):
     r = subprocess.run(
         [sys.executable, _ROTATE, "--config", str(cfg)],
         capture_output=True, text=True, timeout=15,
-        env={k: v for k, v in os.environ.items()
-             if k != "BD_AUTH_TOKEN"})
+        env={**{k: v for k, v in os.environ.items()
+                if k != "BD_AUTH_TOKEN"},
+             "LC_ALL": "C"})  # row 178: collation must not depend on the host locale
     assert r.returncode == 0
     data = json.loads(cfg.read_text(encoding="utf-8"))
     assert data["auth_token"] != "old"  # rotated
@@ -150,6 +152,7 @@ def test_rotate_token_two_runs_differ(tmp_path):
     """Two rotations produce different tokens."""
     cfg = tmp_path / "app_config.json"
     env = {k: v for k, v in os.environ.items() if k != "BD_AUTH_TOKEN"}
+    env["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     subprocess.run([sys.executable, _ROTATE, "--config", str(cfg)],
                    capture_output=True, timeout=15, env=env)
     t1 = json.loads(cfg.read_text(encoding="utf-8"))["auth_token"]

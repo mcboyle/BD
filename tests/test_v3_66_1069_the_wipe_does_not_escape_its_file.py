@@ -51,6 +51,7 @@ def _run(*files, extra=()):
 def _env():
     import os
     e = {k: v for k, v in os.environ.items() if k != "BD_INSTALL_DIR"}
+    e["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     return e
 
 

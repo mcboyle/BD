@@ -84,7 +84,12 @@ fi
 
 SOURCE_NAMES=()
 PUBLIC_NAMES=()
-for source_path in "$HERE"/bin/*; do
+# Stage in a deterministic, locale-independent order. A bare `bin/*` glob sorts
+# under the caller's LC_COLLATE -- glibc en_US collation folds out a leading
+# underscore while C collation keeps it (0x5F < 0x62) -- so the first-staged
+# file, and any diagnostic or behaviour keyed to staging order, depended on the
+# ambient locale (backlog row 178). Pin the order to C so it never does again.
+while IFS= read -r source_path; do
   [ ! -L "$source_path" ] || {
     echo "ERROR: source tool population contains a symlink: $source_path" >&2
     exit 2
@@ -93,7 +98,7 @@ for source_path in "$HERE"/bin/*; do
   name="$(basename -- "$source_path")"
   SOURCE_NAMES+=("$name")
   case "$name" in bd|bd-*) PUBLIC_NAMES+=("$name");; esac
-done
+done < <(printf '%s\n' "$HERE"/bin/* | LC_ALL=C sort)
 [ "${#SOURCE_NAMES[@]}" -gt 0 ] && [ "${#PUBLIC_NAMES[@]}" -gt 0 ] || {
   echo "ERROR: source tool or public command population is empty" >&2
   exit 2

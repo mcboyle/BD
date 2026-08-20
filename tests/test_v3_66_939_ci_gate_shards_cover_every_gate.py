@@ -286,6 +286,7 @@ _DECLARED = {
     "tests/test_v3_66_1117_cockpit_home_stays_retired.py",
     # tree-gates-2
     "tests/test_v3_66_1013_registrable_domain.py",
+    "tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
     "tests/test_history_records_whether_bytes_were_fetched.py",
     "tests/test_v3_66_972_library_missing_stays_retired.py",
     # tree-gates-3

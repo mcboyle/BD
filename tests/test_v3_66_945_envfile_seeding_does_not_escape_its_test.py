@@ -127,6 +127,7 @@ def _env_after(target: str) -> dict:
 
     child = {k: v for k, v in os.environ.items()
              if k in ("PATH", "HOME", "LANG", "TMPDIR", "PYTEST_CURRENT_TEST")}
+    child["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     child["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
     child["PYTHONPATH"] = f"{d}:{_REPO}"
     child["LEAKPROBE_OUT"] = str(out)

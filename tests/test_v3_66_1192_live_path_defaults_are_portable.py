@@ -31,6 +31,7 @@ def _installed_layout(tmp_path: Path) -> tuple[dict[str, str], Path, Path, Path,
     installed_env = suite_bin / ".bdenv.sh"
     pointer = suite_bin / ".bd-work-tree"
     env = {key: value for key, value in os.environ.items() if not key.startswith("BD_")}
+    env["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     env.update({
         "HOME": str(home),
         "BD_SUITE_BIN": str(suite_bin),
@@ -300,6 +301,7 @@ def test_public_consumers_translate_corrupt_resolver_loads(
     (link_bin / consumer).symlink_to(suite_bin / consumer)
     (suite_bin / "_bd_work_tree.py").write_text(corrupt_helper, encoding="utf-8")
     run_env = {key: value for key, value in os.environ.items() if not key.startswith("BD_")}
+    run_env["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     result = subprocess.run(
         [str(link_bin / consumer)], cwd=tmp_path, env=run_env,
         text=True, capture_output=True, timeout=10,
@@ -320,6 +322,7 @@ def test_resolver_load_boundary_does_not_translate_base_exits(tmp_path, uncaught
     (link_bin / "bd-state").symlink_to(suite_bin / "bd-state")
     (suite_bin / "_bd_work_tree.py").write_text(f"raise {uncaught}()\n", encoding="utf-8")
     run_env = {key: value for key, value in os.environ.items() if not key.startswith("BD_")}
+    run_env["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     result = subprocess.run(
         [str(link_bin / "bd-state")], cwd=tmp_path, env=run_env,
         text=True, capture_output=True, timeout=10,
@@ -710,6 +713,7 @@ def test_installer_destination_validator_is_component_aware_and_non_mutating(
     dest, link_dest = cases[layout]
     env = {
         **{key: value for key, value in os.environ.items() if not key.startswith("BD_")},
+        "LC_ALL": "C",  # row 178: collation must not depend on the host locale
         "BD_WORK_TREE": str(REPO),
         "BD_SUITE_BIN": str(dest),
         "BD_SUITE_LINK_BIN": str(link_dest),

@@ -38,6 +38,7 @@ _REPO = Path(__file__).resolve().parent.parent
 
 def _run(tmp: str, probe: str) -> dict:
     env = {k: v for k, v in os.environ.items() if k != "BD_INSTALL_DIR"}
+    env["LC_ALL"] = "C"  # row 178: collation must not depend on the host locale
     env["PYTHONPATH"] = str(_REPO)
     env["BD_DISABLE_KEEPALIVE"] = "1"
     r = subprocess.run([sys.executable, "-c", probe], cwd=tmp, env=env,
