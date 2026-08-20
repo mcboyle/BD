@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1198 - stop a worktree's symlinked venv from failing a healthy test
+
+- Make `test_v3_66_938`'s positive control worktree-aware. Its `definitely_ignored`
+  path was under `venv/`, and in a git WORKTREE `venv` is a symlink to the main
+  checkout's environment; `git check-ignore` refuses to look beyond a symlink
+  (rc 128), which the helper read as "not ignored" and failed the control. That
+  fired on every worktree floor whose affected band included this test -- a
+  recurring false-positive that had to be hand-classified as environmental each
+  time, with the risk of laundering a real failure. The control now uses a venv
+  path on a canonical checkout (still exercising the `venv/` rule, and where CI
+  runs) and a symlink-free ignored path (`__pycache__/`) under a symlinked venv.
+  Same worktree-awareness as the v3.66.1197 probe fix; the invariant is unchanged
+  on canonical checkouts.
+
 ## v3.66.1197 - stop the host locale from deciding a test's verdict (rows 177, 178)
 
 - Pin the installer's staging order to C collation. `toolchain/install_bdsuite.sh`

@@ -100,6 +100,24 @@ def _tracked_py() -> list[str]:
     return out.split()
 
 
+def _definitely_ignored_control() -> str:
+    """A path git genuinely ignores, for the positive control below.
+
+    A path under ``venv/`` also exercises the long-standing ``venv/`` rule and is
+    preferred. But in a git WORKTREE, ``venv`` is a symlink to the main checkout's
+    environment, and ``git check-ignore`` refuses to look beyond it (``fatal: ...
+    is beyond a symbolic link``, rc 128, which ``_ignored`` reads as 'not
+    ignored'). That is environmental -- the ``venv/`` rule is unchanged -- so on a
+    symlinked venv fall back to ``__pycache__/`` (also ignored, and never a
+    symlink). The control stays a real control, and a canonical checkout (a real
+    venv directory, which is where CI runs) still exercises the venv rule. Same
+    worktree-awareness as the probe test at v3.66.1197 / cloud_bootstrap.
+    """
+    if not (_REPO / "venv").is_symlink():
+        return "venv/lib/python3.12/site-packages/anything.tmp"
+    return "__pycache__/anything.tmp"
+
+
 def _candidates() -> dict[str, str]:
     """{sidecar_path: "module: CONST"} for every base/suffix pair in source.
 
@@ -202,13 +220,13 @@ def test_the_unhandled_filter_actually_filters():
     depending on its input, the gate underneath it is decoration.
     """
     definitely_not_ignored = "bulk_downloader/app.py"
-    definitely_ignored = "venv/lib/python3.12/site-packages/anything.tmp"
+    definitely_ignored = _definitely_ignored_control()
     assert not _ignored(definitely_not_ignored), (
         f"{definitely_not_ignored} is gitignored, so this control proves "
         f"nothing -- pick another tracked file.")
     assert _ignored(definitely_ignored), (
         f"{definitely_ignored} is not gitignored, so this control proves "
-        f"nothing -- the venv rule must have changed.")
+        f"nothing -- the ignore rule for it must have changed.")
 
     got = _unhandled({definitely_not_ignored: "synthetic",
                       definitely_ignored: "synthetic"})
