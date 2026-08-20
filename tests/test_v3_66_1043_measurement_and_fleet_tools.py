@@ -21,10 +21,13 @@ wired rather than described. This file covers what a selftest cannot: the seam
 between two implementations of one format, the promise that the read-only tools
 are read-only, and the specific mutants that got through last time.
 """
+import ast
 import importlib.machinery
 import importlib.util
+import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 import time
@@ -459,6 +462,96 @@ def test_bd_gc_refuses_an_age_window_that_could_catch_a_live_run(tmp_path):
 
 # ── bd-jobs: the second seam bug, from the same join ─────────────────────────
 
+_REAL_JOBS = pathlib.Path("/tmp/bd-jobs")
+
+
+def _my_new_registry_entries(before_names, after_names, pid):
+    """New registry entries that this process could have written.
+
+    A concurrent process cannot share our pid on this host.  Attribute by that
+    identity instead of counting a shared directory whose unrelated population
+    may grow or shrink during the assertion window.
+    """
+    mine = "%s-%d.json" % (socket.gethostname(), pid)
+    return sorted(name for name in set(after_names) - set(before_names)
+                  if name == mine)
+
+def test_bd_jobs_register_stamps_only_an_explicit_run_marker(monkeypatch,
+                                                              tmp_path):
+    """A shared-directory leak detector can attribute only evidence the writer
+    names.  The marker is separate from BD_NESTED_PYTEST: that variable is a
+    boolean re-entry guard whose literal value ``1`` is intentionally shared by
+    every nested run."""
+    mod = _load("bd-jobs")
+    monkeypatch.setattr(mod, "JOBS_DIR", tmp_path / "bd-jobs")
+    token = "row180-%d" % os.getpid()
+    monkeypatch.setenv("BD_JOBS_RUN_MARKER", token)
+
+    entry = mod.register(os.getpid(), "row180", "true")
+    written = mod.JOBS_DIR / (entry["id"] + ".json")
+    assert written.is_file(), "register() did not exercise the redirected writer"
+    on_disk = json.loads(written.read_text(encoding="utf-8"))
+    assert on_disk["run_marker"] == token
+
+
+def test_bd_jobs_register_preserves_the_operator_schema_without_a_marker(
+        monkeypatch, tmp_path):
+    mod = _load("bd-jobs")
+    monkeypatch.setattr(mod, "JOBS_DIR", tmp_path / "bd-jobs")
+    monkeypatch.delenv("BD_JOBS_RUN_MARKER", raising=False)
+
+    entry = mod.register(os.getpid(), "ordinary operator job", "true")
+    on_disk = json.loads(
+        (mod.JOBS_DIR / (entry["id"] + ".json")).read_text(encoding="utf-8"))
+    assert "run_marker" not in on_disk, (
+        "an unset test-attribution channel changed every operator entry")
+
+
+def test_register_is_the_sole_bd_jobs_json_registry_writer():
+    """An attribution marker is sound only while every production JSON entry
+    crosses ``register()``.  Log creation is intentionally outside this floor.
+    """
+    source = (_BIN / "bd-jobs").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    writers = []
+    for function in (n for n in ast.walk(tree)
+                     if isinstance(n, (ast.FunctionDef,
+                                       ast.AsyncFunctionDef))):
+        for call in (n for n in ast.walk(function) if isinstance(n, ast.Call)):
+            if not (isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "write_text"):
+                continue
+            expression = ast.get_source_segment(source, call.func.value) or ""
+            if "JOBS_DIR" in expression and ".json" in expression:
+                writers.append(function.name)
+    assert writers == ["register"], (
+        "production JOBS_DIR JSON writers bypass register(): %s" % writers)
+
+
+def test_registry_leak_attribution_ignores_foreign_concurrent_churn():
+    me = os.getpid()
+    mine = "%s-%d.json" % (socket.gethostname(), me)
+    assert _my_new_registry_entries(
+        {"old-1.json"}, {"old-1.json", "test5-424242.json"}, me) == []
+    assert _my_new_registry_entries(
+        {"old-1.json"}, {"old-1.json", mine}, me) == [mine]
+    assert _my_new_registry_entries({mine}, {mine}, me) == []
+    assert _my_new_registry_entries(
+        {"old-1.json", "foreign-2.json"}, {"old-1.json"}, me) == []
+
+
+def test_the_real_registry_guard_calls_the_attribution_helper():
+    """Wiring floor, with its evasion surface declared: AST proves the guard
+    calls the pure helper, while the behavioral test above proves its meaning.
+    Neither half alone would prevent a present-but-unused helper."""
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+    target = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name ==
+                  "test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell")
+    calls = {n.func.id for n in ast.walk(target)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "_my_new_registry_entries" in calls
+
 def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_path):
     """One cut after `--` reached the shell, the SAME seam bit again.
 
@@ -483,8 +576,8 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_pa
     # that litters the registry makes the registry useless for the thing it
     # exists for -- telling you what is actually running.
     monkeypatch.setattr(mod, "JOBS_DIR", tmp_path / "bd-jobs")
-    real_before = len(list(pathlib.Path("/tmp/bd-jobs").glob("*.json"))) \
-        if pathlib.Path("/tmp/bd-jobs").is_dir() else 0
+    real_before = {p.name for p in _REAL_JOBS.glob("*.json")} \
+        if _REAL_JOBS.is_dir() else set()
 
     seen = {}
 
@@ -518,11 +611,12 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_pa
     assert list((tmp_path / "bd-jobs").glob("*.json")), (
         "nothing was registered anywhere, so the redirect above is untested "
         "and this test would keep passing if it went back to the real dir")
-    real_after = len(list(pathlib.Path("/tmp/bd-jobs").glob("*.json"))) \
-        if pathlib.Path("/tmp/bd-jobs").is_dir() else 0
-    assert real_after == real_before, (
-        "this test wrote %d entr(ies) into the REAL job registry at "
-        "/tmp/bd-jobs" % (real_after - real_before))
+    real_after = {p.name for p in _REAL_JOBS.glob("*.json")} \
+        if _REAL_JOBS.is_dir() else set()
+    leaked = _my_new_registry_entries(real_before, real_after, os.getpid())
+    assert not leaked, (
+        "this test wrote entr(ies) attributed to its own pid into the REAL "
+        "job registry at /tmp/bd-jobs: %s" % leaked)
 
 
 # ── @1075: the version column described the tree, not the service ────────────
