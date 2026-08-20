@@ -118,6 +118,22 @@ def test_empty_singleton_lock_export_creates_and_validates_its_default_parent(tm
     assert default_lock.stat().st_mode & 0o777 == 0o600
 
 
+def test_explicit_singleton_override_never_creates_its_parent(tmp_path):
+    """An override is a caller-owned root, never authority to create it."""
+    missing_parent = tmp_path / "caller-owned"
+    lock = missing_parent / "global.lock"
+    assert not missing_parent.exists()
+    result = subprocess.run(
+        ["bash", "-s"], input=_vault_block(), capture_output=True, text=True,
+        env={**os.environ, "CAPTURE_VAULT_GLOBAL_LOCK": str(lock)}, timeout=10)
+    assert result.returncode == 73
+    assert "CAPTURE-VAULT-CONCURRENCY-REFUSED" in result.stderr
+    assert not missing_parent.exists(), (
+        "capture.sh created a caller-supplied lock root instead of requiring "
+        "the caller to establish and own it"
+    )
+
+
 def test_singleton_refuses_a_symlink_without_touching_its_target(tmp_path):
     victim = tmp_path / "operator-data"
     victim.write_text("must survive\n")

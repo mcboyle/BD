@@ -35,8 +35,10 @@ A hardcoded default would mean every install shipped a known unlock.
 """
 from __future__ import annotations
 
+import fcntl
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -560,9 +562,9 @@ def _probe_script(tmp_path: Path, call: str, vault: str) -> Path:
     """capture.sh's real head, cut at the trap, plus a driver.
 
     The head is the actual script -- assignments, the TTY-guarded prompt (which
-    skips itself with stdin closed), the teardown definitions and the trap. It
-    performs no I/O, so running it is safe; running a hand-written copy of the
-    function would test the copy.
+    skips itself with stdin closed), the teardown definitions and the trap.
+    ``_run_probe`` redirects its executable state into ``tmp_path``; running a
+    hand-written copy of the function would only test the copy.
     """
     raw = CAPTURE_SH.read_text(encoding="utf-8")
     at = raw.find(TRAP_ANCHOR)
@@ -592,11 +594,24 @@ def _probe_script(tmp_path: Path, call: str, vault: str) -> Path:
         ),
         encoding="utf-8",
     )
+    lib_src = CAPTURE_SH.parent / "scripts" / "lib"
+    lib_dst = tmp_path / "scripts" / "lib"
+    lib_dst.mkdir(parents=True, exist_ok=True)
+    staged = 0
+    for lib in sorted(lib_src.glob("*.sh")):
+        shutil.copy2(lib, lib_dst / lib.name)
+        staged += 1
+    assert staged, (
+        f"no capture shell libraries were staged from {lib_src}; the probe "
+        "would skip its real helper behavior"
+    )
     return probe
 
 
 def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
-               curl_exit: int = 7, timeout: int = 45):
+               curl_exit: int = 7, timeout: int = 45,
+               lock_override: Path | None = None,
+               expected_returncode: int = 0):
     """Run `call` out of capture.sh's own head with the world stubbed out.
 
     sleep is a no-op stub, so a bounded wait finishes instantly while an
@@ -607,7 +622,15 @@ def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
     ask one question.
     """
     stub_bin = tmp_path / "bin"
+    lock_dir = tmp_path / "capture-lock"
+    gc_guard_log = tmp_path / "gc-guard.log"
     stub_bin.mkdir()
+    (tmp_path / "venv" / "bin").mkdir(parents=True)
+    if lock_override is None:
+        lock_dir.mkdir(mode=0o700)
+        lock_path = lock_dir / "capture-vault.lock"
+    else:
+        lock_path = lock_override
     log = tmp_path / "calls.log"
     _stub(stub_bin / "curl",
           f'#!/usr/bin/env bash\necho "curl" >> "{log}"\nexit {curl_exit}\n')
@@ -617,10 +640,19 @@ def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
           f'#!/usr/bin/env bash\necho "sudo $*" >> "{log}"\nexit 0\n')
     _stub(stub_bin / "systemctl",
           f'#!/usr/bin/env bash\necho "systemctl $*" >> "{log}"\nexit 0\n')
+    _stub(
+        tmp_path / "venv" / "bin" / "python",
+        '#!/usr/bin/env bash\n'
+        'printf \'%s\\n\' "$*" >> "${CAPTURE_GC_GUARD_LOG:?}"\n'
+        'exit 0\n',
+    )
 
     probe = _probe_script(tmp_path, call, vault)
     env = dict(os.environ)
     env["PATH"] = f"{stub_bin}{os.pathsep}{env['PATH']}"
+    env["CAPTURE_KEEP"] = "999999999"
+    env["CAPTURE_GC_GUARD_LOG"] = str(gc_guard_log)
+    env["CAPTURE_VAULT_GLOBAL_LOCK"] = str(lock_path)
     try:
         completed = subprocess.run(
             ["bash", str(probe)],
@@ -638,6 +670,18 @@ def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
             f"is unbounded: it converts a failed restart into a hung capture, "
             f"which is worse than the failed steps it was meant to prevent."
         ) from exc
+    assert completed.returncode == expected_returncode, (
+        f"capture probe exited {completed.returncode}, expected "
+        f"{expected_returncode}:\n{completed.stdout}{completed.stderr}"
+    )
+    assert gc_guard_log.is_file(), (
+        "the probe did not route bd_test_root_gc through its inert sandbox "
+        f"interpreter:\n{completed.stdout}{completed.stderr}"
+    )
+    assert "toolchain/bin/bd-gc --apply --older-than 1440 --only classified" in (
+        gc_guard_log.read_text(encoding="utf-8")
+    )
+    assert "pruned " not in completed.stdout + completed.stderr
     calls = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []
     return completed, calls
 
@@ -733,6 +777,68 @@ def test_the_readiness_wait_returns_as_soon_as_the_app_answers(tmp_path):
     )
 
 
+def test_the_readiness_probe_owns_its_singleton_inside_a_parent_capture(
+    tmp_path,
+):
+    """A synthetic capture must not share its parent's singleton.
+
+    capture.sh holds one process-wide lock for the live service, drop-in and
+    ports.  This probe executes the real script head inside pytest; when pytest
+    itself is a capture stage, the unisolated probe refuses at exit 73 before
+    reaching the readiness subject. Hold a real outer lock, pass that path to
+    a refusal control, then prove the normal helper creates its owner-only lock
+    below ``tmp_path``.
+    """
+    outer_dir = tmp_path / "outer-capture"
+    outer_dir.mkdir(mode=0o700)
+    outer_lock = outer_dir / "capture-vault.lock"
+    outer_lock.touch(mode=0o600)
+    outer_lock.chmod(0o600)
+
+    with outer_lock.open("r+") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        contention = subprocess.run(
+            ["flock", "-n", str(outer_lock), "true"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert contention.returncode == 1, (
+            "the outer lock was not actually held, so this test did not "
+            "reproduce a probe nested inside a live capture"
+        )
+        name, _text = _readiness_wait(_capture_body())
+        inherited = tmp_path / "inherited"
+        inherited.mkdir()
+        refused, _calls = _run_probe(
+            inherited,
+            call=name,
+            curl_exit=0,
+            lock_override=outer_lock,
+            expected_returncode=73,
+        )
+        assert refused.returncode == 73, (
+            "the control probe did not inherit and refuse the live capture's "
+            f"contended singleton:\n{refused.stdout}{refused.stderr}"
+        )
+        assert "another capture owns the singleton" in refused.stderr
+        isolated = tmp_path / "isolated"
+        isolated.mkdir()
+        completed, calls = _run_probe(isolated, call=name, curl_exit=0)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "command not found" not in completed.stderr
+    assert calls == ["curl"], calls
+    scratch_lock = isolated / "capture-lock" / "capture-vault.lock"
+    assert scratch_lock.is_file(), (
+        f"the nested probe did not create its singleton under tmp_path: "
+        f"{scratch_lock}"
+    )
+    assert scratch_lock.stat().st_mode & 0o777 == 0o600
+    holder_pid = scratch_lock.read_text(encoding="utf-8").split()[0]
+    assert holder_pid.isdecimal(), scratch_lock.read_text(encoding="utf-8")
+
+
 def test_a_capture_that_never_enabled_the_vault_waits_for_nothing(tmp_path):
     """No password, or no TTY, means no drop-in, no restart -- and no delay.
 
@@ -740,8 +846,9 @@ def test_a_capture_that_never_enabled_the_vault_waits_for_nothing(tmp_path):
     from anywhere other than inside its restart branch would add up to the full
     ceiling to every unattended capture, for a service it never touched.
     """
-    _completed, calls = _run_probe(
+    completed, calls = _run_probe(
         tmp_path, call="cleanup_capture_vault", vault="0", curl_exit=7)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
     assert calls == [], (
         f"cleanup_capture_vault did work with CAPTURE_VAULT=0: {calls}. "
         f"Nothing was restarted, so nothing may be waited on."

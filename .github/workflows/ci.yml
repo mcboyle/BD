@@ -340,6 +340,7 @@ jobs:
               tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
           - name: tree-gates-1
             suites: >-
+              tests/test_capture_shell_runtime.py
               tests/test_capture_vault_is_isolated.py
               tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py
               tests/test_v3_66_1191_retention_review_edges.py
