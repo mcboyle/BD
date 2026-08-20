@@ -78,6 +78,29 @@ each and could not see any of its six wrong numbers, because those numbers live
 in backlog prose that no test reads. Pass or fail, the lane was blind to the
 actual failure mode.
 
+## Schedule-sensitive shared state (T2+)
+
+A test that inspects a real shared directory a concurrent xdist worker or the
+operator can write -- `/tmp/bd-jobs`, `/tmp/bd-runctx`, any absolute `/tmp`
+registry, HOME-anchored real state, or a module-level constant naming a real
+non-`tmp_path` directory -- must NOT assert on a bare before/after snapshot of
+that directory. Under `-n 24 --dist loadfile` the scheduler decides whether an
+inspector and a writer overlap, so such a test fails once and passes on re-run:
+it measures the suite, not its subject. Do exactly one of:
+
+- **ISOLATE** -- monkeypatch the tool's directory constant to `tmp_path` when the
+  test controls what writes the directory.
+- **ATTRIBUTE** -- when the test is a leak detector that must read the real
+  directory, assert only over entries THIS run created, identified by pid lineage
+  or a stamped marker.
+- **GROUP** -- only if neither is sound, pin the inspector and every writer of
+  that directory to one worker via `@pytest.mark.xdist_group` (a pattern unused
+  in the tree today, so justify each use).
+
+A floor failure that does not reproduce is schedule-sensitive: establish its
+causation and isolate the test. Re-running to green launders a real flake --
+row 179 was found only because its instrument was traced, not retried.
+
 ## Deciding a tier — worked examples
 
 - A backlog adjudication that only edits register text and the version trio: T1.

@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1200 - reconcile the shared-state flake class around row 179
+
+- Close backlog row 179 and correct its root cause: the row hypothesised a
+  `flush/race at worker exit`, but v3.66.1199 diagnosed the real cause -- prune
+  ranking run directories by directory mtime, which freezes on an append-only
+  chain -- and fixed it. The row now records that.
+- Open backlog rows 180 (HIGH) and 181 (MEDIUM) for the two remaining tests of
+  the same shared-state class: leak detectors that snapshot the real
+  `/tmp/bd-jobs` registry and so flake when a concurrent -n 24 worker writes it.
+  Both take the B-ATTRIBUTE fix (count only entries the inner run created); a
+  systemic sweep confirmed the class is contained to these two, needing no
+  `xdist_group`.
+- Add a SHARED-STATE prevention rule to `project-knowledge/CUT_TIERING.md`: a
+  test inspecting a real shared directory must isolate, attribute, or group --
+  never a bare before/after snapshot -- and a non-reproducing floor failure is
+  isolated by causation, not retried to green.
+
 ## v3.66.1199 - the run-context recorder no longer loses a live run to prune
 
 - Rank retained run directories by newest CONTENT mtime, not directory mtime.
