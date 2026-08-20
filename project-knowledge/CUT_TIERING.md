@@ -101,6 +101,47 @@ A floor failure that does not reproduce is schedule-sensitive: establish its
 causation and isolate the test. Re-running to green launders a real flake --
 row 179 was found only because its instrument was traced, not retried.
 
+## Gate subjects: behavior is exercised, not grepped (any tier adding a gate)
+
+No gate may stand a source-text scan -- substring, regex, or AST-over-unparse --
+in for a property that is really about runtime behavior when more spellings of
+the hazard exist than the check enumerates. A gate whose subject is BEHAVIOR --
+a route renders, an endpoint is reachable, a write is confirm-gated, a
+subprocess is deterministic, a CI step runs -- must EXERCISE that behavior
+(render or click it, drive the test client, execute the script, parse the CI
+structurally), not read the source implementing it.
+
+Where a text scan is an unavoidable floor, all three apply:
+
+- COMMENT-STRIP AND NORMALIZE case, whitespace, underscores, and quote style
+  before matching -- the codebase's own house styles (named handlers,
+  snake_case, single quotes) are the evasion surface;
+- DECLARE THE EVASION SURFACE in the gate's docstring;
+- SHIP AN EVASION FIXTURE -- a RED control applying one natural respelling of
+  the hazard, proving the gate still catches it. A scan with no evasion
+  fixture is presumed evadable.
+
+Gates whose subject genuinely IS text stay textual -- do not churn them:
+generated-artifact freshness diffs, version-pin/changelog/PIN_INDEX coupling,
+documentation-content checks, and structural CI parsing already exercise their
+real subject. Read the exemption per assertion, not per file: a gate that
+checks doc content in one half and stands in for a runtime property in the
+other is exempt only in the first half. A self-declared floor that states its
+blind spots honestly is the model to extend, not a defect.
+
+Evidence for this rule: the textual-proxy gate audit
+(fleet-run-artifacts/2026-08-18/gate-antipattern-audit.md) selected 30
+proxy-shaped gates and reported every one evadable by an in-house-style
+respelling. Its confidence is not uniform, and the rule does not need it to
+be. The audit replayed only the 5 HIGH evasions against the tests' own
+compiled patterns; it records the 12 LOW verdicts as resting on cited logic
+without per-line replay, and states no replay either way for the 13 MEDIUM.
+The LOW rows therefore stand as UNVERIFIED CANDIDATE -- the audit's own
+synthesis calls two of those gates the sound model. Backlog rows 182-211 track
+the fixes and, for the unverified rows, verify-or-close. The audit also notes
+that all 30 were selected because they looked like proxies, so 30 is a count
+of confirmed proxies, not a measured fraction of the suite.
+
 ## Deciding a tier — worked examples
 
 - A backlog adjudication that only edits register text and the version trio: T1.
