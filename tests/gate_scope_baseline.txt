@@ -110,7 +110,6 @@ tests/test_capture_scrub_hook.py
 tests/test_capture_scrub_patches.py
 tests/test_capture_seeds_live_input.py
 tests/test_capture_session_nav_resilience.py
-tests/test_capture_shell_runtime.py
 tests/test_capture_step4_waits_for_serving.py
 tests/test_capture_verdict.py
 tests/test_capture_workbench_surface_lock.py

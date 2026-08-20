@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1203 - keep capture's own executable tests inside their sandbox
+
+- Give the two synthetic `capture.sh` harnesses their own owner-only singleton
+  lock below `tmp_path`. A real capture holds the production singleton while
+  its pytest stage runs; these harnesses execute the real script head, inherited
+  that same lock, and refused at exit 73 before reaching their subjects. The
+  failure reproduced as the same ten tests on six hosts. Direct self-hosting
+  controls now prove both the inherited-lock refusal and the isolated scratch
+  success, stage the real shell libraries, and require the no-vault path to
+  reach its subject. The runtime harness is classified repo-wide and runs in
+  the CI gate shards, while the singleton suite pins that an explicit override
+  never creates its caller-owned parent. Removing either override is caught
+  independently. Test infrastructure only; the production capture singleton
+  remains unchanged and there is no live-service runtime change.
+
 ## v3.66.1202 - make the gate-behavioral rule standing authority
 
 - Land the textual-proxy audit's shared fix pattern as a standing rule in

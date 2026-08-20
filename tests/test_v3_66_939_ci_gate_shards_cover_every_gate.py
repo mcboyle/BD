@@ -270,6 +270,7 @@ _DECLARED = {
     # axis-6 table. Split across five shards drawn from MEASURED time
     # (196s total locally), not count, per the @939 precedent.
     # tree-gates-1
+    "tests/test_capture_shell_runtime.py",
     "tests/test_capture_vault_is_isolated.py",
     "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
     "tests/test_v3_66_1191_retention_review_edges.py",

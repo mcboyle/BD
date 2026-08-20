@@ -6,9 +6,10 @@ paths and service commands are redirected into ``tmp_path``.
 
 from __future__ import annotations
 
-import shutil
+import fcntl
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CAPTURE_SH = REPO_ROOT / "capture.sh"
+BD_GATE_SCOPE = "repo-wide"
 
 
 def _write_executable(path: Path, source: str) -> None:
@@ -86,12 +88,22 @@ def _run_probe(
     results_exit: int = 0,
     skip_baseline_exit: int = 0,
     frontend_ready: bool = True,
+    lock_override: Path | None = None,
+    require_python_log: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, int], list[list[str]]]:
     fake_home = tmp_path / "BulkDownloader"
     fake_bin = tmp_path / "bin"
+    lock_dir = tmp_path / "capture-lock"
+    gc_guard_log = tmp_path / "gc-guard.log"
     (fake_home / "bulk_downloader").mkdir(parents=True)
     (fake_home / "venv" / "bin").mkdir(parents=True)
+    (tmp_path / "venv" / "bin").mkdir(parents=True)
     fake_bin.mkdir()
+    if lock_override is None:
+        lock_dir.mkdir(mode=0o700)
+        lock_path = lock_dir / "capture-vault.lock"
+    else:
+        lock_path = lock_override
     (fake_home / "bulk_downloader" / "__init__.py").write_text(
         '__version__ = "capture-probe"\n',
         encoding="utf-8",
@@ -166,6 +178,13 @@ exit 0
 """,
     )
     _write_executable(fake_bin / "sleep", "#!/usr/bin/env bash\nexit 0\n")
+    _write_executable(
+        tmp_path / "venv" / "bin" / "python",
+        r'''#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${CAPTURE_GC_GUARD_LOG:?}"
+exit 0
+''',
+    )
 
     probe = tmp_path / "capture-probe.sh"
     result_path = tmp_path / "probe-results.txt"
@@ -182,7 +201,10 @@ exit 0
             "FAKE_CAPTURE_SERIAL_EXIT": str(serial_exit),
             "FAKE_RESULTS_EXIT": str(results_exit),
             "FAKE_SKIP_BASELINE_EXIT": str(skip_baseline_exit),
+            "CAPTURE_KEEP": "999999999",
+            "CAPTURE_GC_GUARD_LOG": str(gc_guard_log),
             "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
+            "CAPTURE_VAULT_GLOBAL_LOCK": str(lock_path),
         }
     )
     completed = subprocess.run(
@@ -193,6 +215,14 @@ exit 0
         text=True,
         timeout=30,
     )
+    assert gc_guard_log.is_file(), (
+        "the probe did not route bd_test_root_gc through its inert sandbox "
+        f"interpreter:\n{completed.stdout}{completed.stderr}"
+    )
+    assert "toolchain/bin/bd-gc --apply --older-than 1440 --only classified" in (
+        gc_guard_log.read_text(encoding="utf-8")
+    )
+    assert "pruned " not in completed.stdout + completed.stderr
     exits = {}
     if result_path.is_file():
         exits = {
@@ -202,9 +232,18 @@ exit 0
                 for line in result_path.read_text(encoding="utf-8").splitlines()
             )
         }
+    if require_python_log:
+        assert python_log.is_file(), (
+            f"capture probe exited {completed.returncode} before invoking its "
+            f"sandboxed Python subject:\n{completed.stdout}{completed.stderr}"
+        )
     calls = [
         json.loads(line)
-        for line in python_log.read_text(encoding="utf-8").splitlines()
+        for line in (
+            python_log.read_text(encoding="utf-8").splitlines()
+            if python_log.is_file()
+            else []
+        )
     ]
     return completed, exits, calls
 
@@ -240,6 +279,57 @@ def test_capture_runtime_parses_workers_and_routes_only_parallel(tmp_path) -> No
         "SKIP_BASELINE_EXIT": 0,
         "SUITE_EXIT": 0,
     }
+
+
+def test_runtime_probe_owns_its_singleton_inside_a_parent_capture(
+    tmp_path,
+) -> None:
+    """The lane probe refuses a parent's lock, then owns a scratch lock."""
+    outer_dir = tmp_path / "outer-capture"
+    outer_dir.mkdir(mode=0o700)
+    outer_lock = outer_dir / "capture-vault.lock"
+    outer_lock.touch(mode=0o600)
+    outer_lock.chmod(0o600)
+
+    with outer_lock.open("r+") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        contention = subprocess.run(
+            ["flock", "-n", str(outer_lock), "true"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert contention.returncode == 1, (
+            "the outer lock was not actually held, so this test did not "
+            "reproduce a probe nested inside a live capture"
+        )
+        inherited = tmp_path / "inherited"
+        inherited.mkdir()
+        refused, _exits, _calls = _run_probe(
+            inherited,
+            lock_override=outer_lock,
+            require_python_log=False,
+        )
+        assert refused.returncode == 73, (
+            "the control probe did not inherit and refuse the live capture's "
+            f"contended singleton:\n{refused.stdout}{refused.stderr}"
+        )
+        assert "another capture owns the singleton" in refused.stderr
+        isolated = tmp_path / "isolated"
+        isolated.mkdir()
+        completed, exits, calls = _run_probe(isolated)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert exits["SUITE_EXIT"] == 0
+    assert len(calls) >= 2, calls
+    scratch_lock = isolated / "capture-lock" / "capture-vault.lock"
+    assert scratch_lock.is_file(), (
+        f"the nested probe did not create its singleton under tmp_path: "
+        f"{scratch_lock}"
+    )
+    assert scratch_lock.stat().st_mode & 0o777 == 0o600
+    holder_pid = scratch_lock.read_text(encoding="utf-8").split()[0]
+    assert holder_pid.isdecimal(), scratch_lock.read_text(encoding="utf-8")
 
 
 def test_capture_runtime_fails_before_pytest_when_spa_build_missing(
