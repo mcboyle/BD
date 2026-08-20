@@ -47,7 +47,14 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 BD_JOBS = REPO / "toolchain" / "bin" / "bd-jobs"
 BD_RUN = REPO / "toolchain" / "bin" / "bd-run"
-PY = REPO / "venv" / "bin" / "python"
+
+
+def _python_for(repo: Path) -> Path:
+    local = repo / "venv" / "bin" / "python"
+    return local if local.is_file() else Path(sys.executable)
+
+
+PY = _python_for(REPO)
 
 
 def _alive(pid: int) -> bool:
@@ -66,6 +73,23 @@ def test_the_tools_are_present():
     assert BD_JOBS.is_file(), f"missing {BD_JOBS}"
     assert BD_RUN.is_file(), f"missing {BD_RUN}"
     assert PY.is_file(), f"missing {PY}"
+
+
+def test_tool_runner_works_when_the_checkout_has_no_local_venv(tmp_path):
+    """A CI checkout is allowed to use the interpreter running pytest.
+
+    The tools are source files in this checkout; requiring an untracked
+    ``venv/bin/python`` makes their real behavior untestable on a clean clone.
+    """
+    interpreter = _python_for(tmp_path)
+    proc = subprocess.run(
+        [str(interpreter), str(BD_RUN), "--help"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 0, (
+        "the tool runner required an untracked repo-local venv in a clean "
+        f"checkout: rc={proc.returncode}\n{proc.stdout[-400:]}{proc.stderr[-400:]}"
+    )
 
 
 # ----------------------------------------------------------------- backlog 90
