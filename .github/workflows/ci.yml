@@ -321,6 +321,8 @@ jobs:
               tests/test_v3_66_1044_run_context_and_chains.py
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
               tests/test_v3_66_1040_remote_job_registry.py
+              tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
+              tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py
               tests/test_v3_66_1068_modwatch_measures_per_file.py
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py

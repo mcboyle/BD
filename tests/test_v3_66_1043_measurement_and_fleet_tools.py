@@ -510,22 +510,107 @@ def test_bd_jobs_register_preserves_the_operator_schema_without_a_marker(
 def test_register_is_the_sole_bd_jobs_json_registry_writer():
     """An attribution marker is sound only while every production JSON entry
     crosses ``register()``.  Log creation is intentionally outside this floor.
+
+    RE-EXPRESSED at v3.66.1206, and deliberately NOT weakened to a name check.
+    Publication stopped being a single ``write_text``: an entry is now staged
+    into a temp, fsynced, renamed over its final and the directory fsynced. The
+    old denominator asked only for ``write_text`` calls mentioning ``JOBS_DIR``
+    and ``.json``, so on this tree it became **empty** -- and an empty
+    denominator is not a passing gate, it is a gate with no subject, through
+    which the v1204 M3 bypass (a direct ``JOBS_DIR / "unmarked-bypass.json"``
+    writer added outside ``register``) would walk untouched.
+
+    So the population is every AST call that can CREATE OR REPLACE a file under
+    ``JOBS_DIR`` -- ``write_text``, ``os.replace``/``os.rename``,
+    ``open(..., "w")``, ``mkstemp`` -- and four independent facts are asserted
+    over it, each with its own non-empty denominator:
+
+      1. every such call lives inside the publication or exact cleanup surface;
+      2. cleanup creates and renames only its non-JSON quarantine;
+      3. the ATOMIC final publisher is exactly ``_publish_entry`` -- one place
+             where a name becomes visible in the registry;
+      4. ``_publish_entry``'s only production caller is ``register``.
+
+    Together those still say what the v1204 battery needs: nothing reaches the
+    registry except through ``register``.
     """
     source = (_BIN / "bd-jobs").read_text(encoding="utf-8")
     tree = ast.parse(source)
-    writers = []
+
+    def segment(node):
+        return ast.get_source_segment(source, node) or ""
+
+    # The publication surface, named exhaustively: the entry point that takes
+    # the registry lock and decides the collision, the locked function that
+    # stages and renames, and log creation (deliberately outside the JSON
+    # floor, per this test's original docstring).
+    publication_surface = {"register", "_publish_entry", "open_job_log",
+                           "_stage_and_replace_under_lock"}
+    cleanup_surface = {"_unlink_owned_identity"}
+    writers = {}        # function name -> the kinds of registry write it does
+    publishers = set()  # functions that perform the atomic rename
+    cleanup_calls = set()  # the exact non-JSON quarantine operations
+    callers = set()     # functions that call _publish_entry
+    stagers = set()     # functions that reach the locked staging half
     for function in (n for n in ast.walk(tree)
                      if isinstance(n, (ast.FunctionDef,
                                        ast.AsyncFunctionDef))):
         for call in (n for n in ast.walk(function) if isinstance(n, ast.Call)):
-            if not (isinstance(call.func, ast.Attribute)
-                    and call.func.attr == "write_text"):
-                continue
-            expression = ast.get_source_segment(source, call.func.value) or ""
-            if "JOBS_DIR" in expression and ".json" in expression:
-                writers.append(function.name)
-    assert writers == ["register"], (
-        "production JOBS_DIR JSON writers bypass register(): %s" % writers)
+            called = segment(call.func)
+            arguments = " ".join(
+                [segment(a) for a in call.args]
+                + [segment(k.value) for k in call.keywords])
+            kind = None
+            if called.endswith(".write_text") and "JOBS_DIR" in called:
+                kind = "write_text"
+            elif called in ("os.replace", "os.rename"):
+                kind = "rename"
+                publishers.add(function.name)
+            elif called.endswith("mkstemp") and "JOBS_DIR" in arguments:
+                kind = "mkstemp"
+            elif called == "open" and "JOBS_DIR" in arguments:
+                kind = "open"
+            if kind is not None:
+                writers.setdefault(function.name, set()).add(kind)
+                if function.name in cleanup_surface:
+                    cleanup_calls.add((
+                        called, tuple(segment(a) for a in call.args),
+                        tuple(segment(k.value) for k in call.keywords)))
+            if called == "_publish_entry":
+                callers.add(function.name)
+            if called == "_stage_and_replace_under_lock":
+                stagers.add(function.name)
+
+    assert writers, (
+        "the JOBS_DIR writer denominator is EMPTY, so this gate has no "
+        "subject: it would pass over any bypass at all")
+    assert set(writers) <= publication_surface | cleanup_surface, (
+        "production JOBS_DIR writers bypass register(): %s"
+        % {name: sorted(kinds) for name, kinds in writers.items()
+           if name not in publication_surface | cleanup_surface})
+    assert cleanup_calls == {
+        ("tempfile.mkstemp", (),
+         ('".bd-jobs-cleanup-"', '".tmp"', "str(JOBS_DIR)")),
+        ("os.replace", ("str(path)", "quarantine"), ()),
+    }, "cleanup writes something other than its exact non-JSON quarantine: %r" % (
+        cleanup_calls,)
+    publishers -= cleanup_surface
+    assert publishers == {"_stage_and_replace_under_lock"}, (
+        "the atomic final publisher is not exactly one locked function: %s"
+        % sorted(publishers))
+    assert callers == {"register"}, (
+        "_publish_entry is reached from something other than register(): %s"
+        % sorted(callers))
+    assert stagers == {"_publish_entry"}, (
+        "the locked staging half is reached from something other than "
+        "_publish_entry, so a publication could bypass the registry lock and "
+        "the collision decision: %s" % sorted(stagers))
+    assert "rename" in writers.get("_stage_and_replace_under_lock", set()), (
+        "the detector no longer sees the atomic publication it is measuring")
+    assert "mkstemp" in writers.get("_stage_and_replace_under_lock", set()), (
+        "the detector no longer sees the staging write it is measuring")
+    assert "mkstemp" in writers.get("open_job_log", set()), (
+        "the detector no longer sees the log creation it deliberately allows")
 
 
 def test_registry_leak_attribution_ignores_foreign_concurrent_churn():
@@ -579,36 +664,35 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_pa
     real_before = {p.name for p in _REAL_JOBS.glob("*.json")} \
         if _REAL_JOBS.is_dir() else set()
 
-    seen = {}
-
-    class FakeProc:
-        pid = os.getpid()
-
-    # monkeypatch, NOT a bare assignment: mod.subprocess IS the global
-    # subprocess module, so assigning through it patches Popen for the whole
-    # session and the next subprocess.run in this file dies on a FakeProc.
-    monkeypatch.setattr(mod.subprocess, "Popen",
-                        lambda cmd, **kw: (seen.update(cmd=cmd), FakeProc())[1])
-    rc = mod.cmd_run(type("A", (), {
-        "host": "local", "purpose": "p",
-        "command": ["--", "bash", "-c", "cd /tmp && echo hi"]})())
-    assert rc == 0
-    assert seen["cmd"][:2] == ["bash", "-c"]
-    inner = seen["cmd"][2]
+    # RE-ANCHORED at v3.66.1206. The local launch is a release gate now, so the
+    # argv `Popen` receives is the WRAPPER's, with the user's argv carried at
+    # the end of it. Reading `seen["cmd"][2]` off the launcher's argv would
+    # extract the release descriptor and then execute it as a shell program.
+    # The subject was never the launcher's argv -- it is the command string the
+    # tool hands back to a shell -- so it is read from the production helper
+    # that builds it, and it is still EXECUTED, which is the half that matters.
+    inner = mod._user_command(["--", "bash", "-c", "cd /tmp && echo hi"])
+    assert mod._user_argv(inner)[:2] == ["bash", "-c"]
     assert inner != "bash -c cd /tmp && echo hi", (
         "argv was re-joined with bare spaces, so the shell re-splits it: %r"
         % inner)
-    # UNDO FIRST. subprocess.run() is itself `with Popen(...)`, so running the
-    # reassembled command while Popen is still faked dies inside the harness
-    # instead of testing the subject -- which is what happened here.
-    monkeypatch.undo()
     r = subprocess.run(["bash", "-c", inner], capture_output=True, text=True,
                        timeout=30)
     assert r.stdout.strip() == "hi", (
         "the reassembled command does not run as the caller wrote it: %r -> %r"
         % (inner, r.stdout + r.stderr))
 
-    assert list((tmp_path / "bd-jobs").glob("*.json")), (
+    # AND THE LAUNCHER MUST ACTUALLY USE IT: the wrapper argv ends with exactly
+    # the argv the helper builds. Without this the helper could be perfect and
+    # unused -- the same "component, not seam" gap that shipped v3.66.1040.
+    assert mod._gate_argv(7, 9, mod._user_argv(inner))[-3:] == ["bash", "-c",
+                                                                inner]
+
+    # The registry redirect above is still proven, with a real registration:
+    # os.getpid() is a live pid, so register() publishes a complete entry.
+    entry = mod.register(os.getpid(), "p", inner)
+    assert list((tmp_path / "bd-jobs").glob("*.json")) == [
+        tmp_path / "bd-jobs" / (entry["id"] + ".json")], (
         "nothing was registered anywhere, so the redirect above is untested "
         "and this test would keep passing if it went back to the real dir")
     real_after = {p.name for p in _REAL_JOBS.glob("*.json")} \

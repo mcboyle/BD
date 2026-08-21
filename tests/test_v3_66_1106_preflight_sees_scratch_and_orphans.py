@@ -142,6 +142,78 @@ def test_the_orphan_check_is_present_and_names_its_denominator(tmp_path):
     assert row.split()[0] in ("PASS", "FAIL", "UNKNOWN"), row
 
 
+def _stub_bd_jobs(repo: Path, rc: int, count: int = 0) -> None:
+    """A bd-jobs whose orphan COUNT and exit STATUS are set independently --
+    which is the whole question this pair of nodes asks.
+
+    The interpreter is wired too, because the orphans check is guarded by
+    `py_ok and isfile(bd-jobs)`: without `venv/bin/python` the row reads
+    "not run -- bd-jobs absent or interpreter unusable", and BOTH nodes below
+    would then be asserting over a check that never executed.
+    """
+    venv = repo / "venv" / "bin"
+    venv.mkdir(parents=True, exist_ok=True)
+    # A SHIM, NOT A SYMLINK: a symlinked interpreter takes its prefix from the
+    # link's own directory, so `import pytest` fails and the battery reports
+    # "venv python cannot import pytest" -- an environmental FAIL that would
+    # make both nodes below assert over checks that never ran.
+    shim = venv / "python"
+    shim.write_text(f'#!/bin/sh\nexec {_PY} "$@"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    # PYTHON, NOT SHELL: the battery runs `venv/bin/python <tool> orphans`.
+    # MEASURED while writing this: a `#!/bin/sh` stub made python raise a
+    # SyntaxError whose echoed source line CONTAINED the count sentence, so the
+    # battery's own regex matched the error text and both nodes below graded a
+    # crash. A stub in the wrong language is a seam that measures nothing.
+    tool = repo / "toolchain" / "bin" / "bd-jobs"
+    tool.write_text(
+        "import sys\n"
+        f"print('{count} unregistered pytest process(es) on stub-host')\n"
+        "print('UNREADABLE /tmp/bd-jobs/torn.json: not a JSON object',\n"
+        "      file=sys.stderr)\n"
+        f"sys.exit({rc})\n", encoding="utf-8")
+    tool.chmod(0o755)
+    subprocess.run(["git", "add", "toolchain/bin/bd-jobs"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "stub"], cwd=repo, check=True)
+
+
+def test_an_unreadable_registry_is_UNKNOWN_even_when_the_orphan_count_is_zero(
+        tmp_path):
+    """v3.66.1206. `bd-jobs` now exits 4 when it could not read part of its own
+    registry, and its count sentence then describes an INCOMPLETE denominator.
+
+    Grading on the count alone converts row 212's required UNKNOWN into a PASS
+    inside the cut's own sanctioned gate -- the exact laundering CLAUDE.md A2
+    forbids, in the one place an operator would trust to catch it.
+    """
+    r = _fake_repo(tmp_path)
+    _stub_bd_jobs(r, rc=4, count=0)
+
+    out = _run(r, tmp_path).stdout
+    row = _row(out, "orphans")
+
+    assert row, f"no orphans check in the battery:\n{out[:1500]}"
+    assert row.split()[0] == "UNKNOWN", (
+        "a registry the tool could not fully read was graded on its count "
+        f"alone: {row}")
+    assert "exit 4" in row and "INCOMPLETE denominator" in row, (
+        "the row is UNKNOWN for some other reason, so this node never proved "
+        f"that bd-jobs executed and its unreadable-registry status controlled: {row}")
+
+
+def test_a_readable_registry_with_no_orphans_still_passes(tmp_path):
+    """OVER-SENSITIVITY CONTROL for the node above: rc 0 with a zero count is
+    the ordinary healthy case and must not become UNKNOWN."""
+    r = _fake_repo(tmp_path)
+    _stub_bd_jobs(r, rc=0, count=0)
+
+    out = _run(r, tmp_path).stdout
+    row = _row(out, "orphans")
+
+    assert row.split()[0] == "PASS", (
+        f"a healthy host was not graded a pass: {row}")
+
+
 def test_services_health_is_deliberately_absent(tmp_path):
     """Row 35 names it; this battery deliberately does not implement it, and
     the reason must survive as an executable claim rather than a comment.

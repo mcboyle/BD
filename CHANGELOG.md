@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1206 - make bd-jobs registration failure-atomic
+
+- Publish job records through one shared writer/reader schema and a locked
+  temp-write, file-fsync, atomic-replace, and directory-fsync transaction.
+  Malformed caller fields are rejected before staging; same PID/start-time
+  retries are idempotent, stale identities are replaceable, and unreadable
+  prior or sibling records are retained and reported as UNKNOWN instead of
+  disappearing from list, orphan, reap, or preflight results.
+- Hold local work behind an exec-ready release gate until registration is
+  durable. Acquisition, readiness, publication, and release failures are
+  nonzero and account for every owned resource. A durable, released launch
+  whose launcher descriptor close is uncertain returns status 7 with its job
+  id for reconciliation. A post-RELEASE gate close failure is instead a
+  registered child outcome: it returns child status 75, does not exec the user
+  command, and leaves the asynchronous parent result at status 0 plus id.
+  Registry-unlock failure never replaces a known publication failure/status;
+  after successful forget cleanup it marks the outcome incomplete, so reap
+  reports the uncertainty and continues later siblings. Cleanup-close
+  uncertainty retains a named quarantine instead of becoming silent success
+  or unnamed residue. Final withdrawal is durable before identity-bound owned
+  cleanup, whose mkstemp, replace, unlink, and directory-fsync faults return
+  structured incomplete outcomes. Launcher aborts and wedge
+  registration-failure cleanup use bounded group waits and name the unreaped
+  pid/group on timeout.
+- Make remote launch use the target's installed `bd-jobs run --host local`
+  transaction with a request identity and authenticated terminal status.
+  Ambiguous transport loss reports UNKNOWN, SSH/scp option parsing is
+  terminated explicitly, unsafe targets are refused, hostile argv survives one
+  quoting layer, and authenticated pre-adoption refusals remove their copy.
+  Failed scp and successful-copy/no-sentinel outcomes instead name the exact
+  remote script as RETAINED UNKNOWN and do not pathname-delete it without
+  proven identity; retained target-record results, including close-UNKNOWN
+  status 7, leave the copy owned by that entry.
+- Add direct publication, schema, failure, cleanup-race, bounded-wait,
+  close-status, remote, isolation, and non-vacuity controls. The focused remote
+  tests validate generated transport argv and the target transaction without
+  making a live SSH connection. Row 212 remains OPEN pending final exact-tree
+  mutation, review, and fleet evidence; raw malformed-file wording in
+  `bd-fleet` remains visible as row 216.
+
 ## v3.66.1205 - make capture truthful without optional requests or Markdown
 
 - Accept pytest module collection skips with an empty classname by assigning
