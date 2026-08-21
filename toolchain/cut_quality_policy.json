@@ -1,5 +1,5 @@
 {
-  "schema": "cut-quality-policy/1",
+  "schema": "cut-quality-policy/2",
   "stage_order": [
     "pre-implementation",
     "pre-review",
@@ -17,13 +17,18 @@
       "sha256": "ab6f42e4cd5f6caabd0243c2e636529b60ba8d2cc17f5e365ea3900ba516c456"
     }
   ],
+  "active_checker": {
+    "schema": "cut-acceptance-preflight/2",
+    "sha256": "ab6f42e4cd5f6caabd0243c2e636529b60ba8d2cc17f5e365ea3900ba516c456",
+    "resolver_env": "BD_CUT_QUALITY_VALIDATOR"
+  },
   "trusted_consumers": {
-    "toolchain/bin/bd-band": "1024ecdee63ad2e16b57ab23c53d7f6e70c416b0e9f391ad855366a79eff287b",
-    "toolchain/bin/bd-ci-verdict": "511e319c03ec303c052c2de7d05fd5b392877bfabb16e80e24015fc895ea59cc",
-    "toolchain/bin/bd-cut": "25438e40b1286dccdb54ec19efc12cf9c1ef98509b2d839dfb6976aea467cddf",
-    "toolchain/bin/bd-fleet-run": "8d16d2f00e2f34757fd17b175a27117648bcbced525c69d45e80dcd9e56408e7",
-    "toolchain/bin/bd-parband": "4ce8867eabf2e13c682478a6a9860dda61bd7612ce4d13d066b39faac1b857fc",
-    "toolchain/bin/bd_cut_quality.py": "4aae11660b2889351c7f6d940af3837d1eb42e11cff327db06eaaa6aee2af4d1"
+    "toolchain/bin/bd-band": "a8bb968c54267698f040df7e005850a753071719da77d6cfd284cc69ef425932",
+    "toolchain/bin/bd-ci-verdict": "5bb9f18a4bfe2aceb3705e66b7c1c42cb9d43a55039b165b9b619355efd4837d",
+    "toolchain/bin/bd-cut": "2193281cdc9b828da39aeb3a97e96c39ddde7b9dddbdf81103ea7f71be2d2387",
+    "toolchain/bin/bd-fleet-run": "154ec2b4913077f5e63d0d69432684c47c2183be1fd5243e990f69b124637f01",
+    "toolchain/bin/bd-parband": "bb6e37a28bfdb9b42b55d71726111a6bbde0c377f9d68faa5877cdea7d4c687e",
+    "toolchain/bin/bd_cut_quality.py": "f641d8762af4e62805f281118cd0361abaf294768e7a11175a2f9dc32ce9de01"
   },
   "transitions": [
     {

@@ -1,26 +1,31 @@
 """Shared, fail-closed consumer for content-addressed cut-quality permits.
 
 This module is intentionally stdlib-only and lives beside its five callers so
-they cannot grow independent JSON/stage/trust parsers.  It does not mint trust
-or run quality checks.  It verifies that a previously minted permit authorizes
-the exact action state at the last boundary before execution.
+they cannot grow independent JSON/stage/trust parsers.  It verifies that a
+previously minted receipt authorizes the exact action state, then replays the
+policy-pinned validator over the content-addressed evidence matrix at the last
+boundary before execution.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 
+RECEIPT_SCHEMA = "cut-quality-receipt/2"
 PERMIT_SCHEMA = "cut-quality-permit/1"
-POLICY_SCHEMA = "cut-quality-policy/1"
+POLICY_SCHEMA = "cut-quality-policy/2"
 REFUSAL_SCHEMA = "cut-quality-permit-refusal/1"
 STAGES = (
     "pre-implementation", "pre-review", "pre-floor", "pre-fleet",
@@ -134,7 +139,7 @@ def _load_json(path: Path, label: str, stage: str | None = None) -> dict[str, An
         code = "CQ-PERMIT-MALFORMED" if label == "permit" else "CQ-POLICY-MALFORMED"
         raise PermitRefusal(
             code, f"{label} must be one complete JSON object",
-            expected={"schema": PERMIT_SCHEMA if label == "permit" else POLICY_SCHEMA},
+            expected={"schema": RECEIPT_SCHEMA if label == "permit" else POLICY_SCHEMA},
             observed={"error": f"{type(exc).__name__}: {exc}"},
             stage=stage, permit_path=path if label == "permit" else None,
         ) from exc
@@ -154,7 +159,8 @@ def _exact(value: dict[str, Any], required: set[str], optional: set[str],
     unknown = sorted(set(value) - required - optional)
     if missing or unknown:
         raise PermitRefusal(
-            "CQ-PERMIT-SCHEMA", f"{label} must have the exact supported fields",
+            "CQ-RECEIPT-SCHEMA" if label == "receipt" else "CQ-PERMIT-SCHEMA",
+            f"{label} must have the exact supported fields",
             expected={"required": sorted(required), "optional": sorted(optional)},
             observed={"missing": missing, "unknown": unknown}, stage=stage,
             permit_path=path,
@@ -272,8 +278,8 @@ def add_permit_argument(parser, *, help_suffix: str = "") -> None:
 
 def _validate_policy(path: Path, stage: str, permit_path: Path) -> dict[str, Any]:
     policy = _load_json(path, "policy", stage)
-    required = {"schema", "stage_order", "trusted_validators", "trusted_consumers",
-                "transitions"}
+    required = {"schema", "stage_order", "trusted_validators", "active_checker",
+                "trusted_consumers", "transitions"}
     if set(policy) != required or policy.get("schema") != POLICY_SCHEMA:
         raise PermitRefusal(
             "CQ-POLICY-MALFORMED", "trust policy must have the exact supported schema",
@@ -303,6 +309,19 @@ def _validate_policy(path: Path, stage: str, permit_path: Path) -> dict[str, Any
                 expected={"schema": "string", "sha256": "[0-9a-f]{64}"},
                 observed=row, stage=stage, permit_path=permit_path,
             )
+    active_checker = policy["active_checker"]
+    if (not isinstance(active_checker, dict)
+            or set(active_checker) != {"schema", "sha256", "resolver_env"}
+            or active_checker.get("resolver_env") != "BD_CUT_QUALITY_VALIDATOR"
+            or {key: active_checker.get(key) for key in ("schema", "sha256")}
+            != validators[-1]):
+        raise PermitRefusal(
+            "CQ-POLICY-MALFORMED",
+            "active checker must exactly select the final trusted validator",
+            expected={**validators[-1],
+                      "resolver_env": "BD_CUT_QUALITY_VALIDATOR"},
+            observed=active_checker, stage=stage, permit_path=permit_path,
+        )
     transitions = policy["transitions"]
     if not isinstance(transitions, list):
         raise PermitRefusal(
@@ -354,6 +373,435 @@ def _validate_policy(path: Path, stage: str, permit_path: Path) -> dict[str, Any
     return policy
 
 
+def _read_provenance_input(raw_path: str | None, label: str, stage: str,
+                           permit_path: Path, *, expected_sha256: str | None = None,
+                           mismatch_code: str = "CQ-VALIDATOR-TAMPER"
+                           ) -> tuple[Path, bytes, str]:
+    """Copy one canonical regular authority input before it can be evaluated.
+
+    A caller-selected path and digest are not provenance.  This helper only
+    establishes stable bytes for the independently pinned validator below; the
+    validator remains responsible for interpreting the matrix and its complete
+    evidence graph.
+    """
+    if not raw_path:
+        raise PermitRefusal(
+            "CQ-EVIDENCE-UNVERIFIABLE",
+            f"{label} is required to revalidate permit provenance",
+            expected={"environment": label, "absolute_regular_path": True},
+            observed={"environment": label, "value": raw_path},
+            stage=stage, permit_path=permit_path,
+        )
+    supplied = Path(raw_path).expanduser()
+    try:
+        resolved = supplied.resolve(strict=True)
+    except OSError as exc:
+        raise PermitRefusal(
+            "CQ-EVIDENCE-UNVERIFIABLE",
+            f"{label} must resolve to a readable authority input",
+            expected={"path": str(supplied), "readable": True},
+            observed={"error": f"{type(exc).__name__}: {exc}"},
+            stage=stage, permit_path=permit_path,
+        ) from exc
+    if not supplied.is_absolute() or supplied != resolved:
+        raise PermitRefusal(
+            "CQ-EVIDENCE-UNVERIFIABLE",
+            f"{label} must be an absolute canonical non-symlink path",
+            expected={"path": str(resolved)}, observed={"path": str(supplied)},
+            stage=stage, permit_path=permit_path,
+        )
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(resolved, flags)
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise OSError("not a regular file")
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                contents = stream.read()
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise PermitRefusal(
+            "CQ-EVIDENCE-UNVERIFIABLE",
+            f"{label} must remain a readable regular non-symlink file",
+            expected={"path": str(resolved), "regular": True},
+            observed={"error": f"{type(exc).__name__}: {exc}"},
+            stage=stage, permit_path=permit_path,
+        ) from exc
+    digest = hashlib.sha256(contents).hexdigest()
+    if expected_sha256 is not None and digest != expected_sha256:
+        raise PermitRefusal(
+            mismatch_code,
+            f"{label} must equal its content-addressed authority bytes",
+            expected={"path": str(resolved), "sha256": expected_sha256},
+            observed={"sha256": digest}, stage=stage, permit_path=permit_path,
+        )
+    return resolved, contents, digest
+
+
+def _write_private(path: Path, contents: bytes, mode: int) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(contents)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        os.close(descriptor)
+
+
+def _stable_issuer_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Remove only the validator's issue-window clock from a fresh receipt."""
+    return {key: payload[key] for key in sorted(payload)
+            if key not in {"issued_at", "expires_at"}}
+
+
+def _verify_evidence_provenance(repo: Path, permit: dict[str, Any],
+                                provenance: dict[str, Any],
+                                policy: dict[str, Any], stage: str,
+                                permit_path: Path) -> None:
+    """Require the policy-pinned validator to reproduce this exact receipt.
+
+    The permit's own digest detects accidental receipt edits.  Authorization
+    comes from this independent replay: the exact approved validator must
+    accept the current matrix/evidence graph and reproduce every stable permit
+    field for the current repository.  This closes the former all-placeholder
+    digest escape without duplicating validator semantics in each consumer.
+    """
+    if not isinstance(provenance, dict) or set(provenance) != {"checker", "matrix"}:
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "receipt provenance requires checker and matrix",
+            expected=["checker", "matrix"], observed=provenance,
+            stage=stage, permit_path=permit_path,
+        )
+    checker = provenance["checker"]
+    matrix = provenance["matrix"]
+    if (not isinstance(checker, dict)
+            or set(checker) != {"path", "schema", "sha256"}
+            or not isinstance(matrix, dict)
+            or set(matrix) != {"path", "sha256"}):
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "receipt provenance fields must be exact",
+            expected={"checker": ["path", "schema", "sha256"],
+                      "matrix": ["path", "sha256"]},
+            observed=provenance, stage=stage, permit_path=permit_path,
+        )
+    active = policy["active_checker"]
+    if ({key: checker.get(key) for key in ("schema", "sha256")}
+            != {key: active[key] for key in ("schema", "sha256")}):
+        raise PermitRefusal(
+            "CQ-VALIDATOR-TAMPER", "receipt checker is not the active policy authority",
+            expected={key: active[key] for key in ("schema", "sha256")},
+            observed={key: checker.get(key) for key in ("schema", "sha256")},
+            stage=stage, permit_path=permit_path,
+        )
+    configured = os.environ.get(active["resolver_env"])
+    if configured != checker.get("path"):
+        raise PermitRefusal(
+            "CQ-VALIDATOR-MISSING", "configured checker path must equal receipt provenance",
+            expected={active["resolver_env"]: checker.get("path")},
+            observed={active["resolver_env"]: configured},
+            stage=stage, permit_path=permit_path,
+        )
+    _, validator_bytes, validator_sha = _read_provenance_input(
+        checker.get("path"), "receipt.provenance.checker.path", stage, permit_path,
+        expected_sha256=checker.get("sha256"),
+    )
+    matrix_path, matrix_bytes, matrix_sha = _read_provenance_input(
+        matrix.get("path"), "receipt.provenance.matrix.path", stage, permit_path,
+        expected_sha256=matrix.get("sha256"), mismatch_code="CQ-MATRIX-STALE",
+    )
+    try:
+        matrix_value = json.loads(matrix_bytes.decode("utf-8"),
+                                  object_pairs_hook=_duplicate_key)
+        environment = matrix_value["environment"]
+        python_text = environment["python"]
+        python_sha = environment["executable_sha256"]
+    except (KeyError, TypeError, UnicodeError, json.JSONDecodeError, PermitRefusal) as exc:
+        raise PermitRefusal(
+            "CQ-MATRIX-STALE", "matrix must expose one exact approved interpreter",
+            expected={"environment": ["python", "executable_sha256"]},
+            observed={"error": f"{type(exc).__name__}: {exc}"},
+            stage=stage, permit_path=permit_path,
+        ) from exc
+    python_path, _, _ = _read_provenance_input(
+        python_text, "matrix.environment.python", stage, permit_path,
+        expected_sha256=python_sha, mismatch_code="CQ-ENVIRONMENT-MISMATCH",
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="bd-cut-quality-verify-") as temp_text:
+            temp_root = Path(temp_text)
+            os.chmod(temp_root, 0o700)
+            validator_copy = temp_root / "validator.py"
+            matrix_copy = temp_root / "matrix.json"
+            emitted = temp_root / "permit.json"
+            _write_private(validator_copy, validator_bytes, 0o700)
+            _write_private(matrix_copy, matrix_bytes, 0o600)
+            command = [
+                str(python_path), "-I", "-B", str(validator_copy),
+                "--repo", str(repo), "--matrix", str(matrix_copy),
+                "--stage", stage, "--emit-permit", str(emitted),
+            ]
+            completed = subprocess.run(
+                command, capture_output=True, text=True, timeout=180,
+                check=False, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            if completed.returncode != 0:
+                raise PermitRefusal(
+                    "CQ-EVIDENCE-UNVERIFIABLE",
+                    "the active validator did not accept the current evidence matrix",
+                    expected={"exit": 0, "validator_sha256": validator_sha,
+                              "matrix_sha256": matrix_sha},
+                    observed={"exit": completed.returncode,
+                              "stderr": completed.stderr[-1000:]},
+                    stage=stage, permit_path=permit_path,
+                )
+            fresh = _load_json(emitted, "permit", stage)
+    except PermitRefusal:
+        raise
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PermitRefusal(
+            "CQ-VALIDATOR-HOLD",
+            "the active validator could not reproduce the permit",
+            expected={"validator_sha256": validator_sha,
+                      "matrix_path": str(matrix_path), "exit": 0},
+            observed={"error": f"{type(exc).__name__}: {exc}"},
+            stage=stage, permit_path=permit_path,
+        ) from exc
+    if (set(fresh) != {"schema", "permit_id", "payload"}
+            or fresh.get("schema") != PERMIT_SCHEMA
+            or not isinstance(fresh.get("payload"), dict)
+            or fresh.get("permit_id") != canonical_sha256(fresh.get("payload"))
+            or _stable_issuer_payload(fresh["payload"])
+            != _stable_issuer_payload(permit["payload"])):
+        raise PermitRefusal(
+            "CQ-PROVENANCE-MISMATCH",
+            "the active validator did not reproduce the supplied permit",
+            expected={"stable_payload_sha256": canonical_sha256(
+                _stable_issuer_payload(fresh.get("payload", {}))),
+                "validator_sha256": validator_sha, "matrix_sha256": matrix_sha},
+            observed={"stable_payload_sha256": canonical_sha256(
+                _stable_issuer_payload(permit["payload"]))},
+            stage=stage, permit_path=permit_path,
+        )
+
+
+def wrap_issuer_permit(inner_path: Path | str, matrix_path: Path | str,
+                       validator_path: Path | str, output_path: Path | str,
+                       *, policy_path: Path | str | None = None) -> dict[str, Any]:
+    """Content-address one validator-issued v1 permit with its replay inputs."""
+    inner_path = Path(inner_path).expanduser().resolve()
+    output_path = Path(output_path).expanduser().absolute()
+    inner = _load_json(inner_path, "issuer permit")
+    if (set(inner) != {"schema", "permit_id", "payload"}
+            or inner.get("schema") != PERMIT_SCHEMA
+            or not isinstance(inner.get("payload"), dict)
+            or inner.get("permit_id") != canonical_sha256(inner.get("payload"))):
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "only a complete content-addressed v1 permit can be wrapped",
+            expected={"schema": PERMIT_SCHEMA, "valid_permit_id": True},
+            observed={"schema": inner.get("schema")}, permit_path=output_path,
+        )
+    stage = inner["payload"].get("stage")
+    if stage not in STAGES:
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "inner permit stage must be supported",
+            expected=list(STAGES), observed=stage, permit_path=output_path,
+        )
+    policy_file = Path(policy_path or DEFAULT_POLICY).resolve()
+    policy = _validate_policy(policy_file, stage, output_path)
+    checker_path, _, checker_sha = _read_provenance_input(
+        str(Path(validator_path).expanduser().absolute()),
+        "validator_path", stage, output_path,
+        expected_sha256=policy["active_checker"]["sha256"],
+    )
+    matrix_file, _, matrix_sha = _read_provenance_input(
+        str(Path(matrix_path).expanduser().absolute()),
+        "matrix_path", stage, output_path,
+    )
+    provenance = {
+        "checker": {
+            "path": str(checker_path),
+            "schema": policy["active_checker"]["schema"],
+            "sha256": checker_sha,
+        },
+        "matrix": {"path": str(matrix_file), "sha256": matrix_sha},
+    }
+    subject = {
+        "schema": RECEIPT_SCHEMA,
+        "provenance": provenance,
+        "inner_receipt": inner,
+    }
+    receipt = {**subject, "receipt_id": canonical_sha256(subject)}
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_name(output_path.name + f".tmp.{os.getpid()}")
+    data = json.dumps(receipt, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    try:
+        _write_private(temporary, data, 0o600)
+        os.replace(temporary, output_path)
+        directory = os.open(output_path.parent,
+                            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return receipt
+
+
+def issue_receipt(repo: Path | str, matrix_path: Path | str,
+                  validator_path: Path | str, stage: str,
+                  output_path: Path | str,
+                  *, policy_path: Path | str | None = None) -> dict[str, Any]:
+    """Run the approved issuer and atomically wrap its v1 output as receipt v2."""
+    repo = Path(repo).expanduser().resolve()
+    output_path = Path(output_path).expanduser().absolute()
+    matrix_path = Path(matrix_path).expanduser().absolute()
+    validator_path = Path(validator_path).expanduser().absolute()
+    if stage not in STAGES:
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "receipt stage must be supported",
+            expected=list(STAGES), observed=stage, permit_path=output_path,
+        )
+    policy_file = Path(policy_path or DEFAULT_POLICY).resolve()
+    policy = _validate_policy(policy_file, stage, output_path)
+    _, matrix_bytes, _ = _read_provenance_input(
+        str(matrix_path), "matrix_path", stage, output_path,
+    )
+    try:
+        matrix_value = json.loads(matrix_bytes.decode("utf-8"),
+                                  object_pairs_hook=_duplicate_key)
+        environment = matrix_value["environment"]
+        python_text = environment["python"]
+        python_sha = environment["executable_sha256"]
+    except (KeyError, TypeError, UnicodeError, json.JSONDecodeError,
+            PermitRefusal) as exc:
+        raise PermitRefusal(
+            "CQ-MATRIX-STALE", "matrix must expose one exact approved interpreter",
+            expected={"environment": ["python", "executable_sha256"]},
+            observed={"error": f"{type(exc).__name__}: {exc}"},
+            stage=stage, permit_path=output_path,
+        ) from exc
+    python_path, _, _ = _read_provenance_input(
+        python_text, "matrix.environment.python", stage, output_path,
+        expected_sha256=python_sha, mismatch_code="CQ-ENVIRONMENT-MISMATCH",
+    )
+    _, validator_bytes, validator_sha = _read_provenance_input(
+        str(validator_path), "validator_path", stage, output_path,
+        expected_sha256=policy["active_checker"]["sha256"],
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="bd-cut-quality-issue-") as temp_text:
+        private_root = Path(temp_text)
+        private_validator = private_root / "validator.py"
+        private_matrix = private_root / "matrix.json"
+        inner_path = private_root / "inner-permit.json"
+        _write_private(private_validator, validator_bytes, 0o700)
+        _write_private(private_matrix, matrix_bytes, 0o600)
+        completed = subprocess.run(
+            [str(python_path), "-I", "-B", str(private_validator),
+             "--repo", str(repo), "--matrix", str(private_matrix),
+             "--stage", stage, "--emit-permit", str(inner_path)],
+            capture_output=True, text=True, timeout=180, check=False,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        if completed.returncode != 0:
+            raise PermitRefusal(
+                "CQ-EVIDENCE-UNVERIFIABLE",
+                "the approved validator could not issue the receipt",
+                expected={"exit": 0, "validator_sha256": validator_sha},
+                observed={"exit": completed.returncode,
+                          "stderr": completed.stderr[-1000:]},
+                stage=stage, permit_path=output_path,
+            )
+        return wrap_issuer_permit(
+            inner_path, matrix_path, validator_path, output_path,
+            policy_path=policy_file,
+        )
+
+
+def _validate_repository_identity(repo: Path, identity: dict[str, Any],
+                                  required_stage: str,
+                                  permit_path: Path) -> None:
+    """Measure the exact authorized state at either side of validator replay."""
+    if not isinstance(identity, dict) or "kind" not in identity:
+        raise PermitRefusal(
+            "CQ-PERMIT-SCHEMA", "identity must be an exact typed object",
+            expected={"kind": "dirty-snapshot/1 or final-candidate/1"},
+            observed=identity, stage=required_stage, permit_path=permit_path,
+        )
+    if required_stage == "pre-implementation":
+        if (set(identity) != {"kind", "snapshot"}
+                or identity["kind"] != "dirty-snapshot/1"):
+            raise PermitRefusal(
+                "CQ-PERMIT-IDENTITY-KIND",
+                "bd-cut pre-implementation requires a non-circular dirty snapshot",
+                expected={"kind": "dirty-snapshot/1"}, observed=identity,
+                stage=required_stage, permit_path=permit_path,
+            )
+        observed_snapshot = snapshot_identity(repo)
+        if identity["snapshot"] != observed_snapshot:
+            raise PermitRefusal(
+                "CQ-SNAPSHOT-STALE", "bd-cut input state changed after receipt issuance",
+                expected=identity["snapshot"], observed=observed_snapshot,
+                stage=required_stage, permit_path=permit_path,
+                corrective_action="return to pre-implementation review for the new snapshot",
+            )
+        return
+
+    expected_keys = {"kind", "base_sha", "candidate_sha", "candidate_tree"}
+    if set(identity) != expected_keys or identity["kind"] != "final-candidate/1":
+        raise PermitRefusal(
+            "CQ-PERMIT-IDENTITY-KIND",
+            "post-finalization actions require a clean commit/tree",
+            expected={"kind": "final-candidate/1", "fields": sorted(expected_keys)},
+            observed=identity, stage=required_stage, permit_path=permit_path,
+        )
+    head = str(_git(repo, "rev-parse", "--verify", "HEAD^{commit}"))
+    tree = str(_git(repo, "rev-parse", "--verify", "HEAD^{tree}"))
+    status = _git(repo, "status", "--porcelain=v1", "-z",
+                  "--untracked-files=all", binary=True)
+    assert isinstance(status, bytes)
+    if status:
+        raise PermitRefusal(
+            "CQ-WORKTREE-DIRTY", "final-candidate permit requires a clean index/worktree",
+            expected={"dirty": False},
+            observed={"dirty": True,
+                      "status_sha256": hashlib.sha256(status).hexdigest()},
+            stage=required_stage, permit_path=permit_path,
+        )
+    if identity["candidate_sha"] != head or identity["candidate_tree"] != tree:
+        raise PermitRefusal(
+            "CQ-CANDIDATE-STALE", "permit candidate must equal live HEAD and tree",
+            expected={"candidate_sha": identity["candidate_sha"],
+                      "candidate_tree": identity["candidate_tree"]},
+            observed={"candidate_sha": head, "candidate_tree": tree},
+            stage=required_stage, permit_path=permit_path,
+        )
+    if COMMIT_RE.fullmatch(str(identity["base_sha"])) is None:
+        raise PermitRefusal(
+            "CQ-PERMIT-SCHEMA", "base_sha must be an exact commit identity",
+            expected="[0-9a-f]{40,64}", observed=identity["base_sha"],
+            stage=required_stage, permit_path=permit_path,
+        )
+    ancestor = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor",
+         identity["base_sha"], head], capture_output=True, timeout=60,
+    )
+    if ancestor.returncode != 0:
+        raise PermitRefusal(
+            "CQ-BASE-STALE", "permit base must be an ancestor of live candidate",
+            expected={"ancestor": identity["base_sha"], "candidate": head},
+            observed={"merge_base_exit": ancestor.returncode},
+            stage=required_stage, permit_path=permit_path,
+        )
+
+
 def validate_permit(repo: Path | str, permit_path: Path | str | None,
                     required_stage: str, *, policy_path: Path | str | None = None,
                     now: int | None = None,
@@ -364,12 +812,40 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
         raise ValueError(f"unknown required stage: {required_stage}")
     path = resolve_permit_path(repo, required_stage, permit_path)
     policy_file = Path(policy_path or DEFAULT_POLICY).resolve()
-    permit = _load_json(path, "permit", required_stage)
-    _exact(permit, {"schema", "permit_id", "payload"}, set(), "permit",
+    receipt = _load_json(path, "permit", required_stage)
+    _exact(receipt, {"schema", "receipt_id", "provenance", "inner_receipt"},
+           set(), "receipt", required_stage, path)
+    if receipt["schema"] != RECEIPT_SCHEMA:
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "receipt schema must be the supported version",
+            expected={"schema": RECEIPT_SCHEMA},
+            observed={"schema": receipt["schema"]},
+            stage=required_stage, permit_path=path,
+        )
+    receipt_id = _sha(receipt["receipt_id"], "receipt_id", required_stage, path)
+    receipt_subject = {key: receipt[key]
+                       for key in ("schema", "provenance", "inner_receipt")}
+    observed_receipt_id = canonical_sha256(receipt_subject)
+    if receipt_id != observed_receipt_id:
+        raise PermitRefusal(
+            "CQ-RECEIPT-ID-MISMATCH",
+            "receipt ID must address provenance and the complete inner permit",
+            expected={"receipt_id": observed_receipt_id},
+            observed={"receipt_id": receipt_id},
+            stage=required_stage, permit_path=path,
+        )
+    permit = receipt["inner_receipt"]
+    if not isinstance(permit, dict):
+        raise PermitRefusal(
+            "CQ-RECEIPT-SCHEMA", "inner receipt must be an object",
+            expected="object", observed=type(permit).__name__,
+            stage=required_stage, permit_path=path,
+        )
+    _exact(permit, {"schema", "permit_id", "payload"}, set(), "inner_receipt",
            required_stage, path)
     if permit["schema"] != PERMIT_SCHEMA:
         raise PermitRefusal(
-            "CQ-PERMIT-SCHEMA", "permit schema must be the supported version",
+            "CQ-RECEIPT-SCHEMA", "inner permit schema must be the supported version",
             expected={"schema": PERMIT_SCHEMA}, observed={"schema": permit["schema"]},
             stage=required_stage, permit_path=path,
         )
@@ -418,7 +894,15 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
             observed={"issued_at": payload["issued_at"]}, stage=required_stage,
             permit_path=path,
         )
-    if payload["expires_at"] <= current or payload["expires_at"] <= payload["issued_at"]:
+    if payload["expires_at"] <= current:
+        raise PermitRefusal(
+            "CQ-PERMIT-EXPIRED", "permit must be inside a positive validity window",
+            expected={"expires_at_after": max(current, payload["issued_at"])},
+            observed={"issued_at": payload["issued_at"],
+                      "expires_at": payload["expires_at"], "now": current},
+            stage=required_stage, permit_path=path,
+        )
+    if payload["expires_at"] <= payload["issued_at"]:
         raise PermitRefusal(
             "CQ-PERMIT-EXPIRED", "permit must be inside a positive validity window",
             expected={"expires_at_after": max(current, payload["issued_at"])},
@@ -454,7 +938,7 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
             expected=sorted(repository_keys), observed=repository,
             stage=required_stage, permit_path=path,
         )
-    if supplied_repo != repo or supplied_repo.is_symlink():
+    if supplied_repo != repo:
         raise PermitRefusal(
             "CQ-REPO-IDENTITY", "repository argument must be its canonical non-symlink path",
             expected={"realpath": str(repo)}, observed={"supplied": str(supplied_repo)},
@@ -581,8 +1065,9 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
         except OSError:
             regular = False
             observed_consumer = None
-        if (expected_consumer is None or not regular
-                or observed_consumer != expected_consumer):
+        missing_or_nonregular = expected_consumer is None or not regular
+        digest_mismatch = observed_consumer != expected_consumer
+        if missing_or_nonregular or digest_mismatch:
             raise PermitRefusal(
                 "CQ-CONSUMER-TAMPER",
                 "permit consumer bytes are not the transition-reviewed trusted blob",
@@ -609,80 +1094,16 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
         )
 
     identity = payload["identity"]
-    if not isinstance(identity, dict) or "kind" not in identity:
-        raise PermitRefusal(
-            "CQ-PERMIT-SCHEMA", "identity must be an exact typed object",
-            expected={"kind": "dirty-snapshot/1 or final-candidate/1"},
-            observed=identity, stage=required_stage, permit_path=path,
-        )
-    if required_stage == "pre-implementation":
-        if set(identity) != {"kind", "snapshot"} or identity["kind"] != "dirty-snapshot/1":
-            raise PermitRefusal(
-                "CQ-PERMIT-IDENTITY-KIND",
-                "bd-cut pre-implementation requires a non-circular dirty snapshot",
-                expected={"kind": "dirty-snapshot/1"}, observed=identity,
-                stage=required_stage, permit_path=path,
-            )
-        observed_snapshot = snapshot_identity(repo)
-        if identity["snapshot"] != observed_snapshot:
-            raise PermitRefusal(
-                "CQ-SNAPSHOT-STALE", "bd-cut input state changed after receipt issuance",
-                expected=identity["snapshot"], observed=observed_snapshot,
-                stage=required_stage, permit_path=path,
-                corrective_action="return to pre-implementation review for the new snapshot",
-            )
-    else:
-        expected_keys = {"kind", "base_sha", "candidate_sha", "candidate_tree"}
-        if set(identity) != expected_keys or identity["kind"] != "final-candidate/1":
-            raise PermitRefusal(
-                "CQ-PERMIT-IDENTITY-KIND", "post-finalization actions require a clean commit/tree",
-                expected={"kind": "final-candidate/1", "fields": sorted(expected_keys)},
-                observed=identity, stage=required_stage, permit_path=path,
-            )
-        head = str(_git(repo, "rev-parse", "--verify", "HEAD^{commit}"))
-        tree = str(_git(repo, "rev-parse", "--verify", "HEAD^{tree}"))
-        status = _git(repo, "status", "--porcelain=v1", "-z",
-                      "--untracked-files=all", binary=True)
-        assert isinstance(status, bytes)
-        if status:
-            raise PermitRefusal(
-                "CQ-WORKTREE-DIRTY", "final-candidate permit requires a clean index/worktree",
-                expected={"dirty": False},
-                observed={"dirty": True,
-                          "status_sha256": hashlib.sha256(status).hexdigest()},
-                stage=required_stage, permit_path=path,
-            )
-        if identity["candidate_sha"] != head or identity["candidate_tree"] != tree:
-            raise PermitRefusal(
-                "CQ-CANDIDATE-STALE", "permit candidate must equal live HEAD and tree",
-                expected={"candidate_sha": identity["candidate_sha"],
-                          "candidate_tree": identity["candidate_tree"]},
-                observed={"candidate_sha": head, "candidate_tree": tree},
-                stage=required_stage, permit_path=path,
-            )
-        if COMMIT_RE.fullmatch(str(identity["base_sha"])) is None:
-            raise PermitRefusal(
-                "CQ-PERMIT-SCHEMA", "base_sha must be an exact commit identity",
-                expected="[0-9a-f]{40,64}", observed=identity["base_sha"],
-                stage=required_stage, permit_path=path,
-            )
-        ancestor = subprocess.run(
-            ["git", "-C", str(repo), "merge-base", "--is-ancestor",
-             identity["base_sha"], head], capture_output=True, timeout=60,
-        )
-        if ancestor.returncode != 0:
-            raise PermitRefusal(
-                "CQ-BASE-STALE", "permit base must be an ancestor of live candidate",
-                expected={"ancestor": identity["base_sha"], "candidate": head},
-                observed={"merge_base_exit": ancestor.returncode},
-                stage=required_stage, permit_path=path,
-            )
-    return permit
+    _validate_repository_identity(repo, identity, required_stage, path)
+    _verify_evidence_provenance(
+        repo, permit, receipt["provenance"], policy, required_stage, path,
+    )
+    _validate_repository_identity(repo, identity, required_stage, path)
+    return receipt
 
 
 def enforce(repo: Path | str, permit_path: Path | str | None,
             required_stage: str, *, policy_path: Path | str | None = None,
-            rerun_argv: list[str] | None = None,
             consumer_path: Path | str | None = None) -> bool:
     """Validate or emit one stable JSON refusal.  Never raises to a CLI caller."""
     try:
@@ -690,7 +1111,75 @@ def enforce(repo: Path | str, permit_path: Path | str | None,
                         consumer_path=consumer_path)
         return True
     except PermitRefusal as exc:
-        if rerun_argv:
-            exc.rerun_argv = list(rerun_argv)
+        # The consumer owns the recovery contract.  Callers formerly supplied
+        # a raw v1 issuer command, which could never satisfy receipt-v2 parsing.
+        # Centralizing this argv prevents protected launchers from drifting
+        # back to a mechanically unusable recovery path.
+        exc.rerun_argv = [
+            sys.executable, str(Path(__file__).resolve()), "--issue-receipt",
+            "--repo", str(Path(repo).expanduser().absolute()),
+            "--stage", required_stage,
+            "--out", exc.permit_path or str(resolve_permit_path(
+                Path(repo).expanduser().absolute(), required_stage, permit_path,
+            )),
+        ]
         emit_refusal(exc)
         return False
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="issue or wrap one replay-verifiable cut-quality receipt",
+    )
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--issue-receipt", action="store_true")
+    mode.add_argument("--wrap-inner-permit")
+    parser.add_argument("--repo")
+    parser.add_argument("--stage", choices=STAGES)
+    parser.add_argument("--matrix")
+    parser.add_argument("--validator")
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--policy", default=str(DEFAULT_POLICY))
+    args = parser.parse_args(argv)
+    try:
+        matrix = args.matrix or os.environ.get("BD_CUT_QUALITY_MATRIX")
+        validator = args.validator or os.environ.get("BD_CUT_QUALITY_VALIDATOR")
+        if not matrix or not validator:
+            raise PermitRefusal(
+                "CQ-VALIDATOR-MISSING",
+                "receipt issuance requires exact matrix and validator paths",
+                expected={"BD_CUT_QUALITY_MATRIX": "path",
+                          "BD_CUT_QUALITY_VALIDATOR": "path"},
+                observed={"matrix": matrix, "validator": validator},
+                permit_path=Path(args.out),
+            )
+        if args.issue_receipt:
+            if not args.repo or not args.stage:
+                raise PermitRefusal(
+                    "CQ-RECEIPT-SCHEMA",
+                    "--issue-receipt requires --repo and --stage",
+                    expected=["--repo", "--stage"],
+                    observed={"repo": args.repo, "stage": args.stage},
+                    permit_path=Path(args.out),
+                )
+            receipt = issue_receipt(
+                args.repo, matrix, validator, args.stage, args.out,
+                policy_path=args.policy,
+            )
+        else:
+            receipt = wrap_issuer_permit(
+                args.wrap_inner_permit, matrix, validator, args.out,
+                policy_path=args.policy,
+            )
+    except PermitRefusal as exc:
+        emit_refusal(exc)
+        return 2
+    print(json.dumps({"schema": RECEIPT_SCHEMA,
+                      "receipt_id": receipt["receipt_id"],
+                      "path": str(Path(args.out).expanduser().absolute())},
+                     sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

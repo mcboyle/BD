@@ -1238,10 +1238,7 @@ def main(argv=None):
     if not _is_scoped_selftest_child(args):
         repo = Path(args.repo or os.getcwd()).resolve()
         if not cut_quality.enforce(
-                repo, args.cut_quality_permit, "pre-merge", consumer_path=__file__,
-                rerun_argv=["cut-acceptance-preflight", "--repo", str(repo),
-                            "--stage", "pre-merge", "--emit-permit",
-                            args.cut_quality_permit or "<derived-permit-path>"]):
+                repo, args.cut_quality_permit, "pre-merge", consumer_path=__file__):
             return EXIT_REFUSE
     return main_verdict(args)
 

@@ -2290,9 +2290,6 @@ def _main_inner(argv, _cleanup):
     def _receipt_ok():
         return cut_quality.enforce(
             a.work, a.cut_quality_permit, "pre-implementation", consumer_path=__file__,
-            rerun_argv=["cut-acceptance-preflight", "--repo", a.work,
-                        "--stage", "pre-implementation", "--emit-permit",
-                        a.cut_quality_permit or "<derived-permit-path>"],
         )
 
     # This is a receipt for the exact dirty input snapshot, not a fictional

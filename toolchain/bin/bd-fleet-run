@@ -894,10 +894,7 @@ def _run(args, runner, probe) -> int:
     # contacting a host. The private flag exists only while --selftest drives
     # its injected fake runner in this same process.
     if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(
-            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__,
-            rerun_argv=["cut-acceptance-preflight", "--repo", args.repo_dir,
-                        "--stage", "pre-fleet", "--emit-permit",
-                        args.cut_quality_permit or "<derived-permit-path>"]):
+            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__):
         return 2
 
     hosts_path = pathlib.Path(args.hosts).expanduser()
@@ -927,10 +924,7 @@ def _run(args, runner, probe) -> int:
     if args.jobs < 1:
         raise Refusal("--jobs must be at least 1")
     if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(
-            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__,
-            rerun_argv=["cut-acceptance-preflight", "--repo", args.repo_dir,
-                        "--stage", "pre-fleet", "--emit-permit",
-                        args.cut_quality_permit or "<derived-permit-path>"]):
+            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__):
         return 2
     base = validate_root(args.root)
     workers = min(args.jobs, len(targets))
