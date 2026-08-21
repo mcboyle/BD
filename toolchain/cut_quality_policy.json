@@ -28,7 +28,7 @@
     "toolchain/bin/bd-cut": "2193281cdc9b828da39aeb3a97e96c39ddde7b9dddbdf81103ea7f71be2d2387",
     "toolchain/bin/bd-fleet-run": "154ec2b4913077f5e63d0d69432684c47c2183be1fd5243e990f69b124637f01",
     "toolchain/bin/bd-parband": "bb6e37a28bfdb9b42b55d71726111a6bbde0c377f9d68faa5877cdea7d4c687e",
-    "toolchain/bin/bd_cut_quality.py": "c01c41c0f0ab0bfb4418f7ff1d1aee8ed4b40f1f5c3f9f358f241798c40fe797"
+    "toolchain/bin/bd_cut_quality.py": "8889da78373d4adddd9a20cb0d399ecac6ccbc5c68600f4534c30f4c4f6a027d"
   },
   "transitions": [
     {

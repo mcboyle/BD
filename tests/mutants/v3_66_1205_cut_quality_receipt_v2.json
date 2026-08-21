@@ -56,7 +56,7 @@
     {
       "label": "M1 remove active-validator provenance replay",
       "file": "toolchain/bin/bd_cut_quality.py",
-      "old": "    _validate_repository_identity(repo, identity, required_stage, path)\n    _verify_evidence_provenance(\n        repo, permit, receipt[\"provenance\"], policy, required_stage, path,\n    )\n    _validate_repository_identity(repo, identity, required_stage, path)",
+      "old": "    _validate_repository_identity(repo, identity, required_stage, path)\n    _verify_evidence_provenance(\n        repo, permit, receipt[\"provenance\"], policy, required_stage, path,\n        policy_path=policy_file,\n    )\n    _validate_repository_identity(repo, identity, required_stage, path)",
       "new": "    _validate_repository_identity(repo, identity, required_stage, path)\n    _validate_repository_identity(repo, identity, required_stage, path)",
       "direction": "regression",
       "catcher": "tests/test_cut_quality_permits.py::test_full_consumer_refuses_wrapped_placeholder_claims_before_authorization",
@@ -505,6 +505,36 @@
       },
       "preserves": [
         "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
+        "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema"
+      ]
+    },
+    {
+      "label": "CQ25-replay-policy-argv",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "old": "                \"--policy\", str(policy_path),",
+      "new": "                # mutation: omit the explicit replay policy authority",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "CQ-EVIDENCE-UNVERIFIABLE"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_wrapper_producer_binds_checker_matrix_and_inner_permit"
+      ]
+    },
+    {
+      "label": "CQ26-issue-policy-argv",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "old": "             \"--policy\", str(policy_file)],",
+      "new": "             # mutation: omit the explicit issue policy authority\n             ],",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "CQ-EVIDENCE-UNVERIFIABLE"
+      },
+      "preserves": [
         "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema"
       ]
     }

@@ -488,7 +488,7 @@ def _matrix_interpreter_pin(environment: Any) -> tuple[str, str]:
 def _verify_evidence_provenance(repo: Path, permit: dict[str, Any],
                                 provenance: dict[str, Any],
                                 policy: dict[str, Any], stage: str,
-                                permit_path: Path) -> None:
+                                permit_path: Path, *, policy_path: Path) -> None:
     """Require the policy-pinned validator to reproduce this exact receipt.
 
     The permit's own digest detects accidental receipt edits.  Authorization
@@ -572,6 +572,7 @@ def _verify_evidence_provenance(repo: Path, permit: dict[str, Any],
                 str(python_path), "-I", "-B", str(validator_copy),
                 "--repo", str(repo), "--matrix", str(matrix_copy),
                 "--stage", stage, "--emit-permit", str(emitted),
+                "--policy", str(policy_path),
             ]
             completed = subprocess.run(
                 command, capture_output=True, text=True, timeout=180,
@@ -737,7 +738,8 @@ def issue_receipt(repo: Path | str, matrix_path: Path | str,
         completed = subprocess.run(
             [str(python_path), "-I", "-B", str(private_validator),
              "--repo", str(repo), "--matrix", str(private_matrix),
-             "--stage", stage, "--emit-permit", str(inner_path)],
+             "--stage", stage, "--emit-permit", str(inner_path),
+             "--policy", str(policy_file)],
             capture_output=True, text=True, timeout=180, check=False,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         )
@@ -1128,6 +1130,7 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
     _validate_repository_identity(repo, identity, required_stage, path)
     _verify_evidence_provenance(
         repo, permit, receipt["provenance"], policy, required_stage, path,
+        policy_path=policy_file,
     )
     _validate_repository_identity(repo, identity, required_stage, path)
     return receipt

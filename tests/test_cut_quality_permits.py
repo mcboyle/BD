@@ -424,8 +424,11 @@ parser.add_argument("--repo")
 parser.add_argument("--matrix", required=True)
 parser.add_argument("--stage", required=True)
 parser.add_argument("--emit-permit", required=True)
+parser.add_argument("--policy", required=True)
 args = parser.parse_args()
 matrix = json.loads(Path(args.matrix).read_text(encoding="utf-8"))
+if not Path(args.policy).is_file():
+    raise SystemExit("policy path is not a regular file")
 if matrix.get("mutate_repo"):
     (Path(args.repo) / "changed-during-validator.txt").write_text(
         "validator raced the protected boundary\\n", encoding="utf-8"
@@ -472,6 +475,7 @@ def test_pinned_validator_replay_accepts_its_reproduced_receipt(
 
     module._verify_evidence_provenance(
         repo, _inner(value), value["provenance"], policy, "pre-floor", permit_path,
+        policy_path=POLICY,
     )
 
 
@@ -495,6 +499,7 @@ def test_pinned_validator_replay_accepts_exact_v3_environment_schema(
 
     module._verify_evidence_provenance(
         repo, _inner(value), value["provenance"], policy, "pre-floor", permit_path,
+        policy_path=POLICY,
     )
 
 
@@ -521,6 +526,7 @@ def test_pinned_validator_replay_refuses_mixed_environment_schema(
     with pytest.raises(module.PermitRefusal) as exc:
         module._verify_evidence_provenance(
             repo, _inner(value), value["provenance"], policy, "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-MATRIX-STALE"
 
@@ -574,6 +580,7 @@ def test_arbitrary_valid_hashes_refuse_when_validator_does_not_reproduce_them(
         module._verify_evidence_provenance(
             repo, _inner(fabricated), fabricated["provenance"], policy,
             "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-PROVENANCE-MISMATCH", exc.value.as_result()
 
@@ -858,6 +865,7 @@ def test_missing_matrix_refuses_before_validator_result_is_trusted(
         module._verify_evidence_provenance(
             repo, _inner(value), value["provenance"], policy,
             "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-EVIDENCE-UNVERIFIABLE"
 
@@ -875,6 +883,7 @@ def test_validator_bytes_must_equal_the_policy_pin(
         module._verify_evidence_provenance(
             repo, _inner(value), value["provenance"], policy,
             "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-VALIDATOR-TAMPER"
 
@@ -896,6 +905,7 @@ def test_matrix_interpreter_bytes_must_equal_the_environment_pin(
         module._verify_evidence_provenance(
             repo, _inner(value), value["provenance"], policy,
             "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-ENVIRONMENT-MISMATCH", exc.value.as_result()
 
@@ -911,6 +921,7 @@ def test_checker_resolver_must_equal_receipt_path(
         module._verify_evidence_provenance(
             repo, _inner(value), value["provenance"], policy,
             "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-VALIDATOR-MISSING"
 
@@ -927,6 +938,7 @@ def test_matrix_digest_drift_refuses_before_checker_invocation(
         module._verify_evidence_provenance(
             repo, _inner(value), value["provenance"], policy,
             "pre-floor", permit_path,
+            policy_path=POLICY,
         )
     assert exc.value.code == "CQ-MATRIX-STALE"
 
