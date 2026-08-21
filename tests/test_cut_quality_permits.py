@@ -1410,6 +1410,18 @@ def test_bd_parband_initial_guard_precedes_target_validation(repo: Path, monkeyp
     assert module.main(["tests/test_tiny.py", "--work", str(repo)]) == 2
 
 
+def test_ci_initial_guard_precedes_verdict(repo: Path, monkeypatch):
+    module = _load_script("bd-ci-verdict")
+    monkeypatch.setattr(module.cut_quality, "enforce", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        module, "main_verdict",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("verdict ran before initial permit refusal")
+        ),
+    )
+    assert module.main(["123", "--repo", str(repo)]) == 2
+
+
 def test_fleet_initial_guard_precedes_inventory_or_host_resolution(
         tmp_path: Path, monkeypatch):
     module = _load_script("bd-fleet-run")
