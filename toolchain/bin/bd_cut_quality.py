@@ -353,6 +353,21 @@ def _validate_policy(path: Path, stage: str, permit_path: Path) -> dict[str, Any
                           "placeholder_hashes": False},
                 observed=row, stage=stage, permit_path=permit_path,
             )
+    expected_edges = [
+        (older["sha256"], newer["sha256"])
+        for older, newer in zip(validators, validators[1:], strict=False)
+    ]
+    observed_edges = [
+        (row["from_sha256"], row["to_sha256"])
+        for row in transitions
+    ]
+    if observed_edges != expected_edges:
+        raise PermitRefusal(
+            "CQ-POLICY-MALFORMED",
+            "trusted validators require one ordered adjacent transition chain",
+            expected=expected_edges, observed=observed_edges,
+            stage=stage, permit_path=permit_path,
+        )
     consumers = policy["trusted_consumers"]
     if not isinstance(consumers, dict) or not consumers:
         raise PermitRefusal(

@@ -247,15 +247,54 @@ def test_policy_is_strict_and_bootstrapped_from_v1():
         **policy["trusted_validators"][-1],
         "resolver_env": "BD_CUT_QUALITY_VALIDATOR",
     }
-    transition = policy["transitions"][0]
-    assert transition["from_sha256"] == policy["trusted_validators"][0]["sha256"]
-    assert transition["to_sha256"] == policy["trusted_validators"][-1]["sha256"]
+    expected_edges = [
+        (older["sha256"], newer["sha256"])
+        for older, newer in zip(
+            policy["trusted_validators"], policy["trusted_validators"][1:],
+            strict=False,
+        )
+    ]
+    transitions = policy["transitions"]
+    assert [
+        (transition["from_sha256"], transition["to_sha256"])
+        for transition in transitions
+    ] == expected_edges
     bootstrap_hashes = {
-        policy["trusted_validators"][-1]["sha256"],
-        transition["artifact_sha256"], transition["review_sha256"],
+        row["sha256"] for row in policy["trusted_validators"]
+    } | {
+        transition[key]
+        for transition in transitions
+        for key in ("artifact_sha256", "review_sha256")
     }
     assert all(len(value) == 64 and len(set(value)) > 1
                for value in bootstrap_hashes)
+
+
+def test_policy_refuses_a_disconnected_validator_transition_chain(tmp_path: Path):
+    module = _load_module()
+    policy = _policy()
+    v3 = hashlib.sha256(b"active-v3-validator").hexdigest()
+    subject = hashlib.sha256(b"reviewed-v2-v3-transition").hexdigest()
+    policy["trusted_validators"].append({
+        "schema": "cut-acceptance-preflight/3", "sha256": v3,
+    })
+    policy["active_checker"] = {
+        **policy["trusted_validators"][-1],
+        "resolver_env": "BD_CUT_QUALITY_VALIDATOR",
+    }
+    policy["transitions"].append({
+        "from_sha256": policy["trusted_validators"][0]["sha256"],
+        "to_sha256": v3,
+        "artifact_sha256": subject,
+        "review_sha256": subject,
+    })
+    path = tmp_path / "cut_quality_policy.json"
+    path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(module.PermitRefusal) as exc:
+        module._validate_policy(path, "pre-floor", tmp_path / "permit.json")
+    assert exc.value.code == "CQ-POLICY-MALFORMED"
+    assert "adjacent transition chain" in exc.value.invariant
 
 
 def test_placeholder_or_unbound_transition_policy_refuses(repo: Path, tmp_path: Path):

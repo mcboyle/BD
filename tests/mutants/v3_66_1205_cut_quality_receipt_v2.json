@@ -34,6 +34,7 @@
     "tests/test_cut_quality_permits.py::test_nonpositive_permit_window_refuses_even_before_expiry",
     "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt",
     "tests/test_cut_quality_permits.py::test_policy_sha_mismatch_refuses",
+    "tests/test_cut_quality_permits.py::test_policy_refuses_a_disconnected_validator_transition_chain",
     "tests/test_cut_quality_permits.py::test_preimplementation_receipt_allows_not_yet_available_artifacts",
     "tests/test_cut_quality_permits.py::test_preimplementation_requires_red_artifact",
     "tests/test_cut_quality_permits.py::test_prereview_accepts_complete_artifacts",
@@ -471,6 +472,21 @@
       },
       "preserves": [
         "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ]
+    },
+    {
+      "label": "CQ23-transition-chain",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "old": "    if observed_edges != expected_edges:",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_policy_refuses_a_disconnected_validator_transition_chain",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1"
       ]
     }
   ]
