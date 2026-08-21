@@ -611,9 +611,98 @@ PYTEST_PID=$!
 set +m
 echo "$PYTEST_PID" > "$RUNDIR/pytest.pid"
 
-python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs" register \
+# REGISTRATION FAILURE IS TERMINAL, AND THIS RUNNER IS THE ONLY THING THAT CAN
+# CLEAN UP AFTER IT. Backlog 212. The old form was
+# `... || echo "REGISTER-FAILED" > "$RUNDIR/jobid"` followed straight by the
+# `wait` below, which SWALLOWED the failure: an unregistered pytest master and
+# its workers then ran for the full duration on a host where `bd-jobs list`
+# cannot see them and `bd-jobs reap` will never reach them. The monitor cannot
+# help either -- it reaps by the registry row, and the row is precisely what is
+# missing. `set -m` above put the job in its own process group, so the negative
+# group kill below reaps the workers too. A killed child is polled to a terminal
+# state before `wait` collects it, because signal delivery can fail and a bare
+# wait would turn this cleanup path into the same unbounded run it prevents.
+if python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs" register \
     --pid "$PYTEST_PID" --purpose {purpose} --origin {origin} --cmd {cmdq} \
-    > "$RUNDIR/jobid" 2>"$RUNDIR/jobid.err" || echo "REGISTER-FAILED" > "$RUNDIR/jobid"
+    > "$RUNDIR/jobid" 2>"$RUNDIR/jobid.err"; then
+    :
+else
+    echo "REGISTER-FAILED" > "$RUNDIR/jobid"
+    REGISTER_REAP_SECONDS=10
+    PYTEST_PGID="$PYTEST_PID"
+    PYTEST_PROC_STAT=""
+    if IFS= read -r PYTEST_PROC_STAT < "/proc/$PYTEST_PID/stat" 2>/dev/null; then
+        # comm is parenthesised and may contain spaces or `)`, so strip through
+        # the LAST `) ` before reading state, ppid and process-group fields.
+        PYTEST_PROC_TAIL="${{PYTEST_PROC_STAT##*) }}"
+        PYTEST_OBSERVED_PGID=""
+        read -r PYTEST_PROC_STATE PYTEST_PROC_PPID PYTEST_OBSERVED_PGID \
+            PYTEST_PROC_REST <<< "$PYTEST_PROC_TAIL"
+        if [[ "$PYTEST_OBSERVED_PGID" =~ ^[0-9]+$ ]]; then
+            PYTEST_PGID="$PYTEST_OBSERVED_PGID"
+        fi
+    fi
+    # `set -m` makes the background job its own group leader. Refuse to aim a
+    # group signal elsewhere if that invariant is ever false; the retained
+    # outcome below then names both identities for the operator.
+    if [ "$PYTEST_PGID" = "$PYTEST_PID" ]; then
+        kill -9 -"$PYTEST_PGID" 2>/dev/null || :
+    fi
+
+    registration_child_is_terminal() {{
+        REGISTER_PROC_STAT=""
+        if IFS= read -r REGISTER_PROC_STAT \
+                < "/proc/$PYTEST_PID/stat" 2>/dev/null; then
+            REGISTER_PROC_TAIL="${{REGISTER_PROC_STAT##*) }}"
+            REGISTER_CHILD_STATE="${{REGISTER_PROC_TAIL%% *}}"
+            [ "$REGISTER_CHILD_STATE" = "Z" ]
+            return
+        fi
+        # A failed proc read is not proof of absence. The shell builtin is
+        # independent evidence that its child no longer occupies this pid.
+        ! builtin kill -0 "$PYTEST_PID" 2>/dev/null
+    }}
+
+    # Spend a deterministic ten polls per configured second. Bash's integer
+    # SECONDS tick has an inherited phase, so resetting it can make an
+    # N-second deadline almost one second short.
+    REGISTER_REAP_POLLS=$((REGISTER_REAP_SECONDS * 10))
+    REGISTER_REAPED=0
+    while [ "$REGISTER_REAP_POLLS" -gt 0 ]; do
+        if registration_child_is_terminal; then
+            wait "$PYTEST_PID" 2>/dev/null
+            REGISTER_REAPED=1
+            break
+        fi
+        sleep 0.1
+        REGISTER_REAP_POLLS=$((REGISTER_REAP_POLLS - 1))
+    done
+    # Close the boundary race: a child that became terminal at the deadline is
+    # reaped, not falsely reported as retained.
+    if [ "$REGISTER_REAPED" -eq 0 ] && registration_child_is_terminal; then
+        wait "$PYTEST_PID" 2>/dev/null
+        REGISTER_REAPED=1
+    fi
+    if [ "$REGISTER_REAPED" -eq 0 ]; then
+        REGISTER_RETAINED="REGISTER-FAILED-RETAINED pid=$PYTEST_PID pgid=$PYTEST_PGID"
+        echo "$REGISTER_RETAINED" > "$RUNDIR/jobid"
+        echo "$REGISTER_RETAINED cleanup-timeout=${{REGISTER_REAP_SECONDS}}s" \
+            >> "$RUNDIR/jobid.err"
+        date +%s > "$RUNDIR/epoch_end"
+        cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
+        git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
+        echo 92 > "$RUNDIR/exitcode"
+        exit 92
+    fi
+    date +%s > "$RUNDIR/epoch_end"
+    cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
+    git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
+    # 91 is this runner's own distinctive status, not the workload's: the `cd`
+    # guard above already owns 90, and a pytest exit code must never be able to
+    # masquerade as a successful sample that was never registered.
+    echo 91 > "$RUNDIR/exitcode"
+    exit 91
+fi
 
 wait "$PYTEST_PID"
 rc=$?

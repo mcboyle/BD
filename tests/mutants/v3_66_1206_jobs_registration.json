@@ -1,0 +1,1174 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1206 failure-atomic job registration and wedge cleanup battery. Re-run from an isolated candidate worktree with: /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1206_jobs_registration.json --work <candidate-worktree>",
+  "subject": "v3.66.1206 -- failure-atomic local and delegated job registration with bounded owned cleanup",
+  "band": [
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_malformed_final_is_named_and_makes_list_unknown_without_hiding_valid_entries",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_target_address_with_control_characters_is_refused",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_transport_failure_without_a_sentinel_is_unknown_not_a_refusal",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_removes_an_owned_auxiliary_path_and_never_an_unowned_one",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_captures_the_old_inode_before_unlinking_its_quarantine",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_keeps_owned_artifacts_until_final_absence_is_durable",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_never_deletes_a_new_file_reusing_an_owned_path",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_list_prints_a_dead_request_id_without_inventing_one_for_other_entries",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_list_prints_the_request_id_its_unknown_diagnostic_says_to_reconcile",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_keeps_its_exact_count_sentence_and_names_the_malformed_read",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_binds_a_registry_pid_to_its_recorded_starttime",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_does_not_report_a_process_gone_after_the_ps_snapshot",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_publication_is_idempotent_for_the_same_pid_and_starttime",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_release_failure_preserves_owned_files_when_the_record_cannot_be_removed",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_release_failure_reports_the_cleanup_for_the_files_it_actually_removed",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reap_still_reaps_every_valid_entry_and_names_the_malformed_one",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reap_never_deletes_a_replacement_published_after_its_snapshot",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reap_reports_owned_artifact_cleanup_failure_after_durable_withdrawal",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reap_reports_nonzero_when_the_entry_cleanup_is_retained",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_register_refuses_a_dead_pid_with_a_diagnostic_not_a_traceback",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_ssh_and_scp_terminate_their_own_option_parsing",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_the_collision_decision_is_made_under_a_registry_lock",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_the_remote_command_delegates_to_the_target_transaction",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_the_remote_payload_cannot_mask_a_target_failure",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_the_remote_self_path_is_the_installed_public_surface",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_status_5_script_launch_preserves_the_copy_the_retained_record_owns",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stale_collision_retains_the_replacement_if_its_first_dir_fsync_fails",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stale_collision_transfers_prior_owned_artifacts_to_the_replacement",
+    "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py::test_an_unreadable_registry_is_UNKNOWN_even_when_the_orphan_count_is_zero",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_every_abandon_path_reaps",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_register_rejects_a_malformed_record_before_staging",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_reports_mkstemp_failure_after_durable_withdrawal",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_reports_close_failure_after_durable_withdrawal",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_names_a_retained_quarantine_after_replace_failure",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_names_a_retained_quarantine_after_source_vanishes",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_forget_reports_owned_cleanup_directory_fsync_failure",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_close_failure_is_reported_and_never_skips_the_rest_of_the_transaction",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_abort_process_wait_is_bounded_and_names_an_uncollected_child",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_status_7_script_launch_preserves_the_copy_the_durable_record_owns",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_local_registration_failure_never_releases_the_command_and_cleans_owned_state",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_hostile_command_tokens_survive_exactly_one_quoting_layer",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_cleanup_timeout_is_internal_and_names_retained_group",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_registry_lock_close_failure_after_durable_publish_is_status_7",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_post_replace_failure_remains_status_5_when_registry_unlock_close_also_fails",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reap_continues_after_forget_registry_unlock_close_unknown",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_gate_release_fd_close_failure_is_a_named_registered_job_failure",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_failed_scp_names_maybe_partial_copy_without_claiming_cleanup_authority",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_transport_unknown_names_copied_script_without_deleting_ambiguous_authority",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_nul_log_is_malformed_and_list_keeps_a_valid_sibling_visible",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_an_unencodable_owned_path_is_malformed_and_reap_continues_a_valid_sibling",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_remote_status_with_wrong_request_binding_is_unknown_and_preserved",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_remote_status_requires_exactly_one_matching_request_nonce",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_truncated_caller_diagnostic_cannot_forge_request_bound_target_status",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_unsafe_explicit_request_id_is_refused_before_copy_or_launch",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_repeated_forget_never_rebinds_cleanup_authority_after_final_absence",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stage_close_unknown_retains_named_path_without_retry_or_unlink",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_remote_script_attempts_are_unique_when_request_id_is_reused",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_unexpected_authenticated_target_status_retains_script_as_unknown",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_same_identity_collision_never_releases_unadopted_launch_resources",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_request_id_grammar_is_shared_by_direct_and_local_admission",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_direct_register_acquisition_oserrors_are_structured_before_publication",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stage_fdopen_failure_accounts_for_raw_fd_and_path",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stage_fdopen_and_raw_close_unknown_retain_without_unlink_or_retry",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stage_fdopen_cleanup_unlink_failure_is_attempted_only_once",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stage_cleanup_failure_is_attached_to_keyboard_interrupt_primary",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_a_refused_script_launch_removes_the_copy_it_made",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_run_accepts_script_and_origin_from_the_command_line",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_accepts_one_valid_member_despite_malformed_sibling",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_zero_match_distinguishes_clean_from_malformed_registry",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_multiple_valid_matches_remain_unknown",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_stale_replacement_disposition_adopts_inherited_owned_siblings",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_status_fixture_requires_the_real_bound_disposition_helper_call",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_is_one_bound_record_immediately_before_final_status",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reader_request_id_grammar_keeps_bad_evidence_and_reaps_valid_sibling",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_reader_accepts_legacy_final_with_no_request_id",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_request_id_grammar_accepts_its_boundary_and_refuses_overlong",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_run_entropy_failures_refuse_before_any_effect",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_local_registration_fault_control_uses_only_the_guarded_reaper",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_spends_child_authority_before_any_signal",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_returns_after_successful_authority_spending_reap",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_uses_nonblocking_probe_before_live_cleanup",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_signals_only_a_proven_live_child",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_remote_script_stem_is_allowlisted_before_scp",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_unknown_parent_without_signalling",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_foreign_parent_without_signalling",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_unknown_group_identity",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_a_nonleader_without_signalling",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_when_cleanup_unknown",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_communication_oserror_is_structured_after_cleanup",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_preserves_primary_when_cleanup_itself_raises",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_constructor_failure_is_a_refusal_with_no_cleanup_signal",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_spends_one_shared_deadline",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_timeout_is_unknown_without_a_terminal_probe",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_oserror_is_unknown_without_a_terminal_probe",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_group_probe_accepts_process_lookup_absence",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_group_probe_accepts_esrch_absence",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_scp_group_probe_treats_permission_as_unknown"
+  ],
+  "mutants": [
+    {
+      "label": "N1 load_all silently skips an unreadable final again",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if reason is not None:\n            malformed.append((f, reason))\n            continue",
+      "new": "        if reason is not None:\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_malformed_final_is_named_and_makes_list_unknown_without_hiding_valid_entries"
+    },
+    {
+      "label": "N2 reap grades an unreadable registry as complete",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    return unknown or (1 if refused else 0)",
+      "new": "    return 1 if refused else 0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_reap_still_reaps_every_valid_entry_and_names_the_malformed_one"
+    },
+    {
+      "label": "N3 orphans loses its UNKNOWN status",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if unknown:\n        return unknown\n    return 1 if found else 0",
+      "new": "    return (1 if found else 0)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_keeps_its_exact_count_sentence_and_names_the_malformed_read"
+    },
+    {
+      "label": "N4 accept a bool as a pid",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:",
+      "new": "    if not isinstance(pid, int) or pid <= 0:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N5 collision always replaces (same identity is overwritten)",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if (prior.get(\"pid\") == entry[\"pid\"]\n            and prior.get(\"starttime\") == entry[\"starttime\"]):",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_publication_is_idempotent_for_the_same_pid_and_starttime"
+    },
+    {
+      "label": "N6 publish without holding the registry lock",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        fcntl.flock(fd, fcntl.LOCK_EX)",
+      "new": "        fcntl.flock(fd, fcntl.LOCK_SH)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_the_collision_decision_is_made_under_a_registry_lock"
+    },
+    {
+      "label": "N7 forget unlinks any recorded auxiliary path",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                    if _log_is_a_direct_child_of_the_registry(extra):\n                        owned_snapshots.append((extra, _path_identity(extra)))",
+      "new": "                    if True:\n                        owned_snapshots.append((extra, _path_identity(extra)))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_removes_an_owned_auxiliary_path_and_never_an_unowned_one"
+    },
+    {
+      "label": "N8 capture the target status AFTER the sentinel printf",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    return (\"%s; rc=$?%s; printf %s \\\"$rc\\\" >&2; exit \\\"$rc\\\"\"\n            % (shlex.join(argv), disposition, shlex.quote(status_format)))",
+      "new": "    return (\"%s%s; printf %s \\\"$?\\\" >&2; rc=$?; exit \\\"$rc\\\"\"\n            % (shlex.join(argv), disposition, shlex.quote(status_format)))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_the_remote_payload_cannot_mask_a_target_failure"
+    },
+    {
+      "label": "N9 255 without a sentinel is reported as an ordinary refusal",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        return _EXIT_REMOTE_UNKNOWN\n\n    disposition = None",
+      "new": "        return int(2)\n\n    disposition = None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_transport_failure_without_a_sentinel_is_unknown_not_a_refusal"
+    },
+    {
+      "label": "N10 the delegated argv carries no request id",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            \"--origin\", origin, \"--request-id\", request_id]",
+      "new": "            \"--origin\", origin]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_the_remote_command_delegates_to_the_target_transaction"
+    },
+    {
+      "label": "N11 _remote_self resolves the launcher's own file again",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    return os.environ.get(\"BD_JOBS_REMOTE_SELF\") or _REMOTE_SELF_DEFAULT",
+      "new": "    return str(pathlib.Path(__file__).resolve())",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_the_remote_self_path_is_the_installed_public_surface"
+    },
+    {
+      "label": "N12 ssh stops terminating its own option parsing",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    return [\"ssh\", \"-o\", \"BatchMode=yes\", \"-o\",\n            _REMOTE_CONNECT_TIMEOUT_OPTION, \"--\", target, command]",
+      "new": "    return [\"ssh\", \"-o\", \"BatchMode=yes\", \"-o\",\n            _REMOTE_CONNECT_TIMEOUT_OPTION, target, command]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_ssh_and_scp_terminate_their_own_option_parsing"
+    },
+    {
+      "label": "N13 a control-shaped target is accepted",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    unsafe = _unsafe_target(target)",
+      "new": "    unsafe = None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_target_address_with_control_characters_is_refused"
+    },
+    {
+      "label": "N14 cmd_register lets the refusal escape as a traceback",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except RegistrationError as exc:\n        print(\"REFUSED: %s\" % exc, file=sys.stderr)\n        return _EXIT_REGISTRATION_FAILED",
+      "new": "    except ZeroDivisionError as exc:\n        print(\"REFUSED: %s\" % exc, file=sys.stderr)\n        return _EXIT_REGISTRATION_FAILED",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_register_refuses_a_dead_pid_with_a_diagnostic_not_a_traceback"
+    },
+    {
+      "label": "N15 preflight calls exit 4 UNKNOWN for the generic reason",
+      "file": "toolchain/bin/bd-cut-preflight",
+      "old": "        if r_o[\"launch_error\"] or r_o[\"rc\"] is None or m_o is None:",
+      "new": "        if (r_o[\"launch_error\"] or r_o[\"rc\"] is None or m_o is None\n                or r_o[\"rc\"] == 4):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py::test_an_unreadable_registry_is_UNKNOWN_even_when_the_orphan_count_is_zero"
+    },
+    {
+      "label": "N16 forget deletes artifacts still named by a retained entry",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if not removed or not durable:\n            # The record still exists, or may return after a crash.",
+      "new": "        if False:\n            # The record still exists, or may return after a crash.",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_release_failure_preserves_owned_files_when_the_record_cannot_be_removed"
+    },
+    {
+      "label": "N17 release reports removed artifacts as retained",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            self.log_path = None\n            self.adopt_path = None",
+      "new": "            # mutant: abort describes already-accounted paths again",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_release_failure_reports_the_cleanup_for_the_files_it_actually_removed"
+    },
+    {
+      "label": "N18 status 5 deletes the script owned by the retained target record",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if status != 0:\n            print(\"target RETAINED a record; %s is left for it to collect\"\n                  % remote_script, file=sys.stderr)",
+      "new": "        if status == _EXIT_PUBLISHED_NOT_DURABLE:\n            subprocess.run(_ssh_argv(\n                target, \"rm -f %s\" % shlex.quote(remote_script)),\n                capture_output=True, text=True)\n        if status != 0:\n            print(\"target RETAINED a record; %s is left for it to collect\"\n                  % remote_script, file=sys.stderr)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_status_5_script_launch_preserves_the_copy_the_retained_record_owns"
+    },
+    {
+      "label": "N18b status 5 invokes identity-bound cleanup against the retained record's script",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if status != 0:\n            print(\"target RETAINED a record; %s is left for it to collect\"\n                  % remote_script, file=sys.stderr)",
+      "new": "        if status == _EXIT_PUBLISHED_NOT_DURABLE:\n            _remove_remote_copy(\n                target, self_path, remote_script, captured_identity,\n                request_id, status_nonce, attempt_token)\n        if status != 0:\n            print(\"target RETAINED a record; %s is left for it to collect\"\n                  % remote_script, file=sys.stderr)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_status_5_script_launch_preserves_the_copy_the_retained_record_owns"
+    },
+    {
+      "label": "N19 release diagnostic drops the concrete cleanup paths",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                          \"; \".join(outcome[\"notes\"]))",
+      "new": "                          \"removed owned resources\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_release_failure_reports_the_cleanup_for_the_files_it_actually_removed"
+    },
+    {
+      "label": "N20 retained release is reported as nothing published",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            status = (_EXIT_REGISTRATION_FAILED\n                      if outcome.get(\"entry_absent_durable\")\n                      else _EXIT_PUBLISHED_NOT_DURABLE)",
+      "new": "            status = _EXIT_REGISTRATION_FAILED",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_release_failure_preserves_owned_files_when_the_record_cannot_be_removed"
+    },
+    {
+      "label": "N21 schema accepts an invalid process starttime",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if isinstance(starttime, bool) or not isinstance(starttime, int) \\\n            or starttime <= 0:",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N22 schema stops requiring the operator string fields",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    for key in (\"purpose\", \"cmd\", \"origin\", \"started_at\"):",
+      "new": "    for key in ():",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N23 schema accepts a non-path log field",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if log is not None and not isinstance(log, str):",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N24 schema accepts a non-boolean log ownership claim",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if \"log_owned\" in entry and not isinstance(entry[\"log_owned\"], bool):",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N25 schema accepts malformed owned path claims",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    owned_paths = entry.get(\"owned_paths\")\n    if owned_paths is not None and not isinstance(owned_paths, list):\n        return \"owned_paths is not a list of non-empty paths: %r\" % owned_paths\n    for value in owned_paths or []:\n        if not isinstance(value, str) or not value:\n            return \"owned_paths is not a list of non-empty paths: %r\" % owned_paths\n        reason = _filesystem_path_reason(value)",
+      "new": "    owned_paths = [value for value in (entry.get(\"owned_paths\") or [])\n                   if isinstance(value, str) and value]\n    for value in owned_paths:\n        reason = _filesystem_path_reason(value)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N26a schema accepts malformed request-id reconciliation metadata",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if \"request_id\" in entry:\n        reason = _request_id_reason(entry[\"request_id\"])\n        if reason is not None:\n            return \"request_id %s: %r\" % (reason, entry[\"request_id\"])",
+      "new": "    # mutant: malformed request_id metadata is accepted",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N26b schema accepts malformed run-marker reconciliation metadata",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if \"run_marker\" in entry and (\n            not isinstance(entry[\"run_marker\"], str) or not entry[\"run_marker\"]):\n        return \"run_marker is not a non-empty string: %r\" % entry[\"run_marker\"]",
+      "new": "    # mutant: malformed run_marker metadata is accepted",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N39 schema accepts a non-integer or nonpositive pid",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:",
+      "new": "    if isinstance(pid, bool):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N40 schema accepts a missing malformed or empty id",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if not isinstance(ident, str) or not ident:\n        return \"id is missing or not a string\"",
+      "new": "    if not isinstance(ident, str) or not ident:\n        return None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N41 schema accepts a missing malformed or empty host",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if not isinstance(host, str) or not host:",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N42 schema accepts a filename that disagrees with its id",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if filename is not None and filename != \"%s.json\" % ident:",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_final_is_validated_as_a_path_and_a_schema_before_it_is_believed"
+    },
+    {
+      "label": "N43 owned cleanup unlinks the reusable pathname without quarantine",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        os.replace(str(path), quarantine)",
+      "new": "    removed, note = _unlink_verified(path)\n    return removed, note, removed\n    try:\n        os.replace(str(path), quarantine)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_captures_the_old_inode_before_unlinking_its_quarantine"
+    },
+    {
+      "label": "N27 list hides the request id of a live entry",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if e.get(\"request_id\"):\n            print(\"      request-id: %s\" % e[\"request_id\"])\n        if e.get(\"log\"):",
+      "new": "        # mutant: suppress the live request id\n        if e.get(\"log\"):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_list_prints_the_request_id_its_unknown_diagnostic_says_to_reconcile"
+    },
+    {
+      "label": "N28 list hides the request id of a dead entry",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if e.get(\"request_id\"):\n            print(\"      request-id: %s\" % e[\"request_id\"])\n    print(\"%d live, %d stale on %s\" % (len(live), len(dead), socket.gethostname()))",
+      "new": "    # mutant: suppress the dead request id\n    print(\"%d live, %d stale on %s\" % (len(live), len(dead), socket.gethostname()))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_list_prints_a_dead_request_id_without_inventing_one_for_other_entries"
+    },
+    {
+      "label": "N29 orphans binds a pid to the current rather than recorded starttime",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    known = {(e[\"pid\"], e[\"starttime\"]) for e in rows}",
+      "new": "    known = {(e[\"pid\"], proc_starttime(e[\"pid\"])) for e in rows}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_binds_a_registry_pid_to_its_recorded_starttime"
+    },
+    {
+      "label": "N30 forget unlinks a replacement whose bytes differ from its snapshot",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            elif current != expected:\n                removed, note = False, (",
+      "new": "            elif False:\n                removed, note = False, (",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_reap_never_deletes_a_replacement_published_after_its_snapshot"
+    },
+    {
+      "label": "N31 reap reports retained cleanup as complete",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if outcome.get(\"cleanup_complete\"):\n        return False",
+      "new": "    if True:\n        return False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_reap_reports_nonzero_when_the_entry_cleanup_is_retained"
+    },
+    {
+      "label": "N32 stale collision abandons the displaced record's owned artifacts",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    _inherit_displaced_owned_state(prior, entry)\n    return None",
+      "new": "    # mutant: discard displaced ownership\n    return None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stale_collision_transfers_prior_owned_artifacts_to_the_replacement"
+    },
+    {
+      "label": "N33 stale collision inherits an operator-owned external path",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if path and _log_is_a_direct_child_of_the_registry(path) \\\n                and str(path) not in inherited:",
+      "new": "        if path and str(path) not in inherited:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stale_collision_transfers_prior_owned_artifacts_to_the_replacement"
+    },
+    {
+      "label": "N34 failed stale replacement withdraws the displaced prior's sole authority",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if displaced_prior:\n            # The replacement now contains the displaced record's cleanup",
+      "new": "        if False:\n            # The replacement now contains the displaced record's cleanup",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stale_collision_retains_the_replacement_if_its_first_dir_fsync_fails"
+    },
+    {
+      "label": "N35 forget treats final absence as durable before directory fsync",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                _fsync_dir(JOBS_DIR)\n                durable = True",
+      "new": "                durable = True\n                _fsync_dir(JOBS_DIR)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_keeps_owned_artifacts_until_final_absence_is_durable"
+    },
+    {
+      "label": "N36 forget deletes a new inode that reused an owned pathname",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    return (\"present\", measured.st_dev, measured.st_ino,\n            stat.S_IFMT(measured.st_mode))",
+      "new": "    return (\"present\", stat.S_IFMT(measured.st_mode))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_never_deletes_a_new_file_reusing_an_owned_path"
+    },
+    {
+      "label": "N37 orphans reports a process gone after the ps snapshot",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if current_starttime is None:\n            continue",
+      "new": "        # mutant: report a process that disappeared after ps",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_does_not_report_a_process_gone_after_the_ps_snapshot"
+    },
+    {
+      "label": "N38 owned artifact unlink failure leaves cleanup marked complete",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                outcome[\"cleanup_complete\"] = (\n                    outcome[\"cleanup_complete\"] and extra_removed)\n                outcome[\"notes\"].append(extra_note)",
+      "new": "                # mutant: retain the note but launder cleanup completion\n                outcome[\"notes\"].append(extra_note)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_reap_reports_owned_artifact_cleanup_failure_after_durable_withdrawal"
+    },
+    {
+      "label": "N44 writer stages a record its own schema rejects",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    reason = _entry_schema_reason(entry)\n    if reason is not None:\n        raise RegistrationError(\n            \"refusing to stage a malformed registry record: %s\" % reason)",
+      "new": "    # mutant: stage without enforcing the writer-side schema boundary",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_register_rejects_a_malformed_record_before_staging"
+    },
+    {
+      "label": "N45 quarantine mkstemp failure is graded as successful cleanup",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        fd, quarantine = tempfile.mkstemp(\n            prefix=\".bd-jobs-cleanup-\", suffix=\".tmp\", dir=str(JOBS_DIR))\n    except OSError as exc:\n        return False, (\n            \"COULD NOT prepare identity-bound cleanup for %s: %s\"\n            % (path, exc)), False",
+      "new": "    try:\n        fd, quarantine = tempfile.mkstemp(\n            prefix=\".bd-jobs-cleanup-\", suffix=\".tmp\", dir=str(JOBS_DIR))\n    except OSError as exc:\n        return True, (\n            \"COULD NOT prepare identity-bound cleanup for %s: %s\"\n            % (path, exc)), False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_reports_mkstemp_failure_after_durable_withdrawal"
+    },
+    {
+      "label": "N46 quarantine close failure is graded as successful cleanup",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        os.close(fd)\n    except OSError as exc:\n        # A failed close has deliberately unknown descriptor state. Retain the\n        # name: unlinking here could manufacture an unnamed open inode which\n        # neither a later cleanup nor an operator could find.\n        return False, (\n            \"COULD NOT close cleanup quarantine for %s: %s; KEPT %s because \"\n            \"its descriptor state is UNKNOWN\" % (path, exc, quarantine)), True",
+      "new": "    try:\n        os.close(fd)\n    except OSError as exc:\n        # mutant: retain the diagnostic but launder the cleanup result\n        return True, (\n            \"COULD NOT close cleanup quarantine for %s: %s; KEPT %s because \"\n            \"its descriptor state is UNKNOWN\" % (path, exc, quarantine)), True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_reports_close_failure_after_durable_withdrawal"
+    },
+    {
+      "label": "N47 replace failure drops the retained quarantine identity",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except OSError as exc:\n        discarded, discard_note = _unlink_verified(quarantine)\n        return False, (\n            \"COULD NOT quarantine %s for removal: %s; %s\"\n            % (path, exc, discard_note)), True",
+      "new": "    except OSError as exc:\n        _unlink_verified(quarantine)\n        return False, (\n            \"COULD NOT quarantine %s for removal: %s\"\n            % (path, exc)), True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_names_a_retained_quarantine_after_replace_failure"
+    },
+    {
+      "label": "N48 vanished source launders a retained quarantine as complete",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except FileNotFoundError:\n        discarded, discard_note = _unlink_verified(quarantine)\n        if discarded:\n            return True, \"%s was already absent; %s\" % (path, discard_note), True\n        return False, (\n            \"%s was already absent, but its cleanup quarantine was RETAINED: %s\"\n            % (path, discard_note)), True",
+      "new": "    except FileNotFoundError:\n        _unlink_verified(quarantine)\n        return True, \"%s was already absent\" % path, True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_names_a_retained_quarantine_after_source_vanishes"
+    },
+    {
+      "label": "N49 captured replacement is mistaken for the observed inode",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if captured != observed:",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_captures_the_old_inode_before_unlinking_its_quarantine"
+    },
+    {
+      "label": "N50 owned cleanup fsync failure leaves cleanup marked complete",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            except OSError as exc:\n                outcome[\"cleanup_complete\"] = False\n                outcome[\"notes\"].append(\n                    \"COULD NOT make owned-artifact cleanup durable: %s\" % exc)",
+      "new": "            except OSError as exc:\n                outcome[\"notes\"].append(\n                    \"COULD NOT make owned-artifact cleanup durable: %s\" % exc)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_forget_reports_owned_cleanup_directory_fsync_failure"
+    },
+    {
+      "label": "N51 launcher close failure remains exit zero",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        except OSError as exc:\n            self.close_failed = True\n            self.notes.append(",
+      "new": "        except OSError as exc:\n            self.close_failed = False\n            self.notes.append(",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_close_failure_is_reported_and_never_skips_the_rest_of_the_transaction"
+    },
+    {
+      "label": "N52 abort blocks while collecting the killed child",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            waited, _ = os.waitpid(pid, os.WNOHANG)",
+      "new": "            waited, _ = os.waitpid(pid, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_abort_process_wait_is_bounded_and_names_an_uncollected_child"
+    },
+    {
+      "label": "N53 status 7 deletes the script owned by the durable target record",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if remote_script and status in (\n            0, _EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):\n        if disposition != \"ADOPTED\":",
+      "new": "    if remote_script and status in (\n            0, _EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):\n        if status == _EXIT_CLOSE_UNKNOWN:\n            subprocess.run(_ssh_argv(\n                target, \"rm -f %s\" % shlex.quote(remote_script)),\n                capture_output=True, text=True)\n        if disposition != \"ADOPTED\":",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_status_7_script_launch_preserves_the_copy_the_durable_record_owns"
+    },
+    {
+      "label": "N53b status 7 invokes identity-bound cleanup against the durable record's script",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if remote_script and status in (\n            0, _EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):\n        if disposition != \"ADOPTED\":",
+      "new": "    if remote_script and status in (\n            0, _EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):\n        if status == _EXIT_CLOSE_UNKNOWN:\n            _remove_remote_copy(\n                target, self_path, remote_script, captured_identity,\n                request_id, status_nonce, attempt_token)\n        if disposition != \"ADOPTED\":",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_status_7_script_launch_preserves_the_copy_the_durable_record_owns"
+    },
+    {
+      "label": "N54 release precedes durable publication",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            launch.publish(cmd, getattr(args, \"origin\", None) or here)\n            launch.release()",
+      "new": "            launch.release()\n            launch.publish(cmd, getattr(args, \"origin\", None) or here)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_local_registration_failure_never_releases_the_command_and_cleans_owned_state"
+    },
+    {
+      "label": "N55 hostile newline is normalized before remote argv assembly",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    argv += [\"--\"] + list(parts)",
+      "new": "    argv += [\"--\"] + [part.replace(\"\\n\", \" \") for part in parts]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_hostile_command_tokens_survive_exactly_one_quoting_layer"
+    },
+    {
+      "label": "N56 registration cleanup blocks on a live child",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "        if registration_child_is_terminal; then\n            wait \"$PYTEST_PID\" 2>/dev/null",
+      "new": "        if true; then\n            wait \"$PYTEST_PID\" 2>/dev/null",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_cleanup_timeout_is_internal_and_names_retained_group"
+    },
+    {
+      "label": "N57 registry lock close after durable publication is laundered into no-publication abort",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except OSError as exc:\n        raise PublishedCloseUnknown(\n            result.entry, final, exc, disposition=result.disposition,\n            attempted=entry) from exc",
+      "new": "    except OSError as exc:\n        raise exc",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_registry_lock_close_failure_after_durable_publish_is_status_7"
+    },
+    {
+      "label": "N58 registration cleanup poll budget is zero",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    REGISTER_REAP_POLLS=$((REGISTER_REAP_SECONDS * 10))",
+      "new": "    REGISTER_REAP_POLLS=0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_cleanup_timeout_is_internal_and_names_retained_group"
+    },
+    {
+      "label": "N59 publication unlock fault overwrites retained status 5",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        except OSError as secondary:\n            _note_secondary_failure(\n                primary, \"registry lock release is UNKNOWN\", secondary)\n        raise",
+      "new": "        except OSError as secondary:\n            raise secondary\n        raise",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_post_replace_failure_remains_status_5_when_registry_unlock_close_also_fails"
+    },
+    {
+      "label": "N60 forget unlock fault escapes and stops the reap loop",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            else:\n                outcome[\"cleanup_complete\"] = False\n                outcome[\"notes\"].append(\n                    \"REGISTRY LOCK RELEASE UNKNOWN: %s\" % unlock_exc)",
+      "new": "            else:\n                raise unlock_exc",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_reap_continues_after_forget_registry_unlock_close_unknown"
+    },
+    {
+      "label": "N61 gate close failure escapes instead of becoming a registered job outcome",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        os.close(read_fd)\n    except OSError as exc:\n        # RELEASE IS ALREADY DELIVERED, so this is a registered child outcome,\n        # not a parent-side launch refusal. Do not leak an uncertain inheritable\n        # descriptor into arbitrary user work; the owned log records the exact\n        # reason this now-DEAD entry never exec'd.\n        print(\"gate: release was received, but its descriptor close is UNKNOWN \"\n              \"(%s); the user command did not run\" % exc, file=sys.stderr)\n        return _EXIT_GATE_ABANDONED",
+      "new": "    # mutant: let the post-release descriptor close escape\n    os.close(read_fd)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_gate_release_fd_close_failure_is_a_named_registered_job_failure"
+    },
+    {
+      "label": "N62 failed scp hides its maybe-partial retained destination",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if scp.returncode != 0:\n            result = \"REFUSED\" if copy_cleanup_complete else \"UNKNOWN\"\n            cleanup = ((\"; %s\" % copy_cleanup_note)\n                       if copy_cleanup_note else \"\")\n            print(\"%s: could not copy %s to %s: %s%s; RETAINED UNKNOWN %s \"\n                  \"may be partial, and was not deleted because pathname \"\n                  \"ownership is not proven after failed scp\"\n                  % (result, script, args.host, scp.stderr.strip(), cleanup,\n                     remote_script),\n                  file=sys.stderr)\n            return 2 if copy_cleanup_complete else _EXIT_REMOTE_UNKNOWN",
+      "new": "        if scp.returncode != 0:\n            result = \"REFUSED\" if copy_cleanup_complete else \"UNKNOWN\"\n            cleanup = ((\"; %s\" % copy_cleanup_note)\n                       if copy_cleanup_note else \"\")\n            print(\"%s: could not copy %s to %s: %s\"\n                  % (result, script, args.host, scp.stderr.strip()),\n                  file=sys.stderr)\n            return 2 if copy_cleanup_complete else _EXIT_REMOTE_UNKNOWN",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_failed_scp_names_maybe_partial_copy_without_claiming_cleanup_authority"
+    },
+    {
+      "label": "N63 no-sentinel UNKNOWN hides the copied script's ambiguous authority",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if remote_script:\n            print(\"RETAINED UNKNOWN copied script %s: it may be owned by the \"\n                  \"target entry for request %s or may be unowned; do not \"\n                  \"delete it until reconciliation\" % (remote_script, request_id),\n                  file=sys.stderr)",
+      "new": "        if remote_script:\n            pass",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_transport_unknown_names_copied_script_without_deleting_ambiguous_authority"
+    },
+    {
+      "label": "N64 NUL log bypasses the shared filesystem-path schema",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if log is not None:\n        reason = _filesystem_path_reason(log)\n        if reason is not None:\n            return \"log is not a usable filesystem path: %s\" % reason",
+      "new": "    # mutant: retain only the preceding type check for log",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_nul_log_is_malformed_and_list_keeps_a_valid_sibling_visible"
+    },
+    {
+      "label": "N65 unencodable owned path bypasses the shared filesystem-path schema",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        reason = _filesystem_path_reason(value)\n        if reason is not None:\n            return (\"owned_paths entry %r is not a usable filesystem path: %s\"\n                    % (value, reason))",
+      "new": "        # mutant: retain only the preceding type/nonempty owned-path check",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_an_unencodable_owned_path_is_malformed_and_reap_continues_a_valid_sibling"
+    },
+    {
+      "label": "N66 parser trusts the observed request and nonce binding",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    prefix = \"%s%s:%s:\" % (\n        _REMOTE_STATUS_SENTINEL, expected_request_id, expected_nonce)",
+      "new": "    prefix = \":\".join(text.split(\":\", 2)[:2]) + \":\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_remote_status_with_wrong_request_binding_is_unknown_and_preserved"
+    },
+    {
+      "label": "N67 duplicate matching statuses become last-wins again",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    prefix = \"%s%s:%s:\" % (\n        _REMOTE_STATUS_SENTINEL, expected_request_id, expected_nonce)\n    lines = text.splitlines(True)\n    candidates = [(index, line) for index, line in enumerate(lines)\n                  if line.startswith(prefix)]\n    if len(candidates) != 1:\n        return None, text\n    index, line = candidates[0]",
+      "new": "    prefix = \"%s%s:%s:\" % (\n        _REMOTE_STATUS_SENTINEL, expected_request_id, expected_nonce)\n    lines = text.splitlines(True)\n    candidates = [(index, line) for index, line in enumerate(lines)\n                  if line.startswith(prefix)]\n    if not candidates:\n        return None, text\n    index, line = candidates[-1]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_remote_status_requires_exactly_one_matching_request_nonce"
+    },
+    {
+      "label": "N68 UNKNOWN copied script regains refusal cleanup authority",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if status is None:",
+      "new": "    if status is None and remote_script is None:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_truncated_caller_diagnostic_cannot_forge_request_bound_target_status"
+    },
+    {
+      "label": "N69 unsafe request id reaches pathname and transport assembly",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        reason = _request_id_reason(explicit_request)",
+      "new": "        reason = None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_unsafe_explicit_request_id_is_refused_before_copy_or_launch"
+    },
+    {
+      "label": "N70 absent final rebinds cleanup authority to a replacement occupant",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            return outcome\n        else:\n            current, reason = _read_final(final)",
+      "new": "            for extra in entry.get(\"owned_paths\") or []:\n                if _log_is_a_direct_child_of_the_registry(extra):\n                    _unlink_owned_identity(extra, _path_identity(extra))\n            return outcome\n        else:\n            current, reason = _read_final(final)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_repeated_forget_never_rebinds_cleanup_authority_after_final_absence"
+    },
+    {
+      "label": "N71 close-UNKNOWN stage is unlinked as though close succeeded",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            if close_unknown is not None:",
+      "new": "            if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stage_close_unknown_retains_named_path_without_retry_or_unlink"
+    },
+    {
+      "label": "N72 reused request id reuses the copied-script attempt token",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        attempt_token = _new_attempt_token() if script else None",
+      "new": "        attempt_token = request_id if script else None",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_remote_script_attempts_are_unique_when_request_id_is_reused"
+    },
+    {
+      "label": "N73 unexpected authenticated status regains refusal cleanup authority",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    elif remote_script and status in (2, _EXIT_REGISTRATION_FAILED):",
+      "new": "    elif remote_script and status not in (\n            0, _EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_unexpected_authenticated_target_status_retains_script_as_unknown"
+    },
+    {
+      "label": "N74 preserved same-process collision bypasses exact adoption",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            if not adopted:",
+      "new": "            if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_same_identity_collision_never_releases_unadopted_launch_resources"
+    },
+    {
+      "label": "N75 shared request-id grammar accepts unsafe tokens",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if re.fullmatch(r\"[A-Za-z0-9._-]{1,128}\", request_id) is None:\n        return \"must match [A-Za-z0-9._-]{1,128}\"",
+      "new": "    if False:\n        return \"must match [A-Za-z0-9._-]{1,128}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_request_id_grammar_is_shared_by_direct_and_local_admission"
+    },
+    {
+      "label": "N76 stage acquisition OSError escapes structured refusal",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        fd, tmp = tempfile.mkstemp(prefix=_ENTRY_TEMP_PREFIX,\n                                   suffix=_ENTRY_TEMP_SUFFIX, dir=str(JOBS_DIR))\n    except OSError as exc:\n        raise RegistrationError(\n            \"could not acquire a staged entry for %s: %s\" % (final.name, exc)\n        ) from exc",
+      "new": "    fd, tmp = tempfile.mkstemp(prefix=_ENTRY_TEMP_PREFIX,\n                               suffix=_ENTRY_TEMP_SUFFIX, dir=str(JOBS_DIR))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_direct_register_acquisition_oserrors_are_structured_before_publication"
+    },
+    {
+      "label": "N77 failed stage cleanup is retried after its authority is spent",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                removed, note = _unlink_verified(tmp)",
+      "new": "                removed, note = _unlink_verified(tmp)\n                if not removed:\n                    removed, note = _unlink_verified(tmp)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stage_fdopen_cleanup_unlink_failure_is_attempted_only_once"
+    },
+    {
+      "label": "N78 interrupt primary loses its retained-stage cleanup failure",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            if isinstance(exc, (KeyboardInterrupt, SystemExit)):\n                if not removed:\n                    _note_secondary_failure(\n                        exc, \"staged entry cleanup is incomplete at %s\" % tmp,\n                        RegistrationError(note))\n                raise",
+      "new": "            if isinstance(exc, (KeyboardInterrupt, SystemExit)):\n                raise",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stage_cleanup_failure_is_attached_to_keyboard_interrupt_primary"
+    },
+    {
+      "label": "N79 script acquisition starts before the deploy probe",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    probe = subprocess.run(\n        _ssh_argv(target, \"test -f %s\" % shlex.quote(self_path)),\n        capture_output=True, text=True)",
+      "new": "    if script:\n        subprocess.run(\n            _ssh_argv(target, \"mkdir -p %s\" % shlex.quote(str(JOBS_DIR))),\n            capture_output=True, text=True)\n    probe = subprocess.run(\n        _ssh_argv(target, \"test -f %s\" % shlex.quote(self_path)),\n        capture_output=True, text=True)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_a_refused_script_launch_removes_the_copy_it_made"
+    },
+    {
+      "label": "N80 malformed sibling suppresses one exact valid adoption",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if len(matches) == 1:\n            # A valid exact attempt owns every path it records. Inherited\n            # siblings and unrelated malformed finals do not negate this one\n            # positive ownership proof.\n            value = \"ADOPTED\"\n        elif len(matches) > 1 or rows.malformed:",
+      "new": "        if len(matches) == 1 and not rows.malformed:\n            # A valid exact attempt owns every path it records. Inherited\n            # siblings and unrelated malformed finals do not negate this one\n            # positive ownership proof.\n            value = \"ADOPTED\"\n        elif len(matches) > 1 or rows.malformed:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_accepts_one_valid_member_despite_malformed_sibling"
+    },
+    {
+      "label": "N81 adoption requires the attempt to be the only owned path",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                   and path in (entry.get(\"owned_paths\") or [])]",
+      "new": "                   and entry.get(\"owned_paths\") == [path]]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_stale_replacement_disposition_adopts_inherited_owned_siblings"
+    },
+    {
+      "label": "N82 malformed zero-match registry is called cleanly not adopted",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        elif len(matches) > 1 or rows.malformed:\n            value = \"UNKNOWN\"\n        else:\n            value = \"NOT_ADOPTED\"",
+      "new": "        elif len(matches) > 1:\n            value = \"UNKNOWN\"\n        else:\n            value = \"NOT_ADOPTED\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_zero_match_distinguishes_clean_from_malformed_registry"
+    },
+    {
+      "label": "N83 multiple valid adoption matches are accepted as one",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if len(matches) == 1:\n            # A valid exact attempt owns every path it records.",
+      "new": "        if len(matches) >= 1:\n            # A valid exact attempt owns every path it records.",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_disposition_multiple_valid_matches_remain_unknown"
+    },
+    {
+      "label": "N84 script payload omits the real disposition helper",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if adopt:\n        disposition = \"; %s >&2\" % shlex.join([\n            self_path, _ATTEMPT_DISPOSITION_FLAG, request_id, status_nonce,\n            attempt_token, adopt])\n    else:\n        disposition = \"\"",
+      "new": "    if adopt:\n        disposition = \"\"\n    else:\n        disposition = \"\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_status_fixture_requires_the_real_bound_disposition_helper_call"
+    },
+    {
+      "label": "N85 disposition helper runs after the terminal status record",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    else:\n        disposition = \"\"\n    return (\"%s; rc=$?%s; printf %s \\\"$rc\\\" >&2; exit \\\"$rc\\\"\"\n            % (shlex.join(argv), disposition, shlex.quote(status_format)))",
+      "new": "    else:\n        disposition = \"\"\n    return (\"%s; rc=$?; printf %s \\\"$rc\\\" >&2%s; exit \\\"$rc\\\"\"\n            % (shlex.join(argv), shlex.quote(status_format), disposition))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_status_fixture_requires_the_real_bound_disposition_helper_call"
+    },
+    {
+      "label": "N86 disposition helper swaps nonce and attempt bindings",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            self_path, _ATTEMPT_DISPOSITION_FLAG, request_id, status_nonce,\n            attempt_token, adopt])",
+      "new": "            self_path, _ATTEMPT_DISPOSITION_FLAG, request_id, attempt_token,\n            status_nonce, adopt])",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_status_fixture_requires_the_real_bound_disposition_helper_call"
+    },
+    {
+      "label": "N87 positive-control cleanup bypasses the group-leadership guard",
+      "file": "tests/test_v3_66_1040_remote_job_registry.py",
+      "old": "        ok_pid = launched[0]\n        _reap_process(ok_pid)",
+      "new": "        ok_pid = launched[0]\n        os.killpg(os.getpgid(ok_pid), 9)\n        os.waitpid(ok_pid, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_local_registration_fault_control_uses_only_the_guarded_reaper"
+    },
+    {
+      "label": "N87b final cleanup bypasses the group-leadership guard",
+      "file": "tests/test_v3_66_1040_remote_job_registry.py",
+      "old": "        assert not breaks, (\n            \"a failed local registration left the system in the state this \"\n            \"tool exists to prevent:\\n  - %s\" % \"\\n  - \".join(breaks))\n    finally:\n        for pid in launched:\n            _reap_process(pid)",
+      "new": "        assert not breaks, (\n            \"a failed local registration left the system in the state this \"\n            \"tool exists to prevent:\\n  - %s\" % \"\\n  - \".join(breaks))\n    finally:\n        for pid in launched:\n            try:\n                os.killpg(os.getpgid(pid), 9)\n            except OSError:\n                pass\n            try:\n                os.waitpid(pid, 0)\n            except OSError:\n                pass",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_local_registration_fault_control_uses_only_the_guarded_reaper"
+    },
+    {
+      "label": "N88 signal a numeric pid before proving live child authority",
+      "file": "tests/test_v3_66_1040_remote_job_registry.py",
+      "old": "    try:\n        waited_pid, _ = os.waitpid(pid, os.WNOHANG)\n    except OSError:\n        return\n    if waited_pid != 0:\n        return\n\n    try:\n        pgid = os.getpgid(pid)",
+      "new": "    # mutant: child authority probe removed\n    try:\n        pgid = os.getpgid(pid)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_spends_child_authority_before_any_signal"
+    },
+    {
+      "label": "N89 restore the raw caller-controlled remote script stem",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            _REMOTE_SCRIPT_PREFIX, _safe_remote_script_stem(script),\n            attempt_token)))",
+      "new": "            _REMOTE_SCRIPT_PREFIX, pathlib.Path(script).stem[:24],\n            attempt_token)))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_remote_script_stem_is_allowlisted_before_scp"
+    },
+    {
+      "label": "N90 signal after a successful authority-spending reap",
+      "file": "tests/test_v3_66_1040_remote_job_registry.py",
+      "old": "    if waited_pid != 0:\n        return",
+      "new": "    if False:  # mutant: signal after authority-spending reap\n        return",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_returns_after_successful_authority_spending_reap"
+    },
+    {
+      "label": "N91 make the child-authority probe blocking",
+      "file": "tests/test_v3_66_1040_remote_job_registry.py",
+      "old": "        waited_pid, _ = os.waitpid(pid, os.WNOHANG)",
+      "new": "        waited_pid, _ = os.waitpid(pid, 0)  # mutant: blocking authority probe",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_uses_nonblocking_probe_before_live_cleanup"
+    },
+    {
+      "label": "N92 remove the scp connection timeout option",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            \"scp\", \"-q\", \"-o\", \"BatchMode=yes\", \"-o\",\n            _REMOTE_CONNECT_TIMEOUT_OPTION, \"--\", str(script),",
+      "new": "            \"scp\", \"-q\", \"-o\", \"BatchMode=yes\", \"--\", str(script),",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy"
+    },
+    {
+      "label": "N93 remove the scp transfer deadline",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        stdout, stderr = process.communicate(\n            timeout=_SCP_TRANSFER_TIMEOUT_S)",
+      "new": "        stdout, stderr = process.communicate(\n            timeout=None)  # mutant: unbounded scp transfer",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
+    },
+    {
+      "label": "N94 let scp timeout escape structured handling",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except BaseException as primary:\n        primary_text = str(primary)",
+      "new": "    except (OSError, KeyboardInterrupt) as primary:  # mutant: TimeoutExpired escapes\n        primary_text = str(primary)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy"
+    },
+    {
+      "label": "N95 start scp inside the launcher process group",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            start_new_session=True)",
+      "new": "            start_new_session=False)  # mutant: scp shares launcher group",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
+    },
+    {
+      "label": "N96 trust an unknown or foreign scp parent",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    ppid = _proc_ppid(pid)\n    if ppid != os.getpid():\n        return (False, \"pid %s / pgid UNKNOWN is not this launcher's child \"\n                \"(parent %r)\" % (pid, ppid))",
+      "new": "    ppid = _proc_ppid(pid)\n    if False:  # mutant: trust an unknown or foreign parent\n        return (False, \"pid %s / pgid UNKNOWN is not this launcher's child \"\n                \"(parent %r)\" % (pid, ppid))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_unknown_parent_without_signalling"
+    },
+    {
+      "label": "N97 let unknown scp group identity escape",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        pgid = os.getpgid(pid)\n    except OSError as exc:\n        return (False, \"pid %s / pgid UNKNOWN could not be identified: %s\"\n                % (pid, exc))",
+      "new": "    try:\n        pgid = os.getpgid(pid)\n    except ProcessLookupError as exc:  # mutant: other lookup failures escape\n        return (False, \"pid %s / pgid UNKNOWN could not be identified: %s\"\n                % (pid, exc))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_unknown_group_identity"
+    },
+    {
+      "label": "N98 trust a child that does not lead its group",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if pgid != pid:\n        return (False, \"pid %s does not lead process group %s\" % (pid, pgid))",
+      "new": "    if False:  # mutant: child need not lead the group\n        return (False, \"pid %s does not lead process group %s\" % (pid, pgid))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_a_nonleader_without_signalling"
+    },
+    {
+      "label": "N99 probe the scp group without killing it",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    try:\n        os.killpg(pgid, 9)\n    except OSError as exc:",
+      "new": "    try:\n        os.killpg(pgid, 0)  # mutant: probe without killing\n    except OSError as exc:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy"
+    },
+    {
+      "label": "N100 make direct-child collection unbounded",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        process.communicate(timeout=remaining)",
+      "new": "        process.communicate(timeout=None)  # mutant: unbounded child collection",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_spends_one_shared_deadline"
+    },
+    {
+      "label": "N101 claim a timed-out child was reaped",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except subprocess.TimeoutExpired:\n        return (False, \"%s; pid %s / process group %s was not reaped within \"\n                \"the %.1fs cleanup bound\"\n                % (signal_note, pid, pgid, timeout))",
+      "new": "    except subprocess.TimeoutExpired:\n        return (True, \"%s; pid %s / process group %s was not reaped within \"\n                \"the %.1fs cleanup bound\"\n                % (signal_note, pid, pgid, timeout))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_timeout_is_unknown_without_a_terminal_probe"
+    },
+    {
+      "label": "N102 assume the scp process group disappeared",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            os.killpg(pgid, 0)",
+      "new": "            raise ProcessLookupError(pgid)  # mutant: assume group is gone",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership"
+    },
+    {
+      "label": "N103 grade incomplete scp cleanup as ordinary refusal",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            return 2 if copy_cleanup_complete else _EXIT_REMOTE_UNKNOWN",
+      "new": "            return 2  # mutant: incomplete cleanup is an ordinary refusal",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership"
+    },
+    {
+      "label": "N104 skip process-group cleanup after scp failure",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            cleanup_complete, cleanup_note = (\n                _terminate_owned_popen_group(process))",
+      "new": "            cleanup_complete, cleanup_note = (True, \"\")  # mutant: skip group cleanup",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
+    },
+    {
+      "label": "N105 stop capturing normal scp stdout",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,",
+      "new": "            argv, stdout=None, stderr=subprocess.PIPE, text=True,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
+    },
+    {
+      "label": "N106 stop capturing normal scp stderr",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,\n            start_new_session=True)",
+      "new": "            argv, stdout=subprocess.PIPE, stderr=None, text=True,\n            start_new_session=True)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
+    },
+    {
+      "label": "N107 corrupt the normal scp result mapping",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    return (subprocess.CompletedProcess(\n        argv, process.returncode, stdout, stderr), True, \"\")",
+      "new": "    return (subprocess.CompletedProcess(\n        argv, 0, \"\", \"\"), True, \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
+    },
+    {
+      "label": "N108 catch only Exception so cancellation skips cleanup",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except BaseException as primary:\n        primary_text = str(primary)",
+      "new": "    except Exception as primary:  # mutant: cancellation skips cleanup\n        primary_text = str(primary)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
+    },
+    {
+      "label": "N109 swallow cancellation after cleanup",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            raise\n\n        if isinstance(primary, subprocess.TimeoutExpired):",
+      "new": "            return (subprocess.CompletedProcess(\n                argv, 125, \"\", \"scp cancellation was swallowed\"),\n                cleanup_complete, cleanup_note)\n\n        if isinstance(primary, subprocess.TimeoutExpired):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
+    },
+    {
+      "label": "N110 hide cancellation cleanup uncertainty",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            if not cleanup_complete:\n                _note_secondary_failure(\n                    primary, \"scp process-group cleanup is UNKNOWN\",\n                    RuntimeError(cleanup_note))",
+      "new": "            if False:  # mutant: hide cancellation cleanup uncertainty\n                _note_secondary_failure(\n                    primary, \"scp process-group cleanup is UNKNOWN\",\n                    RuntimeError(cleanup_note))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
+    },
+    {
+      "label": "N111 let ordinary scp communication errors escape",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        else:\n            error = \"scp communication failed: %s\" % primary_text\n            returncode = 125",
+      "new": "        else:\n            raise primary  # mutant: ordinary communication errors escape",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_communication_oserror_is_structured_after_cleanup"
+    },
+    {
+      "label": "N112 let scp constructor failure escape",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except OSError as exc:\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start scp: %s\" % exc),\n            True, \"no scp process was acquired\")",
+      "new": "    except ProcessLookupError as exc:  # mutant: constructor failure escapes\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start scp: %s\" % exc),\n            True, \"no scp process was acquired\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_constructor_failure_is_a_refusal_with_no_cleanup_signal"
+    },
+    {
+      "label": "N113 claim an OSError-wait child was reaped",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except OSError as exc:\n        return (False, \"%s; wait UNKNOWN for pid %s / process group %s: %s\"\n                % (signal_note, pid, pgid, exc))",
+      "new": "    except OSError as exc:\n        return (True, \"%s; wait UNKNOWN for pid %s / process group %s: %s\"\n                % (signal_note, pid, pgid, exc))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_oserror_is_unknown_without_a_terminal_probe"
+    },
+    {
+      "label": "N114 restart the cleanup budget after child collection",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except OSError as exc:\n        return (False, \"%s; wait UNKNOWN for pid %s / process group %s: %s\"\n                % (signal_note, pid, pgid, exc))\n\n    while True:",
+      "new": "    except OSError as exc:\n        return (False, \"%s; wait UNKNOWN for pid %s / process group %s: %s\"\n                % (signal_note, pid, pgid, exc))\n\n    deadline = time.monotonic() + timeout  # mutant: restart cleanup budget\n    while True:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_cleanup_spends_one_shared_deadline"
+    },
+    {
+      "label": "N115 reject ProcessLookupError absence proof",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        except ProcessLookupError:\n            return (True, \"%s; reaped pid %s and process group %s is gone\"\n                    % (signal_note, pid, pgid))",
+      "new": "        except ProcessLookupError:\n            return (False, \"%s; reaped pid %s and process group %s is gone\"\n                    % (signal_note, pid, pgid))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_group_probe_accepts_process_lookup_absence"
+    },
+    {
+      "label": "N116 reject ESRCH absence proof",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            if exc.errno == errno.ESRCH:\n                return (True, \"%s; reaped pid %s and process group %s is gone\"\n                        % (signal_note, pid, pgid))",
+      "new": "            if False:  # mutant: reject ESRCH absence proof\n                return (True, \"%s; reaped pid %s and process group %s is gone\"\n                        % (signal_note, pid, pgid))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_group_probe_accepts_esrch_absence"
+    },
+    {
+      "label": "N117 treat permission-denied terminal probe as absence",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            return (False, \"%s; process group %s terminal probe UNKNOWN: %s\"\n                    % (signal_note, pgid, exc))",
+      "new": "            return (True, \"%s; process group %s terminal probe UNKNOWN: %s\"\n                    % (signal_note, pgid, exc))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_group_probe_treats_permission_as_unknown"
+    },
+    {
+      "label": "N118 label incomplete scp cleanup as REFUSED",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            result = \"REFUSED\" if copy_cleanup_complete else \"UNKNOWN\"",
+      "new": "            result = \"REFUSED\"  # mutant: incomplete cleanup is mislabeled",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership"
+    },
+    {
+      "label": "N119 hide local process-group cleanup evidence",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            cleanup = ((\"; %s\" % copy_cleanup_note)\n                       if copy_cleanup_note else \"\")",
+      "new": "            cleanup = \"\"  # mutant: hide local process-group uncertainty",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership"
+    },
+    {
+      "label": "N120 let cleanup failure replace primary cancellation",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        except BaseException as cleanup_exc:\n            cleanup_complete = False\n            cleanup_note = (\n                \"pid %s / process group UNKNOWN cleanup raised: %s\"\n                % (process.pid, cleanup_exc))",
+      "new": "        except BaseException as cleanup_exc:\n            raise cleanup_exc  # mutant: cleanup failure replaces primary",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_preserves_primary_when_cleanup_itself_raises"
+    },
+    {
+      "label": "N121 cancellation omits the exact retained remote destination",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                    % destination))",
+      "new": "                    % \"UNNAMED\"))  # mutant: omit exact retained destination",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup"
+    },
+    {
+      "label": "N122 cancellation downgrades retained UNKNOWN partial evidence",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                primary, \"scp remote destination is RETAINED UNKNOWN\",\n                RuntimeError(\n                    \"%s may be partial and was not deleted because pathname \"",
+      "new": "                primary, \"scp remote destination copy was interrupted\",\n                RuntimeError(\n                    \"%s was not deleted because pathname \"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup"
+    },
+    {
+      "label": "N123 cancellation attempts identity-unproven remote pathname deletion",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                    % destination))\n            if not cleanup_complete:",
+      "new": "                    % destination))\n            unsafe_target, unsafe_path = destination.split(\":\", 1)\n            subprocess.run(\n                _ssh_argv(\n                    unsafe_target,\n                    \"rm -f %s\" % shlex.quote(unsafe_path)),\n                capture_output=True, text=True)\n            if not cleanup_complete:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup"
+    },
+    {
+      "label": "M17 restore the swallow-and-continue registration line",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "else\n    echo \"REGISTER-FAILED\" > \"$RUNDIR/jobid\"",
+      "new": "elif false; then\n    echo \"REGISTER-FAILED\" > \"$RUNDIR/jobid\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register"
+    },
+    {
+      "label": "M17b terminate but kill the bare pid, orphaning the workers",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "        kill -9 -\"$PYTEST_PGID\" 2>/dev/null || :",
+      "new": "        kill -9 \"$PYTEST_PID\" 2>/dev/null || :",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_every_abandon_path_reaps"
+    },
+    {
+      "label": "M17c records completion before waiting for the killed group",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    REGISTER_REAPED=0",
+      "new": "    REGISTER_REAPED=2",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_cleanup_timeout_is_internal_and_names_retained_group"
+    },
+    {
+      "label": "M10 report a clean exit for an unregistered launch",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    echo 91 > \"$RUNDIR/exitcode\"\n    exit 91\n",
+      "new": "    echo 0 > \"$RUNDIR/exitcode\"\n    exit 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register"
+    },
+    {
+      "label": "OCM-W1 make the SUCCESS path terminal too (stop waiting for the workload)",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "\nfi\n\nwait \"$PYTEST_PID\"\nrc=$?\n",
+      "new": "\nfi\n\nrc=0\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded",
+      "preserves": [
+        "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register",
+        "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_every_abandon_path_reaps"
+      ]
+    }
+  ]
+}

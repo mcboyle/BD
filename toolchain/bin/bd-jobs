@@ -35,17 +35,31 @@ field 22 -- monotonic since boot, and unique per (pid, boot) -- and reap
 REFUSES any entry whose start time no longer matches.
 """
 import argparse
+import errno
+import fcntl
 import json
 import os
 import pathlib
 import re
+import select
 import shlex
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 
+# ONE HOST-WIDE REGISTRY, AND IT IS A CONSTANT. An environment-selected
+# registry was tried at v3.66.1206 and REJECTED by design audit: `bd-fleet`
+# counts `/tmp/bd-jobs/*.json` and `bd-gc` protects that exact literal, a
+# delegated target imports its own module and would not receive the caller's
+# selection, and `bd-jobs list` on the host would then report a different
+# registry from the one a job registered in -- work that is live and
+# operationally invisible, which is this tool's whole subject. Tests isolate by
+# running a private COPY of this file with its own baked-in path, so isolation
+# follows the executable rather than an ambient value operators can inherit,
+# lose, or set differently.
 JOBS_DIR = pathlib.Path("/tmp/bd-jobs")
 
 
@@ -129,7 +143,7 @@ def progress(entry, stalled_after=STALLED_AFTER_S):
         return ("UNKNOWN", None)
     try:
         age = time.time() - os.path.getmtime(log)
-    except OSError:
+    except (OSError, ValueError, UnicodeError):
         return ("UNKNOWN", None)
     age = max(age, 0.0)                      # clock skew is not progress
     return (("STALLED" if age > stalled_after else "PROGRESSING"), age)
@@ -149,12 +163,498 @@ def open_job_log(purpose):
     return path, fd
 
 
-def register(pid, purpose, cmd, origin=None, log=None):
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+# THE STAGED ENTRY MUST NOT BE NAMED `*.json`, and this is not cosmetic:
+# `pathlib.Path.glob("*.json")` matches DOTFILES -- measured in this
+# environment, `.hidden-tmp.json` and `real.json` both come back -- and
+# `load_all()` globs exactly that pattern. A temp called `.<id>.json` would
+# therefore be READ AS A REGISTRY ENTRY while it is still half-written, which
+# is the precise defect the staging is here to prevent. The suffix is the
+# guard, so it is named once and used once.
+_ENTRY_TEMP_PREFIX = ".bd-jobs-entry-"
+_ENTRY_TEMP_SUFFIX = ".tmp"
+
+
+class RegistrationError(RuntimeError):
+    """No record was published, and the caller must act as if none exists.
+
+    Raised rather than returned because there is exactly one safe response and
+    no caller may skip it: a job whose record could not be published must not
+    be allowed to run. A status code can be ignored by accident; this cannot.
+    """
+
+    def __init__(self, message, cleanup_complete=True, retained_paths=None):
+        self.cleanup_complete = bool(cleanup_complete)
+        self.retained_paths = list(retained_paths or [])
+        super().__init__(message)
+
+
+class _PublicationResult:
+    """Private publication fact; public register() still returns an entry."""
+
+    def __init__(self, entry, attempted, disposition):
+        self.entry = entry
+        self.attempted = attempted
+        self.disposition = disposition
+
+
+class PublishedNotDurable(RuntimeError):
+    """A COMPLETE, VALID FINAL EXISTS and could neither be proven durable nor
+    provably withdrawn.
+
+    DELIBERATELY NOT a RegistrationError, and this is the whole point of having
+    two classes. The two say opposite things about the disk -- "there is no
+    record" versus "there is a record and I cannot account for it" -- and the
+    only reason the old code deleted a live entry's log while reporting
+    "nothing was registered" is that one branch handled both. A caller that
+    catches RegistrationError must not silently catch this.
+
+    Carries the exact path so the caller can NAME it instead of describing it,
+    and the log so nothing deletes a file the retained entry still refers to.
+    """
+
+    def __init__(self, final, log, detail, entry_id=None):
+        self.final = pathlib.Path(final)
+        self.log = log
+        self.detail = detail
+        self.entry_id = entry_id or self.final.name[:-len(".json")]
+        super().__init__("RETAINED %s; durability/cleanup UNKNOWN (%s)"
+                         % (self.final, detail))
+
+
+class PublishedCloseUnknown(RuntimeError):
+    """A durable publication succeeded, but releasing its registry lock did not.
+
+    The entry and id are structured attributes because callers must continue
+    from the fact on disk, not classify this like a pre-publication failure and
+    destroy the evidence that record owns.
+    """
+
+    def __init__(self, entry, final, detail, disposition="created",
+                 attempted=None):
+        self.entry = entry
+        self.final = pathlib.Path(final)
+        self.entry_id = entry["id"]
+        self.detail = detail
+        self.disposition = disposition
+        self.attempted = attempted
+        self.entry["_path"] = str(self.final)
+        super().__init__(
+            "record %s is durable at %s, but registry lock close is UNKNOWN "
+            "(%s)" % (self.entry_id, self.final, detail))
+
+
+def _unlink_verified(path):
+    """Remove a path and PROVE it is gone. Returns (removed, sentence).
+
+    An unlink whose result is never read is how "removed" gets printed over a
+    file that is still there. Absence is the claim, so absence is what is
+    measured -- including the already-absent case, which is a success.
+    """
+    path = str(path)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return True, "%s was already absent" % path
+    except OSError as exc:
+        if os.path.lexists(path):
+            return False, "COULD NOT remove %s: %s" % (path, exc)
+        return True, "removed %s" % path
+    if os.path.lexists(path):
+        return False, "%s still exists after unlink" % path
+    return True, "removed %s" % path
+
+
+def _fsync_dir(path):
+    """A rename is not durable until the DIRECTORY holding it is.
+
+    fsync on the file makes the BYTES survive a power loss. The NAME lives in
+    the parent directory, so without this the entry can survive with no name
+    pointing at it -- work with no record, which is the whole subject.
+    """
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _publish_entry(entry):
+    """Stage, make durable, RE-VERIFY IDENTITY, then publish atomically.
+
+    An entry is a kill instruction. The single `write_text` this replaces made
+    the visible name appear before its bytes were on the device, so a reader --
+    `load_all()`, and therefore `reap` -- could see a truncated entry, or one
+    whose `starttime` never landed. `load_all()` swallows the torn read, which
+    turns a job WITH a record into a job with NO record while everything looks
+    consistent; and a null start time makes the final malformed and every
+    reader UNKNOWN, so a torn write becomes retained, unusable evidence.
+
+    The identity re-check between fsync and replace is the second half. The
+    start time was sampled before the bytes were written; if the process died
+    in between and the kernel handed its pid to a stranger, publishing would
+    arm this tool to kill that stranger. Nothing is published in that case.
+
+    TWO FAILURE MODES, NEVER ONE (the v3.66.1206 audit). `os.replace` is the
+    instant a name becomes visible, so a failure before it and a failure after
+    it are opposite facts. Before: nothing exists, the temp is removed, and
+    RegistrationError says so. After: a COMPLETE VALID ENTRY IS ON DISK, and
+    reporting "nothing was registered" -- which is what the first version of
+    this transaction did -- made the caller delete the log of a live record.
+    """
+    reason = _entry_schema_reason(entry)
+    if reason is not None:
+        raise RegistrationError(
+            "refusing to stage a malformed registry record: %s" % reason)
+    final = JOBS_DIR / ("%s.json" % entry["id"])
+    try:
+        lock = _lock_registry()
+    except OSError as exc:
+        raise RegistrationError(
+            "could not acquire the registry lock before publication: %s" % exc
+        ) from exc
+    try:
+        displaced_prior = os.path.lexists(str(final))
+        preserved = _decide_collision(final, entry)
+        if preserved is not None:
+            result = _PublicationResult(preserved, entry, "preserved")
+        else:
+            published = _stage_and_replace_under_lock(
+                final, entry, displaced_prior=displaced_prior)
+            result = _PublicationResult(published, entry, "created")
+    except BaseException as primary:
+        # Preserve the existing failure contract: an unlock failure while a
+        # publication operation is already failing remains that operation's
+        # failure path. Only a completed publication has an entry to retain.
+        try:
+            _unlock_registry(lock)
+        except OSError as secondary:
+            _note_secondary_failure(
+                primary, "registry lock release is UNKNOWN", secondary)
+        raise
+    try:
+        _unlock_registry(lock)
+    except OSError as exc:
+        raise PublishedCloseUnknown(
+            result.entry, final, exc, disposition=result.disposition,
+            attempted=entry) from exc
+    return result
+
+
+def _lock_registry():
+    """Hold the registry across read -> decide -> replace -> directory fsync.
+
+    THE DIRECTORY ITSELF IS THE LOCK OBJECT: `flock` works on any descriptor,
+    so there is no lock FILE to name, to leave behind, to exclude from the
+    `*.json` population, or to race on unlink. Two launchers registering the
+    same pid would otherwise both read "absent", both stage, and both replace --
+    and the loser's record is the one an operator would reap.
+    """
+    fd = os.open(str(JOBS_DIR), os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except BaseException as primary:
+        try:
+            os.close(fd)
+        except OSError as secondary:
+            _note_secondary_failure(
+                primary, "registry lock descriptor close is UNKNOWN", secondary)
+        raise
+    return fd
+
+
+def _unlock_registry(fd):
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _note_secondary_failure(primary, context, secondary):
+    """Keep the causal exception class and make unwind failure observable."""
+    # This must be part of ``str(primary)``, not only an exception ``__note__``:
+    # command handlers render the caught exception without a traceback. Raising
+    # ``secondary`` here would overwrite the known publication/cleanup state.
+    combined = "%s; %s (%s)" % (primary, context, secondary)
+    primary.args = (combined,)
+    # OSError.__str__ renders its dedicated ``strerror`` attribute rather than
+    # the reassigned args. Keep structured errno identity while making the
+    # secondary uncertainty visible to command handlers.
+    if isinstance(primary, OSError):
+        primary.strerror = combined
+
+
+def _decide_collision(final, entry):
+    """What to do about a record that is already at this id. Returns the entry
+    to PRESERVE, or None to publish.
+
+    PID AND STARTTIME ARE THE ONLY AUTHORITY, because they are the only fields
+    the kernel backs. Same pid and same start time is the same process, so the
+    record already on disk is the one another reader may already be acting on:
+    it is returned unchanged rather than rewritten. A different start time is a
+    record of a process that provably no longer exists, so it is stale and
+    replaceable. Bytes that cannot be read decide nothing, so they are kept and
+    the publication is refused -- overwriting them would destroy the only
+    evidence of what went wrong.
+
+    Nothing else may be consulted here. `request_id` in particular is evidence
+    for an operator reconciling a transport failure, NOT a second identity.
+    """
+    if not os.path.lexists(str(final)):
+        return None
+    prior, reason = _read_final(final)
+    if reason is not None:
+        raise RegistrationError(
+            "a prior registry file at %s cannot be read (%s), so nothing can "
+            "decide whether it describes this job. It is RETAINED unchanged "
+            "and nothing was published; move it aside by hand." % (final, reason))
+    if (prior.get("pid") == entry["pid"]
+            and prior.get("starttime") == entry["starttime"]):
+        prior["_path"] = str(final)
+        return prior
+    _inherit_displaced_owned_state(prior, entry)
+    return None
+
+
+def _inherit_displaced_owned_state(prior, replacement):
+    """Transfer cleanup authority from a stale record into its replacement.
+
+    The new final atomically replaces the old one, so after that instant no
+    record names the old record's log or adopted scripts unless they travel in
+    the replacement. Only paths this tool can prove it owned are transferred.
+    """
+    inherited = list(replacement.get("owned_paths") or [])
+
+    def add(path):
+        if path and _log_is_a_direct_child_of_the_registry(path) \
+                and str(path) not in inherited:
+            inherited.append(str(path))
+
+    for path in prior.get("owned_paths") or []:
+        add(path)
+    prior_log = prior.get("log")
+    log_owned = prior.get("log_owned")
+    if log_owned is None:
+        log_owned = _log_is_a_direct_child_of_the_registry(prior_log)
+    if log_owned:
+        add(prior_log)
+    if inherited:
+        replacement["owned_paths"] = inherited
+
+
+def _stage_and_replace_under_lock(final, entry, displaced_prior=False):
+    """The atomic half, and the ONLY place a name appears in the registry.
+
+    Called from `_publish_entry` and nowhere else, always with the registry
+    lock held -- which is why it is spelled that way in its name rather than
+    left to a comment. `test_register_is_the_sole_bd_jobs_json_registry_writer`
+    pins that surface: every call that creates or renames a file under
+    `JOBS_DIR` lives in this function, `_publish_entry`, or `open_job_log`.
+    """
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=_ENTRY_TEMP_PREFIX,
+                                   suffix=_ENTRY_TEMP_SUFFIX, dir=str(JOBS_DIR))
+    except OSError as exc:
+        raise RegistrationError(
+            "could not acquire a staged entry for %s: %s" % (final.name, exc)
+        ) from exc
+    published = False
+    fh = None
+    fd_state = "raw"
+    close_unknown = None
+    try:
+        fh = os.fdopen(fd, "w", encoding="utf-8")
+        fd_state = "file"
+        fh.write(json.dumps(entry, indent=2))
+        fh.flush()
+        os.fsync(fh.fileno())
+        # Mark the authority spent BEFORE close. If close raises, retrying it
+        # or unlinking its inode would recreate authority the error destroyed.
+        fd_state = "close-attempted"
+        try:
+            fh.close()
+        except BaseException as exc:
+            close_unknown = exc
+            raise
+        fd_state = "closed"
+        now = proc_starttime(entry["pid"])
+        if now != entry["starttime"]:
+            raise RegistrationError(
+                "pid %s stopped being the process that was measured while its "
+                "entry was being written (start time %r -> %r), so publishing "
+                "would arm reap against whatever holds that pid now. Nothing "
+                "was published." % (entry["pid"], entry["starttime"], now))
+        os.replace(tmp, str(final))
+        published = True
+        _fsync_dir(JOBS_DIR)
+    except BaseException as exc:
+        if not published:
+            # ONE DISPOSITION FUNNEL. Every pre-replace primary arrives here
+            # with the stage's monotonic fd state; no inner branch unlinks and
+            # no failed cleanup can be retried by an outer handler.
+            if fd_state == "raw":
+                fd_state = "raw-close-attempted"
+                try:
+                    os.close(fd)
+                except BaseException as secondary:
+                    close_unknown = secondary
+                    _note_secondary_failure(
+                        exc, "raw stage fd close is UNKNOWN", secondary)
+                else:
+                    fd_state = "closed"
+            elif fd_state == "file":
+                fd_state = "file-close-attempted"
+                try:
+                    fh.close()
+                except BaseException as secondary:
+                    close_unknown = secondary
+                    _note_secondary_failure(
+                        exc, "staged file close is UNKNOWN", secondary)
+                else:
+                    fd_state = "closed"
+
+            if close_unknown is not None:
+                removed, note = False, (
+                    "stage descriptor close is UNKNOWN (%s), so RETAINED %s "
+                    "without retrying close or unlinking a possibly-open inode"
+                    % (close_unknown, tmp))
+            else:
+                removed, note = _unlink_verified(tmp)
+
+            if isinstance(exc, RegistrationError):
+                if not removed:
+                    exc.cleanup_complete = False
+                    exc.retained_paths = [str(tmp)]
+                    exc.args = ("%s; %s" % (exc, note),)
+                raise
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                if not removed:
+                    _note_secondary_failure(
+                        exc, "staged entry cleanup is incomplete at %s" % tmp,
+                        RegistrationError(note))
+                raise
+            raise RegistrationError(
+                "could not publish %s: %s -- no final was written; %s"
+                % (final.name, exc, note), cleanup_complete=removed,
+                retained_paths=[] if removed else [str(tmp)]) from exc
+        if displaced_prior:
+            # The replacement now contains the displaced record's cleanup
+            # authority. Withdrawing it would leave no final naming either
+            # record's owned artifacts, so retention is the only recoverable
+            # post-replace outcome.
+            raise PublishedNotDurable(
+                final, entry.get("log"),
+                "%s; the replacement displaced a validated stale record and "
+                "is RETAINED because it is now the sole cleanup authority"
+                % exc) from exc
+        raise _withdraw_or_retain(final, entry, exc) from exc
+    return entry
+
+
+def _withdraw_or_retain(final, entry, cause):
+    """A publication that is already visible: withdraw it, or KEEP AND NAME it.
+
+    Returns the exception the caller must raise -- never raises one itself, so
+    the decision and the reporting stay in one readable place.
+
+    THE DIRECTORY IS PROBED FIRST, and that order is the correction. Removing a
+    valid record is itself an act that must be durable; if this directory
+    cannot be fsynced at all -- which is exactly the condition that brought us
+    here -- then an unlink is an operation whose result nobody can trust, and
+    destroying a live record on the strength of it is the same class of mistake
+    as publishing one that was never written. So: prove durability works, THEN
+    withdraw, THEN prove the withdrawal. Any step that cannot be proven leaves
+    the valid final exactly where it is, named for the operator.
+    """
+    try:
+        _fsync_dir(JOBS_DIR)
+    except OSError as probe:
+        return PublishedNotDurable(
+            final, entry.get("log"),
+            "%s; the registry directory could not be made durable on a second "
+            "attempt either (%s), so the entry was NOT withdrawn -- removing a "
+            "valid record through an operation that cannot be proven is not a "
+            "rollback" % (cause, probe))
+    removed, note = _unlink_verified(final)
+    if not removed:
+        return PublishedNotDurable(final, entry.get("log"),
+                                   "%s; %s" % (cause, note))
+    try:
+        _fsync_dir(JOBS_DIR)
+    except OSError as after:
+        return PublishedNotDurable(
+            final, entry.get("log"),
+            "%s; the entry was unlinked but that removal could not be made "
+            "durable (%s), so it may come back" % (cause, after))
+    return RegistrationError(
+        "could not make %s durable (%s); the entry was withdrawn again and "
+        "verified absent, so nothing is published" % (final.name, cause))
+
+
+def _request_id_reason(request_id):
+    if not isinstance(request_id, str):
+        return "is not a string"
+    if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", request_id) is None:
+        return "must match [A-Za-z0-9._-]{1,128}"
+    return None
+
+
+def _attempt_token_reason(attempt_token):
+    if not isinstance(attempt_token, str) \
+            or re.fullmatch(r"[0-9a-f]{32}", attempt_token) is None:
+        return "must be one lowercase 128-bit hexadecimal token"
+    return None
+
+
+def register(pid, purpose, cmd, origin=None, log=None, log_owned=False,
+             owned_paths=None, request_id=None, attempt_token=None,
+             _return_publication=False):
+    """Publish ONE complete entry, or publish nothing and say why.
+
+    The pid is validated SEMANTICALLY, not merely syntactically: a number that
+    no live process answers to cannot be given a start time, and an entry with
+    no start time is one this tool refuses to kill and refuses to forget. Such
+    an entry is not a weaker record -- it is litter that no verb can clear.
+
+    `log_owned` says WHO CREATED THE LOG, and only the launcher passes True. A
+    `log` field is otherwise a path somebody handed us -- `bd-sweep-run` and
+    `bd-wedge-hunt` register a pid whose log is their own run directory's
+    evidence -- and `forget()` must not delete an operator's evidence just
+    because an entry mentioned it.
+    """
+    if request_id is not None:
+        reason = _request_id_reason(request_id)
+        if reason is not None:
+            raise RegistrationError("refusing request id %r: %s"
+                                    % (request_id, reason))
+    if attempt_token is not None:
+        reason = _attempt_token_reason(attempt_token)
+        if reason is not None:
+            raise RegistrationError("refusing attempt token: %s" % reason)
+    try:
+        JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RegistrationError(
+            "could not prepare registry %s before publication: %s"
+            % (JOBS_DIR, exc)) from exc
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        raise RegistrationError("not a pid: %r" % (pid,))
+    if pid <= 0:
+        raise RegistrationError(
+            "refusing to register pid %d: 0 and negatives name process GROUPS "
+            "to kill(2), not a process" % pid)
+    starttime = proc_starttime(pid)
+    if starttime is None:
+        raise RegistrationError(
+            "pid %d has no readable /proc start time, so no later reader could "
+            "ever prove it is still the same process. Readers grade such an "
+            "entry UNKNOWN and KEEP it for manual adjudication, so writing one "
+            "creates unusable evidence instead of a record" % pid)
     entry = {
         "id": "%s-%d" % (socket.gethostname(), pid),
         "pid": pid,
-        "starttime": proc_starttime(pid),
+        "starttime": starttime,
         "purpose": purpose,
         "cmd": cmd,
         "host": socket.gethostname(),
@@ -164,41 +664,488 @@ def register(pid, purpose, cmd, origin=None, log=None):
         # for it rather than guessing.
         "log": log,
     }
+    if log:
+        # Recorded only when there IS a log, so an entry without one keeps the
+        # exact operator schema it has always had.
+        entry["log_owned"] = bool(log_owned)
+    if owned_paths:
+        # Auxiliary files THIS transaction created on this host -- today, a
+        # script copied in for a delegated job. Recorded so `forget()` can
+        # reclaim them, and normalized again at removal time: a recorded path
+        # is a claim, not a capability.
+        entry["owned_paths"] = [str(p) for p in owned_paths]
+    if request_id:
+        # EVIDENCE, NOT IDENTITY. It exists so an operator can reconcile a
+        # transport failure -- "did this launch actually land?" -- against the
+        # target's registry. `_decide_collision` never reads it.
+        entry["request_id"] = request_id
+    if attempt_token:
+        entry["attempt_token"] = attempt_token
     run_marker = os.environ.get("BD_JOBS_RUN_MARKER")
     if run_marker:
         entry["run_marker"] = run_marker
-    (JOBS_DIR / ("%s.json" % entry["id"])).write_text(
-        json.dumps(entry, indent=2), encoding="utf-8")
-    return entry
+    publication = _publish_entry(entry)
+    published = publication.entry
+    # The scanned path travels with the returned entry too, so a caller undoing
+    # its own publication removes the file it actually wrote.
+    published["_path"] = str(JOBS_DIR / ("%s.json" % published["id"]))
+    return publication if _return_publication else published
+
+
+class _RegistrySnapshot(list):
+    """The valid entries -- and, separately, what could not be read.
+
+    A LIST, so every existing caller keeps working unchanged. The extra
+    attribute is the whole correction: `except (OSError, ValueError): continue`
+    threw away the fact that a file existed at all, so a torn entry became a job
+    with no record and every verb reported success over the gap. UNKNOWN is a
+    failing third state (CLAUDE.md A2), and it cannot be reported by a reader
+    that has already forgotten the question.
+    """
+
+    def __init__(self, entries=(), malformed=()):
+        super().__init__(entries)
+        self.malformed = list(malformed)
+
+
+def _object_without_duplicates(pairs):
+    """json's default keeps the LAST duplicate key silently. Two readers of the
+    same bytes must not disagree about which pid an entry names."""
+    seen = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError("duplicate key %r" % key)
+        seen[key] = value
+    return seen
+
+
+def _filesystem_path_reason(value):
+    """Why a string cannot safely be handed to this host's filesystem APIs."""
+    if "\0" in value:
+        return "contains NUL and is not a usable filesystem path"
+    try:
+        os.fsencode(value)
+    except (ValueError, UnicodeError) as exc:
+        return "cannot be encoded as a filesystem path: %s" % exc
+    return None
+
+
+def _entry_schema_reason(entry, filename=None):
+    """Return why registry content is unsafe, without touching the filesystem."""
+    if not isinstance(entry, dict):
+        return "not a JSON object: %s" % type(entry).__name__
+    pid = entry.get("pid")
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return "pid is not a process id: %r" % (pid,)
+    ident, host = entry.get("id"), entry.get("host")
+    if not isinstance(ident, str) or not ident:
+        return "id is missing or not a string"
+    if not isinstance(host, str) or not host:
+        return "host is missing or not a string"
+    if ident != "%s-%d" % (host, pid):
+        return ("id %r disagrees with its own host/pid (%s/%d)"
+                % (ident, host, pid))
+    if filename is not None and filename != "%s.json" % ident:
+        return "filename disagrees with the id it contains (%r)" % ident
+    starttime = entry.get("starttime")
+    if isinstance(starttime, bool) or not isinstance(starttime, int) \
+            or starttime <= 0:
+        return "starttime is not a positive process identity: %r" % (starttime,)
+    for key in ("purpose", "cmd", "origin", "started_at"):
+        if key not in entry or not isinstance(entry[key], str):
+            return "%s is missing or not a string" % key
+    log = entry.get("log")
+    if log is not None and not isinstance(log, str):
+        return "log is neither a path nor absent: %r" % (log,)
+    if log is not None:
+        reason = _filesystem_path_reason(log)
+        if reason is not None:
+            return "log is not a usable filesystem path: %s" % reason
+    if "log_owned" in entry and not isinstance(entry["log_owned"], bool):
+        return "log_owned is not a boolean: %r" % (entry["log_owned"],)
+    owned_paths = entry.get("owned_paths")
+    if owned_paths is not None and not isinstance(owned_paths, list):
+        return "owned_paths is not a list of non-empty paths: %r" % owned_paths
+    for value in owned_paths or []:
+        if not isinstance(value, str) or not value:
+            return "owned_paths is not a list of non-empty paths: %r" % owned_paths
+        reason = _filesystem_path_reason(value)
+        if reason is not None:
+            return ("owned_paths entry %r is not a usable filesystem path: %s"
+                    % (value, reason))
+    if "request_id" in entry:
+        reason = _request_id_reason(entry["request_id"])
+        if reason is not None:
+            return "request_id %s: %r" % (reason, entry["request_id"])
+    if "attempt_token" in entry:
+        reason = _attempt_token_reason(entry["attempt_token"])
+        if reason is not None:
+            return "attempt_token %s" % reason
+    if "run_marker" in entry and (
+            not isinstance(entry["run_marker"], str) or not entry["run_marker"]):
+        return "run_marker is not a non-empty string: %r" % entry["run_marker"]
+    return None
+
+
+def _read_final(path):
+    """Validate one registry file completely. Returns (entry, None) or
+    (None, reason).
+
+    AN ENTRY IS A KILL INSTRUCTION, so "it parsed" is not the bar. Each check
+    below is a way the bytes could name a process this tool would then signal:
+
+      * a symlink or a device is not a file this tool wrote, and following one
+        is how a registry becomes a way to point `reap` at something else;
+      * `True` is an `int` in Python, so an unchecked `pid` of `true` signals
+        pid 1;
+      * a name that disagrees with its own contents means one of the two is
+        wrong, and neither can be trusted to decide what to kill.
+    """
+    try:
+        st = os.lstat(str(path))
+    except OSError as exc:
+        return None, "cannot be stat()ed: %s" % exc
+    if not stat.S_ISREG(st.st_mode):
+        return None, ("not a regular file -- a registry entry is never a "
+                      "symlink, a directory or a device")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, "unreadable: %s" % exc
+    try:
+        entry = json.loads(text, object_pairs_hook=_object_without_duplicates)
+    except ValueError as exc:
+        return None, "not usable JSON: %s" % exc
+    reason = _entry_schema_reason(entry, filename=path.name)
+    if reason is not None:
+        return None, reason
+    return entry, None
 
 
 def load_all():
+    """Every valid entry, plus a named account of every file that is not one."""
     if not JOBS_DIR.is_dir():
-        return []
-    out = []
+        return _RegistrySnapshot()
+    entries, malformed = [], []
     for f in sorted(JOBS_DIR.glob("*.json")):
+        entry, reason = _read_final(f)
+        if reason is not None:
+            malformed.append((f, reason))
+            continue
+        # THE SCANNED PATH TRAVELS WITH THE ENTRY. Every later removal uses it,
+        # so nothing ever unlinks a path rebuilt out of the file's own `id` --
+        # which is untrusted content in exactly the files this rejects.
+        entry["_path"] = str(f)
+        entries.append(entry)
+    return _RegistrySnapshot(entries, malformed)
+
+
+def _name_malformed(rows, kept_note):
+    """Name every unreadable final on stderr and grade the read.
+
+    Returns the exit status the verb must carry: UNKNOWN is not a pass, and it
+    is not the verb's ordinary failure either -- `reap` still returns 1 when it
+    REFUSED a live entry, and a caller must be able to tell the two apart.
+    """
+    for path, reason in rows.malformed:
+        print("UNREADABLE %s: %s" % (path, reason), file=sys.stderr)
+    if rows.malformed:
+        print(kept_note, file=sys.stderr)
+        return _EXIT_REGISTRY_UNKNOWN
+    return 0
+
+
+def _log_is_a_direct_child_of_the_registry(log):
+    """Is this a log THIS TOOL created? Normalized, and DIRECT.
+
+    The location is the only evidence a legacy entry carries, so it is applied
+    exactly: `os.path.realpath` first, because `/tmp/bd-jobs/../evidence.log`
+    and a symlinked path both name something outside; and the parent must BE
+    the registry, not merely contain it somewhere above.
+    """
+    if not log:
+        return False
+    try:
+        here = pathlib.Path(os.path.realpath(str(log)))
+        registry = pathlib.Path(os.path.realpath(str(JOBS_DIR)))
+    except (OSError, ValueError, UnicodeError):  # pragma: no cover - defensive
+        return False
+    return here.parent == registry
+
+
+def _path_identity(path):
+    """The pathname occupant cleanup authority was measured against."""
+    try:
+        measured = os.lstat(str(path))
+    except FileNotFoundError:
+        return ("absent",)
+    except (OSError, ValueError, UnicodeError) as exc:
+        return ("unreadable", type(exc).__name__, str(exc))
+    return ("present", measured.st_dev, measured.st_ino,
+            stat.S_IFMT(measured.st_mode))
+
+
+def _unlink_owned_identity(path, observed):
+    """Remove only the same pathname occupant observed before withdrawal.
+
+    Returns (removed, note, directory_changed). A later file reusing the name
+    belongs to whoever created that later inode, not to the withdrawn entry.
+    """
+    current = _path_identity(path)
+    if current == ("absent",):
+        return True, "%s was already absent" % path, False
+    if observed[0] == "unreadable":
+        return False, (
+            "KEPT %s: its identity could not be measured before entry "
+            "withdrawal (%s)" % (path, observed[-1])), False
+    if observed == ("absent",) or current != observed:
+        return False, (
+            "KEPT %s: the pathname occupant changed after the entry was read"
+            % path), False
+    try:
+        fd, quarantine = tempfile.mkstemp(
+            prefix=".bd-jobs-cleanup-", suffix=".tmp", dir=str(JOBS_DIR))
+    except OSError as exc:
+        return False, (
+            "COULD NOT prepare identity-bound cleanup for %s: %s"
+            % (path, exc)), False
+    try:
+        os.close(fd)
+    except OSError as exc:
+        # A failed close has deliberately unknown descriptor state. Retain the
+        # name: unlinking here could manufacture an unnamed open inode which
+        # neither a later cleanup nor an operator could find.
+        return False, (
+            "COULD NOT close cleanup quarantine for %s: %s; KEPT %s because "
+            "its descriptor state is UNKNOWN" % (path, exc, quarantine)), True
+    try:
+        os.replace(str(path), quarantine)
+    except FileNotFoundError:
+        discarded, discard_note = _unlink_verified(quarantine)
+        if discarded:
+            return True, "%s was already absent; %s" % (path, discard_note), True
+        return False, (
+            "%s was already absent, but its cleanup quarantine was RETAINED: %s"
+            % (path, discard_note)), True
+    except OSError as exc:
+        discarded, discard_note = _unlink_verified(quarantine)
+        return False, (
+            "COULD NOT quarantine %s for removal: %s; %s"
+            % (path, exc, discard_note)), True
+
+    captured = _path_identity(quarantine)
+    if captured != observed:
+        # The name changed between the comparison above and the atomic move.
+        # Put the captured replacement back without overwriting anything that
+        # appeared after the move; if that is impossible, retain the quarantine.
         try:
-            out.append(json.loads(f.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            continue                    # a torn write is not a reason to fail
-    return out
+            os.link(quarantine, str(path), follow_symlinks=False)
+        except FileExistsError:
+            restore_note = (
+                "%s already has another occupant; changed bytes retained at %s"
+                % (path, quarantine))
+        except OSError as exc:
+            restore_note = (
+                "changed bytes retained at %s because %s could not be restored: %s"
+                % (quarantine, path, exc))
+        else:
+            discarded, discard_note = _unlink_verified(quarantine)
+            restore_note = (
+                "restored the changed pathname occupant at %s; %s"
+                % (path, discard_note))
+        return False, "KEPT %s: %s" % (path, restore_note), True
+
+    removed, quarantine_note = _unlink_verified(quarantine)
+    if removed:
+        note = "removed %s through identity-bound quarantine %s" % (
+            path, quarantine)
+    else:
+        note = "COULD NOT remove %s: %s" % (path, quarantine_note)
+    return removed, note, True
+
+
+def _cleanup_attempt_identity(path, observed):
+    """Target-side attempt cleanup with the same compare/quarantine contract."""
+    removed, note, changed = _unlink_owned_identity(str(path), observed)
+    if changed:
+        try:
+            _fsync_dir(JOBS_DIR)
+        except OSError as exc:
+            removed = False
+            note = "%s; cleanup durability is UNKNOWN (%s)" % (note, exc)
+    if not removed and "identity" not in note.lower():
+        note = "%s; captured identity did not authorize deletion" % note
+    return removed, note
 
 
 def forget(entry):
+    """Remove an entry, and its log ONLY IF THIS TOOL CREATED THE LOG.
+
+    THE LOG GOES WITH THE ENTRY. Section 0: creating a path is a promise to
+    remove it, and an artifact whose retention nobody bounded is a leak by
+    construction -- 744 orphaned directories under /tmp is what that costs
+    here. `list` prints the path precisely so it can be copied out first.
+
+    BUT A `log` FIELD IS NOT A LICENCE TO DELETE. Two live consumers register a
+    pid whose log is their own run directory's evidence file; unlinking
+    whatever the field named would destroy an operator's evidence during an
+    ordinary reap. So ownership is proven, mirroring `_terminate_and_wait`'s
+    ppid check: an entry this launcher wrote says so (`log_owned`), and an
+    entry from before that field existed is trusted only when its log is a
+    direct child of the registry directory. Returns a structured outcome so a
+    caller can report what actually happened rather than what was attempted.
+    """
+    # THE SCANNED PATH, not one rebuilt from the entry's own `id`: the id is
+    # content, and content is exactly what `_read_final` exists to distrust.
+    final = pathlib.Path(entry.get("_path")
+                         or (JOBS_DIR / ("%s.json" % entry["id"])))
+    expected = {key: value for key, value in entry.items() if key != "_path"}
+    outcome = None
+    primary = None
     try:
-        (JOBS_DIR / ("%s.json" % entry["id"])).unlink()
-    except OSError:
-        pass
-    # THE LOG GOES WITH THE ENTRY. Section 0: creating a path is a promise to
-    # remove it, and an artifact whose retention nobody bounded is a leak by
-    # construction -- 744 orphaned directories under /tmp is what that costs
-    # here. `list` prints the path precisely so it can be copied out first.
-    log = entry.get("log")
-    if log:
+        lock = _lock_registry()
+    except OSError as exc:
+        note = "COULD NOT lock %s before removal: %s" % (final, exc)
+        return {"entry_removed": False, "entry_absent_durable": False,
+                "log_removed": None, "cleanup_complete": False,
+                "owned_removed": [], "notes": [note]}
+
+    try:
+        log = entry.get("log")
+        log_owned = entry.get("log_owned")
+        if log_owned is None:
+            log_owned = _log_is_a_direct_child_of_the_registry(log)
+        eligible_log = bool(
+            log and log_owned and _log_is_a_direct_child_of_the_registry(log))
+
+        if not os.path.lexists(str(final)):
+            notes = [
+                "%s was already absent; this call has no cleanup authority "
+                "and did not probe any artifact identity" % final]
+            claims = list(entry.get("owned_paths") or [])
+            if eligible_log:
+                claims.append(log)
+            for path in claims:
+                notes.append(
+                    "KEPT %s: only a matching present final can grant cleanup "
+                    "authority" % path)
+            outcome = {
+                "entry_removed": False, "entry_absent_durable": False,
+                "log_removed": False if log else None,
+                "cleanup_complete": False, "owned_removed": [
+                    False for _ in entry.get("owned_paths") or []],
+                "notes": notes,
+            }
+            return outcome
+        else:
+            current, reason = _read_final(final)
+            if reason is not None:
+                removed, note = False, (
+                    "COULD NOT remove %s: its current bytes are unreadable "
+                    "(%s), so they cannot be proven to be this entry"
+                    % (final, reason))
+            elif current != expected:
+                removed, note = False, (
+                    "COULD NOT remove %s: the record changed since it was "
+                    "read, so the current entry is RETAINED" % final)
+            else:
+                # Only exact bytes under this lock confer authority to measure
+                # the artifacts the final names. Absence, unreadability and a
+                # changed record above never even probe current occupants.
+                owned_snapshots = []
+                for extra in entry.get("owned_paths") or []:
+                    if _log_is_a_direct_child_of_the_registry(extra):
+                        owned_snapshots.append((extra, _path_identity(extra)))
+                    else:
+                        owned_snapshots.append((extra, None))
+                log_snapshot = _path_identity(log) if eligible_log else None
+                removed, note = _unlink_verified(final)
+
+        durable = False
+        notes = [note]
+        if removed:
+            try:
+                _fsync_dir(JOBS_DIR)
+                durable = True
+            except OSError as exc:
+                notes.append(
+                    "COULD NOT make the absence of %s durable: %s; every "
+                    "artifact it named is KEPT because the entry may return "
+                    "after a crash" % (final, exc))
+        outcome = {"entry_removed": removed,
+                   "entry_absent_durable": durable,
+                   "log_removed": None,
+                   "cleanup_complete": removed and durable,
+                   "owned_removed": [], "notes": notes}
+        if not removed or not durable:
+            # The record still exists, or may return after a crash. Its files
+            # must remain a complete recovery set in either case.
+            for extra in entry.get("owned_paths") or []:
+                outcome["owned_removed"].append(False)
+                outcome["notes"].append(
+                    "KEPT %s: the entry still names it or may return" % extra)
+            if log:
+                outcome["log_removed"] = False
+                outcome["notes"].append(
+                    "KEPT %s: the entry still names it or may return" % log)
+            return outcome
+
+        directory_changed = False
+        for extra, observed in owned_snapshots:
+            if observed is not None:
+                extra_removed, extra_note, changed = _unlink_owned_identity(
+                    extra, observed)
+                directory_changed = directory_changed or changed
+                outcome["owned_removed"].append(extra_removed)
+                outcome["cleanup_complete"] = (
+                    outcome["cleanup_complete"] and extra_removed)
+                outcome["notes"].append(extra_note)
+            else:
+                outcome["owned_removed"].append(None)
+                outcome["notes"].append(
+                    "KEPT %s: an entry may NAME any path, but this tool removes "
+                    "only what it created inside %s" % (extra, JOBS_DIR))
+
+        if log:
+            if eligible_log:
+                log_removed, log_note, changed = _unlink_owned_identity(
+                    log, log_snapshot)
+                directory_changed = directory_changed or changed
+            else:
+                log_removed, log_note = False, (
+                    "KEPT %s: this tool did not create it, so it is the caller's "
+                    "evidence, not ours to delete" % log)
+            outcome["log_removed"] = log_removed
+            if eligible_log:
+                outcome["cleanup_complete"] = (
+                    outcome["cleanup_complete"] and log_removed)
+            outcome["notes"].append(log_note)
+
+        if directory_changed:
+            try:
+                _fsync_dir(JOBS_DIR)
+            except OSError as exc:
+                outcome["cleanup_complete"] = False
+                outcome["notes"].append(
+                    "COULD NOT make owned-artifact cleanup durable: %s" % exc)
+        return outcome
+    except BaseException as exc:
+        primary = exc
+        raise
+    finally:
         try:
-            os.unlink(log)
-        except OSError:
-            pass
+            _unlock_registry(lock)
+        except OSError as unlock_exc:
+            if primary is not None:
+                _note_secondary_failure(
+                    primary, "registry unlock after cleanup also failed",
+                    unlock_exc)
+            elif outcome is None:
+                raise
+            else:
+                outcome["cleanup_complete"] = False
+                outcome["notes"].append(
+                    "REGISTRY LOCK RELEASE UNKNOWN: %s" % unlock_exc)
 
 
 # ── verbs ────────────────────────────────────────────────────────────────────
@@ -217,13 +1164,25 @@ def cmd_list(args):
         print("LIVE  %-28s pid=%-7s %s  [%s]  (%s, from %s)"
               % (e["id"], e["pid"], e["purpose"], note, e["started_at"],
                  e["origin"]))
+        if e.get("request_id"):
+            print("      request-id: %s" % e["request_id"])
         if e.get("log"):
             print("      log: %s" % e["log"])
     for e in dead:
         print("DEAD  %-28s pid=%-7s %s  -- finished, entry is stale"
               % (e["id"], e["pid"], e["purpose"]))
+        if e.get("request_id"):
+            print("      request-id: %s" % e["request_id"])
     print("%d live, %d stale on %s" % (len(live), len(dead), socket.gethostname()))
-    return 0
+    if rows.malformed:
+        # ON STDOUT, beside the count it qualifies: a reader that takes the
+        # summary line and never sees stderr would otherwise read a partial
+        # answer as a complete one.
+        print("UNKNOWN: %d of %d registry file(s) unreadable"
+              % (len(rows.malformed), len(rows) + len(rows.malformed)))
+    return _name_malformed(
+        rows, "KEPT for operator adjudication -- these files are the only "
+              "evidence of what went wrong, so no verb removes them")
 
 
 def cmd_orphans(args):
@@ -233,7 +1192,10 @@ def cmd_orphans(args):
     operator's than an agent's, and a tool that guesses about which processes
     belong to whom should guess in the direction of leaving them alone.
     """
-    known = {e["pid"] for e in load_all()}
+    rows = load_all()
+    # PID ALONE IS NOT AN IDENTITY. A stale record for a recycled pid does not
+    # register the live process that now holds that number.
+    known = {(e["pid"], e["starttime"]) for e in rows}
     found = []
     ps = subprocess.run(["ps", "-eo", "pid=,comm=,args="],
                         capture_output=True, text=True).stdout
@@ -244,19 +1206,46 @@ def cmd_orphans(args):
         pid, comm, argv = parts
         if not comm.startswith("python") or "-m pytest" not in argv:
             continue
-        if int(pid) in known:
+        current_starttime = proc_starttime(int(pid))
+        if current_starttime is None:
+            continue
+        if (int(pid), current_starttime) in known:
             continue
         found.append((pid, argv))
     for pid, argv in found:
         print("ORPHAN pid=%-7s %s" % (pid, argv[:110]))
+    # THE COUNT SENTENCE IS A COMPATIBILITY SURFACE, byte for byte:
+    # `bd-cut-preflight:612` regexes the number out of it and grades the host on
+    # it. It is printed unchanged even when the registry could not be fully
+    # read -- the qualification goes to stderr and to the exit code, so the
+    # preflight keeps parsing and stops calling a partial answer a pass.
     print("%d unregistered pytest process(es) on %s"
           % (len(found), socket.gethostname()))
+    unknown = _name_malformed(
+        rows, "UNKNOWN: the registered-pid denominator is incomplete, so a "
+              "process listed above may in fact be registered")
+    if unknown:
+        return unknown
     return 1 if found else 0
+
+
+def _report_incomplete_forget(entry, outcome):
+    """Return True and report when forget() could not finish owned cleanup."""
+    if outcome.get("cleanup_complete"):
+        return False
+    print("REFUSED %s: cleanup is incomplete and retained state remains -- %s"
+          % (entry["id"], "; ".join(outcome.get("notes") or ["no detail"])),
+          file=sys.stderr)
+    return True
 
 
 def cmd_reap(args):
     reaped = refused = 0
-    for e in load_all():
+    rows = load_all()
+    # EVERY VALID ENTRY IS STILL ACTED ON. A `raise`-on-malformed reader would
+    # be louder and far worse: one torn file on a host would disarm the reaper
+    # for every real orphan on it, which is the remedy this tool exists to be.
+    for e in rows:
         if args.id and e["id"] != args.id:
             continue
 
@@ -269,25 +1258,21 @@ def cmd_reap(args):
         st = proc_starttime(e["pid"])
 
         if st is None:
-            forget(e)                     # the process is genuinely gone
-            continue
-
-        if e.get("starttime") is None:
-            # Cannot identify it -- and the ENTRY IS KEPT, deliberately. A pid
-            # we refuse to kill is still work someone must deal with, and
-            # deleting the record is how it becomes invisible again.
-            print("REFUSED %s: entry has no start time, so its pid cannot be "
-                  "distinguished from a recycled one. Entry KEPT; check pid %s "
-                  "by hand." % (e["id"], e["pid"]), file=sys.stderr)
-            refused += 1
+            outcome = forget(e)            # the process is genuinely gone
+            if _report_incomplete_forget(e, outcome):
+                refused += 1
             continue
 
         if st != e["starttime"]:
             # The registered process is gone and something ELSE holds its pid.
             # Forget the record, never touch the stranger.
-            print("stale %s: pid %s belongs to another process now -- entry "
-                  "dropped, nothing killed" % (e["id"], e["pid"]), file=sys.stderr)
-            forget(e)
+            outcome = forget(e)
+            if _report_incomplete_forget(e, outcome):
+                refused += 1
+            else:
+                print("stale %s: pid %s belongs to another process now -- entry "
+                      "dropped, nothing killed" % (e["id"], e["pid"]),
+                      file=sys.stderr)
             continue
 
         # KILL THE GROUP, NOT THE PID -- BUT ONLY WHEN WE CAN PROVE THE PID
@@ -318,9 +1303,673 @@ def cmd_reap(args):
             print("REFUSED %s: %s" % (e["id"], exc), file=sys.stderr)
             refused += 1
             continue
-        forget(e)
+        outcome = forget(e)
+        if _report_incomplete_forget(e, outcome):
+            refused += 1
     print("%d reaped, %d refused on %s" % (reaped, refused, socket.gethostname()))
-    return 1 if refused else 0
+    unknown = _name_malformed(
+        rows, "KEPT for operator adjudication -- a file reap cannot read is a "
+              "job it cannot account for, and deleting it would hide that")
+    # UNKNOWN OUTRANKS THE REFUSAL COUNT, and the refusals are still printed
+    # above: 1 says "I read everything and refused something", which is a
+    # different and weaker claim than "I could not read part of the registry".
+    return unknown or (1 if refused else 0)
+
+
+# ── the release gate ─────────────────────────────────────────────────────────
+#
+# LAUNCH-THEN-REGISTER IS THE INCIDENT IN MINIATURE. The local path used to
+# Popen the user's command and register it afterwards, so any failure between
+# the two left work running with no record -- exactly the orphan this tool
+# exists to prevent, manufactured by the tool itself. The remote path already
+# gets this right by proving registration is possible before launching.
+#
+# Locally the order cannot simply be swapped: the pid IS the thing to register,
+# and it does not exist until the child does. So what is launched is not the
+# user's command but THIS TOOL, in a hidden internal mode: a wrapper that
+# starts normally, blocks reading one byte from an inherited descriptor, and
+# only then `exec`s the user's argv. `exec` keeps the pid, the start time and
+# the process group, so the process that was registered while it could do
+# nothing is the very process that runs the work. If the launcher closes its
+# end without releasing, the wrapper reads EOF and exits without running any
+# user work at all.
+#
+# NOT preexec_fn, MEASURED: blocking there DEADLOCKS `subprocess.Popen`. The
+# parent waits for the child's exec-status handshake before `Popen` returns,
+# and the child waits for a release the parent cannot send until it does. The
+# first attempt at this gate hung exactly there (`red/green-1040-full.log`).
+# A wrapper that has already exec'd has completed that handshake, so the parent
+# is free.
+#
+# AND THE WRAPPER REPORTS READY, which the first wrapper did not (v3.66.1206
+# audit). `Popen` returning proves an interpreter was exec'd -- nothing more.
+# Python startup, importing this file, or argv dispatch can all fail AFTER that
+# and before the gate is ever reached, and the parent would then publish an
+# entry and return 0 for a process holding nothing. Reproduced by the auditor
+# by pointing the wrapper at /dev/null, a valid EMPTY program: rc 0, a printed
+# job id, and a child that had already exited. So there are TWO descriptors: the
+# wrapper writes one READY byte on its own channel once it is genuinely waiting,
+# and the parent registers nothing until it has read exactly that byte, under a
+# bound.
+
+_RELEASE_BYTE = b"G"
+_READY_BYTE = b"R"
+_READY_TIMEOUT_S = 30.0          # generous: this waits only for interpreter start
+_TERMINATE_TIMEOUT_S = 10.0      # cleanup must return even if waitpid never does
+_REMOTE_CONNECT_TIMEOUT_OPTION = "ConnectTimeout=15"
+_SCP_TRANSFER_TIMEOUT_S = 60.0
+_EXIT_GATE_ABANDONED = 75        # the wrapper's exit when it is never released
+_EXIT_REGISTRATION_FAILED = 3    # nothing was published; refusals stay 2
+_EXIT_PUBLISHED_NOT_DURABLE = 5  # a record EXISTS and could not be accounted for
+_GATE_FLAG = "--internal-gate-exec"
+
+# EVERY DISTINCT STATE GETS ITS OWN CODE. CLAUDE.md A5: when several refusals
+# share an exit code, the distinctive one cannot be asserted and mutants escape
+# through the overlap -- this tool has four recorded escapes of exactly that
+# shape. 2 means the launcher refused and nothing ran; 3 means a launch was
+# undone and nothing was published; 5 means a record EXISTS but could not be
+# accounted for; and the two below are the two different UNKNOWNs.
+_EXIT_REGISTRY_UNKNOWN = 4       # part of the registry could not be read
+_EXIT_REMOTE_UNKNOWN = 6         # the transport failed with no target answer
+_EXIT_CLOSE_UNKNOWN = 7          # durable/released, but launcher fd state unknown
+
+
+def _gate_main(argv):
+    """The wrapper: `bd-jobs --internal-gate-exec RELEASE_FD READY_FD -- <argv>`.
+
+    Internal and undocumented in --help on purpose: it is one half of `run`,
+    not a verb an operator invokes. It runs in the registered pid, and the only
+    thing it does before the release is wait.
+
+    ORDER IS THE CONTRACT HERE. Everything that could still fail happens BEFORE
+    the ready byte -- argv parsing, descriptor parsing -- so READY means "this
+    process is now doing nothing but waiting for you", which is the one fact
+    the parent needs before it writes a record that says the job exists.
+    """
+    if len(argv) < 3:
+        print("REFUSED: %s takes two descriptors and a command" % _GATE_FLAG,
+              file=sys.stderr)
+        return 2
+    try:
+        read_fd = int(argv[0])
+        ready_fd = int(argv[1])
+    except ValueError:
+        print("REFUSED: %r are not descriptors" % (argv[:2],), file=sys.stderr)
+        return 2
+    user_argv = list(argv[2:])
+    if user_argv and user_argv[0] == "--":
+        user_argv = user_argv[1:]
+    if not user_argv:
+        print("REFUSED: %s was given no command" % _GATE_FLAG, file=sys.stderr)
+        return 2
+    try:
+        written = os.write(ready_fd, _READY_BYTE)
+        # CLOSED IMMEDIATELY, and the close is half the protocol: the parent
+        # proves "exactly one byte" by seeing EOF behind it, and the exec below
+        # must not carry a stray descriptor into the user's process.
+        os.close(ready_fd)
+    except OSError as exc:
+        print("gate: could not report ready (%s); nothing ran" % exc,
+              file=sys.stderr)
+        return _EXIT_GATE_ABANDONED
+    if written != 1:                              # pragma: no cover - defensive
+        print("gate: partial ready write; nothing ran", file=sys.stderr)
+        return _EXIT_GATE_ABANDONED
+    try:
+        got = os.read(read_fd, 1)
+    except OSError as exc:
+        print("gate: release descriptor unreadable (%s); nothing ran" % exc,
+              file=sys.stderr)
+        return _EXIT_GATE_ABANDONED
+    if got != _RELEASE_BYTE:
+        # EOF (b"") or a byte nobody sent: no record was published, so there is
+        # no work to do. Exit WITHOUT touching the user's command.
+        print("gate: never released (no record was published); nothing ran",
+              file=sys.stderr)
+        return _EXIT_GATE_ABANDONED
+    try:
+        os.close(read_fd)
+    except OSError as exc:
+        # RELEASE IS ALREADY DELIVERED, so this is a registered child outcome,
+        # not a parent-side launch refusal. Do not leak an uncertain inheritable
+        # descriptor into arbitrary user work; the owned log records the exact
+        # reason this now-DEAD entry never exec'd.
+        print("gate: release was received, but its descriptor close is UNKNOWN "
+              "(%s); the user command did not run" % exc, file=sys.stderr)
+        return _EXIT_GATE_ABANDONED
+    # execvp, not a child: the pid, start time and process group registered by
+    # the launcher must be the ones the work actually runs under.
+    os.execvp(user_argv[0], user_argv)
+    return 1                                      # pragma: no cover - execvp
+
+
+def _proc_ppid(pid):
+    """Field 4 of /proc/<pid>/stat, parsed from the LAST ')' for the same
+    reason proc_starttime is: field 2 is the comm and may contain spaces."""
+    try:
+        raw = pathlib.Path("/proc", str(pid), "stat").read_text()
+    except (OSError, ValueError):
+        return None
+    try:
+        after = raw[raw.rindex(")") + 1:].split()
+        return int(after[1])           # field 4 == index 1 after comm
+    except (ValueError, IndexError):
+        return None
+
+
+def _terminate_and_wait(pid, timeout=None):
+    """Kill the wrapper's GROUP -- but only when it is proven to be OURS -- and
+    WAIT for it, because an unwaited child is a zombie holding the pid, and a
+    pid /proc still answers for is a job this tool would still call alive.
+
+    OWNERSHIP IS PROVEN, NOT ASSUMED, and this is the whole point of the check.
+    MEASURED while building this transaction: a test whose fake launcher
+    reported the LAUNCHER's own pid sent this function into `os.killpg` on our
+    own process group, and SIGKILLed the entire pytest run. The cleanup path of
+    a tool whose subject is killing the wrong process must not itself kill the
+    wrong process. Only a live process whose parent is this one can be a
+    wrapper this call created; anything else is a stranger and is left alone.
+
+    Returns a phrase naming the signal and bounded wait outcomes -- including
+    refusal or uncertainty, which are operator facts, not silent no-ops.
+    """
+    ppid = _proc_ppid(pid)
+    if ppid != os.getpid():
+        return ("NOTHING -- pid %s is not a child of this launcher (its parent "
+                "is %r), so it was not this transaction's to kill" % (pid, ppid))
+    try:
+        pgid = os.getpgid(pid)
+    except OSError:
+        pgid = None
+    if pgid is not None and pgid == pid:
+        scope = "process group %s" % pgid
+        try:
+            os.killpg(pgid, 9)
+        except OSError as exc:
+            signal_note = "COULD NOT signal %s: %s" % (scope, exc)
+        else:
+            signal_note = "sent SIGKILL to %s" % scope
+    else:
+        # Never signal a group this pid did not establish: that would be the
+        # LAUNCHER's group -- this shell and everything above it.
+        scope = "pid %s only (it does not lead its group)" % pid
+        try:
+            os.kill(pid, 9)
+        except OSError as exc:
+            signal_note = "COULD NOT signal %s: %s" % (scope, exc)
+        else:
+            signal_note = "sent SIGKILL to %s" % scope
+
+    timeout = _TERMINATE_TIMEOUT_S if timeout is None else timeout
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        try:
+            waited, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return "%s; pid %s was already reaped" % (signal_note, pid)
+        except OSError as exc:
+            return "%s; wait UNKNOWN for pid %s: %s" % (signal_note, pid, exc)
+        if waited == pid:
+            return "%s; reaped pid %s" % (signal_note, pid)
+        if waited not in (0, pid):              # pragma: no cover - defensive
+            return ("%s; wait UNKNOWN for pid %s: waitpid returned %s"
+                    % (signal_note, pid, waited))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return ("%s; wait UNKNOWN after %.1fs: pid %s was not reaped"
+                    % (signal_note, timeout, pid))
+        time.sleep(min(0.05, remaining))
+
+
+def _discard_owned_log(log_path, observed=None):
+    """Remove the log THIS launch created, PROVE it is gone, and say which.
+
+    Creating a path is a promise to remove it, and a log for a job that never
+    ran belongs to nobody: `forget()` cannot reach it, because there is no entry
+    to forget. But the removal is also a CLAIM, and "removed its log" printed
+    over a file that is still there is worse than no cleanup evidence at all --
+    the operator stops looking. So ownership is proven at this boundary the way
+    `_terminate_and_wait` proves the pid, and absence is measured rather than
+    assumed from an unlink that did not raise.
+    """
+    if not _log_is_a_direct_child_of_the_registry(log_path):
+        return ("KEPT its log %s: it is not a direct child of %s, so it is not "
+                "this transaction's to remove" % (log_path, JOBS_DIR))
+    if observed is not None:
+        removed, note, _changed = _unlink_owned_identity(log_path, observed)
+    else:
+        removed, note = _unlink_verified(log_path)
+    return ("removed its log %s" % log_path) if removed else (
+        "COULD NOT remove its log -- %s" % note)
+
+
+def _strip_separator(command):
+    """argparse.REMAINDER KEEPS THE `--`, and it must never reach a shell.
+
+    MEASURED on this tool's first live run: `bd-jobs run --host X -- sleep 90`
+    sent `bash -c "-- sleep 90"`, bash answered `--: invalid option` and exited
+    instantly, and the registry then held a correct entry for a process that
+    had already died -- `list` said DEAD and everything LOOKED consistent.
+    """
+    parts = list(command or [])
+    return parts[1:] if parts and parts[0] == "--" else parts
+
+
+def _user_command(command):
+    """The exact command STRING the job runs, assembled from argv.
+
+    SHLEX.JOIN, NOT " ".JOIN. Found by this tool's own second live use, one cut
+    after the `--` bug: `-- bash -c "a && b"` was re-joined with bare spaces, so
+    the shell saw `bash -c a && b`, ran `bash -c a`, and then ran `b` as a
+    separate command in the wrong directory. Both of this tool's shipped bugs
+    live in this one conversion, so it is a named function with its own tests
+    rather than an expression buried in a launcher.
+    """
+    parts = _strip_separator(command)
+    return shlex.join(parts) if parts else ""
+
+
+def _user_argv(cmd):
+    """The command string as the argv a local job is actually executed as."""
+    return ["bash", "-c", cmd]
+
+
+def _gate_argv(release_fd, ready_fd, user_argv):
+    """The wrapper's argv: this tool, its two descriptors -- the release channel
+    it waits on and the ready channel it reports through -- then, verbatim and
+    last, the user's own argv. Its own `--` delimiter is what keeps the two
+    apart, so nothing in the user's command can be read as an option of the
+    wrapper."""
+    return [sys.executable, str(pathlib.Path(__file__).resolve()),
+            _GATE_FLAG, str(release_fd), str(ready_fd), "--"] + list(user_argv)
+
+
+class _LaunchAborted(RuntimeError):
+    """A local launch being undone. Carries the exit status and the exact
+    operator sentence, so no branch invents its own wording or its own code."""
+
+    def __init__(self, status, message):
+        self.status = status
+        self.message = message
+        super().__init__(message)
+
+
+class _LocalLaunch:
+    """ONE transaction, owning every resource a local launch creates.
+
+    THE AUDIT'S THIRD FINDING. The log and the pipes used to be acquired before
+    any cleanup boundary existed, so a failure between them escaped as a
+    traceback while the earlier resources -- a created log, an open descriptor,
+    a live child -- belonged to nobody. A launcher that leaks a log for a job
+    that never existed is the same defect as a job with no log, one level up.
+
+    So: nothing is acquired without being recorded here, nothing is released
+    that this object did not acquire, and every failure funnels through
+    `abort()`, which undoes what exists in the only safe order and returns a
+    sentence describing WHAT WAS ACTUALLY DONE -- never what was attempted.
+    """
+
+    def __init__(self, purpose, request_id=None, adopt_path=None,
+                 attempt_token=None):
+        self.purpose = purpose
+        self.request_id = request_id
+        self.attempt_token = attempt_token
+        # A file this transaction ADOPTS: a script the launching host copied in
+        # for a delegated job. Owned exactly like the log -- removed if the
+        # launch is undone, handed to the entry if it succeeds.
+        self.adopt_path = adopt_path
+        self.adopt_identity = (_path_identity(adopt_path)
+                               if adopt_path is not None else None)
+        self.log_path = None
+        self.log_identity = None
+        self.log_fd = None
+        self.release_r = None
+        self.release_w = None
+        self.ready_r = None
+        self.ready_w = None
+        self.proc = None
+        self.pid = None
+        self.entry = None
+        self.retained_entry_id = None
+        self.released = False
+        # Non-fatal facts. They go to stderr BEFORE the id, never instead of it.
+        self.notes = []
+        self.close_failed = False
+
+    # ── owned descriptors ────────────────────────────────────────────────────
+
+    def _close(self, name):
+        """Close one owned descriptor, once, and never let the close itself
+        abort the transaction: an fd that cannot be closed is not recoverable
+        by trying harder, while skipping the rest of the cleanup would leave a
+        live wrapper behind. The failure is REPORTED instead of swallowed."""
+        fd = getattr(self, name)
+        if fd is None:
+            return
+        setattr(self, name, None)
+        try:
+            os.close(fd)
+        except OSError as exc:
+            self.close_failed = True
+            self.notes.append(
+                "UNKNOWN: could not close the %s descriptor (fd %d): %s -- "
+                "the transaction continued, but this descriptor's state is "
+                "unknown"
+                % (name, fd, exc))
+
+    def close_idle(self):
+        for name in ("log_fd", "release_r", "ready_w", "ready_r", "release_w"):
+            self._close(name)
+
+    # ── the steps ────────────────────────────────────────────────────────────
+
+    def open_log(self):
+        try:
+            self.log_path, self.log_fd = open_job_log(self.purpose)
+            self.log_identity = _path_identity(self.log_path)
+        except OSError as exc:
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "could not create a log for %s (%s), so nothing was "
+                       "launched" % (self.purpose, exc))
+
+    def open_channels(self):
+        """Both pipes, before anything is launched.
+
+        The RELEASE channel is the launcher's word to the wrapper; the READY
+        channel is the wrapper's word back. They are separate objects because
+        they carry opposite directions and their EOFs mean different things.
+        """
+        try:
+            self.release_r, self.release_w = os.pipe()
+            self.ready_r, self.ready_w = os.pipe()
+        except OSError as exc:
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "could not open the gate channels for %s (%s)"
+                       % (self.purpose, exc))
+
+    def spawn(self, user_argv):
+        try:
+            self.proc = subprocess.Popen(
+                _gate_argv(self.release_r, self.ready_w, user_argv),
+                stdout=self.log_fd, stderr=subprocess.STDOUT,
+                start_new_session=True,
+                pass_fds=(self.release_r, self.ready_w))
+        except BaseException as exc:
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "could not launch %s (%s)" % (self.purpose, exc))
+        self.pid = self.proc.pid
+        # THE CHILD-ONLY ENDS GO NOW, deterministically. While the launcher
+        # holds ready_w, the wrapper's EOF can never arrive; while it holds
+        # release_r, a wrapper that died is indistinguishable from one waiting.
+        self._close("release_r")
+        self._close("ready_w")
+        self._close("log_fd")
+
+    def await_ready(self, timeout=None):
+        """Exactly one READY byte, under a bound, or the launch is undone.
+
+        Reading it is the only proof that the wrapper reached the gate -- that
+        it started, loaded this file, parsed its argv, and is now doing nothing
+        but waiting. Everything before this point is proof that an interpreter
+        exec'd, which is a different and much weaker fact.
+        """
+        timeout = _READY_TIMEOUT_S if timeout is None else timeout
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.abort(_EXIT_REGISTRATION_FAILED,
+                           "%s never reported ready within %.1fs: the wrapper "
+                           "was launched but never reached the gate, so nothing "
+                           "was holding the command" % (self.purpose, timeout))
+            try:
+                readable, _, _ = select.select([self.ready_r], [], [], remaining)
+            except OSError as exc:
+                self.abort(_EXIT_REGISTRATION_FAILED,
+                           "could not wait for %s to report ready (%s)"
+                           % (self.purpose, exc))
+            if readable:
+                break
+        try:
+            got = os.read(self.ready_r, 2)
+        except OSError as exc:
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "could not read %s's ready byte (%s)"
+                       % (self.purpose, exc))
+        if got == b"":
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "the wrapper for %s exited before it reached the gate "
+                       "(EOF on the ready channel, exit status %r): it never "
+                       "held the command, so nothing may be registered"
+                       % (self.purpose, self.proc.poll()))
+        if got != _READY_BYTE:
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "the wrapper for %s sent %r rather than one ready byte"
+                       % (self.purpose, got))
+        self._close("ready_r")
+
+    def publish(self, cmd, origin):
+        try:
+            publication = register(
+                self.pid, self.purpose, cmd, origin=origin,
+                log=self.log_path, log_owned=True,
+                request_id=self.request_id,
+                attempt_token=self.attempt_token,
+                owned_paths=[self.adopt_path] if self.adopt_path else None,
+                _return_publication=True)
+        except PublishedCloseUnknown as exc:
+            # Publication is complete and durable. Keep its owned evidence,
+            # continue through release, and let cmd_run's shared close-UNKNOWN
+            # result return status 7 plus this real id for reconciliation.
+            publication = _PublicationResult(
+                exc.entry, exc.attempted, exc.disposition)
+            self.close_failed = True
+            self.notes.append("UNKNOWN: %s" % exc)
+        except PublishedNotDurable as exc:
+            # A COMPLETE RECORD EXISTS. Nothing below may delete its log, and
+            # the status must not be the one that means "nothing was written".
+            self.retained_entry_id = exc.entry_id
+            self.abort(_EXIT_PUBLISHED_NOT_DURABLE,
+                       "%s was published but not durably (%s), so the command "
+                       "was never released" % (self.purpose, exc),
+                       keep_log=True)
+        except BaseException as exc:
+            self.abort(_EXIT_REGISTRATION_FAILED,
+                       "%s was NOT registered (%s), so it was never released "
+                       "and never ran" % (self.purpose, exc))
+        self.entry = publication.entry
+        if publication.disposition == "preserved":
+            keys = ("pid", "starttime", "log", "log_owned", "cmd",
+                    "request_id", "owned_paths", "attempt_token")
+            expected = publication.attempted
+            adopted = all(
+                self.entry.get(key) == expected.get(key) for key in keys)
+            if not adopted:
+                self.retained_entry_id = self.entry["id"]
+                final = self.entry.get("_path") or str(
+                    JOBS_DIR / ("%s.json" % self.entry["id"]))
+                self.abort(
+                    _EXIT_REGISTRATION_FAILED,
+                    "prior record %s is RETAINED unchanged at %s for the same "
+                    "process but does not adopt this attempt's exact command, "
+                    "log, request and script resources; this attempt published "
+                    "no record and was not released" % (self.entry["id"], final))
+        return self.entry
+
+    def release(self):
+        try:
+            os.write(self.release_w, _RELEASE_BYTE)
+        except OSError as exc:
+            # The record is durable and the wrapper is gone: undo the record
+            # too, and report only what can be proven about the removal.
+            outcome = forget(self.entry)
+            # forget() has now accounted for both paths, whether it removed them
+            # or kept them behind a record it could not remove. They are no
+            # longer separate resources for abort() to describe a second time.
+            self.log_path = None
+            self.adopt_path = None
+            status = (_EXIT_REGISTRATION_FAILED
+                      if outcome.get("entry_absent_durable")
+                      else _EXIT_PUBLISHED_NOT_DURABLE)
+            self.abort(status,
+                       "%s could not be released (%s): the gate process is "
+                       "gone, so the work never started. Entry %s: %s"
+                       % (self.purpose, exc, self.entry["id"],
+                          "; ".join(outcome["notes"])),
+                       keep_log=True)   # forget() already decided the log
+        self.released = True
+        self._close("release_w")
+
+    # ── undo ─────────────────────────────────────────────────────────────────
+
+    def abort(self, status, reason, keep_log=False):
+        done = []
+        # 1. CLOSE THE GATE FIRST. A waiting wrapper reads EOF and exits by
+        #    itself, before any signal, having run no user work.
+        self._close("release_w")
+        self._close("ready_r")
+        self._close("ready_w")
+        self._close("release_r")
+        self._close("log_fd")
+        # 2. The wrapper, if this transaction created one. _terminate_and_wait
+        #    proves ownership itself and waits, so no zombie holds the pid.
+        if self.pid is not None:
+            done.append(_terminate_and_wait(self.pid))
+        # 3. The log -- unless a record that names it is being retained.
+        if self.log_path is not None:
+            if keep_log:
+                done.append("KEPT its log %s, which a retained record names"
+                            % self.log_path)
+            else:
+                done.append(_discard_owned_log(
+                    self.log_path, observed=self.log_identity))
+        # 4. An adopted file, on the same rule: if a record survives, the record
+        #    owns it; otherwise this transaction is the only thing that ever did.
+        if self.adopt_path is not None and not keep_log:
+            removed, note = _cleanup_attempt_identity(
+                self.adopt_path, self.adopt_identity)
+            done.append(note)
+        raise _LaunchAborted(status, "REFUSED: %s -- %s"
+                             % (reason, "; ".join(done) or "nothing to undo"))
+
+
+def _safe_remote_script_stem(script):
+    """Return one bounded ASCII component safe for legacy scp transport."""
+    stem = pathlib.Path(script).stem[:24]
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", stem)
+    return safe or "script"
+
+
+def _terminate_owned_popen_group(process, timeout=None):
+    """Terminate one proven child-led group under one total cleanup deadline."""
+    pid = process.pid
+    timeout = _TERMINATE_TIMEOUT_S if timeout is None else timeout
+    timeout = max(0.0, timeout)
+    deadline = time.monotonic() + timeout
+
+    ppid = _proc_ppid(pid)
+    if ppid != os.getpid():
+        return (False, "pid %s / pgid UNKNOWN is not this launcher's child "
+                "(parent %r)" % (pid, ppid))
+    try:
+        pgid = os.getpgid(pid)
+    except OSError as exc:
+        return (False, "pid %s / pgid UNKNOWN could not be identified: %s"
+                % (pid, exc))
+    if pgid != pid:
+        return (False, "pid %s does not lead process group %s" % (pid, pgid))
+    try:
+        os.killpg(pgid, 9)
+    except OSError as exc:
+        signal_note = "could not signal process group %s: %s" % (pgid, exc)
+    else:
+        signal_note = "sent SIGKILL to process group %s" % pgid
+
+    remaining = max(0.0, deadline - time.monotonic())
+    try:
+        process.communicate(timeout=remaining)
+    except subprocess.TimeoutExpired:
+        return (False, "%s; pid %s / process group %s was not reaped within "
+                "the %.1fs cleanup bound"
+                % (signal_note, pid, pgid, timeout))
+    except OSError as exc:
+        return (False, "%s; wait UNKNOWN for pid %s / process group %s: %s"
+                % (signal_note, pid, pgid, exc))
+
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return (True, "%s; reaped pid %s and process group %s is gone"
+                    % (signal_note, pid, pgid))
+        except OSError as exc:
+            if exc.errno == errno.ESRCH:
+                return (True, "%s; reaped pid %s and process group %s is gone"
+                        % (signal_note, pid, pgid))
+            return (False, "%s; process group %s terminal probe UNKNOWN: %s"
+                    % (signal_note, pgid, exc))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return (False, "%s; reaped pid %s but process group %s still "
+                    "exists after the %.1fs cleanup bound"
+                    % (signal_note, pid, pgid, timeout))
+        time.sleep(min(0.05, remaining))
+
+
+def _run_scp(argv):
+    """Run SCP in an owned group, returning cleanup proof with its result."""
+    try:
+        process = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True)
+    except OSError as exc:
+        return (subprocess.CompletedProcess(
+            argv, 125, "", "could not start scp: %s" % exc),
+            True, "no scp process was acquired")
+
+    try:
+        stdout, stderr = process.communicate(
+            timeout=_SCP_TRANSFER_TIMEOUT_S)
+    except BaseException as primary:
+        primary_text = str(primary)
+        try:
+            cleanup_complete, cleanup_note = (
+                _terminate_owned_popen_group(process))
+        except BaseException as cleanup_exc:
+            cleanup_complete = False
+            cleanup_note = (
+                "pid %s / process group UNKNOWN cleanup raised: %s"
+                % (process.pid, cleanup_exc))
+
+        # Cancellation retains its identity, but only after attempting bounded
+        # cleanup and attaching any cleanup uncertainty to the primary.
+        if not isinstance(primary, Exception):
+            destination = argv[-1] if argv else "UNKNOWN"
+            _note_secondary_failure(
+                primary, "scp remote destination is RETAINED UNKNOWN",
+                RuntimeError(
+                    "%s may be partial and was not deleted because pathname "
+                    "ownership is not proven after interrupted scp"
+                    % destination))
+            if not cleanup_complete:
+                _note_secondary_failure(
+                    primary, "scp process-group cleanup is UNKNOWN",
+                    RuntimeError(cleanup_note))
+            raise
+
+        if isinstance(primary, subprocess.TimeoutExpired):
+            error = "scp timed out after %s seconds" % primary.timeout
+            returncode = 124
+        else:
+            error = "scp communication failed: %s" % primary_text
+            returncode = 125
+
+        return (subprocess.CompletedProcess(
+            argv, returncode, "", error),
+            cleanup_complete, cleanup_note)
+
+    return (subprocess.CompletedProcess(
+        argv, process.returncode, stdout, stderr), True, "")
 
 
 def cmd_run(args):
@@ -335,12 +1984,27 @@ def cmd_run(args):
     thing quoted. The two `--` bugs in this tool's short history were both at
     this seam.
     """
-    # argparse.REMAINDER KEEPS THE `--`. Measured on this tool's first live run:
-    # `bd-jobs run --host X -- sleep 90` sent `bash -c "-- sleep 90"` to the
-    # target, which answered `bash: --: invalid option` and exited instantly.
-    # The registry then held a correct entry for a process that had already
-    # died, so `list` said DEAD and everything LOOKED consistent -- the failure
-    # was in the one part no test covered, the command assembly.
+    explicit_request = getattr(args, "request_id", None)
+    if explicit_request is not None:
+        reason = _request_id_reason(explicit_request)
+        if reason is not None:
+            print("REFUSED: request id %r %s -- nothing was copied, acquired "
+                  "or launched" % (explicit_request, reason), file=sys.stderr)
+            return 2
+        request_id = explicit_request
+    else:
+        try:
+            request_id = _new_request_id()
+        except OSError as exc:
+            print("REFUSED: could not acquire a fresh request id (%s) -- "
+                  "nothing was acquired, copied or launched" % exc,
+                  file=sys.stderr)
+            return 2
+
+    # THE COMMAND ASSEMBLY LIVES IN _strip_separator/_user_command, above, and
+    # both of this tool's shipped bugs were in it. Nothing here reimplements
+    # them: a launcher that assembles the command a second way is a launcher
+    # whose tests measure a string production never sends.
     script = getattr(args, "script", None)
     if script:
         if list(args.command or []) not in ([], ["--"]):
@@ -352,22 +2016,55 @@ def cmd_run(args):
             print("REFUSED: no script at %s" % local, file=sys.stderr)
             return 2
 
-    parts = list(args.command or [])
-    if parts and parts[0] == "--":
-        parts = parts[1:]
+    parts = _strip_separator(args.command)
     if not parts and not script:
         print("REFUSED: no command given. Use: bd-jobs run --host H --purpose P "
               "-- <command>, or --script FILE", file=sys.stderr)
         return 2
-    # SHLEX.JOIN, NOT " ".JOIN. Found by this tool's own second live use, one
-    # cut after the `--` bug: `bd-jobs run --host X -- bash -c "a && b"` was
-    # re-joined with bare spaces, so the remote shell saw `bash -c a && b`,
-    # ran `bash -c a`, and answered "venv/bin/python: No such file or
-    # directory" from the wrong directory. Same seam as before -- argv going
-    # back out to a shell -- and the same shape of test missed it, because
-    # every case passed arguments that contained no spaces.
-    cmd = shlex.join(parts) if parts else ""
+    cmd = _user_command(args.command)
     here = socket.gethostname()
+
+    # --adopt-script IS A CLEANUP CLAIM, SO IT IS VALIDATED LIKE ONE. It is
+    # hidden (help=SUPPRESS) because it is half of the delegation protocol, not
+    # an operator surface, and it is accepted only for the exact file this
+    # launch is about, only inside the registry, and only under the prefix the
+    # copier uses. Anything else would make it a general "unlink this for me"
+    # option -- which is precisely what `forget()` must never become.
+    adopt = getattr(args, "adopt_script", None)
+    attempt_token_arg = getattr(args, "attempt_token", None)
+    if attempt_token_arg is not None:
+        problem = _attempt_token_reason(attempt_token_arg)
+        if problem is not None:
+            print("REFUSED: attempt token %s -- nothing was acquired or "
+                  "launched" % problem, file=sys.stderr)
+            return 2
+    if (adopt is None) != (attempt_token_arg is None):
+        print("REFUSED: --adopt-script and --attempt-token must describe the "
+              "same delegated attempt -- nothing was acquired or launched",
+              file=sys.stderr)
+        return 2
+    if adopt is not None:
+        adopt = os.path.realpath(str(adopt))
+        problem = None
+        if not script:
+            problem = "it is only meaningful together with --script"
+        elif adopt != os.path.realpath(str(script)):
+            problem = "it names a different file from --script"
+        elif not _log_is_a_direct_child_of_the_registry(adopt):
+            problem = "it is not a direct child of %s" % JOBS_DIR
+        elif not os.path.basename(adopt).startswith(_REMOTE_SCRIPT_PREFIX):
+            problem = ("it does not carry the %r prefix this tool's own copies "
+                       "use" % _REMOTE_SCRIPT_PREFIX)
+        if problem:
+            print("REFUSED: --adopt-script %s: %s" % (adopt, problem),
+                  file=sys.stderr)
+            return 2
+
+    if script and args.host in (None, "", here, "local"):
+        # A LOCAL --script RUNS THE FILE. One layer, no re-quoting: the path is
+        # the only thing that crosses, which is the reason --script exists.
+        cmd = _user_command(["bash", str(script)])
+
     if args.host in (None, "", here, "local"):
         # start_new_session PUTS THE CHILD IN ITS OWN PROCESS GROUP, and reap
         # depends on it. Without it the child shares OUR group, so reap can only
@@ -383,16 +2080,55 @@ def cmd_run(args):
         # measure. The log is opened BEFORE the launch, so a job that cannot be
         # given one never starts (the same order the remote path uses for
         # registration: prove the record can be written, then act).
-        log_path, log_fd = open_job_log(args.purpose)
+        # ONE TRANSACTION, in order, each step undoing everything before it if
+        # it cannot complete. THE ORDER IS THE INVARIANT: acquire, launch, be
+        # told the gate is held, publish durably, and only then release. There
+        # is no path on which the user's command runs unrecorded, and none on
+        # which a record survives a command that was never released.
+        launch = _LocalLaunch(args.purpose,
+                              request_id=request_id, adopt_path=adopt,
+                              attempt_token=attempt_token_arg)
+        status = 0
+        message = None
         try:
-            proc = subprocess.Popen(["bash", "-c", cmd],
-                                    stdout=log_fd, stderr=subprocess.STDOUT,
-                                    start_new_session=True)
+            launch.open_log()
+            launch.open_channels()
+            launch.spawn(_user_argv(cmd))
+            launch.await_ready()
+            launch.publish(cmd, getattr(args, "origin", None) or here)
+            launch.release()
+        except _LaunchAborted as aborted:
+            status, message = aborted.status, aborted.message
         finally:
-            os.close(log_fd)
-        entry = register(proc.pid, args.purpose, cmd, origin=here,
-                         log=log_path)
-        print(entry["id"])
+            launch.close_idle()
+
+        if status == 0 and launch.close_failed:
+            status = _EXIT_CLOSE_UNKNOWN
+            message = (
+                "LAUNCHED BUT CLOSE UNKNOWN: record %s is durable and its "
+                "work was released; reconcile that job by id"
+                % launch.entry["id"])
+
+        # DIAGNOSTICS BEFORE THE ID, ALWAYS. `bd-sweep-run` reads the job id as
+        # the last non-empty line of the MERGED streams, so anything printed
+        # after the id -- on either stream -- becomes the id it parses.
+        for note in launch.notes:
+            print(note, file=sys.stderr)
+        if status:
+            print(message, file=sys.stderr)
+            if status in (_EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):
+                # Both statuses prove a complete record exists. Preserve the
+                # id-last reconciliation contract even when work was not
+                # released because publication durability stayed UNKNOWN.
+                entry_id = (launch.entry["id"] if launch.entry is not None
+                            else launch.retained_entry_id)
+                if entry_id is not None:
+                    print(entry_id)
+            return status
+        # ASYNCHRONOUS BY CONTRACT: 0 means the wrapper proved ready, the record
+        # is durable, and the release was delivered. The workload's own status
+        # is observable through `list` and its log, never returned here.
+        print(launch.entry["id"])
         return 0
 
     # PREFLIGHT THE TARGET BEFORE LAUNCHING ANYTHING. Measured at v3.66.1040 on
@@ -406,33 +2142,26 @@ def cmd_run(args):
     # below. `args.host` stays the name the operator typed, so the refusals
     # quote what they asked for rather than an address they never mentioned.
     target = _resolve_host(args.host)
-    if script:
-        # COPY FIRST, LAUNCH SECOND, same rule as the deploy probe below: a
-        # script that did not arrive is a refusal, not a job that runs the
-        # previous copy of itself.
-        remote_script = "/tmp/bd-jobs-script-%s-%d.sh" % (
-            pathlib.Path(script).stem[:24], os.getpid())
-        scp = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", str(script),
-                              "%s:%s" % (target, remote_script)],
-                             capture_output=True, text=True)
-        if scp.returncode != 0:
-            print("REFUSED: could not copy %s to %s: %s"
-                  % (script, args.host, scp.stderr.strip()), file=sys.stderr)
-            return 2
-        cmd = "bash %s" % shlex.quote(remote_script)
+    unsafe = _unsafe_target(target)
+    if unsafe:
+        print("REFUSED: %s -- nothing was copied or launched" % unsafe,
+              file=sys.stderr)
+        return 2
+    try:
+        status_nonce = _new_status_nonce()
+        attempt_token = _new_attempt_token() if script else None
+    except OSError as exc:
+        print("REFUSED: could not acquire fresh transport entropy (%s) -- "
+              "nothing was copied or launched" % exc, file=sys.stderr)
+        return 2
+    self_path = _remote_self(args.host)
 
-    self_path = str(_remote_self(args.host))
+    # PROBE BEFORE ACQUIRING A REMOTE SCRIPT. The identity and cleanup helpers
+    # live in the very tool this checks for; calling either before this probe
+    # makes the known "deploy it" refusal unreachable and strands a copy.
     probe = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", target,
-         "test -f %s" % shlex.quote(self_path)],
+        _ssh_argv(target, "test -f %s" % shlex.quote(self_path)),
         capture_output=True, text=True)
-    # ASSERT THE REASON, NOT THE CODE. ssh exits 255 for ITS OWN failures --
-    # name resolution, refused connection, auth -- and passes the remote
-    # command's status through otherwise. This branch used to turn every
-    # non-zero into "has no bd-jobs", so an unreachable host produced a
-    # confident, specific, wrong diagnosis that sent the operator to re-run a
-    # deploy that had already succeeded. A tool whose whole subject is work it
-    # cannot see must not report a condition it never observed.
     if probe.returncode == 255:
         print("REFUSED: could not reach %s%s: %s"
               % (args.host,
@@ -441,31 +2170,475 @@ def cmd_run(args):
               file=sys.stderr)
         return 2
     if probe.returncode != 0:
-        print("REFUSED: %s has no %s -- deploy it there first. Launching without "
-              "it would leave the job unregistered, which is the failure this "
-              "tool exists to prevent." % (args.host, self_path), file=sys.stderr)
+        print("REFUSED: %s has no %s -- deploy it there first. Launching "
+              "without it would leave the job unregistered, which is the "
+              "failure this tool exists to prevent."
+              % (args.host, self_path), file=sys.stderr)
         return 2
 
-    # Registration happens ON THE TARGET, in the same shell that knows the pid,
-    # so a dropped connection cannot leave work with no record.
-    remote = (
-        "mkdir -p /tmp/bd-jobs; "
-        "nohup bash -c %s >/tmp/bd-jobs/$$.log 2>&1 & "
-        "P=$!; "
-        "python3 %s register --pid $P --purpose %s --origin %s --cmd %s; "
-        "echo $P"
-    ) % (shlex.quote(cmd), shlex.quote(self_path),
-         shlex.quote(args.purpose), shlex.quote(here), shlex.quote(cmd))
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                        target, remote], capture_output=True, text=True)
+    remote_script = None
+    captured_identity = None
+    if script:
+        # COPY FIRST, LAUNCH SECOND, same rule as the deploy probe below: a
+        # script that did not arrive is a refusal, not a job that runs the
+        # previous copy of itself.
+        #
+        # INTO THE TARGET'S REGISTRY DIRECTORY, under a unique non-JSON name.
+        # The old destination was `/tmp/bd-jobs-script-<stem>-<pid>.sh`, which
+        # nothing ever removed and which no entry could reclaim: it sat outside
+        # every owned tree. Inside the registry it is a path the target's own
+        # transaction can adopt and `forget()` can collect, and the prefix keeps
+        # it out of the `*.json` population `load_all()` reads.
+        remote_script = str(JOBS_DIR / ("%s%s-%s.sh" % (
+            _REMOTE_SCRIPT_PREFIX, _safe_remote_script_stem(script),
+            attempt_token)))
+        mkdir = subprocess.run(
+            _ssh_argv(target, "mkdir -p %s" % shlex.quote(str(JOBS_DIR))),
+            capture_output=True, text=True)
+        if mkdir.returncode != 0:
+            print("REFUSED: could not prepare %s on %s: %s"
+                  % (JOBS_DIR, args.host,
+                     mkdir.stderr.strip() or "ssh exited %d" % mkdir.returncode),
+                  file=sys.stderr)
+            return 2
+        scp, copy_cleanup_complete, copy_cleanup_note = _run_scp([
+            "scp", "-q", "-o", "BatchMode=yes", "-o",
+            _REMOTE_CONNECT_TIMEOUT_OPTION, "--", str(script),
+            "%s:%s" % (target, remote_script)])
+        if scp.returncode != 0:
+            result = "REFUSED" if copy_cleanup_complete else "UNKNOWN"
+            cleanup = (("; %s" % copy_cleanup_note)
+                       if copy_cleanup_note else "")
+            print("%s: could not copy %s to %s: %s%s; RETAINED UNKNOWN %s "
+                  "may be partial, and was not deleted because pathname "
+                  "ownership is not proven after failed scp"
+                  % (result, script, args.host, scp.stderr.strip(), cleanup,
+                     remote_script),
+                  file=sys.stderr)
+            return 2 if copy_cleanup_complete else _EXIT_REMOTE_UNKNOWN
+        captured_identity, identity_note = _capture_remote_copy_identity(
+            target, self_path, remote_script, request_id, status_nonce,
+            attempt_token)
+        if identity_note:
+            sys.stderr.write(identity_note)
+        if captured_identity is None:
+            print("UNKNOWN: copied script %s for request %s is RETAINED because "
+                  "the target did not return one bound captured identity; no "
+                  "launch or pathname deletion was attempted"
+                  % (remote_script, request_id), file=sys.stderr)
+            return _EXIT_REMOTE_UNKNOWN
+
+    def refuse_after_copy(status, message):
+        """Every refusal from here to the launch owns the copy it made."""
+        if remote_script:
+            removed, cleanup_note = _remove_remote_copy(
+                target, self_path, remote_script, captured_identity,
+                request_id, status_nonce, attempt_token)
+            message = "%s; %s" % (message, cleanup_note)
+            if not removed:
+                status = _EXIT_REMOTE_UNKNOWN
+        print("REFUSED: %s" % message, file=sys.stderr)
+        return status
+
+    # THE TARGET RUNS ITS OWN TRANSACTION. This used to be a second launch
+    # protocol -- `nohup ... & P=$!; register --pid $P; echo $P` -- and every
+    # part of it was a defect the local path had already fixed: the register
+    # status was discarded so the ssh command exited 0 for an unregistered job,
+    # `>$$.log` named the ssh shell rather than the job, `register` had no
+    # `--log` so the entry recorded none, plain `&` left the job in the ssh
+    # shell's process group so `reap` orphaned its children, and `echo $P`
+    # printed after the id every consumer reads.
+    remote = _remote_launch_command(self_path, args.purpose,
+                                    getattr(args, "origin", None) or here,
+                                    request_id, status_nonce, parts,
+                                    attempt_token=attempt_token,
+                                    adopt=remote_script)
+    r = subprocess.run(_ssh_argv(target, remote), capture_output=True, text=True)
+    status, stderr_text = _parse_target_status(r.stderr, request_id,
+                                               status_nonce)
+
+    if status is None:
+        # NOBODY MEASURED WHETHER THIS LAUNCHED. ssh's own 255 covers a refused
+        # connection AND a connection that dropped after the command was
+        # accepted, and those are opposite facts about the target. Saying
+        # "nothing ran" here would be a claim about a host we lost contact
+        # with, so the honest answer is UNKNOWN plus the request id, which is
+        # what makes it reconcilable: `bd-jobs list` on the target shows it.
+        sys.stdout.write(r.stdout)
+        sys.stderr.write(stderr_text)
+        if remote_script:
+            print("RETAINED UNKNOWN copied script %s: it may be owned by the "
+                  "target entry for request %s or may be unowned; do not "
+                  "delete it until reconciliation" % (remote_script, request_id),
+                  file=sys.stderr)
+        print("UNKNOWN: %s answered with no status marker that uniquely matched "
+              "this request (ssh exited %d), so "
+              "the job MAY HAVE LAUNCHED and MAY be running unattended. "
+              "Reconcile it on the target by request id %s -- `bd-jobs list` "
+              "there names it; do not assume nothing ran."
+              % (args.host, r.returncode, request_id),
+              file=sys.stderr)
+        return _EXIT_REMOTE_UNKNOWN
+
+    disposition = None
+    if remote_script:
+        disposition, clean_stderr = _parse_target_disposition(
+            stderr_text, request_id, status_nonce, attempt_token)
+        if disposition is None:
+            sys.stdout.write(r.stdout)
+            sys.stderr.write(stderr_text)
+            print("UNKNOWN: target result for request %s did not contain exactly "
+                  "one matching disposition immediately before its final status; "
+                  "RETAINED %s and granted no cleanup permission"
+                  % (request_id, remote_script), file=sys.stderr)
+            return _EXIT_REMOTE_UNKNOWN
+        stderr_text = clean_stderr
+
+    # An authenticated status: the target ran and answered, so relay its answer
+    # rather than inventing one. DIAGNOSTICS FIRST, id last -- consumers read
+    # the last non-empty line of the merged stream.
+    sys.stderr.write(stderr_text)
+    if remote_script and status in (
+            0, _EXIT_PUBLISHED_NOT_DURABLE, _EXIT_CLOSE_UNKNOWN):
+        if disposition != "ADOPTED":
+            print("UNKNOWN: target status %d did not carry ADOPTED disposition; "
+                  "RETAINED %s for request %s"
+                  % (status, remote_script, request_id), file=sys.stderr)
+            return _EXIT_REMOTE_UNKNOWN
+        # A COMPLETE ENTRY EXISTS ON THE TARGET and owns this copy. Removing it
+        # here would leave that retained record pointing at a missing script.
+        if status != 0:
+            print("target RETAINED a record; %s is left for it to collect"
+                  % remote_script, file=sys.stderr)
+    elif remote_script and status in (2, _EXIT_REGISTRATION_FAILED):
+        if disposition != "NOT_ADOPTED":
+            print("UNKNOWN: refusal status %d had disposition %s; RETAINED %s "
+                  "for request %s" % (
+                      status, disposition, remote_script, request_id),
+                  file=sys.stderr)
+            return _EXIT_REMOTE_UNKNOWN
+        removed, cleanup_note = _remove_remote_copy(
+            target, self_path, remote_script, captured_identity,
+            request_id, status_nonce, attempt_token)
+        print("target refused; %s" % cleanup_note, file=sys.stderr)
+        if not removed:
+            return _EXIT_REMOTE_UNKNOWN
+    elif remote_script:
+        print("UNKNOWN: authenticated target status %d does not authorize "
+              "cleanup; RETAINED %s for request %s"
+              % (status, remote_script, request_id), file=sys.stderr)
     sys.stdout.write(r.stdout)
-    sys.stderr.write(r.stderr)
-    return r.returncode
+    return status
 
 
-def _remote_self(host):
-    """Where this tool lives on the target. Same path on every fleet host."""
-    return pathlib.Path(__file__).resolve()
+_REMOTE_SELF_DEFAULT = "/usr/local/bin/bd-jobs"
+_REMOTE_STATUS_SENTINEL = "BD-JOBS-TARGET-STATUS="
+_REMOTE_DISPOSITION_SENTINEL = "BD-JOBS-TARGET-DISPOSITION="
+_REMOTE_IDENTITY_SENTINEL = "BD-JOBS-TARGET-IDENTITY="
+_REMOTE_CLEANUP_SENTINEL = "BD-JOBS-TARGET-CLEANUP="
+_REMOTE_SCRIPT_PREFIX = ".bd-jobs-script-"
+_ATTEMPT_DISPOSITION_FLAG = "--internal-attempt-disposition"
+_ATTEMPT_IDENTITY_FLAG = "--internal-attempt-identity"
+_ATTEMPT_CLEANUP_FLAG = "--internal-attempt-cleanup"
+
+
+def _attempt_path_is_valid(path):
+    return (_filesystem_path_reason(path) is None
+            and _log_is_a_direct_child_of_the_registry(path)
+            and os.path.basename(path).startswith(_REMOTE_SCRIPT_PREFIX))
+
+
+def _attempt_disposition(request_id, attempt_token, path):
+    """Read one exact adoption fact under the registry lock."""
+    try:
+        lock = _lock_registry()
+    except OSError:
+        return "UNKNOWN"
+    value = "UNKNOWN"
+    try:
+        rows = load_all()
+        matches = [entry for entry in rows
+                   if entry.get("request_id") == request_id
+                   and entry.get("attempt_token") == attempt_token
+                   and path in (entry.get("owned_paths") or [])]
+        if len(matches) == 1:
+            # A valid exact attempt owns every path it records. Inherited
+            # siblings and unrelated malformed finals do not negate this one
+            # positive ownership proof.
+            value = "ADOPTED"
+        elif len(matches) > 1 or rows.malformed:
+            value = "UNKNOWN"
+        else:
+            value = "NOT_ADOPTED"
+    finally:
+        try:
+            _unlock_registry(lock)
+        except OSError:
+            value = "UNKNOWN"
+    return value
+
+
+def _attempt_disposition_main(argv):
+    if len(argv) != 4:
+        return 2
+    request_id, nonce, attempt_token, path = argv
+    if (_request_id_reason(request_id) is not None
+            or _attempt_token_reason(attempt_token) is not None
+            or re.fullmatch(r"[0-9a-f]{32}", nonce) is None
+            or not _attempt_path_is_valid(path)):
+        return 2
+    value = _attempt_disposition(request_id, attempt_token, path)
+    print("%s%s:%s:%s:%s" % (
+        _REMOTE_DISPOSITION_SENTINEL, request_id, nonce, attempt_token, value))
+    return 0
+
+
+def _attempt_identity_main(argv):
+    if len(argv) != 4:
+        return 2
+    request_id, nonce, attempt_token, path = argv
+    if (_request_id_reason(request_id) is not None
+            or _attempt_token_reason(attempt_token) is not None
+            or re.fullmatch(r"[0-9a-f]{32}", nonce) is None
+            or not _attempt_path_is_valid(path)):
+        return 2
+    observed = _path_identity(path)
+    if observed[0] != "present":
+        value = "UNKNOWN"
+    else:
+        value = "PRESENT:%d:%d:%d" % observed[1:]
+    print("%s%s:%s:%s:%s" % (
+        _REMOTE_IDENTITY_SENTINEL, request_id, nonce, attempt_token, value))
+    return 0
+
+
+def _attempt_cleanup_main(argv):
+    if len(argv) != 7:
+        return 2
+    request_id, nonce, attempt_token, path, dev, ino, kind = argv
+    if (_request_id_reason(request_id) is not None
+            or _attempt_token_reason(attempt_token) is not None
+            or re.fullmatch(r"[0-9a-f]{32}", nonce) is None
+            or not _attempt_path_is_valid(path)):
+        return 2
+    try:
+        observed = ("present", int(dev), int(ino), int(kind))
+    except ValueError:
+        return 2
+    removed, note = _cleanup_attempt_identity(path, observed)
+    print(note, file=sys.stderr)
+    print("%s%s:%s:%s:%s" % (
+        _REMOTE_CLEANUP_SENTINEL, request_id, nonce, attempt_token,
+        "REMOVED" if removed else "RETAINED"))
+    return 0
+
+
+def _parse_bound_terminal(text, sentinel, request_id, nonce, attempt_token,
+                          allowed):
+    prefix = "%s%s:%s:%s:" % (
+        sentinel, request_id, nonce, attempt_token)
+    lines = text.splitlines(True)
+    candidates = [(index, line) for index, line in enumerate(lines)
+                  if line.startswith(prefix)]
+    if len(candidates) != 1:
+        return None, text
+    index, line = candidates[0]
+    if index != len(lines) - 1 or not line.endswith("\n"):
+        return None, text
+    value = line[len(prefix):-1]
+    if value not in allowed:
+        return None, text
+    return value, "".join(lines[:index])
+
+
+def _parse_target_disposition(text, request_id, nonce, attempt_token):
+    return _parse_bound_terminal(
+        text, _REMOTE_DISPOSITION_SENTINEL, request_id, nonce, attempt_token,
+        {"ADOPTED", "NOT_ADOPTED", "UNKNOWN"})
+
+
+def _parse_target_identity(text, request_id, nonce, attempt_token):
+    prefix = "%s%s:%s:%s:" % (
+        _REMOTE_IDENTITY_SENTINEL, request_id, nonce, attempt_token)
+    lines = text.splitlines(True)
+    candidates = [(i, line) for i, line in enumerate(lines)
+                  if line.startswith(prefix)]
+    if len(candidates) != 1:
+        return None, text
+    index, line = candidates[0]
+    if index != len(lines) - 1 or not line.endswith("\n"):
+        return None, text
+    value = line[len(prefix):-1]
+    match = re.fullmatch(r"PRESENT:(\d+):(\d+):(\d+)", value)
+    if match is None:
+        return None, text
+    return (("present",) + tuple(int(v) for v in match.groups()),
+            "".join(lines[:index]))
+
+
+def _remote_self(host=None):
+    """Where this tool lives ON THE TARGET -- the installed public surface.
+
+    MEASURED at v3.66.1206: `/usr/local/bin/bd-jobs` is a root-owned symlink
+    into a per-user staged copy, so `Path(__file__).resolve()` COLLAPSES the
+    one uniform path every host shares into a HOME-anchored one -- and from a
+    worktree into a `.worktrees/...` path that exists on no target at all. The
+    launcher's own location is not evidence about the target's filesystem.
+
+    `BD_JOBS_REMOTE_SELF` is the deterministic override the tests and an
+    operator with a non-default install both need. `host` is accepted and
+    ignored: the path is uniform, and taking it keeps the one call site honest
+    about what it is asking for.
+    """
+    return os.environ.get("BD_JOBS_REMOTE_SELF") or _REMOTE_SELF_DEFAULT
+
+
+def _unsafe_target(target):
+    """Why this address may not be handed to ssh, or None if it may.
+
+    An address goes into an argv AND into diagnostics. Whitespace, control
+    characters and an option-shaped leading dash are not things to quote
+    around -- no legitimate host has them, and each is a way to make ssh read
+    the operator's target as ssh's own instruction.
+    """
+    if not target:
+        return "the resolved target is empty"
+    if target.startswith("-"):
+        return "the resolved target is option-shaped (%r)" % target
+    for ch in target:
+        if ch.isspace() or not ch.isprintable():
+            return ("the resolved target contains %r, which no hostname has"
+                    % ch)
+    return None
+
+
+def _ssh_argv(target, command):
+    """`--` TERMINATES SSH'S OWN OPTIONS. Without it a target that begins with
+    a dash is read by ssh as a flag, which is a way to make the launcher run
+    something the operator did not ask for."""
+    return ["ssh", "-o", "BatchMode=yes", "-o",
+            _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
+
+
+def _new_request_id():
+    """One launch attempt's id. EVIDENCE ONLY -- it is what lets an operator
+    ask the target "did this land?" after a transport failure that cannot be
+    resolved from this side. It is never an identity the registry decides on."""
+    return os.urandom(8).hex()
+
+
+def _new_status_nonce():
+    """A launcher-only 128-bit authenticator for one terminal status record."""
+    return os.urandom(16).hex()
+
+
+def _new_attempt_token():
+    """Independent 128-bit identity for one copied-script attempt."""
+    return os.urandom(16).hex()
+
+
+def _remote_launch_command(self_path, purpose, origin, request_id, status_nonce,
+                           parts, attempt_token=None,
+                           adopt=None):
+    """The target runs ITS OWN gated local transaction. One quoting layer.
+
+    `shlex.join` over the TOKEN LIST, not over a pre-joined string: the remote
+    shell splits it back into exactly these tokens, the target's own `cmd_run`
+    re-joins them with the same `shlex.join`, and the recorded `cmd` is
+    byte-identical to the local case. That is what removes the `bash -c`
+    nesting this tool has been bitten by twice.
+
+    `--host local` is what buys everything the remote protocol used to get
+    wrong on its own: the release gate, `start_new_session` (so `reap` kills a
+    GROUP), a target-owned log recorded in the entry, and the id-last contract.
+
+    `rc=$?` BEFORE the sentinel, and `exit "$rc"` last: the status is captured
+    before anything can overwrite it, and nothing runs after the exit. The old
+    protocol ended in `echo $P`, which is precisely how a failed registration
+    became a successful launch with a job id on stdout.
+    """
+    argv = [self_path, "run", "--host", "local", "--purpose", purpose,
+            "--origin", origin, "--request-id", request_id]
+    if adopt:
+        argv += ["--script", adopt, "--adopt-script", adopt,
+                 "--attempt-token", attempt_token]
+    argv += ["--"] + list(parts)
+    status_format = "%s%s:%s:%%s\\n" % (
+        _REMOTE_STATUS_SENTINEL, request_id, status_nonce)
+    if adopt:
+        disposition = "; %s >&2" % shlex.join([
+            self_path, _ATTEMPT_DISPOSITION_FLAG, request_id, status_nonce,
+            attempt_token, adopt])
+    else:
+        disposition = ""
+    return ("%s; rc=$?%s; printf %s \"$rc\" >&2; exit \"$rc\""
+            % (shlex.join(argv), disposition, shlex.quote(status_format)))
+
+
+def _parse_target_status(text, expected_request_id, expected_nonce):
+    """Pull one request-bound, newline-complete terminal status record.
+
+    ssh exits 255 for its own failures and passes the remote status through
+    otherwise, so 255 alone cannot say which happened. The marker can: only the
+    target's own shell emits it, so its presence means the command ran and
+    answered. Returns (status or None, stderr without the marker line).
+
+    Anything ambiguous stays raw: a duplicate, malformed, truncated or
+    non-terminal candidate cannot authorize cleanup of a copied script.
+    """
+    prefix = "%s%s:%s:" % (
+        _REMOTE_STATUS_SENTINEL, expected_request_id, expected_nonce)
+    lines = text.splitlines(True)
+    candidates = [(index, line) for index, line in enumerate(lines)
+                  if line.startswith(prefix)]
+    if len(candidates) != 1:
+        return None, text
+    index, line = candidates[0]
+    if index != len(lines) - 1 or not line.endswith("\n"):
+        return None, text
+    value = line[len(prefix):-1]
+    if re.fullmatch(r"(?:0|[1-9]\d{0,2})", value) is None:
+        return None, text
+    status = int(value)
+    if status > 255:
+        return None, text
+    return status, "".join(lines[:index])
+
+
+def _capture_remote_copy_identity(target, self_path, remote_script, request_id,
+                                  nonce, attempt_token):
+    command = shlex.join([
+        self_path, _ATTEMPT_IDENTITY_FLAG, request_id, nonce, attempt_token,
+        remote_script])
+    r = subprocess.run(_ssh_argv(target, command), capture_output=True, text=True)
+    observed, remaining = _parse_target_identity(
+        r.stdout, request_id, nonce, attempt_token)
+    raw = remaining + r.stderr
+    if r.returncode != 0 or observed is None:
+        return None, raw
+    return observed, raw
+
+
+def _remove_remote_copy(target, self_path, remote_script, observed, request_id,
+                        nonce, attempt_token):
+    """Ask the target to compare and quarantine; never issue bare pathname rm."""
+    if observed is None or observed[0] != "present":
+        return False, "RETAINED %s: no captured target identity" % remote_script
+    command = shlex.join([
+        self_path, _ATTEMPT_CLEANUP_FLAG, request_id, nonce, attempt_token,
+        remote_script, str(observed[1]), str(observed[2]), str(observed[3])])
+    r = subprocess.run(_ssh_argv(target, command), capture_output=True, text=True)
+    value, remaining = _parse_bound_terminal(
+        r.stdout, _REMOTE_CLEANUP_SENTINEL, request_id, nonce, attempt_token,
+        {"REMOVED", "RETAINED"})
+    detail = (remaining + r.stderr).strip()
+    if r.returncode == 0 and value == "REMOVED":
+        return True, (detail + "; " if detail else "") + (
+            "removed the captured copy at %s through target-side "
+            "identity-bound quarantine" % remote_script)
+    return False, (detail + "; " if detail else "") + (
+        "RETAINED %s: target cleanup identity/durability is UNKNOWN"
+        % remote_script)
 
 
 def _hosts_file():
@@ -505,7 +2678,31 @@ def _resolve_host(host):
 
 
 def cmd_register(args):
-    entry = register(args.pid, args.purpose, args.cmd, origin=args.origin)
+    """Record an already-running pid, and REFUSE in words rather than a stack.
+
+    Every direct consumer runs this as a subprocess and reads its output:
+    `bd-sweep-run` merges stderr into stdout and takes the last non-empty line
+    as the job id. An uncaught `RegistrationError` therefore does not merely
+    look untidy -- it writes a Python traceback whose last line becomes the
+    "job id" that run carries from then on.
+    """
+    try:
+        entry = register(args.pid, args.purpose, args.cmd, origin=args.origin,
+                         request_id=getattr(args, "request_id", None))
+    except PublishedCloseUnknown as exc:
+        print("PUBLISHED BUT REGISTRY LOCK CLOSE UNKNOWN: %s" % exc,
+              file=sys.stderr)
+        print(exc.entry_id)
+        return _EXIT_CLOSE_UNKNOWN
+    except RegistrationError as exc:
+        print("REFUSED: %s" % exc, file=sys.stderr)
+        return _EXIT_REGISTRATION_FAILED
+    except PublishedNotDurable as exc:
+        # THE RECORD EXISTS. Say so first, then print the id last, because the
+        # entry is real and a consumer that parses the id is not being misled.
+        print("PUBLISHED BUT NOT DURABLE: %s" % exc, file=sys.stderr)
+        print(exc.entry_id)
+        return _EXIT_PUBLISHED_NOT_DURABLE
     print(entry["id"])
     return 0
 
@@ -555,9 +2752,16 @@ def cmd_selftest(args):
             failures.append("could not read this process's own start time")
 
         # --script refusals, exercised rather than described.
+        #
+        # THROUGH main(), NOT A HAND-BUILT NAMESPACE. `--script` was advertised
+        # from v3.66.1047 and argparse never owned the flag, so every operator
+        # invocation died with `unrecognized arguments` while this selftest
+        # certified the option by constructing the namespace the CLI could not
+        # produce. A selftest that cannot reach the interface it certifies is
+        # measuring itself.
         missing = os.path.join(tmp, "nope.sh")
-        if cmd_run(type("A", (), {"host": "somewhere", "purpose": "p",
-                                  "script": missing, "command": []})()) != 2:
+        if main(["run", "--host", "somewhere", "--purpose", "p",
+                 "--script", missing]) != 2:
             failures.append("a --script that does not exist was not refused")
         real = os.path.join(tmp, "ok.sh")
         with open(real, "w") as fh:
@@ -578,6 +2782,20 @@ def cmd_selftest(args):
 
 
 def main(argv=None):
+    # THE GATE MODE IS DISPATCHED BEFORE ARGPARSE, deliberately: it is half of
+    # `run`, not a verb, and argparse would advertise it in --help as though an
+    # operator could usefully type it. It is also the one mode whose argv must
+    # pass through completely untouched -- it is somebody else's command line.
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == _GATE_FLAG:
+        return _gate_main(raw[1:])
+    if raw and raw[0] == _ATTEMPT_DISPOSITION_FLAG:
+        return _attempt_disposition_main(raw[1:])
+    if raw and raw[0] == _ATTEMPT_IDENTITY_FLAG:
+        return _attempt_identity_main(raw[1:])
+    if raw and raw[0] == _ATTEMPT_CLEANUP_FLAG:
+        return _attempt_cleanup_main(raw[1:])
+
     p = argparse.ArgumentParser(prog="bd-jobs", description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="verb")
 
@@ -590,6 +2808,20 @@ def main(argv=None):
     n = sub.add_parser("run", help="launch a command and register it")
     n.add_argument("--host", default=None)
     n.add_argument("--purpose", required=True)
+    # ADVERTISED SINCE v3.66.1047 AND UNREACHABLE UNTIL NOW: cmd_run has read
+    # `args.script` all along, argparse never owned the flag, and every
+    # operator invocation died with `unrecognized arguments: --script`. Only a
+    # main()-level test can see that; a hand-built namespace cannot.
+    n.add_argument("--script", default=None,
+                   help="run a script FILE rather than an inline command")
+    n.add_argument("--origin", default=None,
+                   help="the host this launch came from (used by delegation)")
+    n.add_argument("--request-id", dest="request_id", default=None,
+                   help=argparse.SUPPRESS)
+    n.add_argument("--adopt-script", dest="adopt_script", default=None,
+                   help=argparse.SUPPRESS)
+    n.add_argument("--attempt-token", dest="attempt_token", default=None,
+                   help=argparse.SUPPRESS)
     n.add_argument("command", nargs=argparse.REMAINDER)
 
     g = sub.add_parser("register", help="record an already-running pid")
@@ -597,6 +2829,8 @@ def main(argv=None):
     g.add_argument("--purpose", required=True)
     g.add_argument("--cmd", default="")
     g.add_argument("--origin", default=None)
+    g.add_argument("--request-id", dest="request_id", default=None,
+                   help=argparse.SUPPRESS)
 
     p.add_argument("--selftest", action="store_true")
     args = p.parse_args(argv)

@@ -58,6 +58,7 @@ import importlib.util
 import os
 import pathlib
 import re
+import shlex
 import signal
 import subprocess
 import time
@@ -271,6 +272,54 @@ def test_every_abandon_path_reaps():
     assert builder is not None, "reap_cmd is not a module-level function"
     exempt = {id(n) for n in ast.walk(builder)}
 
+    # THE RUNNER TEMPLATE IS A SECOND EXEMPTION, AND THE COVERAGE MOVES RATHER
+    # THAN DISAPPEARS -- the replacement assertion below is strictly stronger
+    # than the ban it replaces. Row 212 gave the runner a registration-failure
+    # branch that must reap the group it just launched. It cannot route that
+    # through `reap_cmd`: reap_cmd builds an SSH command that probes a pid it
+    # did not create and reports REAP-OK/REAP-SURVIVED to a monitor, while the
+    # runner is already ON the host, owns the pid, and has no channel to report
+    # to -- registration failing is exactly why nothing else knows the pid
+    # exists. Shipping the remote verdict protocol into the runner text would
+    # be a worse answer than this exemption.
+    #
+    # Exempted BY STRUCTURE (the RUNNER Assign node's subtree), never by a
+    # substring: a substring exemption would also excuse a hand-rolled kill
+    # anywhere else that happened to mention the word.
+    runner_assign = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.Assign)
+         and any(isinstance(t, ast.Name) and t.id == "RUNNER" for t in n.targets)),
+        None)
+    assert runner_assign is not None, (
+        "RUNNER is no longer a module-level assignment; this exemption is now "
+        "aimed at nothing and the check below cannot see its subject")
+    exempt |= {id(n) for n in ast.walk(runner_assign)}
+
+    # THE RE-CONSTRAINT. The exempted kill must aim at the process GROUP of the
+    # pid the runner recorded -- the identical property the ban above exists to
+    # protect, asserted here on the exact text instead of merely banned. A
+    # runner that killed the bare pid would leave the workers, which is the
+    # CAPPED path's bug relocated into the launcher.
+    runner_text = _load().RUNNER
+    assert re.search(r'kill\s+-9\s+-"\$PYTEST_PGID"', runner_text), (
+        "the runner's registration-failure branch does not kill the process "
+        "GROUP of the job it launched (expected `kill -9 -\"$PYTEST_PGID\"`). "
+        "`set -m` gives that job its own group; killing the bare pid leaves "
+        "its workers running and unregistered. Backlog 212.")
+    assert "REGISTER_REAP_SECONDS=10" in runner_text, (
+        "registration cleanup has no explicit nonzero production deadline")
+    assert "registration_child_is_terminal" in runner_text, (
+        "the runner waits without first proving its child is terminal")
+    assert runner_text.count(
+        "REGISTER_REAP_POLLS=$((REGISTER_REAP_SECONDS * 10))") == 1, (
+        "registration cleanup has no single ten-polls-per-second budget")
+    assert runner_text.count(
+        "REGISTER_REAP_POLLS=$((REGISTER_REAP_POLLS - 1))") == 1, (
+        "registration cleanup does not consume its finite poll budget")
+    assert "REGISTER-FAILED-RETAINED pid=$PYTEST_PID pgid=$PYTEST_PGID" in runner_text, (
+        "a cleanup timeout does not name the exact retained pid and pgid")
+
     hand_rolled = sorted(
         n.lineno for n in ast.walk(tree)
         if isinstance(n, ast.Constant) and isinstance(n.value, str)
@@ -389,3 +438,377 @@ def test_the_interrupt_joins_its_threads_so_rows_are_written():
         "ZERO abandoned rows after an interrupted 19h hunt. Join them (bounded) "
         "so each thread can reap and record."
     )
+
+
+# ---------------------------------------------------------------------------
+# W1 -- BACKLOG 212. The runner must not wait on a job it could not register.
+#
+# The abandon paths above are about a run the MONITOR gives up on. This battery is
+# about the other end of the same leak: the remote runner script itself. Its
+# registration step reads
+#
+#     python3 .../bd-jobs register ... > "$RUNDIR/jobid" 2>... || \
+#         echo "REGISTER-FAILED" > "$RUNDIR/jobid"
+#     wait "$PYTEST_PID"
+#
+# so a registrar that fails -- a torn write, a full disk, an unwritable
+# JOBS_DIR, row 212's whole subject -- is SWALLOWED, and the runner then waits
+# for the full pytest run it just started. The result is a live pytest master
+# and up to 48 workers on a fleet host that `bd-jobs list` cannot see and
+# `bd-jobs reap` will never reach, for the entire duration of the run. The
+# monitor's own reaping cannot help: it reaps by the row it knows about, and
+# the operator's registry is precisely what is missing.
+#
+# WHY THE PRODUCTION TEMPLATE AND A REAL BASH. The subject is shell text. A
+# copy of it in this file would be a test of the copy, and a structural check
+# over `mod.RUNNER` cannot tell `kill` from `kill` in a comment or prove the
+# child actually died. So: format the REAL `mod.RUNNER`, point `$HOME` at a
+# fake checkout whose only content is a stub `bd-jobs`, and run it under real
+# bash. Exactly one boundary is stubbed -- the registrar's exit status.
+#
+# WHAT THIS BATTERY CANNOT SEE: it drives the runner LOCALLY. The ssh transport,
+# `setsid nohup`, and the remote host's environment are outside it.
+# ---------------------------------------------------------------------------
+
+W1_REGISTER_FAILURE_CODE = 73    # the stub registrar's distinctive exit
+W1_RUNNER_FAILURE_CODE = "91"    # what the runner must record for itself
+W1_RETAINED_FAILURE_CODE = "92"  # cleanup timed out with an exact retained id
+W1_WORKLOAD_CODE = 7             # the success control's workload exit
+W1_STUB_MARKER = "STUB-REGISTRAR-REACHED"
+W1_RUNNER_BOUND = 40.0           # every wait in this battery is bounded
+
+
+def _w1_fake_home(tmp_path, *, code: int, stdout: str = "", sleep: float = 0.0):
+    """A fake `$HOME` whose only inhabitant is a stub `bd-jobs`.
+
+    The runner invokes `python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs"`,
+    so the stub is Python, not shell, and needs no exec bit. `sleep` exists so
+    the caller can observe the launched process group WHILE it is alive: a
+    reap assertion with no proven live group before it is the empty-iterable
+    green CLAUDE.md section 7 names.
+    """
+    home = tmp_path / "fakehome"
+    binp = home / "BulkDownloader" / "toolchain" / "bin"
+    binp.mkdir(parents=True)
+    (binp / "bd-jobs").write_text(
+        "import sys, time\n"
+        "sys.stderr.write({marker!r} + ' ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+        "sys.stderr.flush()\n"
+        "time.sleep({sleep!r})\n"
+        "sys.stdout.write({stdout!r})\n"
+        "sys.exit({code!r})\n".format(
+            marker=W1_STUB_MARKER, sleep=float(sleep), stdout=stdout, code=int(code)),
+        encoding="utf-8")
+    return home
+
+
+def _w1_live_in_group(pgid: int) -> list[str]:
+    """Live (non-zombie) pids sharing `pgid`. A zombie is gone for our purpose."""
+    r = subprocess.run(["ps", "-eo", "pgid=,pid=,stat="],
+                       capture_output=True, text=True)
+    rows = [l.split() for l in r.stdout.splitlines() if l.split()]
+    return [x[1] for x in rows if x[0] == str(pgid) and not x[2].startswith("Z")]
+
+
+def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None):
+    """Format the PRODUCTION template around a workload we can watch."""
+    rundir = tmp_path / "rundir"
+    workload = tmp_path / "workload.sh"
+    workload.write_text(workload_body, encoding="utf-8")
+    cmd = "bash " + shlex.quote(str(workload))
+    body = mod.RUNNER.format(
+        rundir=shlex.quote(str(rundir)),
+        cmd=cmd,
+        purpose=shlex.quote("row212-w1"),
+        origin=shlex.quote("pytest-w1"),
+        cmdq=shlex.quote(cmd),
+    )
+    if reap_seconds is not None:
+        anchor = "REGISTER_REAP_SECONDS=10"
+        assert body.count(anchor) == 1, (
+            "the production runner has no single internal, nonzero registration "
+            "cleanup deadline to shorten for this driven timeout test")
+        poll_anchor = "REGISTER_REAP_POLLS=$((REGISTER_REAP_SECONDS * 10))"
+        assert body.count(poll_anchor) == 1, (
+            "the production runner has no single finite ten-polls-per-second "
+            "registration cleanup budget")
+        body = body.replace(anchor, "REGISTER_REAP_SECONDS=%d" % reap_seconds)
+    script = tmp_path / "runner.sh"
+    script.write_text(body, encoding="utf-8")
+    return script, rundir
+
+
+def _w1_kill_group(pgid: int) -> None:
+    """Kill a group, refusing to aim at our own. Never raises."""
+    try:
+        if pgid <= 0 or pgid == os.getpgid(0):
+            return
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register(tmp_path):
+    """A registrar that fails must end the run, not start a 48-worker orphan."""
+    mod = _load()
+    marker = tmp_path / "workload-started"
+    # The workload IS the process group: `set -m` in the runner gives the
+    # backgrounded job its own pgid, and these three sleeps inherit it. That
+    # is the same shape as a pytest master with xdist workers, which is what
+    # the CAPPED path's bug was about.
+    script, rundir = _w1_build_runner(mod, tmp_path, (
+        "#!/bin/bash\n"
+        "touch %s\n"
+        "sleep 300 &\nsleep 300 &\nsleep 300\n" % shlex.quote(str(marker))))
+    env = dict(os.environ)
+    # sleep>0 so the group is observably alive while the registrar is failing.
+    env["HOME"] = str(_w1_fake_home(tmp_path, code=W1_REGISTER_FAILURE_CODE,
+                                    sleep=3.0))
+
+    proc = subprocess.Popen(["bash", str(script)], env=env, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            start_new_session=True)
+    pgid = -1
+    try:
+        # PRECONDITION 1: a child really existed and really ran, and its whole
+        # group is alive at the moment registration is failing. Asserted
+        # BEFORE the verdict; otherwise "nothing survived" and "nothing was
+        # ever launched" are the same green.
+        deadline = time.time() + 20.0
+        live: list[str] = []
+        while time.time() < deadline:
+            pidfile = rundir / "pytest.pid"
+            if pidfile.is_file() and pidfile.read_text().strip().isdigit():
+                pgid = int(pidfile.read_text().strip())
+                live = _w1_live_in_group(pgid)
+                if marker.exists() and len(live) >= 4:
+                    break
+            time.sleep(0.2)
+        assert pgid > 0, "the runner never recorded a pytest.pid; nothing was launched"
+        assert marker.exists(), (
+            "the workload never started, so this test cannot tell a reaped "
+            "child from a child that never existed")
+        assert len(live) >= 4, (
+            "the fixture did not build a live process group to reap (found "
+            f"{len(live)}: {live}); every assertion below would be vacuous")
+
+        try:
+            rc = proc.wait(timeout=W1_RUNNER_BOUND)
+        except subprocess.TimeoutExpired:
+            raise AssertionError(
+                "the runner is STILL RUNNING %.0fs after a registration that "
+                "failed. It swallowed the failure with `|| echo REGISTER-FAILED` "
+                "and fell through to `wait \"$PYTEST_PID\"`, so a pytest master "
+                "and its workers are live on a host where `bd-jobs list` cannot "
+                "see them and `bd-jobs reap` will never reach them, for the "
+                "whole duration of the run. Backlog 212." % W1_RUNNER_BOUND)
+
+        # PRECONDITION 2: the stub registrar is what failed -- not python3
+        # missing, not a mangled template, not the `cd` guard's exit 90.
+        assert (rundir / "jobid.err").is_file(), "no registrar stderr was captured"
+        err = (rundir / "jobid.err").read_text(encoding="utf-8")
+        assert W1_STUB_MARKER in err, (
+            "the stub registrar was never reached, so the runner failed for "
+            f"some other reason: {err!r}")
+        assert "REGISTER-FAILED" in (rundir / "jobid").read_text(encoding="utf-8"), (
+            "the runner no longer records REGISTER-FAILED; the monitor and the "
+            "operator lose the one marker that names this outcome")
+
+        # THE VERDICT. Distinctive, not merely nonzero: the `cd` guard already
+        # exits 90 and the workload's own status is 7 in the control below, so
+        # a bare `!= 0` could be satisfied by an unrelated refusal.
+        assert rc == int(W1_RUNNER_FAILURE_CODE), (
+            f"the runner exited {rc}, not {W1_RUNNER_FAILURE_CODE}. "
+            "A registration failure must be terminal and must say so with its "
+            "own distinctive status, not borrow the workload's.")
+        ecfile = rundir / "exitcode"
+        assert ecfile.is_file(), (
+            "no exitcode was recorded. The monitor reads this file; an absent "
+            "one is indistinguishable from a run still in flight.")
+        assert ecfile.read_text().strip() == W1_RUNNER_FAILURE_CODE, (
+            f"exitcode recorded {ecfile.read_text().strip()!r}. Recording 0 -- "
+            "or the workload's status -- would launder an unregistered launch "
+            "into a clean sample in the wedge denominator.")
+
+        # AND THE LEAK ITSELF: the group it launched must be gone.
+        deadline = time.time() + 10.0
+        survivors = _w1_live_in_group(pgid)
+        while survivors and time.time() < deadline:
+            time.sleep(0.2)
+            survivors = _w1_live_in_group(pgid)
+        assert not survivors, (
+            f"{len(survivors)} process(es) of the launched group {pgid} "
+            f"survived the runner: {survivors}. Refusing to wait is only half "
+            "the fix -- the runner owns that group and is the only thing that "
+            "knows its pid, because registration is exactly what failed.")
+    finally:
+        _w1_kill_group(pgid)
+        try:
+            _w1_kill_group(os.getpgid(proc.pid))
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+
+
+# Mutation design N58: "registration cleanup poll budget is zero" replaces
+# `REGISTER_REAP_POLLS=$((REGISTER_REAP_SECONDS * 10))` with
+# `REGISTER_REAP_POLLS=0`; this driven node catches it by requiring ten polls.
+def test_registration_cleanup_timeout_is_internal_and_names_retained_group(tmp_path):
+    """A failed signal must not turn the cleanup wait into another wedge.
+
+    This drives the production shell with only ``kill -9`` neutralised.  The
+    workload remains a real, live process group, so exit 92 can be accepted
+    only if the runner's own nonzero deadline fires and its recorded outcome
+    names the exact PID and PGID it retained.
+    """
+    mod = _load()
+    marker = tmp_path / "workload-started"
+    script, rundir = _w1_build_runner(
+        mod, tmp_path,
+        "#!/bin/bash\n"
+        "trap '' HUP TERM\n"
+        "touch %s\n"
+        "sleep 300 &\nsleep 300 &\nsleep 300\n" % shlex.quote(str(marker)),
+        reap_seconds=1,
+    )
+    poll_marker = tmp_path / "cleanup-polls"
+    bash_env = tmp_path / "neutralise-runner-kill.bash"
+    bash_env.write_text(
+        "kill() {\n"
+        "    if [ \"$1\" = \"-9\" ]; then return 0; fi\n"
+        "    builtin kill \"$@\"\n"
+        "}\n"
+        "sleep() {\n"
+        "    if [ \"$1\" = \"0.1\" ]; then\n"
+        "        printf 'poll\\n' >> \"$W1_POLL_MARKER\"\n"
+        "    fi\n"
+        "    command sleep \"$@\"\n"
+        "}\n"
+        "export -f kill sleep\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["HOME"] = str(_w1_fake_home(
+        tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.5))
+    env["BASH_ENV"] = str(bash_env)
+    env["W1_POLL_MARKER"] = str(poll_marker)
+
+    proc = subprocess.Popen(
+        ["bash", str(script)], env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    pgid = -1
+    started = time.monotonic()
+    try:
+        deadline = time.time() + 10.0
+        live: list[str] = []
+        while time.time() < deadline:
+            pidfile = rundir / "pytest.pid"
+            if pidfile.is_file() and pidfile.read_text().strip().isdigit():
+                pgid = int(pidfile.read_text().strip())
+                live = _w1_live_in_group(pgid)
+                if marker.exists() and len(live) >= 4:
+                    break
+            time.sleep(0.1)
+        assert pgid > 0 and marker.exists() and len(live) >= 4, (
+            "the fixture did not create the live process group whose failed "
+            f"cleanup is under test: pid={pgid}, live={live}")
+        assert os.getpgid(pgid) == pgid, (
+            "set -m did not make the workload pid its process-group leader; "
+            "the exact pgid assertion below would not test production's shape")
+
+        rc = proc.wait(timeout=8)
+        elapsed = time.monotonic() - started
+        expected = "REGISTER-FAILED-RETAINED pid=%d pgid=%d" % (pgid, pgid)
+        assert rc == int(W1_RETAINED_FAILURE_CODE), (
+            f"cleanup returned {rc}, not retained status "
+            f"{W1_RETAINED_FAILURE_CODE}, after {elapsed:.2f}s")
+        assert elapsed >= 1.0, (
+            f"cleanup returned in {elapsed:.2f}s; its configured timeout was "
+            "zero or was never exercised")
+        polls = poll_marker.read_text(encoding="utf-8").splitlines()
+        assert polls == ["poll"] * 10, (
+            "the one-second registration cleanup budget did not execute "
+            f"exactly ten tenth-second polls: {polls!r}")
+        assert (rundir / "exitcode").read_text().strip() == W1_RETAINED_FAILURE_CODE
+        assert (rundir / "jobid").read_text().strip() == expected
+        err = (rundir / "jobid.err").read_text(encoding="utf-8")
+        assert W1_STUB_MARKER in err, "the registrar failure seam never fired"
+        assert expected in err, (
+            "the recorded cleanup diagnostic did not name the exact retained "
+            f"pid/pgid: {err!r}")
+        survivors = _w1_live_in_group(pgid)
+        assert survivors, (
+            "the no-op signal fixture retained no process, so the retained "
+            "diagnostic could be a false alarm")
+    finally:
+        _w1_kill_group(pgid)
+        try:
+            _w1_kill_group(os.getpgid(proc.pid))
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+
+
+def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
+    """OVER-SENSITIVITY CONTROL for W1, and it is not optional.
+
+    "Registration failure is terminal" is one bad edit away from "the runner
+    stops waiting", which would destroy every sample the hunt exists to take:
+    no `exitcode`, no `epoch_end`, no pytest status, every row ABANDONED. So
+    the same production template, the same real bash, one difference -- the
+    stub registrar returns 0 -- must still reach `wait` and record the
+    WORKLOAD's status, not the runner's.
+    """
+    mod = _load()
+    marker = tmp_path / "workload-started"
+    script, rundir = _w1_build_runner(mod, tmp_path, (
+        "#!/bin/bash\n"
+        "touch %s\n"
+        "sleep 1\n"
+        "exit %d\n" % (shlex.quote(str(marker)), W1_WORKLOAD_CODE)))
+    env = dict(os.environ)
+    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
+
+    proc = subprocess.Popen(["bash", str(script)], env=env, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            start_new_session=True)
+    try:
+        rc = proc.wait(timeout=W1_RUNNER_BOUND)
+    except subprocess.TimeoutExpired:
+        _w1_kill_group(os.getpgid(proc.pid))
+        proc.kill()
+        proc.wait(timeout=10)
+        raise AssertionError(
+            "the runner never finished a SUCCESSFUL run within "
+            f"{W1_RUNNER_BOUND:.0f}s")
+    finally:
+        try:
+            _w1_kill_group(os.getpgid(proc.pid))
+        except (ProcessLookupError, OSError):
+            pass
+
+    assert marker.exists(), "the workload never ran; the success path proves nothing"
+    assert rc == 0, (
+        f"a successful registration made the runner exit {rc}. The runner's "
+        "own status must stay 0 on the normal path; the sample's status lives "
+        "in $RUNDIR/exitcode.")
+    assert (rundir / "jobid").read_text().strip() == "stubhost-4242", (
+        "the registrar's job id was not recorded, so the monitor cannot name "
+        "the job it launched")
+    assert "REGISTER-FAILED" not in (rundir / "jobid").read_text(), (
+        "a successful registration was recorded as a failure")
+    assert (rundir / "exitcode").read_text().strip() == str(W1_WORKLOAD_CODE), (
+        "the runner did not wait for its workload and record the workload's "
+        f"own status ({W1_WORKLOAD_CODE}). Making registration failure terminal "
+        "must not make the success path stop waiting -- that would empty the "
+        "wedge denominator entirely.")
+    assert (rundir / "epoch_end").is_file(), (
+        "epoch_end is missing on the success path; the sample has no duration")

@@ -37,8 +37,8 @@
     {
       "label": "STRUCTURAL M3 add a direct unmarked JOBS_DIR JSON writer outside register",
       "file": "toolchain/bin/bd-jobs",
-      "old": "def load_all():\n    if not JOBS_DIR.is_dir():",
-      "new": "def _unmarked_registry_bypass():\n    (JOBS_DIR / \"unmarked-bypass.json\").write_text(\n        \"{}\", encoding=\"utf-8\")\n\ndef load_all():\n    if not JOBS_DIR.is_dir():",
+      "old": "def load_all():\n    \"\"\"Every valid entry, plus a named account of every file that is not one.\"\"\"",
+      "new": "def _unmarked_registry_bypass():\n    (JOBS_DIR / \"unmarked-bypass.json\").write_text(\n        \"{}\", encoding=\"utf-8\")\n\n\ndef load_all():\n    \"\"\"Every valid entry, plus a named account of every file that is not one.\"\"\"",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer"
     },

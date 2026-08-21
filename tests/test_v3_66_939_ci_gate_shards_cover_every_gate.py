@@ -228,6 +228,15 @@ _DECLARED = {
     # not exist.
     "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
     "tests/test_v3_66_1044_run_context_and_chains.py",
+    # @1206, scope decision 3. The two suites that assert what row 212 changes:
+    # 1054 launches through the REAL CLI and proves `reap` kills the whole
+    # process group (backlog 88), and 1087 proves a launched job's log exists
+    # and is recorded in its entry. Both were diff-derivable only -- 1054 sits
+    # in the frozen baseline below and 1087 declares `module` -- so the cut that
+    # rewrites the launch transaction would have shipped with neither contract
+    # measured on any PR. A gate CI does not run does not exist.
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
+    "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
     "tests/test_v3_66_1040_remote_job_registry.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
