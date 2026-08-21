@@ -1502,7 +1502,13 @@ def test_bd_cut_rechecks_snapshot_at_last_prework_boundary(
         calls.append((args, kwargs))
         return len(calls) == 1
 
+    def bomb_regen(*args, **kwargs):
+        raise AssertionError(
+            "bd-cut continued after final permit recheck was removed"
+        )
+
     monkeypatch.setattr(module.cut_quality, "enforce", staged_enforce)
+    monkeypatch.setattr(module, "regen_order", bomb_regen)
     out = tmp_path / "out"
     before = (repo / "bulk_downloader" / "__init__.py").read_bytes()
     rc = module.main(["--work", str(repo), "--out", str(out), "--no-gate",

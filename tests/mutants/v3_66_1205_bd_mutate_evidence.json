@@ -38,7 +38,7 @@
       "new": "    if False:",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_rejects_missing_observed_label",
-      "expected_failure": {"outcome": "failed", "signature": "DID NOT RAISE"},
+      "expected_failure": {"outcome": "failed", "signature": "zip() argument 2 is shorter than argument 1"},
       "preserves": ["tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"]
     },
     {
@@ -58,7 +58,7 @@
       "new": "        if not candidates:",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_ambiguous_junit_identity",
-      "expected_failure": {"outcome": "failed", "signature": "assert (None)"},
+      "expected_failure": {"outcome": "failed", "signature": "and 'maps to' in"},
       "preserves": ["tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"]
     },
     {

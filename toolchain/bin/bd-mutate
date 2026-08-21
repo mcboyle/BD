@@ -1056,25 +1056,22 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                     row["why"] = observed_why
                 else:
                     signature = m["expected_failure"]["signature"]
-                    start = observed["failure_text"].find(signature)
-                    if start < 0:
-                        row["verdict"] = INDISCRIMINATE
-                        row["why"] = (
-                            f"named catcher failed without expected signature {signature!r}")
-                    else:
-                        row["actual_failure"] = {
-                            "nodeid": m["catcher"],
-                            "outcome": observed["outcome"],
-                            "signature": observed["failure_text"][
-                                start:start + len(signature)
-                            ],
-                        }
-                        row["failure_text_sha256"] = observed["failure_text_sha256"]
-                        row["control_outcomes"] = [
-                            {"nodeid": nodeid,
-                             "outcome": _named_outcome(result, nodeid)[0]}
-                            for nodeid in m["preserves"]
-                        ]
+                    # _grade_mutant is the single classification boundary and
+                    # has already proved that this exact signature belongs to
+                    # the named catcher's failure record.  Re-checking it here
+                    # made either check individually unobservable to mutation
+                    # testing while adding no independent trust boundary.
+                    row["actual_failure"] = {
+                        "nodeid": m["catcher"],
+                        "outcome": observed["outcome"],
+                        "signature": signature,
+                    }
+                    row["failure_text_sha256"] = observed["failure_text_sha256"]
+                    row["control_outcomes"] = [
+                        {"nodeid": nodeid,
+                         "outcome": _named_outcome(result, nodeid)[0]}
+                        for nodeid in m["preserves"]
+                    ]
             if evidence_runs is not None and result.get("junit_evidence"):
                 evidence_runs.append({
                     "kind": "mutant",

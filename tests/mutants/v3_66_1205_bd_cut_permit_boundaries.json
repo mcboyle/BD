@@ -34,7 +34,7 @@
       "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_rechecks_snapshot_at_last_prework_boundary",
       "expected_failure": {
         "outcome": "failed",
-        "signature": "assert 1 == 2"
+        "signature": "bd-cut continued after final permit recheck was removed"
       },
       "preserves": [
         "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary"
