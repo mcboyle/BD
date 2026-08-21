@@ -98,12 +98,18 @@ import itertools
 import os
 import re
 import shutil
+import secrets
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bd_cut_quality as cut_quality  # noqa: E402
+
 TOOL = "bd-ci-verdict"
+SELFTEST_ROOT_ENV = "BD_CI_VERDICT_SELFTEST_ROOT"
+SELFTEST_TOKEN_ENV = "BD_CI_VERDICT_SELFTEST_TOKEN"
 
 # gh resolves WHICH repo a PR number belongs to from the git remote of its
 # working directory. Run outside a checkout it exits 1, prints nothing to
@@ -705,6 +711,26 @@ def selftest():
           "no writes outside the temp dir")
     emit_blind_spots(print)
     tmp = Path(tempfile.mkdtemp(prefix="bd-ci-verdict-selftest."))
+    # Child CLI cases need to exercise this file's real shebang/argparse path
+    # without a merge permit.  A random file capability scoped to this temp
+    # root, plus a live --selftest parent check, is not an operator bypass and
+    # cannot authorize a real checkout or real gh path.
+    selftest_token = secrets.token_hex(32)
+    (tmp / ".selftest-capability").write_text(selftest_token)
+    old_root = os.environ.get(SELFTEST_ROOT_ENV)
+    old_token = os.environ.get(SELFTEST_TOKEN_ENV)
+    os.environ[SELFTEST_ROOT_ENV] = str(tmp)
+    os.environ[SELFTEST_TOKEN_ENV] = selftest_token
+
+    def finish_capability():
+        if old_root is None:
+            os.environ.pop(SELFTEST_ROOT_ENV, None)
+        else:
+            os.environ[SELFTEST_ROOT_ENV] = old_root
+        if old_token is None:
+            os.environ.pop(SELFTEST_TOKEN_ENV, None)
+        else:
+            os.environ[SELFTEST_TOKEN_ENV] = old_token
     print(f"temp dir: {tmp}   (remover: shutil.rmtree at the end of a clean run; "
           "kept on failure so you can look)")
     st = SelfTest()
@@ -1145,8 +1171,10 @@ def selftest():
     for n in st.notes:
         print(f"  note: {n}")
     if st.failed:
+        finish_capability()
         print(f"SELFTEST: FAIL -- temp dir KEPT at {tmp}")
         return 1
+    finish_capability()
     shutil.rmtree(tmp, ignore_errors=True)
     print(f"SELFTEST: PASS -- temp dir removed ({tmp})")
     return 0
@@ -1169,7 +1197,33 @@ def build_parser():
                         "repo from the git remote of the ci.yml's checkout)")
     p.add_argument("--timeout", type=float, default=60.0, help="seconds for gh")
     p.add_argument("--selftest", action="store_true")
+    cut_quality.add_permit_argument(p)
     return p
+
+
+def _is_scoped_selftest_child(args) -> bool:
+    """Recognise only child CLIs spawned by the live synthetic selftest."""
+    root_text = os.environ.get(SELFTEST_ROOT_ENV)
+    token = os.environ.get(SELFTEST_TOKEN_ENV)
+    if not root_text or not token:
+        return False
+    root = Path(root_text).resolve()
+    try:
+        if (root / ".selftest-capability").read_text() != token:
+            return False
+        parent = Path(f"/proc/{os.getppid()}/cmdline").read_bytes().replace(b"\0", b" ")
+        if b"bd-ci-verdict" not in parent or b"--selftest" not in parent:
+            return False
+        # Both the fake gh and the evidence subject must be confined to the
+        # private temp root.  A capability copied into a real invocation cannot
+        # exempt a real checkout or real gh binary.
+        gh = Path(args.gh).resolve()
+        subject = Path(args.repo or args.ci_yml or os.getcwd()).resolve()
+        gh.relative_to(root)
+        subject.relative_to(root)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def main(argv=None):
@@ -1181,6 +1235,14 @@ def main(argv=None):
         print("VERDICT: REFUSE-NO-PR no pull request number given "
               "(usage: bd-ci-verdict <PR>)")
         return EXIT_REFUSE
+    if not _is_scoped_selftest_child(args):
+        repo = Path(args.repo or os.getcwd()).resolve()
+        if not cut_quality.enforce(
+                repo, args.cut_quality_permit, "pre-merge", consumer_path=__file__,
+                rerun_argv=["cut-acceptance-preflight", "--repo", str(repo),
+                            "--stage", "pre-merge", "--emit-permit",
+                            args.cut_quality_permit or "<derived-permit-path>"]):
+            return EXIT_REFUSE
     return main_verdict(args)
 
 

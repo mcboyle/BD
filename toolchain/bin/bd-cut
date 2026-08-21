@@ -55,6 +55,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # @807 (R1): the ONE guard-set derivation
+import bd_cut_quality as cut_quality
 
 # --- 702: --selftest delegates to the tool's own bd-coretest fault-injection case.
 # These are the RELEASE-GATING MUTATORS: they edit the tree and gate a cut, and they
@@ -2262,6 +2263,7 @@ def _main_inner(argv, _cleanup):
     ap.add_argument("--no-gate", action="store_true",
                     help="skip the step-0 release gate (bd-footguns + bd-ratchet). LOUD: prints a "
               "banner to stderr and writes STEP0_SKIPPED.txt into --out")
+    cut_quality.add_permit_argument(ap)
     a = ap.parse_args(argv)
     # ABSOLUTE ONCE, AT THE BOUNDARY (v3.66.1149). `--work .` is the ordinary
     # spelling, and step0_gate chdirs into a sandbox before launching its
@@ -2284,6 +2286,20 @@ def _main_inner(argv, _cleanup):
     # cut needs while you can still act on it.
     if getattr(a, "plan", False):
         return plan(a.work, a.version)
+
+    def _receipt_ok():
+        return cut_quality.enforce(
+            a.work, a.cut_quality_permit, "pre-implementation", consumer_path=__file__,
+            rerun_argv=["cut-acceptance-preflight", "--repo", a.work,
+                        "--stage", "pre-implementation", "--emit-permit",
+                        a.cut_quality_permit or "<derived-permit-path>"],
+        )
+
+    # This is a receipt for the exact dirty input snapshot, not a fictional
+    # final candidate SHA: bd-cut has not yet generated, bumped, or built that
+    # tree. Refuse before output creation and every cut gate.
+    if not _receipt_ok():
+        return 2
 
     # --detach (v3.66.723+): THE FIX FOR --skip-fe-AS-A-HABIT.
     #
@@ -2397,6 +2413,11 @@ def _main_inner(argv, _cleanup):
     # chain --detach exists to escape, so this costs seconds inside the parent's
     # exec window rather than minutes.
     if getattr(a, "detach", False):
+        # Last boundary before a detached child can launch. The child revalidates
+        # after exec as well, so a status-identical second edit cannot ride the
+        # parent's earlier observation.
+        if not _receipt_ok():
+            return 2
         # v3.66.855 port: the fallback was /home/claude/bin/bd-job, which cannot
         # exist here -- so --detach could only ever die. bd-job ships in this
         # tool's OWN bin dir; resolve it there, exactly as regen_order resolves
@@ -2430,6 +2451,12 @@ def _main_inner(argv, _cleanup):
         print(f"  bd-job status cut   # running | done | failed")
         print(f"  bd-job wait cut     # block to completion{RST}")
         return 0
+
+    # Last common boundary before resume-band work or normal precut/regeneration
+    # work. Step 0 may have taken seconds, so compare the complete snapshot a
+    # second time immediately before expensive or mutating work.
+    if not _receipt_ok():
+        return 2
 
     # --- fast retry path: band+verify+summary on an already-built zip, skipping
     #     the whole tsc->vitest->vite->build_release chain. For when the band

@@ -45,6 +45,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
+import bd_cut_quality as cut_quality  # noqa: E402
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -174,7 +175,21 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=240, help="per-suite timeout seconds")
     ap.add_argument("--skip-bandcheck", action="store_true",
                     help="run even if bd-bandcheck flags a target (say why in the cut)")
+    cut_quality.add_permit_argument(ap)
     a = ap.parse_args(argv)
+
+    # The permit is the outer authorization boundary.  An operator may override
+    # the target-safety bandcheck, but cannot use that unrelated override to
+    # bypass exact-candidate quality evidence.
+    def _permit_ok():
+        return cut_quality.enforce(
+            a.work, a.cut_quality_permit, "pre-floor", consumer_path=__file__,
+            rerun_argv=["cut-acceptance-preflight", "--repo", a.work,
+                        "--stage", "pre-floor", "--emit-permit",
+                        a.cut_quality_permit or "<derived-permit-path>"])
+
+    if not _permit_ok():
+        return 2
 
     # @849 -- REFUSE AN UNSAFE BAND BEFORE SPENDING 200 SECONDS DISCOVERING IT.
     #
@@ -227,6 +242,10 @@ def main(argv=None):
                   file=sys.stderr)
             return 2
 
+    # Recheck unchanged identity at the last boundary before extraction or the
+    # first pytest subprocess. Local target validation cannot authorize drift.
+    if not _permit_ok():
+        return 2
     if a.from_zip:
         if not os.path.exists(a.from_zip):
             print(f"{R}--from-zip not found:{RST} {a.from_zip}", file=sys.stderr)

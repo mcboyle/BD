@@ -73,6 +73,9 @@ import sys
 import time
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import bd_cut_quality as cut_quality  # noqa: E402
+
 DEFAULT_HOSTS = pathlib.Path.home() / ".config" / "bd" / "hosts"
 DEFAULT_ROOT = pathlib.Path.home() / ".local" / "share" / "bd-fleet-run" / "runs"
 DEFAULT_REPO_DIR = str(HERE.parents[1])
@@ -82,6 +85,7 @@ DEFAULT_JOBS = 8
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 RUN_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 SENTINEL = ".bd-fleet-run-owned"
+_SELFTEST_ACTIVE = False
 
 # An ACCEPTED grammar, not a rejected one. A blacklist over a value that becomes
 # ssh argv is the wrong shape: it must enumerate every bad character correctly
@@ -860,11 +864,17 @@ def main(argv=None, runner=None, probe=None) -> int:
                     help="actually contact the hosts (default is plan only)")
     ap.add_argument("--no-record-commit", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    cut_quality.add_permit_argument(ap)
     ap.add_argument("command", nargs=argparse.REMAINDER)
     args = ap.parse_args(argv)
 
     if args.selftest:
-        return selftest()
+        global _SELFTEST_ACTIVE
+        _SELFTEST_ACTIVE = True
+        try:
+            return selftest()
+        finally:
+            _SELFTEST_ACTIVE = False
     try:
         return _run(args, runner, probe)
     except Refusal as exc:
@@ -878,6 +888,17 @@ def _run(args, runner, probe) -> int:
     command = build_command(parts)
     if not command.strip():          # emptiness on a COPY; the value is verbatim
         raise Refusal("no command given. Usage: bd-fleet-run -- <command>")
+
+    # Planning is permit-free. Execute mode refuses before reading the real
+    # inventory, creating artifacts, constructing a SubprocessRunner, or
+    # contacting a host. The private flag exists only while --selftest drives
+    # its injected fake runner in this same process.
+    if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(
+            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__,
+            rerun_argv=["cut-acceptance-preflight", "--repo", args.repo_dir,
+                        "--stage", "pre-fleet", "--emit-permit",
+                        args.cut_quality_permit or "<derived-permit-path>"]):
+        return 2
 
     hosts_path = pathlib.Path(args.hosts).expanduser()
     if not hosts_path.is_file():
@@ -905,6 +926,12 @@ def _run(args, runner, probe) -> int:
         raise Refusal("no targets remain after selection.")
     if args.jobs < 1:
         raise Refusal("--jobs must be at least 1")
+    if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(
+            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__,
+            rerun_argv=["cut-acceptance-preflight", "--repo", args.repo_dir,
+                        "--stage", "pre-fleet", "--emit-permit",
+                        args.cut_quality_permit or "<derived-permit-path>"]):
+        return 2
     base = validate_root(args.root)
     workers = min(args.jobs, len(targets))
 
@@ -1031,6 +1058,22 @@ class _FakeProbe:
 
 
 def selftest() -> int:
+    """Run the hermetic fake-runner checks with a scoped permit exemption.
+
+    ``main(["--selftest"])`` already scopes this flag, but the public selftest
+    function is also imported directly by the repository's hermetic regression
+    suite.  Keep both entry paths equivalent and always restore an outer value.
+    """
+    global _SELFTEST_ACTIVE
+    previous = _SELFTEST_ACTIVE
+    _SELFTEST_ACTIVE = True
+    try:
+        return _selftest_inner()
+    finally:
+        _SELFTEST_ACTIVE = previous
+
+
+def _selftest_inner() -> int:
     """Hermetic: constructs no SubprocessRunner and no SubprocessProbe."""
     import tempfile
     fails = []

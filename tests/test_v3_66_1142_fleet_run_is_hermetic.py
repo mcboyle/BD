@@ -46,6 +46,7 @@ wiring rather than of an address being unroutable.
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.machinery
 import importlib.util
 import json
@@ -80,13 +81,88 @@ def _load():
     return mod
 
 
+def _write_exact_permit(mod, path: pathlib.Path, stage="pre-fleet"):
+    """Mint and first validate a synthetic permit for this exact checkout."""
+    policy_path = REPO / "toolchain" / "cut_quality_policy.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+
+    def git(*args):
+        result = subprocess.run(
+            ["git", "-C", str(REPO), *args], capture_output=True, text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+
+    status = git("status", "--porcelain=v1", "--untracked-files=all")
+    assert not status, "the exact-permit fixture requires a clean checkout"
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    tree = git("rev-parse", "--verify", "HEAD^{tree}")
+    common = pathlib.Path(git("rev-parse", "--git-common-dir"))
+    if not common.is_absolute():
+        common = REPO / common
+    submodules = subprocess.run(
+        ["git", "-C", str(REPO), "submodule", "status", "--recursive"],
+        capture_output=True, check=True,
+    ).stdout
+    runtime_rel = "toolchain/bin/bd_cut_quality.py"
+    now = int(time.time())
+    digest = "1" * 64
+    payload = {
+        "stage": stage,
+        "identity": {
+            "kind": "final-candidate/1", "base_sha": head,
+            "candidate_sha": head, "candidate_tree": tree,
+        },
+        "requirements_sha256": "2" * 64,
+        "contract_sha256": "3" * 64,
+        "tool": dict(policy["trusted_validators"][-1]),
+        "policy_sha256": hashlib.sha256(policy_path.read_bytes()).hexdigest(),
+        "environment_sha256": "4" * 64,
+        "source_obligations_sha256": "8" * 64,
+        "floor_selection_sha256": "9" * 64,
+        "delivery_sha256": "a" * 64,
+        "delivery_classification": "non-runtime",
+        "repository": {
+            "realpath": str(REPO.resolve()),
+            "git_common_dir_realpath": str(common.resolve()),
+            "submodules_sha256": hashlib.sha256(submodules).hexdigest(),
+        },
+        "runtime_inputs": [{
+            "path": runtime_rel,
+            "sha256": hashlib.sha256((REPO / runtime_rel).read_bytes()).hexdigest(),
+        }],
+        "risk_sha256": "5" * 64,
+        "audit_sha256": "6" * 64,
+        "evidence_graph_root": "7" * 64,
+        "artifact_hashes": {
+            key: [digest] for key in
+            ("red", "green", "mutation", "regeneration", "review")
+        },
+        "issued_at": now - 10,
+        "expires_at": now + 3600,
+        "invalidators": [
+            "identity-change", "policy-change", "tool-trust-change",
+            "environment-change", "source-obligation-change",
+            "floor-selection-change", "delivery-change", "artifact-change", "expiry",
+        ],
+    }
+    value = {
+        "schema": "cut-quality-permit/1",
+        "permit_id": mod.cut_quality.canonical_sha256(payload),
+        "payload": payload,
+    }
+    path.write_text(json.dumps(value), encoding="utf-8")
+    mod.cut_quality.validate_permit(REPO, path, stage)
+    return path, head, tree, str(common.resolve()), submodules
+
+
 @pytest.fixture()
 def mod():
     return _load()
 
 
 @pytest.fixture()
-def guarded(monkeypatch):
+def guarded(monkeypatch, tmp_path):
     """Returns (mod, launches). Makes "no network" an ASSERTION, not a hope.
 
     Since v3.66.1143 both seams are injectable, so a correctly-wired execute
@@ -94,10 +170,32 @@ def guarded(monkeypatch):
     remote-capable one raises immediately.
     """
     m = _load()
+    permit, candidate_head, candidate_tree, common_dir, submodules = _write_exact_permit(
+        m, tmp_path / "permit.json")
+    monkeypatch.setenv("BD_CUT_QUALITY_PERMIT", str(permit))
     launches = []
 
     def fake_run(argv, *a, **k):
         seq = list(argv) if not isinstance(argv, str) else [argv]
+        # After the real permit is validated above, simulate only its exact
+        # local Git probes. No process is launched, preserving this fixture's
+        # central assertion while still exercising the permit consumer.
+        if seq[:3] == ["git", "-C", str(REPO)]:
+            tail = seq[3:]
+            if tail == ["rev-parse", "--verify", "HEAD^{commit}"]:
+                return subprocess.CompletedProcess(seq, 0, candidate_head, "")
+            if tail == ["rev-parse", "--verify", "HEAD^{tree}"]:
+                return subprocess.CompletedProcess(seq, 0, candidate_tree, "")
+            if tail == ["rev-parse", "--git-common-dir"]:
+                return subprocess.CompletedProcess(seq, 0, common_dir, "")
+            if tail == ["submodule", "status", "--recursive"]:
+                return subprocess.CompletedProcess(seq, 0, submodules, b"")
+            if tail == ["status", "--porcelain=v1", "-z",
+                        "--untracked-files=all"]:
+                return subprocess.CompletedProcess(seq, 0, b"", b"")
+            if tail[:2] == ["merge-base", "--is-ancestor"]:
+                return subprocess.CompletedProcess(seq, 0, b"", b"")
+            raise AssertionError(f"unexpected permit Git probe: {seq}")
         launches.append(seq)
         head = os.path.basename(str(seq[0])) if seq else ""
         if head in FORBIDDEN_LAUNCHERS:
@@ -128,6 +226,30 @@ def _seeded_run(base: pathlib.Path, name: str, mod, sentinel=True):
 
 
 # ------------------------------------------------------------- preconditions
+
+def test_execute_without_permit_refuses_before_runner_or_artifacts(tmp_path):
+    """The negative path is import-level, one-host, and cannot reach SSH."""
+    m = _load()
+    hosts = _fleet(tmp_path, "alpha 192.0.2.1\n")
+    root = _base(tmp_path)
+
+    class BombRunner:
+        calls = []
+
+        def run(self, argv, log_path, timeout):
+            self.calls.append(list(argv))
+            raise AssertionError("a missing permit reached the runner")
+
+    runner = BombRunner()
+    missing = tmp_path / "absent-permit.json"
+    rc = m.main([
+        "--hosts", str(hosts), "--root", str(root),
+        "--cut-quality-permit", str(missing), "--execute", "--", "true",
+    ], runner=runner, probe=m._FakeProbe())
+    assert rc == 2
+    assert runner.calls == []
+    assert not root.exists()
+
 
 def test_the_tool_exists_and_parses(mod):
     assert TOOL.is_file()

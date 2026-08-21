@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1205 - make cut readiness executable before review
+
+- Add content-addressed cut-quality permits at every sanctioned expensive or
+  irreversible boundary. A permit binds the clean candidate SHA/tree, atomic
+  requirements, exact test and mutation evidence, source and consumer census,
+  generated state, environment, risk, affected-floor union, review inputs, and
+  stage invalidators; missing, stale, partial, duplicated, or wrong-SHA evidence
+  refuses with a stable corrective action instead of reaching a floor, fleet,
+  merge verdict, or deploy decision.
+- Bootstrap the validator without self-approval by running the same 34-case
+  bad-cut corpus through the frozen predecessor and candidate, adjudicating all
+  outcomes, binding every permit consumer byte, and retaining a deterministic
+  rollback path with no agent-authorizable break-glass. The final system passes
+  58 external contracts, 43 repository permit contracts, 13 CI-classification
+  contracts, 8 legacy-launcher migrations, 2 real producer/consumer contracts,
+  and 30 intended-reason guard-removal families covering all 34 cases.
+- Make review the final confirmation rather than the first completeness check.
+  The pre-dispatch freeze audit blocks unclassified safety tests, incomplete
+  source obligations, non-identical transition corpora, stale policy inputs,
+  and review requests created before their evidence is immutable. The first
+  independent review found one CI-classification omission and one uncovered
+  ancestry refusal; both now have direct RED/GREEN and mutation controls, and
+  the same reviewer returned READY with zero findings.
+
 ## v3.66.1204 - attribute shared job-registry leak evidence to its writer
 
 - Replace two schedule-sensitive global `/tmp/bd-jobs` population assertions

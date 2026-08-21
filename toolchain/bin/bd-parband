@@ -23,6 +23,7 @@ import concurrent.futures as cf
 import os as _os_bd, sys as _sys_bd  # noqa: E402
 _sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
+import bd_cut_quality as cut_quality  # noqa: E402
 
 _PY_CACHE = {}
 
@@ -182,15 +183,29 @@ def selftest():
     return 0 if ok else 1
 
 
-def main():
+def main(argv=None):
     import sys as _s
-    if "--selftest" in _s.argv: return selftest()
+    effective_argv = list(_s.argv[1:] if argv is None else argv)
+    if "--selftest" in effective_argv: return selftest()
     ap = argparse.ArgumentParser()
     ap.add_argument("suites", nargs="+")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
-    a = ap.parse_args()
+    cut_quality.add_permit_argument(ap)
+    a = ap.parse_args(effective_argv)
+
+    # Check before path validation and before constructing the executor: every
+    # refused negative is mechanically incapable of dispatching pytest.
+    def _permit_ok():
+        return cut_quality.enforce(
+            a.work, a.cut_quality_permit, "pre-floor", consumer_path=__file__,
+            rerun_argv=["cut-acceptance-preflight", "--repo", a.work,
+                        "--stage", "pre-floor", "--emit-permit",
+                        a.cut_quality_permit or "<derived-permit-path>"])
+
+    if not _permit_ok():
+        return 2
 
     # Door check. Two tiers, ONE exit code: the known hazards (which this tool
     # has always refused) and, since @868, existence. Both are CANNOT-EVALUATE
@@ -230,6 +245,8 @@ def main():
         # untouched is correct.
         return sec.EXIT_CANNOT_EVALUATE
 
+    if not _permit_ok():
+        return 2
     print(f"{BOLD}parallel band{RST} {DIM}{len(a.suites)} suites, {a.jobs} jobs, "
           f"{a.timeout}s each{RST}")
     t0 = time.time()
@@ -263,4 +280,5 @@ def main():
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

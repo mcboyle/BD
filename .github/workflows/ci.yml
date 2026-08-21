@@ -329,6 +329,7 @@ jobs:
               tests/test_v3_66_1189_bd_mutate_durable_contract.py
               tests/test_v3_66_1190_bd_mutate_kills_process_tree.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
+              tests/test_cut_quality_permits.py
           - name: isolation
             suites: >-
               tests/test_v3_66_1034_guards_survive_a_module_wipe.py

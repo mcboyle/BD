@@ -245,6 +245,10 @@ _DECLARED = {
     # The gate against a file falling out of every shard fell out of every
     # shard, in the cut that wrote it.
     "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+    # Persistent cut permits bind policy, repository identity, and all five
+    # protected lifecycle launchers. A regression is tree-wide and must be
+    # exercised on every PR, not only by a locally selected affected floor.
+    "tests/test_cut_quality_permits.py",
     # @1072. The four gates shipped 2026-08-12 that this policy exists to
     # catch: each was added to the tree and to neither list, which is the
     # eighth occurrence of the failure (944, 947, 1031, 1034 preceded them).
