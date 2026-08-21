@@ -128,8 +128,11 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import pathlib
+import secrets
+import re
 import shlex
 import subprocess
 import sys
@@ -534,61 +537,1008 @@ def ssh(addr: str, script: str, timeout: int = 120) -> subprocess.CompletedProce
 # the master and its `-n 48` workers share one process group. `kill -9 <pid>`
 # removes the master and orphans 48 children onto init; only the negative-pid
 # form reaches them. That asymmetry is exactly what the CAPPED branch had.
-def reap_cmd(pid: str) -> str:
-    """The one shell that kills an abandoned run, group first, then the master.
+PROCESS_GUARD_PROGRAM = r'''\
+import json
+import math
+import os
+import pathlib
+import re
+import select
+import signal
+import sys
+import time
 
-    Kept as a pure builder so a test can assert the group-kill without a host.
-    It REPORTS what survived rather than assuming success: a reap that silently
-    failed and a reap that worked must not look the same to the caller, which
-    is section 0's whole subject.
+
+def close_preserving_primary(fd, label, failures=None):
+    """Settle one owned fd without replacing an exception already in flight."""
+    primary = sys.exc_info()[1]
+    try:
+        os.close(fd)
+    except (AttributeError, OSError) as exc:
+        detail = "%s-%s" % (label, type(exc).__name__)
+        if failures is not None:
+            failures.append(detail)
+        if primary is None:
+            if failures is None:
+                raise
+            return
+        try:
+            primary.add_note("secondary owned-fd close failure: " + detail)
+        except (AttributeError, Exception):
+            pass
+    except BaseException as exc:
+        if primary is None:
+            raise
+        detail = "%s-%s" % (label, type(exc).__name__)
+        try:
+            primary.add_note("secondary owned-fd close cancellation: " + detail)
+        except (AttributeError, Exception):
+            pass
+
+
+REQUIRED = {
+    "version", "role", "pid", "ppid", "pgid", "sid", "starttime",
+    "run_id", "root", "cwd_hex", "cmdline_hex", "fds",
+}
+
+
+def proc_receipt(pid):
+    with open("/proc/%d/stat" % pid, encoding="ascii") as stream:
+        raw = stream.read()
+    if ") " not in raw:
+        raise ValueError("malformed-stat")
+    head, tail = raw.rsplit(") ", 1)
+    fields = tail.split()
+    if not head.startswith(str(pid) + " (") or len(fields) <= 19:
+        raise ValueError("malformed-stat")
+    return {
+        "pid": pid, "ppid": int(fields[1]), "pgid": int(fields[2]),
+        "sid": int(fields[3]), "starttime": int(fields[19]),
+        "state": fields[0],
+    }
+
+
+def receipt_tuple(row):
+    return tuple(int(row[key]) for key in
+                 ("pid", "ppid", "pgid", "sid", "starttime"))
+
+
+def receipt_text(row):
+    return ":".join(str(value) for value in receipt_tuple(row))
+
+
+def load_receipt(path):
+    with open(path, encoding="ascii") as stream:
+        row = json.load(stream)
+    if not isinstance(row, dict) or set(row) != REQUIRED:
+        raise ValueError("receipt-schema")
+    if row["version"] != 1 or row["role"] != "runner":
+        raise ValueError("receipt-version-role")
+    if not re.fullmatch(r"[0-9a-f]{32}", row["run_id"]):
+        raise ValueError("receipt-run-id")
+    if receipt_tuple(row)[0] <= 1:
+        raise ValueError("receipt-pid")
+    if not isinstance(row["fds"], list) or not all(
+            isinstance(fd, int) and fd >= 0 for fd in row["fds"]):
+        raise ValueError("receipt-fds")
+    return row
+
+
+def exact_current(saved):
+    try:
+        current = proc_receipt(saved["pid"])
+    except FileNotFoundError:
+        return "ABSENT", None
+    except (OSError, TypeError, ValueError):
+        return "UNKNOWN", None
+    if receipt_tuple(current) != receipt_tuple(saved):
+        return "DRIFT", current
+    if current["state"] in ("Z", "X"):
+        return "ABSENT", current
+    return "MATCH", current
+
+
+def owned_census(saved):
+    rows = []
+    uncertain = False
+    observed = []
+    for item in pathlib.Path("/proc").iterdir():
+        if not item.name.isdigit():
+            continue
+        pid = int(item.name)
+        try:
+            current = proc_receipt(pid)
+        except FileNotFoundError:
+            continue
+        except (OSError, TypeError, ValueError):
+            if item.exists():
+                uncertain = True
+            continue
+        if current["state"] not in ("Z", "X"):
+            observed.append((item, current))
+    selected_pids = {
+        current["pid"] for _item, current in observed
+        if current["pgid"] == saved["pgid"]
+    }
+    # A descendant that has already called setsid is still attributable by
+    # its live parent chain.  Expand that chain before consulting the nonce.
+    changed = True
+    while changed:
+        changed = False
+        for _item, current in observed:
+            if (current["pid"] not in selected_pids
+                    and current["ppid"] in selected_pids):
+                selected_pids.add(current["pid"])
+                changed = True
+    for item, current in observed:
+        selected = current["pid"] in selected_pids
+        if not selected:
+            try:
+                if item.stat().st_uid != os.geteuid():
+                    continue
+                environ = (item / "environ").read_bytes().split(b"\0")
+            except FileNotFoundError:
+                continue
+            except OSError:
+                # Same-uid non-dumpable processes are common on a shared host.
+                # A readable stat already excluded this PID's group and live
+                # parent chain; lack of its unrelated environment is not
+                # missing evidence about this receipt's owned context.
+                continue
+            selected = ("BD_WEDGE_RUN_ID=" + saved["run_id"]).encode(
+                "ascii") in environ
+        if selected:
+            rows.append(current)
+    rows.sort(key=lambda row: row["pid"])
+    return rows, uncertain
+
+
+def signal_exact(rows, sig):
+    failures = []
+    for saved in rows:
+        try:
+            fd = os.pidfd_open(saved["pid"], 0)
+        except ProcessLookupError:
+            # The exact identity exited after the owned census and before the
+            # kernel handle was acquired.  ESRCH is proof that there is no
+            # process left to signal, not a cleanup failure.
+            continue
+        except (AttributeError, OSError) as exc:
+            failures.append("pidfd-open-%d-%s" %
+                            (saved["pid"], type(exc).__name__))
+            continue
+        try:
+            state, current = exact_current(saved)
+            if state == "ABSENT":
+                continue
+            if state != "MATCH" or current is None:
+                failures.append("identity-%d-%s" % (saved["pid"], state))
+                continue
+            try:
+                signal.pidfd_send_signal(fd, sig)
+            except ProcessLookupError:
+                # The pidfd pinned the intended identity, which then exited
+                # before delivery.  Final owned census remains authoritative.
+                continue
+        except (AttributeError, OSError) as exc:
+            failures.append("signal-%d-%s" %
+                            (saved["pid"], type(exc).__name__))
+        finally:
+            close_preserving_primary(
+                fd, "pidfd-close-%d" % saved["pid"], failures)
+    return failures
+
+
+def wait_interval(seconds):
+    started = time.monotonic_ns()
+    deadline = started + int(seconds * 1_000_000_000)
+    while True:
+        remaining = deadline - time.monotonic_ns()
+        if remaining <= 0:
+            break
+        select.select([], [], [], remaining / 1_000_000_000)
+    return (time.monotonic_ns() - started) // 1000
+
+
+def capture(argv):
+    if len(argv) != 6:
+        raise ValueError("capture-argv")
+    pid, path, run_id, root, expected_ppid = (
+        int(argv[1]), argv[2], argv[3], argv[4], int(argv[5]))
+    if not re.fullmatch(r"[0-9a-f]{32}", run_id):
+        raise ValueError("capture-run-id")
+    root_path = pathlib.Path(root).resolve(strict=True)
+    path_obj = pathlib.Path(path)
+    if path_obj.parent.resolve(strict=True) != root_path:
+        raise ValueError("capture-root")
+    deadline = time.monotonic() + 5.0
+    current = None
+    while time.monotonic() < deadline:
+        current = proc_receipt(pid)
+        if expected_ppid <= 0 or current["ppid"] == expected_ppid:
+            break
+        wait_interval(0.01)
+    if current is None or (expected_ppid > 0
+                           and current["ppid"] != expected_ppid):
+        raise ValueError("capture-parent")
+    if expected_ppid > 0 and (current["pid"] != current["pgid"]
+                              or current["pid"] != current["sid"]):
+        raise ValueError("capture-not-session-leader")
+    environ = pathlib.Path("/proc/%d/environ" % pid).read_bytes().split(b"\0")
+    if expected_ppid > 0 and ("BD_WEDGE_RUN_ID=" + run_id).encode(
+            "ascii") not in environ:
+        raise ValueError("capture-environment")
+    row = {
+        "version": 1, "role": "runner",
+        **{key: current[key] for key in
+           ("pid", "ppid", "pgid", "sid", "starttime")},
+        "run_id": run_id, "root": str(root_path),
+        "cwd_hex": os.fsencode(os.readlink("/proc/%d/cwd" % pid)).hex(),
+        "cmdline_hex": pathlib.Path(
+            "/proc/%d/cmdline" % pid).read_bytes().hex(),
+        "fds": sorted(int(item.name) for item in pathlib.Path(
+            "/proc/%d/fd" % pid).iterdir() if item.name.isdigit()),
+    }
+    temp = path_obj.with_name(path_obj.name + ".tmp.%d" % os.getpid())
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        payload = (json.dumps(row, sort_keys=True, separators=(",", ":"))
+                   + "\n").encode("ascii")
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short-receipt-write")
+            view = view[written:]
+        os.fsync(fd)
+    finally:
+        close_preserving_primary(fd, "capture-temp")
+    os.replace(temp, path_obj)
+    dirfd = os.open(root_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dirfd)
+    finally:
+        close_preserving_primary(dirfd, "capture-directory")
+    print("RECEIPT-OK receipt=%s run_id=%s" %
+          (receipt_text(row), row["run_id"]))
+
+
+def probe(argv):
+    if len(argv) != 2:
+        raise ValueError("probe-argv")
+    saved = load_receipt(argv[1])
+    state, current = exact_current(saved)
+    shown = receipt_text(current) if current is not None else state
+    print("RECEIPT-%s receipt=%s current=%s run_id=%s" %
+          (state, receipt_text(saved), shown, saved["run_id"]))
+    raise SystemExit(0 if state in ("MATCH", "ABSENT") else 4)
+
+
+def signal_receipt(argv):
+    if len(argv) != 3 or argv[2] not in ("INT", "TERM", "HUP"):
+        raise ValueError("signal-argv")
+    fields = argv[1].split(":")
+    if len(fields) != 5 or not all(field.isdigit() for field in fields):
+        raise ValueError("signal-receipt")
+    saved = dict(zip(("pid", "ppid", "pgid", "sid", "starttime"),
+                     map(int, fields)))
+    state, current = exact_current(saved)
+    if state != "MATCH" or current is None:
+        print("SIGNAL-UNKNOWN receipt=%s current=%s signal=%s" %
+              (receipt_text(saved), state, argv[2]))
+        raise SystemExit(4)
+    fd = os.pidfd_open(saved["pid"], 0)
+    try:
+        state, current = exact_current(saved)
+        if state != "MATCH" or current is None:
+            print("SIGNAL-UNKNOWN receipt=%s current=%s signal=%s" %
+                  (receipt_text(saved), state, argv[2]))
+            raise SystemExit(4)
+        signal.pidfd_send_signal(fd, getattr(signal, "SIG" + argv[2]))
+    finally:
+        close_preserving_primary(fd, "receipt-signal")
+    print("SIGNAL-SENT receipt=%s signal=SIG%s" %
+          (receipt_text(saved), argv[2]))
+
+
+def token_probe(argv):
+    if len(argv) != 2:
+        raise ValueError("token-probe-argv")
+    fields = argv[1].split(":")
+    if len(fields) != 5 or not all(field.isdigit() for field in fields):
+        raise ValueError("token-probe-receipt")
+    saved = dict(zip(("pid", "ppid", "pgid", "sid", "starttime"),
+                     map(int, fields)))
+    state, current = exact_current(saved)
+    print("TOKEN-%s receipt=%s current=%s" % (
+        state, receipt_text(saved),
+        receipt_text(current) if current is not None else state))
+    raise SystemExit(0 if state in ("MATCH", "ABSENT") else 4)
+
+
+def reap(argv):
+    if len(argv) != 3:
+        raise ValueError("reap-argv")
+    saved = load_receipt(argv[1])
+    grace = float(argv[2])
+    if not math.isfinite(grace) or grace <= 0 or grace > 10:
+        raise ValueError("reap-grace")
+    state, current = exact_current(saved)
+    if state == "ABSENT":
+        print("REAP-OK receipt=%s term=SKIPPED grace_us=0 kill=SKIPPED "
+              "census=ABSENT wait=NOT-PARENT" % receipt_text(saved))
+        return
+    if state != "MATCH" or current is None:
+        print("REAP-UNKNOWN receipt=%s current=%s term=NOT-SENT "
+              "grace_us=0 kill=NOT-SENT census=UNKNOWN wait=NOT-PARENT" %
+              (receipt_text(saved), state))
+        raise SystemExit(4)
+    if saved["pid"] != saved["pgid"] or saved["pid"] != saved["sid"]:
+        print("REAP-UNKNOWN receipt=%s current=NOT-SESSION-LEADER "
+              "term=NOT-SENT grace_us=0 kill=NOT-SENT census=UNKNOWN "
+              "wait=NOT-PARENT" % receipt_text(saved))
+        raise SystemExit(4)
+    before, uncertain_before = owned_census(saved)
+    if not any(row["pid"] == saved["pid"] and
+               receipt_tuple(row) == receipt_tuple(saved) for row in before):
+        print("REAP-UNKNOWN receipt=%s current=CENSUS-MISMATCH term=NOT-SENT "
+              "grace_us=0 kill=NOT-SENT census=UNKNOWN wait=NOT-PARENT" %
+              receipt_text(saved))
+        raise SystemExit(4)
+    term_failures = signal_exact(before, signal.SIGTERM)
+    grace_us = wait_interval(grace)
+    after_term, uncertain_after_term = owned_census(saved)
+    kill_failures = signal_exact(after_term, signal.SIGKILL)
+    deadline = time.monotonic() + 2.0
+    final = after_term
+    uncertain_final = uncertain_before or uncertain_after_term
+    while time.monotonic() < deadline:
+        final, uncertain_now = owned_census(saved)
+        uncertain_final = uncertain_final or uncertain_now
+        if not final:
+            break
+        wait_interval(0.01)
+    failures = term_failures + kill_failures
+    if not final and not uncertain_final and not failures:
+        verdict, census, status = "REAP-OK", "ABSENT", 0
+    elif final:
+        verdict, census, status = "REAP-SURVIVED", "PRESENT", 5
+    else:
+        verdict, census, status = "REAP-UNKNOWN", "UNKNOWN", 4
+    print("%s receipt=%s term=%s grace_us=%d kill=%s census=%s "
+          "wait=NOT-PARENT failures=%s" % (
+              verdict, receipt_text(saved),
+              "FAILED" if term_failures else "SENT", grace_us,
+              "FAILED" if kill_failures else
+              ("SENT" if after_term else "SKIPPED-ABSENT"),
+              census, ",".join(failures) if failures else "NONE"))
+    raise SystemExit(status)
+
+
+try:
+    action = sys.argv[1]
+    if action == "capture":
+        capture(sys.argv[1:])
+    elif action == "probe":
+        probe(sys.argv[1:])
+    elif action == "signal":
+        signal_receipt(sys.argv[1:])
+    elif action == "token":
+        token_probe(sys.argv[1:])
+    elif action == "reap":
+        reap(sys.argv[1:])
+    else:
+        raise ValueError("action")
+except (IndexError, json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+    print("PROCESS-GUARD-UNKNOWN error=%s" % type(exc).__name__)
+    raise SystemExit(4)
+'''
+
+
+def reap_cmd(receipt_path: str, *, term_grace: float = 1.0) -> str:
+    """Build the exact-receipt reaper for one abandoned runner context.
+
+    A bare PID is deliberately not accepted. The guard validates the durable
+    session-leader receipt before every pidfd signal, gives TERM a positive
+    monotonic grace, and reports an incomplete census as UNKNOWN.
     """
-    p = shlex.quote(str(pid))
-    # A ZOMBIE IS DEAD, AND `kill -0` SAYS IT IS ALIVE. Measured while building
-    # this: reaping a real setsid'd tree of five killed all five and still
-    # reported REAP-SURVIVED, because the master sat unreaped in its parent's
-    # process table and `kill -0` succeeds on any entry that exists. That is a
-    # gate firing on correct work -- section 0 counts over-sensitivity as a
-    # soundness bug, not a safe default, because a check that cries wolf gets
-    # ignored exactly when it is right. Read the STATE and treat Z as gone.
-    return (
-        'P=%s; '
-        'G="$(ps -o pgid= -p "$P" 2>/dev/null | tr -d " ")"; '
-        'if [ -n "$G" ]; then kill -9 -"$G" 2>/dev/null; fi; '
-        'kill -9 "$P" 2>/dev/null; '
-        'sleep 1; '
-        'S="$(ps -o stat= -p "$P" 2>/dev/null | tr -d " ")"; '
-        'if [ -z "$S" ] || [ "${S#Z}" != "$S" ]; then echo REAP-OK; '
-        'else echo REAP-SURVIVED; fi'
-    ) % p
+    if not math.isfinite(float(term_grace)) or float(term_grace) <= 0:
+        raise ValueError("term_grace must be a positive finite duration")
+    return "exec python3 -c %s reap %s %.6f" % (
+        shlex.quote(PROCESS_GUARD_PROGRAM),
+        shlex.quote(str(receipt_path)), float(term_grace))
 
 
-def reap(addr: str, pid: str, why: str) -> str:
+def signal_receipt_cmd(receipt: str, signal_name: str) -> str:
+    """Build one pidfd-bound signal after exact five-field revalidation."""
+    if not re.fullmatch(r"[0-9]+(?::[0-9]+){4}", str(receipt)):
+        raise ValueError("signal receipt must have five numeric fields")
+    if signal_name not in {"INT", "TERM", "HUP"}:
+        raise ValueError("unsupported receipt signal")
+    return "exec python3 -c %s signal %s %s" % (
+        shlex.quote(PROCESS_GUARD_PROGRAM), shlex.quote(str(receipt)),
+        shlex.quote(signal_name))
+
+
+_REAP_TERMINAL_TOKEN = re.compile(r"\bREAP-(?:OK|UNKNOWN|SURVIVED)\b")
+_PROCESS_GUARD_TERMINAL_LINE = re.compile(
+    r"^PROCESS-GUARD-UNKNOWN error=[A-Za-z_][A-Za-z0-9_]*$")
+_REAP_RECEIPT = r"[0-9]+(?::[0-9]+){4}"
+_REAP_FAILURE = (
+    r"(?:pidfd-open|identity|signal|pidfd-close)-[0-9]+-[A-Za-z0-9_-]+")
+_REAP_FAILURES = r"(?:NONE|%s(?:,%s)*)" % (_REAP_FAILURE, _REAP_FAILURE)
+_REAP_TERMINAL_FORMS = (
+    ("REAP-OK", re.compile(
+        r"^REAP-OK receipt=%s term=SKIPPED grace_us=0 kill=SKIPPED "
+        r"census=ABSENT wait=NOT-PARENT$" % _REAP_RECEIPT)),
+    ("REAP-UNKNOWN", re.compile(
+        r"^REAP-UNKNOWN receipt=%s current=(?:UNKNOWN|DRIFT|"
+        r"NOT-SESSION-LEADER|CENSUS-MISMATCH) term=NOT-SENT grace_us=0 "
+        r"kill=NOT-SENT census=UNKNOWN wait=NOT-PARENT$" % _REAP_RECEIPT)),
+    ("REAP-OK", re.compile(
+        r"^REAP-OK receipt=%s term=SENT grace_us=[0-9]+ "
+        r"kill=(?:SENT|SKIPPED-ABSENT) census=ABSENT wait=NOT-PARENT "
+        r"failures=NONE$" % _REAP_RECEIPT)),
+    ("REAP-SURVIVED", re.compile(
+        r"^REAP-SURVIVED receipt=%s term=(?:SENT|FAILED) grace_us=[0-9]+ "
+        r"kill=(?:SENT|FAILED|SKIPPED-ABSENT) census=PRESENT "
+        r"wait=NOT-PARENT failures=%s$" %
+        (_REAP_RECEIPT, _REAP_FAILURES))),
+    ("REAP-UNKNOWN", re.compile(
+        r"^REAP-UNKNOWN receipt=%s term=(?:SENT|FAILED) grace_us=[0-9]+ "
+        r"kill=(?:SENT|FAILED|SKIPPED-ABSENT) census=UNKNOWN "
+        r"wait=NOT-PARENT failures=%s$" %
+        (_REAP_RECEIPT, _REAP_FAILURES))),
+)
+
+
+def _reap_terminal_verdict(line: str) -> str | None:
+    matches = [
+        verdict for verdict, pattern in _REAP_TERMINAL_FORMS
+        if pattern.fullmatch(line)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def reap(addr: str, receipt_path: str, why: str) -> str:
     """Kill an abandoned run and say what happened. Never raises.
 
     Returns one of REAP-OK / REAP-SURVIVED / REAP-UNREACHABLE. The caller
     records it on the row, so a leak that could not be cleaned is visible in the
     evidence rather than only in a stale process table on some host.
     """
-    if not pid or str(pid) == "0":
-        return "REAP-NOPID"
-    r = ssh(addr, reap_cmd(pid), timeout=60)
-    if r.returncode != 0:
-        return "REAP-UNREACHABLE"
-    out = (r.stdout or "").strip()
-    verdict = "REAP-SURVIVED" if "REAP-SURVIVED" in out else (
-        "REAP-OK" if "REAP-OK" in out else "REAP-UNKNOWN")
+    if not receipt_path:
+        return "REAP-NORECEIPT"
+    r = ssh(addr, reap_cmd(receipt_path), timeout=60)
+    out = r.stdout or ""
+    terminal_lines = [
+        line for line in out.splitlines()
+        if (_REAP_TERMINAL_TOKEN.search(line)
+            or _PROCESS_GUARD_TERMINAL_LINE.fullmatch(line))]
+    terminal = None
+    if len(terminal_lines) == 1:
+        terminal = (
+            "REAP-UNKNOWN"
+            if _PROCESS_GUARD_TERMINAL_LINE.fullmatch(terminal_lines[0])
+            else _reap_terminal_verdict(terminal_lines[0]))
+    expected = {0: "REAP-OK", 4: "REAP-UNKNOWN",
+                5: "REAP-SURVIVED"}.get(r.returncode)
+    if terminal is not None and terminal == expected:
+        verdict = expected
+    elif terminal_lines:
+        verdict = "REAP-UNKNOWN"
+    else:
+        verdict = "REAP-UNREACHABLE"
     if verdict != "REAP-OK":
-        say("REAP %s pid=%s (%s): %s" % (addr, pid, why, verdict))
+        say("REAP %s receipt=%s (%s): %s" %
+            (addr, receipt_path, why, verdict))
     return verdict
+
+
+def receipt_probe_cmd(receipt_path: str) -> str:
+    """Build an exact-receipt probe without accepting a bare PID."""
+    if not receipt_path:
+        raise ValueError("receipt path is required")
+    return "exec python3 -c %s probe %s" % (
+        shlex.quote(PROCESS_GUARD_PROGRAM), shlex.quote(str(receipt_path)))
+
+
+def settle_ambiguous_launch(addr: str, receipt_path: str, run_id: str, *,
+                            timeout_s: float = 5.0,
+                            poll_s: float = 0.05) -> dict:
+    """Boundedly wait for a delayed receipt, bind it to the nonce, and reap.
+
+    A lost ssh reply does not prove that the remote fork failed.  The receipt
+    path and nonce were allocated before that fork, so they remain the only
+    authority for cleanup; a possibly truncated ``LAUNCHED=`` PID is ignored.
+    """
+    if not re.fullmatch(r"[0-9a-f]{32}", str(run_id)):
+        raise ValueError("ambiguous launch run id")
+    if not math.isfinite(float(timeout_s)) or float(timeout_s) <= 0:
+        raise ValueError("ambiguous launch timeout")
+    if not math.isfinite(float(poll_s)) or float(poll_s) <= 0:
+        raise ValueError("ambiguous launch poll")
+
+    started = time.monotonic()
+    deadline = started + float(timeout_s)
+    observations = []
+    command = receipt_probe_cmd(receipt_path)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "verdict": "REAP-UNKNOWN",
+                "terminal": "receipt-deadline",
+                "observations": observations,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            }
+        probed = ssh(addr, command, timeout=max(1, min(5, math.ceil(remaining))))
+        out = (probed.stdout or "").strip()
+        state_match = re.search(
+            r"\b(RECEIPT-(?:MATCH|ABSENT|DRIFT|UNKNOWN)|"
+            r"PROCESS-GUARD-UNKNOWN)\b", out)
+        nonce_match = re.search(r"\brun_id=([0-9a-f]{32})\b", out)
+        observations.append({
+            "attempt": len(observations) + 1,
+            "rc": int(probed.returncode),
+            "state": state_match.group(1) if state_match else "NO-RECEIPT-PROOF",
+        })
+        if nonce_match:
+            if nonce_match.group(1) != run_id:
+                return {
+                    "verdict": "REAP-UNKNOWN",
+                    "terminal": "receipt-run-id-mismatch",
+                    "observations": observations,
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                }
+            verdict = reap(addr, receipt_path, "ambiguous launch result")
+            return {
+                "verdict": verdict,
+                "terminal": "receipt-observed",
+                "observations": observations,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            }
+        time.sleep(min(float(poll_s), max(0.0, deadline - time.monotonic())))
 
 
 # ---------------------------------------------------------------------------
 # launching one sample
 # ---------------------------------------------------------------------------
+REGISTRATION_PROBE_PROGRAM = r'''\
+import binascii
+import os
+import pathlib
+import sys
+
+
+def parse_stat(raw):
+    split_at = raw.rfind(") ")
+    if split_at < 0:
+        raise ValueError("missing comm terminator")
+    head = raw[:split_at]
+    pid_text, delimiter, _comm = head.partition(" (")
+    fields = raw[split_at + 2:].split()
+    if not delimiter or len(fields) <= 19:
+        raise ValueError("short stat row")
+    pid = int(pid_text)
+    state = fields[0]
+    ppid = int(fields[1])
+    pgrp = int(fields[2])
+    starttime = int(fields[19])
+    if (pid <= 0 or ppid < 0 or pgrp < 0 or starttime < 0 or
+            len(state) != 1):
+        raise ValueError("invalid stat identity")
+    return pid, ppid, pgrp, starttime, state
+
+
+def process_observation(expected_text, stat_path):
+    try:
+        expected = int(expected_text)
+        raw = pathlib.Path(stat_path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print("ABSENT")
+        return 0
+    except (PermissionError, OSError, ValueError):
+        print("UNKNOWN")
+        return 0
+
+    try:
+        pid, ppid, pgrp, starttime, state = parse_stat(raw)
+    except (ValueError, IndexError):
+        print("MALFORMED")
+        return 0
+    if pid != expected or ppid <= 0 or pgrp <= 0:
+        print("MALFORMED")
+        return 0
+    print("OBSERVED|%d:%d:%d:%d|%s" %
+          (pid, ppid, pgrp, starttime, state))
+    return 0
+
+
+def group_observation(pgrp_text, proc_root):
+    try:
+        pgrp = int(pgrp_text)
+        if pgrp <= 0:
+            raise ValueError
+    except ValueError:
+        print("UNKNOWN")
+        return 0
+    members = []
+    uncertain = False
+    try:
+        entries = list(pathlib.Path(proc_root).iterdir())
+    except OSError:
+        print("UNKNOWN")
+        return 0
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            parsed = parse_stat((entry / "stat").read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, IndexError):
+            uncertain = True
+            continue
+        pid, ppid, observed_pgrp, starttime, state = parsed
+        if observed_pgrp == pgrp and state not in ("Z", "X"):
+            members.append("%d:%d:%d:%d:%s" %
+                           (pid, ppid, observed_pgrp, starttime, state))
+    if uncertain:
+        print("UNKNOWN")
+    elif members:
+        print("PRESENT|" + ",".join(sorted(members)))
+    else:
+        print("ABSENT")
+    return 0
+
+
+def fd_observation(pid_text, expected_text):
+    try:
+        pid = int(pid_text)
+        expected = sorted(int(value) for value in expected_text.split(","))
+        if pid <= 0 or any(fd < 0 for fd in expected):
+            raise ValueError
+        entries = list(pathlib.Path("/proc/%d/fd" % pid).iterdir())
+    except (OSError, ValueError):
+        print("UNKNOWN")
+        return 0
+    rows = []
+    uncertain = False
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            target = os.readlink(entry)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            uncertain = True
+            continue
+        rows.append((int(entry.name), binascii.hexlify(
+            os.fsencode(target)).decode("ascii")))
+    rows.sort()
+    if uncertain:
+        print("UNKNOWN")
+    elif [fd for fd, _target in rows] != expected:
+        print("MISMATCH|%d|%s" % (
+            pid, ",".join("%d:%s" % row for row in rows)))
+    else:
+        print("FDS|%d|%s" % (
+            pid, ",".join("%d:%s" % row for row in rows)))
+    return 0
+
+
+if len(sys.argv) == 4 and sys.argv[1] == "process":
+    raise SystemExit(process_observation(sys.argv[2], sys.argv[3]))
+if len(sys.argv) == 4 and sys.argv[1] == "group":
+    raise SystemExit(group_observation(sys.argv[2], sys.argv[3]))
+if len(sys.argv) == 4 and sys.argv[1] == "fds":
+    raise SystemExit(fd_observation(sys.argv[2], sys.argv[3]))
+print("UNKNOWN")
+raise SystemExit(2)
+'''
+
+
+REGISTRATION_GATE_BOOTSTRAP_PROGRAM = r'''\
+import os
+import sys
+
+
+if len(sys.argv) != 4:
+    raise SystemExit(95)
+terminal_path, gate_program, workload_shim = sys.argv[1:]
+terminal_fd = os.open(terminal_path, os.O_WRONLY)
+os.set_inheritable(terminal_fd, True)
+if terminal_fd != 3:
+    os.dup2(terminal_fd, 3, inheritable=True)
+    os.close(terminal_fd)
+os.execv(sys.executable, [sys.executable, "-c", gate_program, workload_shim])
+'''
+
+
+REGISTRATION_TERMINAL_RELAY_PROGRAM = r'''\
+import os
+import select
+import sys
+
+
+if len(sys.argv) != 2:
+    raise SystemExit(95)
+expected_parent = int(sys.argv[1])
+while True:
+    if os.getppid() != expected_parent:
+        raise SystemExit(97)
+    readable, _, _ = select.select([0], [], [], 0.05)
+    if not readable:
+        continue
+    chunk = os.read(0, 65536)
+    if not chunk:
+        raise SystemExit(0)
+    view = memoryview(chunk)
+    while view:
+        written = os.write(1, view)
+        if written <= 0:
+            raise SystemExit(96)
+        view = view[written:]
+'''
+
+
+REGISTRATION_TIMEOUT_OWNER_PROGRAM = r'''\
+import os
+import sys
+
+
+if len(sys.argv) < 7:
+    raise SystemExit(95)
+expected_parent = int(sys.argv[1])
+close_fds, stdout_path, stderr_path = sys.argv[2:5]
+command = sys.argv[5:]
+if os.getppid() != expected_parent:
+    raise SystemExit(97)
+requested_close_fds = []
+for fd_text in close_fds.split(","):
+    if not fd_text:
+        continue
+    try:
+        fd = int(fd_text)
+    except ValueError:
+        raise SystemExit(95)
+    requested_close_fds.append(fd)
+for fd_text in os.listdir("/proc/self/fd"):
+    try:
+        fd = int(fd_text)
+    except ValueError:
+        continue
+    if fd > 2:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+os.setsid()
+with open("/proc/self/stat", encoding="ascii") as stream:
+    raw = stream.read()
+tail = raw.rsplit(") ", 1)[1].split()
+receipt = "%d:%d:%d:%d:%s" % (
+    os.getpid(), os.getppid(), os.getpgrp(), os.getsid(0), tail[19])
+live_fds = []
+for fd_text in os.listdir("/proc/self/fd"):
+    try:
+        fd = int(fd_text)
+        os.fstat(fd)
+    except (ValueError, OSError):
+        continue
+    live_fds.append(fd)
+ready = ("OWNER-READY v2 receipt=%s fds=%s\n" %
+         (receipt, ",".join(map(str, sorted(live_fds))))).encode("ascii")
+view = memoryview(ready)
+while view:
+    written = os.write(1, view)
+    if written <= 0:
+        raise SystemExit(96)
+    view = view[written:]
+os.close(1)
+stdin_fd = os.open("/dev/null", os.O_RDONLY)
+stdout_fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.dup2(stdin_fd, 0)
+os.dup2(stdout_fd, 1)
+os.dup2(stderr_fd, 2)
+for fd in {stdin_fd, stdout_fd, stderr_fd}:
+    if fd > 2:
+        os.close(fd)
+os.execvp(command[0], command)
+'''
+
+
+REGISTRATION_CHANNEL_READER_PROGRAM = r'''\
+import binascii
+import math
+import os
+import re
+import select
+import sys
+import time
+
+
+def close_preserving_primary(fd, label, failures=None):
+    """Settle one owned fd without replacing an exception already in flight."""
+    primary = sys.exc_info()[1]
+    try:
+        os.close(fd)
+    except (AttributeError, OSError) as exc:
+        detail = "%s-%s" % (label, type(exc).__name__)
+        if failures is not None:
+            failures.append(detail)
+        if primary is None:
+            if failures is None:
+                raise
+            return
+        try:
+            primary.add_note("secondary owned-fd close failure: " + detail)
+        except (AttributeError, Exception):
+            pass
+    except BaseException as exc:
+        if primary is None:
+            raise
+        detail = "%s-%s" % (label, type(exc).__name__)
+        try:
+            primary.add_note("secondary owned-fd close cancellation: " + detail)
+        except (AttributeError, Exception):
+            pass
+
+
+def safe_display(data):
+    shown = data[:-1] if data.endswith(b"\n") else data
+    return "".join(chr(value) if 32 <= value <= 126 else "\\x%02x" % value
+                   for value in shown)
+
+
+state = "ERROR"
+classification = "IO_ERROR"
+data = bytearray()
+try:
+    if len(sys.argv) != 5:
+        raise ValueError("argv")
+    timeout = float(sys.argv[2])
+    mode = sys.argv[3]
+    expected_pid = sys.argv[4]
+    if mode not in ("ready", "terminal"):
+        raise ValueError("mode")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout")
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        # The caller's timeout owner is the authority. Finish slightly before
+        # it so partial raw evidence can be emitted without extending that
+        # owner's absolute budget.
+        deadline = time.monotonic() + max(0.0, timeout - 0.15)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                state = "TIMEOUT"
+                break
+            readable, _, _ = select.select([fd], [], [], remaining)
+            if not readable:
+                state = "TIMEOUT"
+                break
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                state = "EOF"
+                break
+            data.extend(chunk)
+            if len(data) > 4096:
+                state = "TOO-LARGE"
+                break
+    finally:
+        close_preserving_primary(fd, "registration-channel")
+except OSError as exc:
+    state = "ERROR-%d" % (exc.errno or 0)
+except (TypeError, ValueError):
+    state = "ERROR-ARG"
+
+raw = bytes(data)
+if state == "TIMEOUT":
+    classification = "TIMEOUT"
+elif state != "EOF":
+    classification = "IO_ERROR"
+elif mode == "ready":
+    expected = ("READY v1 pid=" + expected_pid + "\n").encode("ascii")
+    classification = "READY" if raw == expected else "INVALID"
+elif raw == b"EXEC-OK v1\n":
+    classification = "EXEC_OK"
+elif re.fullmatch(rb"EXEC-FAIL v1 errno=[0-9]+\n", raw):
+    classification = "EXEC_FAIL"
+elif raw in {
+        b"ABORTED v1 reason=release-eof\n",
+        b"ABORTED v1 reason=release-protocol\n",
+        b"ABORTED v1 reason=release-too-large\n",
+}:
+    classification = "ABORTED"
+else:
+    classification = "INVALID"
+one_ascii_line = bool(raw) and raw.endswith(b"\n") \
+    and b"\n" not in raw[:-1] \
+    and all(32 <= value <= 126 for value in raw[:-1])
+print("S:" + state)
+print("H:" + binascii.hexlify(raw).decode("ascii"))
+print("D:" + safe_display(raw))
+print("A:" + ("1" if one_ascii_line else "0"))
+print("C:" + classification)
+'''
+
+
+REGISTRATION_GATE_PROGRAM = r'''\
+import os
+import sys
+import time
+
+
+def emit(fd, frame):
+    data = (frame + "\n").encode("ascii", "strict")
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("short gate status write")
+        view = view[written:]
+
+
+def abort(reason, status=0):
+    emit(3, "ABORTED v1 reason=" + reason)
+    raise SystemExit(status)
+
+
+if len(sys.argv) != 2:
+    abort("bad-shim-argv", 95)
+shim = sys.argv[1]
+emit(1, "READY v1 pid=%d" % os.getpid())
+os.close(1)
+if os.environ.get("W1_GATE_EXIT_AFTER_READY"):
+    time.sleep(float(os.environ.get("W1_GATE_EXIT_AFTER_READY", "0")))
+    raise SystemExit(98)
+release = bytearray()
+while True:
+    chunk = os.read(0, 4096)
+    if not chunk:
+        break
+    release.extend(chunk)
+    if len(release) > 4096:
+        abort("release-too-large", 95)
+if bytes(release) != b"GO v1\n":
+    if os.environ.get("W1_GATE_WITHHOLD_ABORT"):
+        time.sleep(float(os.environ.get("W1_GATE_WITHHOLD_ABORT", "30")))
+        raise SystemExit(99)
+    abort("release-eof" if not release else "release-protocol", 0)
+if os.environ.get("W1_GATE_EXIT_AFTER_GO"):
+    raise SystemExit(99)
+if os.environ.get("W1_GATE_WITHHOLD_STATUS"):
+    time.sleep(float(os.environ.get("W1_GATE_WITHHOLD_STATUS", "30")))
+    raise SystemExit(99)
+os.close(0)
+executable = os.environ.get("W1_GATE_EXECUTABLE", "/bin/bash")
+try:
+    os.execv(executable, [executable, "-c", shim])
+except OSError as exc:
+    emit(3, "EXEC-FAIL v1 errno=%d" % (exc.errno or 0))
+    raise SystemExit(96)
+'''
+
+
 RUNNER = r"""
 set -u
 RUNDIR="{rundir}"
 mkdir -p "$RUNDIR"
+chmod 700 "$RUNDIR"
+W1_RUN_ID={run_id}
+export BD_WEDGE_RUN_ID="$W1_RUN_ID"
+W1_EXPECTED_PARENT="${{BD_WEDGE_EXPECTED_PARENT:-0}}"
+if ! python3 -c {process_guard} capture "$$" \
+        "$RUNDIR/runner.receipt" "$W1_RUN_ID" "$RUNDIR" \
+        "$W1_EXPECTED_PARENT" > "$RUNDIR/runner-receipt.log" \
+        2> "$RUNDIR/runner-receipt.err"; then
+    echo 92 > "$RUNDIR/exitcode"
+    exit 92
+fi
 cd "$HOME/BulkDownloader" || {{ echo 90 > "$RUNDIR/exitcode"; exit 90; }}
 
 git rev-parse HEAD > "$RUNDIR/head_before" 2>&1
@@ -596,61 +1546,1699 @@ git status --porcelain | wc -l > "$RUNDIR/dirty_before" 2>&1
 cat /proc/loadavg > "$RUNDIR/load_before" 2>&1
 date +%s > "$RUNDIR/epoch_start"
 
-# `set -m` IS LOAD-BEARING AND IS NOT COSMETIC. With job control OFF -- the
-# default for a non-interactive shell -- bash sets SIGINT and SIGQUIT to SIG_IGN
-# for any command it backgrounds with `&`. Measured on the first wedge this tool
-# caught: the master's /proc status read `SigIgn: 0x1001007`, so the SIGINT sent
-# before the SIGKILL was a NO-OP and the "flush the buffer first" step did
-# nothing at all. `trap - INT` cannot fix it either: a shell may not reset a
-# signal that was ignored on entry. Enabling job control here is the only thing
-# that makes the backgrounded pytest killable by SIGINT. CLAUDE.md section 6
-# records the identical trap for bd-mutate.
+# No child or authority descriptor is acquired until every lifecycle function
+# and the cancellation/EXIT guards below have been installed.
+W1_TERMINAL_RELAY_PID=""
+W1_RELAY_READ_FD=""
+W1_RELAY_WRITE_FD=""
+W1_TERMINAL_READ_FD=""
+W1_TERMINAL_PARENT_WRITE_FD=""
+W1_TERMINAL_WRITER_PATH=""
+PYTEST_GATE_PID=""
+W1_COPROC_READ_FD=""
+W1_COPROC_WRITE_FD=""
+W1_GATE_READ_FD=""
+W1_GATE_WRITE_FD=""
+PYTEST_PID=""
+
+W1_READY_SECONDS=10
+W1_GATE_SECONDS=10
+W1_REGISTRAR_SECONDS=30
+W1_RECONCILE_SECONDS=10
+W1_TOTAL_SECONDS=70
+W1_CLEANUP_RESERVE_SECONDS=20
+W1_OWNER_KILL_GRACE_US=100000
+W1_OWNER_CENSUS_RESERVE_US=1000000
+W1_CANCEL_STATUS=0
+W1_RELEASE_CLOSED=0
+W1_STATUS_CLOSED=0
+W1_TERMINAL_PARENT_WRITE_CLOSED=0
+W1_RECONCILE_ATTEMPTED=0
+W1_RECONCILE_STATUS=NOT-ATTEMPTED
+W1_RELAY_WAIT_ATTEMPTED=0
+W1_RELAY_WAIT_OK=0
+W1_RELAY_WAIT_STATUS=NOT-WAITED
+W1_CLOCK_STATE=UNINITIALIZED
+W1_LAST_NOW_US=""
+W1_LIFECYCLE_INITIALIZED=0
+W1_IN_SETTLEMENT=0
+W1_FINISHING=0
+W1_EXIT_GUARD_ACTIVE=0
+W1_ACTIVE_OWNER_ROLE=""
+W1_ACTIVE_OWNER_PID=""
+W1_ACTIVE_OWNER_GROUP_READY=0
+W1_ACTIVE_OWNER_RECEIPT="UNKNOWN"
+W1_OWNER_SETTLING=0
+declare -A W1_OWNER_RECEIPT_BY_PID=()
+declare -A W1_OWNER_FDS_BY_PID=()
+W1_GATE_ACQUIRED=0
+W1_RELAY_ACQUIRED=0
+W1_GATE_SETTLED_OK=0
+W1_RELAY_SETTLED_OK=0
+W1_GATE_WAIT_ATTEMPTED=0
+: > "$RUNDIR/registration-owners.log"
+
+registration_close_release() {{
+    if [ "$W1_RELEASE_CLOSED" -eq 0 ] \
+            && [[ "$W1_GATE_WRITE_FD" =~ ^[0-9]+$ ]]; then
+        eval "exec $W1_GATE_WRITE_FD>&-"
+        W1_RELEASE_CLOSED=1
+    fi
+}}
+
+registration_close_status() {{
+    if [ "$W1_STATUS_CLOSED" -eq 0 ]; then
+        if [[ "$W1_GATE_READ_FD" =~ ^[0-9]+$ ]]; then
+            eval "exec $W1_GATE_READ_FD<&-"
+        fi
+        if [[ "$W1_TERMINAL_READ_FD" =~ ^[0-9]+$ ]] \
+                && [ "$W1_TERMINAL_READ_FD" != "$W1_GATE_READ_FD" ]; then
+            eval "exec $W1_TERMINAL_READ_FD<&-"
+        fi
+        W1_STATUS_CLOSED=1
+    fi
+}}
+
+registration_close_terminal_parent_writer() {{
+    if [ "$W1_TERMINAL_PARENT_WRITE_CLOSED" -eq 0 ] \
+            && [[ "$W1_TERMINAL_PARENT_WRITE_FD" =~ ^[0-9]+$ ]]; then
+        eval "exec $W1_TERMINAL_PARENT_WRITE_FD>&-"
+        W1_TERMINAL_PARENT_WRITE_CLOSED=1
+    fi
+}}
+
+registration_handover_terminal_reader() {{
+    if [[ "${{W1_GATE_READ_FD:-}}" =~ ^[0-9]+$ ]] \
+            && [ "$W1_GATE_READ_FD" != "${{W1_TERMINAL_READ_FD:-}}" ]; then
+        eval "exec $W1_GATE_READ_FD<&-"
+    fi
+    W1_GATE_READ_FD="${{W1_TERMINAL_READ_FD:-}}"
+}}
+
+registration_finish() {{
+    [ "$BASHPID" = "$$" ] || return 1
+    local W1_FINAL_STATUS="$1"
+    if [ "$W1_FINAL_STATUS" -eq 94 ] \
+            && ! {{ [ "$W1_GATE_ACQUIRED" -eq 1 ] \
+                && [ "$W1_RELAY_ACQUIRED" -eq 1 ] \
+                && [ "$W1_GATE_SETTLED_OK" -eq 1 ] \
+                && [ "$W1_RELAY_SETTLED_OK" -eq 1 ]; }}; then
+        echo "SETUP-CLASSIFICATION-DOWNGRADE requested=94 actual=92 gate_acquired=$W1_GATE_ACQUIRED gate_settled=$W1_GATE_SETTLED_OK relay_acquired=$W1_RELAY_ACQUIRED relay_settled=$W1_RELAY_SETTLED_OK primary_cancel=${{W1_CANCEL_STATUS:-0}}" \
+            >> "$RUNDIR/jobid.err"
+        W1_FINAL_STATUS=92
+    fi
+    if [ "${{W1_RELAY_WAIT_ATTEMPTED:-0}}" -eq 0 ] \
+            && [[ "${{W1_TERMINAL_RELAY_PID:-}}" =~ ^[0-9]+$ ]]; then
+        echo "TERMINAL-RELAY disposition=UNWAITED pid=$W1_TERMINAL_RELAY_PID" \
+            >> "$RUNDIR/jobid.err"
+    fi
+    registration_close_release
+    registration_close_terminal_parent_writer
+    registration_close_status
+    date +%s > "$RUNDIR/epoch_end"
+    cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
+    git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
+    echo "$W1_FINAL_STATUS" > "$RUNDIR/exitcode"
+    W1_FINISHING=1
+    trap - EXIT
+    exit "$W1_FINAL_STATUS"
+}}
+
+registration_on_cancel() {{
+    if [ "$W1_CANCEL_STATUS" -eq 0 ]; then
+        W1_CANCEL_STATUS="$1"
+    fi
+    registration_close_release
+    registration_close_terminal_parent_writer
+}}
+trap 'registration_on_cancel 130' INT
+trap 'registration_on_cancel 143' TERM
+trap 'registration_on_cancel 129' HUP
+
+registration_authority_fd_observation() {{
+    local W1_FD_ROLE="$1" W1_FD_PID="$2" W1_FD_EXPECTED="$3"
+    local W1_FD_OUT="$RUNDIR/registration-$W1_FD_ROLE-fd-observer.out"
+    local W1_FD_ERR="$RUNDIR/registration-$W1_FD_ROLE-fd-observer.err"
+    local -a W1_FD_ROWS=()
+    registration_owner_run "$W1_FD_ROLE-fd-observer" "$W1_FD_OUT" \
+        "$W1_FD_ERR" python3 -c {registration_probe} fds \
+        "$W1_FD_PID" "$W1_FD_EXPECTED" || return 1
+    [ "$W1_OWNER_STATUS" -eq 0 ] || return 1
+    mapfile -t W1_FD_ROWS < "$W1_FD_OUT"
+    [ "${{#W1_FD_ROWS[@]}}" -eq 1 ] \
+        && [[ "${{W1_FD_ROWS[0]}}" == "FDS|$W1_FD_PID|"* ]] || return 1
+    echo "AUTHORITY-FDS role=$W1_FD_ROLE ${{W1_FD_ROWS[0]}}" \
+        >> "$RUNDIR/registration-authority-fds.log"
+}}
+
+registration_process_observation() {{
+    local W1_OBSERVER_OUT="$RUNDIR/registration-process-observer.out"
+    local W1_OBSERVER_ERR="$RUNDIR/registration-process-observer.err"
+    local W1_OBSERVER_ROWS=()
+    W1_PROCESS_OBSERVATION=UNKNOWN
+    registration_owner_run process-observer "$W1_OBSERVER_OUT" \
+        "$W1_OBSERVER_ERR" bash -c 'python3 "$@"' _ \
+        -c {registration_probe} process "$PYTEST_PID" \
+        "/proc/$PYTEST_PID/stat" || return 1
+    [ "$W1_OWNER_STATUS" -eq 0 ] || return 1
+    mapfile -t W1_OBSERVER_ROWS < "$W1_OBSERVER_OUT"
+    [ "${{#W1_OBSERVER_ROWS[@]}}" -eq 1 ] || return 1
+    W1_PROCESS_OBSERVATION="${{W1_OBSERVER_ROWS[0]}}"
+    registration_cancel_checkpoint "after-process-observer-owner"
+    return 0
+}}
+
+registration_group_observation() {{
+    [[ "${{PYTEST_PGID:-}}" =~ ^[0-9]+$ ]] || return 1
+    local W1_OBSERVER_OUT="$RUNDIR/registration-group-observer.out"
+    local W1_OBSERVER_ERR="$RUNDIR/registration-group-observer.err"
+    local W1_OBSERVER_ROWS=()
+    W1_GROUP_OBSERVATION=UNKNOWN
+    registration_owner_run group-observer "$W1_OBSERVER_OUT" \
+        "$W1_OBSERVER_ERR" bash -c 'python3 "$@"' _ \
+        -c {registration_probe} group "$PYTEST_PGID" /proc || return 1
+    [ "$W1_OWNER_STATUS" -eq 0 ] || return 1
+    mapfile -t W1_OBSERVER_ROWS < "$W1_OBSERVER_OUT"
+    [ "${{#W1_OBSERVER_ROWS[@]}}" -eq 1 ] || return 1
+    W1_GROUP_OBSERVATION="${{W1_OBSERVER_ROWS[0]}}"
+    registration_cancel_checkpoint "after-group-observer-owner"
+    return 0
+}}
+
+registration_monotonic_sample() {{
+    local W1_UPTIME W1_UNUSED W1_UPTIME_SECONDS W1_UPTIME_FRACTION
+    IFS=' ' read -r W1_UPTIME W1_UNUSED < /proc/uptime || return 1
+    [[ "$W1_UPTIME" =~ ^[0-9]+\.[0-9]+$ ]] || return 1
+    W1_UPTIME_SECONDS="${{W1_UPTIME%.*}}"
+    W1_UPTIME_FRACTION="${{W1_UPTIME#*.}}000000"
+    W1_UPTIME_FRACTION="${{W1_UPTIME_FRACTION:0:6}}"
+    W1_CLOCK_SAMPLE_US=$((10#$W1_UPTIME_SECONDS * 1000000 \
+        + 10#$W1_UPTIME_FRACTION))
+}}
+
+registration_now_us() {{
+    if ! registration_monotonic_sample; then
+        W1_CLOCK_STATE=UNKNOWN
+        return 1
+    fi
+    if [ -n "$W1_LAST_NOW_US" ] \
+            && [ "$W1_CLOCK_SAMPLE_US" -lt "$W1_LAST_NOW_US" ]; then
+        W1_CLOCK_STATE=ROLLBACK
+        return 1
+    fi
+    W1_LAST_NOW_US="$W1_CLOCK_SAMPLE_US"
+    W1_NOW_US="$W1_CLOCK_SAMPLE_US"
+    W1_CLOCK_STATE=OK
+}}
+
+registration_initialize_lifecycle_deadline() {{
+    if ! registration_now_us; then
+        return 1
+    fi
+    W1_LIFECYCLE_STARTED_US="$W1_NOW_US"
+    W1_LIFECYCLE_DEADLINE_US=$((W1_LIFECYCLE_STARTED_US \
+        + W1_TOTAL_SECONDS * 1000000))
+    W1_FORWARD_DEADLINE_US=$((W1_LIFECYCLE_DEADLINE_US \
+        - W1_CLEANUP_RESERVE_SECONDS * 1000000))
+    if [ "$W1_FORWARD_DEADLINE_US" -lt "$W1_LIFECYCLE_STARTED_US" ]; then
+        W1_FORWARD_DEADLINE_US="$W1_LIFECYCLE_STARTED_US"
+    fi
+    W1_ACTIVE_DEADLINE_US="$W1_FORWARD_DEADLINE_US"
+    W1_LIFECYCLE_INITIALIZED=1
+}}
+
+registration_cap_deadline() {{
+    local W1_CAP_SECONDS="$1" W1_LIMIT_US="$2" W1_PHASE_DEADLINE_US
+    [ "$W1_LIFECYCLE_INITIALIZED" -eq 1 ] || return 1
+    registration_now_us || return 1
+    W1_PHASE_DEADLINE_US=$((W1_NOW_US + W1_CAP_SECONDS * 1000000))
+    if [ "$W1_PHASE_DEADLINE_US" -lt "$W1_LIMIT_US" ]; then
+        W1_ACTIVE_DEADLINE_US="$W1_PHASE_DEADLINE_US"
+    else
+        W1_ACTIVE_DEADLINE_US="$W1_LIMIT_US"
+    fi
+    [ "$W1_ACTIVE_DEADLINE_US" -gt "$W1_NOW_US" ]
+}}
+
+registration_begin_gate_deadline() {{
+    registration_cap_deadline "$1" "$W1_FORWARD_DEADLINE_US"
+}}
+
+registration_begin_cleanup_deadline() {{
+    registration_cap_deadline "$1" "$W1_LIFECYCLE_DEADLINE_US"
+}}
+
+registration_remaining_timeout() {{
+    local W1_REMAINING_US
+    registration_now_us || return 1
+    W1_REMAINING_US=$((W1_ACTIVE_DEADLINE_US - W1_NOW_US))
+    [ "$W1_REMAINING_US" -gt 0 ] || return 1
+    printf -v W1_READ_TIMEOUT '%d.%06d' \
+        $((W1_REMAINING_US / 1000000)) $((W1_REMAINING_US % 1000000))
+}}
+
+registration_remaining_owner_timeout() {{
+    local W1_ADDITIONAL_RESERVE_US="${{1:-0}}"
+    local W1_REMAINING_US W1_OWNER_US
+    [[ "$W1_OWNER_KILL_GRACE_US" =~ ^[0-9]+$ ]] \
+        && [ "$W1_OWNER_KILL_GRACE_US" -gt 0 ] || return 1
+    [[ "$W1_ADDITIONAL_RESERVE_US" =~ ^[0-9]+$ ]] || return 1
+    registration_now_us || return 1
+    W1_REMAINING_US=$((W1_ACTIVE_DEADLINE_US - W1_NOW_US))
+    [ "$W1_REMAINING_US" -gt $((W1_OWNER_KILL_GRACE_US \
+        + W1_ADDITIONAL_RESERVE_US)) ] || return 1
+    W1_OWNER_US=$((W1_REMAINING_US - W1_OWNER_KILL_GRACE_US \
+        - W1_ADDITIONAL_RESERVE_US))
+    printf -v W1_OWNER_TIMEOUT '%d.%06d' \
+        $((W1_OWNER_US / 1000000)) $((W1_OWNER_US % 1000000))
+    printf -v W1_OWNER_KILL_AFTER '%d.%06d' \
+        $((W1_OWNER_KILL_GRACE_US / 1000000)) \
+        $((W1_OWNER_KILL_GRACE_US % 1000000))
+}}
+
+registration_process_receipt() {{
+    local W1_RECEIPT_PID="$1" W1_RECEIPT_ROW W1_RECEIPT_HEAD W1_RECEIPT_TAIL
+    local -a W1_RECEIPT_FIELDS=()
+    W1_PROCESS_RECEIPT="UNKNOWN"
+    W1_PROCESS_STATE="UNKNOWN"
+    [[ "$W1_RECEIPT_PID" =~ ^[0-9]+$ ]] || return 1
+    if ! IFS= read -r W1_RECEIPT_ROW \
+            2>/dev/null < "/proc/$W1_RECEIPT_PID/stat"; then
+        [ ! -e "/proc/$W1_RECEIPT_PID" ] && W1_PROCESS_RECEIPT=ABSENT
+        return 1
+    fi
+    [[ "$W1_RECEIPT_ROW" == *") "* ]] || return 1
+    W1_RECEIPT_HEAD="${{W1_RECEIPT_ROW%% (*}}"
+    W1_RECEIPT_TAIL="${{W1_RECEIPT_ROW##*) }}"
+    read -r -a W1_RECEIPT_FIELDS <<< "$W1_RECEIPT_TAIL"
+    [ "$W1_RECEIPT_HEAD" = "$W1_RECEIPT_PID" ] \
+        && [ "${{#W1_RECEIPT_FIELDS[@]}}" -gt 19 ] || return 1
+    W1_PROCESS_STATE="${{W1_RECEIPT_FIELDS[0]}}"
+    W1_PROCESS_RECEIPT="$W1_RECEIPT_PID:${{W1_RECEIPT_FIELDS[1]}}:${{W1_RECEIPT_FIELDS[2]}}:${{W1_RECEIPT_FIELDS[3]}}:${{W1_RECEIPT_FIELDS[19]}}"
+}}
+
+registration_receipt_same_process() {{
+    local W1_SAME_SAVED="$1" W1_SAME_CURRENT="$2"
+    local -a W1_SAME_OLD=() W1_SAME_NEW=()
+    IFS=: read -r -a W1_SAME_OLD <<< "$W1_SAME_SAVED"
+    IFS=: read -r -a W1_SAME_NEW <<< "$W1_SAME_CURRENT"
+    [ "${{#W1_SAME_OLD[@]}}" -eq 5 ] \
+        && [ "${{#W1_SAME_NEW[@]}}" -eq 5 ] \
+        && [ "${{W1_SAME_OLD[0]}}" = "${{W1_SAME_NEW[0]}}" ] \
+        && [ "${{W1_SAME_OLD[1]}}" = "${{W1_SAME_NEW[1]}}" ] \
+        && [ "${{W1_SAME_OLD[4]}}" = "${{W1_SAME_NEW[4]}}" ]
+}}
+
+registration_process_receipt_matches() {{
+    local W1_MATCH_PID="$1" W1_MATCH_EXPECTED="$2"
+    W1_OWNER_CURRENT_RECEIPT="UNKNOWN"
+    if ! registration_process_receipt "$W1_MATCH_PID"; then
+        W1_OWNER_CURRENT_RECEIPT="$W1_PROCESS_RECEIPT"
+        return 1
+    fi
+    W1_OWNER_CURRENT_RECEIPT="$W1_PROCESS_RECEIPT"
+    [ "$W1_PROCESS_RECEIPT" = "$W1_MATCH_EXPECTED" ] \
+        && [[ "$W1_PROCESS_STATE" != Z && "$W1_PROCESS_STATE" != X ]]
+}}
+
+registration_child_group_is_leader() {{
+    local W1_RECEIPT_PID="$1"
+    local -a W1_RECEIPT_FIELDS=()
+    W1_CHILD_GROUP_READY=0
+    W1_CHILD_RECEIPT="UNKNOWN"
+    registration_process_receipt "$W1_RECEIPT_PID" || return 1
+    IFS=: read -r -a W1_RECEIPT_FIELDS <<< "$W1_PROCESS_RECEIPT"
+    [ "${{W1_RECEIPT_FIELDS[2]}}" = "$W1_RECEIPT_PID" ] \
+        && [[ "$W1_PROCESS_STATE" != Z && "$W1_PROCESS_STATE" != X ]] \
+        || return 1
+    W1_CHILD_GROUP_READY=1
+    W1_CHILD_RECEIPT="$W1_PROCESS_RECEIPT"
+}}
+
+registration_owner_record() {{
+    local W1_RECORD_ROLE="$1" W1_RECORD_OWNER_PID="$2"
+    local W1_RECORD_WAITED_PID="$3" W1_RECORD_STATUS="$4"
+    local W1_RECORD_WAIT_OK="$5" W1_RECORD_DESCENDANTS="$6"
+    local W1_RECORD_STOP="${{7:-NONE}}"
+    local W1_RECORD_GROUP_READY="${{8:-UNKNOWN}}"
+    local W1_RECORD_RECEIPT="${{W1_OWNER_RECEIPT_BY_PID[$W1_RECORD_OWNER_PID]:-UNKNOWN}}"
+    local W1_RECORD_FDS="${{W1_OWNER_FDS_BY_PID[$W1_RECORD_OWNER_PID]:-UNKNOWN}}"
+    echo "OWNER role=$W1_RECORD_ROLE owner_pid=${{W1_RECORD_OWNER_PID:-MISSING}} waited_pid=${{W1_RECORD_WAITED_PID:-MISSING}} status=${{W1_RECORD_STATUS:-UNKNOWN}} wait_ok=$W1_RECORD_WAIT_OK descendants=$W1_RECORD_DESCENDANTS stop=$W1_RECORD_STOP group_ready=$W1_RECORD_GROUP_READY receipt=$W1_RECORD_RECEIPT current=${{W1_OWNER_CURRENT_RECEIPT:-NOT-APPLICABLE}} fds=$W1_RECORD_FDS term_at_us=${{W1_OWNER_TERM_AT_US:-NOT-APPLICABLE}} term_rc=${{W1_OWNER_TERM_RC:-NOT-APPLICABLE}} grace_us=${{W1_OWNER_GRACE_US:-NOT-APPLICABLE}} kill_at_us=${{W1_OWNER_KILL_AT_US:-NOT-APPLICABLE}} kill_rc=${{W1_OWNER_KILL_RC:-NOT-APPLICABLE}} primary_cancel=${{W1_CANCEL_STATUS:-0}}" \
+        >> "$RUNDIR/registration-owners.log"
+}}
+
+registration_owner_term_grace() {{
+    local W1_GRACE_START_US W1_GRACE_END_US W1_GRACE_TARGET_US
+    registration_now_us || return 1
+    W1_GRACE_START_US="$W1_NOW_US"
+    W1_GRACE_TARGET_US=$((W1_GRACE_START_US + W1_OWNER_KILL_GRACE_US))
+    W1_GRACE_END_US="$W1_GRACE_START_US"
+    while [ "$W1_GRACE_END_US" -lt "$W1_GRACE_TARGET_US" ]; do
+        registration_now_us || return 1
+        W1_GRACE_END_US="$W1_NOW_US"
+    done
+    W1_GRACE_END_US="$W1_NOW_US"
+    W1_OWNER_GRACE_US=$((W1_GRACE_END_US - W1_GRACE_START_US))
+    [ "$W1_OWNER_GRACE_US" -ge "$W1_OWNER_KILL_GRACE_US" ]
+}}
+
+registration_owner_stop() {{
+    local W1_STOP_PID="$1" W1_STOP_GROUP_READY="$2" W1_STOP_TARGET
+    local W1_STOP_KIND=CHILD
+    local W1_STOP_EXPECTED="${{W1_OWNER_RECEIPT_BY_PID[$W1_STOP_PID]:-UNKNOWN}}"
+    [[ "$W1_STOP_PID" =~ ^[0-9]+$ ]] || return 1
+    W1_OWNER_TERM_AT_US=UNKNOWN
+    W1_OWNER_TERM_RC=NOT-SENT
+    W1_OWNER_GRACE_US=UNKNOWN
+    W1_OWNER_KILL_AT_US=UNKNOWN
+    W1_OWNER_KILL_RC=NOT-SENT
+    if ! registration_process_receipt_matches \
+            "$W1_STOP_PID" "$W1_STOP_EXPECTED"; then
+        W1_OWNER_STOP_DISPOSITION=PROCESS-RESTORATION-UNKNOWN
+        return 1
+    fi
+    if [ "$W1_STOP_GROUP_READY" -eq 1 ]; then
+        W1_STOP_TARGET="-$W1_STOP_PID"
+        W1_STOP_KIND=GROUP
+    else
+        W1_STOP_TARGET="$W1_STOP_PID"
+    fi
+    registration_now_us && W1_OWNER_TERM_AT_US="$W1_NOW_US"
+    builtin kill -TERM -- "$W1_STOP_TARGET" 2>/dev/null
+    W1_OWNER_TERM_RC=$?
+    if [ "$W1_OWNER_TERM_RC" -ne 0 ]; then
+        W1_OWNER_STOP_DISPOSITION=PROCESS-RESTORATION-UNKNOWN
+        return 1
+    fi
+    if ! registration_owner_term_grace; then
+        case "$W1_CLOCK_STATE" in
+            ROLLBACK|UNKNOWN)
+                W1_OWNER_GRACE_US="UNAVAILABLE-$W1_CLOCK_STATE"
+                ;;
+            *)
+                W1_OWNER_STOP_DISPOSITION=PROCESS-RESTORATION-UNKNOWN
+                return 1
+                ;;
+        esac
+    fi
+    registration_now_us && W1_OWNER_KILL_AT_US="$W1_NOW_US"
+    if registration_process_receipt_matches \
+            "$W1_STOP_PID" "$W1_STOP_EXPECTED"; then
+        builtin kill -KILL -- "$W1_STOP_TARGET" 2>/dev/null
+        W1_OWNER_KILL_RC=$?
+        if [ "$W1_OWNER_KILL_RC" -ne 0 ]; then
+            W1_OWNER_STOP_DISPOSITION=PROCESS-RESTORATION-UNKNOWN
+            return 1
+        fi
+        W1_OWNER_STOP_DISPOSITION="TERM-GRACE-KILL-$W1_STOP_KIND"
+    elif [ "$W1_OWNER_CURRENT_RECEIPT" = ABSENT ]; then
+        W1_OWNER_KILL_RC=SKIPPED-ABSENT
+        W1_OWNER_STOP_DISPOSITION="TERM-GRACE-EXITED-$W1_STOP_KIND"
+    else
+        W1_OWNER_STOP_DISPOSITION=PROCESS-RESTORATION-UNKNOWN
+        return 1
+    fi
+}}
+
+registration_promote_spawn_group_receipt() {{
+    local W1_PROMOTE_PID="$W1_SPAWN_PID"
+    local W1_PROMOTE_LAUNCH="${{W1_OWNER_RECEIPT_BY_PID[$W1_PROMOTE_PID]:-UNKNOWN}}"
+    local W1_PROMOTE_CLAIM=""
+    local -a W1_PROMOTE_FIELDS=()
+    if registration_process_receipt "$W1_PROMOTE_PID"; then
+        if [ "$W1_PROMOTE_LAUNCH" != UNKNOWN ]; then
+            registration_receipt_same_process \
+                "$W1_PROMOTE_LAUNCH" "$W1_PROCESS_RECEIPT" || return 1
+        fi
+        IFS=: read -r -a W1_PROMOTE_FIELDS <<< "$W1_PROCESS_RECEIPT"
+        if [ "${{W1_PROMOTE_FIELDS[1]}}" = "$W1_SPAWN_PARENT_PID" ] \
+                && [ "${{W1_PROMOTE_FIELDS[2]}}" = "$W1_PROMOTE_PID" ] \
+                && [ "${{W1_PROMOTE_FIELDS[3]}}" = "$W1_PROMOTE_PID" ] \
+                && [[ "$W1_PROCESS_STATE" != Z && "$W1_PROCESS_STATE" != X ]]; then
+            W1_OWNER_RECEIPT_BY_PID[$W1_PROMOTE_PID]="$W1_PROCESS_RECEIPT"
+            W1_ACTIVE_OWNER_RECEIPT="$W1_PROCESS_RECEIPT"
+            W1_ACTIVE_OWNER_GROUP_READY=1
+            return 0
+        fi
+        [[ "$W1_PROCESS_STATE" == Z || "$W1_PROCESS_STATE" == X ]] \
+            || return 1
+    elif [ "$W1_PROCESS_RECEIPT" != ABSENT ]; then
+        return 1
+    fi
+
+    # The trusted wrapper writes this receipt after setsid and before exec.  A
+    # short command may become a zombie (or be reaped) before the parent can
+    # reread /proc.  Bind that durable claim back to the pre-setsid launch
+    # identity; never turn a missing or mismatched launch receipt into group
+    # authority.
+    [ "$W1_PROMOTE_LAUNCH" != UNKNOWN ] || return 1
+    W1_PROMOTE_CLAIM="${{W1_SPAWN_READY_LINE#OWNER-READY v2 receipt=}}"
+    W1_PROMOTE_CLAIM="${{W1_PROMOTE_CLAIM% fds=0,1,2}}"
+    [ "$W1_SPAWN_READY_LINE" = \
+        "OWNER-READY v2 receipt=$W1_PROMOTE_CLAIM fds=0,1,2" ] \
+        || return 1
+    [[ "$W1_PROMOTE_CLAIM" =~ ^[0-9]+(:[0-9]+){{4}}$ ]] || return 1
+    registration_receipt_same_process \
+        "$W1_PROMOTE_LAUNCH" "$W1_PROMOTE_CLAIM" || return 1
+    IFS=: read -r -a W1_PROMOTE_FIELDS <<< "$W1_PROMOTE_CLAIM"
+    [ "${{W1_PROMOTE_FIELDS[0]}}" = "$W1_PROMOTE_PID" ] \
+        && [ "${{W1_PROMOTE_FIELDS[1]}}" = "$W1_SPAWN_PARENT_PID" ] \
+        && [ "${{W1_PROMOTE_FIELDS[2]}}" = "$W1_PROMOTE_PID" ] \
+        && [ "${{W1_PROMOTE_FIELDS[3]}}" = "$W1_PROMOTE_PID" ] \
+        || return 1
+    W1_OWNER_RECEIPT_BY_PID[$W1_PROMOTE_PID]="$W1_PROMOTE_CLAIM"
+    W1_ACTIVE_OWNER_RECEIPT="$W1_PROMOTE_CLAIM"
+    W1_ACTIVE_OWNER_GROUP_READY=1
+}}
+
+registration_owner_spawn() {{
+    local W1_SPAWN_ROLE="$1" W1_SPAWN_OUT="$2" W1_SPAWN_ERR="$3"
+    shift 3
+    local W1_SPAWN_READY_LINE="" W1_SPAWN_EXTRA="" W1_SPAWN_EOF_RC
+    local W1_SPAWN_SETTLEMENT_RESERVE="$W1_OWNER_CENSUS_RESERVE_US"
+    W1_SPAWN_PID=""
+    W1_SPAWN_READY_FD=""
+    W1_SPAWN_INPUT_FD=""
+    W1_SPAWN_RECEIPT="UNKNOWN"
+    W1_SPAWN_FDS="UNKNOWN"
+    W1_OWNER_STOP_DISPOSITION=SPAWN-FAILED
+    W1_OWNER_CURRENT_RECEIPT=NOT-APPLICABLE
+    W1_OWNER_TERM_AT_US=NOT-APPLICABLE
+    W1_OWNER_TERM_RC=NOT-APPLICABLE
+    W1_OWNER_GRACE_US=NOT-APPLICABLE
+    W1_OWNER_KILL_AT_US=NOT-APPLICABLE
+    W1_OWNER_KILL_RC=NOT-APPLICABLE
+    [[ "$W1_SPAWN_ROLE" == *-census ]] \
+        && W1_SPAWN_SETTLEMENT_RESERVE=0
+    registration_cancel_checkpoint "before-$W1_SPAWN_ROLE-owner" || return 1
+    registration_remaining_owner_timeout \
+        "$W1_SPAWN_SETTLEMENT_RESERVE" || return 1
+    W1_SPAWN_TIMEOUT="$W1_OWNER_TIMEOUT"
+    W1_SPAWN_KILL_AFTER="$W1_OWNER_KILL_AFTER"
+    W1_SPAWN_PARENT_PID="$BASHPID"
+    W1_SPAWN_CLOSE_FDS="${{W1_GATE_READ_FD:-}},${{W1_GATE_WRITE_FD:-}},${{W1_TERMINAL_READ_FD:-}},${{W1_TERMINAL_PARENT_WRITE_FD:-}}"
+    unset W1_AUX_OWNER W1_AUX_OWNER_PID 2>/dev/null || :
+    coproc W1_AUX_OWNER {{
+        exec python3 -c {registration_timeout_owner} "$W1_SPAWN_PARENT_PID" \
+            "$W1_SPAWN_CLOSE_FDS" "$W1_SPAWN_OUT" "$W1_SPAWN_ERR" \
+            timeout --kill-after="$W1_SPAWN_KILL_AFTER" \
+            "$W1_SPAWN_TIMEOUT" "$@"
+    }}
+    W1_SPAWN_PID=${{W1_AUX_OWNER_PID:-}}
+    W1_SPAWN_READY_FD=${{W1_AUX_OWNER[0]:-}}
+    W1_SPAWN_INPUT_FD=${{W1_AUX_OWNER[1]:-}}
+    if [[ "$W1_SPAWN_INPUT_FD" =~ ^[0-9]+$ ]]; then
+        eval "exec $W1_SPAWN_INPUT_FD>&-"
+    fi
+    W1_ACTIVE_OWNER_ROLE="$W1_SPAWN_ROLE"
+    W1_ACTIVE_OWNER_PID="$W1_SPAWN_PID"
+    W1_ACTIVE_OWNER_GROUP_READY=0
+    W1_ACTIVE_OWNER_RECEIPT=UNKNOWN
+    if registration_process_receipt "$W1_SPAWN_PID"; then
+        local -a W1_SPAWN_LAUNCH_FIELDS=()
+        IFS=: read -r -a W1_SPAWN_LAUNCH_FIELDS <<< "$W1_PROCESS_RECEIPT"
+        if [ "${{W1_SPAWN_LAUNCH_FIELDS[1]}}" = "$W1_SPAWN_PARENT_PID" ]; then
+            W1_SPAWN_RECEIPT="$W1_PROCESS_RECEIPT"
+            W1_OWNER_RECEIPT_BY_PID[$W1_SPAWN_PID]="$W1_SPAWN_RECEIPT"
+            W1_OWNER_FDS_BY_PID[$W1_SPAWN_PID]=UNKNOWN
+            W1_ACTIVE_OWNER_RECEIPT="$W1_SPAWN_RECEIPT"
+        fi
+    fi
+    if ! IFS= read -r -t "$W1_SPAWN_TIMEOUT" W1_SPAWN_READY_LINE \
+            <&"$W1_SPAWN_READY_FD"; then
+        eval "exec $W1_SPAWN_READY_FD<&-"
+        registration_promote_spawn_group_receipt || :
+        registration_owner_stop "$W1_SPAWN_PID" \
+            "$W1_ACTIVE_OWNER_GROUP_READY"
+        return 1
+    fi
+    registration_promote_spawn_group_receipt || :
+    IFS= read -r -t "$W1_SPAWN_TIMEOUT" W1_SPAWN_EXTRA \
+        <&"$W1_SPAWN_READY_FD"
+    W1_SPAWN_EOF_RC=$?
+    eval "exec $W1_SPAWN_READY_FD<&-"
+    if [ "$W1_SPAWN_READY_LINE" != \
+            "OWNER-READY v2 receipt=${{W1_OWNER_RECEIPT_BY_PID[$W1_SPAWN_PID]:-UNKNOWN}} fds=0,1,2" ] \
+            || [ "$W1_SPAWN_EOF_RC" -ne 1 ]; then
+        registration_owner_stop "$W1_SPAWN_PID" \
+            "$W1_ACTIVE_OWNER_GROUP_READY"
+        return 1
+    fi
+    W1_SPAWN_FDS=0,1,2
+    W1_OWNER_FDS_BY_PID[$W1_SPAWN_PID]="$W1_SPAWN_FDS"
+    return 0
+}}
+
+registration_owned_group_census() {{
+    local W1_CENSUS_ROLE="$1" W1_CENSUS_PGID="$2"
+    local W1_CENSUS_OUT="$RUNDIR/registration-$W1_CENSUS_ROLE-census.out"
+    local W1_CENSUS_ERR="$RUNDIR/registration-$W1_CENSUS_ROLE-census.err"
+    local -a W1_CENSUS_ROWS=()
+    W1_OWNED_GROUP_STATUS=UNKNOWN
+    [[ "$W1_CENSUS_PGID" =~ ^[0-9]+$ ]] || return 1
+    if ! registration_owner_run --no-census \
+            "$W1_CENSUS_ROLE-census" "$W1_CENSUS_OUT" "$W1_CENSUS_ERR" \
+            python3 -c {registration_probe} group \
+            "$W1_CENSUS_PGID" /proc; then
+        return 1
+    fi
+    [ "$W1_OWNER_STATUS" -eq 0 ] || return 1
+    mapfile -t W1_CENSUS_ROWS < "$W1_CENSUS_OUT"
+    [ "${{#W1_CENSUS_ROWS[@]}}" -eq 1 ] || return 1
+    case "${{W1_CENSUS_ROWS[0]}}" in
+        ABSENT|UNKNOWN|PRESENT\|*)
+            W1_OWNED_GROUP_STATUS="${{W1_CENSUS_ROWS[0]%%|*}}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}}
+
+registration_owner_collect() {{
+    local W1_COLLECT_ROLE="$1" W1_COLLECT_PID="$2"
+    local W1_COLLECT_GROUP_READY="$3"
+    local W1_COLLECT_INITIAL_STOP="${{4:-NONE}}"
+    local W1_COLLECT_CENSUS_POLICY="${{5:-REQUIRED}}"
+    local W1_COLLECT_WAIT_ERR="$RUNDIR/registration-owner-$W1_COLLECT_ROLE.wait.err"
+    local W1_COLLECT_SECOND_PID="" W1_COLLECT_SECOND_STATUS
+    local W1_COLLECT_WAITED_PID="" W1_COLLECT_STATUS=UNKNOWN
+    local W1_COLLECT_WAIT_OK=0 W1_COLLECT_DESCENDANTS=UNKNOWN
+    local W1_COLLECT_STOP_DISPOSITION="$W1_COLLECT_INITIAL_STOP"
+    local W1_COLLECT_CURRENT_RECEIPT=NOT-APPLICABLE
+    local W1_COLLECT_TERM_AT_US=NOT-APPLICABLE
+    local W1_COLLECT_TERM_RC=NOT-APPLICABLE
+    local W1_COLLECT_GRACE_US=NOT-APPLICABLE
+    local W1_COLLECT_KILL_AT_US=NOT-APPLICABLE
+    local W1_COLLECT_KILL_RC=NOT-APPLICABLE
+    W1_OWNER_WAITED_PID=""
+    W1_OWNER_STATUS=UNKNOWN
+    W1_OWNER_WAIT_OK=0
+    W1_OWNER_DESCENDANTS=UNKNOWN
+    W1_OWNER_STOP_DISPOSITION="$W1_COLLECT_INITIAL_STOP"
+    : > "$W1_COLLECT_WAIT_ERR"
+    wait -p W1_OWNER_WAITED_PID "$W1_COLLECT_PID" \
+        2> "$W1_COLLECT_WAIT_ERR"
+    W1_OWNER_STATUS=$?
+    if [ "${{W1_OWNER_WAITED_PID:-}}" != "$W1_COLLECT_PID" ]; then
+        registration_owner_stop "$W1_COLLECT_PID" "$W1_COLLECT_GROUP_READY"
+        wait -p W1_COLLECT_SECOND_PID "$W1_COLLECT_PID" \
+            2>> "$W1_COLLECT_WAIT_ERR"
+        W1_COLLECT_SECOND_STATUS=$?
+        if [ "${{W1_COLLECT_SECOND_PID:-}}" = "$W1_COLLECT_PID" ]; then
+            W1_OWNER_WAITED_PID="$W1_COLLECT_SECOND_PID"
+            W1_OWNER_STATUS="$W1_COLLECT_SECOND_STATUS"
+        fi
+    fi
+    if [ "${{W1_OWNER_WAITED_PID:-}}" = "$W1_COLLECT_PID" ]; then
+        W1_OWNER_WAIT_OK=1
+    fi
+    W1_COLLECT_WAITED_PID="${{W1_OWNER_WAITED_PID:-}}"
+    W1_COLLECT_STATUS="$W1_OWNER_STATUS"
+    W1_COLLECT_WAIT_OK="$W1_OWNER_WAIT_OK"
+    W1_COLLECT_STOP_DISPOSITION="$W1_OWNER_STOP_DISPOSITION"
+    W1_COLLECT_CURRENT_RECEIPT="${{W1_OWNER_CURRENT_RECEIPT:-NOT-APPLICABLE}}"
+    W1_COLLECT_TERM_AT_US="${{W1_OWNER_TERM_AT_US:-NOT-APPLICABLE}}"
+    W1_COLLECT_TERM_RC="${{W1_OWNER_TERM_RC:-NOT-APPLICABLE}}"
+    W1_COLLECT_GRACE_US="${{W1_OWNER_GRACE_US:-NOT-APPLICABLE}}"
+    W1_COLLECT_KILL_AT_US="${{W1_OWNER_KILL_AT_US:-NOT-APPLICABLE}}"
+    W1_COLLECT_KILL_RC="${{W1_OWNER_KILL_RC:-NOT-APPLICABLE}}"
+    W1_OWNER_SETTLING=$((W1_OWNER_SETTLING + 1))
+    if [ "$W1_COLLECT_CENSUS_POLICY" = NOT-APPLICABLE ]; then
+        W1_COLLECT_DESCENDANTS=NOT-APPLICABLE
+    elif [ "$W1_COLLECT_GROUP_READY" -eq 1 ] \
+            && registration_owned_group_census \
+                "$W1_COLLECT_ROLE" "$W1_COLLECT_PID"; then
+        W1_COLLECT_DESCENDANTS="$W1_OWNED_GROUP_STATUS"
+    else
+        W1_COLLECT_DESCENDANTS=UNKNOWN
+    fi
+    W1_OWNER_CURRENT_RECEIPT="$W1_COLLECT_CURRENT_RECEIPT"
+    W1_OWNER_TERM_AT_US="$W1_COLLECT_TERM_AT_US"
+    W1_OWNER_TERM_RC="$W1_COLLECT_TERM_RC"
+    W1_OWNER_GRACE_US="$W1_COLLECT_GRACE_US"
+    W1_OWNER_KILL_AT_US="$W1_COLLECT_KILL_AT_US"
+    W1_OWNER_KILL_RC="$W1_COLLECT_KILL_RC"
+    registration_owner_record "$W1_COLLECT_ROLE" "$W1_COLLECT_PID" \
+        "${{W1_COLLECT_WAITED_PID:-MISSING}}" "$W1_COLLECT_STATUS" \
+        "$W1_COLLECT_WAIT_OK" "$W1_COLLECT_DESCENDANTS" \
+        "$W1_COLLECT_STOP_DISPOSITION" "$W1_COLLECT_GROUP_READY"
+    W1_OWNER_WAITED_PID="$W1_COLLECT_WAITED_PID"
+    W1_OWNER_STATUS="$W1_COLLECT_STATUS"
+    W1_OWNER_WAIT_OK="$W1_COLLECT_WAIT_OK"
+    W1_OWNER_DESCENDANTS="$W1_COLLECT_DESCENDANTS"
+    W1_OWNER_STOP_DISPOSITION="$W1_COLLECT_STOP_DISPOSITION"
+    W1_OWNER_SETTLING=$((W1_OWNER_SETTLING - 1))
+    W1_ACTIVE_OWNER_ROLE=""
+    W1_ACTIVE_OWNER_PID=""
+    W1_ACTIVE_OWNER_GROUP_READY=0
+    W1_ACTIVE_OWNER_RECEIPT="UNKNOWN"
+    unset 'W1_OWNER_RECEIPT_BY_PID[$W1_COLLECT_PID]' \
+        'W1_OWNER_FDS_BY_PID[$W1_COLLECT_PID]' 2>/dev/null || :
+    [ "$W1_OWNER_WAIT_OK" -eq 1 ] \
+        && {{ [ "$W1_COLLECT_CENSUS_POLICY" = NOT-APPLICABLE ] \
+            || [ "$W1_OWNER_DESCENDANTS" = ABSENT ]; }}
+}}
+
+registration_owner_run() {{
+    local W1_RUN_CENSUS_POLICY=REQUIRED
+    if [ "${{1:-}}" = --no-census ]; then
+        W1_RUN_CENSUS_POLICY=NOT-APPLICABLE
+        shift
+    fi
+    local W1_RUN_ROLE="$1" W1_RUN_OUT="$2" W1_RUN_ERR="$3"
+    shift 3
+    if ! registration_owner_spawn "$W1_RUN_ROLE" "$W1_RUN_OUT" \
+            "$W1_RUN_ERR" "$@"; then
+        local W1_RUN_PID="${{W1_SPAWN_PID:-MISSING}}"
+        if [[ "$W1_RUN_PID" =~ ^[0-9]+$ ]]; then
+            registration_owner_collect "$W1_RUN_ROLE" "$W1_RUN_PID" \
+                "${{W1_ACTIVE_OWNER_GROUP_READY:-0}}" \
+                "${{W1_OWNER_STOP_DISPOSITION:-SPAWN-FAILED}}" \
+                "$W1_RUN_CENSUS_POLICY" || :
+        else
+            registration_owner_record "$W1_RUN_ROLE" MISSING MISSING \
+                UNKNOWN 0 UNKNOWN SPAWN-FAILED 0
+        fi
+        W1_SPAWN_PID="$W1_RUN_PID"
+        return 1
+    fi
+    local W1_RUN_PID="$W1_SPAWN_PID" W1_RUN_COLLECT_RC
+    registration_owner_collect "$W1_RUN_ROLE" "$W1_RUN_PID" 1 NONE \
+        "$W1_RUN_CENSUS_POLICY"
+    W1_RUN_COLLECT_RC=$?
+    W1_SPAWN_PID="$W1_RUN_PID"
+    W1_OWNER_CANCEL_AFTER="$W1_CANCEL_STATUS"
+    return "$W1_RUN_COLLECT_RC"
+}}
+
+registration_checked_child_wait() {{
+    local W1_CHILD_ROLE="$1" W1_CHILD_PID="$2" W1_CHILD_EXPECTED="$3"
+    local W1_TIMER_OUT="$RUNDIR/registration-$W1_CHILD_ROLE-deadline.out"
+    local W1_TIMER_ERR="$RUNDIR/registration-$W1_CHILD_ROLE-deadline.err"
+    local W1_CHILD_WAIT_ERR="$RUNDIR/registration-$W1_CHILD_ROLE-wait.err"
+    local W1_TIMER_PID W1_RACE_WAITED_PID="" W1_RACE_STATUS
+    local W1_TIMER_STOP=NONE W1_TIMER_DESCENDANTS=UNKNOWN
+    local W1_CHILD_GROUP_READY=0 W1_CHILD_STOP=NONE
+    W1_CHILD_WAITED_PID=""
+    W1_CHILD_WAIT_STATUS=UNKNOWN
+    W1_CHILD_WAIT_OK=0
+    W1_CHILD_GROUP_STATUS=UNKNOWN
+    [ "$W1_CHILD_ROLE" = gate ] \
+        && W1_CHILD_WAIT_ERR="$RUNDIR/registration-wait.err"
+    [ "$W1_CHILD_ROLE" = terminal-relay ] \
+        && W1_CHILD_WAIT_ERR="$RUNDIR/registration-relay-wait.err"
+    case "$W1_CHILD_ROLE" in
+        gate)
+            W1_CHILD_GROUP_READY="${{W1_GATE_GROUP_READY_AT_ACQUIRE:-0}}"
+            ;;
+        terminal-relay)
+            W1_CHILD_GROUP_READY="${{W1_RELAY_GROUP_READY_AT_ACQUIRE:-0}}"
+            ;;
+    esac
+    if ! [[ "$W1_CHILD_PID" =~ ^[0-9]+$ ]]; then
+        registration_owner_record "$W1_CHILD_ROLE" MISSING MISSING \
+            UNKNOWN 0 UNKNOWN PID-MISSING 0
+        return 1
+    fi
+    registration_cancel_checkpoint "before-$W1_CHILD_ROLE-wait"
+    if ! registration_owner_spawn "$W1_CHILD_ROLE-deadline" \
+            "$W1_TIMER_OUT" "$W1_TIMER_ERR" \
+            python3 -c 'import time; time.sleep(86400)'; then
+        W1_TIMER_PID="${{W1_SPAWN_PID:-MISSING}}"
+        if [[ "$W1_TIMER_PID" =~ ^[0-9]+$ ]]; then
+            registration_owner_collect "$W1_CHILD_ROLE-deadline" \
+                "$W1_TIMER_PID" "${{W1_ACTIVE_OWNER_GROUP_READY:-0}}" \
+                "${{W1_OWNER_STOP_DISPOSITION:-SPAWN-FAILED}}" || :
+        fi
+        registration_owner_record "$W1_CHILD_ROLE" "$W1_CHILD_PID" \
+            MISSING UNKNOWN 0 UNKNOWN DEADLINE-SPAWN-FAILED \
+            "$W1_CHILD_GROUP_READY"
+        return 1
+    fi
+    W1_TIMER_PID="$W1_SPAWN_PID"
+    : > "$W1_CHILD_WAIT_ERR"
+    wait -n -p W1_RACE_WAITED_PID "$W1_CHILD_PID" "$W1_TIMER_PID" \
+        2> "$W1_CHILD_WAIT_ERR"
+    W1_RACE_STATUS=$?
+    W1_OWNER_SETTLING=$((W1_OWNER_SETTLING + 1))
+    if [ "${{W1_RACE_WAITED_PID:-}}" = "$W1_CHILD_PID" ]; then
+        W1_CHILD_WAITED_PID="$W1_RACE_WAITED_PID"
+        W1_CHILD_WAIT_STATUS="$W1_RACE_STATUS"
+        registration_owner_stop "$W1_TIMER_PID" 1
+        W1_TIMER_STOP="$W1_OWNER_STOP_DISPOSITION"
+        registration_owner_collect "$W1_CHILD_ROLE-deadline" \
+            "$W1_TIMER_PID" 1 "$W1_TIMER_STOP" || :
+    elif [ "${{W1_RACE_WAITED_PID:-}}" = "$W1_TIMER_PID" ]; then
+        if registration_owned_group_census \
+                "$W1_CHILD_ROLE-deadline" "$W1_TIMER_PID"; then
+            W1_TIMER_DESCENDANTS="$W1_OWNED_GROUP_STATUS"
+        fi
+        registration_owner_record "$W1_CHILD_ROLE-deadline" \
+            "$W1_TIMER_PID" "$W1_TIMER_PID" "$W1_RACE_STATUS" 1 \
+            "$W1_TIMER_DESCENDANTS" DEADLINE-EXPIRED 1
+        W1_ACTIVE_OWNER_ROLE=""
+        W1_ACTIVE_OWNER_PID=""
+        W1_ACTIVE_OWNER_GROUP_READY=0
+        W1_CHILD_STOP=RETAINED-LIVE
+    else
+        registration_owner_stop "$W1_TIMER_PID" 1
+        W1_TIMER_STOP="$W1_OWNER_STOP_DISPOSITION"
+        registration_owner_collect "$W1_CHILD_ROLE-deadline" \
+            "$W1_TIMER_PID" 1 "$W1_TIMER_STOP" || :
+    fi
+    if [ "${{W1_CHILD_WAITED_PID:-}}" = "$W1_CHILD_PID" ]; then
+        if [ "$W1_CHILD_GROUP_READY" -eq 1 ] \
+                && registration_owned_group_census \
+                    "$W1_CHILD_ROLE" "$W1_CHILD_PID"; then
+            W1_CHILD_GROUP_STATUS="$W1_OWNED_GROUP_STATUS"
+        fi
+        if {{ [ "$W1_CHILD_EXPECTED" = ANY ] \
+                || [ "$W1_CHILD_WAIT_STATUS" -eq "$W1_CHILD_EXPECTED" ]; }} \
+                && [ "$W1_CHILD_GROUP_STATUS" = ABSENT ]; then
+            W1_CHILD_WAIT_OK=1
+        fi
+    fi
+    registration_owner_record "$W1_CHILD_ROLE" "$W1_CHILD_PID" \
+        "${{W1_CHILD_WAITED_PID:-MISSING}}" "$W1_CHILD_WAIT_STATUS" \
+        "$W1_CHILD_WAIT_OK" "$W1_CHILD_GROUP_STATUS" "$W1_CHILD_STOP" \
+        "$W1_CHILD_GROUP_READY"
+    case "$W1_CHILD_ROLE" in
+        gate)
+            W1_GATE_WAIT_STATUS="$W1_CHILD_WAIT_STATUS"
+            W1_GATE_GROUP_STATUS="$W1_CHILD_GROUP_STATUS"
+            W1_GATE_SETTLED_OK="$W1_CHILD_WAIT_OK"
+            ;;
+        terminal-relay)
+            W1_RELAY_WAIT_STATUS="$W1_CHILD_WAIT_STATUS"
+            W1_RELAY_GROUP_STATUS="$W1_CHILD_GROUP_STATUS"
+            W1_RELAY_WAITED_PID="$W1_CHILD_WAITED_PID"
+            W1_RELAY_WAIT_OK="$W1_CHILD_WAIT_OK"
+            W1_RELAY_WAIT_ATTEMPTED=1
+            W1_RELAY_SETTLED_OK="$W1_CHILD_WAIT_OK"
+            ;;
+    esac
+    W1_OWNER_SETTLING=$((W1_OWNER_SETTLING - 1))
+    [ "$W1_CHILD_WAIT_OK" -eq 1 ]
+}}
+
+registration_read_channel() {{
+    local W1_CHANNEL_FD="$1" W1_CHANNEL_MODE="$2"
+    local W1_CHANNEL_EXPECTED_PID="${{3:-0}}" W1_CHANNEL_RC
+    local W1_CHANNEL_ROLE="$W1_CHANNEL_MODE-reader"
+    local W1_CHANNEL_OUTPUT="$RUNDIR/registration-$W1_CHANNEL_ROLE.out"
+    local W1_CHANNEL_ERROR="$RUNDIR/registration-$W1_CHANNEL_ROLE.err"
+    local W1_CHANNEL_INNER_TIMEOUT
+    local W1_CHANNEL_ROWS=()
+    W1_FRAME=""
+    W1_FRAME_HEX=""
+    W1_FRAME_BYTE_LINE=0
+    W1_FRAME_CLASS=IO_ERROR
+    W1_CHANNEL_STATE=TIMEOUT
+    if ! [[ "$W1_CHANNEL_FD" =~ ^[0-9]+$ ]] \
+            || ! registration_remaining_owner_timeout \
+                "$W1_OWNER_CENSUS_RESERVE_US"; then
+        W1_FRAME_RC=142
+        return 1
+    fi
+    W1_CHANNEL_INNER_TIMEOUT="$W1_OWNER_TIMEOUT"
+    if ! registration_owner_run "$W1_CHANNEL_ROLE" "$W1_CHANNEL_OUTPUT" \
+            "$W1_CHANNEL_ERROR" python3 -c {registration_channel_reader} \
+            "/proc/$$/fd/$W1_CHANNEL_FD" "$W1_CHANNEL_INNER_TIMEOUT" \
+            "$W1_CHANNEL_MODE" "$W1_CHANNEL_EXPECTED_PID"; then
+        W1_FRAME_RC=142
+        return 1
+    fi
+    W1_CHANNEL_RC="$W1_OWNER_STATUS"
+    if [ "$W1_CHANNEL_RC" -ne 0 ]; then
+        W1_FRAME_RC=142
+        return 1
+    fi
+    mapfile -t W1_CHANNEL_ROWS < "$W1_CHANNEL_OUTPUT"
+    if [ "${{#W1_CHANNEL_ROWS[@]}}" -ne 5 ] \
+            || [[ "${{W1_CHANNEL_ROWS[0]}}" != S:* ]] \
+            || [[ "${{W1_CHANNEL_ROWS[1]}}" != H:* ]] \
+            || [[ "${{W1_CHANNEL_ROWS[2]}}" != D:* ]] \
+            || [[ "${{W1_CHANNEL_ROWS[3]}}" != A:* ]] \
+            || [[ "${{W1_CHANNEL_ROWS[4]}}" != C:* ]]; then
+        W1_CHANNEL_STATE=ERROR-READER
+        W1_FRAME_RC=1
+        return 1
+    fi
+    W1_CHANNEL_STATE="${{W1_CHANNEL_ROWS[0]#S:}}"
+    W1_FRAME_HEX="${{W1_CHANNEL_ROWS[1]#H:}}"
+    W1_FRAME="${{W1_CHANNEL_ROWS[2]#D:}}"
+    W1_FRAME_BYTE_LINE="${{W1_CHANNEL_ROWS[3]#A:}}"
+    W1_FRAME_CLASS="${{W1_CHANNEL_ROWS[4]#C:}}"
+    case "$W1_FRAME_CLASS" in
+        READY|EXEC_OK|EXEC_FAIL|ABORTED)
+            W1_FRAME_RC=0
+            return 0
+            ;;
+        TIMEOUT)
+            W1_FRAME_RC=142
+            ;;
+        *)
+            W1_FRAME_RC=1
+            ;;
+    esac
+    if [ "$W1_CHANNEL_STATE" = EOF ] \
+            && [ "$W1_FRAME_CLASS" != INVALID ]; then
+        W1_FRAME_RC=0
+        return 0
+    fi
+    return 1
+}}
+
+registration_read_until_deadline() {{
+    registration_read_channel "$W1_GATE_READ_FD" terminal 0
+}}
+
+registration_read_frame() {{
+    registration_begin_gate_deadline "${{1:-$W1_GATE_SECONDS}}" || :
+    registration_read_channel "$W1_GATE_READ_FD" ready "$PYTEST_GATE_PID"
+}}
+
+registration_read_terminal() {{
+    registration_read_channel "$W1_GATE_READ_FD" terminal 0
+    W1_TERMINAL_FRAME="$W1_FRAME"
+    W1_TERMINAL_CLASS="$W1_FRAME_CLASS"
+    W1_TERMINAL_FRAME_RC="$W1_FRAME_RC"
+    W1_TERMINAL_EOF=0
+    [ "$W1_CHANNEL_STATE" = EOF ] && W1_TERMINAL_EOF=1
+    W1_TRAILING_FRAME_COUNT=0
+    [ "$W1_FRAME_BYTE_LINE" -eq 1 ] || W1_TRAILING_FRAME_COUNT=1
+    W1_FRAME="$W1_TERMINAL_FRAME"
+    W1_FRAME_RC="$W1_TERMINAL_FRAME_RC"
+    W1_TERMINAL_RELAY_OK=0
+    if [ "$W1_TERMINAL_EOF" -eq 1 ] \
+            && registration_checked_terminal_relay_wait; then
+        W1_TERMINAL_RELAY_OK=1
+    fi
+    registration_cancel_checkpoint "after-terminal-owner-settlement"
+}}
+
+registration_checked_terminal_relay_wait() {{
+    local W1_RELAY_CHECK_RC
+    if [ "$W1_RELAY_WAIT_ATTEMPTED" -ne 0 ]; then
+        [ "$W1_RELAY_WAIT_OK" -eq 1 ]
+        return
+    fi
+    registration_checked_child_wait terminal-relay \
+        "$W1_TERMINAL_RELAY_PID" 0
+    W1_RELAY_CHECK_RC=$?
+    [ "$W1_RELAY_CHECK_RC" -eq 0 ] && W1_TERMINAL_RELAY_OK=1
+    registration_cancel_checkpoint "after-terminal-relay-wait"
+    return "$W1_RELAY_CHECK_RC"
+}}
+
+registration_checked_gate_wait() {{
+    local W1_EXPECTED_STATUS="$1"
+    if [ "$W1_GATE_WAIT_ATTEMPTED" -ne 0 ]; then
+        [ "$W1_GATE_SETTLED_OK" -eq 1 ] \
+            && {{ [ "$W1_EXPECTED_STATUS" = ANY ] \
+                || [ "$W1_GATE_WAIT_STATUS" -eq "$W1_EXPECTED_STATUS" ]; }}
+        return
+    fi
+    W1_GATE_WAIT_ATTEMPTED=1
+    registration_checked_child_wait gate "$PYTEST_GATE_PID" \
+        "$W1_EXPECTED_STATUS"
+    local W1_GATE_CHECK_RC=$?
+    registration_cancel_checkpoint "after-gate-wait"
+    return "$W1_GATE_CHECK_RC"
+}}
+
+registration_observation_matches_original() {{
+    W1_PROCESS_OBSERVATION=UNKNOWN
+    registration_process_observation 2>/dev/null || :
+    W1_CURRENT_OBSERVATION="$W1_PROCESS_OBSERVATION"
+    [[ "$W1_CURRENT_OBSERVATION" == OBSERVED\|*\|* ]] || return 1
+    W1_CURRENT_PAYLOAD="${{W1_CURRENT_OBSERVATION#OBSERVED|}}"
+    W1_CURRENT_RECEIPT="${{W1_CURRENT_PAYLOAD%|*}}"
+    W1_CURRENT_STATE="${{W1_CURRENT_PAYLOAD##*|}}"
+    [ "$W1_CURRENT_RECEIPT" = "$PYTEST_ORIGINAL_RECEIPT" ] \
+        && [[ "$W1_CURRENT_STATE" != Z && "$W1_CURRENT_STATE" != X ]]
+}}
+
+registration_settle_abort() {{
+    local W1_SETTLED_STATUS="$1"
+    local W1_FALLBACK_STATUS="$2"
+    local W1_ABORT_CONTEXT="$3"
+    W1_IN_SETTLEMENT=1
+    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_close_release
+    registration_read_terminal
+    W1_ABORT_FRAME="$W1_FRAME"
+    W1_ABORT_CLASS="$W1_FRAME_CLASS"
+    W1_ABORT_FRAME_RC="$W1_FRAME_RC"
+    W1_ABORT_PROTOCOL=0
+    W1_ABORT_WAIT=0
+    if [ "$W1_ABORT_FRAME_RC" -eq 0 ] \
+            && [ "$W1_ABORT_CLASS" = ABORTED ] \
+            && [ "$W1_TERMINAL_EOF" -eq 1 ] \
+            && [ "$W1_TERMINAL_RELAY_OK" -eq 1 ] \
+            && [ "$W1_TRAILING_FRAME_COUNT" -eq 0 ]; then
+        W1_ABORT_PROTOCOL=1
+        if registration_checked_gate_wait 0; then
+            W1_ABORT_WAIT=1
+        fi
+    elif [ "$W1_TERMINAL_EOF" -eq 1 ] \
+            && [ "$W1_TERMINAL_RELAY_OK" -eq 1 ] \
+            && registration_checked_gate_wait ANY; then
+        W1_ABORT_WAIT=1
+    fi
+    echo "REGISTER-GATE-ABORT context=$W1_ABORT_CONTEXT release_writes=${{W1_RELEASE_WRITE_COUNT:-0}} frame_rc=$W1_ABORT_FRAME_RC frame=$W1_ABORT_FRAME frame_hex=$W1_FRAME_HEX eof=$W1_TERMINAL_EOF relay_wait=${{W1_RELAY_WAIT_STATUS:-UNKNOWN}} wait=${{W1_GATE_WAIT_STATUS:-UNKNOWN}} group=${{W1_GATE_GROUP_STATUS:-UNKNOWN}} clock=$W1_CLOCK_STATE pid=$PYTEST_GATE_PID receipt=${{PYTEST_ORIGINAL_RECEIPT:-UNAVAILABLE}}" \
+        >> "$RUNDIR/jobid.err"
+    echo "ABORT context=$W1_ABORT_CONTEXT frame_rc=$W1_ABORT_FRAME_RC frame=$W1_ABORT_FRAME frame_hex=$W1_FRAME_HEX eof=$W1_TERMINAL_EOF relay_wait=${{W1_RELAY_WAIT_STATUS:-UNKNOWN}} wait=${{W1_GATE_WAIT_STATUS:-UNKNOWN}} group=${{W1_GATE_GROUP_STATUS:-UNKNOWN}} clock=$W1_CLOCK_STATE" \
+        >> "$RUNDIR/registration-gate.protocol"
+    if [ "$W1_CANCEL_STATUS" -ne 0 ]; then
+        W1_IN_SETTLEMENT=0
+        registration_settle_cancel "abort-$W1_ABORT_CONTEXT"
+    fi
+    if [ "$W1_ABORT_WAIT" -ne 1 ] \
+            && [ "$W1_CLOCK_STATE" = ROLLBACK ]; then
+        # A broken clock cannot authorize another timer owner.  The acquired
+        # child receipts still authorize immediate bounded teardown: TERM,
+        # identity recheck, KILL without an invented grace interval, and an
+        # exact child wait.  Settlement remains UNKNOWN unless its ordinary
+        # census proved ABSENT, so this cleanup cannot upgrade status 92.
+        if [ "${{W1_RELAY_ACQUIRED:-0}}" -eq 1 ] \
+                && [ "${{W1_RELAY_SETTLED_OK:-0}}" -ne 1 ]; then
+            W1_ACTIVE_OWNER_ROLE=clock-rollback-relay
+            W1_ACTIVE_OWNER_PID="$W1_TERMINAL_RELAY_PID"
+            W1_ACTIVE_OWNER_GROUP_READY="${{W1_RELAY_GROUP_READY_AT_ACQUIRE:-0}}"
+            registration_owner_stop "$W1_ACTIVE_OWNER_PID" \
+                "$W1_ACTIVE_OWNER_GROUP_READY" || :
+            registration_owner_collect clock-rollback-relay \
+                "$W1_ACTIVE_OWNER_PID" "$W1_ACTIVE_OWNER_GROUP_READY" \
+                "${{W1_OWNER_STOP_DISPOSITION:-CLOCK-ROLLBACK-STOP}}" || :
+        fi
+        if [ "${{W1_GATE_ACQUIRED:-0}}" -eq 1 ] \
+                && [ "${{W1_GATE_SETTLED_OK:-0}}" -ne 1 ]; then
+            W1_ACTIVE_OWNER_ROLE=clock-rollback-gate
+            W1_ACTIVE_OWNER_PID="$PYTEST_GATE_PID"
+            W1_ACTIVE_OWNER_GROUP_READY="${{W1_GATE_GROUP_READY_AT_ACQUIRE:-0}}"
+            registration_owner_stop "$W1_ACTIVE_OWNER_PID" \
+                "$W1_ACTIVE_OWNER_GROUP_READY" || :
+            registration_owner_collect clock-rollback-gate \
+                "$W1_ACTIVE_OWNER_PID" "$W1_ACTIVE_OWNER_GROUP_READY" \
+                "${{W1_OWNER_STOP_DISPOSITION:-CLOCK-ROLLBACK-STOP}}" || :
+        fi
+        echo "CLOCK-FAILURE-CLEANUP state=$W1_CLOCK_STATE gate=$PYTEST_GATE_PID relay=$W1_TERMINAL_RELAY_PID" \
+            >> "$RUNDIR/jobid.err"
+    fi
+    if {{ [ "$W1_ABORT_PROTOCOL" -eq 1 ] \
+            || [ "$W1_SETTLED_STATUS" -eq 94 ]; }} \
+            && [ "$W1_ABORT_WAIT" -eq 1 ]; then
+        registration_finish "$W1_SETTLED_STATUS"
+    fi
+    registration_finish "$W1_FALLBACK_STATUS"
+}}
+
+registration_copy_raw_jobid() {{
+    if [ -f "$RUNDIR/jobid.raw" ]; then
+        cp "$RUNDIR/jobid.raw" "$RUNDIR/jobid"
+    else
+        : > "$RUNDIR/jobid"
+    fi
+}}
+
+registration_raw_id_is_exact() {{
+    W1_JOB_ID=""
+    local W1_ID_LINES=()
+    mapfile -t W1_ID_LINES < "$RUNDIR/jobid.raw"
+    if [ "${{#W1_ID_LINES[@]}}" -eq 1 ] \
+            && [[ "${{W1_ID_LINES[0]}}" =~ ^[A-Za-z0-9._-]+-[0-9]+$ ]]; then
+        W1_JOB_ID="${{W1_ID_LINES[0]}}"
+        return 0
+    fi
+    return 1
+}}
+
+registration_reconcile_known_id() {{
+    [ -n "${{W1_JOB_ID:-}}" ] || return 0
+    if [ "$W1_RECONCILE_ATTEMPTED" -ne 0 ]; then
+        return 0
+    fi
+    W1_RECONCILE_ATTEMPTED=1
+    registration_begin_cleanup_deadline "$W1_RECONCILE_SECONDS" || {{
+        W1_RECONCILE_STATUS=DEADLINE-UNAVAILABLE
+        return 1
+    }}
+    registration_cancel_checkpoint "pre-reconciliation"
+    if ! registration_owner_run reconciliation \
+            "$RUNDIR/registration-reconcile.out" \
+            "$RUNDIR/registration-reconcile.err" \
+            python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs" \
+            reap --id "$W1_JOB_ID"; then
+        W1_RECONCILE_STATUS=OWNER-UNKNOWN
+        registration_cancel_checkpoint "post-reconciliation"
+        return 1
+    fi
+    W1_RECONCILE_STATUS="$W1_OWNER_STATUS"
+    registration_cancel_checkpoint "post-reconciliation"
+    return 0
+}}
+
+registration_fail_registered() {{
+    local W1_REGISTERED_CONTEXT="$1"
+    local W1_REGISTERED_PRIMARY="${{2:-93}}"
+    local W1_REGISTERED_GATE_SETTLED=0
+    W1_IN_SETTLEMENT=1
+    if [ "$W1_CANCEL_STATUS" -ne 0 ]; then
+        W1_REGISTERED_PRIMARY="$W1_CANCEL_STATUS"
+    fi
+    registration_close_release
+    registration_close_terminal_parent_writer
+    if [ "$W1_STATUS_CLOSED" -eq 0 ] \
+            && [[ "$W1_GATE_READ_FD" =~ ^[0-9]+$ ]] \
+            && [ "${{W1_TERMINAL_EOF:-0}}" -ne 1 ]; then
+        registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+        registration_read_terminal || :
+    fi
+    registration_reconcile_known_id || :
+    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    if [ "${{W1_TERMINAL_EOF:-0}}" -eq 1 ] \
+            && [ "${{W1_TERMINAL_RELAY_OK:-0}}" -eq 1 ] \
+            && registration_checked_gate_wait ANY; then
+        W1_REGISTERED_GATE_SETTLED=1
+    fi
+    if [ "$W1_CANCEL_STATUS" -ne 0 ]; then
+        W1_REGISTERED_PRIMARY="$W1_CANCEL_STATUS"
+    fi
+    echo "REGISTERED-FAILURE context=$W1_REGISTERED_CONTEXT primary=$W1_REGISTERED_PRIMARY primary_cancel=${{W1_CANCEL_STATUS:-0}} release_writes=${{W1_RELEASE_WRITE_COUNT:-0}} id=${{W1_JOB_ID:-UNAVAILABLE}} reconcile=$W1_RECONCILE_STATUS gate_settled=$W1_REGISTERED_GATE_SETTLED relay_wait=${{W1_RELAY_WAIT_STATUS:-UNKNOWN}} clock=$W1_CLOCK_STATE receipt=${{PYTEST_ORIGINAL_RECEIPT:-UNAVAILABLE}}" \
+        >> "$RUNDIR/jobid.err"
+    if [[ "$W1_REGISTERED_PRIMARY" =~ ^(129|130|143)$ ]] \
+            && [[ "$W1_RECONCILE_STATUS" =~ ^[0-9]+$ ]] \
+            && [ "$W1_RECONCILE_STATUS" -eq 0 ] \
+            && [ "$W1_REGISTERED_GATE_SETTLED" -eq 1 ]; then
+        registration_finish "$W1_REGISTERED_PRIMARY"
+    fi
+    registration_finish 93
+}}
+
+registration_settle_cancel() {{
+    local W1_CANCEL_CONTEXT="$1"
+    local W1_CANCEL_WAIT=0
+    W1_IN_SETTLEMENT=1
+    if [ -z "${{W1_JOB_ID:-}}" ] && [ -f "$RUNDIR/jobid.raw" ]; then
+        if registration_raw_id_is_exact; then
+            printf '%s\n' "$W1_JOB_ID" > "$RUNDIR/jobid"
+        elif [ -s "$RUNDIR/jobid.raw" ]; then
+            registration_copy_raw_jobid
+        fi
+    fi
+    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_close_release
+    registration_close_terminal_parent_writer
+    registration_handover_terminal_reader
+    if [ "${{W1_TERMINAL_EOF:-0}}" -ne 1 ]; then
+        registration_read_terminal || :
+    fi
+    if [ "$W1_RELAY_ACQUIRED" -eq 1 ] \
+            && [ "$W1_RELAY_WAIT_ATTEMPTED" -eq 0 ]; then
+        registration_checked_terminal_relay_wait || :
+    fi
+    if [ "$W1_TERMINAL_EOF" -eq 1 ] \
+            && [ "$W1_TERMINAL_RELAY_OK" -eq 1 ] \
+            && registration_checked_gate_wait ANY; then
+        W1_CANCEL_WAIT=1
+    fi
+    echo "REGISTER-CANCELLED status=$W1_CANCEL_STATUS primary_cancel=$W1_CANCEL_STATUS context=$W1_CANCEL_CONTEXT frame=$W1_FRAME frame_hex=$W1_FRAME_HEX eof=$W1_TERMINAL_EOF wait=${{W1_GATE_WAIT_STATUS:-UNKNOWN}} group=${{W1_GATE_GROUP_STATUS:-UNKNOWN}} clock=$W1_CLOCK_STATE id=${{W1_JOB_ID:-UNAVAILABLE}} receipt=${{PYTEST_ORIGINAL_RECEIPT:-UNAVAILABLE}}" \
+        >> "$RUNDIR/jobid.err"
+    if [ -n "${{W1_JOB_ID:-}}" ]; then
+        registration_fail_registered "cancel-$W1_CANCEL_CONTEXT" \
+            "$W1_CANCEL_STATUS"
+    fi
+    if [ "$W1_CANCEL_WAIT" -eq 1 ]; then
+        registration_finish "$W1_CANCEL_STATUS"
+    fi
+    registration_finish 92
+}}
+
+registration_cancel_checkpoint() {{
+    [ "$BASHPID" = "$$" ] || return 1
+    [ "$W1_CANCEL_STATUS" -eq 0 ] && return 0
+    [ "$W1_IN_SETTLEMENT" -eq 1 ] && return 0
+    [ "$W1_OWNER_SETTLING" -gt 0 ] && return 0
+    registration_settle_cancel "$1"
+}}
+
+registration_settle_setup() {{
+    local W1_SETUP_CONTEXT="$1" W1_SETUP_GATE_ACCEPTED=0
+    local W1_SETUP_RELAY_ACCEPTED=0
+    W1_IN_SETTLEMENT=1
+    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_close_release
+    registration_close_terminal_parent_writer
+    registration_handover_terminal_reader
+    if [[ "$W1_GATE_READ_FD" =~ ^[0-9]+$ ]]; then
+        registration_read_terminal || :
+    else
+        registration_close_status
+    fi
+    if [ "$W1_RELAY_WAIT_ATTEMPTED" -eq 0 ]; then
+        registration_checked_terminal_relay_wait || :
+    fi
+    registration_checked_gate_wait ANY || :
+    registration_close_status
+    [ "$W1_RELAY_ACQUIRED" -eq 1 ] \
+        && [ "$W1_RELAY_SETTLED_OK" -eq 1 ] \
+        && W1_SETUP_RELAY_ACCEPTED=1
+    [ "$W1_GATE_ACQUIRED" -eq 1 ] \
+        && [ "$W1_GATE_SETTLED_OK" -eq 1 ] \
+        && W1_SETUP_GATE_ACCEPTED=1
+    echo "SETUP-OWNER role=gate accepted=$W1_SETUP_GATE_ACCEPTED pid=${{PYTEST_GATE_PID:-MISSING}} wait=${{W1_GATE_WAIT_STATUS:-UNKNOWN}} descendants=${{W1_GATE_GROUP_STATUS:-UNKNOWN}} context=$W1_SETUP_CONTEXT" \
+        >> "$RUNDIR/jobid.err"
+    echo "SETUP-OWNER role=relay accepted=$W1_SETUP_RELAY_ACCEPTED pid=${{W1_TERMINAL_RELAY_PID:-MISSING}} wait=${{W1_RELAY_WAIT_STATUS:-UNKNOWN}} descendants=${{W1_RELAY_GROUP_STATUS:-UNKNOWN}} context=$W1_SETUP_CONTEXT" \
+        >> "$RUNDIR/jobid.err"
+    if [ "$W1_CANCEL_STATUS" -ne 0 ]; then
+        W1_IN_SETTLEMENT=0
+        registration_settle_cancel "setup-$W1_SETUP_CONTEXT"
+    fi
+    if [ "$W1_SETUP_GATE_ACCEPTED" -eq 1 ] \
+            && [ "$W1_SETUP_RELAY_ACCEPTED" -eq 1 ]; then
+        registration_finish 94
+    fi
+    registration_finish 92
+}}
+
+registration_on_exit() {{
+    local W1_EXIT_PRIMARY="$1" W1_EXIT_RESTORED=1
+    [ "${{W1_FINISHING:-0}}" -eq 0 ] || return 0
+    [ "${{W1_EXIT_GUARD_ACTIVE:-0}}" -eq 0 ] || return 0
+    W1_EXIT_GUARD_ACTIVE=1
+    W1_FINISHING=1
+    trap - EXIT INT TERM HUP
+    W1_IN_SETTLEMENT=1
+    registration_close_release
+    registration_close_terminal_parent_writer
+    if [ "${{W1_LIFECYCLE_INITIALIZED:-0}}" -eq 1 ]; then
+        registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+        if [[ "${{W1_ACTIVE_OWNER_PID:-}}" =~ ^[0-9]+$ ]]; then
+            W1_SPAWN_PID="$W1_ACTIVE_OWNER_PID"
+            W1_SPAWN_PARENT_PID="$$"
+            registration_promote_spawn_group_receipt || :
+            registration_owner_stop "$W1_ACTIVE_OWNER_PID" \
+                "${{W1_ACTIVE_OWNER_GROUP_READY:-0}}" || W1_EXIT_RESTORED=0
+            registration_owner_collect \
+                "${{W1_ACTIVE_OWNER_ROLE:-exit-active-owner}}" \
+                "$W1_ACTIVE_OWNER_PID" \
+                "${{W1_ACTIVE_OWNER_GROUP_READY:-0}}" \
+                "${{W1_OWNER_STOP_DISPOSITION:-EXIT-STOP}}" \
+                || W1_EXIT_RESTORED=0
+        fi
+        if [ "${{W1_RELAY_ACQUIRED:-0}}" -eq 1 ] \
+                && [ "${{W1_RELAY_SETTLED_OK:-0}}" -ne 1 ]; then
+            registration_checked_terminal_relay_wait || W1_EXIT_RESTORED=0
+        fi
+        if [ "${{W1_GATE_ACQUIRED:-0}}" -eq 1 ] \
+                && [ "${{W1_GATE_SETTLED_OK:-0}}" -ne 1 ]; then
+            registration_checked_gate_wait ANY || W1_EXIT_RESTORED=0
+        fi
+    else
+        W1_EXIT_RESTORED=0
+    fi
+    registration_close_status
+    echo "EXIT-GUARD primary=$W1_EXIT_PRIMARY restored=$W1_EXIT_RESTORED active_role=${{W1_ACTIVE_OWNER_ROLE:-NONE}} active_pid=${{W1_ACTIVE_OWNER_PID:-NONE}} gate_acquired=${{W1_GATE_ACQUIRED:-0}} gate_settled=${{W1_GATE_SETTLED_OK:-0}} relay_acquired=${{W1_RELAY_ACQUIRED:-0}} relay_settled=${{W1_RELAY_SETTLED_OK:-0}} primary_cancel=${{W1_CANCEL_STATUS:-0}}" \
+        >> "$RUNDIR/jobid.err"
+    if [ ! -s "$RUNDIR/exitcode" ]; then
+        echo 92 > "$RUNDIR/exitcode"
+    fi
+}}
+trap 'registration_on_exit $?' EXIT
+
+if ! registration_initialize_lifecycle_deadline; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=clock clock=$W1_CLOCK_STATE" \
+        > "$RUNDIR/jobid.err"
+    registration_finish 92
+fi
+
+# `set -m` is load-bearing: backgrounded work must not inherit SIGINT ignored.
+# The guards above are installed before this first acquisition.
+W1_GATE_GROUP_READY_AT_ACQUIRE=0
+W1_RELAY_GROUP_READY_AT_ACQUIRE=0
+W1_GATE_RECEIPT_AT_ACQUIRE=UNKNOWN
+W1_RELAY_RECEIPT_AT_ACQUIRE=UNKNOWN
 set -m
-{cmd} > "$RUNDIR/pytest.log" 2>&1 &
-PYTEST_PID=$!
+coproc W1_TERMINAL_RELAY {{
+    exec python3 -c {registration_terminal_relay} "$$"
+}}
+W1_TERMINAL_RELAY_PID=${{W1_TERMINAL_RELAY_PID:-}}
+W1_RELAY_READ_FD=${{W1_TERMINAL_RELAY[0]:-}}
+W1_RELAY_WRITE_FD=${{W1_TERMINAL_RELAY[1]:-}}
+if [[ "$W1_RELAY_READ_FD" =~ ^[0-9]+$ ]]; then
+    exec {{W1_TERMINAL_READ_FD}}<&"$W1_RELAY_READ_FD" \
+        || W1_TERMINAL_READ_FD=""
+    eval "exec $W1_RELAY_READ_FD<&-"
+fi
+if [[ "$W1_RELAY_WRITE_FD" =~ ^[0-9]+$ ]]; then
+    exec {{W1_TERMINAL_PARENT_WRITE_FD}}>&"$W1_RELAY_WRITE_FD" \
+        || W1_TERMINAL_PARENT_WRITE_FD=""
+    eval "exec $W1_RELAY_WRITE_FD>&-"
+fi
+if [[ "$W1_TERMINAL_RELAY_PID" =~ ^[0-9]+$ ]]; then
+    W1_RELAY_ACQUIRED=1
+    if registration_child_group_is_leader "$W1_TERMINAL_RELAY_PID"; then
+        W1_RELAY_GROUP_READY_AT_ACQUIRE="$W1_CHILD_GROUP_READY"
+        W1_RELAY_RECEIPT_AT_ACQUIRE="$W1_CHILD_RECEIPT"
+    fi
+fi
 set +m
+registration_cancel_checkpoint "after-relay-acquire"
+
+W1_TERMINAL_WRITER_PATH="/proc/$$/fd/$W1_TERMINAL_PARENT_WRITE_FD"
+set -m
+coproc W1_REGISTRATION_GATE {{
+    exec python3 -c {registration_bootstrap} \
+        "$W1_TERMINAL_WRITER_PATH" {registration_gate} {workload_shim}
+}} 2> "$RUNDIR/registration-gate.err"
+PYTEST_GATE_PID=${{W1_REGISTRATION_GATE_PID:-}}
+W1_COPROC_READ_FD=${{W1_REGISTRATION_GATE[0]:-}}
+W1_COPROC_WRITE_FD=${{W1_REGISTRATION_GATE[1]:-}}
+if [[ "$W1_COPROC_READ_FD" =~ ^[0-9]+$ ]]; then
+    exec {{W1_GATE_READ_FD}}<&"$W1_COPROC_READ_FD" || W1_GATE_READ_FD=""
+    eval "exec $W1_COPROC_READ_FD<&-"
+fi
+if [[ "$W1_COPROC_WRITE_FD" =~ ^[0-9]+$ ]]; then
+    exec {{W1_GATE_WRITE_FD}}>&"$W1_COPROC_WRITE_FD" || W1_GATE_WRITE_FD=""
+    eval "exec $W1_COPROC_WRITE_FD>&-"
+fi
+PYTEST_PID=$PYTEST_GATE_PID
+if [[ "$PYTEST_GATE_PID" =~ ^[0-9]+$ ]]; then
+    W1_GATE_ACQUIRED=1
+    if registration_child_group_is_leader "$PYTEST_GATE_PID"; then
+        W1_GATE_GROUP_READY_AT_ACQUIRE="$W1_CHILD_GROUP_READY"
+        W1_GATE_RECEIPT_AT_ACQUIRE="$W1_CHILD_RECEIPT"
+    fi
+fi
+set +m
+registration_cancel_checkpoint "after-gate-acquire"
+
+W1_GATE_GROUP_READY_AT_ACQUIRE=0
+W1_RELAY_GROUP_READY_AT_ACQUIRE=0
+if registration_child_group_is_leader "$PYTEST_GATE_PID" \
+        && registration_receipt_same_process \
+            "$W1_GATE_RECEIPT_AT_ACQUIRE" "$W1_CHILD_RECEIPT"; then
+    W1_GATE_GROUP_READY_AT_ACQUIRE="$W1_CHILD_GROUP_READY"
+    W1_OWNER_RECEIPT_BY_PID[$PYTEST_GATE_PID]="$W1_GATE_RECEIPT_AT_ACQUIRE"
+    W1_OWNER_FDS_BY_PID[$PYTEST_GATE_PID]=UNKNOWN
+fi
+if registration_child_group_is_leader "$W1_TERMINAL_RELAY_PID" \
+        && registration_receipt_same_process \
+            "$W1_RELAY_RECEIPT_AT_ACQUIRE" "$W1_CHILD_RECEIPT"; then
+    W1_RELAY_GROUP_READY_AT_ACQUIRE="$W1_CHILD_GROUP_READY"
+    W1_OWNER_RECEIPT_BY_PID[$W1_TERMINAL_RELAY_PID]="$W1_RELAY_RECEIPT_AT_ACQUIRE"
+    W1_OWNER_FDS_BY_PID[$W1_TERMINAL_RELAY_PID]=UNKNOWN
+fi
+
+if [[ ! "$PYTEST_GATE_PID" =~ ^[0-9]+$ \
+        || ! "$W1_TERMINAL_RELAY_PID" =~ ^[0-9]+$ ]]; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=coproc" > "$RUNDIR/jobid.err"
+    registration_settle_setup "coproc-pid"
+fi
 echo "$PYTEST_PID" > "$RUNDIR/pytest.pid"
+PYTEST_ORIGINAL_RECEIPT=""
+PYTEST_PGID="$PYTEST_GATE_PID"
+if [[ ! "$W1_GATE_READ_FD" =~ ^[0-9]+$ \
+        || ! "$W1_GATE_WRITE_FD" =~ ^[0-9]+$ \
+        || ! "$W1_TERMINAL_READ_FD" =~ ^[0-9]+$ \
+        || ! "$W1_TERMINAL_PARENT_WRITE_FD" =~ ^[0-9]+$ ]]; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=coproc-partial pid=$PYTEST_GATE_PID read=${{W1_GATE_READ_FD:-MISSING}} write=${{W1_GATE_WRITE_FD:-MISSING}} terminal_read=${{W1_TERMINAL_READ_FD:-MISSING}} terminal_parent_write=${{W1_TERMINAL_PARENT_WRITE_FD:-MISSING}}" \
+        > "$RUNDIR/jobid.err"
+    PYTEST_ORIGINAL_RECEIPT=""
+    registration_settle_setup "coproc-fd"
+fi
+registration_cancel_checkpoint "owner-setup"
 
-python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs" register \
-    --pid "$PYTEST_PID" --purpose {purpose} --origin {origin} --cmd {cmdq} \
-    > "$RUNDIR/jobid" 2>"$RUNDIR/jobid.err" || echo "REGISTER-FAILED" > "$RUNDIR/jobid"
+# READY is admission, not decoration: one exact frame and one live direct-child
+# group-leader receipt precede register. Later protocol is read through EOF under
+# one monotonic deadline; no scheduler-sized "quiet" sleep grants authority.
+registration_read_frame "$W1_READY_SECONDS"
+W1_READY_FRAME="$W1_FRAME"
+W1_READY_FRAME_HEX="$W1_FRAME_HEX"
+W1_READY_CHANNEL_STATE="$W1_CHANNEL_STATE"
+W1_READY_BYTE_LINE="$W1_FRAME_BYTE_LINE"
+registration_close_terminal_parent_writer
+registration_cancel_checkpoint "ready-read"
+W1_READY_OK=0
+if [ "$W1_READY_CHANNEL_STATE" = EOF ] \
+        && [ "$W1_FRAME_CLASS" = READY ]; then
+    W1_READY_OK=1
+fi
+registration_handover_terminal_reader
+if [ "$W1_READY_OK" -eq 0 ]; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=ready state=$W1_READY_CHANNEL_STATE frame=$W1_READY_FRAME frame_hex=$W1_READY_FRAME_HEX clock=$W1_CLOCK_STATE" \
+        > "$RUNDIR/jobid.err"
+    registration_settle_abort 94 92 "ready-refused"
+fi
+echo "READY state=$W1_READY_CHANNEL_STATE frame=$W1_READY_FRAME frame_hex=$W1_READY_FRAME_HEX" \
+    > "$RUNDIR/registration-gate.protocol"
+if ! registration_authority_fd_observation gate "$PYTEST_GATE_PID" "0,2,3" \
+        || ! registration_authority_fd_observation relay \
+            "$W1_TERMINAL_RELAY_PID" "0,1,2"; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=authority-fds" \
+        >> "$RUNDIR/jobid.err"
+    registration_settle_abort 92 92 "authority-fds-unknown"
+fi
+registration_cancel_checkpoint "authority-fds"
 
-wait "$PYTEST_PID"
-rc=$?
-date +%s > "$RUNDIR/epoch_end"
-cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
-git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
-echo "$rc" > "$RUNDIR/exitcode"
+registration_begin_gate_deadline "$W1_GATE_SECONDS" || :
+W1_PROCESS_OBSERVATION=UNKNOWN
+registration_process_observation 2>/dev/null || :
+PYTEST_INITIAL_OBSERVATION="$W1_PROCESS_OBSERVATION"
+registration_cancel_checkpoint "initial-observation"
+PYTEST_ORIGINAL_RECEIPT=""
+PYTEST_SIGNAL_RECEIPT=""
+PYTEST_INITIAL_GROUP=UNKNOWN
+W1_INITIAL_DECISION="initial-observation-unavailable"
+if [[ "$PYTEST_INITIAL_OBSERVATION" == OBSERVED\|*\|* ]]; then
+    W1_INITIAL_PAYLOAD="${{PYTEST_INITIAL_OBSERVATION#OBSERVED|}}"
+    W1_INITIAL_RECEIPT="${{W1_INITIAL_PAYLOAD%|*}}"
+    W1_INITIAL_STATE="${{W1_INITIAL_PAYLOAD##*|}}"
+    IFS=: read -r W1_INITIAL_PID W1_INITIAL_PPID W1_INITIAL_PGID \
+        W1_INITIAL_START W1_INITIAL_EXTRA <<< "$W1_INITIAL_RECEIPT"
+    if [ "$W1_INITIAL_PID" = "$PYTEST_PID" ] \
+            && [ "$W1_INITIAL_PPID" = "$$" ] \
+            && [ "$W1_INITIAL_PGID" = "$PYTEST_PID" ] \
+            && [ "$W1_INITIAL_PGID" != "$$" ] \
+            && [[ "$W1_INITIAL_STATE" != Z && "$W1_INITIAL_STATE" != X ]] \
+            && [[ "$W1_INITIAL_START" =~ ^[0-9]+$ ]] \
+            && [ -z "$W1_INITIAL_EXTRA" ]; then
+        PYTEST_ORIGINAL_RECEIPT="$W1_INITIAL_RECEIPT"
+        PYTEST_PGID="$W1_INITIAL_PGID"
+        W1_INITIAL_DECISION="trusted-direct-child-gate"
+    elif [ "$W1_INITIAL_PPID" != "$$" ]; then
+        W1_INITIAL_DECISION="initial-not-direct-child"
+    elif [ "$W1_INITIAL_PGID" != "$PYTEST_PID" ]; then
+        W1_INITIAL_DECISION="initial-not-group-leader"
+    else
+        W1_INITIAL_DECISION="initial-receipt-refused"
+    fi
+fi
+if [ -n "$PYTEST_ORIGINAL_RECEIPT" ]; then
+    W1_GROUP_OBSERVATION=UNKNOWN
+    registration_group_observation 2>/dev/null || :
+    PYTEST_INITIAL_GROUP="$W1_GROUP_OBSERVATION"
+    registration_cancel_checkpoint "initial-group-observation"
+    if [[ "$PYTEST_INITIAL_GROUP" != "PRESENT|$PYTEST_ORIGINAL_RECEIPT:"? ]]; then
+        PYTEST_ORIGINAL_RECEIPT=""
+        W1_INITIAL_DECISION="initial-group-not-sole"
+    fi
+fi
+if [ -n "$PYTEST_ORIGINAL_RECEIPT" ]; then
+    if registration_process_receipt "$PYTEST_PID"; then
+        IFS=: read -r W1_SIGNAL_PID W1_SIGNAL_PPID W1_SIGNAL_PGID \
+            W1_SIGNAL_SID W1_SIGNAL_START W1_SIGNAL_EXTRA \
+            <<< "$W1_PROCESS_RECEIPT"
+        if [ "$W1_SIGNAL_PID:$W1_SIGNAL_PPID:$W1_SIGNAL_PGID:$W1_SIGNAL_START" \
+                = "$W1_INITIAL_PID:$W1_INITIAL_PPID:$W1_INITIAL_PGID:$W1_INITIAL_START" ] \
+                && [[ "$W1_SIGNAL_SID" =~ ^[0-9]+$ ]] \
+                && [ -z "$W1_SIGNAL_EXTRA" ] \
+                && [[ "$W1_PROCESS_STATE" != Z && "$W1_PROCESS_STATE" != X ]]; then
+            PYTEST_SIGNAL_RECEIPT="$W1_PROCESS_RECEIPT"
+        else
+            PYTEST_ORIGINAL_RECEIPT=""
+            W1_INITIAL_DECISION="initial-full-receipt-mismatch"
+        fi
+    else
+        PYTEST_ORIGINAL_RECEIPT=""
+        W1_INITIAL_DECISION="initial-full-receipt-unavailable"
+    fi
+fi
+if [ -z "$PYTEST_ORIGINAL_RECEIPT" ]; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=receipt decision=$W1_INITIAL_DECISION observed=$PYTEST_INITIAL_OBSERVATION group=$PYTEST_INITIAL_GROUP" \
+        > "$RUNDIR/jobid.err"
+    registration_settle_abort 92 92 "$W1_INITIAL_DECISION"
+fi
+printf '%s\n' "$PYTEST_SIGNAL_RECEIPT" > "$RUNDIR/gate.receipt.tmp"
+mv "$RUNDIR/gate.receipt.tmp" "$RUNDIR/gate.receipt"
+
+if ! registration_observation_matches_original; then
+    echo "REGISTER-GATE-SETUP-FAILED phase=pre-register receipt=$PYTEST_ORIGINAL_RECEIPT current=${{W1_CURRENT_OBSERVATION:-UNKNOWN}}" \
+        > "$RUNDIR/jobid.err"
+    registration_settle_abort 92 92 "pre-register-identity-refused"
+fi
+registration_cancel_checkpoint "pre-register-observation"
+
+# Both anonymous gate endpoints are closed in the registrar child. In
+# particular it cannot retain release authority if this runner is cancelled.
+registration_begin_gate_deadline "$W1_REGISTRAR_SECONDS" || \
+    registration_settle_abort 92 92 "registrar-deadline-unavailable"
+registration_cancel_checkpoint "pre-registrar-spawn"
+W1_REGISTRAR_OWNER_OK=0
+if registration_owner_run registrar "$RUNDIR/jobid.raw" \
+        "$RUNDIR/jobid.err" \
+        python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs" register \
+        --pid "$PYTEST_PID" --purpose {purpose} --origin {origin} --cmd {cmdq}; then
+    W1_REGISTRAR_OWNER_OK=1
+fi
+W1_REGISTRAR_PID="${{W1_SPAWN_PID:-MISSING}}"
+W1_REGISTRAR_WAITED_PID="${{W1_OWNER_WAITED_PID:-MISSING}}"
+W1_REGISTRAR_STATUS="${{W1_OWNER_STATUS:-UNKNOWN}}"
+registration_cancel_checkpoint "registrar-output"
+
+if [ "$W1_REGISTRAR_OWNER_OK" -ne 1 ] \
+        || [ "${{W1_REGISTRAR_WAITED_PID:-}}" != "$W1_REGISTRAR_PID" ] \
+        || [ "$W1_REGISTRAR_STATUS" -eq 124 ] \
+        || [ "$W1_REGISTRAR_STATUS" -eq 137 ]; then
+    registration_copy_raw_jobid
+    echo "REGISTER-DISPOSITION-UNKNOWN registrar_status=$W1_REGISTRAR_STATUS waited=${{W1_REGISTRAR_WAITED_PID:-NONE}} receipt=$PYTEST_ORIGINAL_RECEIPT" \
+        >> "$RUNDIR/jobid.err"
+    registration_settle_abort 92 92 "registrar-disposition-unknown"
+fi
+
+if [ "$W1_REGISTRAR_STATUS" -ne 0 ]; then
+    if [ -s "$RUNDIR/jobid.raw" ]; then
+        registration_copy_raw_jobid
+        if registration_raw_id_is_exact; then
+            printf '%s\n' "$W1_JOB_ID" > "$RUNDIR/jobid"
+        fi
+        registration_fail_registered "registrar-nonzero-with-output"
+    fi
+    echo "REGISTER-FAILED" > "$RUNDIR/jobid"
+    registration_settle_abort 91 92 "registrar-refused"
+fi
+
+if ! registration_raw_id_is_exact; then
+    registration_copy_raw_jobid
+    echo "REGISTER-HANDOFF-FAILED decision=invalid-job-id receipt=$PYTEST_ORIGINAL_RECEIPT" \
+        >> "$RUNDIR/jobid.err"
+    registration_fail_registered "invalid-job-id"
+fi
+printf '%s\n' "$W1_JOB_ID" > "$RUNDIR/jobid"
+registration_cancel_checkpoint "registered-id"
+
+if ! registration_begin_gate_deadline "$W1_GATE_SECONDS"; then
+    echo "REGISTER-HANDOFF-FAILED decision=handoff-deadline-unavailable id=$W1_JOB_ID receipt=$PYTEST_ORIGINAL_RECEIPT clock=$W1_CLOCK_STATE" \
+        >> "$RUNDIR/jobid.err"
+    registration_fail_registered "handoff-deadline-unavailable"
+fi
+if ! registration_observation_matches_original; then
+    echo "REGISTER-HANDOFF-FAILED decision=pre-go-identity-refused id=$W1_JOB_ID receipt=$PYTEST_ORIGINAL_RECEIPT current=${{W1_CURRENT_OBSERVATION:-UNKNOWN}}" \
+        >> "$RUNDIR/jobid.err"
+    registration_fail_registered "pre-go-identity-refused"
+fi
+registration_cancel_checkpoint "pre-go-observation"
+
+W1_GATE_RELEASE_TOKEN="GO v1"
+W1_RELEASE_WRITE_COUNT=1
+W1_RELEASE_SIGPIPE=0
+registration_cancel_checkpoint "pre-release"
+# A real pipe peer can disappear after the last identity observation and before
+# this builtin write.  Bash's default SIGPIPE action would terminate the runner
+# before it can interpret the terminal channel or reconcile the registered id.
+# Use a caught (not ignored) disposition only for this syscall: caught signals
+# reset to default across exec, so the eventual workload does not inherit a
+# changed SIGPIPE contract.  The write result remains diagnostic; the distinct
+# terminal channel is delivery authority.
+trap 'W1_RELEASE_SIGPIPE=1' PIPE
+printf '%s\n' "$W1_GATE_RELEASE_TOKEN" >&"$W1_GATE_WRITE_FD"
+W1_RELEASE_WRITE_STATUS=$?
+trap - PIPE
+registration_close_release
+registration_cancel_checkpoint "post-release-write"
+registration_read_terminal
+W1_HANDOFF_FRAME="$W1_FRAME"
+W1_HANDOFF_FRAME_RC="$W1_FRAME_RC"
+W1_HANDOFF_FRAME_HEX="$W1_FRAME_HEX"
+echo "REGISTER-HANDOFF write_status=$W1_RELEASE_WRITE_STATUS writes=$W1_RELEASE_WRITE_COUNT sigpipe=$W1_RELEASE_SIGPIPE frame_rc=$W1_HANDOFF_FRAME_RC frame=$W1_HANDOFF_FRAME frame_hex=$W1_HANDOFF_FRAME_HEX eof=$W1_TERMINAL_EOF clock=$W1_CLOCK_STATE id=$W1_JOB_ID receipt=$PYTEST_ORIGINAL_RECEIPT" \
+    >> "$RUNDIR/jobid.err"
+echo "HANDOFF write_status=$W1_RELEASE_WRITE_STATUS writes=$W1_RELEASE_WRITE_COUNT sigpipe=$W1_RELEASE_SIGPIPE frame_rc=$W1_HANDOFF_FRAME_RC frame=$W1_HANDOFF_FRAME frame_hex=$W1_HANDOFF_FRAME_HEX eof=$W1_TERMINAL_EOF clock=$W1_CLOCK_STATE" \
+    >> "$RUNDIR/registration-gate.protocol"
+registration_cancel_checkpoint "terminal-read"
+
+case "$W1_TERMINAL_CLASS" in
+    EXEC_OK)
+        if [ "$W1_HANDOFF_FRAME_RC" -ne 0 ] \
+                || [ "$W1_FRAME_BYTE_LINE" -ne 1 ] \
+                || [ "$W1_TERMINAL_EOF" -ne 1 ] \
+                || [ "$W1_TERMINAL_RELAY_OK" -ne 1 ] \
+                || [ "$W1_TRAILING_FRAME_COUNT" -ne 0 ]; then
+            registration_close_status
+            registration_fail_registered "invalid-exec-ok"
+        fi
+        registration_close_status
+        W1_WORKLOAD_WAITED_PID=""
+        : > "$RUNDIR/registration-workload-wait.err"
+        registration_cancel_checkpoint "before-workload-wait"
+        W1_ACTIVE_OWNER_ROLE=workload
+        W1_ACTIVE_OWNER_PID="$PYTEST_GATE_PID"
+        W1_ACTIVE_OWNER_GROUP_READY=0
+        wait -p W1_WORKLOAD_WAITED_PID "$PYTEST_GATE_PID" \
+            2> "$RUNDIR/registration-workload-wait.err"
+        rc=$?
+        W1_ACTIVE_OWNER_ROLE=""
+        W1_ACTIVE_OWNER_PID=""
+        W1_GATE_WAIT_ATTEMPTED=1
+        W1_GATE_WAIT_STATUS="$rc"
+        W1_GATE_GROUP_STATUS=NOT-APPLICABLE
+        W1_GATE_SETTLED_OK=0
+        if [ "$W1_WORKLOAD_WAITED_PID" = "$PYTEST_GATE_PID" ] \
+                && [ ! -s "$RUNDIR/registration-workload-wait.err" ]; then
+            W1_GATE_SETTLED_OK=1
+        fi
+        registration_owner_record workload "$PYTEST_GATE_PID" \
+            "${{W1_WORKLOAD_WAITED_PID:-MISSING}}" "$rc" \
+            "$W1_GATE_SETTLED_OK" NOT-APPLICABLE NONE \
+            "$W1_GATE_GROUP_READY_AT_ACQUIRE"
+        registration_cancel_checkpoint "workload-wait"
+        if [ "$W1_WORKLOAD_WAITED_PID" != "$PYTEST_GATE_PID" ] \
+                || [ -s "$RUNDIR/registration-workload-wait.err" ]; then
+            registration_fail_registered "workload-wait-failed"
+        fi
+        date +%s > "$RUNDIR/epoch_end"
+        cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
+        git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
+        echo "$rc" > "$RUNDIR/exitcode"
+        W1_FINISHING=1
+        trap - EXIT
+        ;;
+    EXEC_FAIL)
+        if [ "$W1_HANDOFF_FRAME_RC" -ne 0 ] \
+                || [ "$W1_FRAME_BYTE_LINE" -ne 1 ] \
+                || [ "$W1_TERMINAL_EOF" -ne 1 ] \
+                || [ "$W1_TERMINAL_RELAY_OK" -ne 1 ] \
+                || [ "$W1_TRAILING_FRAME_COUNT" -ne 0 ]; then
+            registration_close_status
+            registration_fail_registered "invalid-exec-fail"
+        fi
+        registration_close_status
+        registration_fail_registered "exec-fail"
+        ;;
+    ABORTED)
+        if [ "$W1_HANDOFF_FRAME_RC" -ne 0 ] \
+                || [ "$W1_FRAME_BYTE_LINE" -ne 1 ] \
+                || [ "$W1_TERMINAL_EOF" -ne 1 ] \
+                || [ "$W1_TERMINAL_RELAY_OK" -ne 1 ] \
+                || [ "$W1_TRAILING_FRAME_COUNT" -ne 0 ]; then
+            registration_close_status
+            registration_fail_registered "invalid-aborted"
+        fi
+        registration_close_status
+        registration_fail_registered "aborted-after-register"
+        ;;
+    *)
+        # EOF, timeout, malformed status, and a withheld record do not prove
+        # delivery. The registered id remains the reconciliation handle.
+        registration_close_status
+        registration_fail_registered "terminal-invalid-or-timeout"
+        ;;
+esac
 """
 
 
+def registration_workload_shim(rundir: str, cmd: str) -> str:
+    """Post-exec acknowledgment followed by the exact existing command."""
+    return (
+        "builtin printf 'EXEC-OK v1\\n' >&3\n"
+        "exec 3>&-\n"
+        "exec > %s 2>&1\n"
+        "exec %s\n" % (shlex.quote("%s/pytest.log" % rundir), cmd)
+    )
+
+
 def launch(addr: str, rundir: str, cmd: str, purpose: str, origin: str) -> dict:
+    run_id = secrets.token_hex(16)
+    workload_shim = registration_workload_shim(rundir, cmd)
     body = RUNNER.format(rundir=shlex.quote(rundir), cmd=cmd,
+                         run_id=shlex.quote(run_id),
                          purpose=shlex.quote(purpose), origin=shlex.quote(origin),
-                         cmdq=shlex.quote(cmd))
+                         cmdq=shlex.quote(cmd),
+                         registration_probe=shlex.quote(
+                             REGISTRATION_PROBE_PROGRAM),
+                         registration_gate=shlex.quote(
+                             REGISTRATION_GATE_PROGRAM),
+                         registration_bootstrap=shlex.quote(
+                             REGISTRATION_GATE_BOOTSTRAP_PROGRAM),
+                         registration_terminal_relay=shlex.quote(
+                             REGISTRATION_TERMINAL_RELAY_PROGRAM),
+                         registration_timeout_owner=shlex.quote(
+                             REGISTRATION_TIMEOUT_OWNER_PROGRAM),
+                         registration_channel_reader=shlex.quote(
+                             REGISTRATION_CHANNEL_READER_PROGRAM),
+                         process_guard=shlex.quote(PROCESS_GUARD_PROGRAM),
+                         workload_shim=shlex.quote(workload_shim))
     script = (
-        "mkdir -p %s && cat > %s/runner.sh <<'BDWEDGEEOF'\n%s\nBDWEDGEEOF\n"
+        "install -d -m 700 %s && cat > %s/runner.sh <<'BDWEDGEEOF'\n%s\nBDWEDGEEOF\n"
+        "BD_WEDGE_EXPECTED_PARENT=1 BD_WEDGE_RUN_ID=%s "
         "setsid nohup bash %s/runner.sh >/dev/null 2>&1 < /dev/null &\n"
-        "echo LAUNCHED=$!\n" % (shlex.quote(rundir), shlex.quote(rundir), body,
-                                shlex.quote(rundir))
+        "echo LAUNCHED=$! RUN_ID=%s\n" % (
+            shlex.quote(rundir), shlex.quote(rundir), body,
+            shlex.quote(run_id), shlex.quote(rundir), shlex.quote(run_id))
     )
     r = ssh(addr, script, timeout=90)
-    return {"rc": r.returncode, "out": r.stdout.strip(), "err": r.stderr.strip()}
+    return {"rc": r.returncode, "out": r.stdout.strip(),
+            "err": r.stderr.strip(), "run_id": run_id,
+            "runner_receipt": "%s/runner.receipt" % rundir}
 
 
 PROBE = r"""
 RUNDIR="{rundir}"
-P="$(cat "$RUNDIR/pytest.pid" 2>/dev/null || echo 0)"
-EC="$(cat "$RUNDIR/exitcode" 2>/dev/null || echo NONE)"
+RECEIPT_RESULT="$(python3 -c {process_guard} probe \
+    "$RUNDIR/runner.receipt" 2>/dev/null)"
+RECEIPT_RC=$?
+RECEIPT_STATE="${{RECEIPT_RESULT%% *}}"
+RECEIPT_TOKEN="${{RECEIPT_RESULT#*receipt=}}"
+RECEIPT_TOKEN="${{RECEIPT_TOKEN%% *}}"
+RUNNER_PID="${{RECEIPT_TOKEN%%:*}}"
+[[ "$RUNNER_PID" =~ ^[0-9]+$ ]] || RUNNER_PID=0
+GATE_RECEIPT="$(cat "$RUNDIR/gate.receipt" 2>/dev/null || echo UNKNOWN)"
+[[ "$GATE_RECEIPT" =~ ^[0-9]+(:[0-9]+){{4}}$ ]] || GATE_RECEIPT=UNKNOWN
+if [ -e "$RUNDIR/exitcode" ]; then
+    EC="$(cat "$RUNDIR/exitcode" 2>/dev/null)"
+    [[ "$EC" =~ ^[0-9]+$ ]] || EC=INVALID
+else
+    EC=NONE
+fi
 SZ="$(stat -c %s "$RUNDIR/pytest.log" 2>/dev/null || echo -1)"
 MT="$(stat -c %Y "$RUNDIR/pytest.log" 2>/dev/null || echo -1)"
-if [ "$P" != "0" ] && kill -0 "$P" 2>/dev/null; then A=alive; else A=dead; fi
-echo "pid=$P exit=$EC size=$SZ mtime=$MT alive=$A epoch=$(date +%s)"
+P="$RUNNER_PID"
+if [ "$GATE_RECEIPT" != UNKNOWN ]; then
+    GATE_RESULT="$(python3 -c {process_guard} token "$GATE_RECEIPT" 2>/dev/null)"
+    GATE_RC=$?
+    GATE_STATE="${{GATE_RESULT%% *}}"
+    P="${{GATE_RECEIPT%%:*}}"
+    case "$GATE_STATE:$GATE_RC" in
+        TOKEN-MATCH:0) A=alive ;;
+        TOKEN-ABSENT:0) A=dead ;;
+        *) A=unknown ;;
+    esac
+else
+    case "$RECEIPT_STATE:$RECEIPT_RC" in
+        RECEIPT-MATCH:0) A=alive ;;
+        RECEIPT-ABSENT:0) A=dead ;;
+        *) A=unknown ;;
+    esac
+fi
+echo "pid=$P runner_receipt=$RECEIPT_TOKEN gate_receipt=$GATE_RECEIPT receipt_state=$RECEIPT_STATE exit=$EC size=$SZ mtime=$MT alive=$A epoch=$(date +%s)"
 """
 
 
 def probe(addr: str, rundir: str) -> dict:
-    r = ssh(addr, PROBE.format(rundir=shlex.quote(rundir)), timeout=60)
+    r = ssh(addr, PROBE.format(
+        rundir=shlex.quote(rundir),
+        process_guard=shlex.quote(PROCESS_GUARD_PROGRAM)), timeout=60)
     if r.returncode != 0:
         return {"ok": False, "err": r.stderr.strip() or "rc=%d" % r.returncode}
     out = {"ok": True}
@@ -754,6 +3342,35 @@ def fetch(addr: str, remote: str, local: pathlib.Path) -> bool:
 # ---------------------------------------------------------------------------
 # one sample, end to end
 # ---------------------------------------------------------------------------
+RUNNER_REGISTRATION_OUTCOMES = {
+    "91": ("REGISTRATION_REFUSED", "registry transaction definitely refused"),
+    "92": ("REGISTRATION_UNKNOWN", "registry or owner settlement is unknown"),
+    "93": ("REGISTERED_FAILURE", "registered workload handoff failed and reconciled"),
+    "94": ("REGISTRATION_SETUP_FAILURE", "registration setup owners settled unsuccessfully"),
+}
+
+
+def record_runner_exit(row: dict, raw_status: str, rundir: str) -> None:
+    """Classify registration lifecycle statuses before COMPLETED can default."""
+    row["pytest_exit"] = raw_status
+    outcome = RUNNER_REGISTRATION_OUTCOMES.get(raw_status)
+    if outcome is None:
+        return
+    state, why = outcome
+    row.update({
+        "state": state,
+        "why": why,
+        "registration_artifacts": {
+            "jobid": "%s/jobid" % rundir,
+            "error": "%s/jobid.err" % rundir,
+            "owners": "%s/registration-owners.log" % rundir,
+            "runner_receipt": "%s/runner.receipt" % rundir,
+            "gate_receipt": "%s/gate.receipt" % rundir,
+            "authority_fds": "%s/registration-authority-fds.log" % rundir,
+        },
+    })
+
+
 def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
     name, extra, is_section5, arm_env, note = arm
     runid = "%s-%s-%03d-%s" % (label, name, idx,
@@ -813,9 +3430,23 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
            "rundir": rundir}
 
     lr = launch(addr, rundir, cmd, "row102-wedge-hunt-%s" % name, "test5:bd-wedge-hunt")
+    # These identities are predicted before the remote fork.  Preserve them
+    # before interpreting the transport response: ssh can lose its reply after
+    # the child starts, and that schedule still owns a cleanup obligation.
+    runner_receipt_path = lr["runner_receipt"]
+    row["runner_receipt"] = runner_receipt_path
+    row["run_nonce"] = lr["run_id"]
     if lr["rc"] != 0 or "LAUNCHED=" not in lr["out"]:
-        row.update({"state": "REFUSED", "why": "launch failed: %s / %s"
-                    % (lr["out"][:200], lr["err"][:300]), "when_end": now()})
+        settlement = settle_ambiguous_launch(
+            addr, runner_receipt_path, lr["run_id"])
+        row.update({
+            "state": "UNKNOWN",
+            "why": "launch result ambiguous: %s / %s" %
+                    (lr["out"][:200], lr["err"][:300]),
+            "reap": settlement["verdict"],
+            "launch_settlement": settlement,
+            "when_end": now(),
+        })
         return row
 
     say("%s %s: launched (%s)" % (label, name, runid))
@@ -841,14 +3472,38 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
                 # the first one tells a later reader where to go looking.
                 row.update({"state": "UNKNOWN",
                             "why": "the target stopped answering probes",
-                            "reap": reap(addr, p.get("pid", "0"),
+                            "reap": reap(addr, runner_receipt_path,
                                          "probe blackout"),
                             "when_end": now()})
                 return row
             continue
 
+        if p.get("exit") == "INVALID":
+            row.update({
+                "state": "REGISTRATION_UNKNOWN",
+                "why": "runner completion record was empty or malformed",
+                "outer_reap": reap(
+                    addr, runner_receipt_path,
+                    "malformed runner completion record"),
+            })
+            break
+
         if p.get("exit", "NONE") != "NONE":
-            row["pytest_exit"] = p["exit"]
+            record_runner_exit(row, p["exit"], rundir)
+            if p["exit"] in RUNNER_REGISTRATION_OUTCOMES:
+                row["outer_reap"] = reap(
+                    addr, runner_receipt_path,
+                    "registration outcome %s" % p["exit"])
+                if row["outer_reap"] != "REAP-OK":
+                    row["inner_registration_state"] = row["state"]
+                    row["state"] = (
+                        "REGISTRATION_RETAINED"
+                        if row["outer_reap"] == "REAP-SURVIVED"
+                        else "REGISTRATION_UNKNOWN")
+                    row["why"] = (
+                        "registration outcome %s had unproved outer process "
+                        "restoration: %s" %
+                        (p["exit"], row["outer_reap"]))
             break
 
         size = int(p.get("size", -1))
@@ -887,13 +3542,22 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
                 # flush; only then is SIGKILL used, and the log is re-fetched
                 # afterwards so the flushed tail is captured.
                 pid = p.get("pid", "0")
-                ssh(addr, "kill -INT %s 2>/dev/null; echo INT-sent" % pid,
-                    timeout=60)
+                gate_receipt = p.get("gate_receipt", "UNKNOWN")
+                try:
+                    interrupt_command = signal_receipt_cmd(gate_receipt, "INT")
+                except ValueError:
+                    row["interrupt"] = "SIGNAL-UNKNOWN-NORECEIPT"
+                else:
+                    interrupted = ssh(addr, interrupt_command, timeout=60)
+                    row["interrupt"] = (
+                        (interrupted.stdout or "").strip()
+                        or "SIGNAL-UNKNOWN-TRANSPORT")
                 time.sleep(cfg.sigint_grace)
                 fout2 = "%s/forensics-after-sigint" % rundir
                 forensics(addr, pid, rundir, fout2)
                 forensic_tags.append("after-sigint")
-                row["reap"] = reap(addr, pid, "wedge confirmed")
+                row["reap"] = reap(addr, runner_receipt_path,
+                                   "wedge confirmed")
                 break
 
         if time.time() - started > cfg.cap:
@@ -905,7 +3569,7 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
             # Was a pid-only kill while the wedge branch four lines above killed
             # the GROUP -- same job, two spellings, and this one left up to 48
             # workers behind. Backlog 146.
-            row["reap"] = reap(addr, p.get("pid", "0"), "whole-run cap")
+            row["reap"] = reap(addr, runner_receipt_path, "whole-run cap")
             break
 
     # THE LOOP HAS FOUR EXITS AND ONLY ONE OF THEM IS A FINISHED RUN. A `break`
@@ -921,7 +3585,7 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
         row.update({"state": "ABANDONED",
                     "why": "the hunt stopped while this sample was in flight",
                     "master_pid": p.get("pid"),
-                    "reap": reap(addr, p.get("pid", "0"), "hunt stopped")})
+                    "reap": reap(addr, runner_receipt_path, "hunt stopped")})
     row["when_end"] = now()
     row["forensics"] = forensic_tags
     row.setdefault("state", "COMPLETED")

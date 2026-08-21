@@ -69,6 +69,92 @@ from .provider_resolve_impl import (  # noqa: F401
     resolve_youtube,
 )
 
+# Bind the implementation objects to the facade that exported them.  During
+# whole-suite collection an implementation module can be imported before this
+# facade, leaving its captured reference empty.  A later module-wipe must not
+# make a retained exported function adopt a different facade and thereby miss
+# the caller's public monkeypatch/injection seams.
+import functools as _functools
+import sys as _sys
+from .provider_resolve_impl import _common as _pr_common_impl
+from .provider_resolve_impl import dispatch as _pr_dispatch_impl
+from .provider_resolve_impl import youtube as _pr_youtube_impl
+
+_pr_facade = _sys.modules[__name__]
+
+
+def _bind_pr_facade_if_unowned(implementation):
+    if implementation._PR_SHIM_REF is None:
+        implementation._PR_SHIM_REF = _pr_facade
+
+
+def _bind_pr_facade_call(function):
+    """Bind one shared implementation function to this facade per invocation."""
+    facade = _pr_facade
+    context = _pr_common_impl._PR_SHIM_CONTEXT
+
+    @_functools.wraps(function)
+    def bound(*args, **kwargs):
+        token = context.set(facade)
+        try:
+            return function(*args, **kwargs)
+        finally:
+            context.reset(token)
+
+    return bound
+
+
+def _bind_pr_facade_factory(factory):
+    """Bind both a callable factory and every deferred callable it returns."""
+    facade = _pr_facade
+    context = _pr_common_impl._PR_SHIM_CONTEXT
+    wraps = _functools.wraps
+    bound_factory = _bind_pr_facade_call(factory)
+
+    def bind_deferred(function):
+        @wraps(function)
+        def bound(*args, **kwargs):
+            token = context.set(facade)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                context.reset(token)
+
+        return bound
+
+    @wraps(factory)
+    def build(*args, **kwargs):
+        return bind_deferred(bound_factory(*args, **kwargs))
+
+    return build
+
+
+_bind_pr_facade_if_unowned(_pr_common_impl)
+_bind_pr_facade_if_unowned(_pr_dispatch_impl)
+_bind_pr_facade_if_unowned(_pr_youtube_impl)
+
+# The implementation package is shared when only this facade is evicted from
+# ``sys.modules``.  A single module-global owner can preserve an old retained
+# function OR serve the newly imported facade, but cannot do both.  Each facade
+# therefore exports its own lightweight entry wrappers.  ContextVar makes the
+# ownership nested-call-safe, thread-safe, and task-safe while the old global
+# remains the fallback for callers that retained an implementation function
+# directly.  Bind every facade entry that can reach ``__pr_shim``; the factory
+# additionally binds the deferred transport callable it returns.
+_cache_lookup = _bind_pr_facade_call(_cache_lookup)
+_decipher_signed_formats_ytdlp = _bind_pr_facade_call(
+    _decipher_signed_formats_ytdlp)
+_decipher_signed_formats = _bind_pr_facade_call(_decipher_signed_formats)
+resolve_youtube = _bind_pr_facade_call(resolve_youtube)
+resolve_provider_embed = _bind_pr_facade_call(resolve_provider_embed)
+_default_http_get = _bind_pr_facade_call(_default_http_get)
+_make_default_http_get = _bind_pr_facade_factory(_make_default_http_get)
+
+del _bind_pr_facade_if_unowned
+del _bind_pr_facade_call, _bind_pr_facade_factory
+del _pr_common_impl, _pr_dispatch_impl, _pr_youtube_impl, _pr_facade
+del _functools, _sys
+
 __all__ = [
     "HttpGet",
     "CacheWrite",

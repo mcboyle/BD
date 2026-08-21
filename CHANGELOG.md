@@ -4,6 +4,143 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1206 - make bd-jobs registration failure-atomic
+
+- Publish job records through one shared writer/reader schema and a locked
+  temp-write, file-fsync, atomic-replace, and directory-fsync transaction.
+  Malformed caller fields are rejected before staging; same PID/start-time
+  retries are idempotent, stale identities are replaceable, and unreadable
+  prior or sibling records are retained and reported as UNKNOWN instead of
+  disappearing from list, orphan, reap, or preflight results.
+- Hold local user work behind an exec-ready release gate until registration is
+  durable. Acquisition, readiness, publication, and release failures are
+  nonzero and account for every owned resource. A durable, released launch
+  whose launcher descriptor close is uncertain returns status 7 with its job
+  id for reconciliation. A post-RELEASE gate close failure is a registered
+  child outcome: it returns child status 75, does not exec the user command,
+  and leaves the asynchronous parent result at status 0 plus id. Registry
+  unlock failure never replaces a known publication failure/status; after
+  successful forget cleanup it marks the outcome incomplete, so reap reports
+  the uncertainty and continues later siblings. Final withdrawal is durable
+  before identity-bound quarantine cleanup; mkstemp, close, replace, unlink,
+  and directory-fsync faults return structured incomplete outcomes that name
+  retained paths.
+- Make wedge launch registration-first as well: an exact waitable direct-child
+  group leader reports READY while blocked behind an anonymous release gate,
+  and no workload or descendants exist before durable registration. A gate
+  setup/readiness failure that occurs before the registrar uses status 94 only
+  when every acquired gate owner is definitely settled. A known registrar
+  refusal uses status 91 only after an exact ABORTED record and checked wait
+  settle the gate within one monotonic cleanup budget. Unknown ownership,
+  protocol, or settlement uses status 92 and names only the PID, descriptors,
+  frame, and receipt actually acquired. Once registration landed or may have
+  landed, ambiguous release or exec handoff uses status 93 and preserves every
+  known job id, receipt, and raw registration/protocol record. EXEC-OK runs the
+  command under the registered PID/PGID and preserves its workload status;
+  EXEC-FAIL and bare or malformed protocol termination cannot become success.
+  Timeout-owner READY carries the trusted wrapper's post-`setsid` receipt. A
+  live owner is promoted from its exact `/proc` identity; only when that owner
+  is already Z/X or absent may the parent use the READY claim, and only after
+  binding its PID, PPID, and start time to the saved launch receipt and proving
+  PID = PGID = SID. Missing, malformed, or mismatched claims remain UNKNOWN.
+  For every owner requiring group census, only an exact checked child wait plus
+  census ABSENT completes settlement; census PRESENT or UNKNOWN fails closed.
+  The outer runner chooses its exact predicted receipt pathname and 128-bit
+  run nonce before remote launch can fork. A nonzero post-fork launch transport
+  result or a reply without a valid `LAUNCHED=` result is UNKNOWN, never a
+  refusal, and starts one bounded monotonic settlement against that receipt.
+  Only a receipt carrying the matching nonce authorizes exact-receipt reap; a
+  missing receipt at deadline or a mismatched nonce remains UNKNOWN and does
+  not authorize pathname- or truncated-PID cleanup. After the owned census,
+  `ProcessLookupError`/ESRCH from pidfd open or send proves that exact identity
+  absent; identity drift, permission denial, and every other pidfd open/send
+  error remain named cleanup uncertainty. The remote reaper accepts a terminal
+  classification only from exactly one complete, coherent terminal-evidence
+  line paired with its defined SSH status. Malformed, late-truncated, embedded,
+  duplicate, conflicting, verdict/field-incoherent, or status-mismatched
+  terminal evidence remains UNKNOWN; output with no terminal evidence remains
+  unreachable, and neither can become `REAP-OK`. An ordinary pidfd-close fault
+  remains named cleanup evidence without stopping later owned identities, the
+  grace interval, conditional KILL, or final census. `BaseException`
+  cancellation is not swallowed, and an already-active primary remains
+  authoritative when close adds an ordinary secondary fault. A monotonic
+  clock rollback can no longer bypass that ownership contract: the abort path
+  force-settles its already-acquired gate and relay receipts, and a receipt-
+  bound TERM whose grace cannot be measured is followed by immediate identity-
+  checked KILL and exact child collection instead of abandoning the group.
+- Make cancellation settlement truthful at every remaining local owner
+  boundary. A durable record retained because the pinned root detached before
+  release now returns status 5 and emits its exact id instead of claiming that
+  nothing was published. The outer local-launch funnel runs the full bounded
+  abort for ownership acquired between step-local handlers, retains
+  record-owned artifacts after publication, and records when a step already
+  settled so cancellation cannot drain the same child or artifact twice.
+  Every process-guard and registration-channel descriptor owner preserves the
+  first active exception when close raises a later ordinary error or
+  cancellation. Direct pipe, post-Popen, READY, attachedness, withdrawal,
+  publish, capture, signal, and channel-reader fault tests exercise those real
+  owner transitions. Procfs test receipts treat torn rows as unavailable, and
+  tracked mutation-spec collection reports a named 600-second timeout instead
+  of leaking an unclassified subprocess exception.
+- Make remote launch use the target's installed `bd-jobs run --host local`
+  transaction with a request identity and authenticated terminal status.
+  Ambiguous transport loss reports UNKNOWN, SSH/scp option parsing is
+  terminated explicitly, unsafe targets are refused, hostile argv survives one
+  quoting layer, and authenticated pre-adoption refusals remove their copy.
+  Failed scp and successful-copy/no-sentinel outcomes name the exact remote
+  script as RETAINED UNKNOWN and do not pathname-delete it without proven
+  identity; retained target-record results, including close-UNKNOWN status 7,
+  leave the copy owned by that entry. The focused remote controls do not make a
+  live SSH connection. Total post-connect deadlines and owned settlement for
+  all five OpenSSH stages remain explicit successor row 217.
+- Centralize every explicit descriptor close in standalone `bd-mutate` and
+  `bd-mutation-test` behind one local owner funnel per executable. Each funnel
+  relinquishes ownership before close, drains every independent owner after any
+  `BaseException`, preserves the exact first exception object and metadata,
+  attaches later evidence only on a best-effort basis after draining, settles
+  unpublished children once, and never retries a numeric fd. Mutation recovery
+  and execution are also totalized at their individual record and operation
+  boundaries. An ordinary recovery-write failure reports the observed subject
+  state or names that observation unproved, retains that record, and continues
+  later independently provable records. A baseline execution exception runs no
+  mutant and returns an empty structured exit-2 result. A mutant-write or
+  mutant-band exception settles restoration, cache, and journal state before
+  returning exit 2 with one structured UNKNOWN row; unproved settlement takes
+  priority as ERROR. Under `--json`, either path still emits one valid result
+  document. Every named catcher, control, and preserve must identify exactly
+  one collected test: a parameterized parent is not an exact verdict reference,
+  while a genuinely unique unparameterized node remains valid. A genuinely
+  absent named case keeps the established attributable UNKNOWN row and exit 2;
+  an ambiguous parameterized parent remains a pre-mutation refusal with no
+  fabricated per-mutant verdict.
+- Isolate provider implementation seams per public facade generation. Each
+  facade wrapper installs its own `ContextVar` owner for the exact call and
+  resets it after success, `Exception`, or `BaseException`; factory-returned
+  deferred transports are bound separately. Retained old and newly imported
+  facades can therefore share raw implementations without stealing clocks,
+  transport guards, cache behavior, or YouTube seams, while retained raw
+  implementation callers keep their established fallback owner.
+- Add direct publication, schema, failure, cleanup, release-protocol,
+  close-owner, provider-reimport, isolation, and non-vacuity controls. The
+  controls also require one status-paired coherent reap terminal, continued
+  pidfd-owner drainage without swallowed cancellation, per-record recovery
+  continuation, structured baseline and mutant-operation failure, exactly one
+  collected case for every named mutation reference, and explicit orphan-row
+  existence before a PASS assertion.
+  Schedule-sensitive timeout-owner controls force the post-READY completion
+  boundary, reject an identity-forged READY claim, retain live descendants, and
+  use durable-state deadline oracles instead of treating an outer wall-clock
+  guess as product evidence. Raw malformed-file wording in `bd-fleet` remains
+  visible as row 216. Replacement release evidence is external to the
+  repository and is bound to the released candidate by the immutable evidence
+  manifest at
+  `fleet-run-artifacts/2026-08-22/cut-1206-jobs-registration/replacement-final-evidence/manifest.json`.
+  Release is permitted only when that manifest names the exact SHA/tree,
+  hashes every cited artifact, records every independent exact-tree review as
+  free of Critical, Important, and actionable Minor findings, reconciles
+  nonzero expected, collected, and executed test identities, records every
+  valid selected mutant CAUGHT with exact restoration, and records every
+  required lifecycle, CI, and fleet gate PASS.
 ## v3.66.1205 - make capture truthful without optional requests or Markdown
 
 - Accept pytest module collection skips with an empty classname by assigning

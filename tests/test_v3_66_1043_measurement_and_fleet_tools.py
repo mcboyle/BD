@@ -507,25 +507,202 @@ def test_bd_jobs_register_preserves_the_operator_schema_without_a_marker(
         "an unset test-attribution channel changed every operator entry")
 
 
-def test_register_is_the_sole_bd_jobs_json_registry_writer():
-    """An attribution marker is sound only while every production JSON entry
-    crosses ``register()``.  Log creation is intentionally outside this floor.
-    """
-    source = (_BIN / "bd-jobs").read_text(encoding="utf-8")
+_REGISTRY_NAMESPACE_CALLS = {
+    "os.open": "open", "os.stat": "stat", "os.mkdir": "create",
+    "os.rename": "rename", "os.link": "link", "os.unlink": "unlink",
+    "os.scandir": "enumerate", "os.fsync": "fsync",
+}
+
+
+def _registrytxn_census(source):
+    """Read the R12 registry authority surface, not just its old path spelling."""
     tree = ast.parse(source)
-    writers = []
-    for function in (n for n in ast.walk(tree)
-                     if isinstance(n, (ast.FunctionDef,
-                                       ast.AsyncFunctionDef))):
-        for call in (n for n in ast.walk(function) if isinstance(n, ast.Call)):
-            if not (isinstance(call.func, ast.Attribute)
-                    and call.func.attr == "write_text"):
-                continue
-            expression = ast.get_source_segment(source, call.func.value) or ""
-            if "JOBS_DIR" in expression and ".json" in expression:
-                writers.append(function.name)
-    assert writers == ["register"], (
-        "production JOBS_DIR JSON writers bypass register(): %s" % writers)
+    parents = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+    def segment(node):
+        return ast.get_source_segment(source, node) or ""
+
+    def owner(node):
+        function = None
+        child = node
+        parent = parents.get(child)
+        while parent is not None:
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                function = parent.name
+            if isinstance(parent, ast.ClassDef):
+                return parent.name, function
+            child = parent
+            parent = parents.get(child)
+        return None, function
+
+    methods = set()
+    operations = {}
+    escapes = []
+    callers = set()
+    stagers = set()
+    for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+        called = segment(call.func)
+        klass, function = owner(call)
+        keywords = {keyword.arg: segment(keyword.value)
+                    for keyword in call.keywords if keyword.arg}
+        arguments = tuple(segment(argument) for argument in call.args)
+        if klass == "_RegistryTxn" and function:
+            methods.add(function)
+        kind = _REGISTRY_NAMESPACE_CALLS.get(called)
+        if kind:
+            record = (function, arguments, keywords)
+            if klass == "_RegistryTxn":
+                operations.setdefault(kind, []).append(record)
+            elif called != "os.fsync":
+                escapes.append((called, klass, function, arguments, keywords))
+        if called in {"os.replace", "tempfile.mkstemp", "_fsync_dir"}:
+            escapes.append((called, klass, function, arguments, keywords))
+        if (called.endswith(".read_text")
+                and (klass == "_RegistryTxn" or function == "_read_final"
+                     or "JOBS_DIR" in called + " ".join(arguments)
+                     + " ".join(keywords.values()))):
+            escapes.append((called, klass, function, arguments, keywords))
+        if called.endswith(".write_text") and "JOBS_DIR" in (
+                called + " " + " ".join(arguments) + " "
+                + " ".join(keywords.values())):
+            escapes.append((called, klass, function, arguments, keywords))
+        if called == "_publish_entry":
+            callers.add(function)
+        if called == "_stage_and_replace_under_lock":
+            stagers.add(function)
+    return {
+        "methods": methods,
+        "operations": operations,
+        "escapes": escapes,
+        "callers": callers,
+        "stagers": stagers,
+    }
+
+
+def _assert_registrytxn_census(census):
+    assert {"open", "lock", "unlock", "close", "read_entry", "json_components",
+            "create_exclusive", "rename_name", "link_name", "unlink_name",
+            "fsync"} <= census["methods"], (
+        "_RegistryTxn is missing required authority methods: %s"
+        % sorted(census["methods"]))
+    available = set(census["operations"])
+    assert census["operations"].get("open"), "registry create/read denominator is 0"
+    assert census["operations"].get("stat"), "registry stat denominator is 0"
+    assert census["operations"].get("rename"), "registry rename denominator is 0"
+    assert census["operations"].get("link"), "registry link denominator is 0"
+    assert census["operations"].get("unlink"), "registry unlink denominator is 0"
+    assert census["operations"].get("enumerate"), "registry enumerate denominator is 0"
+    assert census["operations"].get("fsync"), "registry fsync denominator is 0"
+    assert not census["escapes"], (
+        "path-form registry escape(s): %s" % census["escapes"])
+    assert census["callers"] == {"register"}, (
+        "_publish_entry callers changed: %s" % sorted(census["callers"]))
+    assert census["stagers"] == {"_publish_entry"}, (
+        "_stage_and_replace_under_lock callers changed: %s" % sorted(census["stagers"]))
+    for function, arguments, keywords in census["operations"]["rename"]:
+        assert (keywords.get("src_dir_fd") == "self.dir_fd"
+                and keywords.get("dst_dir_fd") == "self.dir_fd"), (
+            "rename is not pinned to self.dir_fd: %s %s %s"
+            % (function, arguments, keywords))
+    for function, arguments, keywords in census["operations"]["link"]:
+        assert (keywords.get("src_dir_fd") == "self.dir_fd"
+                and keywords.get("dst_dir_fd") == "self.dir_fd"
+                and keywords.get("follow_symlinks") == "False"), (
+            "link is not no-follow/self.dir_fd: %s %s %s"
+            % (function, arguments, keywords))
+    for function, arguments, keywords in census["operations"]["unlink"]:
+        assert keywords.get("dir_fd") == "self.dir_fd", (
+            "unlink is not pinned to self.dir_fd: %s %s %s"
+            % (function, arguments, keywords))
+    for function, arguments, keywords in census["operations"]["enumerate"]:
+        assert arguments == ("self.dir_fd",), (
+            "scandir reopened the registry: %s %s %s"
+            % (function, arguments, keywords))
+    for function, arguments, keywords in census["operations"]["fsync"]:
+        assert arguments == ("self.dir_fd",), (
+            "directory fsync reopened the registry: %s %s %s"
+            % (function, arguments, keywords))
+    assert any(keywords.get("dir_fd") == "self.parent_fd"
+               for _, _, keywords in census["operations"]["open"]), (
+        "registry leaf open did not use parent_fd")
+    assert any(keywords.get("dir_fd") == "self.dir_fd"
+               for _, _, keywords in census["operations"]["open"]), (
+        "registry child open did not use dir_fd")
+    for function, arguments, keywords in census["operations"]["create"]:
+        assert keywords.get("dir_fd") == "self.parent_fd", (
+            "registry creation did not use parent_fd: %s %s %s"
+            % (function, arguments, keywords))
+    for function, arguments, keywords in census["operations"]["stat"]:
+        assert (keywords.get("dir_fd") in {"self.parent_fd", "self.dir_fd"}
+                and keywords.get("follow_symlinks") == "False"), (
+            "registry stat is not no-follow/pinned-fd: %s %s %s"
+            % (function, arguments, keywords))
+    assert any(keywords.get("dir_fd") == "self.parent_fd"
+               for _, _, keywords in census["operations"]["stat"]), (
+        "registry root attachedness stat did not use parent_fd")
+    assert any(keywords.get("dir_fd") == "self.dir_fd"
+               for _, _, keywords in census["operations"]["stat"]), (
+        "registry component stat did not use dir_fd")
+
+
+def test_registrytxn_is_the_only_descriptor_relative_registry_owner():
+    source = (_BIN / "bd-jobs").read_text(encoding="utf-8")
+    _assert_registrytxn_census(_registrytxn_census(source))
+
+
+def test_register_is_the_sole_bd_jobs_json_registry_writer():
+    """Compatibility node: the v1204 tracked manifest names this census."""
+    test_registrytxn_is_the_only_descriptor_relative_registry_owner()
+
+
+def _new_registry_escapes(baseline, challenged):
+    """Return only a self-challenge's new escape records, preserving repeats."""
+    remaining = list(challenged["escapes"])
+    for record in baseline["escapes"]:
+        remaining.remove(record)
+    return remaining
+
+
+@pytest.mark.parametrize(("suffix", "reason"), [
+    ('\nos.replace("old", "new")\n', "path-form registry escape"),
+    ('\n(JOBS_DIR / "entry.json").read_text(encoding="utf-8")\n',
+     "path-form registry escape"),
+    ('\nos.unlink("entry.json")\n', "path-form registry escape"),
+    ('\n_fsync_dir(JOBS_DIR)\n',
+     "path-form registry escape"),
+    ('\n(JOBS_DIR / "module-bypass.json").write_text("{}", encoding="utf-8")\n',
+     "path-form registry escape"),
+])
+def test_registrytxn_census_rejects_each_pathform_escape(suffix, reason):
+    source = (_BIN / "bd-jobs").read_text(encoding="utf-8")
+    baseline = _registrytxn_census(source)
+    census = _registrytxn_census(source + suffix)
+    new_escapes = _new_registry_escapes(baseline, census)
+    assert len(new_escapes) == 1, (
+        "self-challenge did not add exactly one census escape: %s"
+        % new_escapes)
+    isolated = dict(census, escapes=new_escapes)
+    with pytest.raises(AssertionError, match=reason):
+        _assert_registrytxn_census(isolated)
+
+
+def test_registrytxn_census_rejects_a_missing_rename_destination_dirfd():
+    source = (_BIN / "bd-jobs").read_text(encoding="utf-8")
+    old = "dst_dir_fd=self.dir_fd"
+    mutant = source.replace(old, "dst_dir_fd=None", 1)
+    assert mutant != source, "self-challenge did not alter a destination dirfd"
+    census = _registrytxn_census(mutant)
+    assert any(record[2].get("dst_dir_fd") == "None"
+               for record in census["operations"].get("rename", [])), (
+        "self-challenge did not reach the rename destination-dirfd seam")
+    isolated = dict(census, escapes=_new_registry_escapes(
+        _registrytxn_census(source), census))
+    with pytest.raises(AssertionError, match="rename is not pinned"):
+        _assert_registrytxn_census(isolated)
 
 
 def test_registry_leak_attribution_ignores_foreign_concurrent_churn():
@@ -579,36 +756,35 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_pa
     real_before = {p.name for p in _REAL_JOBS.glob("*.json")} \
         if _REAL_JOBS.is_dir() else set()
 
-    seen = {}
-
-    class FakeProc:
-        pid = os.getpid()
-
-    # monkeypatch, NOT a bare assignment: mod.subprocess IS the global
-    # subprocess module, so assigning through it patches Popen for the whole
-    # session and the next subprocess.run in this file dies on a FakeProc.
-    monkeypatch.setattr(mod.subprocess, "Popen",
-                        lambda cmd, **kw: (seen.update(cmd=cmd), FakeProc())[1])
-    rc = mod.cmd_run(type("A", (), {
-        "host": "local", "purpose": "p",
-        "command": ["--", "bash", "-c", "cd /tmp && echo hi"]})())
-    assert rc == 0
-    assert seen["cmd"][:2] == ["bash", "-c"]
-    inner = seen["cmd"][2]
+    # RE-ANCHORED at v3.66.1206. The local launch is a release gate now, so the
+    # argv `Popen` receives is the WRAPPER's, with the user's argv carried at
+    # the end of it. Reading `seen["cmd"][2]` off the launcher's argv would
+    # extract the release descriptor and then execute it as a shell program.
+    # The subject was never the launcher's argv -- it is the command string the
+    # tool hands back to a shell -- so it is read from the production helper
+    # that builds it, and it is still EXECUTED, which is the half that matters.
+    inner = mod._user_command(["--", "bash", "-c", "cd /tmp && echo hi"])
+    assert mod._user_argv(inner)[:2] == ["bash", "-c"]
     assert inner != "bash -c cd /tmp && echo hi", (
         "argv was re-joined with bare spaces, so the shell re-splits it: %r"
         % inner)
-    # UNDO FIRST. subprocess.run() is itself `with Popen(...)`, so running the
-    # reassembled command while Popen is still faked dies inside the harness
-    # instead of testing the subject -- which is what happened here.
-    monkeypatch.undo()
     r = subprocess.run(["bash", "-c", inner], capture_output=True, text=True,
                        timeout=30)
     assert r.stdout.strip() == "hi", (
         "the reassembled command does not run as the caller wrote it: %r -> %r"
         % (inner, r.stdout + r.stderr))
 
-    assert list((tmp_path / "bd-jobs").glob("*.json")), (
+    # AND THE LAUNCHER MUST ACTUALLY USE IT: the wrapper argv ends with exactly
+    # the argv the helper builds. Without this the helper could be perfect and
+    # unused -- the same "component, not seam" gap that shipped v3.66.1040.
+    assert mod._gate_argv(7, 9, 11, mod._user_argv(inner))[-3:] == ["bash", "-c",
+                                                                    inner]
+
+    # The registry redirect above is still proven, with a real registration:
+    # os.getpid() is a live pid, so register() publishes a complete entry.
+    entry = mod.register(os.getpid(), "p", inner)
+    assert list((tmp_path / "bd-jobs").glob("*.json")) == [
+        tmp_path / "bd-jobs" / (entry["id"] + ".json")], (
         "nothing was registered anywhere, so the redirect above is untested "
         "and this test would keep passing if it went back to the real dir")
     real_after = {p.name for p in _REAL_JOBS.glob("*.json")} \

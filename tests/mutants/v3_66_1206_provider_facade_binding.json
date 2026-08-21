@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1206 fleet-remediation battery: a facade imported after retained implementation modules must bind every exported implementation back to the facade that owns its public injection seams.",
+  "subject": "v3.66.1206 -- provider facade late-binds retained implementation identities",
+  "band": [
+    "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe",
+    "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner"
+  ],
+  "mutants": [
+    {
+      "label": "H07a omit the common-helper facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_common_impl)",
+      "new": "pass  # omitted common facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07b omit the dispatcher facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_dispatch_impl)",
+      "new": "pass  # omitted dispatcher facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07c omit the youtube facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_youtube_impl)",
+      "new": "pass  # omitted youtube facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07d omit every retained-implementation facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_common_impl)\n_bind_pr_facade_if_unowned(_pr_dispatch_impl)\n_bind_pr_facade_if_unowned(_pr_youtube_impl)",
+      "new": "pass  # omitted every retained-implementation facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07e overwrite an implementation's established facade owner",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "    if implementation._PR_SHIM_REF is None:\n        implementation._PR_SHIM_REF = _pr_facade",
+      "new": "    if True:\n        implementation._PR_SHIM_REF = _pr_facade",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner"
+    }
+  ]
+}

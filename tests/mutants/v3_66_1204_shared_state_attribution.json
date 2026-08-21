@@ -1,10 +1,11 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1204 shared-state attribution battery: 17 behavioral/data-flow mutants plus one explicitly structural mutant (M3). The behavioral controls distinguish this run's unique marker/PID from foreign, pre-existing, torn, and outside-registry evidence and prove the complete inner denominator, zero-exit precondition, marker propagation, helper call, and failing assertion as one data flow. M3 pins only the current direct Path.write_text JSON-writer surface; it is not counted as runtime behavior. Re-run: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1204_shared_state_attribution.json --work .",
+  "_comment": "v3.66.1204 shared-state attribution battery: 17 behavioral/data-flow mutants plus four explicitly structural mutants (M3-M6). The behavioral controls distinguish this run's unique marker/PID from foreign, pre-existing, torn, and outside-registry evidence and prove the complete inner denominator, zero-exit precondition, marker propagation, helper call, and failing assertion as one data flow. M3-M6 pin function-body, module-scope, definition-time decorator, and nested-default Path.write_text JSON-writer surfaces; they are not counted as runtime behavior. Re-run: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1204_shared_state_attribution.json --work .",
   "subject": "v3.66.1204 -- attribute shared bd-jobs evidence only to the named run",
   "band": [
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_stamps_only_an_explicit_run_marker",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_preserves_the_operator_schema_without_a_marker",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_registrytxn_census_rejects_each_pathform_escape",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_registry_leak_attribution_ignores_foreign_concurrent_churn",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_the_real_registry_guard_calls_the_attribution_helper",
@@ -37,8 +38,32 @@
     {
       "label": "STRUCTURAL M3 add a direct unmarked JOBS_DIR JSON writer outside register",
       "file": "toolchain/bin/bd-jobs",
-      "old": "def load_all():\n    if not JOBS_DIR.is_dir():",
-      "new": "def _unmarked_registry_bypass():\n    (JOBS_DIR / \"unmarked-bypass.json\").write_text(\n        \"{}\", encoding=\"utf-8\")\n\ndef load_all():\n    if not JOBS_DIR.is_dir():",
+      "old": "def load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "new": "def _unmarked_registry_bypass():\n    (JOBS_DIR / \"unmarked-bypass.json\").write_text(\n        \"{}\", encoding=\"utf-8\")\n\n\ndef load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer"
+    },
+    {
+      "label": "STRUCTURAL M5 hide a module-scope writer in an allowlisted decorator name",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "def load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "new": "if False:\n    @(JOBS_DIR / \"module-decorator.json\").write_text(\"{}\")\n    def register():\n        pass\n\n\ndef load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer"
+    },
+    {
+      "label": "STRUCTURAL M6 hide an outer-scope writer in an allowlisted nested default",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "def load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "new": "def _outer_scope_bypass():\n    def register(value=(JOBS_DIR / \"nested-default.json\").write_text(\"{}\")):\n        return value\n\n\ndef load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer"
+    },
+    {
+      "label": "STRUCTURAL M4 add a direct module-scope JOBS_DIR JSON writer",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "def load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
+      "new": "if False:\n    (JOBS_DIR / \"module-bypass.json\").write_text(\n        \"{}\", encoding=\"utf-8\")\n\n\ndef load_all():\n    \"\"\"Every valid entry from one pinned root, plus every malformed sibling.\"\"\"",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_register_is_the_sole_bd_jobs_json_registry_writer"
     },

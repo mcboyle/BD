@@ -51,22 +51,20 @@ def test_secret_scan_never_echoes_the_secret():
 
 
 def test_secret_scan_detects_a_planted_shape(tmp_path, monkeypatch):
-    # plant a fake AWS-key-shaped string in a scanned-extension file
-    import os
-    here = os.path.dirname(os.path.abspath(ds.__file__))
-    repo = os.path.dirname(os.path.dirname(here))  # dev_suite is a package now -> repo root is one level deeper
-    planted = os.path.join(repo, "_u27_secret_probe.py")
-    try:
-        with open(planted, "w", encoding="utf-8") as fh:
-            fh.write("x = 'AKIA" + "ABCDEFGHIJKLMNOP'\n")
-        r = ds.secret_scan()
-        hits = [f for f in r["findings"]
-                if f["file"] == "_u27_secret_probe.py"]
-        assert len(hits) == 1
-        assert hits[0]["pattern"] == "aws_access_key"
-    finally:
-        if os.path.exists(planted):
-            os.remove(planted)
+    # Keep the planted credential shape inside pytest's owned scratch tree.
+    # Writing it into the shared checkout races whole-tree verifiers under
+    # xdist: a verifier can enumerate the file immediately before this test
+    # removes it, leaving its snapshot incomplete.
+    from bulk_downloader.dev_suite import audit_security
+
+    monkeypatch.setattr(audit_security, "_repo_root", lambda: tmp_path)
+    planted = tmp_path / "_u27_secret_probe.py"
+    planted.write_text("x = 'AKIA" + "ABCDEFGHIJKLMNOP'\n", encoding="utf-8")
+    r = ds.secret_scan()
+    hits = [f for f in r["findings"]
+            if f["file"] == "_u27_secret_probe.py"]
+    assert len(hits) == 1
+    assert hits[0]["pattern"] == "aws_access_key"
 
 
 def test_secret_scan_clamps_max_findings():

@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 76,
+    "total": 77,
     "version": 1,
-    "count_dict": 75,
+    "count_dict": 76,
     "test_files_scanned": 1398,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -38,6 +38,7 @@
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
+      "tests/test_v3_66_1040_remote_job_registry.py": 1,
       "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
@@ -237,7 +238,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1205",
+      "value": "3.66.1206",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -289,6 +290,24 @@
         "app.reptyle.com": 62
       },
       "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs — Capture counts per host, because that is how the operator recognises the"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1040_remote_job_registry.py",
+      "line": 140,
+      "value": {
+        "REGISTRATION_FAILED": 3,
+        "REGISTRY_UNKNOWN": 4,
+        "PUBLISHED_NOT_DURABLE": 5,
+        "REMOTE_UNKNOWN": 6,
+        "CLOSE_UNKNOWN": 7,
+        "RELEASE_PROVED_NOT_DELIVERED": 8,
+        "RELEASE_UNKNOWN": 9,
+        "EXEC_FAILED": 10,
+        "EXEC_HANDOFF_UNKNOWN": 11,
+        "GATE_ABANDONED": 75
+      },
+      "gates_what": "test_lifecycle_exit_status_table_is_exact_and_collision_free — Every machine-facing lifecycle outcome owns one stable numeric code."
     },
     {
       "form": "count_dict",
