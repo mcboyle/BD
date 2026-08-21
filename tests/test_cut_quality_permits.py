@@ -475,6 +475,56 @@ def test_pinned_validator_replay_accepts_its_reproduced_receipt(
     )
 
 
+def test_pinned_validator_replay_accepts_exact_v3_environment_schema(
+        repo: Path, tmp_path: Path, monkeypatch):
+    module = _load_module(verify_provenance=True)
+    permit_path = tmp_path / "permit.json"
+    value = _permit(repo, permit_path, "pre-floor")
+    validator, matrix, policy = _provenance_fixture(tmp_path, value)
+    matrix_value = json.loads(matrix.read_text(encoding="utf-8"))
+    python = Path(sys.executable).resolve()
+    matrix_value["environment"] = {
+        "schema": "cut-local-environment/3",
+        "python": str(python),
+        "python_sha256": _sha_bytes(python.read_bytes()),
+    }
+    matrix.write_text(json.dumps(matrix_value), encoding="utf-8")
+    value["provenance"]["matrix"]["sha256"] = _sha_bytes(matrix.read_bytes())
+    _refresh(value)
+    monkeypatch.setenv("BD_CUT_QUALITY_VALIDATOR", str(validator))
+
+    module._verify_evidence_provenance(
+        repo, _inner(value), value["provenance"], policy, "pre-floor", permit_path,
+    )
+
+
+def test_pinned_validator_replay_refuses_mixed_environment_schema(
+        repo: Path, tmp_path: Path, monkeypatch):
+    module = _load_module(verify_provenance=True)
+    permit_path = tmp_path / "permit.json"
+    value = _permit(repo, permit_path, "pre-floor")
+    validator, matrix, policy = _provenance_fixture(tmp_path, value)
+    matrix_value = json.loads(matrix.read_text(encoding="utf-8"))
+    python = Path(sys.executable).resolve()
+    digest = _sha_bytes(python.read_bytes())
+    matrix_value["environment"] = {
+        "schema": "cut-local-environment/3",
+        "python": str(python),
+        "python_sha256": digest,
+        "executable_sha256": digest,
+    }
+    matrix.write_text(json.dumps(matrix_value), encoding="utf-8")
+    value["provenance"]["matrix"]["sha256"] = _sha_bytes(matrix.read_bytes())
+    _refresh(value)
+    monkeypatch.setenv("BD_CUT_QUALITY_VALIDATOR", str(validator))
+
+    with pytest.raises(module.PermitRefusal) as exc:
+        module._verify_evidence_provenance(
+            repo, _inner(value), value["provenance"], policy, "pre-floor", permit_path,
+        )
+    assert exc.value.code == "CQ-MATRIX-STALE"
+
+
 def test_full_consumer_accepts_when_every_stable_replay_claim_matches(
         repo: Path, tmp_path: Path, monkeypatch):
     (module, module_path, receipt_path, authoritative, validator,
@@ -702,6 +752,33 @@ def test_combined_issuer_wraps_validator_output_for_public_consumer(
         consumer_path=module_path, now=1_800_000_000,
     )
     assert accepted["receipt_id"] == observed["receipt_id"]
+
+
+def test_combined_issuer_and_replay_accept_exact_v3_environment_schema(
+        repo: Path, tmp_path: Path, monkeypatch):
+    """Both public boundaries must consume the validator-v3 interpreter pin."""
+    (module, module_path, receipt_path, _authoritative, validator,
+     matrix, policy_path) = _full_consumer_fixture(repo, tmp_path)
+    matrix_value = json.loads(matrix.read_text(encoding="utf-8"))
+    python = Path(sys.executable).resolve()
+    matrix_value["environment"] = {
+        "schema": "cut-local-environment/3",
+        "python": str(python),
+        "python_sha256": _sha_bytes(python.read_bytes()),
+    }
+    matrix.write_text(json.dumps(matrix_value), encoding="utf-8")
+    monkeypatch.setenv("BD_CUT_QUALITY_VALIDATOR", str(validator))
+
+    issued = module.issue_receipt(
+        repo, matrix, validator, "pre-floor", receipt_path,
+        policy_path=policy_path,
+    )
+    accepted = module.validate_permit(
+        repo, receipt_path, "pre-floor", policy_path=policy_path,
+        consumer_path=module_path, now=1_800_000_000,
+    )
+
+    assert accepted["receipt_id"] == issued["receipt_id"]
 
 
 def test_full_consumer_refuses_wrapped_placeholder_claims_before_authorization(

@@ -32,7 +32,10 @@
     "tests/test_cut_quality_permits.py::test_missing_matrix_refuses_before_validator_result_is_trusted",
     "tests/test_cut_quality_permits.py::test_nonancestor_base_refuses_with_distinctive_code",
     "tests/test_cut_quality_permits.py::test_nonpositive_permit_window_refuses_even_before_expiry",
+    "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
     "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt",
+    "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema",
+    "tests/test_cut_quality_permits.py::test_pinned_validator_replay_refuses_mixed_environment_schema",
     "tests/test_cut_quality_permits.py::test_policy_sha_mismatch_refuses",
     "tests/test_cut_quality_permits.py::test_policy_refuses_a_disconnected_validator_transition_chain",
     "tests/test_cut_quality_permits.py::test_preimplementation_receipt_allows_not_yet_available_artifacts",
@@ -487,6 +490,22 @@
       },
       "preserves": [
         "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1"
+      ]
+    },
+    {
+      "label": "CQ24-environment-schema",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "old": "        if set(environment) != {\"schema\", \"python\", \"python_sha256\"}:",
+      "new": "        if False and set(environment) != {\"schema\", \"python\", \"python_sha256\"}:",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_pinned_validator_replay_refuses_mixed_environment_schema",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
+        "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema"
       ]
     }
   ]

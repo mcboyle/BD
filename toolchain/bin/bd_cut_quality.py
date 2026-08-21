@@ -472,6 +472,19 @@ def _stable_issuer_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if key not in {"issued_at", "expires_at"}}
 
 
+def _matrix_interpreter_pin(environment: Any) -> tuple[str, str]:
+    """Select the interpreter digest from one exact matrix generation."""
+    if not isinstance(environment, dict):
+        raise TypeError("matrix.environment must be an object")
+    if environment.get("schema") == "cut-local-environment/3":
+        if set(environment) != {"schema", "python", "python_sha256"}:
+            raise ValueError("matrix/3 environment fields must be exact")
+        return environment["python"], environment["python_sha256"]
+    if "schema" in environment or "python_sha256" in environment:
+        raise ValueError("mixed or unknown matrix environment schema")
+    return environment["python"], environment["executable_sha256"]
+
+
 def _verify_evidence_provenance(repo: Path, permit: dict[str, Any],
                                 provenance: dict[str, Any],
                                 policy: dict[str, Any], stage: str,
@@ -531,12 +544,14 @@ def _verify_evidence_provenance(repo: Path, permit: dict[str, Any],
         matrix_value = json.loads(matrix_bytes.decode("utf-8"),
                                   object_pairs_hook=_duplicate_key)
         environment = matrix_value["environment"]
-        python_text = environment["python"]
-        python_sha = environment["executable_sha256"]
-    except (KeyError, TypeError, UnicodeError, json.JSONDecodeError, PermitRefusal) as exc:
+        python_text, python_sha = _matrix_interpreter_pin(environment)
+    except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError,
+            PermitRefusal) as exc:
         raise PermitRefusal(
             "CQ-MATRIX-STALE", "matrix must expose one exact approved interpreter",
-            expected={"environment": ["python", "executable_sha256"]},
+            expected={"environment": [
+                "legacy python/executable_sha256 or exact cut-local-environment/3"
+            ]},
             observed={"error": f"{type(exc).__name__}: {exc}"},
             stage=stage, permit_path=permit_path,
         ) from exc
@@ -692,13 +707,14 @@ def issue_receipt(repo: Path | str, matrix_path: Path | str,
         matrix_value = json.loads(matrix_bytes.decode("utf-8"),
                                   object_pairs_hook=_duplicate_key)
         environment = matrix_value["environment"]
-        python_text = environment["python"]
-        python_sha = environment["executable_sha256"]
-    except (KeyError, TypeError, UnicodeError, json.JSONDecodeError,
+        python_text, python_sha = _matrix_interpreter_pin(environment)
+    except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError,
             PermitRefusal) as exc:
         raise PermitRefusal(
             "CQ-MATRIX-STALE", "matrix must expose one exact approved interpreter",
-            expected={"environment": ["python", "executable_sha256"]},
+            expected={"environment": [
+                "legacy python/executable_sha256 or exact cut-local-environment/3"
+            ]},
             observed={"error": f"{type(exc).__name__}: {exc}"},
             stage=stage, permit_path=output_path,
         ) from exc
