@@ -42,8 +42,10 @@ THE CONTRACT
       --emit-spec v3_66_N_slug.json --subject "what this battery pins"
   bd-mutate --selftest
 
-  A durable spec is an object tagged ``bd-mutate-spec/1`` with ``subject``,
-  ``band``, and ``mutants`` fields.  A scratch spec may remain a bare LIST;
+  A durable spec is an object tagged ``bd-mutate-spec/1`` or
+  ``bd-mutation-spec/2`` with ``subject``, ``band``, and ``mutants`` fields.
+  V2 makes each regression's exact expected failure and preserved controls
+  executable. A scratch spec may remain a bare LIST;
   bare-list mutants default to ``direction: regression`` and still require the
   legacy ``--band`` argument.
 
@@ -94,6 +96,7 @@ CAUGHT, ESCAPED = "CAUGHT", "ESCAPED"
 INDISCRIMINATE, UNKNOWN = "INDISCRIMINATE", "UNKNOWN"
 INVALID, ERROR = "INVALID", "ERROR"
 SPEC_SCHEMA = "bd-mutate-spec/1"
+EXACT_SPEC_SCHEMA = "bd-mutation-spec/2"
 DEFAULT_BAND_TIMEOUT_SECONDS = 900.0
 PROCESS_GROUP_TERM_GRACE_SECONDS = 1.0
 PROCESS_GROUP_KILL_GRACE_SECONDS = 1.0
@@ -162,16 +165,20 @@ def _apply(src: str, old: str, new: str) -> str:
     return after
 
 
-def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], list[str]]:
+def _normalise_spec(document: object, cli_band: list[str]
+                    ) -> tuple[list[dict], list[str], str | None]:
     """Accept durable object specs while keeping cheap scratch lists valid."""
     durable = isinstance(document, dict)
     if isinstance(document, list):
         mutants = document
         band = cli_band
+        schema = None
     elif isinstance(document, dict):
-        if document.get("schema") != SPEC_SCHEMA:
+        schema = document.get("schema")
+        if schema not in {SPEC_SCHEMA, EXACT_SPEC_SCHEMA}:
             raise ValueError(
-                f"object spec schema must be {SPEC_SCHEMA!r}, got {document.get('schema')!r}")
+                "object spec schema must be "
+                f"{SPEC_SCHEMA!r} or {EXACT_SPEC_SCHEMA!r}, got {schema!r}")
         mutants = document.get("mutants")
         band = document.get("band")
         if cli_band and cli_band != band:
@@ -205,6 +212,34 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
         if direction == "regression" and durable and not mutant.get("catcher"):
             raise ValueError(
                 f"mutant {index} in a durable spec requires a named catcher")
+        if schema == EXACT_SPEC_SCHEMA:
+            required = {
+                "label", "file", "old", "new", "direction", "catcher",
+                "expected_failure", "preserves",
+            }
+            if direction != "regression" or set(mutant) != required:
+                raise ValueError(
+                    f"v2 mutant {index} fields must be exactly {sorted(required)} "
+                    "and direction must be 'regression'")
+            expected_failure = mutant["expected_failure"]
+            if (not isinstance(expected_failure, dict)
+                    or set(expected_failure) != {"outcome", "signature"}
+                    or expected_failure.get("outcome") != "failed"
+                    or not isinstance(expected_failure.get("signature"), str)
+                    or not expected_failure["signature"]):
+                raise ValueError(
+                    f"v2 mutant {index} requires exact failed expected_failure")
+            preserves = mutant["preserves"]
+            if (not isinstance(preserves, list) or not preserves
+                    or any(not isinstance(nodeid, str) or not nodeid
+                           for nodeid in preserves)):
+                raise ValueError(
+                    f"v2 mutant {index} requires nonempty named preserves")
+            if len(preserves) != len(set(preserves)):
+                raise ValueError(f"v2 mutant {index} preserves contains duplicates")
+            if mutant["catcher"] in preserves:
+                raise ValueError(
+                    f"v2 mutant {index} catcher must not also be preserved")
         if direction == "overcorrection":
             control = mutant.get("control")
             preserves = mutant.get("preserves")
@@ -220,7 +255,7 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
             if control in preserves:
                 raise ValueError(f"mutant {index} control must not also be preserved")
         normalised.append(mutant)
-    return normalised, band
+    return normalised, band, schema
 
 
 def _battery_exit(rows: list[dict]) -> int:
@@ -384,19 +419,20 @@ def _nodeid_identity(nodeid: str) -> tuple[str, str]:
     return classname, parts[-1]
 
 
-def _read_junit(path: Path, collected: list[str]) -> tuple[dict[str, list[str]], str | None]:
-    """Return exact per-nodeid outcomes, or an UNKNOWN reason."""
+def _read_junit(path: Path, collected: list[str]) -> tuple[
+        dict[str, list[str]], dict[str, list[dict[str, str]]], str | None]:
+    """Return exact per-node outcomes and their own failure text."""
     if not path.is_file() or path.stat().st_size == 0:
-        return {}, "JUnit evidence is missing or empty"
+        return {}, {}, "JUnit evidence is missing or empty"
     try:
         root = ET.parse(path).getroot()
     except (ET.ParseError, OSError) as e:
-        return {}, f"JUnit evidence is malformed or truncated: {e}"
+        return {}, {}, f"JUnit evidence is malformed or truncated: {e}"
     cases = list(root.iter("testcase"))
     if not collected:
-        return {}, "pytest collected zero tests"
+        return {}, {}, "pytest collected zero tests"
     if len(cases) != len(collected):
-        return {}, (
+        return {}, {}, (
             f"JUnit executed {len(cases)} cases but collection named "
             f"{len(collected)}")
 
@@ -404,29 +440,62 @@ def _read_junit(path: Path, collected: list[str]) -> tuple[dict[str, list[str]],
     for nodeid in collected:
         identities.setdefault(_nodeid_identity(nodeid), []).append(nodeid)
     outcomes: dict[str, list[str]] = {}
+    records: dict[str, list[dict[str, str]]] = {}
     for case in cases:
         identity = (case.get("classname", ""), case.get("name", ""))
         candidates = identities.get(identity, [])
         if len(candidates) != 1:
-            return {}, (
+            return {}, {}, (
                 f"JUnit case {identity!r} maps to {len(candidates)} collected nodeids")
-        if case.find("error") is not None:
+        error = case.find("error")
+        failure = case.find("failure")
+        skipped = case.find("skipped")
+        detail = error if error is not None else failure
+        if error is not None:
             outcome = "error"
-        elif case.find("failure") is not None:
+        elif failure is not None:
             outcome = "failed"
-        elif case.find("skipped") is not None:
+        elif skipped is not None:
             outcome = "skipped"
         else:
             outcome = "passed"
-        outcomes.setdefault(candidates[0], []).append(outcome)
+        nodeid = candidates[0]
+        text = ""
+        if detail is not None:
+            text = "\n".join(
+                part for part in (detail.get("message", ""), detail.text or "")
+                if part
+            ).strip()
+        outcomes.setdefault(nodeid, []).append(outcome)
+        records.setdefault(nodeid, []).append({
+            "outcome": outcome,
+            "failure_text": text,
+            "failure_text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        })
     if set(outcomes) != set(collected):
         missing = sorted(set(collected) - set(outcomes))
         extra = sorted(set(outcomes) - set(collected))
-        return {}, f"JUnit identity reconciliation failed: missing={missing} extra={extra}"
+        return {}, {}, f"JUnit identity reconciliation failed: missing={missing} extra={extra}"
     if any(len(values) != 1 for values in outcomes.values()):
         duplicates = sorted(k for k, values in outcomes.items() if len(values) != 1)
-        return {}, f"JUnit contains duplicate nodeids: {duplicates}"
-    return outcomes, None
+        return {}, {}, f"JUnit contains duplicate nodeids: {duplicates}"
+    return outcomes, records, None
+
+
+def _preserve_junit(source: Path, target: Path) -> dict[str, str]:
+    """Atomically preserve raw node evidence outside the mutated work tree."""
+    data = source.read_bytes()
+    fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return {"artifact": str(target.resolve()),
+            "sha256": hashlib.sha256(data).hexdigest()}
 
 
 def _timeout_tail(exc: subprocess.TimeoutExpired) -> str:
@@ -495,7 +564,8 @@ def _run_owned(cmd: list[str], *, work: Path, timeout: float
 
 
 def _run_band(band: list[str], work: Path,
-              timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS) -> dict:
+              timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS,
+              preserve_junit: Path | None = None) -> dict:
     py = _python_for(work)
     collect_cmd = [py, "-m", "pytest", "--collect-only", "-q", "-p", "no:randomly", *band]
     try:
@@ -579,12 +649,18 @@ def _run_band(band: list[str], work: Path,
                 "collection_error": False,
             }
         output = run.stdout + run.stderr
-        outcomes, measurement_error = _read_junit(junit, collected)
+        outcomes, records, measurement_error = _read_junit(junit, collected)
+        junit_evidence = (
+            _preserve_junit(junit, preserve_junit)
+            if preserve_junit is not None else None
+        )
     return {
         "rc": run.returncode,
         "tail": output[-4000:],
         "collected": collected,
         "outcomes": outcomes,
+        "records": records,
+        "junit_evidence": junit_evidence,
         "measurement_error": measurement_error,
         "collection_error": False,
     }
@@ -597,7 +673,30 @@ def _named_outcome(result: dict, nodeid: str) -> tuple[str | None, str | None]:
     return values[0], None
 
 
-def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
+def _named_record(result: dict, nodeid: str) -> tuple[dict | None, str | None]:
+    values = result.get("records", {}).get(nodeid, [])
+    if len(values) != 1:
+        return None, f"named nodeid {nodeid} had {len(values)} JUnit records; expected exactly 1"
+    return values[0], None
+
+
+def _node_record_summary(result: dict) -> list[dict[str, str]]:
+    rows = []
+    for nodeid in sorted(result.get("records", {})):
+        values = result["records"][nodeid]
+        if len(values) != 1:
+            continue
+        record = values[0]
+        rows.append({
+            "nodeid": nodeid,
+            "outcome": record["outcome"],
+            "failure_text_sha256": record["failure_text_sha256"],
+        })
+    return rows
+
+
+def _grade_mutant(mutant: dict, result: dict, *, exact_semantics: bool = False
+                  ) -> tuple[str, str]:
     """Grade the named subject, never whichever unrelated test also screamed."""
     if result.get("collection_error"):
         return INVALID, "pytest collection error: " + result["tail"][-700:]
@@ -619,6 +718,26 @@ def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
         outcome, why = _named_outcome(result, catcher)
         if why:
             return UNKNOWN, why
+        if exact_semantics:
+            preserved = []
+            for nodeid in mutant["preserves"]:
+                control_outcome, control_why = _named_outcome(result, nodeid)
+                if control_why:
+                    return UNKNOWN, control_why
+                preserved.append((nodeid, control_outcome))
+            bad_controls = [row for row in preserved if row[1] != "passed"]
+            if bad_controls:
+                return INDISCRIMINATE, (
+                    f"named catcher changed but preserved controls were not green: "
+                    f"{bad_controls}")
+            signature = mutant["expected_failure"]["signature"]
+            if outcome == "failed":
+                record, record_why = _named_record(result, catcher)
+                if record_why:
+                    return UNKNOWN, record_why
+                if signature not in record["failure_text"]:
+                    return INDISCRIMINATE, (
+                        f"named catcher failed without expected signature {signature!r}")
         if outcome == "failed":
             return CAUGHT, f"named catcher failed: {catcher}"
         if outcome == "passed":
@@ -817,7 +936,10 @@ def journal_recover(work: Path) -> int:
 
 def run_battery(spec: list[dict], band: list[str], work: Path,
                 verbose: bool = True,
-                timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS) -> tuple[int, list[dict]]:
+                timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS,
+                exact_semantics: bool = False,
+                junit_dir: Path | None = None,
+                evidence_runs: list[dict] | None = None) -> tuple[int, list[dict]]:
     out: list[dict] = []
 
     # ---- DENOMINATOR. An empty battery must never read as "all caught". -----
@@ -840,7 +962,16 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
 
     # ---- BASELINE. Red afterwards proves nothing if it was red before. ------
     _purge_pycache(work)
-    baseline = _run_band(band, work, timeout=timeout)
+    baseline = _run_band(
+        band, work, timeout=timeout,
+        preserve_junit=junit_dir / "0000-baseline.xml" if junit_dir else None,
+    )
+    if evidence_runs is not None and baseline.get("junit_evidence"):
+        evidence_runs.append({
+            "kind": "baseline",
+            **baseline["junit_evidence"],
+            "nodes": _node_record_summary(baseline),
+        })
     if baseline["rc"] != 0 or baseline.get("measurement_error"):
         print("BD-MUTATE-UNRUNNABLE: BASELINE IS RED. Every verdict below would "
               "be evidence about the baseline, not about a mutant.\n"
@@ -864,6 +995,10 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
             "control": m.get("control"),
             "preserves": m.get("preserves"),
         }
+        mutant_band = (
+            [m["catcher"], *m["preserves"]] if exact_semantics else band
+        )
+        row["executed_targets"] = mutant_band
         if not path.is_file():
             row["verdict"] = ERROR
             row["why"] = "file does not exist"
@@ -879,6 +1014,10 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
             row["why"] = f"apply: {e}"
             out.append(row)
             continue
+        row["subject_blob_sha256"] = before_sha
+        row["mutated_blob_sha256"] = hashlib.sha256(
+            mutated.encode("utf-8")
+        ).hexdigest()
 
         ok, why = _validate(path, mutated)
         if not ok:
@@ -899,8 +1038,51 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         try:
             _purge_pycache(work)
             path.write_text(mutated, encoding="utf-8")
-            result = _run_band(band, work, timeout=timeout)
-            row["verdict"], row["why"] = _grade_mutant(m, result)
+            junit_target = None
+            if junit_dir is not None:
+                label_key = hashlib.sha256(label.encode("utf-8")).hexdigest()[:12]
+                junit_target = junit_dir / f"{i:04d}-{label_key}.xml"
+            result = _run_band(
+                mutant_band, work, timeout=timeout,
+                preserve_junit=junit_target,
+            )
+            row["verdict"], row["why"] = _grade_mutant(
+                m, result, exact_semantics=exact_semantics,
+            )
+            if exact_semantics and row["verdict"] == CAUGHT:
+                observed, observed_why = _named_record(result, m["catcher"])
+                if observed_why:
+                    row["verdict"] = UNKNOWN
+                    row["why"] = observed_why
+                else:
+                    signature = m["expected_failure"]["signature"]
+                    start = observed["failure_text"].find(signature)
+                    if start < 0:
+                        row["verdict"] = INDISCRIMINATE
+                        row["why"] = (
+                            f"named catcher failed without expected signature {signature!r}")
+                    else:
+                        row["actual_failure"] = {
+                            "nodeid": m["catcher"],
+                            "outcome": observed["outcome"],
+                            "signature": observed["failure_text"][
+                                start:start + len(signature)
+                            ],
+                        }
+                        row["failure_text_sha256"] = observed["failure_text_sha256"]
+                        row["control_outcomes"] = [
+                            {"nodeid": nodeid,
+                             "outcome": _named_outcome(result, nodeid)[0]}
+                            for nodeid in m["preserves"]
+                        ]
+            if evidence_runs is not None and result.get("junit_evidence"):
+                evidence_runs.append({
+                    "kind": "mutant",
+                    "label": label,
+                    **result["junit_evidence"],
+                    "nodes": _node_record_summary(result),
+                    "actual_failure": row.get("actual_failure"),
+                })
         finally:
             path.write_text(original, encoding="utf-8")
             _purge_pycache(work)
@@ -1151,6 +1333,144 @@ def _selftest(work: Path) -> int:
     return 0 if ok else 1
 
 
+def _evidence_candidate(work: Path, spec_path: Path,
+                        evidence_path: Path) -> tuple[str, str, str]:
+    """Resolve one clean tracked candidate before mutation evidence starts."""
+    try:
+        evidence_path.resolve().relative_to(work.resolve())
+    except ValueError:
+        pass
+    else:
+        raise ValueError("--evidence-out must be outside the candidate work tree")
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=work, capture_output=True, check=True,
+    ).stdout
+    if status:
+        raise ValueError("--evidence-out requires a clean exact candidate")
+    relative_spec = spec_path.resolve().relative_to(work.resolve()).as_posix()
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", relative_spec], cwd=work,
+        capture_output=True, text=True,
+    )
+    if tracked.returncode != 0:
+        raise ValueError("--evidence-out requires a tracked candidate spec")
+    head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=work,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    tree = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{tree}"], cwd=work,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return head, tree, hashlib.sha256(spec_path.read_bytes()).hexdigest()
+
+
+def _write_exact_mutation_evidence(path: Path, *, candidate_sha: str,
+                                   candidate_tree: str, spec_sha256: str,
+                                   contract_sha256: str,
+                                   environment_sha256: str,
+                                   tool_sha256: str, spec: list[dict],
+                                   rows: list[dict]) -> None:
+    """Publish the exact cut-mutation-result/2 consumed by the v2 validator."""
+    digest = re.compile(r"[0-9a-f]{64}\Z")
+    for name, value in {
+        "contract_sha256": contract_sha256,
+        "environment_sha256": environment_sha256,
+        "tool_sha256": tool_sha256,
+    }.items():
+        if digest.fullmatch(value or "") is None:
+            raise ValueError(f"--{name.replace('_', '-')} must be lowercase sha256")
+    labels = [mutant["label"] for mutant in spec]
+    if len(labels) != len(set(labels)):
+        raise ValueError("mutation evidence label accounting is incomplete or duplicated")
+    if [row["label"] for row in rows] != labels:
+        raise ValueError("mutation evidence label accounting is incomplete or duplicated")
+    subject_hashes = {row["subject_blob_sha256"] for row in rows}
+    if len(subject_hashes) != 1:
+        raise ValueError("cut-mutation-result/2 requires one exact subject blob")
+    result_rows = []
+    for mutant, row in zip(spec, rows, strict=True):
+        if row.get("verdict") != CAUGHT:
+            raise ValueError("mutation evidence can publish only an all-CAUGHT battery")
+        expected_actual = {
+            "nodeid": mutant["catcher"],
+            "outcome": mutant["expected_failure"]["outcome"],
+            "signature": mutant["expected_failure"]["signature"],
+        }
+        if row.get("actual_failure") != expected_actual:
+            raise ValueError(
+                f"mutation evidence lacks the observed catcher failure: {row['label']}")
+        expected_controls = [
+            {"nodeid": nodeid, "outcome": "passed"}
+            for nodeid in mutant["preserves"]
+        ]
+        if row.get("control_outcomes") != expected_controls:
+            raise ValueError(
+                f"mutation evidence lacks observed GREEN controls: {row['label']}")
+        result_rows.append({
+            "label": row["label"],
+            "verdict": row["verdict"],
+            "mutated_blob_sha256": row["mutated_blob_sha256"],
+            "catcher": mutant["catcher"],
+            "expected_failure": mutant["expected_failure"],
+            "actual_failures": [row["actual_failure"]],
+            "controls": row["control_outcomes"],
+            "equivalent_analysis": None,
+        })
+    document = {
+        "schema": "cut-mutation-result/2",
+        "candidate_sha": candidate_sha,
+        "candidate_tree": candidate_tree,
+        "contract_sha256": contract_sha256,
+        "environment_sha256": environment_sha256,
+        "tool_sha256": tool_sha256,
+        "spec_sha256": spec_sha256,
+        "subject_blob_sha256": next(iter(subject_hashes)),
+        "baseline": {"status": "GREEN"},
+        "declared_labels": labels,
+        "selected_labels": labels,
+        "executed_labels": labels,
+        "mutants": result_rows,
+        "status": "PASS",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _write_node_evidence(path: Path, *, candidate_sha: str,
+                         candidate_tree: str, spec_sha256: str,
+                         runs: list[dict], status: str) -> None:
+    """Bind preserved raw per-run JUnit to the candidate without changing v2."""
+    document = {
+        "schema": "cut-mutation-node-evidence/1",
+        "candidate_sha": candidate_sha,
+        "candidate_tree": candidate_tree,
+        "spec_sha256": spec_sha256,
+        "runs": runs,
+        "status": status,
+    }
+    data = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="bd-mutate")
     ap.add_argument("--spec", help="JSON object spec, or a legacy bare mutant list")
@@ -1165,6 +1485,11 @@ def main() -> int:
                     help="seconds per pytest collection/execution (default: 900)")
     ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--evidence-out",
+                    help="publish candidate-bound cut-mutation-result/2 outside Git")
+    ap.add_argument("--contract-sha256")
+    ap.add_argument("--environment-sha256")
+    ap.add_argument("--tool-sha256")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--recover", action="store_true",
                     help="restore originals recorded by an interrupted battery")
@@ -1182,11 +1507,41 @@ def main() -> int:
         ap.error("--spec is required (or --selftest)")
 
     try:
-        document = json.loads(Path(a.spec).read_text(encoding="utf-8"))
-        spec, band = _normalise_spec(document, [b for b in a.band.split() if b])
+        spec_path = Path(a.spec).resolve()
+        document = json.loads(spec_path.read_text(encoding="utf-8"))
+        spec, band, schema = _normalise_spec(
+            document, [b for b in a.band.split() if b]
+        )
     except (OSError, ValueError, json.JSONDecodeError) as e:
         print(f"BD-MUTATE-UNRUNNABLE: invalid spec: {e}", file=sys.stderr)
         return 2
+    evidence_identity = None
+    evidence_path = Path(a.evidence_out).resolve() if a.evidence_out else None
+    junit_dir = None
+    node_evidence_path = None
+    evidence_runs: list[dict] = []
+    if evidence_path is not None:
+        try:
+            if schema != EXACT_SPEC_SCHEMA or a.direction != "all":
+                raise ValueError(
+                    "--evidence-out requires bd-mutation-spec/2 and --direction all")
+            if not all((a.contract_sha256, a.environment_sha256, a.tool_sha256)):
+                raise ValueError(
+                    "--evidence-out requires contract/environment/tool sha256 values")
+            evidence_identity = _evidence_candidate(work, spec_path, evidence_path)
+            evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            node_evidence_path = Path(str(evidence_path) + ".nodes.json")
+            junit_dir = Path(str(evidence_path) + ".junit")
+            occupied = [path for path in (evidence_path, node_evidence_path, junit_dir)
+                        if path.exists()]
+            if occupied:
+                raise ValueError(
+                    f"evidence targets already exist: {[str(path) for path in occupied]}")
+            junit_dir.mkdir()
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            print(f"BD-MUTATE-UNRUNNABLE: cannot prepare evidence: {e}",
+                  file=sys.stderr)
+            return 2
     prepared_emit = None
     if a.emit_spec:
         if a.direction != "all":
@@ -1207,7 +1562,38 @@ def main() -> int:
         print(f"BD-MUTATE-UNRUNNABLE: 0 of {total} mutants after "
               f"--direction {a.direction}", file=sys.stderr)
         return 2
-    rc, rows = run_battery(selected, band, work, timeout=a.timeout)
+    rc, rows = run_battery(
+        selected, band, work, timeout=a.timeout,
+        exact_semantics=schema == EXACT_SPEC_SCHEMA,
+        junit_dir=junit_dir, evidence_runs=evidence_runs,
+    )
+    if evidence_path is not None:
+        try:
+            observed_identity = _evidence_candidate(work, spec_path, evidence_path)
+            if observed_identity != evidence_identity:
+                raise ValueError(
+                    "candidate/spec identity changed during the mutation battery")
+            _write_node_evidence(
+                node_evidence_path,
+                candidate_sha=evidence_identity[0], candidate_tree=evidence_identity[1],
+                spec_sha256=evidence_identity[2], runs=evidence_runs,
+                status="PASS" if rc == 0 else "HOLD",
+            )
+            if rc == 0:
+                _write_exact_mutation_evidence(
+                    evidence_path,
+                    candidate_sha=evidence_identity[0],
+                    candidate_tree=evidence_identity[1],
+                    spec_sha256=evidence_identity[2],
+                    contract_sha256=a.contract_sha256,
+                    environment_sha256=a.environment_sha256,
+                    tool_sha256=a.tool_sha256,
+                    spec=spec, rows=rows,
+                )
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            print(f"BD-MUTATE-UNRUNNABLE: cannot publish evidence: {e}",
+                  file=sys.stderr)
+            rc = 2
     if prepared_emit is not None and rc in (0, 1):
         try:
             _publish_emitted_spec(*prepared_emit)
