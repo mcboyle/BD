@@ -1,0 +1,59 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 initial, common-prework, and detach permit boundaries.",
+  "subject": "bd-cut refuses before mutation and rechecks before common work or detached launch",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_bd_cut_no_gate_cannot_bypass_missing_snapshot_receipt",
+    "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary",
+    "tests/test_cut_quality_permits.py::test_bd_cut_rechecks_snapshot_at_last_prework_boundary",
+    "tests/test_cut_quality_permits.py::test_bd_cut_detach_rechecks_before_child_launch",
+    "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_fake_detached_child"
+  ],
+  "mutants": [
+    {
+      "label": "CUT1-initial",
+      "file": "toolchain/bin/bd-cut",
+      "old": "    # final candidate SHA: bd-cut has not yet generated, bumped, or built that\n    # tree. Refuse before output creation and every cut gate.\n    if not _receipt_ok():\n        return 2",
+      "new": "    # final candidate SHA: bd-cut has not yet generated, bumped, or built that\n    # tree. Refuse before output creation and every cut gate.\n    if False and not _receipt_ok():\n        return 2",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_no_gate_cannot_bypass_missing_snapshot_receipt",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert not True"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary"
+      ]
+    },
+    {
+      "label": "CUT2-common-recheck",
+      "file": "toolchain/bin/bd-cut",
+      "old": "    # Last common boundary before resume-band work or normal precut/regeneration\n    # work. Step 0 may have taken seconds, so compare the complete snapshot a\n    # second time immediately before expensive or mutating work.\n    if not _receipt_ok():\n        return 2",
+      "new": "    # Last common boundary before resume-band work or normal precut/regeneration\n    # work. Step 0 may have taken seconds, so compare the complete snapshot a\n    # second time immediately before expensive or mutating work.\n    if False and not _receipt_ok():\n        return 2",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_rechecks_snapshot_at_last_prework_boundary",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 1 == 2"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary"
+      ]
+    },
+    {
+      "label": "CUT3-detach-recheck",
+      "file": "toolchain/bin/bd-cut",
+      "old": "        if not _receipt_ok():\n            return 2\n        # v3.66.855 port:",
+      "new": "        if False and not _receipt_ok():\n            return 2\n        # v3.66.855 port:",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_detach_rechecks_before_child_launch",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "detached child launched after the receipt went stale"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_fake_detached_child"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 bd-band initial and last-pre-pytest permit boundaries.",
+  "subject": "bd-band refuses before target validation and rechecks before pytest",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_bd_band_initial_guard_precedes_target_validation",
+    "tests/test_cut_quality_permits.py::test_bd_band_valid_permit_reaches_fake_pytest",
+    "tests/test_cut_quality_permits.py::test_bd_band_rechecks_before_pytest"
+  ],
+  "mutants": [
+    {
+      "label": "BAND1-initial",
+      "file": "toolchain/bin/bd-band",
+      "old": "    if not _permit_ok():\n        return 2\n\n    # @849",
+      "new": "    if False and not _permit_ok():\n        return 2\n\n    # @849",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_band_initial_guard_precedes_target_validation",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "target validation ran before initial permit refusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_band_valid_permit_reaches_fake_pytest"
+      ]
+    },
+    {
+      "label": "BAND2-recheck",
+      "file": "toolchain/bin/bd-band",
+      "old": "    # Recheck unchanged identity at the last boundary before extraction or the\n    # first pytest subprocess. Local target validation cannot authorize drift.\n    if not _permit_ok():\n        return 2",
+      "new": "    # Recheck unchanged identity at the last boundary before extraction or the\n    # first pytest subprocess. Local target validation cannot authorize drift.\n    if False and not _permit_ok():\n        return 2",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_band_rechecks_before_pytest",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "pytest launched after the permit went stale"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_band_valid_permit_reaches_fake_pytest"
+      ]
+    }
+  ]
+}

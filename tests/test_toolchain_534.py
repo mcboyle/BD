@@ -1346,94 +1346,35 @@ def _band_tool(name, args, results_path, timeout=300):
                           env=env)
 
 
-def _write_exact_cut_quality_permit(repo, path, stage="pre-floor"):
-    """Write a synthetic permit for the exact clean candidate used by a test."""
-    repo = Path(repo).resolve()
-    policy_path = _REPO_ROOT / "toolchain" / "cut_quality_policy.json"
-    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+def _authorized_band_tool(name, args, results_path, timeout=300):
+    """Exercise band behavior after an injected authorization boundary.
 
-    def git(*args):
-        result = subprocess.run(
-            ["git", "-C", str(repo), *args], capture_output=True, text=True,
-            check=True,
-        )
-        return result.stdout.strip()
-
-    assert not git("status", "--porcelain=v1", "--untracked-files=all"), (
-        "the exact-permit fixture requires a clean candidate")
-    head = git("rev-parse", "--verify", "HEAD^{commit}")
-    tree = git("rev-parse", "--verify", "HEAD^{tree}")
-    common = Path(git("rev-parse", "--git-common-dir"))
-    if not common.is_absolute():
-        common = repo / common
-    submodules = subprocess.run(
-        ["git", "-C", str(repo), "submodule", "status", "--recursive"],
-        capture_output=True, check=True,
-    ).stdout
-    runtime_rel = "toolchain/bin/bd_cut_quality.py"
-    if not (repo / runtime_rel).is_file():
-        runtime_rel = next(
-            rel for rel in git("ls-files").splitlines() if (repo / rel).is_file()
-        )
-    now = int(time.time())
-    digest = "1" * 64
-    payload = {
-        "stage": stage,
-        "identity": {
-            "kind": "final-candidate/1", "base_sha": head,
-            "candidate_sha": head, "candidate_tree": tree,
-        },
-        "requirements_sha256": "2" * 64,
-        "contract_sha256": "3" * 64,
-        "tool": dict(policy["trusted_validators"][-1]),
-        "policy_sha256": hashlib.sha256(policy_path.read_bytes()).hexdigest(),
-        "environment_sha256": "4" * 64,
-        "source_obligations_sha256": "8" * 64,
-        "floor_selection_sha256": "9" * 64,
-        "delivery_sha256": "a" * 64,
-        "delivery_classification": "non-runtime",
-        "repository": {
-            "realpath": str(repo),
-            "git_common_dir_realpath": str(common.resolve()),
-            "submodules_sha256": hashlib.sha256(submodules).hexdigest(),
-        },
-        "runtime_inputs": [{
-            "path": runtime_rel,
-            "sha256": hashlib.sha256((repo / runtime_rel).read_bytes()).hexdigest(),
-        }],
-        "risk_sha256": "5" * 64,
-        "audit_sha256": "6" * 64,
-        "evidence_graph_root": "7" * 64,
-        "artifact_hashes": {
-            key: [digest] for key in
-            ("red", "green", "mutation", "regeneration", "review")
-        },
-        "issued_at": now - 10,
-        "expires_at": now + 3600,
-        "invalidators": [
-            "identity-change", "policy-change", "tool-trust-change",
-            "environment-change", "source-obligation-change",
-            "floor-selection-change", "delivery-change", "artifact-change", "expiry",
-        ],
-    }
-    value = {
-        "schema": "cut-quality-permit/1",
-        "permit_id": hashlib.sha256(json.dumps(
-            payload, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")).hexdigest(),
-        "payload": payload,
-    }
-    Path(path).write_text(json.dumps(value), encoding="utf-8")
-    return str(path)
+    Receipt replay is covered directly in test_cut_quality_permits.py.  These
+    subprocess tests own result-file/import isolation and must not mint the
+    hash-only synthetic permits that v3.66.1205 deliberately retired.
+    """
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", name)
+    loader = (
+        "import importlib.machinery,importlib.util,sys;"
+        "p=sys.argv.pop(1);"
+        "l=importlib.machinery.SourceFileLoader('authorized_band_uut',p);"
+        "s=importlib.util.spec_from_loader(l.name,l);"
+        "m=importlib.util.module_from_spec(s);l.exec_module(m);"
+        "m.cut_quality.enforce=lambda *a,**k:True;"
+        "raise SystemExit(m.main(sys.argv[1:]))"
+    )
+    env = dict(os.environ)
+    env["BD_LAST_BAND"] = results_path
+    return subprocess.run(
+        [sys.executable, "-c", loader, tool] + list(args),
+        cwd=str(_REPO_ROOT), capture_output=True, text=True,
+        timeout=timeout, env=env,
+    )
 
 
 def _permitted_band_tool(name, args, results_path, timeout=300, repo=_REPO_ROOT):
-    permit = _write_exact_cut_quality_permit(
-        repo, Path(results_path).with_name("cut-quality-permit.json"))
-    return _band_tool(
-        name, list(args) + ["--cut-quality-permit", permit], results_path,
-        timeout=timeout,
-    )
+    assert Path(repo).resolve() == Path(_REPO_ROOT).resolve()
+    return _authorized_band_tool(name, args, results_path, timeout=timeout)
 
 
 def test_parband_missing_permit_refuses_before_suite_dispatch():
@@ -2423,8 +2364,7 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
     """
     import tempfile
     root = str(_REPO_ROOT)
-    band_tool = os.path.join(root, "toolchain", "bin", "bd-band")
-    with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as permit_td:
+    with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as evidence_td:
         os.makedirs(os.path.join(td, "tests"))
         with open(os.path.join(td, "tests", "test_zero.py"), "w") as fh:
             fh.write("class Helper:\n    def test_would_fail(self):\n        assert False\n")
@@ -2441,9 +2381,9 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
         except OSError:
             pass
 
-        # The protected floor requires an exact clean candidate.  Ignore only
-        # pytest's generated caches, commit this tiny synthetic subject, and
-        # mint the permit outside it so issuance cannot dirty its own identity.
+        # Ignore only pytest's generated caches and commit the tiny synthetic
+        # subject. Authorization is injected by _authorized_band_tool; receipt
+        # replay itself has direct executable tests in its owning module.
         with open(os.path.join(td, ".gitignore"), "w") as fh:
             fh.write(".pytest_cache/\n__pycache__/\n*.pyc\n")
         subprocess.run(["git", "-C", td, "init", "-q"], check=True)
@@ -2454,13 +2394,10 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
         subprocess.run(["git", "-C", td, "add", "."], check=True)
         subprocess.run(["git", "-C", td, "commit", "-qm", "candidate"],
                        check=True)
-        permit = _write_exact_cut_quality_permit(
-            td, os.path.join(permit_td, "permit.json"))
-
-        r = subprocess.run([sys.executable, band_tool, "--work", td,
-                            "--skip-bandcheck", "tests/test_zero.py",
-                            "--cut-quality-permit", permit],
-                           cwd=root, capture_output=True, text=True, timeout=300)
+        r = _authorized_band_tool(
+            "bd-band", ["--work", td, "--skip-bandcheck", "tests/test_zero.py"],
+            os.path.join(evidence_td, "zero-band.json"), timeout=300,
+        )
         out = r.stdout + r.stderr
         assert r.returncode != 0, (
             "a zero-collect SUITE went green -- that undoes @860, which exists "
@@ -2469,10 +2406,10 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
             "the runner said 'nothing was proven' and bd-band did not pass it "
             "on; the operator sees FAIL beside 'Failed: 0':\n" + out)
 
-        ok = subprocess.run([sys.executable, band_tool, "--work", td,
-                             "--skip-bandcheck", "tests/test_real.py",
-                             "--cut-quality-permit", permit],
-                            cwd=root, capture_output=True, text=True, timeout=300)
+        ok = _authorized_band_tool(
+            "bd-band", ["--work", td, "--skip-bandcheck", "tests/test_real.py"],
+            os.path.join(evidence_td, "real-band.json"), timeout=300,
+        )
         assert ok.returncode == 0, (
             "a real passing suite must stay green:\n" + ok.stdout + ok.stderr)
 

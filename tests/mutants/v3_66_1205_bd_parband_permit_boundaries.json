@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 bd-parband initial and last-pre-executor permit boundaries.",
+  "subject": "bd-parband refuses before target validation and rechecks before executor construction",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_bd_parband_initial_guard_precedes_target_validation",
+    "tests/test_cut_quality_permits.py::test_bd_parband_valid_permit_reaches_fake_executor",
+    "tests/test_cut_quality_permits.py::test_bd_parband_rechecks_before_executor"
+  ],
+  "mutants": [
+    {
+      "label": "PAR1-initial",
+      "file": "toolchain/bin/bd-parband",
+      "old": "    if not _permit_ok():\n        return 2\n\n    # Door check.",
+      "new": "    if False and not _permit_ok():\n        return 2\n\n    # Door check.",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_parband_initial_guard_precedes_target_validation",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "target validation ran before initial permit refusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_parband_valid_permit_reaches_fake_executor"
+      ]
+    },
+    {
+      "label": "PAR2-recheck",
+      "file": "toolchain/bin/bd-parband",
+      "old": "    if not _permit_ok():\n        return 2\n    print(f\"{BOLD}parallel band",
+      "new": "    if False and not _permit_ok():\n        return 2\n    print(f\"{BOLD}parallel band",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_parband_rechecks_before_executor",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "executor constructed after the permit went stale"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_parband_valid_permit_reaches_fake_executor"
+      ]
+    }
+  ]
+}

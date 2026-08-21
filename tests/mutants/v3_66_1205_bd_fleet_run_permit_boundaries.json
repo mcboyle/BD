@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 fleet initial and last-pre-artifact/dispatch permit boundaries.",
+  "subject": "bd-fleet-run refuses before inventory access and rechecks before artifacts and dispatch",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_fleet_initial_guard_precedes_inventory_or_host_resolution",
+    "tests/test_cut_quality_permits.py::test_fleet_valid_permit_reaches_fake_runner",
+    "tests/test_cut_quality_permits.py::test_fleet_rechecks_before_artifact_or_dispatch"
+  ],
+  "mutants": [
+    {
+      "label": "FLEET1-initial",
+      "file": "toolchain/bin/bd-fleet-run",
+      "old": "    if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(\n            args.repo_dir, args.cut_quality_permit, \"pre-fleet\", consumer_path=__file__):\n        return 2\n\n    hosts_path =",
+      "new": "    if False and args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(\n            args.repo_dir, args.cut_quality_permit, \"pre-fleet\", consumer_path=__file__):\n        return 2\n\n    hosts_path =",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_fleet_initial_guard_precedes_inventory_or_host_resolution",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "inventory loaded before initial permit refusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_fleet_valid_permit_reaches_fake_runner"
+      ]
+    },
+    {
+      "label": "FLEET2-recheck",
+      "file": "toolchain/bin/bd-fleet-run",
+      "old": "    if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(\n            args.repo_dir, args.cut_quality_permit, \"pre-fleet\", consumer_path=__file__):\n        return 2\n    base = validate_root(args.root)",
+      "new": "    if False and args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(\n            args.repo_dir, args.cut_quality_permit, \"pre-fleet\", consumer_path=__file__):\n        return 2\n    base = validate_root(args.root)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_fleet_rechecks_before_artifact_or_dispatch",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 1 == 2"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_fleet_valid_permit_reaches_fake_runner"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 pre-merge verdict permit boundary.",
+  "subject": "bd-ci-verdict refuses before constructing GitHub grading",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_protected_execution_surfaces_refuse_before_action_import_level[bd-ci-verdict]",
+    "tests/test_cut_quality_permits.py::test_ci_valid_permit_reaches_fake_verdict"
+  ],
+  "mutants": [
+    {
+      "label": "CI1-boundary",
+      "file": "toolchain/bin/bd-ci-verdict",
+      "old": "        if not cut_quality.enforce(\n                repo, args.cut_quality_permit, \"pre-merge\", consumer_path=__file__):\n            return EXIT_REFUSE\n    return main_verdict(args)",
+      "new": "        if False and not cut_quality.enforce(\n                repo, args.cut_quality_permit, \"pre-merge\", consumer_path=__file__):\n            return EXIT_REFUSE\n    return main_verdict(args)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_protected_execution_surfaces_refuse_before_action_import_level[bd-ci-verdict]",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "protected action subprocess constructed before permit"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_ci_valid_permit_reaches_fake_verdict"
+      ]
+    }
+  ]
+}

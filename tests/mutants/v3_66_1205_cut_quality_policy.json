@@ -1,0 +1,41 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 policy trust-root and protected-consumer denominator.",
+  "subject": "cut-quality policy selects the exact checker and hashes every protected consumer",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1",
+    "tests/test_cut_quality_permits.py::test_policy_binds_every_protected_consumer_blob"
+  ],
+  "mutants": [
+    {
+      "label": "POL1-active-checker",
+      "file": "toolchain/cut_quality_policy.json",
+      "old": "\"resolver_env\": \"BD_CUT_QUALITY_VALIDATOR\"",
+      "new": "\"resolver_env\": \"PATH\"",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "BD_CUT_QUALITY_VALIDATOR"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_policy_binds_every_protected_consumer_blob"
+      ]
+    },
+    {
+      "label": "POL2-consumer-denominator",
+      "file": "toolchain/cut_quality_policy.json",
+      "old": "\"toolchain/bin/bd-parband\"",
+      "new": "\"toolchain/bin/bd-parband-omitted\"",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_policy_binds_every_protected_consumer_blob",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "toolchain/bin/bd-parband"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1"
+      ]
+    }
+  ]
+}
