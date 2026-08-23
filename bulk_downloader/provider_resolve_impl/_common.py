@@ -3,6 +3,7 @@ helpers + _make_default_http_get + the _default_http_get module-level instance.
 Sink. Lazy `from . import global_config/honeypot_*` absolutized to `..`."""
 
 from __future__ import annotations
+from contextvars import ContextVar
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from urllib.parse import quote as _urlquote, urlparse as _urlparse, parse_qs as 
 
 import sys as _sys  # H-07 shim capture
 _PR_SHIM_REF = _sys.modules.get("bulk_downloader.provider_resolve")
+_PR_SHIM_CONTEXT = ContextVar("provider_resolve_facade", default=None)
 
 
 def __pr_shim():
@@ -23,6 +25,9 @@ def __pr_shim():
     # imported, the function a test invokes (via its collection-time `pr`)
     # still reads the SAME object that test monkeypatched -- a call-time
     # sys.modules re-fetch would return the reloaded twin and miss the patch.
+    contextual = _PR_SHIM_CONTEXT.get()
+    if contextual is not None:
+        return contextual
     global _PR_SHIM_REF
     if _PR_SHIM_REF is None:
         import bulk_downloader.provider_resolve as _m
