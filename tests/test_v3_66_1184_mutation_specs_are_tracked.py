@@ -79,6 +79,19 @@ def _defined_nodeids(path: Path) -> set[str]:
     return found
 
 
+def _defined_base_nodeid(nodeid: str) -> str | None:
+    head, sep, leaf = nodeid.rpartition("::")
+    if not sep or not leaf:
+        return None
+    if "[" not in leaf:
+        return nodeid
+    base, bracket, parameter = leaf.partition("[")
+    if (not bracket or not base or not parameter.endswith("]")
+            or parameter == "]" or "[" in parameter[:-1]):
+        return None
+    return f"{head}::{base}"
+
+
 def _write_synthetic_tree(tmp_path: Path) -> tuple[Path, str]:
     (tmp_path / "tests").mkdir()
     (tmp_path / "m.py").write_text("def value():\n    return 1\n", encoding="utf-8")
@@ -105,9 +118,46 @@ def _run_tool(work: Path, spec: object, *extra: str) -> subprocess.CompletedProc
     )
 
 
+def _collect_spec_band(path: Path, band: list[str]) -> subprocess.CompletedProcess[str]:
+    """Collect one tracked band under a CI-realistic, path-attributed bound."""
+    command = [
+        sys.executable, "-m", "pytest", "--collect-only", "-q",
+        "-p", "no:randomly", *band,
+    ]
+    try:
+        return subprocess.run(
+            command,
+            cwd=_REPO,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial = "".join(
+            value.decode("utf-8", "replace") if isinstance(value, bytes) else value or ""
+            for value in (exc.stdout, exc.stderr)
+        )
+        raise AssertionError(
+            f"{path}: recorded band collection exceeded 600 seconds:\n"
+            f"{partial[-2000:]}"
+        ) from None
+
+
 def test_a_tracked_mutation_spec_exists_at_all():
     specs = _tracked_specs()
     assert specs, "tracked tests/mutants/*.json denominator is 0"
+
+
+def test_spec_collection_timeout_is_reported_with_its_path(monkeypatch, tmp_path):
+    """A slow collector is a named spec failure, not an uncaught traceback."""
+    spec_path = tmp_path / "slow-spec.json"
+
+    def time_out(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"], output="partial")
+
+    monkeypatch.setattr(subprocess, "run", time_out)
+    with pytest.raises(AssertionError, match="slow-spec.json.*600 seconds"):
+        _collect_spec_band(spec_path, ["tests/test_slow.py"])
 
 
 def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
@@ -133,6 +183,7 @@ def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
             assert rel in tracked and (_REPO / rel).is_file(), (
                 f"{path}: band target is absent or untracked: {target}"
             )
+        named_references = []
         mutants = document["mutants"]
         assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
         for mutant in mutants:
@@ -152,22 +203,42 @@ def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
                     f"{path}: {field} must be a non-empty string"
                 )
             assert mutant["file"] in tracked, f"{path}: untracked subject {mutant['file']}"
-            named = [mutant["catcher"]] if direction == "regression" else [
-                mutant["control"], *mutant["preserves"]]
             if direction == "overcorrection":
                 assert isinstance(mutant["control"], str) and mutant["control"], path
                 assert isinstance(mutant["preserves"], list) and mutant["preserves"], path
                 assert len(mutant["preserves"]) == len(set(mutant["preserves"])), path
                 assert mutant["control"] not in mutant["preserves"], path
+                named = [mutant["control"], *mutant["preserves"]]
+            else:
+                named = [mutant["catcher"]]
+            named_references.extend(named)
             for nodeid in named:
                 assert isinstance(nodeid, str) and nodeid, f"{path}: invalid nodeid"
                 node_path = nodeid.split("::", 1)[0]
                 assert node_path in tracked and (_REPO / node_path).is_file(), (
                     f"{path}: named test path is absent or untracked: {nodeid}"
                 )
-                assert nodeid in _defined_nodeids(_REPO / node_path), (
+                base_nodeid = _defined_base_nodeid(nodeid)
+                assert (base_nodeid is not None
+                        and base_nodeid in _defined_nodeids(_REPO / node_path)), (
                     f"{path}: nodeid is not a defined test: {nodeid}"
                 )
+        collected = _collect_spec_band(path, band)
+        assert collected.returncode == 0, (
+            f"{path}: recorded band did not collect cleanly:\n"
+            f"{(collected.stdout + collected.stderr)[-2000:]}"
+        )
+        collected_nodeids = []
+        for raw_line in collected.stdout.splitlines():
+            nodeid = raw_line.strip()
+            node_path = nodeid.split("::", 1)[0]
+            if "::" in nodeid and node_path in tracked and (_REPO / node_path).is_file():
+                collected_nodeids.append(nodeid)
+        for nodeid in named_references:
+            assert collected_nodeids.count(nodeid) == 1, (
+                f"{path}: named nodeid must identify one exact collected test; "
+                f"{nodeid!r} appeared {collected_nodeids.count(nodeid)} times"
+            )
         checked += 1
     assert checked == len(specs), f"schema reader checked {checked} of {len(specs)} specs"
 
@@ -220,6 +291,42 @@ def test_object_form_uses_its_recorded_band_and_is_rerunnable(tmp_path):
     assert run.returncode == 0, run.stdout + run.stderr
     payload = json.loads(run.stdout[run.stdout.index("{"):])
     assert payload["rows"][0]["verdict"] == "CAUGHT", payload
+
+
+def test_named_reference_must_resolve_to_one_exact_collected_case(tmp_path):
+    """A parameterized base name cannot provide one attributable verdict."""
+    work, band = _write_synthetic_tree(tmp_path)
+    (work / "tests" / "test_m.py").write_text(
+        "import importlib\n"
+        "import pytest\n"
+        "import m\n"
+        "@pytest.mark.parametrize('expected', [1, 1])\n"
+        "def test_value(expected):\n"
+        "    importlib.reload(m)\n"
+        "    assert m.value() == expected\n",
+        encoding="utf-8",
+    )
+    spec = {
+        "schema": _SCHEMA,
+        "_comment": "a base node cannot identify one parameter case",
+        "subject": "named verdicts are attributable to exactly one case",
+        "band": [band],
+        "mutants": [{
+            "label": "return 1 becomes 2",
+            "file": "m.py",
+            "old": "return 1",
+            "new": "return 2",
+            "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }],
+    }
+    before = (work / "m.py").read_bytes()
+    run = _run_tool(work, spec, "--json")
+    assert run.returncode == 2
+    assert "named nodeid is not one exact collected test" in run.stderr
+    payload = json.loads(run.stdout[run.stdout.index("{"):])
+    assert payload["rows"] == []
+    assert (work / "m.py").read_bytes() == before
 
 
 def test_the_legacy_bare_list_form_stays_runnable(tmp_path):

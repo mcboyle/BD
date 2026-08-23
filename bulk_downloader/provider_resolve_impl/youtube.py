@@ -9,7 +9,7 @@ import subprocess
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote as _urlquote, urlparse as _urlparse, parse_qs as _parse_qs
 
-from ._common import _coerce_int
+from ._common import _PR_SHIM_CONTEXT, _coerce_int
 
 
 import sys as _sys  # H-07 shim capture
@@ -23,6 +23,9 @@ def __pr_shim():
     # imported, the function a test invokes (via its collection-time `pr`)
     # still reads the SAME object that test monkeypatched -- a call-time
     # sys.modules re-fetch would return the reloaded twin and miss the patch.
+    contextual = _PR_SHIM_CONTEXT.get()
+    if contextual is not None:
+        return contextual
     global _PR_SHIM_REF
     if _PR_SHIM_REF is None:
         import bulk_downloader.provider_resolve as _m

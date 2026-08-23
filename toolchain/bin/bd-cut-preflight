@@ -617,6 +617,19 @@ def battery(repo, timeout, files_override, changed_from, logdir):
                          "could not read a count out of bd-jobs orphans -- "
                          "the process table was not inspected, which is not the "
                          "same as finding none"))
+        elif r_o["rc"] == 4:
+            # @1207. THE COUNT IS OVER AN INCOMPLETE DENOMINATOR. bd-jobs exits
+            # 4 when part of its own registry could not be read, and its count
+            # sentence is still printed -- deliberately, so this regex keeps
+            # working. Grading on the number alone would convert row 212's
+            # required UNKNOWN into a PASS inside the cut's own sanctioned gate:
+            # a process it called unregistered may be registered in a file
+            # nobody could parse, and vice versa.
+            rows.append((UNKNOWN, "orphans",
+                         "bd-jobs could not read part of its own registry "
+                         "(exit 4), so the '%s unregistered' count above is "
+                         "over an INCOMPLETE denominator -- see the UNREADABLE "
+                         "line(s) in the log" % m_o.group(1)))
         elif int(m_o.group(1)) > 0:
             rows.append((FAIL, "orphans",
                          "%s unregistered pytest process(es) on this host -- an "
