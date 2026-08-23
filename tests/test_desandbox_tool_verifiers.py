@@ -52,8 +52,14 @@ labelled regression guard that passes today and is not counted as RED.
 from __future__ import annotations
 
 import ast
+import errno
+import hashlib
+import inspect
+import json
 import os
 import re
+import shlex
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -64,6 +70,7 @@ REPO = Path(__file__).resolve().parents[1]
 BIN = REPO / "toolchain" / "bin"
 MT = BIN / "bd-mutation-test"
 BD = BIN / "bd-band-derive"
+_PYTEST_FAILURE = getattr(pytest.fail, "Exception", AssertionError)
 
 
 def _load_mt():
@@ -83,6 +90,85 @@ def _load_mt():
         if str(BIN) in sys.path:
             sys.path.remove(str(BIN))
     return mod
+
+
+def _load_bd_mutate(path=BIN / "bd-mutate"):
+    import importlib.machinery
+    import importlib.util
+    name = "bd_mutate_under_test_%s" % os.getpid()
+    spec = importlib.util.spec_from_loader(
+        name, importlib.machinery.SourceFileLoader(name, str(path)))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _descriptor_identity(fstat, fd):
+    observed = fstat(fd)
+    return (fd, observed.st_dev, observed.st_ino,
+            stat.S_IFMT(observed.st_mode))
+
+
+def _close_if_same_owner(original_fstat, original_close, expected):
+    try:
+        current = _descriptor_identity(original_fstat, expected[0])
+    except OSError:
+        return
+    if current == expected:
+        original_close(expected[0])
+
+
+def _assert_owner_is_settled(original_fstat, expected):
+    try:
+        current = _descriptor_identity(original_fstat, expected[0])
+    except OSError:
+        return
+    assert current != expected, (
+        f"descriptor owner remains open after settlement: {expected!r}")
+
+
+def _close_call_owners(path):
+    """Return the non-empty enclosing-function census for explicit closes."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    owners = []
+
+    class CloseVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.functions = []
+
+        def visit_FunctionDef(self, node):
+            self.functions.append(node.name)
+            self.generic_visit(node)
+            self.functions.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            function = node.func
+            if (isinstance(function, ast.Attribute) and
+                    function.attr == "close" and
+                    isinstance(function.value, ast.Name) and
+                    function.value.id == "os"):
+                assert self.functions, (
+                    f"module-level os.close is outside an owner funnel: {path}")
+                owners.append(self.functions[-1])
+            self.generic_visit(node)
+
+    CloseVisitor().visit(tree)
+    assert owners, f"explicit os.close denominator is empty: {path}"
+    return owners
+
+
+def test_mutation_tool_fd_closes_are_centralized_in_one_funnel_per_tool():
+    observed = {
+        str(path.relative_to(REPO)): _close_call_owners(path)
+        for path in (BIN / "bd-mutate", BIN / "bd-mutation-test")
+    }
+
+    assert observed == {
+        "toolchain/bin/bd-mutate": ["_settle_owned_fds"],
+        "toolchain/bin/bd-mutation-test": ["_settle_descriptors"],
+    }
 
 
 # ── the registry must not re-sandbox the interpreter or the tree ─────────────
@@ -135,6 +221,1498 @@ def test_no_row_copies_a_tree_that_does_not_exist():
     assert not bad, (
         "these rows copy a source tree that is not present:\n  "
         + "\n  ".join(bad))
+
+
+def test_mutation_snapshot_excludes_untracked_runtime_entries(tmp_path):
+    """A transient untracked entry cannot enter the mutation subject.
+
+    The exact fleet failure this catches was an untracked repo-root probe that
+    disappeared after copytree enumerated it. The gate's baseline requires the
+    runtime entry to be absent, so the old unrestricted copy fails without a
+    timing race.
+    """
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    (source / "gate.py").write_text(
+        "from pathlib import Path\n"
+        "ok = (Path('feature.txt').read_text() == 'PRESENT\\n' and "
+        "not Path('_u27_secret_probe.py').exists())\n"
+        "raise SystemExit(0 if ok else 1)\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "feature.txt", "gate.py"],
+                   cwd=source, check=True)
+    transient = source / "_u27_secret_probe.py"
+    transient.write_text("runtime-only\n", encoding="utf-8")
+    assert transient.exists()
+    row = {
+        "id": "snapshot/untracked-runtime-entry",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": "{py} gate.py",
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "CAUGHT", result
+    assert transient.read_text(encoding="utf-8") == "runtime-only\n"
+    assert (source / "feature.txt").read_text(encoding="utf-8") == "PRESENT\n"
+
+
+@pytest.mark.parametrize(
+    "dependency,write_phase",
+    (("venv", "baseline"), ("venv", "mutant"),
+     ("frontend/node_modules", "baseline"),
+     ("frontend/node_modules", "mutant")),
+    ids=("python-baseline", "python-mutant",
+         "node-baseline", "node-mutant"),
+)
+def test_mutation_dependency_write_never_reaches_source(
+        tmp_path, dependency, write_phase):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    dep = source / dependency
+    dep.mkdir(parents=True)
+    (dep / "identity.txt").write_text("SEALED\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    calls = tmp_path / "gate-calls"
+    rel = shlex.quote(dependency)
+    value = "PRESENT" if write_phase == "baseline" else "ABSENT"
+    gate = (
+        f"printf x >> {shlex.quote(str(calls))}; "
+        f"if grep -q {value} feature.txt; then "
+        f"printf polluted > {rel}/source-polluted; fi; "
+        "grep -q PRESENT feature.txt"
+    )
+    row = {
+        "id": f"snapshot/private-{dependency}",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": gate,
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert dependency in result["detail"]
+    expected_calls = "x" if write_phase == "baseline" else "xx"
+    assert calls.read_text(encoding="utf-8") == expected_calls
+    assert not (dep / "source-polluted").exists()
+    assert (dep / "identity.txt").read_text(encoding="utf-8") == "SEALED\n"
+
+
+def test_mutation_baseline_red_cannot_hide_a_dependency_write(tmp_path):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    dep = source / "venv"
+    dep.mkdir()
+    (dep / "identity.txt").write_text("SEALED\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    row = {
+        "id": "snapshot/baseline-red-dependency-write",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": "printf polluted > venv/source-polluted; false",
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "snapshot integrity failed" in result["detail"]
+    assert "venv" in result["detail"]
+    assert not (dep / "source-polluted").exists()
+    assert (dep / "identity.txt").read_text(encoding="utf-8") == "SEALED\n"
+
+
+@pytest.mark.parametrize("dependency", ("venv", "frontend/node_modules"))
+def test_mutation_dependency_authority_rejects_an_external_symlink(
+        tmp_path, dependency):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "identity.txt").write_text("EXTERNAL\n", encoding="utf-8")
+    authority = source / dependency
+    authority.parent.mkdir(parents=True, exist_ok=True)
+    authority.symlink_to(outside, target_is_directory=True)
+    calls = []
+    row = {
+        "id": f"snapshot/external-{dependency}",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": "true",
+    }
+    original_run = mod._run
+    mod._run = lambda *args, **kwargs: calls.append(args) or original_run(
+        *args, **kwargs)
+    try:
+        result = mod.check(row, str(source))
+    finally:
+        mod._run = original_run
+
+    assert result["state"] == "UNKNOWN", result
+    assert dependency in result["detail"]
+    assert calls == []
+    assert (outside / "identity.txt").read_text(encoding="utf-8") == "EXTERNAL\n"
+
+
+@pytest.mark.parametrize("write_phase", ("baseline", "mutant"))
+def test_mutation_tracked_write_is_unknown_not_caught(tmp_path, write_phase):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    (source / "guard.txt").write_text("CLEAN\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt", "guard.txt"],
+                   cwd=source, check=True)
+    calls = tmp_path / "gate-calls"
+    write_marker = "PRESENT" if write_phase == "baseline" else "ABSENT"
+    gate = (
+        f"printf x >> {shlex.quote(str(calls))}; "
+        f"if grep -q {write_marker} feature.txt; then "
+        "printf 'DIRTY\\n' > guard.txt; fi; "
+        "grep -q CLEAN guard.txt"
+    )
+    row = {
+        "id": f"snapshot/{write_phase}-tracked-write",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": gate,
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "snapshot integrity failed" in result["detail"]
+    assert "tracked snapshot changed during gate" in result["detail"]
+    assert "guard.txt" in result["detail"]
+    expected_calls = "x" if write_phase == "baseline" else "xx"
+    assert calls.read_text(encoding="utf-8") == expected_calls
+    assert (source / "guard.txt").read_text(encoding="utf-8") == "CLEAN\n"
+
+
+def test_mutation_baseline_red_cannot_hide_a_tracked_write(tmp_path):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    (source / "guard.txt").write_text("CLEAN\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt", "guard.txt"],
+                   cwd=source, check=True)
+    row = {
+        "id": "snapshot/baseline-red-tracked-write",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": "printf 'DIRTY\\n' > guard.txt; false",
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "tracked snapshot changed during gate" in result["detail"]
+    assert "guard.txt" in result["detail"]
+    assert (source / "guard.txt").read_text(encoding="utf-8") == "CLEAN\n"
+
+
+@pytest.mark.parametrize("link_kind", ("absolute", "relative"))
+def test_mutation_dependency_nested_escape_is_unknown_without_source_write(
+        tmp_path, link_kind):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    dependency = source / "frontend" / "node_modules"
+    dependency.mkdir(parents=True)
+    outside = source / "outside-owned"
+    outside.mkdir()
+    target = (str(outside) if link_kind == "absolute" else
+              os.path.relpath(outside, dependency))
+    (dependency / "escape").symlink_to(target, target_is_directory=True)
+    calls = tmp_path / "gate-calls"
+    row = {
+        "id": f"snapshot/nested-{link_kind}-escape",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": (
+            f"printf x >> {shlex.quote(str(calls))}; "
+            "printf polluted > frontend/node_modules/escape/source-polluted; "
+            "grep -q PRESENT feature.txt"
+        ),
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "external dependency link" in result["detail"]
+    assert not calls.exists()
+    assert not (outside / "source-polluted").exists()
+
+
+def test_mutation_snapshot_preserves_a_tracked_worktree_deletion(tmp_path):
+    """An already-absent cached path is a legitimate working-tree state."""
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    deleted = source / "deleted.txt"
+    deleted.write_text("tracked then removed\n", encoding="utf-8")
+    (source / "gate.py").write_text(
+        "from pathlib import Path\n"
+        "ok = (Path('feature.txt').read_text() == 'PRESENT\\n' and "
+        "not Path('deleted.txt').exists())\n"
+        "raise SystemExit(0 if ok else 1)\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "feature.txt", "deleted.txt", "gate.py"],
+                   cwd=source, check=True)
+    deleted.unlink()
+    assert not deleted.exists()
+    row = {
+        "id": "snapshot/tracked-deletion",
+        "why": "fixture",
+        "target": "feature.txt",
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": "{py} gate.py",
+    }
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "CAUGHT", result
+    assert not deleted.exists()
+    assert (source / "feature.txt").read_text(encoding="utf-8") == "PRESENT\n"
+
+
+def _snapshot_fixture_row(target="feature.txt"):
+    return {
+        "id": "snapshot/trust-boundary",
+        "why": "fixture",
+        "target": target,
+        "mutate": lambda text: text.replace("PRESENT", "ABSENT"),
+        "gate": "true",
+    }
+
+
+def test_mutation_snapshot_rejects_a_regular_target_replaced_by_symlink(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    target = source / "feature.txt"
+    target.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("PRESENT\n", encoding="utf-8")
+    target.unlink()
+    target.symlink_to(outside)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert gate_calls == []
+    assert outside.read_text(encoding="utf-8") == "PRESENT\n"
+
+
+def test_mutation_snapshot_rejects_a_symlinked_parent_component(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    tracked_parent = source / "owned"
+    tracked_parent.mkdir(parents=True)
+    target = tracked_parent / "feature.txt"
+    target.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "owned/feature.txt"], cwd=source, check=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_target = outside / "feature.txt"
+    outside_target.write_text("PRESENT\n", encoding="utf-8")
+    target.unlink()
+    tracked_parent.rmdir()
+    tracked_parent.symlink_to(outside, target_is_directory=True)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row("owned/feature.txt"), str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert gate_calls == []
+    assert outside_target.read_text(encoding="utf-8") == "PRESENT\n"
+
+
+def test_mutation_snapshot_rejects_a_tracked_symlink(tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("PRESENT\n", encoding="utf-8")
+    (source / "feature.txt").symlink_to(outside)
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "unsupported Git index mode '120000'" in result["detail"], result
+    assert gate_calls == []
+    assert outside.read_text(encoding="utf-8") == "PRESENT\n"
+
+
+def test_mutation_snapshot_refuses_an_unmarked_non_git_subject(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert gate_calls == []
+
+
+def test_snapshot_failure_is_one_structured_unknown_json_result(
+        tmp_path, monkeypatch, capsys):
+    import json
+
+    mod = _load_mt()
+    source = tmp_path / "not-git"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    row = _snapshot_fixture_row()
+    monkeypatch.setattr(mod, "REGISTRY", [row])
+    monkeypatch.setattr(
+        sys, "argv",
+        [str(MT), "--only", row["id"], "--work", str(source), "--json"],
+    )
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    rc = mod.main()
+    streams = capsys.readouterr()
+    payload = json.loads(streams.out)
+
+    assert rc == 1
+    assert streams.err == ""
+    assert payload["total"] == len(payload["results"]) == 1
+    assert payload["caught"] == 0
+    assert payload["failing"] == [row["id"]]
+    assert payload["results"][0]["state"] == "UNKNOWN"
+    assert gate_calls == []
+
+
+@pytest.mark.parametrize(
+    "failure_point", ("fstat", "mkdir", "destination_open"))
+def test_mutation_snapshot_closes_source_root_when_setup_fails(
+        tmp_path, monkeypatch, failure_point):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    destination = tmp_path / f"snapshot-{failure_point}"
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    original_mkdir = os.mkdir
+    source_fds = []
+    closed_fds = []
+    injected_fstat = []
+
+    def recording_open(path, flags, *args, **kwargs):
+        if (failure_point == "destination_open" and
+                os.fspath(path) == str(destination)):
+            raise PermissionError("injected destination open failure")
+        fd = original_open(path, flags, *args, **kwargs)
+        if os.fspath(path) == str(source):
+            source_fds.append(fd)
+        return fd
+
+    def failing_fstat(fd):
+        if (failure_point == "fstat" and fd in source_fds and
+                not injected_fstat):
+            injected_fstat.append(fd)
+            raise PermissionError("injected source fstat failure")
+        return original_fstat(fd)
+
+    def recording_close(fd):
+        closed_fds.append(fd)
+        return original_close(fd)
+
+    def failing_mkdir(path, *args, **kwargs):
+        if failure_point == "mkdir" and os.fspath(path) == str(destination):
+            raise PermissionError("injected destination mkdir failure")
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "close", recording_close)
+    monkeypatch.setattr(mod.os, "fstat", failing_fstat)
+    monkeypatch.setattr(mod.os, "mkdir", failing_mkdir)
+
+    with pytest.raises(PermissionError):
+        mod._snapshot_tree(str(source), str(destination))
+
+    assert len(source_fds) == 1
+    assert bool(injected_fstat) == (failure_point == "fstat")
+    try:
+        assert source_fds[0] in closed_fds
+    finally:
+        if source_fds[0] not in closed_fds:
+            original_close(source_fds[0])
+
+
+def test_mutation_snapshot_allocates_manifest_before_owning_source_root(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    destination = tmp_path / "snapshot"
+    original_open = os.open
+    original_close = os.close
+    source_fds = []
+    lines, first_line = inspect.getsourcelines(mod._snapshot_tree)
+    manifest_line = first_line + next(
+        index for index, line in enumerate(lines)
+        if line.strip() == "manifest = {}"
+    )
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        if os.fspath(path) == str(source):
+            source_fds.append(fd)
+        return fd
+
+    def fail_at_manifest(frame, event, _arg):
+        if (frame.f_code is mod._snapshot_tree.__code__ and event == "line" and
+                frame.f_lineno == manifest_line):
+            raise RuntimeError("injected manifest setup failure")
+        return fail_at_manifest
+
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    sys.settrace(fail_at_manifest)
+    try:
+        with pytest.raises(RuntimeError, match="manifest setup failure"):
+            mod._snapshot_tree(str(source), str(destination))
+    finally:
+        sys.settrace(None)
+        for fd in source_fds:
+            try:
+                original_close(fd)
+            except OSError:
+                pass
+
+    assert source_fds == []
+
+
+@pytest.mark.parametrize("layer", ("leaf", "root"))
+def test_mutation_snapshot_close_failure_does_not_skip_later_owned_fd(
+        tmp_path, monkeypatch, layer):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    destination = tmp_path / f"snapshot-{layer}"
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    owned = {"source_root": [], "destination_root": [],
+             "source_leaf": [], "destination_leaf": []}
+    close_attempts = []
+    injected = []
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        opened = original_fstat(fd)
+        identity = (fd, opened.st_dev, opened.st_ino,
+                    stat.S_IFMT(opened.st_mode))
+        raw_path = os.fspath(path)
+        if raw_path == str(source):
+            owned["source_root"].append(identity)
+        elif raw_path == str(destination):
+            owned["destination_root"].append(identity)
+        elif raw_path == b"feature.txt":
+            access = flags & os.O_ACCMODE
+            key = ("source_leaf" if access == os.O_RDONLY
+                   else "destination_leaf")
+            owned[key].append(identity)
+        return fd
+
+    def close_first_then_raise(fd):
+        current = original_fstat(fd)
+        identity = (fd, current.st_dev, current.st_ino,
+                    stat.S_IFMT(current.st_mode))
+        close_attempts.append(identity)
+        target = owned[f"destination_{layer}"]
+        if target and identity == target[0] and not injected:
+            original_close(fd)
+            injected.append(identity)
+            raise OSError(f"injected destination {layer} close failure")
+        return original_close(fd)
+
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "close", close_first_then_raise)
+
+    try:
+        with pytest.raises(OSError, match=f"destination {layer} close"):
+            mod._snapshot_tree(str(source), str(destination))
+
+        assert len(injected) == 1
+        assert len(owned[f"source_{layer}"]) == 1
+        assert owned[f"source_{layer}"][0] in close_attempts
+    finally:
+        for descriptors in owned.values():
+            for identity in descriptors:
+                if identity not in close_attempts:
+                    fd = identity[0]
+                    try:
+                        current = original_fstat(fd)
+                    except OSError:
+                        continue
+                    current_identity = (fd, current.st_dev, current.st_ino,
+                                        stat.S_IFMT(current.st_mode))
+                    if current_identity == identity:
+                        original_close(fd)
+
+
+@pytest.mark.parametrize("layer", ("leaf", "root"))
+def test_mutation_snapshot_cleanup_failure_preserves_primary_error(
+        tmp_path, monkeypatch, layer):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    destination = tmp_path / f"snapshot-{layer}"
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    original_read = os.read
+    original_git_index = mod._git_index
+    owned = {"source_root": [], "destination_root": [],
+             "source_leaf": [], "destination_leaf": []}
+    close_attempts = []
+    primary_injected = []
+    close_injected = []
+    index_calls = []
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        opened = original_fstat(fd)
+        identity = (fd, opened.st_dev, opened.st_ino,
+                    stat.S_IFMT(opened.st_mode))
+        raw_path = os.fspath(path)
+        if raw_path == str(source):
+            owned["source_root"].append(identity)
+        elif raw_path == str(destination):
+            owned["destination_root"].append(identity)
+        elif raw_path == b"feature.txt":
+            access = flags & os.O_ACCMODE
+            key = ("source_leaf" if access == os.O_RDONLY
+                   else "destination_leaf")
+            owned[key].append(identity)
+        return fd
+
+    def failing_read(fd, size):
+        if layer == "leaf" and owned["source_leaf"] and not primary_injected:
+            current = original_fstat(fd)
+            identity = (fd, current.st_dev, current.st_ino,
+                        stat.S_IFMT(current.st_mode))
+            if identity == owned["source_leaf"][0]:
+                primary_injected.append(identity)
+                raise OSError(errno.EIO, "injected source read failure")
+        return original_read(fd, size)
+
+    def failing_second_index(root):
+        result = original_git_index(root)
+        index_calls.append(result)
+        if layer == "root" and len(index_calls) == 2:
+            primary_injected.append("index")
+            raise OSError(errno.EIO, "injected post-copy index failure")
+        return result
+
+    def close_then_raise(fd):
+        current = original_fstat(fd)
+        identity = (fd, current.st_dev, current.st_ino,
+                    stat.S_IFMT(current.st_mode))
+        close_attempts.append(identity)
+        original_close(fd)
+        target = owned[f"destination_{layer}"]
+        if target and identity == target[0] and not close_injected:
+            close_injected.append(identity)
+            raise OSError(errno.EBADF, "injected cleanup close failure")
+
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "close", close_then_raise)
+    monkeypatch.setattr(mod.os, "read", failing_read)
+    monkeypatch.setattr(mod, "_git_index", failing_second_index)
+
+    primary = ("source read failure" if layer == "leaf"
+               else "post-copy index failure")
+    error_type = mod._SnapshotError if layer == "leaf" else OSError
+    try:
+        with pytest.raises(error_type, match=primary):
+            mod._snapshot_tree(str(source), str(destination))
+
+        assert len(primary_injected) == 1
+        assert len(close_injected) == 1
+        assert owned[f"destination_{layer}"][0] in close_attempts
+        assert owned[f"source_{layer}"][0] in close_attempts
+    finally:
+        for descriptors in owned.values():
+            for identity in descriptors:
+                try:
+                    current = original_fstat(identity[0])
+                except OSError:
+                    continue
+                current_identity = (
+                    identity[0], current.st_dev, current.st_ino,
+                    stat.S_IFMT(current.st_mode),
+                )
+                if current_identity == identity:
+                    original_close(identity[0])
+
+
+@pytest.mark.parametrize(
+    "helper,nested",
+    (("source", False), ("source", True),
+     ("destination", False), ("destination", True)),
+    ids=("source-leaf", "source-directory",
+         "destination-leaf", "destination-directory"),
+)
+def test_mutation_snapshot_parent_close_failure_closes_unpublished_child(
+        tmp_path, monkeypatch, helper, nested):
+    mod = _load_mt()
+    root = tmp_path / helper
+    root.mkdir()
+    relative = b"owned/feature.txt" if nested else b"feature.txt"
+    if helper == "source":
+        target = root / os.fsdecode(relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("PRESENT\n", encoding="utf-8")
+    original_open = os.open
+    original_close = os.close
+    original_dup = os.dup
+    original_fstat = os.fstat
+    owned = {"parent": [], "child": []}
+    close_attempts = []
+    injected = []
+
+    def identity(fd):
+        observed = original_fstat(fd)
+        return (fd, observed.st_dev, observed.st_ino,
+                stat.S_IFMT(observed.st_mode))
+
+    def recording_dup(fd):
+        duplicate = original_dup(fd)
+        owned["parent"].append(identity(duplicate))
+        return duplicate
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        expected_child = b"owned" if nested else b"feature.txt"
+        if os.fspath(path) == expected_child:
+            owned["child"].append(identity(fd))
+        return fd
+
+    def close_parent_then_raise(fd):
+        current = identity(fd)
+        close_attempts.append(current)
+        if owned["parent"] and current == owned["parent"][0] and not injected:
+            original_close(fd)
+            injected.append(current)
+            raise OSError("injected parent close failure")
+        return original_close(fd)
+
+    root_fd = original_open(
+        root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    monkeypatch.setattr(mod.os, "dup", recording_dup)
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "close", close_parent_then_raise)
+    try:
+        with pytest.raises((OSError, mod._SnapshotError), match="parent close"):
+            if helper == "source":
+                mod._open_tracked(root_fd, relative)
+            else:
+                mod._open_destination(root_fd, relative, False)
+
+        assert len(injected) == 1
+        assert len(owned["child"]) == 1
+        assert owned["child"][0] in close_attempts
+    finally:
+        original_close(root_fd)
+        for descriptor in owned["child"]:
+            if descriptor not in close_attempts:
+                fd = descriptor[0]
+                try:
+                    current = identity(fd)
+                except OSError:
+                    continue
+                if current == descriptor:
+                    original_close(fd)
+
+
+def test_mutation_snapshot_close_all_cancellation_drains_later_fds_and_preserves_first(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    identities = []
+    for index in range(3):
+        path = tmp_path / f"owned-{index}"
+        path.write_bytes(bytes([index]))
+        fd = original_open(path, os.O_RDONLY)
+        identities.append(_descriptor_identity(original_fstat, fd))
+    first = KeyboardInterrupt("first owned close cancellation")
+    later = SystemExit(73)
+    attempts = []
+
+    def close_then_fault(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if identity == identities[0]:
+            raise first
+        if identity == identities[1]:
+            raise later
+
+    monkeypatch.setattr(mod.os, "close", close_then_fault)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mod._close_all(*(identity[0] for identity in identities))
+
+        assert caught.value is first
+        assert caught.value.args == ("first owned close cancellation",)
+        assert attempts == identities
+        assert any("SystemExit" in note and "73" in note
+                   for note in getattr(first, "__notes__", ()))
+        for identity in identities:
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in identities:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+@pytest.mark.parametrize(
+    "evidence_fault", ("primary-add-note", "secondary-str"))
+def test_mutation_snapshot_close_evidence_failures_never_interrupt_owner_drain(
+        tmp_path, monkeypatch, evidence_fault):
+    mod = _load_mt()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    identities = []
+    for index in range(3):
+        path = tmp_path / f"hostile-evidence-{index}"
+        path.write_bytes(bytes([index]))
+        fd = original_open(path, os.O_RDONLY)
+        identities.append(_descriptor_identity(original_fstat, fd))
+
+    class RejectingNotePrimary(KeyboardInterrupt):
+        def add_note(self, note):
+            raise RuntimeError("primary rejected close evidence")
+
+    class UnprintableCloseFailure(SystemExit):
+        def __str__(self):
+            raise RuntimeError("secondary close text is hostile")
+
+    if evidence_fault == "primary-add-note":
+        primary = RejectingNotePrimary("snapshot primary")
+        failures = [SystemExit(81 + index) for index in range(3)]
+    else:
+        primary = KeyboardInterrupt("snapshot primary")
+        failures = [UnprintableCloseFailure(81 + index)
+                    for index in range(3)]
+    attempts = []
+
+    def close_then_fault(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        index = identities.index(identity)
+        attempts.append(identity)
+        original_close(fd)
+        raise failures[index]
+
+    monkeypatch.setattr(mod.os, "close", close_then_fault)
+    try:
+        with pytest.raises(BaseException) as caught:
+            try:
+                raise primary
+            finally:
+                mod._close_all_preserving_active_error(
+                    *(identity[0] for identity in identities))
+
+        assert caught.value is primary
+        assert caught.value.args == ("snapshot primary",)
+        assert attempts == identities
+        notes = getattr(primary, "__notes__", ())
+        assert len(notes) == 3
+        for identity, note in zip(identities, notes):
+            assert "cleanup" in note
+            assert f"fd {identity[0]}" in note
+            assert type(failures[0]).__name__ in note
+            if evidence_fault == "secondary-str":
+                assert "<unprintable>" in note
+        for identity in identities:
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in identities:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_mutation_snapshot_parent_cancellation_settles_child_and_preserves_parent(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    identities = []
+    for name in ("parent", "child"):
+        path = tmp_path / name
+        path.write_text(name, encoding="utf-8")
+        fd = original_open(path, os.O_RDONLY)
+        identities.append(_descriptor_identity(original_fstat, fd))
+    parent_failure = KeyboardInterrupt("parent descriptor cancellation")
+    child_failure = SystemExit(74)
+    attempts = []
+
+    def close_then_fault(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if identity == identities[0]:
+            raise parent_failure
+        if identity == identities[1]:
+            raise child_failure
+
+    monkeypatch.setattr(mod.os, "close", close_then_fault)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mod._adopt_child_after_parent_close(
+                identities[0][0], identities[1][0])
+
+        assert caught.value is parent_failure
+        assert caught.value.args == ("parent descriptor cancellation",)
+        assert attempts == identities
+        assert any("unpublished child" in note and
+                   "SystemExit" in note and "74" in note
+                   for note in getattr(parent_failure, "__notes__", ()))
+        for identity in identities:
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in identities:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+@pytest.mark.parametrize(
+    "funnel",
+    ("open-tracked", "open-destination", "read-tracked",
+     "snapshot-tree", "observe-snapshot"),
+)
+def test_mutation_snapshot_active_primary_survives_close_cancellation_at_every_funnel(
+        tmp_path, monkeypatch, funnel):
+    mod = _load_mt()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    original_dup = os.dup
+    original_mkdir = os.mkdir
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    destination = tmp_path / "destination"
+    if funnel == "open-destination":
+        destination.mkdir()
+    if funnel == "snapshot-tree":
+        subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+        subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+
+    primary = RuntimeError(f"active primary at {funnel}")
+    close_failure = SystemExit(75)
+    owned = []
+    close_attempts = []
+    injected_primary = []
+    injected_close = []
+
+    def remember(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        owned.append(identity)
+        return fd
+
+    def recording_dup(fd):
+        duplicate = original_dup(fd)
+        if funnel in ("open-tracked", "open-destination"):
+            remember(duplicate)
+        return duplicate
+
+    def recording_open(path, flags, *args, **kwargs):
+        raw_path = os.fspath(path)
+        if (funnel in ("open-tracked", "open-destination") and
+                raw_path == b"feature.txt"):
+            injected_primary.append(raw_path)
+            raise primary
+        fd = original_open(path, flags, *args, **kwargs)
+        if funnel == "read-tracked" and raw_path == b"feature.txt":
+            remember(fd)
+        elif funnel == "snapshot-tree" and raw_path == str(source):
+            remember(fd)
+        elif funnel == "observe-snapshot" and raw_path == str(source):
+            remember(fd)
+        return fd
+
+    def failing_mkdir(path, *args, **kwargs):
+        if funnel == "snapshot-tree" and os.fspath(path) == str(destination):
+            injected_primary.append(os.fspath(path))
+            raise primary
+        return original_mkdir(path, *args, **kwargs)
+
+    original_sha256 = mod.hashlib.sha256
+
+    def failing_sha256(*args, **kwargs):
+        if funnel == "read-tracked" and not injected_primary:
+            injected_primary.append("sha256")
+            raise primary
+        return original_sha256(*args, **kwargs)
+
+    original_read_tracked = mod._read_tracked
+
+    def failing_read_tracked(*args, **kwargs):
+        if funnel == "observe-snapshot" and not injected_primary:
+            injected_primary.append("read-tracked")
+            raise primary
+        return original_read_tracked(*args, **kwargs)
+
+    def close_then_cancel(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        close_attempts.append(identity)
+        original_close(fd)
+        if identity in owned and not injected_close:
+            injected_close.append(identity)
+            raise close_failure
+
+    root_fd = None
+    if funnel in ("open-tracked", "read-tracked"):
+        root_fd = original_open(
+            source, os.O_RDONLY | os.O_DIRECTORY |
+            os.O_CLOEXEC | os.O_NOFOLLOW)
+    elif funnel == "open-destination":
+        root_fd = original_open(
+            destination, os.O_RDONLY | os.O_DIRECTORY |
+            os.O_CLOEXEC | os.O_NOFOLLOW)
+
+    monkeypatch.setattr(mod.os, "dup", recording_dup)
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "mkdir", failing_mkdir)
+    monkeypatch.setattr(mod.os, "close", close_then_cancel)
+    monkeypatch.setattr(mod.hashlib, "sha256", failing_sha256)
+    monkeypatch.setattr(mod, "_read_tracked", failing_read_tracked)
+    try:
+        with pytest.raises(BaseException) as caught:
+            if funnel == "open-tracked":
+                mod._open_tracked(root_fd, b"feature.txt")
+            elif funnel == "open-destination":
+                mod._open_destination(root_fd, b"feature.txt", False)
+            elif funnel == "read-tracked":
+                mod._read_tracked(root_fd, b"feature.txt", False)
+            elif funnel == "snapshot-tree":
+                mod._snapshot_tree(str(source), str(destination))
+            else:
+                mod._observe_tracked_snapshot(
+                    str(source), {b"feature.txt": (False, b"unused")})
+
+        assert injected_primary, f"primary injection did not fire: {funnel}"
+        assert len(owned) == 1, (funnel, owned)
+        assert injected_close == owned
+        assert close_attempts.count(owned[0]) == 1
+        assert caught.value is primary
+        assert caught.value.args == (f"active primary at {funnel}",)
+        assert any("cleanup" in note and "SystemExit" in note and "75" in note
+                   for note in getattr(primary, "__notes__", ()))
+        _assert_owner_is_settled(original_fstat, owned[0])
+    finally:
+        if root_fd is not None:
+            try:
+                original_close(root_fd)
+            except OSError:
+                pass
+        for identity in owned:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_mutation_snapshot_digest_setup_failure_closes_source_fd(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    source_leaf = []
+    close_attempts = []
+
+    def identity(fd):
+        observed = original_fstat(fd)
+        return (fd, observed.st_dev, observed.st_ino,
+                stat.S_IFMT(observed.st_mode))
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        if os.fspath(path) == b"feature.txt":
+            source_leaf.append(identity(fd))
+        return fd
+
+    def recording_close(fd):
+        close_attempts.append(identity(fd))
+        return original_close(fd)
+
+    def fail_digest_setup():
+        raise RuntimeError("injected digest setup failure")
+
+    root_fd = original_open(
+        root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "close", recording_close)
+    monkeypatch.setattr(mod.hashlib, "sha256", fail_digest_setup)
+    try:
+        with pytest.raises(RuntimeError, match="digest setup"):
+            mod._read_tracked(root_fd, b"feature.txt", False)
+
+        assert len(source_leaf) == 1
+        assert source_leaf[0] in close_attempts
+    finally:
+        original_close(root_fd)
+        if source_leaf and source_leaf[0] not in close_attempts:
+            fd = source_leaf[0][0]
+            try:
+                current = identity(fd)
+            except OSError:
+                pass
+            else:
+                if current == source_leaf[0]:
+                    original_close(fd)
+
+
+def test_mutation_snapshot_uses_current_tracked_bytes_not_index_bytes(tmp_path):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    feature = source / "feature.txt"
+    feature.write_text("INDEX\n", encoding="utf-8")
+    (source / "gate.py").write_text(
+        "from pathlib import Path\n"
+        "raise SystemExit(0 if Path('feature.txt').read_text() == "
+        "'WORKING\\n' else 1)\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "feature.txt", "gate.py"],
+                   cwd=source, check=True)
+    feature.write_text("WORKING\n", encoding="utf-8")
+    row = _snapshot_fixture_row()
+    row["mutate"] = lambda text: text.replace("WORKING", "ABSENT")
+    row["gate"] = "{py} gate.py"
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "CAUGHT", result
+    assert feature.read_text(encoding="utf-8") == "WORKING\n"
+
+
+def test_mutation_gates_start_from_independent_clean_trees(tmp_path):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    feature = source / "feature.txt"
+    feature.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    calls = tmp_path / "gate-calls"
+    row = _snapshot_fixture_row()
+    row["gate"] = (
+        f"printf '%s\\n' \"$PWD\" >> {shlex.quote(str(calls))}; "
+        "test ! -e .gate-seen && touch .gate-seen"
+    )
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "SURVIVED", result
+    gate_trees = calls.read_text(encoding="utf-8").splitlines()
+    assert len(gate_trees) == 2 and len(set(gate_trees)) == 2, gate_trees
+    assert feature.read_text(encoding="utf-8") == "PRESENT\n"
+
+
+def test_mutation_gate_cannot_reuse_pristine_python_bytecode(tmp_path):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    feature = source / "feature.py"
+    feature.write_text("VALUE = 'PRESENT'\n", encoding="utf-8")
+    (source / "gate.py").write_text(
+        "import os\n"
+        "os.utime('feature.py', (1700000000, 1700000000))\n"
+        "import feature\n"
+        "raise SystemExit(0 if feature.VALUE == 'PRESENT' else 1)\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "feature.py", "gate.py"],
+                   cwd=source, check=True)
+    row = _snapshot_fixture_row()
+    row["target"] = "feature.py"
+    row["mutate"] = lambda text: text.replace("PRESENT", "BROK_EN")
+    row["gate"] = "{py} gate.py"
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "CAUGHT", result
+    assert feature.read_text(encoding="utf-8") == "VALUE = 'PRESENT'\n"
+    assert not (source / "__pycache__").exists()
+
+
+def test_mutation_snapshot_uses_only_owner_execute_as_git_mode_authority(
+        tmp_path):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    feature = source / "feature.txt"
+    feature.write_text("PRESENT\n", encoding="utf-8")
+    (source / "gate.py").write_text(
+        "from pathlib import Path\n"
+        "raise SystemExit(0 if Path('feature.txt').read_text() == "
+        "'PRESENT\\n' else 1)\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "feature.txt", "gate.py"],
+                   cwd=source, check=True)
+    feature.chmod(0o645)
+    index = subprocess.run(
+        ["git", "ls-files", "-s", "feature.txt"], cwd=source, check=True,
+        capture_output=True, text=True,
+    ).stdout
+    assert index.startswith("100644 "), index
+    assert stat.S_IMODE(feature.stat().st_mode) == 0o645
+    row = _snapshot_fixture_row()
+    row["gate"] = "{py} gate.py"
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "CAUGHT", result
+
+
+def test_mutation_snapshot_ignores_ambient_git_redirection(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    (source / "gate.py").write_text(
+        "from pathlib import Path\n"
+        "raise SystemExit(0 if Path('feature.txt').read_text() == "
+        "'PRESENT\\n' else 1)\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "feature.txt", "gate.py"],
+                   cwd=source, check=True)
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "forged-objects"))
+    row = _snapshot_fixture_row()
+    row["gate"] = "{py} gate.py"
+
+    result = mod.check(row, str(source))
+
+    assert result["state"] == "CAUGHT", result
+
+
+def test_mutation_snapshot_refuses_bytes_changed_during_copy(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    feature = source / "feature.txt"
+    feature.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    original = mod._read_tracked
+    changed = []
+
+    def change_after_copy(root_fd, rel, executable, destination=None):
+        result = original(root_fd, rel, executable, destination)
+        if (os.fsdecode(rel) == "feature.txt" and destination is not None and
+                not changed):
+            feature.write_text("CHANGED\n", encoding="utf-8")
+            changed.append(os.fsdecode(rel))
+        return result
+
+    monkeypatch.setattr(mod, "_read_tracked", change_after_copy)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert changed == ["feature.txt"]
+    assert result["state"] == "UNKNOWN", result
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_refuses_a_tracked_file_disappearing_after_copy(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    feature = source / "feature.txt"
+    feature.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    original = mod._read_tracked
+    removed = []
+
+    def remove_after_copy(root_fd, rel, executable, destination=None):
+        result = original(root_fd, rel, executable, destination)
+        if (os.fsdecode(rel) == "feature.txt" and destination is not None and
+                not removed):
+            feature.unlink()
+            removed.append(os.fsdecode(rel))
+        return result
+
+    monkeypatch.setattr(mod, "_read_tracked", remove_after_copy)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert removed == ["feature.txt"]
+    assert result["state"] == "UNKNOWN", result
+    assert "tracked path changed during snapshot" in result["detail"], result
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_refuses_an_index_change_during_copy(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    late = source / "late.txt"
+    late.write_text("late index entry\n", encoding="utf-8")
+    original = mod._git_index
+    changed = []
+
+    def change_index_after_first_listing(src_tree):
+        result = original(src_tree)
+        if not changed:
+            subprocess.run(["git", "add", "late.txt"], cwd=source, check=True)
+            changed.append("late.txt")
+        return result
+
+    monkeypatch.setattr(mod, "_git_index", change_index_after_first_listing)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert changed == ["late.txt"]
+    assert result["state"] == "UNKNOWN", result
+    assert "Git index changed during snapshot" in result["detail"], result
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_refuses_an_absent_tracked_file_appearing_later(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    feature = source / "feature.txt"
+    feature.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    feature.unlink()
+    original = mod._git_index
+    listings = []
+
+    def restore_after_first_listing(src_tree):
+        result = original(src_tree)
+        listings.append(result[0])
+        if len(listings) == 2:
+            feature.write_text("PRESENT\n", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(mod, "_git_index", restore_after_first_listing)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert len(listings) == 2 and listings[0] == listings[1]
+    assert feature.read_text(encoding="utf-8") == "PRESENT\n"
+    assert result["state"] == "UNKNOWN", result
+    assert "tracked path changed during snapshot" in result["detail"], result
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_refuses_an_equal_byte_inode_replacement(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    feature = source / "feature.txt"
+    feature.write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    held_fd = os.open(feature, os.O_RDONLY)
+    original = mod._read_tracked
+    replacements = []
+
+    def replace_after_copy(root_fd, rel, executable, destination=None):
+        result = original(root_fd, rel, executable, destination)
+        if (os.fsdecode(rel) == "feature.txt" and destination is not None and
+                not replacements):
+            feature.unlink()
+            feature.write_text("PRESENT\n", encoding="utf-8")
+            replacements.append((os.fstat(held_fd).st_ino,
+                                 feature.stat().st_ino))
+        return result
+
+    monkeypatch.setattr(mod, "_read_tracked", replace_after_copy)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+    try:
+        result = mod.check(_snapshot_fixture_row(), str(source))
+    finally:
+        os.close(held_fd)
+
+    assert len(replacements) == 1
+    assert replacements[0][0] != replacements[0][1]
+    assert result["state"] == "UNKNOWN", result
+    assert "tracked path changed during snapshot" in result["detail"], result
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_refuses_mode_only_second_observation_drift(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    original = mod._read_tracked
+    changed = []
+
+    def report_mode_drift(root_fd, rel, executable, destination=None):
+        result = original(root_fd, rel, executable, destination)
+        if (os.fsdecode(rel) == "feature.txt" and destination is None and
+                result is not None and not changed):
+            identity, digest = result
+            changed.append((identity[-1], identity[-1] ^ stat.S_IRGRP))
+            return identity[:-1] + (changed[0][1],), digest
+        return result
+
+    monkeypatch.setattr(mod, "_read_tracked", report_mode_drift)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert len(changed) == 1 and changed[0][0] != changed[0][1]
+    assert result["state"] == "UNKNOWN", result
+    assert "tracked path changed during snapshot" in result["detail"], result
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_rejects_a_gitlink(tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    (source / "feature.txt").write_text("PRESENT\n", encoding="utf-8")
+    subprocess.run(["git", "add", "feature.txt"], cwd=source, check=True)
+    tree = subprocess.run(["git", "write-tree"], cwd=source, check=True,
+                          capture_output=True, text=True).stdout.strip()
+    commit = subprocess.run(
+        ["git", "-c", "user.name=fixture", "-c", "user.email=f@example.invalid",
+         "commit-tree", tree, "-m", "fixture"],
+        cwd=source, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "update-index", "--add", "--cacheinfo",
+                    f"160000,{commit},vendor"], cwd=source, check=True)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "160000" in result["detail"]
+    assert gate_calls == []
+
+
+def test_mutation_snapshot_rejects_an_empty_git_denominator(
+        tmp_path, monkeypatch):
+    mod = _load_mt()
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    gate_calls = []
+    monkeypatch.setattr(mod, "_run",
+                        lambda *args: gate_calls.append(args) or (0, ""))
+
+    result = mod.check(_snapshot_fixture_row(), str(source))
+
+    assert result["state"] == "UNKNOWN", result
+    assert "denominator is empty" in result["detail"]
+    assert gate_calls == []
 
 
 def _registry_rows_from_ast():
@@ -386,6 +1964,2864 @@ def test_the_mutation_engine_selftest_still_passes():
     assert "SELFTEST PASS" in r.stdout, r.stdout[-2000:]
 
 
+def _one_mutation_result(process, *, expected_id=None):
+    """Validate the complete JSON channel while retaining failure evidence."""
+    import json as _json
+
+    diag = (f"exit={process.returncode}\n"
+            f"stdout={process.stdout[-3000:]!r}\n"
+            f"stderr={process.stderr[-3000:]!r}")
+    if process.returncode not in (0, 1):
+        pytest.fail(diag)
+    try:
+        payload = _json.loads(process.stdout)
+    except ValueError as exc:
+        pytest.fail(f"could not parse the complete JSON payload ({exc}):\n"
+                    f"{diag}")
+    if not isinstance(payload, dict):
+        pytest.fail(f"expected a JSON object: {payload!r}\n{diag}")
+    rows = payload.get("results")
+    if payload.get("total") != 1 or not isinstance(rows, list) or len(rows) != 1:
+        pytest.fail(f"expected exactly one mutation result: {payload!r}\n{diag}")
+    if payload.get("failing") != [] or process.returncode != 0:
+        pytest.fail(f"the selected mutation was not caught: {payload!r}\n{diag}")
+    row = rows[0]
+    if not isinstance(row, dict):
+        pytest.fail(f"expected a mutation result object: {row!r}\n{diag}")
+    if expected_id is not None and row.get("id") != expected_id:
+        pytest.fail(f"expected mutation id {expected_id!r}, got "
+                    f"{row.get('id')!r}\n{diag}")
+    return row
+
+
+def test_mutation_result_failure_preserves_status_stdout_and_stderr():
+    process = subprocess.CompletedProcess(
+        args=["bd-mutation-test"], returncode=1, stdout="",
+        stderr="sentinel-copytree",
+    )
+
+    with pytest.raises(_PYTEST_FAILURE) as caught:
+        _one_mutation_result(process)
+
+    message = str(caught.value)
+    assert "exit=1" in message
+    assert "stdout=''" in message
+    assert "stderr='sentinel-copytree'" in message
+
+
+def test_mutation_result_rejects_a_prefixed_json_stream():
+    process = subprocess.CompletedProcess(
+        args=["bd-mutation-test"], returncode=0,
+        stdout=('warning-before-json\n'
+                '{"results":[{"state":"CAUGHT"}],"caught":1,'
+                '"total":1,"failing":[]}'),
+        stderr="",
+    )
+
+    with pytest.raises(_PYTEST_FAILURE, match="complete JSON"):
+        _one_mutation_result(process)
+
+
+def test_mutation_result_rejects_a_non_object_without_losing_diagnostics():
+    stdout = '[{"id":"one/row","state":"CAUGHT"}]'
+    process = subprocess.CompletedProcess(
+        args=["bd-mutation-test"], returncode=0, stdout=stdout,
+        stderr="sentinel-list",
+    )
+
+    with pytest.raises(_PYTEST_FAILURE) as caught:
+        _one_mutation_result(process)
+
+    message = str(caught.value)
+    assert "expected a JSON object" in message
+    assert "exit=0" in message
+    assert f"stdout={stdout!r}" in message
+    assert "stderr='sentinel-list'" in message
+
+
+def test_mutation_result_is_bound_to_the_requested_row():
+    process = subprocess.CompletedProcess(
+        args=["bd-mutation-test"], returncode=0,
+        stdout=('{"results":[{"id":"wrong/row","state":"CAUGHT"}],'
+                '"caught":1,"total":1,"failing":[]}'),
+        stderr="",
+    )
+
+    with pytest.raises(_PYTEST_FAILURE, match="route_index/spa_wired"):
+        _one_mutation_result(process, expected_id="route_index/spa_wired")
+
+
+def _bd_mutate_scratch_runner(root):
+    runner = root / "toolchain" / "bin" / "bd-mutate"
+    runner.parent.mkdir(parents=True)
+    runner.write_bytes((BIN / "bd-mutate").read_bytes())
+    return runner
+
+
+def _bd_mutate_scratch_subject(work, file_name="m.py", gate_marker=None):
+    tests = work / "tests"
+    tests.mkdir(parents=True)
+    gate_effect = (
+        "from pathlib import Path\n"
+        f"Path({str(gate_marker)!r}).write_text('RAN\\n')\n"
+        if gate_marker is not None else "")
+    (tests / "test_m.py").write_text(
+        gate_effect + "def test_value():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    spec = work.parent / f"{work.name}-spec.json"
+    spec.write_text(
+        '{"schema":"bd-mutate-spec/1","subject":"canonical refusal",'
+        '"band":["tests/test_m.py"],"mutants":[{'
+        f'"label":"change value","file":"{file_name}","old":"VALUE = 1",'
+        '"new":"VALUE = 2","direction":"regression",'
+        '"catcher":"tests/test_m.py::test_value"}]}',
+        encoding="utf-8",
+    )
+    return spec
+
+
+def _bd_mutate_recovery_record(journal, name, target, original, mutant):
+    record = journal / name
+    record.write_text(json.dumps({
+        "path": target.name,
+        "label": "recovery write failure",
+        "pid": int(record.stem),
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+    return record
+
+
+def _bd_mutate_green_band():
+    nodeid = "tests/test_m.py::test_value"
+    return {
+        "rc": 0,
+        "tail": "",
+        "collected": [nodeid],
+        "outcomes": {nodeid: ["passed"]},
+        "measurement_error": None,
+        "collection_error": False,
+    }
+
+
+def _bd_mutate_emit_fixture(tmp_path, mutate, name="v3_66_9999_emit.json"):
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(
+        ["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+        check=True,
+    )
+    prepared = mutate._prepare_emitted_spec(
+        work, name, "emitted-spec ownership",
+        ["tests/test_m.py::test_value"], [{
+            "label": "value", "file": "m.py", "old": "VALUE = 1",
+            "new": "VALUE = 2", "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }])
+    return work, prepared
+
+
+def _bd_mutate_main_json(mutate, monkeypatch, capsys, runner, spec, work):
+    monkeypatch.setattr(sys, "argv", [
+        str(runner), "--spec", str(spec), "--work", str(work), "--json",
+    ])
+    rc = mutate.main()
+    stdout, stderr = capsys.readouterr()
+    return rc, json.loads(stdout), stdout, stderr
+
+
+@pytest.mark.parametrize("child_close_fault", (False, True),
+                         ids=("parent-primary", "child-secondary-fd-reuse"))
+def test_bd_mutate_emit_prepare_parent_close_settles_unpublished_child(
+        tmp_path, monkeypatch, child_close_fault):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    parent = work / "tests" / "mutants"
+    parent.mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(
+        ["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+        check=True,
+    )
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    real_child = mutate._PinnedDirectory.child.__func__
+    real_owner_close = mutate._PinnedDirectory.close
+    parent_failure = KeyboardInterrupt("emitter parent close primary")
+    child_failure = SystemExit(91)
+    parent_identities = []
+    child_identities = []
+    attempts = []
+    transfer_start = []
+    replacement = []
+    fillers = []
+    sentinel = tmp_path / "child-close-reuse-sentinel"
+
+    def capture_child(cls, tests_owner, name, expected):
+        child = real_child(cls, tests_owner, name, expected)
+        parent_identities[:] = [
+            _descriptor_identity(original_fstat, fd)
+            for fd in tests_owner._owned.values()
+        ]
+        child_identities[:] = [
+            _descriptor_identity(original_fstat, fd)
+            for fd in child._owned.values()
+        ]
+        return child
+
+    def parent_close_then_raise(owner, *, primary=None):
+        if owner.path == work / "tests" and not transfer_start:
+            transfer_start.append(len(attempts))
+            real_owner_close(owner, primary=primary)
+            if child_close_fault:
+                target_fd = child_identities[-1][0]
+                while True:
+                    filler_fd = original_open("/dev/null", os.O_RDONLY)
+                    fillers.append(
+                        _descriptor_identity(original_fstat, filler_fd))
+                    if filler_fd > target_fd:
+                        break
+            raise parent_failure
+        return real_owner_close(owner, primary=primary)
+
+    def close_with_child_secondary(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        if (child_close_fault and child_identities
+                and identity == child_identities[-1] and not replacement):
+            original_close(fd)
+            replacement_fd = original_open(
+                sentinel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            assert replacement_fd == fd, (
+                "fixture did not force immediate numeric descriptor reuse")
+            replacement.append(
+                _descriptor_identity(original_fstat, replacement_fd))
+            raise child_failure
+        return original_close(fd)
+
+    monkeypatch.setattr(
+        mutate._PinnedDirectory, "child", classmethod(capture_child))
+    monkeypatch.setattr(mutate._PinnedDirectory, "close", parent_close_then_raise)
+    monkeypatch.setattr(mutate.os, "close", close_with_child_secondary)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._prepare_emitted_spec(
+                work, "v3_66_9999_parent_close.json", "parent transfer",
+                ["tests/test_m.py::test_value"], [{
+                    "label": "value", "file": "m.py", "old": "VALUE = 1",
+                    "new": "VALUE = 2", "direction": "regression",
+                    "catcher": "tests/test_m.py::test_value",
+                }])
+
+        assert caught.value is parent_failure
+        assert parent_identities and child_identities and len(transfer_start) == 1
+        transfer_attempts = attempts[transfer_start[0]:]
+        for identity in parent_identities + child_identities:
+            assert transfer_attempts.count(identity) == 1
+        for identity in child_identities:
+            _assert_owner_is_settled(original_fstat, identity)
+        if child_close_fault:
+            assert len(replacement) == 1
+            assert (_descriptor_identity(original_fstat, replacement[0][0]) ==
+                    replacement[0])
+            assert any("SystemExit" in note and "91" in note
+                       for note in getattr(parent_failure, "__notes__", ()))
+    finally:
+        for identity in replacement + fillers + parent_identities + child_identities:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_journal_record_close_is_once_after_effect_and_fd_reuse(
+        tmp_path, monkeypatch):
+    mutate = _load_bd_mutate()
+    work = tmp_path / "candidate"
+    work.mkdir()
+    sentinel = tmp_path / "replacement-sentinel"
+    mutate._bind_invoked_runner_identity()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    record_name = f"{os.getpid()}.json"
+    owned = {}
+    attempts = []
+    replacement = []
+    injected = OSError("record close-after-effect")
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        identity = _descriptor_identity(original_fstat, fd)
+        raw_path = os.fspath(path)
+        if raw_path == record_name:
+            owned["record"] = identity
+        elif raw_path == ".bd-mutate-inflight":
+            owned["journal"] = identity
+        return fd
+
+    def close_reuse_then_raise(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        if identity == owned.get("record") and not replacement:
+            original_close(fd)
+            replacement_fd = original_open(
+                sentinel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            assert replacement_fd == fd, (
+                "fixture did not force immediate numeric descriptor reuse")
+            replacement.append(
+                _descriptor_identity(original_fstat, replacement_fd))
+            raise injected
+        return original_close(fd)
+
+    monkeypatch.setattr(mutate.os, "open", recording_open)
+    monkeypatch.setattr(mutate.os, "close", close_reuse_then_raise)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._journal_write(
+                work, "subject.py", "ORIGINAL\n", "MUTATED\n",
+                "record close reuse")
+
+        assert caught.value is injected
+        assert set(owned) == {"record", "journal"}
+        assert attempts.count(owned["record"]) == 1
+        assert owned["journal"] in attempts
+        assert len(replacement) == 1
+        assert (_descriptor_identity(original_fstat, replacement[0][0]) ==
+                replacement[0]), "replacement fd was closed by an ambiguous retry"
+    finally:
+        for identity in replacement + list(owned.values()):
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+@pytest.mark.parametrize(
+    "evidence_fault", ("primary-add-note", "secondary-str"))
+def test_bd_mutate_close_evidence_failures_never_interrupt_owner_drain(
+        tmp_path, monkeypatch, evidence_fault):
+    mutate = _load_bd_mutate()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    identities = []
+    for index in range(3):
+        path = tmp_path / f"hostile-evidence-{index}"
+        path.write_bytes(bytes([index]))
+        fd = original_open(path, os.O_RDONLY)
+        identities.append(_descriptor_identity(original_fstat, fd))
+
+    class RejectingNotePrimary(KeyboardInterrupt):
+        def add_note(self, note):
+            raise RuntimeError("primary rejected close evidence")
+
+    class UnprintableCloseFailure(SystemExit):
+        def __str__(self):
+            raise RuntimeError("secondary close text is hostile")
+
+    if evidence_fault == "primary-add-note":
+        primary = RejectingNotePrimary("journal primary")
+        failures = [SystemExit(84 + index) for index in range(3)]
+    else:
+        primary = KeyboardInterrupt("journal primary")
+        failures = [UnprintableCloseFailure(84 + index)
+                    for index in range(3)]
+    attempts = []
+    owned = {name: identity[0] for name, identity in zip(
+        ("hostile first", "hostile second", "hostile third"), identities)}
+
+    def close_then_fault(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        index = identities.index(identity)
+        attempts.append(identity)
+        original_close(fd)
+        raise failures[index]
+
+    monkeypatch.setattr(mutate.os, "close", close_then_fault)
+    try:
+        with pytest.raises(BaseException) as caught:
+            try:
+                raise primary
+            finally:
+                mutate._settle_owned_fds(
+                    owned, primary=sys.exc_info()[1])
+
+        assert caught.value is primary
+        assert caught.value.args == ("journal primary",)
+        assert attempts == identities
+        assert owned == {}
+        notes = getattr(primary, "__notes__", ())
+        assert len(notes) == 3
+        for name, identity, note in zip(
+                ("hostile first", "hostile second", "hostile third"),
+                identities, notes):
+            assert name in note
+            assert f"fd {identity[0]}" in note
+            assert type(failures[0]).__name__ in note
+            if evidence_fault == "secondary-str":
+                assert "<unprintable>" in note
+        for identity in identities:
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in identities:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_open_journal_parent_cancellation_settles_unpublished_child(
+        tmp_path, monkeypatch):
+    mutate = _load_bd_mutate()
+    work = tmp_path / "candidate"
+    work.mkdir()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    owned = {}
+    attempts = []
+    parent_failure = KeyboardInterrupt("journal parent close cancellation")
+    child_failure = SystemExit(71)
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        raw_path = os.fspath(path)
+        if raw_path == str(work):
+            owned["parent"] = _descriptor_identity(original_fstat, fd)
+        elif raw_path == ".bd-mutate-inflight":
+            owned["child"] = _descriptor_identity(original_fstat, fd)
+        return fd
+
+    def close_then_cancel(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if identity == owned.get("parent"):
+            raise parent_failure
+        if identity == owned.get("child"):
+            raise child_failure
+
+    monkeypatch.setattr(mutate.os, "open", recording_open)
+    monkeypatch.setattr(mutate.os, "close", close_then_cancel)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._open_journal_dir(work, create=True)
+
+        assert set(owned) == {"parent", "child"}
+        owned_attempts = [identity for identity in attempts
+                          if identity in owned.values()]
+        assert owned_attempts == [owned["parent"], owned["child"]]
+        assert caught.value is parent_failure
+        assert caught.value.args == ("journal parent close cancellation",)
+        assert any("journal directory" in note and
+                   "SystemExit" in note and "71" in note
+                   for note in getattr(parent_failure, "__notes__", ()))
+        for identity in owned.values():
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in owned.values():
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_journal_unlink_cleanup_preserves_exact_primary(
+        tmp_path, monkeypatch):
+    mutate = _load_bd_mutate()
+    work = tmp_path / "candidate"
+    work.mkdir()
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    record.write_text('{"owned": true}\n', encoding="utf-8")
+    directory_stat = journal.stat()
+    record_stat = record.stat()
+    expected_dir = (directory_stat.st_dev, directory_stat.st_ino,
+                    stat.S_IFMT(directory_stat.st_mode))
+    expected_record = (record_stat.st_dev, record_stat.st_ino,
+                       stat.S_IFMT(record_stat.st_mode))
+    mutate._bind_invoked_runner_identity()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    journal_owner = []
+    attempts = []
+    unlink_calls = []
+    primary = KeyboardInterrupt("journal unlink primary")
+    close_failure = SystemExit(72)
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        if os.fspath(path) == ".bd-mutate-inflight":
+            journal_owner.append(_descriptor_identity(original_fstat, fd))
+        return fd
+
+    def failing_unlink(path, *args, **kwargs):
+        unlink_calls.append((os.fspath(path), kwargs.get("dir_fd")))
+        raise primary
+
+    def close_then_cancel(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if journal_owner and identity == journal_owner[0]:
+            raise close_failure
+
+    monkeypatch.setattr(mutate.os, "open", recording_open)
+    monkeypatch.setattr(mutate.os, "unlink", failing_unlink)
+    monkeypatch.setattr(mutate.os, "close", close_then_cancel)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._journal_unlink(
+                work, record, expected_dir, expected_record)
+
+        assert caught.value is primary
+        assert caught.value.args == ("journal unlink primary",)
+        assert unlink_calls == [(record.name, journal_owner[0][0])]
+        assert attempts.count(journal_owner[0]) == 1
+        assert record.exists(), "before-effect unlink fault removed the record"
+        assert any("journal directory" in note and
+                   "SystemExit" in note and "72" in note
+                   for note in getattr(primary, "__notes__", ()))
+        _assert_owner_is_settled(original_fstat, journal_owner[0])
+    finally:
+        for identity in journal_owner:
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_journal_write_cleanup_preserves_primary_and_drains_all(
+        tmp_path, monkeypatch):
+    mutate = _load_bd_mutate()
+    work = tmp_path / "candidate"
+    work.mkdir()
+    mutate._bind_invoked_runner_identity()
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    original_write = os.write
+    record_name = f"{os.getpid()}.json"
+    owned = {}
+    attempts = []
+    writes = []
+    primary = KeyboardInterrupt("journal write primary")
+    record_close = SystemExit(76)
+    journal_close = SystemExit(77)
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        identity = _descriptor_identity(original_fstat, fd)
+        raw_path = os.fspath(path)
+        if raw_path == record_name:
+            owned["record"] = identity
+        elif raw_path == ".bd-mutate-inflight":
+            owned["journal"] = identity
+        return fd
+
+    def failing_write(fd, data):
+        identity = _descriptor_identity(original_fstat, fd)
+        if identity == owned.get("record") and not writes:
+            writes.append((identity, len(data)))
+            raise primary
+        return original_write(fd, data)
+
+    def close_then_cancel(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if identity == owned.get("record"):
+            raise record_close
+        if identity == owned.get("journal"):
+            raise journal_close
+
+    monkeypatch.setattr(mutate.os, "open", recording_open)
+    monkeypatch.setattr(mutate.os, "write", failing_write)
+    monkeypatch.setattr(mutate.os, "close", close_then_cancel)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._journal_write(
+                work, "subject.py", "ORIGINAL\n", "MUTATED\n",
+                "write primary")
+
+        assert caught.value is primary
+        assert caught.value.args == ("journal write primary",)
+        assert len(writes) == 1 and writes[0][1] > 0
+        assert attempts.index(owned["record"]) < attempts.index(owned["journal"])
+        assert attempts.count(owned["record"]) == 1
+        assert attempts.count(owned["journal"]) == 1
+        notes = getattr(primary, "__notes__", ())
+        assert any("journal record" in note and "76" in note for note in notes)
+        assert any("journal directory" in note and "77" in note for note in notes)
+        for identity in owned.values():
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in owned.values():
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_journal_records_cleanup_preserves_primary_and_drains_all(
+        tmp_path, monkeypatch):
+    mutate = _load_bd_mutate()
+    work = tmp_path / "candidate"
+    work.mkdir()
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    (journal / "123.json").write_text('{"owned": true}\n', encoding="utf-8")
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    original_read = os.read
+    owned = {}
+    attempts = []
+    reads = []
+    primary = KeyboardInterrupt("journal record read primary")
+    record_close = SystemExit(78)
+    journal_close = SystemExit(79)
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        identity = _descriptor_identity(original_fstat, fd)
+        raw_path = os.fspath(path)
+        if raw_path == "123.json":
+            owned["record"] = identity
+        elif raw_path == ".bd-mutate-inflight":
+            owned["journal"] = identity
+        return fd
+
+    def failing_read(fd, size):
+        identity = _descriptor_identity(original_fstat, fd)
+        if identity == owned.get("record") and not reads:
+            reads.append((identity, size))
+            raise primary
+        return original_read(fd, size)
+
+    def close_then_cancel(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if identity == owned.get("record"):
+            raise record_close
+        if identity == owned.get("journal"):
+            raise journal_close
+
+    monkeypatch.setattr(mutate.os, "open", recording_open)
+    monkeypatch.setattr(mutate.os, "read", failing_read)
+    monkeypatch.setattr(mutate.os, "close", close_then_cancel)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._journal_records(work)
+
+        assert caught.value is primary
+        assert caught.value.args == ("journal record read primary",)
+        assert reads == [(owned["record"], 65536)]
+        assert attempts.index(owned["record"]) < attempts.index(owned["journal"])
+        assert attempts.count(owned["record"]) == 1
+        assert attempts.count(owned["journal"]) == 1
+        notes = getattr(primary, "__notes__", ())
+        assert any("journal record" in note and "78" in note for note in notes)
+        assert any("journal directory" in note and "79" in note for note in notes)
+        for identity in owned.values():
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in owned.values():
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_journal_record_close_primary_survives_outer_close_failure(
+        tmp_path, monkeypatch):
+    mutate = _load_bd_mutate()
+    work = tmp_path / "candidate"
+    work.mkdir()
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    (journal / "123.json").write_text('{"owned": true}\n', encoding="utf-8")
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    original_read = os.read
+    owned = {}
+    attempts = []
+    reads = []
+    record_close = KeyboardInterrupt("journal record close primary")
+    journal_close = SystemExit(80)
+
+    def recording_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        identity = _descriptor_identity(original_fstat, fd)
+        raw_path = os.fspath(path)
+        if raw_path == "123.json":
+            owned["record"] = identity
+        elif raw_path == ".bd-mutate-inflight":
+            owned["journal"] = identity
+        return fd
+
+    def recording_read(fd, size):
+        identity = _descriptor_identity(original_fstat, fd)
+        if identity == owned.get("record"):
+            reads.append((identity, size))
+        return original_read(fd, size)
+
+    def close_then_cancel(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        original_close(fd)
+        if identity == owned.get("record"):
+            raise record_close
+        if identity == owned.get("journal"):
+            raise journal_close
+
+    monkeypatch.setattr(mutate.os, "open", recording_open)
+    monkeypatch.setattr(mutate.os, "read", recording_read)
+    monkeypatch.setattr(mutate.os, "close", close_then_cancel)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._journal_records(work)
+
+        assert caught.value is record_close
+        assert caught.value.args == ("journal record close primary",)
+        assert len(reads) >= 2 and reads[-1][1] == 65536
+        assert attempts.index(owned["record"]) < attempts.index(owned["journal"])
+        assert attempts.count(owned["record"]) == 1
+        assert attempts.count(owned["journal"]) == 1
+        assert any("journal directory" in note and "80" in note
+                   for note in getattr(record_close, "__notes__", ()))
+        for identity in owned.values():
+            _assert_owner_is_settled(original_fstat, identity)
+    finally:
+        for identity in owned.values():
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+@pytest.mark.parametrize("stage", ("hash", "cache"))
+def test_bd_mutate_journal_preflight_cancellation_settles_subject_owner(
+        tmp_path, monkeypatch, stage):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(original, encoding="utf-8")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = _bd_mutate_recovery_record(
+        journal, "123.json", subject, original, mutant)
+    cancellation = KeyboardInterrupt(f"preflight {stage} cancellation")
+    real_init = mutate._PinnedSubject.__init__
+    real_sha = mutate._PinnedSubject.sha
+    acquired = []
+    fired = []
+
+    def capture_init(owner, *args, **kwargs):
+        real_init(owner, *args, **kwargs)
+        acquired.append([
+            _descriptor_identity(os.fstat, fd)
+            for fd in owner._owned.values()
+        ])
+
+    def cancelling_sha(owner):
+        if stage == "hash" and not fired:
+            fired.append(stage)
+            raise cancellation
+        return real_sha(owner)
+
+    def cancelling_cache(owner):
+        fired.append(stage)
+        raise cancellation
+
+    monkeypatch.setattr(mutate._PinnedSubject, "__init__", capture_init)
+    monkeypatch.setattr(mutate._PinnedSubject, "sha", cancelling_sha)
+    if stage == "cache":
+        monkeypatch.setattr(mutate, "_purge_subject_pycache", cancelling_cache)
+
+    with pytest.raises(BaseException) as caught:
+        mutate.journal_preflight(work)
+
+    assert caught.value is cancellation and fired == [stage]
+    assert len(acquired) == 1 and record.exists()
+    for identity in acquired[0]:
+        _assert_owner_is_settled(os.fstat, identity)
+
+
+@pytest.mark.parametrize("stage", ("hash", "restore", "cache"))
+def test_bd_mutate_journal_recovery_cancellation_settles_subject_owner(
+        tmp_path, monkeypatch, stage):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(mutant, encoding="utf-8")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = _bd_mutate_recovery_record(
+        journal, "123.json", subject, original, mutant)
+    cancellation = SystemExit(92)
+    real_init = mutate._PinnedSubject.__init__
+    real_sha = mutate._PinnedSubject.sha
+    real_write = mutate._write_subject_text
+    acquired = []
+    fired = []
+
+    def capture_init(owner, *args, **kwargs):
+        real_init(owner, *args, **kwargs)
+        acquired.append([
+            _descriptor_identity(os.fstat, fd)
+            for fd in owner._owned.values()
+        ])
+
+    def cancelling_sha(owner):
+        if stage == "hash" and not fired:
+            fired.append(stage)
+            raise cancellation
+        return real_sha(owner)
+
+    def cancelling_write(*args, **kwargs):
+        fired.append(stage)
+        raise cancellation
+
+    def write_then_cancel_cache(*args, **kwargs):
+        return real_write(*args, **kwargs)
+
+    def cancelling_cache(owner):
+        fired.append(stage)
+        raise cancellation
+
+    monkeypatch.setattr(mutate._PinnedSubject, "__init__", capture_init)
+    monkeypatch.setattr(mutate._PinnedSubject, "sha", cancelling_sha)
+    if stage == "restore":
+        monkeypatch.setattr(mutate, "_write_subject_text", cancelling_write)
+    elif stage == "cache":
+        monkeypatch.setattr(mutate, "_write_subject_text", write_then_cancel_cache)
+        monkeypatch.setattr(mutate, "_purge_subject_pycache", cancelling_cache)
+
+    with pytest.raises(BaseException) as caught:
+        mutate.journal_recover(work)
+
+    assert caught.value is cancellation and fired == [stage]
+    assert len(acquired) == 1 and record.exists()
+    expected = original if stage == "cache" else mutant
+    assert subject.read_text(encoding="utf-8") == expected
+    for identity in acquired[0]:
+        _assert_owner_is_settled(os.fstat, identity)
+
+
+@pytest.mark.parametrize("mode", ("zero-selected", "battery-cancelled"))
+def test_bd_mutate_main_settles_live_prepared_emit_owner(
+        tmp_path, monkeypatch, mode):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    emit_parent = work / "tests" / "mutants"
+    emit_parent.mkdir(parents=True)
+    spec = tmp_path / "spec.json"
+    spec.write_text("[]\n", encoding="utf-8")
+    owner = mutate._PinnedDirectory(emit_parent)
+    identities = [
+        _descriptor_identity(os.fstat, fd) for fd in owner._owned.values()
+    ]
+    prepared = (owner, Path("tests/mutants/v3_66_9999_main_owner.json"), b"{}\n")
+    cancellation = KeyboardInterrupt("main battery cancellation")
+    selected = [] if mode == "zero-selected" else [{
+        "label": "one", "file": "m.py", "old": "A", "new": "B",
+        "direction": "regression",
+    }]
+
+    monkeypatch.setattr(sys, "argv", [
+        str(runner), "--spec", str(spec), "--work", str(work),
+        "--emit-spec", "v3_66_9999_main_owner.json", "--subject", "owner",
+    ])
+    monkeypatch.setattr(mutate, "_normalise_spec",
+                        lambda *_args, **_kwargs: (selected, ["tests/test_m.py"]))
+    monkeypatch.setattr(mutate, "_prepare_emitted_spec",
+                        lambda *_args, **_kwargs: prepared)
+    if mode == "battery-cancelled":
+        monkeypatch.setattr(
+            mutate, "run_battery",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(cancellation))
+
+    if mode == "battery-cancelled":
+        with pytest.raises(BaseException) as caught:
+            mutate.main()
+        assert caught.value is cancellation
+    else:
+        assert mutate.main() == 2
+    for identity in identities:
+        _assert_owner_is_settled(os.fstat, identity)
+
+
+@pytest.mark.parametrize("topology", ("equal", "descendant", "ancestor"))
+def test_bd_mutate_refuses_the_invoked_repository_as_work(tmp_path, topology):
+    """The runner must never mutate the repository that supplies its own code."""
+    root = tmp_path / "runner-repository"
+    runner = _bd_mutate_scratch_runner(root)
+    if topology == "equal":
+        work = root
+        subject = work / "m.py"
+    elif topology == "descendant":
+        work = root / "nested-subject"
+        subject = work / "m.py"
+    else:
+        work = tmp_path
+        subject = root / "subject.py"
+    work.mkdir(parents=True, exist_ok=True)
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    file_name = str(subject.relative_to(work))
+    gate_marker = tmp_path / "gate-ran.marker"
+    spec = _bd_mutate_scratch_subject(work, file_name, gate_marker)
+    runner_before = runner.read_bytes()
+    subject_before = subject.read_bytes()
+    if topology == "equal":
+        assert work.resolve() == root.resolve()
+    elif topology == "descendant":
+        assert work.resolve().is_relative_to(root.resolve())
+    else:
+        assert root.resolve().is_relative_to(work.resolve())
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "refusing work that intersects the repository containing this bd-mutate" in result.stderr
+    assert subject.read_bytes() == subject_before
+    assert runner.read_bytes() == runner_before
+    assert not gate_marker.exists()
+
+
+@pytest.mark.parametrize("escape", ("traversal", "symlink"))
+def test_bd_mutate_refuses_a_subject_outside_work(tmp_path, escape):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("VALUE = 1\n", encoding="utf-8")
+    if escape == "traversal":
+        file_name = "../outside.py"
+    else:
+        file_name = "link.py"
+        (work / file_name).symlink_to(outside)
+    spec = _bd_mutate_scratch_subject(work, file_name)
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "mutant subject escapes --work" in result.stderr
+    assert outside.read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_bd_mutate_refuses_a_hardlinked_subject(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("VALUE = 1\n", encoding="utf-8")
+    subject = work / "m.py"
+    os.link(outside, subject)
+    gate_marker = tmp_path / "gate-ran.marker"
+    spec = _bd_mutate_scratch_subject(work, "m.py", gate_marker)
+    assert subject.stat().st_nlink > 1
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "mutant subject has multiple hard links" in result.stderr
+    assert outside.read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert not gate_marker.exists()
+
+
+@pytest.mark.parametrize("escape", ("traversal", "absolute", "symlink"))
+def test_bd_mutate_recovery_refuses_a_target_outside_work(tmp_path, escape):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    outside = tmp_path / "outside.py"
+    original = "VALUE = 1\n"
+    mutant = "VALUE = 2\n"
+    outside.write_text(mutant, encoding="utf-8")
+    if escape == "traversal":
+        rel = "../outside.py"
+    elif escape == "absolute":
+        rel = str(outside)
+    else:
+        rel = "link.py"
+        (work / rel).symlink_to(outside)
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    (journal / "123.json").write_text(json.dumps({
+        "path": rel,
+        "label": "legacy escape",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--recover", "--work", str(work)],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "recovery target escapes --work" in result.stderr
+    assert outside.read_text(encoding="utf-8") == mutant
+    assert (journal / "123.json").exists()
+
+
+def test_bd_mutate_symlink_loop_is_unrunnable_not_escaped(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    loop = work / "loop.py"
+    loop.symlink_to(loop.name)
+    gate_marker = tmp_path / "gate-ran.marker"
+    spec = _bd_mutate_scratch_subject(work, "loop.py", gate_marker)
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "mutant subject is unavailable" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not gate_marker.exists()
+
+
+def test_bd_mutate_ancestor_recovery_does_not_purge_runner_caches(tmp_path):
+    runner_root = tmp_path / "runner-repository"
+    runner = _bd_mutate_scratch_runner(runner_root)
+    cache = runner_root / "pkg" / "__pycache__" / "sentinel.pyc"
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(b"UNRELATED CACHE\n")
+    cache_before = cache.read_bytes()
+    target = tmp_path / "target.py"
+    subject_cache = tmp_path / "__pycache__" / "target.cpython-312.pyc"
+    subject_cache.parent.mkdir()
+    subject_cache.write_bytes(b"STALE MUTANT BYTECODE\n")
+    original = "VALUE = 1\n"
+    mutant = "VALUE = 2\n"
+    target.write_text(mutant, encoding="utf-8")
+    journal = tmp_path / ".bd-mutate-inflight"
+    journal.mkdir()
+    (journal / "123.json").write_text(json.dumps({
+        "path": target.name,
+        "label": "contained ancestor recovery",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+    assert runner_root.resolve().is_relative_to(tmp_path.resolve())
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--recover", "--work", str(tmp_path)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert target.read_text(encoding="utf-8") == original
+    assert not subject_cache.exists()
+    assert cache.exists() and cache.read_bytes() == cache_before
+
+
+def test_bd_mutate_ancestor_recovery_cannot_target_runner_repository(tmp_path):
+    runner_root = tmp_path / "runner-repository"
+    runner = _bd_mutate_scratch_runner(runner_root)
+    subprocess.run(["git", "init", "-q", str(runner_root)], check=True)
+    victim = runner_root / "victim.py"
+    original = "VALUE = 1\n"
+    mutant = "VALUE = 2\n"
+    victim.write_text(mutant, encoding="utf-8")
+    subprocess.run(["git", "-C", str(runner_root), "add", "."], check=True)
+    subprocess.run([
+        "git", "-C", str(runner_root), "-c", "user.name=Test",
+        "-c", "user.email=test@example.invalid", "commit", "-qm", "base",
+    ], check=True)
+    journal = tmp_path / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    record.write_text(json.dumps({
+        "path": "runner-repository/victim.py",
+        "label": "runner-tree ancestor recovery",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+    before = record.read_bytes()
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--recover", "--work", str(tmp_path)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "recovery target aliases the invoked runner repository" in result.stderr
+    assert victim.read_text(encoding="utf-8") == mutant
+    assert record.read_bytes() == before
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("operation", ("ordinary", "recover"))
+def test_bd_mutate_work_root_symlink_loop_is_structured_unrunnable(
+        tmp_path, operation):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    spec = _bd_mutate_scratch_subject(candidate)
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop.name)
+    argv = [sys.executable, str(runner)]
+    if operation == "recover":
+        argv += ["--recover"]
+    else:
+        argv += ["--spec", str(spec)]
+    argv += ["--work", str(loop), "--json"]
+
+    result = subprocess.run(
+        argv, cwd=tmp_path, capture_output=True, text=True, timeout=120)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["exit"] == 2 and report["rows"] == []
+    assert "work root is unavailable" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_bd_mutate_recovery_retains_journal_when_subject_cache_is_symlink(
+        tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    target = work / "target.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    target.write_text(mutant, encoding="utf-8")
+    external = tmp_path / "external-cache"
+    external.mkdir()
+    stale = external / "target.pyc"
+    stale.write_bytes(b"STALE MUTANT BYTECODE\n")
+    (work / "__pycache__").symlink_to(external, target_is_directory=True)
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    record.write_text(json.dumps({
+        "path": target.name,
+        "label": "symlink cache recovery",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--recover", "--work", str(work)],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert target.read_text() == original
+    assert record.exists(), "failed cache proof discarded the recovery journal"
+    assert stale.read_bytes() == b"STALE MUTANT BYTECODE\n"
+    assert (work / "__pycache__").is_symlink()
+    assert "recovered target.py" not in result.stdout
+    assert "cache" in result.stderr.lower() and "refus" in result.stderr.lower()
+
+
+def test_bd_mutate_already_clean_recovery_removes_cache_before_journal(
+        tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    target = work / "target.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    target.write_text(original, encoding="utf-8")
+    cache = work / "__pycache__"
+    cache.mkdir()
+    (cache / "target.pyc").write_bytes(b"STALE MUTANT BYTECODE\n")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    record.write_text(json.dumps({
+        "path": target.name,
+        "label": "already clean recovery",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--recover", "--work", str(work)],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not cache.exists()
+    assert not record.exists()
+    assert "already clean: target.py" in result.stdout
+
+
+def test_bd_mutate_ordinary_preflight_retains_clean_journal_on_cache_symlink(
+        tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    target = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    target.write_text(original, encoding="utf-8")
+    baseline_marker = tmp_path / "baseline-ran.marker"
+    spec = _bd_mutate_scratch_subject(work, "m.py", baseline_marker)
+    external = tmp_path / "external-cache"
+    external.mkdir()
+    stale = external / "m.pyc"
+    stale.write_bytes(b"STALE MUTANT BYTECODE\n")
+    cache = work / "__pycache__"
+    cache.symlink_to(external, target_is_directory=True)
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    record.write_text(json.dumps({
+        "path": target.name,
+        "label": "already clean ordinary preflight",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert record.exists(), "ordinary preflight discarded its recovery proof"
+    assert cache.is_symlink() and stale.read_bytes() == b"STALE MUTANT BYTECODE\n"
+    assert not baseline_marker.exists(), "baseline ran with stale cache unproved"
+    assert "cache cleanup is unproved" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_bd_mutate_cache_purge_requires_verified_absence(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    cache = work / "pkg" / "__pycache__"
+    cache.mkdir(parents=True)
+    stale = cache / "m.pyc"
+    stale.write_bytes(b"STALE\n")
+    calls = []
+
+    def no_effect(path, *args, **kwargs):
+        calls.append(Path(path))
+
+    monkeypatch.setattr(mutate.os, "unlink", no_effect)
+    with pytest.raises(OSError, match="not empty|still exists after removal"):
+        mutate._purge_pycache(work)
+
+    assert len(calls) == 1 and calls[0].name.startswith(".bd-mutate-owned-")
+    assert stale.read_bytes() == b"STALE\n"
+
+
+@pytest.mark.parametrize("location", ("root", "nested-child"))
+def test_bd_mutate_cache_rename_after_effect_is_reconciled(
+        tmp_path, monkeypatch, location):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    cache = work / "pkg" / "__pycache__"
+    cache.mkdir(parents=True)
+    stale = cache / "m.pyc"
+    stale.write_bytes(b"OWNED CACHE\n")
+    real_rename = mutate._rename_noreplace
+    primary = OSError(f"{location} rename-after-effect")
+    fired = []
+
+    def rename_then_raise(src_fd, src, dst_fd, dst):
+        target = (src == "__pycache__" if location == "root" else src == "m.pyc")
+        if target and not fired:
+            real_rename(src_fd, src, dst_fd, dst)
+            fired.append((src, dst))
+            raise primary
+        return real_rename(src_fd, src, dst_fd, dst)
+
+    monkeypatch.setattr(mutate, "_rename_noreplace", rename_then_raise)
+    with pytest.raises(BaseException) as caught:
+        mutate._purge_pycache(work)
+
+    assert caught.value is primary and len(fired) == 1
+    assert stale.read_bytes() == b"OWNED CACHE\n"
+    assert not list(work.rglob(".bd-mutate-owned-*"))
+
+
+def test_bd_mutate_cache_rename_reconciliation_preserves_a_replacement_race(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    cache = work / "pkg" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "m.pyc").write_bytes(b"OWNED CACHE\n")
+    real_rename = mutate._rename_noreplace
+    primary = OSError("root rename replacement race")
+    fired = []
+
+    def rename_then_replace(src_fd, src, dst_fd, dst):
+        if src == "__pycache__" and not fired:
+            real_rename(src_fd, src, dst_fd, dst)
+            cache.mkdir()
+            (cache / "sentinel.pyc").write_bytes(b"FOREIGN CACHE\n")
+            fired.append(dst)
+            raise primary
+        return real_rename(src_fd, src, dst_fd, dst)
+
+    monkeypatch.setattr(mutate, "_rename_noreplace", rename_then_replace)
+    with pytest.raises(BaseException) as caught:
+        mutate._purge_pycache(work)
+
+    assert caught.value is primary and len(fired) == 1
+    assert (cache / "sentinel.pyc").read_bytes() == b"FOREIGN CACHE\n"
+    retained = list((work / "pkg").glob(".bd-mutate-owned-cache-*"))
+    assert len(retained) == 1
+    assert (retained[0] / "m.pyc").read_bytes() == b"OWNED CACHE\n"
+    assert any("reconciliation" in note or "replacement" in note
+               for note in getattr(primary, "__notes__", ()))
+
+
+def test_bd_mutate_cache_root_swap_never_deletes_replacement_tree(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    held = tmp_path / "candidate.held"
+    cache = work / "pkg" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "m.pyc").write_bytes(b"OWNED CACHE\n")
+    external = tmp_path / "external"
+    external_cache = external / "pkg" / "__pycache__"
+    external_cache.mkdir(parents=True)
+    sentinel = external_cache / "sentinel.pyc"
+    sentinel.write_bytes(b"EXTERNAL SENTINEL\n")
+    real_purge = mutate._purge_cache_descendants
+    fired = []
+
+    def swap_root_then_purge(directory_fd, display, *args, **kwargs):
+        if not fired:
+            work.rename(held)
+            work.symlink_to(external, target_is_directory=True)
+            fired.append(True)
+        return real_purge(directory_fd, display, *args, **kwargs)
+
+    monkeypatch.setattr(mutate, "_purge_cache_descendants", swap_root_then_purge)
+    with pytest.raises(ValueError, match="directory detached"):
+        mutate._purge_pycache(work)
+
+    assert fired == [True]
+    assert sentinel.read_bytes() == b"EXTERNAL SENTINEL\n"
+    assert (held / "pkg" / "__pycache__" / "m.pyc").read_bytes() == b"OWNED CACHE\n"
+
+
+def test_bd_mutate_refuses_symlinked_journal_before_ordinary_run(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    baseline_marker = tmp_path / "baseline-ran.marker"
+    spec = _bd_mutate_scratch_subject(work, "m.py", baseline_marker)
+    external = tmp_path / "external-journal"
+    external.mkdir()
+    sentinel = external / "sentinel.json"
+    sentinel.write_text('{"operator":"owned"}\n', encoding="utf-8")
+    (work / ".bd-mutate-inflight").symlink_to(
+        external, target_is_directory=True)
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["exit"] == 2 and report["rows"] == []
+    assert "journal containment" in result.stderr
+    assert subject.read_text() == "VALUE = 1\n"
+    assert sentinel.read_text() == '{"operator":"owned"}\n'
+    assert not baseline_marker.exists()
+    assert "Traceback" not in result.stderr
+
+
+def test_bd_mutate_recovery_refuses_symlinked_external_journal(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(mutant, encoding="utf-8")
+    external = tmp_path / "external-journal"
+    external.mkdir()
+    record = external / "123.json"
+    record_bytes = json.dumps({
+        "path": "m.py", "label": "external operator record", "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }).encode()
+    record.write_bytes(record_bytes)
+    (work / ".bd-mutate-inflight").symlink_to(
+        external, target_is_directory=True)
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--recover", "--work", str(work)],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "journal containment" in result.stderr
+    assert subject.read_text() == mutant
+    assert record.read_bytes() == record_bytes
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("operation", ("preflight", "recover"))
+@pytest.mark.parametrize("replacement", ("directory", "record"))
+def test_bd_mutate_journal_unlink_is_bound_to_read_identity(
+        tmp_path, monkeypatch, capsys, operation, replacement):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(original, encoding="utf-8")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    valid = json.dumps({
+        "path": "m.py", "label": "read identity", "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }).encode()
+    record.write_bytes(valid)
+    replacement_bytes = b'{"operator":"replacement evidence"}\n'
+    original_record = tmp_path / "original-record.json"
+    detached_journal = tmp_path / "original-journal"
+    real_purge = mutate._purge_subject_pycache
+    fired = []
+
+    def swap_after_read(target):
+        assert real_purge(target) == 0
+        fired.append(replacement)
+        if replacement == "directory":
+            journal.rename(detached_journal)
+            journal.mkdir()
+            (journal / record.name).write_bytes(replacement_bytes)
+        else:
+            record.rename(original_record)
+            record.write_bytes(replacement_bytes)
+        return 0
+
+    monkeypatch.setattr(mutate, "_purge_subject_pycache", swap_after_read)
+    if operation == "preflight":
+        rc, messages = mutate.journal_preflight(work)
+        diagnostic = "\n".join(messages)
+    else:
+        rc = mutate.journal_recover(work)
+        diagnostic = capsys.readouterr().err
+
+    assert rc == 2 and fired == [replacement]
+    assert subject.read_text() == original
+    assert (journal / record.name).read_bytes() == replacement_bytes
+    if replacement == "directory":
+        assert (detached_journal / record.name).read_bytes() == valid
+    else:
+        assert original_record.read_bytes() == valid
+    assert "identity changed" in diagnostic and "unlink" in diagnostic
+
+
+@pytest.mark.parametrize("operation", ("ordinary", "recover"))
+def test_bd_mutate_refuses_linked_worktree_sharing_runner_git_authority(
+        tmp_path, operation):
+    repository = tmp_path / "runner-repository"
+    runner = _bd_mutate_scratch_runner(repository)
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+    subprocess.run([
+        "git", "-C", str(repository), "-c", "user.name=Test",
+        "-c", "user.email=test@example.invalid", "commit", "-qm", "base",
+    ], check=True)
+    linked = tmp_path / "linked-worktree"
+    subprocess.run([
+        "git", "-C", str(repository), "worktree", "add", "-qb", "linked",
+        str(linked),
+    ], check=True)
+    marker = tmp_path / "baseline-ran.marker"
+    spec = _bd_mutate_scratch_subject(linked, "m.py", marker)
+    (linked / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    def manifest():
+        return {
+            str(path.relative_to(repository)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in repository.rglob("*") if path.is_file()
+        }
+
+    before = manifest()
+    argv = [sys.executable, str(runner)]
+    if operation == "recover":
+        argv += ["--recover", "--work", str(linked)]
+    else:
+        argv += ["--spec", str(spec), "--work", str(linked), "--json"]
+    result = subprocess.run(
+        argv, cwd=linked, capture_output=True, text=True, timeout=120)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "shares Git authority" in result.stderr
+    assert manifest() == before
+    assert not marker.exists()
+    assert not list((repository / ".git" / "worktrees").rglob(
+        "bd-mutate-inflight"))
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("operation", ("ordinary", "recover"))
+def test_bd_mutate_refuses_an_external_hard_link_runner_before_effects(
+        tmp_path, operation):
+    repository = tmp_path / "runner-repository"
+    runner = _bd_mutate_scratch_runner(repository)
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    victim = repository / "victim.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    victim.write_text(original if operation == "ordinary" else mutant,
+                      encoding="utf-8")
+    marker = tmp_path / "baseline-ran.marker"
+    spec = _bd_mutate_scratch_subject(repository, "victim.py", marker)
+    if operation == "recover":
+        journal = repository / ".bd-mutate-inflight"
+        journal.mkdir()
+        (journal / "123.json").write_text(json.dumps({
+            "path": victim.name, "label": "hard-link runner recovery",
+            "pid": 123,
+            "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+            "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+            "original": original,
+        }), encoding="utf-8")
+    subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+    external_dir = tmp_path / "external" / "a" / "b"
+    external_dir.mkdir(parents=True)
+    external_runner = external_dir / "bd-mutate"
+    os.link(runner, external_runner)
+    assert runner.stat().st_nlink == external_runner.stat().st_nlink == 2
+
+    def manifest():
+        return {
+            str(path.relative_to(repository)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in repository.rglob("*") if path.is_file()
+        }
+
+    before = manifest()
+    argv = [sys.executable, str(external_runner)]
+    if operation == "recover":
+        argv += ["--recover"]
+    else:
+        argv += ["--spec", str(spec)]
+    argv += ["--work", str(repository), "--json"]
+    result = subprocess.run(
+        argv, cwd=tmp_path, capture_output=True, text=True, timeout=120)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["exit"] == 2 and report["rows"] == []
+    assert "invoked runner has multiple hard links" in result.stderr
+    assert manifest() == before and not marker.exists()
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("operation", ("ordinary", "recover"))
+def test_bd_mutate_rechecks_runner_identity_at_each_effect_boundary(
+        tmp_path, operation):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    target = work / "target.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    mutate._bind_invoked_runner_identity()
+    before = target.read_bytes()
+    alias = tmp_path / "late-runner-alias"
+    os.link(runner, alias)
+
+    with pytest.raises(ValueError, match="multiple hard links"):
+        if operation == "recover":
+            mutate._recovery_target(work, target.name)
+        else:
+            mutate._mutation_subject(work, target.name)
+
+    assert target.read_bytes() == before
+    assert runner.stat().st_nlink == alias.stat().st_nlink == 2
+
+
+@pytest.mark.parametrize("effect", (
+    "subject-write", "baseline-cache-purge", "recovery-cache-purge",
+))
+def test_bd_mutate_runner_identity_drift_blocks_the_next_effect(
+        tmp_path, effect):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    target = work / "target.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    cache = work / "__pycache__"
+    cache.mkdir()
+    cached = cache / "target.pyc"
+    cached.write_bytes(b"CACHE\n")
+    mutate._bind_invoked_runner_identity()
+    alias = tmp_path / "late-effect-runner-alias"
+    os.link(runner, alias)
+
+    with pytest.raises(ValueError, match="multiple hard links"):
+        if effect == "subject-write":
+            mutate._write_subject_text(target, "VALUE = 2\n")
+        elif effect == "baseline-cache-purge":
+            mutate._purge_pycache(work)
+        else:
+            mutate._purge_subject_pycache(target)
+
+    assert target.read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert cached.read_bytes() == b"CACHE\n"
+
+
+def test_bd_mutate_recovery_retains_journal_on_cache_deletion_failure(
+        tmp_path, monkeypatch, capsys):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    target = work / "target.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    target.write_text(mutant, encoding="utf-8")
+    cache = work / "__pycache__"
+    cache.mkdir()
+    (cache / "target.pyc").write_bytes(b"STALE MUTANT BYTECODE\n")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = journal / "123.json"
+    record.write_text(json.dumps({
+        "path": target.name,
+        "label": "cache removal failure",
+        "pid": 123,
+        "original_sha": hashlib.sha256(original.encode()).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutant.encode()).hexdigest(),
+        "original": original,
+    }), encoding="utf-8")
+    calls = []
+
+    def fail_cache_removal(path, *args, **kwargs):
+        calls.append(Path(path))
+        raise PermissionError("injected cache removal EPERM")
+
+    monkeypatch.setattr(mutate.os, "rmdir", fail_cache_removal)
+    rc = mutate.journal_recover(work)
+    out, err = capsys.readouterr()
+
+    assert rc == 2 and len(calls) == 1
+    assert calls[0].name.startswith(".bd-mutate-owned-cache-")
+    assert target.read_text() == original
+    assert cache.exists() and record.exists()
+    assert "recovered target.py" not in out
+    assert "cache" in err.lower() and "retained" in err.lower()
+
+
+def test_bd_mutate_recovery_cache_parent_swap_preserves_replacement_and_journal(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    subject_parent = work / "pkg"
+    subject_parent.mkdir(parents=True)
+    held = work / "pkg.held"
+    subject = subject_parent / "target.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(mutant, encoding="utf-8")
+    cache = subject_parent / "__pycache__"
+    cache.mkdir()
+    (cache / "target.pyc").write_bytes(b"OWNED CACHE\n")
+    external = tmp_path / "external-pkg"
+    external.mkdir()
+    sentinel = external / "sentinel"
+    sentinel.write_bytes(b"EXTERNAL SENTINEL\n")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = _bd_mutate_recovery_record(
+        journal, "123.json", subject, original, mutant)
+    record_document = json.loads(record.read_text(encoding="utf-8"))
+    record_document["path"] = "pkg/target.py"
+    record.write_text(json.dumps(record_document), encoding="utf-8")
+    real_remove = mutate._remove_tree_at
+    fired = []
+
+    def swap_parent_then_remove(parent_fd, name, display, *args, **kwargs):
+        if not fired:
+            subject_parent.rename(held)
+            subject_parent.symlink_to(external, target_is_directory=True)
+            fired.append(True)
+        return real_remove(parent_fd, name, display, *args, **kwargs)
+
+    monkeypatch.setattr(mutate, "_remove_tree_at", swap_parent_then_remove)
+    rc = mutate.journal_recover(work)
+
+    assert rc == 2 and record.exists() and fired == [True]
+    assert sentinel.read_bytes() == b"EXTERNAL SENTINEL\n"
+    assert (held / "target.py").read_text() == original
+    assert (held / "__pycache__" / "target.pyc").read_bytes() == b"OWNED CACHE\n"
+
+
+@pytest.mark.parametrize("failure", (
+    PermissionError("injected recovery write EPERM"),
+    RuntimeError("injected runner identity drift"),
+), ids=("permission-error", "runner-identity-error"))
+def test_bd_mutate_recovery_write_failure_is_structured_and_does_not_skip_later_records(
+        tmp_path, monkeypatch, capsys, failure):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    first, second = work / "first.py", work / "second.py"
+    first.write_text(mutant, encoding="utf-8")
+    second.write_text(mutant, encoding="utf-8")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    first_record = _bd_mutate_recovery_record(
+        journal, "101.json", first, original, mutant)
+    second_record = _bd_mutate_recovery_record(
+        journal, "202.json", second, original, mutant)
+    first_record_before = first_record.read_bytes()
+    real_write = mutate._write_subject_text
+    attempted = []
+    mutate._bind_invoked_runner_identity()
+
+    def fail_first_recovery_write(path, text, *args, **kwargs):
+        attempted.append(Path(path).name)
+        if Path(path) == first:
+            raise failure
+        return real_write(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(mutate, "_write_subject_text", fail_first_recovery_write)
+    rc = mutate.journal_recover(work)
+    stdout, stderr = capsys.readouterr()
+
+    assert rc == 2 and attempted == ["first.py", "second.py"]
+    assert first.read_text(encoding="utf-8") == mutant
+    assert first_record.read_bytes() == first_record_before
+    assert second.read_text(encoding="utf-8") == original
+    assert not second_record.exists()
+    assert "recovered second.py" in stdout and "recovered first.py" not in stdout
+    assert "REFUSING first.py: recovery write is unproved" in stderr
+    assert type(failure).__name__ in stderr and str(failure) in stderr
+    assert "observed recorded mutant" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_bd_mutate_baseline_spawn_failure_emits_exit2_json(
+        tmp_path, monkeypatch, capsys):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    spec = _bd_mutate_scratch_subject(work)
+    before = subject.read_bytes()
+
+    def fail_baseline_spawn(*_args, **_kwargs):
+        raise PermissionError("injected baseline spawn EPERM")
+
+    monkeypatch.setattr(mutate, "_run_band", fail_baseline_spawn)
+    rc, report, raw_stdout, stderr = _bd_mutate_main_json(
+        mutate, monkeypatch, capsys, runner, spec, work)
+
+    assert rc == report["exit"] == 2
+    assert report["selected"] == report["total"] == 1
+    assert report["rows"] == []
+    assert json.loads(raw_stdout) == report
+    assert subject.read_bytes() == before
+    assert "baseline execution is unproved" in stderr
+    assert "PermissionError" in stderr and "injected baseline spawn EPERM" in stderr
+    assert len(stderr) < 2000 and "Traceback" not in stderr
+
+
+@pytest.mark.parametrize("failure", (
+    PermissionError("injected validator EPERM"),
+    KeyboardInterrupt("injected validator cancellation"),
+), ids=("ordinary", "cancellation"))
+def test_bd_mutate_validation_failure_settles_subject_before_leaving_mutant(
+        tmp_path, monkeypatch, failure):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    spec_path = _bd_mutate_scratch_subject(work)
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    before = subject.read_bytes()
+    before_info = subject.stat()
+    before_identity = (
+        before_info.st_dev, before_info.st_ino,
+        stat.S_IFMT(before_info.st_mode), before_info.st_nlink,
+    )
+    original_init = mutate._PinnedSubject.__init__
+    original_close = os.close
+    original_fstat = os.fstat
+    acquired = []
+    close_attempts = []
+    validation_owner = []
+    validation_close_start = []
+    validation_calls = []
+    band_calls = []
+
+    def capture_init(owner, *args, **kwargs):
+        original_init(owner, *args, **kwargs)
+        acquired.append([
+            _descriptor_identity(original_fstat, fd)
+            for fd in owner._owned.values()
+        ])
+
+    def recording_close(fd):
+        close_attempts.append(_descriptor_identity(original_fstat, fd))
+        return original_close(fd)
+
+    def fail_validation(path, text):
+        assert Path(path) == subject and text == "VALUE = 2\n"
+        assert acquired, "validator ran before a subject owner was acquired"
+        validation_owner[:] = acquired[-1]
+        validation_close_start.append(len(close_attempts))
+        validation_calls.append((Path(path), text))
+        for identity in validation_owner:
+            assert _descriptor_identity(original_fstat, identity[0]) == identity
+        raise failure
+
+    def baseline_only(*_args, **_kwargs):
+        band_calls.append(subject.read_text(encoding="utf-8"))
+        return _bd_mutate_green_band()
+
+    monkeypatch.setattr(mutate._PinnedSubject, "__init__", capture_init)
+    monkeypatch.setattr(mutate.os, "close", recording_close)
+    monkeypatch.setattr(mutate, "_validate", fail_validation)
+    monkeypatch.setattr(mutate, "_run_band", baseline_only)
+    try:
+        if isinstance(failure, Exception):
+            rc, rows = mutate.run_battery(
+                spec["mutants"], spec["band"], work, verbose=False)
+            assert rc == 2 and len(rows) == 1
+            assert rows[0]["verdict"] in {"UNKNOWN", "ERROR"}
+            assert "validation" in rows[0]["why"]
+        else:
+            with pytest.raises(BaseException) as caught:
+                mutate.run_battery(
+                    spec["mutants"], spec["band"], work, verbose=False)
+            assert caught.value is failure
+
+        assert len(validation_calls) == 1 and band_calls == ["VALUE = 1\n"]
+        attempts = close_attempts[validation_close_start[0]:]
+        for identity in validation_owner:
+            assert attempts.count(identity) == 1
+            _assert_owner_is_settled(original_fstat, identity)
+        after_info = subject.stat()
+        after_identity = (
+            after_info.st_dev, after_info.st_ino,
+            stat.S_IFMT(after_info.st_mode), after_info.st_nlink,
+        )
+        assert subject.read_bytes() == before and after_identity == before_identity
+        assert not (work / ".bd-mutate-inflight").exists()
+    finally:
+        for identities in acquired:
+            for identity in identities:
+                _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_mutant_band_exception_restores_and_reports_unknown(
+        tmp_path, monkeypatch, capsys):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    spec = _bd_mutate_scratch_subject(work)
+    before_bytes = subject.read_bytes()
+    before_identity = (subject.stat().st_dev, subject.stat().st_ino,
+                       stat.S_IFMT(subject.stat().st_mode), subject.stat().st_nlink)
+    calls = []
+
+    def fail_mutant_band(*_args, **_kwargs):
+        calls.append(subject.read_text(encoding="utf-8"))
+        if len(calls) == 1:
+            return _bd_mutate_green_band()
+        raise OSError("injected mutant band failure")
+
+    monkeypatch.setattr(mutate, "_run_band", fail_mutant_band)
+    rc, report, _raw_stdout, stderr = _bd_mutate_main_json(
+        mutate, monkeypatch, capsys, runner, spec, work)
+
+    assert rc == report["exit"] == 2 and len(report["rows"]) == 1
+    row = report["rows"][0]
+    assert row["label"] == "change value" and row["file"] == "m.py"
+    assert row["verdict"] in {"UNKNOWN", "ERROR"}
+    assert "mutant band execution is unproved" in row["why"]
+    assert calls == ["VALUE = 1\n", "VALUE = 2\n"]
+    after_identity = (subject.stat().st_dev, subject.stat().st_ino,
+                      stat.S_IFMT(subject.stat().st_mode), subject.stat().st_nlink)
+    assert subject.read_bytes() == before_bytes and after_identity == before_identity
+    assert not list((work / ".bd-mutate-inflight").glob("*.json"))
+    assert "OSError" in stderr and "injected mutant band failure" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_bd_mutate_mutant_write_exception_runs_no_mutant_and_emits_json(
+        tmp_path, monkeypatch, capsys):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(original, encoding="utf-8")
+    spec = _bd_mutate_scratch_subject(work)
+    before_bytes = subject.read_bytes()
+    before_identity = (subject.stat().st_dev, subject.stat().st_ino,
+                       stat.S_IFMT(subject.stat().st_mode), subject.stat().st_nlink)
+    real_write = mutate._write_subject_text
+    band_calls = []
+    write_calls = []
+
+    def baseline_only(*_args, **_kwargs):
+        band_calls.append(subject.read_text(encoding="utf-8"))
+        return _bd_mutate_green_band()
+
+    def fail_mutant_write(path, text, *args, **kwargs):
+        write_calls.append(text)
+        if text == mutant:
+            raise PermissionError("injected mutant write EPERM")
+        return real_write(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(mutate, "_run_band", baseline_only)
+    monkeypatch.setattr(mutate, "_write_subject_text", fail_mutant_write)
+    rc, report, _raw_stdout, stderr = _bd_mutate_main_json(
+        mutate, monkeypatch, capsys, runner, spec, work)
+
+    assert rc == report["exit"] == 2 and len(report["rows"]) == 1
+    row = report["rows"][0]
+    assert row["label"] == "change value" and row["file"] == "m.py"
+    assert row["verdict"] in {"UNKNOWN", "ERROR"}
+    assert "mutant write is unproved" in row["why"]
+    assert band_calls == [original], "a mutant band ran after its write failed"
+    assert write_calls == [mutant]
+    after_identity = (subject.stat().st_dev, subject.stat().st_ino,
+                      stat.S_IFMT(subject.stat().st_mode), subject.stat().st_nlink)
+    assert subject.read_bytes() == before_bytes and after_identity == before_identity
+    assert not list((work / ".bd-mutate-inflight").glob("*.json"))
+    assert "PermissionError" in stderr and "injected mutant write EPERM" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_bd_mutate_subject_close_uncertainty_retains_the_recovery_journal(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(original, encoding="utf-8")
+    subject_inode = subject.stat().st_ino
+    spec_path = _bd_mutate_scratch_subject(work)
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    real_write = mutate._write_subject_text
+    real_close = mutate.os.close
+    armed = []
+    close_faults = []
+
+    def arm_after_mutant_write(path, text, *args, **kwargs):
+        result = real_write(path, text, *args, **kwargs)
+        if text == mutant:
+            armed.append(True)
+        return result
+
+    def close_with_one_post_effect_fault(fd):
+        try:
+            inode = mutate.os.fstat(fd).st_ino
+        except OSError:
+            inode = None
+        if armed and not close_faults and inode == subject_inode:
+            real_close(fd)
+            close_faults.append(fd)
+            raise OSError("injected post-close subject uncertainty")
+        return real_close(fd)
+
+    monkeypatch.setattr(mutate, "_run_band",
+                        lambda *_args, **_kwargs: _bd_mutate_green_band())
+    monkeypatch.setattr(mutate, "_write_subject_text", arm_after_mutant_write)
+    monkeypatch.setattr(mutate.os, "close", close_with_one_post_effect_fault)
+    rc, rows = mutate.run_battery(spec["mutants"], spec["band"], work,
+                                  verbose=False)
+
+    assert rc == 2 and rows[0]["verdict"] == "ERROR"
+    assert "SUBJECT OWNER CLOSE UNKNOWN" in rows[0]["why"]
+    assert close_faults and subject.read_text() == original
+    assert list((work / ".bd-mutate-inflight").glob("*.json")), (
+        "close uncertainty discarded the only recovery authority")
+
+
+def test_bd_mutate_recovery_subject_close_uncertainty_retains_the_journal(
+        tmp_path, monkeypatch, capsys):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(mutant, encoding="utf-8")
+    subject_inode = subject.stat().st_ino
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = _bd_mutate_recovery_record(
+        journal, "123.json", subject, original, mutant)
+    real_write = mutate._write_subject_text
+    real_close = mutate.os.close
+    armed = []
+    close_faults = []
+
+    def arm_after_recovery(path, text, *args, **kwargs):
+        result = real_write(path, text, *args, **kwargs)
+        if text == original:
+            armed.append(True)
+        return result
+
+    def close_with_one_post_effect_fault(fd):
+        try:
+            inode = mutate.os.fstat(fd).st_ino
+        except OSError:
+            inode = None
+        if armed and not close_faults and inode == subject_inode:
+            real_close(fd)
+            close_faults.append(fd)
+            raise OSError("injected post-close recovery uncertainty")
+        return real_close(fd)
+
+    monkeypatch.setattr(mutate, "_write_subject_text", arm_after_recovery)
+    monkeypatch.setattr(mutate.os, "close", close_with_one_post_effect_fault)
+    rc = mutate.journal_recover(work)
+    stdout, stderr = capsys.readouterr()
+
+    assert rc == 2 and close_faults and record.exists()
+    assert subject.read_text() == original
+    assert "recovered m.py" not in stdout
+    assert "subject owner close is unproved" in stderr
+
+
+def test_bd_mutate_subject_name_change_cannot_redirect_the_mutant_write(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    held = work / "m.py.held"
+    external = tmp_path / "external.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    external.write_text("EXTERNAL SENTINEL\n", encoding="utf-8")
+    spec_path = _bd_mutate_scratch_subject(work)
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    real_write = mutate._write_subject_text
+    changed = []
+    band_calls = []
+
+    def change_name_before_write(path, text, *args, **kwargs):
+        if not changed:
+            Path(path).rename(held)
+            Path(path).symlink_to(external)
+            changed.append(text)
+        return real_write(path, text, *args, **kwargs)
+
+    def green_band(*_args, **_kwargs):
+        band_calls.append(subject.read_text(encoding="utf-8"))
+        return _bd_mutate_green_band()
+
+    monkeypatch.setattr(mutate, "_run_band", green_band)
+    monkeypatch.setattr(mutate, "_write_subject_text", change_name_before_write)
+    rc, rows = mutate.run_battery(spec["mutants"], spec["band"], work,
+                                  verbose=False)
+
+    assert rc == 2 and rows[0]["verdict"] in {"UNKNOWN", "ERROR"}
+    assert external.read_text(encoding="utf-8") == "EXTERNAL SENTINEL\n"
+    assert subject.is_symlink() and held.read_text() == "VALUE = 1\n"
+    assert band_calls == ["VALUE = 1\n"], "mutant band ran after detachment"
+    assert list((work / ".bd-mutate-inflight").glob("*.json")), (
+        "unproved restoration discarded its recovery authority")
+
+
+def test_bd_mutate_same_byte_replacement_cannot_receive_the_mutant_write(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    held = work / "m.py.held"
+    replacement = work / "replacement.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    replacement.write_text("VALUE = 1\n", encoding="utf-8")
+    spec_path = _bd_mutate_scratch_subject(work)
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    real_write = mutate._write_subject_text
+    band_calls = []
+    changed = []
+
+    def replace_name_before_write(path, text, *args, **kwargs):
+        if not changed:
+            Path(path).rename(held)
+            replacement.rename(Path(path))
+            changed.append(text)
+        return real_write(path, text, *args, **kwargs)
+
+    def green_band(*_args, **_kwargs):
+        band_calls.append(subject.read_text(encoding="utf-8"))
+        return _bd_mutate_green_band()
+
+    monkeypatch.setattr(mutate, "_run_band", green_band)
+    monkeypatch.setattr(mutate, "_write_subject_text", replace_name_before_write)
+    rc, rows = mutate.run_battery(spec["mutants"], spec["band"], work,
+                                  verbose=False)
+
+    assert rc == 2 and rows[0]["verdict"] in {"UNKNOWN", "ERROR"}
+    assert subject.read_text() == "VALUE = 1\n"
+    assert held.read_text() == "VALUE = 1\n"
+    assert band_calls == ["VALUE = 1\n"], "mutant band ran on a replacement"
+    assert list((work / ".bd-mutate-inflight").glob("*.json"))
+
+
+@pytest.mark.parametrize("event", ("leaf-detach", "parent-detach", "late-hard-link"))
+def test_bd_mutate_post_write_subject_change_blocks_band_and_unsafe_restore(
+        tmp_path, monkeypatch, event):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    parent = work / "pkg"
+    parent.mkdir(parents=True)
+    subject = parent / "m.py"
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject.write_text(original, encoding="utf-8")
+    spec_path = _bd_mutate_scratch_subject(work, "pkg/m.py")
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    real_replace = mutate._PinnedSubject._replace_bytes
+    band_calls = []
+    fired = []
+    displaced = tmp_path / "displaced"
+    alias = tmp_path / "late-link.py"
+
+    def replace_then_change(owner, payload):
+        result = real_replace(owner, payload)
+        if payload == mutant.encode() and not fired:
+            if event == "leaf-detach":
+                owner.path.rename(displaced)
+                owner.path.write_text(original, encoding="utf-8")
+            elif event == "parent-detach":
+                owner.path.parent.rename(displaced)
+                owner.path.parent.mkdir()
+                owner.path.write_text(original, encoding="utf-8")
+            else:
+                os.link(owner.path, alias)
+            fired.append(event)
+        return result
+
+    def green_band(*_args, **_kwargs):
+        band_calls.append(subject.read_text(encoding="utf-8"))
+        return _bd_mutate_green_band()
+
+    monkeypatch.setattr(mutate._PinnedSubject, "_replace_bytes",
+                        replace_then_change)
+    monkeypatch.setattr(mutate, "_run_band", green_band)
+    rc, rows = mutate.run_battery(spec["mutants"], spec["band"], work,
+                                  verbose=False)
+
+    assert fired == [event] and rc == 2
+    assert rows[0]["verdict"] in {"UNKNOWN", "ERROR"}
+    assert band_calls == [original], "mutant band ran after ownership changed"
+    assert list((work / ".bd-mutate-inflight").glob("*.json"))
+    if event == "leaf-detach":
+        assert subject.read_text() == original and displaced.read_text() == mutant
+    elif event == "parent-detach":
+        assert subject.read_text() == original
+        assert (displaced / "m.py").read_text() == mutant
+    else:
+        assert subject.read_text() == alias.read_text() == mutant
+
+
+def test_bd_mutate_recovery_name_change_cannot_redirect_the_restore(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject = work / "target.py"
+    held = work / "target.py.held"
+    external = tmp_path / "external.py"
+    subject.write_text(mutant, encoding="utf-8")
+    external.write_text("EXTERNAL SENTINEL\n", encoding="utf-8")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = _bd_mutate_recovery_record(
+        journal, "123.json", subject, original, mutant)
+    real_write = mutate._write_subject_text
+    changed = []
+
+    def change_name_before_write(path, text, *args, **kwargs):
+        if not changed:
+            Path(path).rename(held)
+            Path(path).symlink_to(external)
+            changed.append(text)
+        return real_write(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(mutate, "_write_subject_text", change_name_before_write)
+    rc = mutate.journal_recover(work)
+
+    assert rc == 2 and record.exists()
+    assert external.read_text(encoding="utf-8") == "EXTERNAL SENTINEL\n"
+    assert subject.is_symlink() and held.read_text() == mutant
+
+
+def test_bd_mutate_recovery_same_byte_replacement_is_not_overwritten(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    work.mkdir()
+    original, mutant = "VALUE = 1\n", "VALUE = 2\n"
+    subject = work / "target.py"
+    held = work / "target.py.held"
+    replacement = work / "replacement.py"
+    subject.write_text(mutant, encoding="utf-8")
+    replacement.write_text(mutant, encoding="utf-8")
+    journal = work / ".bd-mutate-inflight"
+    journal.mkdir()
+    record = _bd_mutate_recovery_record(
+        journal, "123.json", subject, original, mutant)
+    real_write = mutate._write_subject_text
+    changed = []
+
+    def replace_name_before_write(path, text, *args, **kwargs):
+        if not changed:
+            Path(path).rename(held)
+            replacement.rename(Path(path))
+            changed.append(text)
+        return real_write(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(mutate, "_write_subject_text", replace_name_before_write)
+    rc = mutate.journal_recover(work)
+
+    assert rc == 2 and record.exists()
+    assert subject.read_text() == mutant
+    assert held.read_text() == mutant
+
+
+def test_bd_mutate_emit_stage_replacement_never_publishes_or_deletes_foreign_bytes(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    name = "v3_66_9999_stage_replace.json"
+    work, prepared = _bd_mutate_emit_fixture(tmp_path, mutate, name)
+    parent = work / "tests" / "mutants"
+    final = parent / name
+    displaced = tmp_path / "displaced-emitted-stage"
+    real_link = mutate.os.link
+    fired = []
+    foreign_stage = []
+
+    def replace_stage_then_link(*args, **kwargs):
+        stages = [path for path in parent.iterdir()
+                  if path.name.startswith(f".{name}.") and path.name.endswith(".tmp")]
+        assert len(stages) == 1
+        stage = stages[0]
+        stage.rename(displaced)
+        stage.write_bytes(b"FOREIGN STAGE\n")
+        foreign_stage.append(stage)
+        fired.append(args[0])
+        return real_link(*args, **kwargs)
+
+    monkeypatch.setattr(mutate.os, "link", replace_stage_then_link)
+    with pytest.raises((OSError, RuntimeError, ValueError)):
+        mutate._publish_emitted_spec(*prepared)
+
+    assert len(fired) == 1 and len(foreign_stage) == 1
+    assert foreign_stage[0].read_bytes() == b"FOREIGN STAGE\n"
+    assert displaced.read_bytes() == prepared[2]
+    assert not final.exists()
+
+
+def test_bd_mutate_emit_stage_file_fsync_failure_leaves_no_artifact(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work, prepared = _bd_mutate_emit_fixture(
+        tmp_path, mutate, "v3_66_9999_stage_fsync.json")
+    parent = work / "tests" / "mutants"
+    real_open = mutate.os.open
+    real_fsync = mutate.os.fsync
+    stage_fd = []
+    primary = OSError("emitted stage fsync uncertainty")
+
+    def capture_stage_open(path, flags, *args, **kwargs):
+        fd = real_open(path, flags, *args, **kwargs)
+        raw = os.fspath(path)
+        if raw.startswith(".v3_66_9999_stage_fsync.json.") and raw.endswith(".tmp"):
+            stage_fd.append(fd)
+        return fd
+
+    def fail_stage_fsync(fd):
+        if stage_fd and fd == stage_fd[0]:
+            raise primary
+        return real_fsync(fd)
+
+    monkeypatch.setattr(mutate.os, "open", capture_stage_open)
+    monkeypatch.setattr(mutate.os, "fsync", fail_stage_fsync)
+    with pytest.raises(BaseException) as caught:
+        mutate._publish_emitted_spec(*prepared)
+
+    assert caught.value is primary and len(stage_fd) == 1
+    assert list(parent.iterdir()) == []
+
+
+def test_bd_mutate_emit_namespace_fsync_failure_rolls_back_every_artifact(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    name = "v3_66_9999_namespace_fsync.json"
+    work, prepared = _bd_mutate_emit_fixture(tmp_path, mutate, name)
+    owner, _rel, _payload = prepared
+    parent = work / "tests" / "mutants"
+    final = parent / name
+    real_fsync = mutate.os.fsync
+    primary = OSError("emitted namespace fsync uncertainty")
+    fired = []
+
+    def fail_post_link_directory_fsync(fd):
+        if fd == owner.fd and final.exists() and not fired:
+            fired.append(fd)
+            raise primary
+        return real_fsync(fd)
+
+    monkeypatch.setattr(mutate.os, "fsync", fail_post_link_directory_fsync)
+    with pytest.raises(BaseException) as caught:
+        mutate._publish_emitted_spec(*prepared)
+
+    assert caught.value is primary and fired
+    assert list(parent.iterdir()) == []
+
+
+def test_bd_mutate_emit_close_uncertainty_preserves_first_error_and_durable_final(
+        tmp_path, monkeypatch, capsys):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    name = "v3_66_9999_close_uncertain.json"
+    work, prepared = _bd_mutate_emit_fixture(tmp_path, mutate, name)
+    owner, _rel, payload = prepared
+    parent = work / "tests" / "mutants"
+    final = parent / name
+    original_open = os.open
+    original_close = os.close
+    original_fstat = os.fstat
+    owner_identities = [
+        _descriptor_identity(original_fstat, fd) for fd in owner._owned.values()
+    ]
+    emitted = {}
+    attempts = []
+    replacement = []
+    primary = KeyboardInterrupt("emitted final close uncertainty")
+    secondary = SystemExit(93)
+    sentinel = tmp_path / "emitted-close-reuse-sentinel"
+
+    def capture_emitted_open(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        raw = os.fspath(path)
+        if raw == name:
+            emitted["final"] = _descriptor_identity(original_fstat, fd)
+        elif raw.startswith(f".{name}.") and raw.endswith(".tmp"):
+            emitted["stage"] = _descriptor_identity(original_fstat, fd)
+        return fd
+
+    def close_then_fault(fd):
+        identity = _descriptor_identity(original_fstat, fd)
+        attempts.append(identity)
+        if identity == emitted.get("final") and not replacement:
+            original_close(fd)
+            replacement_fd = original_open(
+                sentinel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            assert replacement_fd == fd
+            replacement.append(
+                _descriptor_identity(original_fstat, replacement_fd))
+            raise primary
+        if owner_identities and identity == owner_identities[0]:
+            original_close(fd)
+            raise secondary
+        return original_close(fd)
+
+    monkeypatch.setattr(mutate.os, "open", capture_emitted_open)
+    monkeypatch.setattr(mutate.os, "close", close_then_fault)
+    try:
+        with pytest.raises(BaseException) as caught:
+            mutate._publish_emitted_spec(*prepared)
+        stdout, _stderr = capsys.readouterr()
+
+        assert caught.value is primary and set(emitted) == {"stage", "final"}
+        for identity in [*emitted.values(), *owner_identities]:
+            assert attempts.count(identity) == 1
+        assert len(replacement) == 1
+        assert (_descriptor_identity(original_fstat, replacement[0][0]) ==
+                replacement[0])
+        assert any("SystemExit" in note and "93" in note
+                   for note in getattr(primary, "__notes__", ()))
+        assert final.read_bytes() == payload
+        assert not list(parent.glob(f".{name}.*.tmp"))
+        assert "emitted canonical spec" not in stdout
+    finally:
+        for identity in replacement + owner_identities + list(emitted.values()):
+            _close_if_same_owner(original_fstat, original_close, identity)
+
+
+def test_bd_mutate_emit_parent_identity_change_refuses_publication(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+                   check=True)
+    prepared = mutate._prepare_emitted_spec(
+        work, "v3_66_9999_emit_identity.json", "emit identity",
+        ["tests/test_m.py::test_value"], [{
+            "label": "value", "file": "m.py", "old": "VALUE = 1",
+            "new": "VALUE = 2", "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }])
+    parent = work / "tests" / "mutants"
+    held = work / "tests" / "mutants.held"
+    external = tmp_path / "external-mutants"
+    parent.rename(held)
+    external.mkdir()
+    parent.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises((OSError, RuntimeError, ValueError)):
+        mutate._publish_emitted_spec(*prepared)
+
+    assert list(external.iterdir()) == []
+    assert list(held.iterdir()) == []
+
+
+def test_bd_mutate_emit_parent_swap_during_publication_leaves_no_artifact(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+                   check=True)
+    prepared = mutate._prepare_emitted_spec(
+        work, "v3_66_9999_emit_race.json", "emit race",
+        ["tests/test_m.py::test_value"], [{
+            "label": "value", "file": "m.py", "old": "VALUE = 1",
+            "new": "VALUE = 2", "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }])
+    parent = work / "tests" / "mutants"
+    held = work / "tests" / "mutants.held"
+    external = tmp_path / "external-mutants"
+    external.mkdir()
+    real_link = mutate.os.link
+    fired = []
+
+    def swap_then_link(*args, **kwargs):
+        if not fired:
+            parent.rename(held)
+            parent.symlink_to(external, target_is_directory=True)
+            fired.append(True)
+        return real_link(*args, **kwargs)
+
+    monkeypatch.setattr(mutate.os, "link", swap_then_link)
+    with pytest.raises((OSError, RuntimeError, ValueError)):
+        mutate._publish_emitted_spec(*prepared)
+
+    assert fired == [True]
+    assert list(external.iterdir()) == []
+    assert list(held.iterdir()) == []
+
+
+@pytest.mark.parametrize("failure_type", (OSError, FileExistsError),
+                         ids=("oserror", "file-exists-error"))
+def test_bd_mutate_emit_link_after_effect_failure_is_reconciled(
+        tmp_path, monkeypatch, failure_type):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+                   check=True)
+    prepared = mutate._prepare_emitted_spec(
+        work, "v3_66_9999_link_effect.json", "link effect",
+        ["tests/test_m.py::test_value"], [{
+            "label": "value", "file": "m.py", "old": "VALUE = 1",
+            "new": "VALUE = 2", "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }])
+    parent = work / "tests" / "mutants"
+    real_link = mutate.os.link
+
+    def link_then_raise(*args, **kwargs):
+        real_link(*args, **kwargs)
+        raise failure_type("injected link-after-effect uncertainty")
+
+    monkeypatch.setattr(mutate.os, "link", link_then_raise)
+    with pytest.raises(failure_type, match="link-after-effect"):
+        mutate._publish_emitted_spec(*prepared)
+
+    assert list(parent.iterdir()) == []
+
+
+def test_bd_mutate_emit_foreign_final_survives_failed_link_reconciliation(
+        tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+                   check=True)
+    name = "v3_66_9999_foreign_final.json"
+    prepared = mutate._prepare_emitted_spec(
+        work, name, "foreign final",
+        ["tests/test_m.py::test_value"], [{
+            "label": "value", "file": "m.py", "old": "VALUE = 1",
+            "new": "VALUE = 2", "direction": "regression",
+            "catcher": "tests/test_m.py::test_value",
+        }])
+    final = work / "tests" / "mutants" / name
+    real_link = mutate.os.link
+
+    def replace_final_then_raise(*args, **kwargs):
+        real_link(*args, **kwargs)
+        final.unlink()
+        final.write_bytes(b"FOREIGN FINAL\n")
+        raise OSError("injected foreign final after link")
+
+    monkeypatch.setattr(mutate.os, "link", replace_final_then_raise)
+    with pytest.raises(OSError, match="foreign final"):
+        mutate._publish_emitted_spec(*prepared)
+
+    assert final.read_bytes() == b"FOREIGN FINAL\n"
+
+
+def test_bd_mutate_emit_same_type_parent_swap_is_rejected(tmp_path, monkeypatch):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    work = tmp_path / "candidate"
+    parent = work / "tests" / "mutants"
+    parent.mkdir(parents=True)
+    (work / "m.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (work / "tests" / "test_m.py").write_text(
+        "def test_value():\n    assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "m.py", "tests/test_m.py"],
+                   check=True)
+    held = work / "tests" / "mutants.held"
+    replacement = work / "tests" / "mutants.replacement"
+    replacement.mkdir()
+    sentinel = replacement / "sentinel"
+    sentinel.write_bytes(b"REPLACEMENT\n")
+    real_child = mutate._PinnedDirectory.child
+
+    def swap_before_child(_cls, tests_owner, name, expected):
+        parent.rename(held)
+        replacement.rename(parent)
+        return real_child(tests_owner, name, expected)
+
+    monkeypatch.setattr(
+        mutate._PinnedDirectory, "child", classmethod(swap_before_child))
+    with pytest.raises((OSError, RuntimeError, ValueError)):
+        mutate._prepare_emitted_spec(
+            work, "v3_66_9999_same_type.json", "same type",
+            ["tests/test_m.py::test_value"], [{
+                "label": "value", "file": "m.py", "old": "VALUE = 1",
+                "new": "VALUE = 2", "direction": "regression",
+                "catcher": "tests/test_m.py::test_value",
+            }])
+
+    assert (parent / "sentinel").read_bytes() == b"REPLACEMENT\n"
+    assert list(held.iterdir()) == []
+    assert sorted(path.name for path in parent.iterdir()) == ["sentinel"]
+    assert not list(parent.glob(".v3_66_9999_same_type.json.*.tmp"))
+    assert not (parent / "v3_66_9999_same_type.json").exists()
+
+
+def test_bd_mutate_post_baseline_identity_drift_is_unrunnable(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    outside = tmp_path / "outside-alias.py"
+    baseline_marker = tmp_path / "baseline-ran.txt"
+    mutant_marker = tmp_path / "mutant-ran.txt"
+    spec = _bd_mutate_scratch_subject(work, "m.py")
+    (work / "tests" / "test_m.py").write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        f"baseline_marker = Path({str(baseline_marker)!r})\n"
+        f"mutant_marker = Path({str(mutant_marker)!r})\n"
+        "baseline_marker.write_text('baseline reached')\n"
+        f"outside = Path({str(outside)!r})\n"
+        f"subject = Path({str(subject)!r})\n"
+        "if subject.read_text() == 'VALUE = 2\\n':\n"
+        "    mutant_marker.write_text('mutant reached')\n"
+        "if not outside.exists():\n"
+        "    os.link(subject, outside)\n"
+        "def test_value():\n"
+        "    assert subject.read_text() == 'VALUE = 1\\n'\n",
+        encoding="utf-8",
+    )
+    before = subject.read_bytes()
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "mutant subject has multiple hard links" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert baseline_marker.read_text(encoding="utf-8") == "baseline reached"
+    assert not mutant_marker.exists()
+    assert subject.read_bytes() == outside.read_bytes() == before
+    report = json.loads(result.stdout)
+    assert report["exit"] == 2
+    assert len(report["rows"]) == 1
+    row = report["rows"][0]
+    assert row["label"] == "change value" and row["file"] == "m.py"
+    assert row["verdict"] == "UNKNOWN"
+    assert "subject identity changed after baseline" in row["why"]
+
+
+def test_bd_mutate_baseline_byte_drift_is_unknown_and_preserved(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\nOTHER = 1\n", encoding="utf-8")
+    baseline_marker = tmp_path / "baseline-ran.txt"
+    mutant_marker = tmp_path / "mutant-ran.txt"
+    spec = _bd_mutate_scratch_subject(work, "m.py")
+    (work / "tests" / "test_m.py").write_text(
+        "from pathlib import Path\n"
+        f"subject = Path({str(subject)!r})\n"
+        f"baseline_marker = Path({str(baseline_marker)!r})\n"
+        f"mutant_marker = Path({str(mutant_marker)!r})\n"
+        "text = subject.read_text()\n"
+        "if 'OTHER = 1\\n' in text:\n"
+        "    subject.write_text(text.replace('OTHER = 1\\n', 'OTHER = 2\\n'))\n"
+        "baseline_marker.write_text('baseline reached')\n"
+        "if 'VALUE = 2\\n' in subject.read_text():\n"
+        "    mutant_marker.write_text('mutant reached')\n"
+        "def test_value():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert baseline_marker.read_text() == "baseline reached"
+    assert not mutant_marker.exists()
+    assert subject.read_text() == "VALUE = 1\nOTHER = 2\n"
+    report = json.loads(result.stdout)
+    assert report["exit"] == 2
+    assert report["rows"][0]["verdict"] == "UNKNOWN"
+    assert "subject identity changed after baseline" in report["rows"][0]["why"]
+    assert "bytes" in report["rows"][0]["why"]
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("drift", ("inode", "mode"))
+def test_bd_mutate_baseline_inode_or_mode_drift_is_unknown(
+        tmp_path, drift):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    work.mkdir()
+    subject = work / "m.py"
+    subject.write_text("VALUE = 1\n", encoding="utf-8")
+    subject.chmod(0o644)
+    baseline_marker = tmp_path / "baseline-ran.txt"
+    spec = _bd_mutate_scratch_subject(work, "m.py")
+    mutation = (
+        "replacement = subject.with_suffix('.replacement')\n"
+        "replacement.write_bytes(subject.read_bytes())\n"
+        "replacement.chmod(0o644)\n"
+        "replacement.replace(subject)\n"
+        if drift == "inode" else
+        "subject.chmod(0o744)\n"
+    )
+    (work / "tests" / "test_m.py").write_text(
+        "from pathlib import Path\n"
+        f"subject = Path({str(subject)!r})\n"
+        f"marker = Path({str(baseline_marker)!r})\n"
+        "if not marker.exists():\n"
+        + "".join("    " + line + "\n" for line in mutation.splitlines())
+        + "    marker.write_text('baseline reached')\n"
+        "def test_value():\n"
+        "    assert subject.read_text() == 'VALUE = 1\\n'\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"],
+        cwd=work, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["rows"][0]["verdict"] == "UNKNOWN"
+    assert drift in report["rows"][0]["why"]
+    assert subject.read_text() == "VALUE = 1\n"
+
+
+def _write_two_subject_mutation_spec(work, path):
+    path.write_text(json.dumps({
+        "schema": "bd-mutate-spec/1",
+        "subject": "two-subject identity completeness",
+        "band": ["tests/test_two.py"],
+        "mutants": [
+            {"label": "first value", "file": "first.py",
+             "old": "VALUE = 1", "new": "VALUE = 2",
+             "direction": "regression",
+             "catcher": "tests/test_two.py::test_first"},
+            {"label": "second value", "file": "second.py",
+             "old": "VALUE = 1", "new": "VALUE = 2",
+             "direction": "regression",
+             "catcher": "tests/test_two.py::test_second"},
+        ],
+    }), encoding="utf-8")
+
+
+def test_bd_mutate_checks_every_subject_immediately_after_baseline(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    first, second = work / "first.py", work / "second.py"
+    first.write_text("VALUE = 1\n", encoding="utf-8")
+    second.write_text("VALUE = 1\nOTHER = 1\n", encoding="utf-8")
+    mutant_marker = tmp_path / "mutant-ran"
+    (work / "tests" / "test_two.py").write_text(
+        "from pathlib import Path\n"
+        f"first = Path({str(first)!r})\nsecond = Path({str(second)!r})\n"
+        f"marker = Path({str(mutant_marker)!r})\n"
+        "text = second.read_text()\n"
+        "if 'OTHER = 1\\n' in text:\n"
+        "    second.write_text(text.replace('OTHER = 1\\n', 'OTHER = 2\\n'))\n"
+        "if 'VALUE = 2\\n' in first.read_text() or 'VALUE = 2\\n' in second.read_text():\n"
+        "    marker.write_text('mutant reached')\n"
+        "def test_first():\n    assert 'VALUE = 1\\n' in first.read_text()\n"
+        "def test_second():\n    assert 'VALUE = 1\\n' in second.read_text()\n",
+        encoding="utf-8")
+    spec = tmp_path / "two-subjects.json"
+    _write_two_subject_mutation_spec(work, spec)
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"], cwd=work,
+        capture_output=True, text=True, timeout=120)
+
+    report = json.loads(result.stdout)
+    assert result.returncode == 2 and report["exit"] == 2
+    assert report["rows"][0]["label"] == "second value"
+    assert report["rows"][0]["verdict"] == "UNKNOWN"
+    assert "bytes" in report["rows"][0]["why"]
+    assert not mutant_marker.exists(), "first mutant ran before second drift check"
+
+
+def test_bd_mutate_rechecks_later_subject_after_each_mutant(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    work = tmp_path / "candidate"
+    (work / "tests").mkdir(parents=True)
+    first, second = work / "first.py", work / "second.py"
+    first.write_text("VALUE = 1\n", encoding="utf-8")
+    second.write_text("VALUE = 1\nOTHER = 1\n", encoding="utf-8")
+    second_mutant_marker = tmp_path / "second-mutant-ran"
+    (work / "tests" / "test_two.py").write_text(
+        "from pathlib import Path\n"
+        f"first = Path({str(first)!r})\nsecond = Path({str(second)!r})\n"
+        f"marker = Path({str(second_mutant_marker)!r})\n"
+        "if 'VALUE = 2\\n' in first.read_text():\n"
+        "    text = second.read_text()\n"
+        "    if 'OTHER = 1\\n' in text:\n"
+        "        second.write_text(text.replace('OTHER = 1\\n', 'OTHER = 2\\n'))\n"
+        "if 'VALUE = 2\\n' in second.read_text():\n"
+        "    marker.write_text('second mutant reached')\n"
+        "def test_first():\n    assert 'VALUE = 1\\n' in first.read_text()\n"
+        "def test_second():\n    assert 'VALUE = 1\\n' in second.read_text()\n",
+        encoding="utf-8")
+    spec = tmp_path / "two-subjects.json"
+    _write_two_subject_mutation_spec(work, spec)
+
+    result = subprocess.run(
+        [sys.executable, str(runner), "--spec", str(spec),
+         "--work", str(work), "--json"], cwd=work,
+        capture_output=True, text=True, timeout=120)
+
+    report = json.loads(result.stdout)
+    assert result.returncode == 2 and report["exit"] == 2
+    assert [row["verdict"] for row in report["rows"]] == ["CAUGHT", "UNKNOWN"]
+    assert "subject identity changed after baseline" in report["rows"][1]["why"]
+    assert not second_mutant_marker.exists()
+
+
 @pytest.mark.slow
 def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation():
     """RED, and the only assertion that exercises the {py} substitution.
@@ -400,22 +4836,8 @@ def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation():
         [sys.executable, str(MT), "--only", "route_index/spa_wired",
          "--work", str(REPO), "--json"],
         budget_s=600, what="bd-mutation-test", cwd=REPO)
-    assert r.returncode in (0, 1), f"exit={r.returncode}\n{r.stdout[-3000:]}"
-    import json as _json
-    # The payload is PRETTY-PRINTED across many lines, so parse from the first
-    # brace to the end rather than line-by-line (a per-line json.loads only ever
-    # sees "{" and fails, which reads as "the tool produced no output" -- a
-    # wrong diagnosis of a working tool).
-    start = r.stdout.find("{")
-    assert start != -1, f"no JSON in output:\n{r.stdout[-3000:]}"
-    try:
-        payload = _json.loads(r.stdout[start:])
-    except ValueError as exc:
-        pytest.fail(f"could not parse the JSON payload ({exc}):\n"
-                    f"{r.stdout[-3000:]}")
-    rows = payload.get("results") if isinstance(payload, dict) else payload
-    assert rows, f"no result rows: {payload}"
-    state = rows[0].get("state")
+    row = _one_mutation_result(r, expected_id="route_index/spa_wired")
+    state = row.get("state")
     assert state == "CAUGHT", (
         f"the row reported {state!r}, not CAUGHT. A gate that cannot execute "
         f"reports BASELINE-RED and can never prove a mutation was caught.\n"
@@ -535,7 +4957,7 @@ def test_a_tool_timeout_reports_a_diagnosis_not_a_bare_traceback():
     the tool name, the budget, and a next step. Also asserts it did NOT become a
     skip -- a timeout is 'could not evaluate', which fails.
     """
-    with pytest.raises(pytest.fail.Exception) as caught:
+    with pytest.raises(_PYTEST_FAILURE) as caught:
         _run_tool([sys.executable, "-c", "import time; time.sleep(30)"],
                   budget_s=1, what="bd-mutation-test")
     message = str(caught.value)

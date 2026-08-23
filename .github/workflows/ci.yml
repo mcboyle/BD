@@ -235,6 +235,9 @@ jobs:
   # was RED somewhere nothing else could see; see the @850 note below.
   gate-suites:
     runs-on: ubuntu-latest
+    # pytest-timeout runs inside pytest. This is the independent owner bound
+    # for a dead interpreter/runner, kept well below Actions' six-hour default.
+    timeout-minutes: 30
     strategy:
       # One shard's failure must not cancel the others: a cut usually wants to
       # see every gate that is red, not the first one.
@@ -317,13 +320,38 @@ jobs:
           # pytest is handed its words as paths.
           - name: measurement-tools
             suites: >-
-              tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
-              tests/test_v3_66_1044_run_context_and_chains.py
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
-              tests/test_v3_66_1040_remote_job_registry.py
+          - name: measurement-tools-core
+            suites: >-
+              tests/test_v3_66_1044_run_context_and_chains.py
               tests/test_v3_66_1068_modwatch_measures_per_file.py
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
+          # @1207 determinism review. The former measurement-tools entry had
+          # doubled and serialized every file in one Actions job. Four files
+          # are irreducible long poles (1043 consumed 158s of a measured 172s
+          # serial test5 core run; 1046 itself launches a nested battery; 1040
+          # and 1132 own process-heavy lifecycle matrices), so each stays whole
+          # under loadfile semantics but gets an independent runner.
+          - name: measurement-isolation
+            suites: >-
+              tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
+          - name: jobs-registration
+            suites: >-
+              tests/test_v3_66_1040_remote_job_registry.py
+          - name: jobs-process-lifecycle
+            suites: >-
+              tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py
+          - name: jobs-determinism
+            suites: >-
+              tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
+              tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py
+              tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py
+          - name: provider-facade
+            suites: >-
+              tests/test_provider_resolve_surface_lock.py
+          - name: mutation-tools
+            suites: >-
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_v3_66_1186_bd_mutate_named_controls.py
@@ -332,9 +360,6 @@ jobs:
               tests/test_v3_66_1189_bd_mutate_durable_contract.py
               tests/test_v3_66_1190_bd_mutate_kills_process_tree.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
-          - name: provider-facade
-            suites: >-
-              tests/test_provider_resolve_surface_lock.py
           - name: isolation
             suites: >-
               tests/test_v3_66_1034_guards_survive_a_module_wipe.py
@@ -445,7 +470,10 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-test.txt
 
       - name: ${{ matrix.name }} gates
-        run: python -m pytest -q -p no:randomly ${{ matrix.suites }}
+        run: >-
+          python -m pytest -q -p no:randomly
+          --timeout=240 --timeout-method=thread
+          ${{ matrix.suites }}
         # @850: two of these were added because they were RED somewhere nothing
         # could see.
         #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors

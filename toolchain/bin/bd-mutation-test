@@ -33,10 +33,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -278,40 +280,580 @@ def _apply(row, tree):
     return True, "mutation applied"
 
 
-def check(row, src_tree):
+class _SnapshotError(RuntimeError):
+    pass
+
+
+def _git_env():
+    return {name: value for name, value in os.environ.items()
+            if not name.startswith("GIT_")}
+
+
+def _run_git(src_tree, *args):
+    git = shutil.which("git", path=_git_env().get("PATH"))
+    if not git:
+        raise _SnapshotError("Git executable unavailable")
+    try:
+        return subprocess.run(
+            [os.path.realpath(git), "-C", src_tree, *args],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_env(),
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise _SnapshotError(f"Git command unavailable: {type(exc).__name__}") from exc
+
+
+def _git_index(src_tree):
+    src_tree = os.path.realpath(src_tree)
+    probe = _run_git(src_tree, "rev-parse", "--is-inside-work-tree",
+                     "--show-toplevel", "--show-prefix")
+    lines = probe.stdout.splitlines(keepends=True)
+    if (probe.returncode != 0 or len(lines) != 3 or lines[0] != b"true\n" or
+            not lines[1].endswith(b"\n") or not lines[2].endswith(b"\n")):
+        detail = probe.stderr.decode("utf-8", "replace").strip()[:180]
+        raise _SnapshotError(f"Git worktree identity unavailable: {detail}")
+    top = os.path.realpath(os.fsdecode(lines[1][:-1]))
+    prefix = lines[2][:-1]
+    expected_prefix = os.path.relpath(src_tree, top)
+    expected_prefix = b"" if expected_prefix == "." else (
+        os.fsencode(expected_prefix).replace(os.sep.encode(), b"/") + b"/")
+    try:
+        contained = os.path.commonpath((src_tree, top)) == top
+    except ValueError:
+        contained = False
+    if not contained or prefix != expected_prefix:
+        raise _SnapshotError("Git worktree root/prefix identity mismatch")
+    listed = _run_git(src_tree, "ls-files", "-z", "--stage", "--cached",
+                      "--", ".")
+    if listed.returncode != 0:
+        detail = listed.stderr.decode("utf-8", "replace").strip()[:180]
+        raise _SnapshotError(f"Git index enumeration failed: {detail}")
+    if not listed.stdout or not listed.stdout.endswith(b"\0"):
+        raise _SnapshotError("Git index denominator is empty")
+    entries = []
+    seen = set()
+    for raw in listed.stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            meta, raw_rel = raw.split(b"\t", 1)
+            mode, object_id, stage = meta.split(b" ")
+        except ValueError as exc:
+            raise _SnapshotError("malformed Git index record") from exc
+        parts = raw_rel.split(b"/")
+        if (not raw_rel or raw_rel.startswith(b"/") or
+                any(part in (b"", b".", b"..") for part in parts)):
+            raise _SnapshotError(f"unsafe Git index path: {raw_rel!r}")
+        if raw_rel in seen:
+            raise _SnapshotError(f"duplicate Git index path: {raw_rel!r}")
+        seen.add(raw_rel)
+        if (len(object_id) not in (40, 64) or
+                any(byte not in b"0123456789abcdef" for byte in object_id) or
+                not object_id.strip(b"0")):
+            raise _SnapshotError(f"invalid Git object id: {raw_rel!r}")
+        if stage != b"0":
+            raise _SnapshotError(f"unmerged Git index path: {raw_rel!r}")
+        if mode not in (b"100644", b"100755"):
+            raise _SnapshotError(
+                f"unsupported Git index mode {os.fsdecode(mode)!r}: "
+                f"{raw_rel!r}")
+        entries.append((raw_rel, mode == b"100755"))
+    if not entries:
+        raise _SnapshotError("Git index denominator is empty")
+    return listed.stdout, entries
+
+
+def _attach_secondary_close_notes(primary, failures):
+    """Attach best-effort close evidence without letting metadata escape."""
+    for context, fd, exc in failures:
+        try:
+            failure_type = type(exc).__name__
+        except BaseException:
+            failure_type = "<unknown>"
+        try:
+            detail = str(exc)
+        except BaseException:
+            detail = "<unprintable>"
+        try:
+            note = "secondary %s close failure for fd %d: %s: %s" % (
+                context, fd, failure_type, detail)
+        except BaseException:
+            note = "secondary close failure (details unavailable)"
+        try:
+            BaseException.add_note(primary, note)
+        except BaseException:
+            pass
+
+
+def _settle_descriptors(descriptors, *, primary=None, context):
+    """Consume every pending fd, preserving the exact first BaseException."""
+    pending = [fd for fd in descriptors if fd is not None]
+    first = primary
+    secondary_failures = []
+    while pending:
+        fd = pending.pop(0)
+        try:
+            os.close(fd)
+        except BaseException as exc:
+            if first is None:
+                first = exc
+            elif exc is not first:
+                secondary_failures.append((context, fd, exc))
+    if first is not None:
+        _attach_secondary_close_notes(first, secondary_failures)
+    return first
+
+
+def _close_all(*descriptors):
+    """Attempt every owned close, then preserve the first close failure."""
+    first = _settle_descriptors(
+        descriptors, primary=None, context="owned descriptor")
+    if first is not None:
+        raise first
+
+
+def _close_all_preserving_active_error(*descriptors):
+    """Close owned fds without replacing an exception already in flight."""
+    active_error = sys.exc_info()[1]
+    first = _settle_descriptors(
+        descriptors, primary=active_error, context="cleanup")
+    if active_error is None and first is not None:
+        raise first
+
+
+def _adopt_child_after_parent_close(parent_fd, child_fd):
+    """Publish child only after parent close; settle child on any failure."""
+    first = _settle_descriptors(
+        (parent_fd,), primary=None, context="parent descriptor")
+    if first is None:
+        return child_fd
+    first = _settle_descriptors(
+        (child_fd,), primary=first, context="unpublished child")
+    raise first
+
+
+def _open_tracked(root_fd, rel):
+    parts = rel.split(b"/")
+    parent_fd = os.dup(root_fd)
+    flags_dir = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    flags_file = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        for part in parts[:-1]:
+            next_fd = os.open(part, flags_dir, dir_fd=parent_fd)
+            old_parent_fd = parent_fd
+            parent_fd = None
+            parent_fd = _adopt_child_after_parent_close(
+                old_parent_fd, next_fd)
+        try:
+            child_fd = os.open(parts[-1], flags_file, dir_fd=parent_fd)
+        except FileNotFoundError:
+            return None
+        old_parent_fd = parent_fd
+        parent_fd = None
+        return _adopt_child_after_parent_close(old_parent_fd, child_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise _SnapshotError(
+            f"tracked path type/containment changed: {rel!r}: {exc}") from exc
+    finally:
+        _close_all_preserving_active_error(parent_fd)
+
+
+def _open_destination(root_fd, rel, executable):
+    parts = rel.split(b"/")
+    parent_fd = os.dup(root_fd)
+    flags_dir = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        for part in parts[:-1]:
+            try:
+                os.mkdir(part, 0o700, dir_fd=parent_fd)
+            except FileExistsError:
+                pass
+            next_fd = os.open(part, flags_dir, dir_fd=parent_fd)
+            old_parent_fd = parent_fd
+            parent_fd = None
+            parent_fd = _adopt_child_after_parent_close(
+                old_parent_fd, next_fd)
+        child_fd = os.open(
+            parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+            os.O_CLOEXEC | os.O_NOFOLLOW, 0o755 if executable else 0o644,
+            dir_fd=parent_fd,
+        )
+        old_parent_fd = parent_fd
+        parent_fd = None
+        return _adopt_child_after_parent_close(old_parent_fd, child_fd)
+    except OSError as exc:
+        raise _SnapshotError(
+            f"snapshot destination creation failed: {rel!r}: {exc}") from exc
+    finally:
+        _close_all_preserving_active_error(parent_fd)
+
+
+def _read_tracked(root_fd, rel, executable, destination_root_fd=None):
+    fd = _open_tracked(root_fd, rel)
+    if fd is None:
+        return None
+    destination_fd = None
+    try:
+        digest = hashlib.sha256()
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise _SnapshotError(f"tracked path is not a regular file: {rel!r}")
+        if before.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
+            raise _SnapshotError(f"tracked path has unsafe special mode: {rel!r}")
+        if bool(before.st_mode & stat.S_IXUSR) != executable:
+            raise _SnapshotError(f"tracked executable mode changed: {rel!r}")
+        if destination_root_fd is not None:
+            destination_fd = _open_destination(
+                destination_root_fd, rel, executable)
+        while True:
+            chunk = os.read(fd, 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            if destination_fd is not None:
+                view = memoryview(chunk)
+                while view:
+                    written = os.write(destination_fd, view)
+                    if written <= 0:
+                        raise _SnapshotError(
+                            f"snapshot destination short write: {rel!r}")
+                    view = view[written:]
+        after = os.fstat(fd)
+        identity = (after.st_dev, after.st_ino, after.st_nlink, after.st_size,
+                    after.st_mtime_ns, after.st_ctime_ns,
+                    stat.S_IMODE(after.st_mode))
+        before_identity = (before.st_dev, before.st_ino, before.st_nlink,
+                           before.st_size,
+                           before.st_mtime_ns, before.st_ctime_ns,
+                           stat.S_IMODE(before.st_mode))
+        if identity != before_identity:
+            raise _SnapshotError(f"tracked path changed while read: {rel!r}")
+        if destination_root_fd is not None:
+            os.fchmod(destination_fd, 0o755 if executable else 0o644)
+        return identity, digest.digest()
+    except OSError as exc:
+        raise _SnapshotError(f"tracked path read failed: {rel!r}: {exc}") from exc
+    finally:
+        _close_all_preserving_active_error(destination_fd, fd)
+
+
+def _snapshot_tree(src_tree, tree, *, allow_non_git=False):
+    """Copy one stable tracked-current-byte generation into scratch."""
+    if allow_non_git:
+        shutil.copytree(src_tree, tree, symlinks=True,
+                        ignore=shutil.ignore_patterns(
+                            "__pycache__", "*.pyc", ".git", "node_modules",
+                            "venv", ".hypothesis"))
+        return None
+
+    src_tree = os.path.realpath(src_tree)
+    index_before, entries = _git_index(src_tree)
+    manifest = {}
+    root_fd = os.open(src_tree, os.O_RDONLY | os.O_DIRECTORY |
+                     os.O_CLOEXEC | os.O_NOFOLLOW)
+    destination_root_fd = None
+    try:
+        root_before = os.fstat(root_fd)
+        os.mkdir(tree, 0o700)
+        destination_root_fd = os.open(
+            tree, os.O_RDONLY | os.O_DIRECTORY |
+            os.O_CLOEXEC | os.O_NOFOLLOW)
+        for rel, executable in entries:
+            manifest[rel] = _read_tracked(
+                root_fd, rel, executable, destination_root_fd)
+        index_after, entries_after = _git_index(src_tree)
+        if index_after != index_before or entries_after != entries:
+            raise _SnapshotError("Git index changed during snapshot")
+        for rel, executable in entries:
+            if _read_tracked(root_fd, rel, executable) != manifest[rel]:
+                raise _SnapshotError(f"tracked path changed during snapshot: {rel!r}")
+        root_after = os.stat(src_tree, follow_symlinks=False)
+        root_identity = (root_before.st_dev, root_before.st_ino,
+                         stat.S_IFMT(root_before.st_mode))
+        if root_identity != (root_after.st_dev, root_after.st_ino,
+                             stat.S_IFMT(root_after.st_mode)):
+            raise _SnapshotError("source worktree root changed during snapshot")
+    finally:
+        _close_all_preserving_active_error(destination_root_fd, root_fd)
+    return {
+        rel: (executable, None if manifest[rel] is None else manifest[rel][1])
+        for rel, executable in entries
+    }
+
+
+def _observe_tracked_snapshot(tree, sealed):
+    if sealed is None:
+        return None
+    observed = {}
+    root_fd = os.open(tree, os.O_RDONLY | os.O_DIRECTORY |
+                      os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        for rel, (executable, _expected_digest) in sealed.items():
+            value = _read_tracked(root_fd, rel, executable)
+            observed[rel] = (
+                executable, None if value is None else value[1])
+    finally:
+        _close_all_preserving_active_error(root_fd)
+    return observed
+
+
+def _verify_tracked_snapshot(tree, sealed):
+    observed = _observe_tracked_snapshot(tree, sealed)
+    if sealed is None:
+        return
+    for rel, expected in sealed.items():
+        if observed.get(rel) != expected:
+            raise _SnapshotError(
+                f"tracked snapshot changed during gate: {rel!r}")
+
+
+_DEPENDENCY_PATHS = ("frontend/node_modules", "venv")
+
+
+def _dependency_manifest(root):
+    """Hash one dependency generation without following directory symlinks."""
+    root = os.path.abspath(root)
+    try:
+        root_stat = os.lstat(root)
+    except OSError as exc:
+        raise _SnapshotError(
+            f"dependency authority unavailable: {root}: {exc}") from exc
+    if not stat.S_ISDIR(root_stat.st_mode):
+        raise _SnapshotError(
+            f"dependency authority is not a real directory: {root}")
+    records = []
+    pending = [(root, "")]
+    while pending:
+        directory, prefix = pending.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(
+                    iterator, key=lambda item: os.fsencode(item.name))
+        except OSError as exc:
+            raise _SnapshotError(
+                f"dependency directory unreadable: {directory}: {exc}") from exc
+        for entry in entries:
+            rel = os.path.join(prefix, entry.name) if prefix else entry.name
+            raw_rel = os.fsencode(rel).replace(os.sep.encode(), b"/")
+            try:
+                before = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise _SnapshotError(
+                    f"dependency entry unreadable: {raw_rel!r}: {exc}") from exc
+            mode = stat.S_IMODE(before.st_mode)
+            if stat.S_ISDIR(before.st_mode):
+                records.append((raw_rel, b"d", mode))
+                pending.append((entry.path, rel))
+                continue
+            if stat.S_ISLNK(before.st_mode):
+                try:
+                    target = os.fsencode(os.readlink(entry.path))
+                except OSError as exc:
+                    raise _SnapshotError(
+                        f"dependency link unreadable: {raw_rel!r}: {exc}") from exc
+                records.append((raw_rel, b"l", mode, target))
+                continue
+            if not stat.S_ISREG(before.st_mode):
+                raise _SnapshotError(
+                    f"dependency entry has unsupported type: {raw_rel!r}")
+            digest = hashlib.sha256()
+            try:
+                with open(entry.path, "rb") as handle:
+                    opened = os.fstat(handle.fileno())
+                    if ((opened.st_dev, opened.st_ino,
+                         stat.S_IFMT(opened.st_mode)) !=
+                            (before.st_dev, before.st_ino,
+                             stat.S_IFMT(before.st_mode))):
+                        raise _SnapshotError(
+                            f"dependency entry changed before read: {raw_rel!r}")
+                    while True:
+                        chunk = handle.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        digest.update(chunk)
+                    after = os.fstat(handle.fileno())
+            except OSError as exc:
+                raise _SnapshotError(
+                    f"dependency file unreadable: {raw_rel!r}: {exc}") from exc
+            identity = lambda value: (
+                value.st_dev, value.st_ino, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns,
+                stat.S_IMODE(value.st_mode),
+            )
+            if identity(after) != identity(before):
+                raise _SnapshotError(
+                    f"dependency file changed during read: {raw_rel!r}")
+            records.append((raw_rel, b"f", mode, before.st_size,
+                            before.st_mtime_ns, digest.digest()))
+    return tuple(sorted(records))
+
+
+def _copy_dependency(source, destination):
+    cp = shutil.which("cp", path=_git_env().get("PATH"))
+    if cp and sys.platform.startswith("linux"):
+        try:
+            copied = subprocess.run(
+                [os.path.realpath(cp), "-a", "--reflink=auto", "--",
+                 source, destination],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise _SnapshotError(
+                f"dependency copy unavailable: {source}: "
+                f"{type(exc).__name__}") from exc
+        if copied.returncode != 0:
+            detail = copied.stderr.decode("utf-8", "replace").strip()[:180]
+            raise _SnapshotError(f"dependency copy failed: {source}: {detail}")
+        return
+    try:
+        shutil.copytree(source, destination, symlinks=True)
+    except OSError as exc:
+        raise _SnapshotError(
+            f"dependency copy failed: {source}: {exc}") from exc
+
+
+def _seal_external_dependency_links(root, authority):
+    root = os.path.abspath(root)
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                entries = list(iterator)
+        except OSError as exc:
+            raise _SnapshotError(
+                f"dependency directory unreadable: {authority}: {exc}") from exc
+        for entry in entries:
+            try:
+                entry_stat = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise _SnapshotError(
+                    f"dependency entry unreadable: {authority}: {exc}") from exc
+            if stat.S_ISDIR(entry_stat.st_mode):
+                pending.append(entry.path)
+                continue
+            if not stat.S_ISLNK(entry_stat.st_mode):
+                continue
+            resolved = os.path.realpath(entry.path)
+            try:
+                internal = os.path.commonpath((root, resolved)) == root
+            except ValueError:
+                internal = False
+            if internal:
+                continue
+            rel = os.path.relpath(entry.path, root)
+            try:
+                target_stat = os.stat(entry.path)
+            except OSError as exc:
+                raise _SnapshotError(
+                    f"external dependency link is unreadable: "
+                    f"{authority}/{rel}: {exc}") from exc
+            if not stat.S_ISREG(target_stat.st_mode):
+                raise _SnapshotError(
+                    f"external dependency link is not a regular file: "
+                    f"{authority}/{rel}")
+            os.unlink(entry.path)
+            try:
+                shutil.copy2(resolved, entry.path)
+            except OSError as exc:
+                raise _SnapshotError(
+                    f"external dependency link copy failed: "
+                    f"{authority}/{rel}: {exc}") from exc
+
+
+def _capture_dependencies(src_tree, scratch):
+    capsules = {}
+    master_root = os.path.join(scratch, "dependencies")
+    for rel in _DEPENDENCY_PATHS:
+        source = os.path.join(src_tree, rel)
+        try:
+            source_stat = os.lstat(source)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise _SnapshotError(
+                f"dependency authority unavailable: {rel}: {exc}") from exc
+        if not stat.S_ISDIR(source_stat.st_mode):
+            raise _SnapshotError(
+                f"dependency authority is not a real directory: {rel}")
+        before = _dependency_manifest(source)
+        master = os.path.join(master_root, rel)
+        os.makedirs(os.path.dirname(master), mode=0o700, exist_ok=True)
+        _copy_dependency(source, master)
+        if _dependency_manifest(source) != before:
+            raise _SnapshotError(
+                f"dependency changed during private capture: {rel}")
+        _seal_external_dependency_links(master, rel)
+        capsules[rel] = (master, _dependency_manifest(master))
+    return capsules
+
+
+def _install_dependencies(capsules, tree):
+    for rel, (master, _sealed) in capsules.items():
+        destination = os.path.join(tree, rel)
+        try:
+            current = os.lstat(destination)
+        except FileNotFoundError:
+            current = None
+        if current is not None:
+            if not stat.S_ISDIR(current.st_mode):
+                raise _SnapshotError(
+                    f"snapshot dependency destination is unsafe: {rel}")
+            shutil.rmtree(destination)
+        os.makedirs(os.path.dirname(destination), mode=0o700, exist_ok=True)
+        _copy_dependency(master, destination)
+
+
+def _verify_dependencies(capsules, tree):
+    for rel, (_master, sealed) in capsules.items():
+        if _dependency_manifest(os.path.join(tree, rel)) != sealed:
+            raise _SnapshotError(f"dependency capsule changed during gate: {rel}")
+
+
+def check(row, src_tree, *, allow_non_git=False):
     src_tree = row.get("src", src_tree)
     scratch = tempfile.mkdtemp(prefix="bdmut_")
-    tree = os.path.join(scratch, "t")
+    pristine_tree = os.path.join(scratch, "pristine")
+    mutant_tree = os.path.join(scratch, "mutant")
     try:
-        # node_modules is 348M and would dominate every copy. It is READ-ONLY
-        # to every gate here (vitest/tsc only import from it), so it is skipped
-        # and symlinked back. If a gate ever WROTE to node_modules this would
-        # pollute the source tree -- hence the explicit note, not a silent trick.
-        shutil.copytree(src_tree, tree, symlinks=True,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc",
-                                                      ".git", "node_modules",
-                                                      "venv", ".hypothesis"))
-        # node_modules (348M) and venv (400M+) are READ-ONLY to every gate here,
-        # so they are skipped and symlinked back rather than copied. Copying them
-        # filled the disk and produced a torrent of ENOSPC that looked like a
-        # tool bug. Named, not hidden: if a gate ever WROTE to either, this would
-        # reach through into the source tree.
-        for rel in ("frontend/node_modules", "venv"):
-            real = os.path.join(src_tree, rel)
-            link = os.path.join(tree, rel)
-            if os.path.isdir(real) and not os.path.exists(link):
-                os.makedirs(os.path.dirname(link), exist_ok=True)
-                os.symlink(real, link)
-        cwd = os.path.join(tree, row.get("cwd", ""))
+        gate_template = row["gate"]
+        out = dict(id=row["id"], why=row["why"], gate=gate_template)
+        try:
+            tracked = _snapshot_tree(
+                src_tree, pristine_tree, allow_non_git=allow_non_git)
+            capsules = _capture_dependencies(src_tree, scratch)
+            _install_dependencies(capsules, pristine_tree)
+        except Exception as exc:
+            out.update(state=UNKNOWN,
+                       detail=(f"snapshot failed: {type(exc).__name__}: "
+                               f"{str(exc)[:180]}"))
+            return out
+        private_python = os.path.join(
+            pristine_tree, "venv", "bin", "python")
+        python = private_python if "venv" in capsules else sys.executable
+        if "{py}" in gate_template and not os.path.isfile(python):
+            out.update(state=UNKNOWN,
+                       detail="snapshot failed: private Python unavailable")
+            return out
+        pristine_gate = gate_template.replace(
+            "{tree}", pristine_tree).replace("{py}", python)
+        cwd = os.path.join(pristine_tree, row.get("cwd", ""))
         # MANY bd-* TOOLS HARDCODE --tree/--work=/home/claude/work AND IGNORE CWD.
         # Running one inside a mutated scratch copy therefore inspects the
         # PRISTINE tree, comes back green, and this harness would call it a
         # SURVIVOR -- a false finding manufactured by the instrument, which is
         # the exact disease being audited. Rows for such tools MUST carry {tree}.
-        gate = row["gate"].replace("{tree}", tree).replace("{py}", sys.executable)
-        out = dict(id=row["id"], why=row["why"], gate=gate)
-
-        rc0, log0 = _run(gate, cwd)
+        rc0, log0 = _run(pristine_gate, cwd)
+        try:
+            _verify_tracked_snapshot(pristine_tree, tracked)
+            _verify_dependencies(capsules, pristine_tree)
+        except Exception as exc:
+            out.update(state=UNKNOWN,
+                       detail=(f"snapshot integrity failed: "
+                               f"{type(exc).__name__}: {str(exc)[:180]}"))
+            return out
         if rc0 is None:
             out.update(state=UNKNOWN, detail=f"gate could not run: {log0[:140]}")
             return out
@@ -321,12 +863,50 @@ def check(row, src_tree):
                               "cannot prove it fails for THIS reason")
             return out
 
-        ok, detail = _apply(row, tree)
+        try:
+            second_tracked = _snapshot_tree(
+                src_tree, mutant_tree, allow_non_git=allow_non_git)
+            if second_tracked != tracked:
+                raise _SnapshotError(
+                    "tracked source changed between pristine and mutant trees")
+            _install_dependencies(capsules, mutant_tree)
+        except Exception as exc:
+            out.update(state=UNKNOWN,
+                       detail=(f"mutant snapshot failed: "
+                               f"{type(exc).__name__}: {str(exc)[:180]}"))
+            return out
+
+        ok, detail = _apply(row, mutant_tree)
         if not ok:
             out.update(state=UNKNOWN, detail=detail)
             return out
+        try:
+            mutant_tracked = _observe_tracked_snapshot(mutant_tree, tracked)
+        except Exception as exc:
+            out.update(state=UNKNOWN,
+                       detail=(f"snapshot integrity failed: "
+                               f"{type(exc).__name__}: {str(exc)[:180]}"))
+            return out
 
-        rc1, log1 = _run(gate, cwd)
+        private_python = os.path.join(mutant_tree, "venv", "bin", "python")
+        python = private_python if "venv" in capsules else sys.executable
+        if "{py}" in gate_template and not os.path.isfile(python):
+            out.update(state=UNKNOWN,
+                       detail="mutant snapshot failed: private Python unavailable")
+            return out
+        mutant_gate = gate_template.replace(
+            "{tree}", mutant_tree).replace("{py}", python)
+        out["gate"] = mutant_gate
+        cwd = os.path.join(mutant_tree, row.get("cwd", ""))
+        rc1, log1 = _run(mutant_gate, cwd)
+        try:
+            _verify_tracked_snapshot(mutant_tree, mutant_tracked)
+            _verify_dependencies(capsules, mutant_tree)
+        except Exception as exc:
+            out.update(state=UNKNOWN,
+                       detail=(f"snapshot integrity failed: "
+                               f"{type(exc).__name__}: {str(exc)[:180]}"))
+            return out
         if rc1 is None:
             out.update(state=UNKNOWN,
                        detail=f"gate could not run post-mutation: {log1[:140]}")
@@ -381,7 +961,7 @@ def selftest():
             gate="false")),
     ]
     for want, row in cases:
-        got = check(row, tree)["state"]
+        got = check(row, tree, allow_non_git=True)["state"]
         good = got == want
         ok &= good
         print(f"{'PASS' if good else 'FAIL'}  {row['id']}: expected {want}, got {got}")

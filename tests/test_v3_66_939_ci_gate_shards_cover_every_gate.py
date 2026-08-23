@@ -50,6 +50,7 @@ is a rule for humans reading the comment, not a test.
 from __future__ import annotations
 
 import ast
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -63,6 +64,17 @@ yaml = pytest.importorskip(
 
 _REPO = Path(__file__).resolve().parent.parent
 _CI = _REPO / ".github" / "workflows" / "ci.yml"
+
+# Files that cannot share one serial Actions runner without recreating the
+# measured measurement-tools long pole. This is a scheduling constraint, not a
+# duration assertion: runner speed may vary, while putting two serial files
+# back in one shard always adds their durations.
+_INDEPENDENT_LONG_POLES = {
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+    "tests/test_v3_66_1040_remote_job_registry.py",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+}
 
 # Its subject is which gates CI runs, which is a property of the tree.
 BD_GATE_SCOPE = "repo-wide"
@@ -228,13 +240,29 @@ _DECLARED = {
     # not exist.
     "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
     "tests/test_v3_66_1044_run_context_and_chains.py",
-    "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
-    "tests/test_v3_66_1040_remote_job_registry.py",
+    # @1207, scope decision 3. The two suites that assert what row 212 changes:
+    # 1054 launches through the REAL CLI and proves `reap` kills the whole
+    # process group (backlog 88), and 1087 proves a launched job's log exists
+    # and is recorded in its entry. Both were diff-derivable only -- 1054 sits
+    # in the frozen baseline below and 1087 declares `module` -- so the cut that
+    # rewrites the launch transaction would have shipped with neither contract
+    # measured on any PR. A gate CI does not run does not exist.
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
+    "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py",
+    # @1207 determinism review. These are the other row-212 contracts whose
+    # subjects do not become safe merely because a diff-derived local band can
+    # find them: 1132 owns registration-failure process restoration and 1106
+    # owns the preflight UNKNOWN grade for an unreadable jobs registry.
+    # A pull request that never runs them cannot prove any of those contracts.
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+    "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py",
     # @1206 provider-facade. Retained implementation modules and re-imported
     # public facades form a process-wide generation boundary, so the direct
     # concurrency/ownership gate must execute even when no provider file is in
     # the diff that triggered CI.
     "tests/test_provider_resolve_surface_lock.py",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
+    "tests/test_v3_66_1040_remote_job_registry.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1031_socket_recorder_stages.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",
@@ -373,6 +401,16 @@ _BASELINE_MAX = 1314
 
 def _workflow() -> dict:
     return yaml.safe_load(_CI.read_text("utf-8"))
+
+
+def _gate_suite_job() -> tuple[str, dict]:
+    """The one matrix job whose entries carry the declared suites."""
+    for job_name, job in ((_workflow().get("jobs") or {}).items()):
+        include = (((job.get("strategy") or {}).get("matrix") or {})
+                   .get("include") or [])
+        if any("suites" in entry for entry in include):
+            return str(job_name), job
+    pytest.fail("no sharded gate job found to check")
 
 
 def _shard_lists() -> dict[str, list[str]]:
@@ -570,6 +608,30 @@ def test_no_suite_is_listed_in_two_shards():
     assert not dupes, f"suite(s) listed in more than one shard: {dupes}"
 
 
+def test_measured_serial_long_poles_have_independent_runners():
+    """A split only reduces the budget when its long poles run independently."""
+    locations = {
+        suite: shard
+        for shard, suites in _shard_lists().items()
+        for suite in suites
+        if suite in _INDEPENDENT_LONG_POLES
+    }
+    missing = sorted(_INDEPENDENT_LONG_POLES - set(locations))
+    assert not missing, f"measured long-pole suite(s) absent from CI: {missing}"
+
+    by_shard: dict[str, list[str]] = {}
+    for suite, shard in locations.items():
+        by_shard.setdefault(shard, []).append(suite)
+    collisions = {
+        shard: sorted(suites)
+        for shard, suites in by_shard.items()
+        if len(suites) > 1
+    }
+    assert not collisions, (
+        "measured serial long poles were recombined in one runner, restoring "
+        f"the shard budget defect: {collisions}")
+
+
 def test_every_sharded_suite_exists_and_is_tracked():
     """A path that moved would run nothing. pytest exits non-zero on a missing
     file today, but that is the runner's behaviour and not a property this
@@ -644,6 +706,37 @@ def test_the_shard_job_installs_runtime_dependencies():
             f"SKIP rather than a failure.")
         return
     pytest.fail("no sharded gate job found to check")
+
+
+def test_every_gate_suite_has_the_canonical_per_test_timeout():
+    """A wedged gate must name the node before the whole job cap fires.
+
+    The repository's local experiment uses this exact pytest-timeout contract.
+    CI is serial rather than xdist, but a blocking select/read/wait is still the
+    same hang and must retain the same diagnostic boundary.
+    """
+    job_name, job = _gate_suite_job()
+    run_steps = [str(step.get("run", "")) for step in (job.get("steps") or [])
+                 if "pytest" in str(step.get("run", ""))]
+    assert run_steps, f"{job_name} has no pytest run step"
+    for command in run_steps:
+        tokens = shlex.split(command)
+        assert "--timeout=240" in tokens, (
+            f"{job_name} pytest has no 240-second per-test bound: {command!r}")
+        assert "--timeout-method=thread" in tokens, (
+            f"{job_name} pytest cannot expose a hung test's thread stacks: "
+            f"{command!r}")
+
+
+def test_the_gate_suite_job_has_a_bounded_outer_lifetime():
+    """pytest-timeout lives inside pytest; the Actions job owns pytest itself."""
+    job_name, job = _gate_suite_job()
+    minutes = job.get("timeout-minutes")
+    assert isinstance(minutes, int) and not isinstance(minutes, bool), (
+        f"{job_name} has no integer timeout-minutes outer bound: {minutes!r}")
+    assert 0 < minutes <= 60, (
+        f"{job_name} timeout-minutes={minutes!r} is not a useful outer hang "
+        "guard; the default Actions bound is six hours")
 
 
 # ── the declaration policy, @1072 ────────────────────────────────────────────

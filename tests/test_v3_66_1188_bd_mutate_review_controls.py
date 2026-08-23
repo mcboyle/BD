@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 BD_GATE_SCOPE = "module"
 
@@ -152,6 +154,46 @@ def test_emitter_refuses_an_undefined_named_catcher_before_publication(tmp_path)
     run = _run(work, _mutant(catcher=missing), emit=True)
     assert run.returncode == 2, run.stdout + run.stderr
     assert f"nodeid is not a defined test: {missing}" in run.stderr, run.stderr
+    assert not _destination(work).exists()
+
+
+def test_emitter_accepts_one_exact_collected_parameter_case(tmp_path):
+    work = _tree(
+        tmp_path,
+        "import pytest\n"
+        "import m\n"
+        "@pytest.mark.parametrize('case', ['one', 'two'])\n"
+        "def test_value(case):\n"
+        "    assert m.VALUE == 1\n",
+    )
+    _track(work, "m.py", _BAND)
+    catcher = f"{_CATCHER}[one]"
+    run = _run(work, _mutant(catcher=catcher), band=catcher, emit=True)
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert _row(run)["verdict"] == "CAUGHT"
+    document = json.loads(_destination(work).read_text(encoding="utf-8"))
+    assert document["band"] == [catcher]
+    assert document["mutants"][0]["catcher"] == catcher
+
+
+@pytest.mark.parametrize("suffix", ("missing[one]", "value[]", "value[one"))
+def test_emitter_rejects_unbound_or_malformed_parameter_cases(
+        tmp_path, suffix):
+    work = _tree(
+        tmp_path,
+        "import pytest\n"
+        "import m\n"
+        "@pytest.mark.parametrize('case', ['one'])\n"
+        "def test_value(case):\n"
+        "    assert m.VALUE == 1\n",
+    )
+    _track(work, "m.py", _BAND)
+    catcher = f"{_BAND}::test_{suffix}"
+    run = _run(work, _mutant(catcher=catcher), band=catcher, emit=True)
+
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "defined test" in run.stderr or "collected zero" in run.stderr
     assert not _destination(work).exists()
 
 
