@@ -36,8 +36,8 @@ it stays with the caller.
 
 THE CONTRACT
 
-  bd-mutate --spec tests/mutants/v3_66_N_slug.json [--work DIR]
-  bd-mutate --spec scratch-list.json --band "tests/a.py tests/b.py" [--work DIR]
+  bd-mutate --spec tests/mutants/v3_66_N_slug.json --work DETACHED_SCRATCH
+  bd-mutate --spec scratch-list.json --band "tests/a.py tests/b.py" --work DETACHED_SCRATCH
   bd-mutate --spec scratch-list.json --band "tests/a.py" \
       --emit-spec v3_66_N_slug.json --subject "what this battery pins"
   bd-mutate --selftest
@@ -61,6 +61,10 @@ THE CONTRACT
   filtering to zero mutants is UNKNOWN rather than vacuous success.
   --timeout SECONDS bounds collection and execution separately (default: 900).
 
+  The work tree must be a detached scratch copy outside the repository that
+  supplies this runner. Mutating the runner's own repository makes concurrent
+  review evidence untrustworthy, so that topology fails closed before baseline.
+
   Exit 0 only when every selected mutant is CAUGHT. Exit 1 if any ESCAPED or is
   INDISCRIMINATE. Exit 2 if the battery could not be measured -- an empty
   selection, UNKNOWN/INVALID/ERROR mutant, red or unprovable baseline, missing
@@ -77,17 +81,20 @@ from __future__ import annotations
 
 import argparse
 import ast
+import ctypes
 import hashlib
 import json
 import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 
 CAUGHT, ESCAPED = "CAUGHT", "ESCAPED"
@@ -98,19 +105,759 @@ DEFAULT_BAND_TIMEOUT_SECONDS = 900.0
 PROCESS_GROUP_TERM_GRACE_SECONDS = 1.0
 PROCESS_GROUP_KILL_GRACE_SECONDS = 1.0
 _EMIT_NAME = re.compile(r"v3_66_[0-9]+_[a-z0-9_]+\.json\Z")
+_INVOKED_REPOSITORY = Path(__file__).resolve().parents[2]
+_STARTUP_RUNNER_IDENTITY: tuple | None = None
+
+
+def _invoked_runner_identity() -> tuple:
+    """Return the byte and inode identity that owns repository authority."""
+    runner = Path(__file__).resolve(strict=True)
+    info = runner.stat()
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"invoked runner is not a regular file: {runner}")
+    if info.st_nlink != 1:
+        raise ValueError(
+            "invoked runner has multiple hard links (%d): %s; repository "
+            "authority is ambiguous" % (info.st_nlink, runner))
+    return (str(runner), info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode),
+            info.st_nlink, _sha(runner))
+
+
+def _bind_invoked_runner_identity() -> None:
+    global _STARTUP_RUNNER_IDENTITY
+    _STARTUP_RUNNER_IDENTITY = _invoked_runner_identity()
+
+
+def _require_invoked_runner_identity() -> None:
+    global _STARTUP_RUNNER_IDENTITY
+    current = _invoked_runner_identity()
+    if _STARTUP_RUNNER_IDENTITY is None:
+        _STARTUP_RUNNER_IDENTITY = current
+    elif current != _STARTUP_RUNNER_IDENTITY:
+        raise ValueError(
+            "invoked runner identity changed after startup; repository "
+            "authority is ambiguous")
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _git_common_dir(path: Path) -> Path | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"], cwd=str(path),
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    common = Path(result.stdout.strip())
+    if not common.is_absolute():
+        common = path / common
+    try:
+        return common.resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _runner_repository_conflict(work: Path) -> bool:
+    if (_is_within(work, _INVOKED_REPOSITORY)
+            or _is_within(_INVOKED_REPOSITORY, work)):
+        return True
+    work_common = _git_common_dir(work)
+    runner_common = _git_common_dir(_INVOKED_REPOSITORY)
+    return (work_common is not None and runner_common is not None
+            and work_common == runner_common)
+
+
+def _shares_runner_git_authority(work: Path) -> bool:
+    work_common = _git_common_dir(work)
+    runner_common = _git_common_dir(_INVOKED_REPOSITORY)
+    return (work_common is not None and runner_common is not None
+            and work_common == runner_common)
+
+
+def _contained_regular_path(work: Path, rel: str, role: str,
+                            *, protect_runner: bool) -> Path:
+    """Resolve one single-link file inside ``work`` with no runner alias."""
+    try:
+        work = work.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"{role} work root is unavailable: {work}: {exc}") from exc
+    lexical = Path(rel)
+    if lexical.is_absolute() or ".." in lexical.parts:
+        raise ValueError(f"{role} escapes --work: {rel}")
+    candidate = work / lexical
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"{role} is unavailable: {rel}: {exc}") from exc
+    if not _is_within(resolved, work):
+        raise ValueError(f"{role} escapes --work: {rel}")
+    if protect_runner and _is_within(resolved, _INVOKED_REPOSITORY):
+        raise ValueError(f"{role} aliases the invoked runner repository: {rel}")
+    if not resolved.is_file():
+        raise ValueError(f"{role} is not a regular file: {rel}")
+    try:
+        links = resolved.stat().st_nlink
+    except OSError as exc:
+        raise ValueError(f"{role} identity is unavailable: {rel}: {exc}") from exc
+    if links != 1:
+        raise ValueError(f"{role} has multiple hard links ({links}): {rel}")
+    return resolved
+
+
+def _mutation_subject(work: Path, rel: str) -> Path:
+    _require_invoked_runner_identity()
+    return _contained_regular_path(
+        work, rel, "mutant subject", protect_runner=True)
+
+
+def _recovery_target(work: Path, rel: str) -> Path:
+    _require_invoked_runner_identity()
+    return _contained_regular_path(
+        work, rel, "recovery target", protect_runner=True)
 
 
 def _sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def _purge_pycache(root: Path) -> int:
-    """Remove every __pycache__ under root. See failure 3 in the docstring."""
+def _fd_bytes(fd: int) -> bytes:
+    chunks = []
+    offset = 0
+    while True:
+        chunk = os.pread(fd, 65536, offset)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        offset += len(chunk)
+
+
+def _fd_identity(path: Path, fd: int) -> dict:
+    info = os.fstat(fd)
+    return {
+        "path": str(path),
+        "device": info.st_dev,
+        "inode": info.st_ino,
+        "mode": stat.S_IMODE(info.st_mode),
+        "links": info.st_nlink,
+        "bytes": hashlib.sha256(_fd_bytes(fd)).hexdigest(),
+    }
+
+
+def _same_descriptor(receipt: tuple, info) -> bool:
+    return receipt == (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+
+
+class _PinnedDirectory:
+    """One exact directory capability, including every ancestor from ``/``."""
+
+    def __init__(self, path: Path):
+        _require_invoked_runner_identity()
+        path = Path(path)
+        if not path.is_absolute():
+            raise ValueError("directory effect path is not absolute: %s" % path)
+        self.path = path
+        self._owned: dict[str, int] = {}
+        self._chain: list[tuple[str, str, tuple]] = []
+        flags = (os.O_RDONLY | os.O_DIRECTORY
+                 | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_CLOEXEC", 0))
+        primary = None
+        try:
+            components = path.parts[1:]
+            self._owned["directory 0"] = os.open("/", flags)
+            root_info = os.fstat(self._owned["directory 0"])
+            self._chain.append(("directory 0", "", (
+                root_info.st_dev, root_info.st_ino,
+                stat.S_IFMT(root_info.st_mode))))
+            for index, component in enumerate(components, 1):
+                if component in ("", ".", "..") or "\x00" in component:
+                    raise ValueError("unsafe directory path component: %r" % component)
+                parent_name = self._chain[-1][0]
+                owner_name = "directory %d" % index
+                self._owned[owner_name] = os.open(
+                    component, flags, dir_fd=self._owned[parent_name])
+                info = os.fstat(self._owned[owner_name])
+                if not stat.S_ISDIR(info.st_mode):
+                    raise ValueError("effect parent is not a directory: %s" % path)
+                self._chain.append((owner_name, component, (
+                    info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))))
+            self.require_attached("acquisition")
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
+            if primary is not None:
+                self.close(primary=primary)
+
+    @property
+    def fd(self) -> int:
+        return self._owned[self._chain[-1][0]]
+
+    @property
+    def receipt(self) -> tuple:
+        return self._chain[-1][2]
+
+    @classmethod
+    def child(cls, parent, name: str, expected: tuple):
+        """Acquire ``name`` relative to an already-pinned parent capability."""
+        if name in ("", ".", "..") or "/" in name or "\x00" in name:
+            raise ValueError("unsafe directory child name: %r" % name)
+        parent.require_attached("before child directory acquisition")
+        obj = cls.__new__(cls)
+        obj.path = parent.path / name
+        obj._owned = {}
+        obj._chain = []
+        primary = None
+        try:
+            for owner_name, component, receipt in parent._chain:
+                duplicate = os.dup(parent._owned[owner_name])
+                os.set_inheritable(duplicate, False)
+                obj._owned[owner_name] = duplicate
+                obj._chain.append((owner_name, component, receipt))
+            flags = (os.O_RDONLY | os.O_DIRECTORY
+                     | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_CLOEXEC", 0))
+            owner_name = "directory %d" % len(obj._chain)
+            obj._owned[owner_name] = os.open(
+                name, flags, dir_fd=obj._owned[obj._chain[-1][0]])
+            info = os.fstat(obj._owned[owner_name])
+            if not _same_descriptor(expected, info):
+                raise ValueError("directory changed during acquisition: %s"
+                                 % obj.path)
+            obj._chain.append((owner_name, name, expected))
+            obj.require_attached("child directory acquisition")
+            parent.require_attached("after child directory acquisition")
+            return obj
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
+            if primary is not None:
+                obj.close(primary=primary)
+
+    def require_attached(self, stage: str) -> None:
+        _require_invoked_runner_identity()
+        for index, (owner_name, component, receipt) in enumerate(self._chain):
+            current = os.fstat(self._owned[owner_name])
+            if not _same_descriptor(receipt, current):
+                raise ValueError("directory identity changed at %s: %s"
+                                 % (stage, self.path))
+            if index:
+                parent_name = self._chain[index - 1][0]
+                attached = os.stat(
+                    component, dir_fd=self._owned[parent_name],
+                    follow_symlinks=False)
+                if not _same_descriptor(receipt, attached):
+                    raise ValueError("directory detached at %s: %s"
+                                     % (stage, self.path))
+
+    def close(self, *, primary: BaseException | None = None) -> None:
+        names = tuple(reversed(tuple(self._owned)))
+        _settle_owned_fds(self._owned, names, primary=primary)
+
+
+class _PinnedSubject:
+    """One exact regular-file capability descended from the filesystem root."""
+
+    def __init__(self, path: Path, expected: dict | None = None):
+        _require_invoked_runner_identity()
+        path = Path(path)
+        if not path.is_absolute() or path.name in ("", ".", ".."):
+            raise ValueError("subject effect path is not absolute: %s" % path)
+        self.path = path
+        self._owned: dict[str, int] = {}
+        self._chain: list[tuple[str, str, tuple]] = []
+        flags = (os.O_RDONLY | os.O_DIRECTORY
+                 | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_CLOEXEC", 0))
+        primary = None
+        try:
+            self._owned["subject directory 0"] = os.open("/", flags)
+            root_info = os.fstat(self._owned["subject directory 0"])
+            self._chain.append(("subject directory 0", "", (
+                root_info.st_dev, root_info.st_ino,
+                stat.S_IFMT(root_info.st_mode))))
+            for index, component in enumerate(path.parts[1:-1], 1):
+                if component in ("", ".", "..") or "\x00" in component:
+                    raise ValueError("unsafe subject path component: %r" % component)
+                parent_name = self._chain[-1][0]
+                owner_name = "subject directory %d" % index
+                self._owned[owner_name] = os.open(
+                    component, flags, dir_fd=self._owned[parent_name])
+                info = os.fstat(self._owned[owner_name])
+                if not stat.S_ISDIR(info.st_mode):
+                    raise ValueError("subject parent is not a directory: %s" % path)
+                self._chain.append((owner_name, component, (
+                    info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))))
+            leaf_flags = (os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                          | getattr(os, "O_CLOEXEC", 0))
+            parent_name = self._chain[-1][0]
+            self._owned["subject leaf"] = os.open(
+                path.name, leaf_flags, dir_fd=self._owned[parent_name])
+            info = os.fstat(self._owned["subject leaf"])
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError(
+                    "subject effect requires one regular-file link: %s" % path)
+            self._leaf_receipt = (
+                info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+            observed = _fd_identity(path, self._owned["subject leaf"])
+            if expected is not None:
+                drift = _subject_identity_drift(expected, observed)
+                if drift:
+                    raise ValueError("subject identity changed before effect: %s"
+                                     % drift)
+            self.require_attached("acquisition")
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
+            if primary is not None:
+                self.close(primary=primary)
+
+    def __fspath__(self):
+        return str(self.path)
+
+    def identity(self) -> dict:
+        return _fd_identity(self.path, self._owned["subject leaf"])
+
+    def bytes(self) -> bytes:
+        return _fd_bytes(self._owned["subject leaf"])
+
+    def sha(self) -> str:
+        return hashlib.sha256(self.bytes()).hexdigest()
+
+    @property
+    def parent_fd(self) -> int:
+        return self._owned[self._chain[-1][0]]
+
+    def read_text(self) -> str:
+        self.require_attached("read")
+        return self.bytes().decode("utf-8")
+
+    def require_attached(self, stage: str) -> None:
+        _require_invoked_runner_identity()
+        self._require_subject_attached(stage)
+
+    def _require_subject_attached(self, stage: str) -> None:
+        for index, (owner_name, component, receipt) in enumerate(self._chain):
+            current = os.fstat(self._owned[owner_name])
+            if not _same_descriptor(receipt, current):
+                raise ValueError("subject directory identity changed at %s: %s"
+                                 % (stage, self.path))
+            if index:
+                parent_name = self._chain[index - 1][0]
+                attached = os.stat(
+                    component, dir_fd=self._owned[parent_name],
+                    follow_symlinks=False)
+                if not _same_descriptor(receipt, attached):
+                    raise ValueError("subject directory detached at %s: %s"
+                                     % (stage, self.path))
+        leaf = os.fstat(self._owned["subject leaf"])
+        if (not _same_descriptor(self._leaf_receipt, leaf)
+                or not stat.S_ISREG(leaf.st_mode) or leaf.st_nlink != 1):
+            raise ValueError("subject leaf identity changed at %s: %s"
+                             % (stage, self.path))
+        attached = os.stat(
+            self.path.name, dir_fd=self._owned[self._chain[-1][0]],
+            follow_symlinks=False)
+        if not _same_descriptor(self._leaf_receipt, attached):
+            raise ValueError("subject leaf detached at %s: %s"
+                             % (stage, self.path))
+
+    def _replace_bytes(self, payload: bytes) -> None:
+        os.ftruncate(self._owned["subject leaf"], 0)
+        offset = 0
+        while offset < len(payload):
+            written = os.pwrite(
+                self._owned["subject leaf"], payload[offset:], offset)
+            if written <= 0:
+                raise OSError("short subject write for %s" % self.path)
+            offset += written
+        os.fsync(self._owned["subject leaf"])
+        if _fd_bytes(self._owned["subject leaf"]) != payload:
+            raise OSError("subject write did not verify: %s" % self.path)
+
+    def write_text(self, text: str, *, expected_sha: str | None = None,
+                   restoring: bool = False) -> None:
+        _require_invoked_runner_identity()
+        self._require_subject_attached(
+            "before restore" if restoring else "before write")
+        original = self.bytes()
+        if (expected_sha is not None
+                and hashlib.sha256(original).hexdigest() != expected_sha):
+            raise ValueError("subject bytes changed before write: %s" % self.path)
+        payload = text.encode("utf-8")
+        try:
+            self._replace_bytes(payload)
+            self.require_attached("after write")
+        except BaseException as primary:
+            try:
+                self.require_attached("before rollback")
+                self._replace_bytes(original)
+            except BaseException as restore_error:
+                _attach_secondary_close_notes(
+                    primary, [("subject rollback", self._owned["subject leaf"],
+                               restore_error)])
+            raise
+
+    def close(self, *, primary: BaseException | None = None) -> None:
+        names = tuple(reversed(tuple(self._owned)))
+        _settle_owned_fds(self._owned, names, primary=primary)
+
+
+def _subject_identity(path: Path) -> dict:
+    """Snapshot every subject fact through one no-follow descriptor chain."""
+    owner = _PinnedSubject(Path(path))
+    try:
+        return owner.identity()
+    finally:
+        owner.close(primary=sys.exc_info()[1])
+
+
+def _subject_identity_drift(before: dict, after: dict) -> str:
+    changed = [name for name in before if before[name] != after.get(name)]
+    return ", ".join(changed)
+
+
+def _rename_noreplace(src_fd: int, src: str, dst_fd: int, dst: str) -> None:
+    """Linux atomic no-clobber rename, required for ownership isolation."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise OSError("renameat2(RENAME_NOREPLACE) is unavailable")
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p,
+                          ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    if renameat2(src_fd, os.fsencode(src), dst_fd, os.fsencode(dst), 1) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), src, dst)
+
+
+def _entry_receipt(info) -> tuple:
+    return (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+
+
+def _require_entry(parent_fd: int, name: str, receipt: tuple,
+                   display: Path) -> None:
+    info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if not _same_descriptor(receipt, info):
+        raise ValueError("cache entry detached before effect: %s" % display)
+
+
+def _entry_receipt_or_none(parent_fd: int, name: str) -> tuple | None:
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    return _entry_receipt(info)
+
+
+def _note_reconciliation(primary: BaseException, detail: str) -> None:
+    try:
+        BaseException.add_note(primary, detail)
+    except BaseException:
+        pass
+
+
+def _isolate_owned_name(parent_fd: int, public: str, private: str,
+                        receipt: tuple, display: Path) -> None:
+    """Rename one receipt without leaving an ambiguous after-effect hidden."""
+    try:
+        _rename_noreplace(parent_fd, public, parent_fd, private)
+    except BaseException as primary:
+        try:
+            public_receipt = _entry_receipt_or_none(parent_fd, public)
+            private_receipt = _entry_receipt_or_none(parent_fd, private)
+        except BaseException as observe_error:
+            _note_reconciliation(
+                primary, "cache isolation reconciliation observation failed for "
+                "%s: %s" % (display, _exception_summary(observe_error)))
+            raise primary
+        if public_receipt == receipt and private_receipt is None:
+            raise
+        if public_receipt is None and private_receipt == receipt:
+            try:
+                _rename_noreplace(parent_fd, private, parent_fd, public)
+                os.fsync(parent_fd)
+            except BaseException as restore_error:
+                try:
+                    restored_public = _entry_receipt_or_none(parent_fd, public)
+                    restored_private = _entry_receipt_or_none(parent_fd, private)
+                except BaseException as observe_error:
+                    _note_reconciliation(
+                        primary, "cache isolation restoration observation failed "
+                        "for %s: %s" % (
+                            display, _exception_summary(observe_error)))
+                else:
+                    if restored_public == receipt and restored_private is None:
+                        _note_reconciliation(
+                            primary, "cache isolation restoration completed despite "
+                            "a reported failure for %s" % display)
+                    else:
+                        _note_reconciliation(
+                            primary, "cache isolation restoration is unproved for "
+                            "%s: %s" % (
+                                display, _exception_summary(restore_error)))
+            raise
+        _note_reconciliation(
+            primary, "cache isolation reconciliation found a replacement or "
+            "unknown name state for %s; preserved every observed name" % display)
+        raise
+    moved = os.stat(private, dir_fd=parent_fd, follow_symlinks=False)
+    if not _same_descriptor(receipt, moved):
+        _restore_isolated_name(parent_fd, private, public, receipt)
+        raise ValueError("cache changed during isolation: %s" % display)
+    try:
+        os.stat(public, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    _restore_isolated_name(parent_fd, private, public, receipt)
+    raise ValueError("cache source still exists after isolation: %s" % display)
+
+
+def _restore_isolated_name(parent_fd: int, private: str, public: str,
+                           receipt: tuple) -> None:
+    """Best-effort restoration that never overwrites a replacement name."""
+    try:
+        info = os.stat(private, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not _same_descriptor(receipt, info):
+        return
+    try:
+        _rename_noreplace(parent_fd, private, parent_fd, public)
+        os.fsync(parent_fd)
+    except OSError:
+        pass
+
+
+def _destroy_isolated_tree(parent_fd: int, private: str, receipt: tuple,
+                           display: Path, allowed_device: int,
+                           attachment_check) -> None:
+    flags = (os.O_RDONLY | os.O_DIRECTORY
+             | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_CLOEXEC", 0))
+    owned = {}
+    primary = None
+    try:
+        attachment_check()
+        _require_entry(parent_fd, private, receipt, display)
+        owned["cache directory"] = os.open(private, flags, dir_fd=parent_fd)
+        cache_fd = owned["cache directory"]
+        cache_info = os.fstat(cache_fd)
+        if (not _same_descriptor(receipt, cache_info)
+                or cache_info.st_dev != allowed_device):
+            raise ValueError("cache directory ownership changed: %s" % display)
+        for child in os.listdir(cache_fd):
+            if child in ("", ".", "..") or "\x00" in child:
+                raise ValueError("unsafe cache entry under %s: %r" % (display, child))
+            attachment_check()
+            _require_entry(parent_fd, private, receipt, display)
+            info = os.stat(child, dir_fd=cache_fd, follow_symlinks=False)
+            child_receipt = _entry_receipt(info)
+            if info.st_dev != allowed_device:
+                raise ValueError("cross-device cache entry refused: %s"
+                                 % (display / child))
+            child_private = ".bd-mutate-owned-%s" % os.urandom(12).hex()
+            _isolate_owned_name(
+                cache_fd, child, child_private, child_receipt, display / child)
+            try:
+                if stat.S_ISDIR(info.st_mode):
+                    _destroy_isolated_tree(
+                        cache_fd, child_private, child_receipt,
+                        display / child, allowed_device, attachment_check)
+                else:
+                    attachment_check()
+                    _require_entry(parent_fd, private, receipt, display)
+                    _require_entry(cache_fd, child_private, child_receipt,
+                                   display / child)
+                    os.unlink(child_private, dir_fd=cache_fd)
+                    try:
+                        os.stat(child_private, dir_fd=cache_fd,
+                                follow_symlinks=False)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        raise OSError("cache entry still exists after removal: %s"
+                                      % (display / child))
+            except BaseException:
+                _restore_isolated_name(
+                    cache_fd, child_private, child, child_receipt)
+                raise
+        attachment_check()
+        _require_entry(parent_fd, private, receipt, display)
+        os.rmdir(private, dir_fd=parent_fd)
+        try:
+            os.stat(private, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise OSError("cache still exists after removal: %s" % display)
+        os.fsync(parent_fd)
+    except BaseException as exc:
+        primary = exc
+        raise
+    finally:
+        _settle_owned_fds(owned, ("cache directory",), primary=primary)
+
+
+def _remove_tree_at(parent_fd: int, name: str, display: Path,
+                    attachment_check=lambda: None) -> None:
+    """Isolate and destroy one exact cache without touching replacements."""
+    attachment_check()
+    info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if not stat.S_ISDIR(info.st_mode):
+        raise ValueError("refusing non-directory cache %s" % display)
+    receipt = _entry_receipt(info)
+    parent_device = os.fstat(parent_fd).st_dev
+    if info.st_dev != parent_device:
+        raise ValueError("cross-device cache directory refused: %s" % display)
+    private = ".bd-mutate-owned-cache-%s" % os.urandom(12).hex()
+    _isolate_owned_name(parent_fd, name, private, receipt, display)
+    try:
+        attachment_check()
+        _destroy_isolated_tree(
+            parent_fd, private, receipt, display, parent_device,
+            attachment_check)
+    except BaseException:
+        _restore_isolated_name(parent_fd, private, name, receipt)
+        raise
+
+
+def _purge_cache_descendants(directory_fd: int, display: Path,
+                             attachment_check=lambda: None,
+                             guards=()) -> int:
     n = 0
-    for d in list(root.rglob("__pycache__")):
-        shutil.rmtree(d, ignore_errors=True)
-        n += 1
+    flags = (os.O_RDONLY | os.O_DIRECTORY
+             | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_CLOEXEC", 0))
+    for name in os.listdir(directory_fd):
+        attachment_check()
+        for parent_fd, guard_name, receipt, guard_display in guards:
+            _require_entry(parent_fd, guard_name, receipt, guard_display)
+        if name in ("", ".", "..") or "\x00" in name:
+            raise ValueError("unsafe directory entry under %s: %r" % (display, name))
+        info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode):
+            continue
+        if info.st_dev != os.fstat(directory_fd).st_dev:
+            raise ValueError("cross-device directory refused during cache scan: %s"
+                             % (display / name))
+        if name == "__pycache__":
+            _remove_tree_at(directory_fd, name, display / name,
+                            attachment_check=attachment_check)
+            n += 1
+            continue
+        child_fd = os.open(name, flags, dir_fd=directory_fd)
+        primary = None
+        try:
+            receipt = (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+            if not _same_descriptor(receipt, os.fstat(child_fd)):
+                raise ValueError("directory changed during cache scan: %s"
+                                 % (display / name))
+            n += _purge_cache_descendants(
+                child_fd, display / name, attachment_check,
+                (*guards, (directory_fd, name, receipt, display / name)))
+            attached = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if not _same_descriptor(receipt, attached):
+                raise ValueError("directory detached during cache scan: %s"
+                                 % (display / name))
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
+            _settle_owned_fds({"cache scan directory": child_fd},
+                              ("cache scan directory",), primary=primary)
     return n
+
+
+def _purge_pycache(root: Path) -> int:
+    """Remove caches only through one pinned work-root capability."""
+    _require_invoked_runner_identity()
+    owner = _PinnedDirectory(Path(root))
+    primary = None
+    try:
+        owner.require_attached("before cache purge")
+        count = _purge_cache_descendants(
+            owner.fd, Path(root),
+            lambda: owner.require_attached("during cache purge"))
+        owner.require_attached("after cache purge")
+        return count
+    except BaseException as exc:
+        primary = exc
+        raise
+    finally:
+        owner.close(primary=primary)
+
+
+def _purge_subject_pycache(target) -> int:
+    """Remove only the cache beside one recovered subject.
+
+    Recovery permits an ancestor ``--work`` so its journal can name a subject
+    below it.  Recursing from that ancestor would also delete caches belonging
+    to unrelated descendants, including the runner repository itself.
+    """
+    _require_invoked_runner_identity()
+    owned_here = not isinstance(target, _PinnedSubject)
+    owner = target if not owned_here else _PinnedSubject(Path(target))
+    primary = None
+    try:
+        owner.require_attached("before subject cache purge")
+        try:
+            info = os.stat("__pycache__", dir_fd=owner.parent_fd,
+                           follow_symlinks=False)
+        except FileNotFoundError:
+            return 0
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("refusing non-directory subject cache %s"
+                             % (owner.path.parent / "__pycache__"))
+        _remove_tree_at(
+            owner.parent_fd, "__pycache__",
+            owner.path.parent / "__pycache__",
+            attachment_check=lambda: owner.require_attached(
+                "during subject cache purge"))
+        owner.require_attached("after subject cache purge")
+        return 1
+    except BaseException as exc:
+        primary = exc
+        raise
+    finally:
+        if owned_here:
+            owner.close(primary=primary)
+
+
+def _write_subject_text(path, text: str, *, expected_sha: str | None = None,
+                        restoring: bool = False) -> None:
+    """Write only through an exact owned subject descriptor."""
+    if isinstance(path, _PinnedSubject):
+        path.write_text(text, expected_sha=expected_sha, restoring=restoring)
+        return
+    owner = _PinnedSubject(Path(path))
+    try:
+        owner.write_text(text, expected_sha=expected_sha, restoring=restoring)
+    finally:
+        owner.close(primary=sys.exc_info()[1])
+
+
+def _exception_summary(exc: BaseException, limit: int = 500) -> str:
+    """Return one bounded diagnostic line for an operational exception."""
+    try:
+        detail = str(exc)
+    except BaseException:
+        detail = "<unprintable>"
+    detail = detail.replace("\r", "\\r").replace("\n", "\\n")
+    summary = "%s: %s" % (type(exc).__name__, detail)
+    if len(summary) > limit:
+        return summary[:limit - 3] + "..."
+    return summary
 
 
 def _child_env() -> dict:
@@ -250,6 +997,26 @@ def _defined_test_nodeids(work: Path, rel: str) -> set[str]:
     return found
 
 
+def _defined_base_test_nodeid(nodeid: str) -> str | None:
+    """Bind one exact collected parameter case to its AST-defined test."""
+    head, sep, leaf = nodeid.rpartition("::")
+    if not sep or not leaf:
+        return None
+    if "[" not in leaf:
+        return nodeid
+    base, bracket, parameter = leaf.partition("[")
+    if (not bracket or not base or not parameter.endswith("]")
+            or parameter == "]" or "[" in parameter[:-1]):
+        return None
+    return f"{head}::{base}"
+
+
+def _is_defined_test_or_collected_case(
+        work: Path, rel: str, nodeid: str) -> bool:
+    base = _defined_base_test_nodeid(nodeid)
+    return base is not None and base in _defined_test_nodeids(work, rel)
+
+
 def _tracked_paths(work: Path) -> set[str]:
     run = subprocess.run(
         ["git", "ls-files", "-z"], cwd=str(work), capture_output=True, text=True)
@@ -259,7 +1026,7 @@ def _tracked_paths(work: Path) -> set[str]:
 
 
 def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
-                          mutants: list[dict]) -> tuple[Path, Path, bytes]:
+                          mutants: list[dict]) -> tuple[_PinnedDirectory, Path, bytes]:
     """Validate one canonical candidate; publication waits for a real verdict."""
     if not _EMIT_NAME.fullmatch(name):
         raise ValueError(
@@ -280,7 +1047,8 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
             raise ValueError(f"untracked band target: {rel}")
         if not (work / rel).is_file():
             raise ValueError(f"emitted band target does not exist: {target}")
-        if "::" in target and target not in _defined_test_nodeids(work, rel):
+        if ("::" in target
+                and not _is_defined_test_or_collected_case(work, rel, target)):
             raise ValueError(f"band nodeid is not a defined test: {target}")
 
     for index, mutant in enumerate(mutants, 1):
@@ -296,12 +1064,18 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
             if not isinstance(mutant[field], str) or not mutant[field]:
                 raise ValueError(
                     f"emitted mutant {index} field {field!r} must be a non-empty string")
-        subject_path = work / mutant["file"]
+        subject_path = _mutation_subject(work, mutant["file"])
         if mutant["file"] not in tracked:
             raise ValueError(f"emitted mutant {index} has untracked subject: {mutant['file']}")
-        if not subject_path.is_file():
-            raise ValueError(f"emitted mutant {index} subject does not exist: {mutant['file']}")
-        count = subject_path.read_text(encoding="utf-8").count(mutant["old"])
+        owner = _PinnedSubject(subject_path)
+        primary = None
+        try:
+            count = owner.read_text().count(mutant["old"])
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
+            owner.close(primary=primary)
         if count != 1:
             raise ValueError(
                 f"emitted mutant {index} anchor occurs {count} times, must be exactly 1")
@@ -316,14 +1090,11 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
                 raise ValueError(f"named test path is absent or untracked: {nodeid}")
             if node_path not in band_paths:
                 raise ValueError(f"named test is outside the emitted band: {nodeid}")
-            if nodeid not in _defined_test_nodeids(work, node_path):
+            if not _is_defined_test_or_collected_case(
+                    work, node_path, nodeid):
                 raise ValueError(f"nodeid is not a defined test: {nodeid}")
 
     rel = Path("tests") / "mutants" / name
-    destination = work / rel
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        raise ValueError(f"canonical spec already exists: {rel.as_posix()}")
     document = {
         "schema": SPEC_SCHEMA,
         "_comment": f"Re-run: toolchain/bin/bd-mutate --spec {rel.as_posix()}",
@@ -333,25 +1104,162 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
     }
     payload = (json.dumps(document, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
 
-    return destination, rel, payload
-
-
-def _publish_emitted_spec(destination: Path, rel: Path, payload: bytes) -> None:
-    """Publish after exit 0/1, atomically and without clobbering another writer."""
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent))
+    tests_owner = _PinnedDirectory(work / "tests")
+    emit_owner = None
     try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(payload)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.chmod(tmp_name, 0o644)
+        tests_owner.require_attached("before emitted-spec directory acquisition")
         try:
-            os.link(tmp_name, destination)
-        except FileExistsError:
+            info = os.stat("mutants", dir_fd=tests_owner.fd,
+                           follow_symlinks=False)
+        except FileNotFoundError:
+            os.mkdir("mutants", mode=0o755, dir_fd=tests_owner.fd)
+            os.fsync(tests_owner.fd)
+            info = os.stat("mutants", dir_fd=tests_owner.fd,
+                           follow_symlinks=False)
+        else:
+            if not stat.S_ISDIR(info.st_mode):
+                raise ValueError("emitted-spec parent is not a directory: tests/mutants")
+        emit_owner = _PinnedDirectory.child(
+            tests_owner, "mutants", _entry_receipt(info))
+        tests_owner.require_attached("after emitted-spec directory acquisition")
+        emit_owner.require_attached("emitted-spec preparation")
+        try:
+            os.stat(name, dir_fd=emit_owner.fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
             raise ValueError(f"canonical spec already exists: {rel.as_posix()}")
+    except BaseException as primary:
+        if emit_owner is not None:
+            emit_owner.close(primary=primary)
+        tests_owner.close(primary=primary)
+        raise
+    try:
+        tests_owner.close()
+    except BaseException as primary:
+        emit_owner.close(primary=primary)
+        raise
+    return emit_owner, rel, payload
+
+
+def _link_emitted_stage(stage_fd: int, owner_fd: int, name: str) -> None:
+    """Link the already-open stage inode, never a reusable staging pathname."""
+    os.link(
+        "/proc/self/fd/%d" % stage_fd, name, dst_dir_fd=owner_fd,
+        follow_symlinks=True)
+
+
+def _publish_emitted_spec(owner: _PinnedDirectory, rel: Path,
+                          payload: bytes) -> None:
+    """Publish after exit 0/1, atomically and without clobbering another writer."""
+    _require_invoked_runner_identity()
+    name = rel.name
+    tmp_name = ".%s.%s.tmp" % (name, os.urandom(12).hex())
+    owned = {}
+    linked = False
+    primary = None
+    stage_receipt = None
+    try:
+        owner.require_attached("before emitted-spec publication")
+        flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                 | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_CLOEXEC", 0))
+        owned["emitted-spec stage"] = os.open(
+            tmp_name, flags, 0o600, dir_fd=owner.fd)
+        stage_receipt = _entry_receipt(os.fstat(owned["emitted-spec stage"]))
+        offset = 0
+        while offset < len(payload):
+            written = os.write(owned["emitted-spec stage"], payload[offset:])
+            if written <= 0:
+                raise OSError("short emitted-spec write: %s" % rel.as_posix())
+            offset += written
+        os.fsync(owned["emitted-spec stage"])
+        os.fchmod(owned["emitted-spec stage"], 0o644)
+        try:
+            _require_entry(owner.fd, tmp_name, stage_receipt,
+                           owner.path / tmp_name)
+            _link_emitted_stage(
+                owned["emitted-spec stage"], owner.fd, name)
+        except BaseException as link_error:
+            try:
+                final_info = os.stat(name, dir_fd=owner.fd,
+                                     follow_symlinks=False)
+            except FileNotFoundError:
+                final_info = None
+            except BaseException as observe_error:
+                _note_reconciliation(
+                    link_error, "canonical link reconciliation observation failed: "
+                    + _exception_summary(observe_error))
+                raise link_error
+            else:
+                if _same_descriptor(stage_receipt, final_info):
+                    linked = True
+                else:
+                    _note_reconciliation(
+                        link_error,
+                        "canonical name holds a foreign identity after link failure")
+            if (isinstance(link_error, FileExistsError)
+                    and final_info is not None and not linked):
+                raise ValueError(
+                    f"canonical spec already exists: {rel.as_posix()}") from link_error
+            raise
+        final_info = os.stat(name, dir_fd=owner.fd, follow_symlinks=False)
+        if not _same_descriptor(stage_receipt, final_info):
+            raise ValueError("canonical name changed during publication: %s"
+                             % rel.as_posix())
+        linked = True
+        _require_entry(owner.fd, tmp_name, stage_receipt,
+                       owner.path / tmp_name)
+        os.fsync(owner.fd)
+        owner.require_attached("after emitted-spec publication")
+        read_flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                      | getattr(os, "O_CLOEXEC", 0))
+        owned["emitted-spec final"] = os.open(name, read_flags, dir_fd=owner.fd)
+        info = os.fstat(owned["emitted-spec final"])
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 2
+                or _fd_bytes(owned["emitted-spec final"]) != payload):
+            raise OSError("emitted spec did not verify: %s" % rel.as_posix())
+    except BaseException as exc:
+        primary = exc
+        if linked:
+            try:
+                _require_entry(owner.fd, name, stage_receipt, rel)
+                os.unlink(name, dir_fd=owner.fd)
+                os.fsync(owner.fd)
+            except BaseException as cleanup_error:
+                _attach_secondary_close_notes(
+                    primary, [("emitted-spec rollback", owner.fd, cleanup_error)])
+        raise
     finally:
-        Path(tmp_name).unlink(missing_ok=True)
+        try:
+            if stage_receipt is not None:
+                _require_entry(owner.fd, tmp_name, stage_receipt,
+                               owner.path / tmp_name)
+                os.unlink(tmp_name, dir_fd=owner.fd)
+                os.fsync(owner.fd)
+        except FileNotFoundError:
+            pass
+        except BaseException as cleanup_error:
+            if primary is None:
+                primary = cleanup_error
+            else:
+                _attach_secondary_close_notes(
+                    primary, [("emitted-spec stage cleanup", owner.fd,
+                               cleanup_error)])
+        active_exception = sys.exc_info()[1]
+        close_primary = primary or active_exception
+        try:
+            _settle_owned_fds(
+                owned, ("emitted-spec final", "emitted-spec stage"),
+                primary=close_primary)
+        except BaseException as close_error:
+            close_primary = close_error
+        try:
+            owner.close(primary=close_primary)
+        except BaseException as close_error:
+            close_primary = close_primary or close_error
+        if active_exception is None and close_primary is not None:
+            raise close_primary
     print(f"emitted canonical spec: {rel.as_posix()}")
 
 
@@ -696,40 +1604,221 @@ def _journal_dir(work: Path) -> Path:
     try:
         r = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=str(work),
                            capture_output=True, text=True, timeout=30)
-        if r.returncode == 0 and r.stdout.strip():
-            gd = Path(r.stdout.strip())
-            if not gd.is_absolute():
-                gd = work / gd
-            return gd / _JOURNAL_DIRNAME
     except (OSError, subprocess.SubprocessError):
-        pass
-    return work / ("." + _JOURNAL_DIRNAME)
+        r = None
+    if r is not None and r.returncode == 0 and r.stdout.strip():
+        gd = Path(r.stdout.strip())
+        if not gd.is_absolute():
+            gd = work / gd
+        try:
+            base = gd.resolve(strict=True)
+        except OSError as exc:
+            raise ValueError(
+                "git journal authority cannot be resolved: %s" % exc) from exc
+        if not base.is_dir():
+            raise ValueError("git journal authority is not a directory: %s" % base)
+        return base / _JOURNAL_DIRNAME
+    base = work.resolve(strict=True)
+    return base / ("." + _JOURNAL_DIRNAME)
+
+
+def _attach_secondary_close_notes(primary: BaseException,
+                                  failures: list[tuple[str, int,
+                                                       BaseException]]) -> None:
+    """Attach best-effort close evidence without letting metadata escape."""
+    for context, fd, exc in failures:
+        try:
+            failure_type = type(exc).__name__
+        except BaseException:
+            failure_type = "<unknown>"
+        try:
+            detail = str(exc)
+        except BaseException:
+            detail = "<unprintable>"
+        try:
+            note = "secondary close failure for %s fd %d: %s: %s" % (
+                context, fd, failure_type, detail)
+        except BaseException:
+            note = "secondary close failure (details unavailable)"
+        try:
+            BaseException.add_note(primary, note)
+        except BaseException:
+            pass
+
+
+def _settle_owned_fds(owned: dict[str, int],
+                      names: tuple[str, ...] | None = None, *,
+                      primary: BaseException | None = None) -> None:
+    """Spend each named fd before close; drain all and preserve the first."""
+    selected = tuple(owned) if names is None else tuple(names)
+    first = primary
+    secondary_failures = []
+    for name in selected:
+        fd = owned.pop(name, None)
+        if fd is None:
+            continue
+        try:
+            os.close(fd)
+        except BaseException as exc:
+            if first is None:
+                first = exc
+            elif exc is not first:
+                secondary_failures.append((name, fd, exc))
+    if first is not None:
+        _attach_secondary_close_notes(first, secondary_failures)
+    if primary is None and first is not None:
+        raise first
+
+
+def _open_journal_dir(work: Path, create: bool = False) -> tuple[Path, int]:
+    """Open the exact owned journal directory without following its name."""
+    d = _journal_dir(work)
+    base, name = d.parent, d.name
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    owned = {"journal parent": os.open(str(base), flags)}
+    try:
+        if create:
+            try:
+                os.mkdir(name, mode=0o700,
+                         dir_fd=owned["journal parent"])
+            except FileExistsError:
+                pass
+        try:
+            owned["journal directory"] = os.open(
+                name, flags, dir_fd=owned["journal parent"])
+        except FileNotFoundError:
+            if create:
+                raise
+            return d, -1
+        except (NotADirectoryError, OSError) as exc:
+            raise ValueError(
+                "journal containment refused non-directory/symlink %s: %s"
+                % (d, exc)) from exc
+        _settle_owned_fds(owned, ("journal parent",))
+        return d, owned.pop("journal directory")
+    finally:
+        _settle_owned_fds(
+            owned, ("journal directory", "journal parent"),
+            primary=sys.exc_info()[1])
+
+
+def _journal_unlink(work: Path, record: Path, expected_dir, expected_record) -> None:
+    _require_invoked_runner_identity()
+    d, journal_fd = _open_journal_dir(work, create=False)
+    if journal_fd < 0:
+        raise OSError("journal directory disappeared before unlink: %s" % d)
+    owned = {"journal directory": journal_fd}
+    try:
+        if record.parent != d or record.name != os.path.basename(record.name):
+            raise ValueError("journal record escapes owned directory: %s" % record)
+        current_dir = os.fstat(owned["journal directory"])
+        current_dir_identity = (current_dir.st_dev, current_dir.st_ino,
+                                stat.S_IFMT(current_dir.st_mode))
+        if current_dir_identity != expected_dir:
+            raise ValueError("journal directory identity changed before unlink: %s"
+                             % d)
+        current_record = os.stat(
+            record.name, dir_fd=owned["journal directory"],
+            follow_symlinks=False)
+        current_record_identity = (
+            current_record.st_dev, current_record.st_ino,
+            stat.S_IFMT(current_record.st_mode))
+        if current_record_identity != expected_record:
+            raise ValueError("journal record identity changed before unlink: %s"
+                             % record)
+        os.unlink(record.name, dir_fd=owned["journal directory"])
+        os.fsync(owned["journal directory"])
+    finally:
+        _settle_owned_fds(
+            owned, ("journal directory",), primary=sys.exc_info()[1])
 
 
 def _journal_write(work: Path, rel: str, original: str, mutated: str,
-                   label: str) -> Path:
-    d = _journal_dir(work)
-    d.mkdir(parents=True, exist_ok=True)
-    f = d / f"{os.getpid()}.json"
-    f.write_text(json.dumps({
+                   label: str) -> tuple[Path, tuple, tuple]:
+    _require_invoked_runner_identity()
+    d, journal_fd = _open_journal_dir(work, create=True)
+    owned = {"journal directory": journal_fd}
+    name = f"{os.getpid()}.json"
+    f = d / name
+    payload = json.dumps({
         "path": rel, "label": label, "pid": os.getpid(),
         "original_sha": hashlib.sha256(original.encode("utf-8")).hexdigest(),
         "mutated_sha": hashlib.sha256(mutated.encode("utf-8")).hexdigest(),
         "original": original,
-    }, indent=1), encoding="utf-8")
-    return f
+    }, indent=1).encode("utf-8")
+    try:
+        flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                 | getattr(os, "O_NOFOLLOW", 0))
+        owned["journal record"] = os.open(
+            name, flags, 0o600, dir_fd=owned["journal directory"])
+        view = memoryview(payload)
+        while view:
+            wrote = os.write(owned["journal record"], view)
+            if wrote <= 0:
+                raise OSError("short journal write for %s" % f)
+            view = view[wrote:]
+        os.fsync(owned["journal record"])
+        record_info = os.fstat(owned["journal record"])
+        record_identity = (
+            record_info.st_dev, record_info.st_ino,
+            stat.S_IFMT(record_info.st_mode))
+        directory_info = os.fstat(owned["journal directory"])
+        directory_identity = (
+            directory_info.st_dev, directory_info.st_ino,
+            stat.S_IFMT(directory_info.st_mode))
+        _settle_owned_fds(owned, ("journal record",))
+        os.fsync(owned["journal directory"])
+    finally:
+        _settle_owned_fds(
+            owned, ("journal record", "journal directory"),
+            primary=sys.exc_info()[1])
+    return f, directory_identity, record_identity
 
 
-def _journal_records(work: Path) -> list[tuple[Path, dict]]:
-    d = _journal_dir(work)
+def _journal_records(work: Path) -> list[tuple[Path, dict, tuple, tuple]]:
+    d, journal_fd = _open_journal_dir(work, create=False)
     out = []
-    if not d.is_dir():
+    if journal_fd < 0:
         return out
-    for f in sorted(d.glob("*.json")):
-        try:
-            out.append((f, json.loads(f.read_text(encoding="utf-8"))))
-        except (OSError, ValueError):
-            out.append((f, {}))
+    owned = {"journal directory": journal_fd}
+    try:
+        directory_info = os.fstat(owned["journal directory"])
+        directory_identity = (
+            directory_info.st_dev, directory_info.st_ino,
+            stat.S_IFMT(directory_info.st_mode))
+        names = sorted(name for name in os.listdir(owned["journal directory"])
+                       if name.endswith(".json") and "/" not in name)
+        for name in names:
+            f = d / name
+            try:
+                owned["journal record"] = os.open(
+                    name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=owned["journal directory"])
+                info = os.fstat(owned["journal record"])
+                if not stat.S_ISREG(info.st_mode):
+                    raise ValueError("journal record is not regular")
+                record_identity = (
+                    info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+                chunks = []
+                while True:
+                    chunk = os.read(owned["journal record"], 65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                out.append((f, json.loads(b"".join(chunks).decode("utf-8")),
+                            directory_identity, record_identity))
+            except (OSError, UnicodeError, ValueError):
+                # An unreadable record has no deletion authority.  Placeholder
+                # identities ensure every later unlink comparison fails closed.
+                out.append((f, {}, directory_identity, ("unreadable",)))
+            finally:
+                _settle_owned_fds(
+                    owned, ("journal record",),
+                    primary=sys.exc_info()[1])
+    finally:
+        _settle_owned_fds(
+            owned, ("journal record", "journal directory"),
+            primary=sys.exc_info()[1])
     return out
 
 
@@ -751,67 +1840,166 @@ def journal_preflight(work: Path) -> tuple[int, list[str]]:
     """
     msgs: list[str] = []
     bad = False
-    for f, rec in _journal_records(work):
+    try:
+        records = _journal_records(work)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return (2, [
+            "BD-MUTATE-UNRUNNABLE: journal containment is unproved (%s); "
+            "nothing was read, deleted, or run" % exc])
+    for f, rec, directory_identity, record_identity in records:
         rel = rec.get("path")
         if not rel or not rec.get("original_sha"):
             msgs.append(f"BD-MUTATE-UNRUNNABLE: unreadable in-flight record {f}. "
                         f"Cannot tell what it was protecting -- inspect and remove it.")
             bad = True
             continue
-        cur = _text_sha(work / rel)
-        if cur == rec["original_sha"]:
-            f.unlink(missing_ok=True)          # already clean: reap, do not refuse
-            continue
-        if cur == rec.get("mutated_sha"):
+        owner = None
+        reap = False
+        owner_problem = None
+        preflight_stage = "subject inspection"
+        try:
+            target = _recovery_target(work, rel)
+            owner = _PinnedSubject(target)
+            cur = owner.sha()
+            if cur == rec["original_sha"]:
+                preflight_stage = "cache cleanup"
+                _purge_subject_pycache(owner)
+                owner.require_attached("clean journal preflight")
+                reap = True
+            elif cur == rec.get("mutated_sha"):
+                msgs.append(
+                    f"BD-MUTATE-UNRUNNABLE: {rel} still holds the MUTANT from an "
+                    f"interrupted battery (pid {rec.get('pid')}, {rec.get('label')!r}). "
+                    f"A run started here would adopt it as pristine and restore it. "
+                    f"Repair with: bd-mutate --recover --work {work}")
+                bad = True
+            else:
+                msgs.append(
+                    f"BD-MUTATE-UNRUNNABLE: {rel} matches NEITHER the recorded "
+                    f"original nor the recorded mutant. Unknown is a third state "
+                    f"and it fails -- refusing to guess. Diff it: git diff -- {rel}")
+                bad = True
+        except Exception as exc:
+            owner_problem = exc
             msgs.append(
-                f"BD-MUTATE-UNRUNNABLE: {rel} still holds the MUTANT from an "
-                f"interrupted battery (pid {rec.get('pid')}, {rec.get('label')!r}). "
-                f"A run started here would adopt it as pristine and restore it. "
-                f"Repair with: bd-mutate --recover --work {work}")
+                "BD-MUTATE-UNRUNNABLE: %s %s is unproved (%s); retained %s"
+                % (rel, preflight_stage, _exception_summary(exc), f))
             bad = True
-            continue
-        msgs.append(
-            f"BD-MUTATE-UNRUNNABLE: {rel} matches NEITHER the recorded original "
-            f"nor the recorded mutant. Unknown is a third state and it fails -- "
-            f"refusing to guess. Diff it: git diff -- {rel}")
-        bad = True
+            reap = False
+        finally:
+            active_primary = sys.exc_info()[1]
+            if owner is not None:
+                try:
+                    owner.close(primary=active_primary)
+                except Exception as exc:
+                    owner_problem = owner_problem or exc
+                    msgs.append(
+                        "BD-MUTATE-UNRUNNABLE: subject owner close is unproved "
+                        "(%s); retained %s" % (exc, f))
+                    bad = True
+                    reap = False
+        if reap and owner_problem is None:
+            try:
+                _journal_unlink(work, f, directory_identity, record_identity)
+            except (OSError, RuntimeError, ValueError) as exc:
+                msgs.append(
+                    "BD-MUTATE-UNRUNNABLE: could not durably reap clean "
+                    "journal %s (%s); no test was run" % (f, exc))
+                bad = True
     return (2 if bad else 0), msgs
 
 
 def journal_recover(work: Path) -> int:
     """Write recorded originals back, verifying by sha. Never a blind overwrite."""
     rc = 0
-    recs = _journal_records(work)
+    try:
+        recs = _journal_records(work)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print("REFUSING recovery: journal containment is unproved (%s)" % exc,
+              file=sys.stderr)
+        return 2
     if not recs:
         print("no in-flight records: nothing to recover")
         return 0
-    for f, rec in recs:
+    for f, rec, directory_identity, record_identity in recs:
         rel = rec.get("path")
         if not rel or not rec.get("original_sha"):
             print(f"REFUSING {f}: unreadable record", file=sys.stderr)
             rc = 2
             continue
-        target = work / rel
-        cur = _text_sha(target)
-        if cur == rec["original_sha"]:
-            f.unlink(missing_ok=True)
-            print(f"already clean: {rel}")
-            continue
-        if cur != rec.get("mutated_sha"):
-            print(f"REFUSING {rel}: it matches neither recorded state, so a "
-                  f"recover would overwrite an edit nobody recorded. "
-                  f"git diff -- {rel}", file=sys.stderr)
-            rc = 2
-            continue
-        target.write_text(rec["original"], encoding="utf-8")
-        if _text_sha(target) != rec["original_sha"]:
-            print(f"RECOVER FAILED for {rel}: sha still wrong after write",
+        owner = None
+        recovered = False
+        already_clean = False
+        owner_problem = None
+        recovery_stage = "recovery target acquisition"
+        try:
+            target = _recovery_target(work, rel)
+            owner = _PinnedSubject(target)
+            cur = owner.sha()
+            if cur == rec["original_sha"]:
+                recovery_stage = "subject cache cleanup"
+                _purge_subject_pycache(owner)
+                owner.require_attached("already-clean recovery")
+                already_clean = True
+            elif cur != rec.get("mutated_sha"):
+                print(f"REFUSING {rel}: it matches neither recorded state, so a "
+                      f"recover would overwrite an edit nobody recorded. "
+                      f"git diff -- {rel}", file=sys.stderr)
+                rc = 2
+            else:
+                recovery_stage = "recovery write"
+                _write_subject_text(
+                    owner, rec["original"], expected_sha=rec.get("mutated_sha"),
+                    restoring=True)
+                recovery_stage = "recovery verification"
+                if owner.sha() != rec["original_sha"]:
+                    raise OSError("sha still wrong after recovery write")
+                recovery_stage = "subject cache cleanup"
+                _purge_subject_pycache(owner)
+                owner.require_attached("after recovery cache cleanup")
+                recovered = True
+        except Exception as exc:
+            owner_problem = exc
+            try:
+                observed_sha = owner.sha() if owner is not None else None
+            except Exception as observe_exc:
+                observed_state = "observed state is unproved (%s)" % (
+                    _exception_summary(observe_exc))
+            else:
+                if observed_sha == rec["original_sha"]:
+                    observed_state = "observed recorded original"
+                elif observed_sha == rec.get("mutated_sha"):
+                    observed_state = "observed recorded mutant"
+                elif observed_sha is None:
+                    observed_state = "observed subject is unreadable"
+                else:
+                    observed_state = "observed neither recorded state"
+            print("REFUSING %s: %s is unproved (%s); %s; recovery "
+                  "journal retained" % (
+                      rel, recovery_stage, _exception_summary(exc), observed_state),
                   file=sys.stderr)
             rc = 2
-            continue
-        _purge_pycache(work)
-        f.unlink(missing_ok=True)
-        print(f"recovered {rel}")
+            recovered = already_clean = False
+        finally:
+            active_primary = sys.exc_info()[1]
+            if owner is not None:
+                try:
+                    owner.close(primary=active_primary)
+                except Exception as exc:
+                    owner_problem = owner_problem or exc
+                    print("REFUSING %s: subject owner close is unproved (%s)"
+                          % (rel, exc), file=sys.stderr)
+                    rc = 2
+                    recovered = already_clean = False
+        if (recovered or already_clean) and owner_problem is None:
+            try:
+                _journal_unlink(work, f, directory_identity, record_identity)
+            except (OSError, RuntimeError, ValueError) as exc:
+                print("REFUSING %s: recovery journal removal is unproved (%s)"
+                      % (rel, exc), file=sys.stderr)
+                rc = 2
+                continue
+            print(("already clean: " if already_clean else "recovered ") + rel)
     return rc
 
 
@@ -830,6 +2018,17 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
               "is not judged.", file=sys.stderr)
         return 2, out
 
+    initial_subjects = {}
+    try:
+        for mutant in spec:
+            rel = mutant["file"]
+            path = _mutation_subject(work, rel)
+            if rel not in initial_subjects:
+                initial_subjects[rel] = _subject_identity(path)
+    except (KeyError, OSError, RuntimeError, ValueError) as exc:
+        print(f"BD-MUTATE-UNRUNNABLE: {exc}", file=sys.stderr)
+        return 2, out
+
     # ---- RESIDUE. A dirty tree makes every verdict below evidence about a
     # mutant somebody else left, and the run would restore it (@875).
     prc, pmsgs = journal_preflight(work)
@@ -839,8 +2038,21 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         return prc, out
 
     # ---- BASELINE. Red afterwards proves nothing if it was red before. ------
-    _purge_pycache(work)
-    baseline = _run_band(band, work, timeout=timeout)
+    try:
+        _purge_pycache(work)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print("BD-MUTATE-UNRUNNABLE: baseline cache cleanup is unproved "
+              "(%s); no test or mutant was run" % exc, file=sys.stderr)
+        return 2, out
+    try:
+        baseline = _run_band(band, work, timeout=timeout)
+    except Exception as exc:
+        print(
+            "BD-MUTATE-UNRUNNABLE: baseline execution is unproved (%s); "
+            "no mutant was run" % _exception_summary(exc),
+            file=sys.stderr,
+        )
+        return 2, out
     if baseline["rc"] != 0 or baseline.get("measurement_error"):
         print("BD-MUTATE-UNRUNNABLE: BASELINE IS RED. Every verdict below would "
               "be evidence about the baseline, not about a mutant.\n"
@@ -848,14 +2060,84 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
               + baseline["tail"][-1500:],
               file=sys.stderr)
         return 2, out
+    collected_counts = Counter(baseline["collected"])
+    missing_named_rows = []
+    for index, mutant in enumerate(spec, 1):
+        named = (
+            [mutant.get("catcher")]
+            if mutant.get("direction", "regression") == "regression"
+            else [mutant.get("control"), *mutant.get("preserves", [])]
+        )
+        for nodeid in named:
+            if not nodeid:
+                continue
+            exact_count = collected_counts[nodeid]
+            parameterized_count = sum(
+                count for collected, count in collected_counts.items()
+                if collected.startswith(nodeid + "[")
+            )
+            if exact_count > 1 or parameterized_count:
+                print(
+                    "BD-MUTATE-UNRUNNABLE: mutant %d named nodeid is not one "
+                    "exact collected test (%r appeared %d times). Parameterized "
+                    "tests require one concrete collected case." % (
+                        index, nodeid, exact_count + parameterized_count),
+                    file=sys.stderr,
+                )
+                return 2, out
+            if exact_count == 0:
+                row = {
+                    "label": mutant.get("label") or f"mutant {index}",
+                    "file": mutant["file"],
+                    "direction": mutant.get("direction", "regression"),
+                    "catcher": mutant.get("catcher"),
+                    "control": mutant.get("control"),
+                    "preserves": mutant.get("preserves"),
+                    "verdict": UNKNOWN,
+                    "why": (
+                        "named nodeid %r appeared 0 times; expected exactly 1"
+                        % nodeid
+                    ),
+                }
+                missing_named_rows.append(row)
+                break
+    if missing_named_rows:
+        for row in missing_named_rows:
+            print(f"BD-MUTATE-UNRUNNABLE: {row['why']}", file=sys.stderr)
+        return 2, missing_named_rows
     if verbose:
         print(f"baseline GREEN over {len(band)} band target(s), "
               f"{len(baseline['collected'])} collected test(s); {len(spec)} mutant(s)\n")
 
+    # A green band is evidence only if it leaves every subject exactly as it
+    # found it.  Capture before running any mutant so drift in a later subject
+    # cannot be hidden behind an earlier CAUGHT result.
+    for m in spec:
+        rel = m["file"]
+        row = {
+            "label": m.get("label") or "mutant",
+            "file": rel,
+            "direction": m.get("direction", "regression"),
+            "catcher": m.get("catcher"),
+            "control": m.get("control"),
+            "preserves": m.get("preserves"),
+        }
+        try:
+            path = _mutation_subject(work, rel)
+            observed = _subject_identity(path)
+            drift = _subject_identity_drift(initial_subjects[rel], observed)
+        except (KeyError, OSError, RuntimeError, ValueError) as exc:
+            drift = str(exc)
+        if drift:
+            row["verdict"] = UNKNOWN
+            row["why"] = "subject identity changed after baseline: %s" % drift
+            out.append(row)
+            print(f"BD-MUTATE-UNRUNNABLE: {row['why']}", file=sys.stderr)
+            return 2, out
+
     for i, m in enumerate(spec, 1):
         label = m.get("label") or f"mutant {i}"
         rel = m["file"]
-        path = work / rel
         row = {
             "label": label,
             "file": rel,
@@ -864,54 +2146,142 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
             "control": m.get("control"),
             "preserves": m.get("preserves"),
         }
-        if not path.is_file():
-            row["verdict"] = ERROR
-            row["why"] = "file does not exist"
-            out.append(row)
-            continue
-
-        original = path.read_text(encoding="utf-8")
-        before_sha = _sha(path)
+        owner = None
         try:
-            mutated = _apply(original, m["old"], m["new"])
-        except (ValueError, KeyError) as e:
-            row["verdict"] = ERROR
-            row["why"] = f"apply: {e}"
+            path = _mutation_subject(work, rel)
+            owner = _PinnedSubject(path, expected=initial_subjects[rel])
+        except (KeyError, OSError, RuntimeError, ValueError) as exc:
+            row["verdict"] = UNKNOWN
+            row["why"] = "subject identity changed after baseline: %s" % exc
             out.append(row)
-            continue
-
-        ok, why = _validate(path, mutated)
-        if not ok:
-            row["verdict"] = INVALID
-            row["why"] = why
-            out.append(row)
-            continue
-
-        # Journal BEFORE the write, and refuse if it cannot be written -- a
-        # safety net that reports OK while absent is the defect it closes.
+            print(f"BD-MUTATE-UNRUNNABLE: {row['why']}", file=sys.stderr)
+            break
+        operation_problem = None
+        restore_problem = None
+        close_problem = None
+        jrec = None
         try:
-            jrec = _journal_write(work, rel, original, mutated, label)
-        except OSError as e:
-            print(f"BD-MUTATE-UNRUNNABLE: cannot write the in-flight journal "
-                  f"({e}). Refusing to mutate unjournalled -- an interrupted "
-                  f"run would then be invisible to the next one.", file=sys.stderr)
-            return 2, out
-        try:
-            _purge_pycache(work)
-            path.write_text(mutated, encoding="utf-8")
-            result = _run_band(band, work, timeout=timeout)
-            row["verdict"], row["why"] = _grade_mutant(m, result)
-        finally:
-            path.write_text(original, encoding="utf-8")
-            _purge_pycache(work)
-            after_sha = _sha(path)
-            if after_sha != before_sha:
+            try:
+                original = owner.read_text()
+                before_sha = owner.sha()
+            except Exception as exc:
+                row["verdict"] = UNKNOWN
+                row["why"] = "subject read is unproved: %s" % _exception_summary(exc)
+                out.append(row)
+                return 2, out
+            try:
+                mutated = _apply(original, m["old"], m["new"])
+            except (ValueError, KeyError) as exc:
                 row["verdict"] = ERROR
-                row["why"] = (f"RESTORE FAILED: {before_sha[:12]} -> {after_sha[:12]}. "
-                              f"The tree is NOT as it was found.")
-            else:
-                jrec.unlink(missing_ok=True)   # only once the restore VERIFIED
+                row["why"] = f"apply: {exc}"
+                out.append(row)
+                continue
+
+            try:
+                ok, why = _validate(path, mutated)
+            except Exception as exc:
+                row["verdict"] = UNKNOWN
+                row["why"] = "validation is unproved: %s" % _exception_summary(exc)
+                out.append(row)
+                print("BD-MUTATE-UNRUNNABLE: %s; no mutant was run" % row["why"],
+                      file=sys.stderr)
+                return 2, out
+            if not ok:
+                row["verdict"] = INVALID
+                row["why"] = why
+                out.append(row)
+                continue
+
+            # Journal BEFORE the write, and refuse if it cannot be written -- a
+            # safety net that reports OK while absent is the defect it closes.
+            try:
+                jrec, journal_dir_identity, journal_record_identity = _journal_write(
+                    work, rel, original, mutated, label)
+            except (OSError, RuntimeError, ValueError) as exc:
+                print(f"BD-MUTATE-UNRUNNABLE: cannot write the in-flight journal "
+                      f"({exc}). Refusing to mutate unjournalled -- an interrupted "
+                      f"run would then be invisible to the next one.", file=sys.stderr)
+                return 2, out
+            try:
+                _purge_pycache(work)
+            except (OSError, RuntimeError, ValueError) as exc:
+                print("BD-MUTATE-UNRUNNABLE: pre-mutant cache cleanup is unproved "
+                      "(%s); retained %s and ran no mutant" % (exc, jrec),
+                      file=sys.stderr)
+                return 2, out
+
+            operation_stage = "mutant write"
+            try:
+                _write_subject_text(owner, mutated, expected_sha=before_sha)
+                operation_stage = "mutant band execution"
+                result = _run_band(band, work, timeout=timeout)
+                row["verdict"], row["why"] = _grade_mutant(m, result)
+            except Exception as exc:
+                operation_problem = "%s is unproved (%s)" % (
+                    operation_stage, _exception_summary(exc))
+                row["verdict"] = UNKNOWN
+                row["why"] = operation_problem
+            finally:
+                active_primary = sys.exc_info()[1]
+                try:
+                    mutated_sha = hashlib.sha256(mutated.encode("utf-8")).hexdigest()
+                    current_sha = owner.sha()
+                    if current_sha == mutated_sha:
+                        _write_subject_text(
+                            owner, original, expected_sha=mutated_sha, restoring=True)
+                    elif current_sha != before_sha:
+                        raise ValueError(
+                            "subject matches neither the original nor mutant after "
+                            "the operation")
+                    _purge_pycache(work)
+                    owner.require_attached("after restoration and cache cleanup")
+                    after_sha = owner.sha()
+                    if after_sha != before_sha:
+                        restore_problem = (
+                            f"RESTORE FAILED: {before_sha[:12]} -> {after_sha[:12]}. "
+                            f"The tree is NOT as it was found.")
+                except (OSError, RuntimeError, ValueError) as exc:
+                    restore_problem = "RESTORE/CACHE CLEANUP UNKNOWN: %s" % exc
+                except BaseException as restore_primary:
+                    if active_primary is None:
+                        raise
+                    if restore_primary is not active_primary:
+                        _note_reconciliation(
+                            active_primary, "secondary restoration failure: %s" %
+                            _exception_summary(restore_primary))
+        finally:
+            active_primary = sys.exc_info()[1]
+            try:
+                owner.close(primary=active_primary)
+            except (OSError, RuntimeError, ValueError) as exc:
+                close_problem = "SUBJECT OWNER CLOSE UNKNOWN: %s" % exc
+                restore_problem = (close_problem if restore_problem is None else
+                                   restore_problem + "; " + close_problem)
+                row["verdict"] = ERROR
+                row["why"] = restore_problem
+
+        if restore_problem is not None:
+            row["verdict"] = ERROR
+            row["why"] = restore_problem
+        elif jrec is not None:
+            try:
+                _journal_unlink(
+                    work, jrec, journal_dir_identity,
+                    journal_record_identity)
+            except (OSError, RuntimeError, ValueError) as exc:
+                restore_problem = (
+                    "RESTORE VERIFIED BUT JOURNAL REMOVAL UNKNOWN: %s" % exc)
+                row["verdict"] = ERROR
+                row["why"] = restore_problem
         out.append(row)
+        if restore_problem is not None:
+            print("BD-MUTATE-UNRUNNABLE: %s; retained %s"
+                  % (restore_problem, jrec), file=sys.stderr)
+            return 2, out
+        if operation_problem is not None:
+            print("BD-MUTATE-UNRUNNABLE: %s; restoration and journal removal "
+                  "were verified" % operation_problem, file=sys.stderr)
+            return 2, out
         if verbose:
             print(f"  [{row['verdict']:7}] {label}")
 
@@ -919,7 +2289,6 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
 
 
 def _report(rows: list[dict]) -> None:
-    from collections import Counter
     c = Counter(r["verdict"] for r in rows)
     print("\n%-8s %-46s %s" % ("VERDICT", "MUTANT", "NOTE"))
     for r in rows:
@@ -1169,13 +2538,51 @@ def main() -> int:
     ap.add_argument("--recover", action="store_true",
                     help="restore originals recorded by an interrupted battery")
     a = ap.parse_args()
-    work = Path(a.work).resolve()
+    try:
+        _bind_invoked_runner_identity()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print("BD-MUTATE-UNRUNNABLE: %s" % exc, file=sys.stderr)
+        if a.json:
+            print(json.dumps({
+                "exit": 2, "direction": a.direction,
+                "selected": 0, "total": 0, "rows": [],
+            }, indent=1))
+        return 2
+    try:
+        work = Path(a.work).resolve()
+    except (OSError, RuntimeError) as exc:
+        print(
+            "BD-MUTATE-UNRUNNABLE: work root is unavailable: "
+            f"{a.work}: {exc}",
+            file=sys.stderr,
+        )
+        if a.json:
+            print(json.dumps({
+                "exit": 2,
+                "direction": a.direction,
+                "selected": 0,
+                "total": 0,
+                "rows": [],
+            }, indent=1))
+        return 2
 
     if not (0 < a.timeout < float("inf")):
         ap.error("--timeout must be a positive finite number")
 
     if a.selftest:
         return _selftest(work)
+    conflict = (_shares_runner_git_authority(work) if a.recover
+                else _runner_repository_conflict(work))
+    if conflict:
+        print(
+            "BD-MUTATE-UNRUNNABLE: refusing work that intersects the "
+            "repository containing this bd-mutate or shares Git authority "
+            "with it: "
+            f"{work} (runner repository: {_INVOKED_REPOSITORY}). Use a "
+            "detached scratch copy.",
+            file=sys.stderr,
+        )
+        return 2
     if a.recover:
         return journal_recover(work)
     if not a.spec:
@@ -1204,16 +2611,32 @@ def main() -> int:
     selected = spec if a.direction == "all" else [
         mutant for mutant in spec if mutant["direction"] == a.direction]
     if not selected:
+        if prepared_emit is not None:
+            prepared_emit[0].close()
         print(f"BD-MUTATE-UNRUNNABLE: 0 of {total} mutants after "
               f"--direction {a.direction}", file=sys.stderr)
         return 2
-    rc, rows = run_battery(selected, band, work, timeout=a.timeout)
-    if prepared_emit is not None and rc in (0, 1):
-        try:
-            _publish_emitted_spec(*prepared_emit)
-        except (OSError, ValueError) as e:
-            print(f"BD-MUTATE-UNRUNNABLE: cannot publish spec: {e}", file=sys.stderr)
-            rc = 2
+    try:
+        rc, rows = run_battery(
+            selected, band, work, verbose=not a.json, timeout=a.timeout)
+    except BaseException as primary:
+        if prepared_emit is not None:
+            prepared_emit[0].close(primary=primary)
+        raise
+    if prepared_emit is not None:
+        if rc in (0, 1):
+            try:
+                _publish_emitted_spec(*prepared_emit)
+            except (OSError, RuntimeError, ValueError) as e:
+                print(f"BD-MUTATE-UNRUNNABLE: cannot publish spec: {e}",
+                      file=sys.stderr)
+                rc = 2
+        else:
+            try:
+                prepared_emit[0].close()
+            except (OSError, RuntimeError, ValueError) as e:
+                print("BD-MUTATE-UNRUNNABLE: emitted-spec owner cleanup is "
+                      "unproved: %s" % e, file=sys.stderr)
     if a.json:
         print(json.dumps({
             "exit": rc,

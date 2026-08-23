@@ -55,6 +55,50 @@ def _python_for(repo: Path) -> Path:
 
 
 PY = _python_for(REPO)
+_REGISTRY_LITERAL = 'JOBS_DIR = pathlib.Path("/tmp/bd-jobs")'
+
+
+def _private_bd_jobs(tmp_path):
+    """An executable copy whose registry authority is inside ``tmp_path``.
+
+    Isolation follows the executable. An environment override would create a
+    second production authority, while rebinding an imported module would not
+    follow the fresh interpreter used by this CLI test. The anchored rewrite
+    keeps the production command path intact without contacting the operator's
+    registry on either success or failure.
+    """
+    registry = tmp_path / "bd-jobs"
+    source = BD_JOBS.read_text(encoding="utf-8")
+    assert source.count(_REGISTRY_LITERAL) == 1, (
+        "the registry literal no longer occurs exactly once; a private copy "
+        "could silently retain the operator registry")
+    copy = tmp_path / "bd-jobs-private"
+    copy.write_text(
+        source.replace(
+            _REGISTRY_LITERAL,
+            "JOBS_DIR = pathlib.Path(%r)" % str(registry),
+        ),
+        encoding="utf-8",
+    )
+    copy.chmod(0o755)
+
+    # Execute the copy's real module initialization to prove the rewrite
+    # controls behavior; source-text presence alone would only prove the copy
+    # contains the string the fixture just wrote.
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader("bd_jobs_1054_private", str(copy))
+    spec = importlib.util.spec_from_loader("bd_jobs_1054_private", loader)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.JOBS_DIR == registry, (module.JOBS_DIR, registry)
+    return copy, registry
+
+
+@pytest.fixture
+def private_bd_jobs(tmp_path):
+    return _private_bd_jobs(tmp_path)
 
 
 def _alive(pid: int) -> bool:
@@ -73,6 +117,13 @@ def test_the_tools_are_present():
     assert BD_JOBS.is_file(), f"missing {BD_JOBS}"
     assert BD_RUN.is_file(), f"missing {BD_RUN}"
     assert PY.is_file(), f"missing {PY}"
+
+
+def test_private_jobs_copy_executes_with_an_owned_registry(tmp_path):
+    """Mutation catcher: a no-op rewrite must fail before any CLI is run."""
+    copy, registry = _private_bd_jobs(tmp_path)
+    assert copy.is_file()
+    assert registry.is_relative_to(tmp_path)
 
 
 def test_tool_runner_works_when_the_checkout_has_no_local_venv(tmp_path):
@@ -148,7 +199,7 @@ def test_bd_run_does_not_cap_a_command_that_finishes(tmp_path):
 
 # ----------------------------------------------------------------- backlog 88
 
-def test_reap_kills_the_whole_process_group(tmp_path):
+def test_reap_kills_the_whole_process_group(tmp_path, private_bd_jobs):
     """RED before the fix: the grandchild outlives the reap.
 
     The shape is the measured one -- a registered shell whose CHILD is the
@@ -156,31 +207,42 @@ def test_reap_kills_the_whole_process_group(tmp_path):
     that bd-jobs must establish the group itself at launch, so a test that
     created the group would be proving its own fixture rather than the tool.
     """
+    bd_jobs, registry = private_bd_jobs
     marker = tmp_path / "gc.pid"
     # The registered process is the shell; the grandchild is what must also die.
     cmd = f"sh -c 'sleep 300 & echo $! > {marker}; wait'"
-    out = subprocess.run(
-        [str(PY), str(BD_JOBS), "run", "--purpose", "1054 reap group test",
-         "--", "bash", "-c", cmd],
-        capture_output=True, text=True, timeout=60,
-    )
-    assert out.returncode == 0, f"bd-jobs run failed: {out.stderr[-600:]}"
-    job_id = out.stdout.strip().splitlines()[-1].strip()
-    assert job_id, f"no job id printed: {out.stdout!r}"
-
-    deadline = time.time() + 15
-    while time.time() < deadline and not marker.exists():
-        time.sleep(0.2)
-    assert marker.exists(), (
-        "the grandchild never recorded its pid, so this test would assert over "
-        "a process that was never created -- the fixture, not the tool"
-    )
-    gc_pid = int(marker.read_text().strip())
-    assert _alive(gc_pid), "precondition: the grandchild should be running"
-
+    out = None
+    job_id = None
+    gc_pid = None
     try:
-        subprocess.run([str(PY), str(BD_JOBS), "reap", "--id", job_id],
-                       capture_output=True, text=True, timeout=60)
+        out = subprocess.run(
+            [str(PY), str(bd_jobs), "run", "--purpose", "1054 reap group test",
+             "--", "bash", "-c", cmd],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert out.returncode == 0, f"bd-jobs run failed: {out.stderr[-600:]}"
+        job_id = out.stdout.strip().splitlines()[-1].strip()
+        assert job_id, f"no job id printed: {out.stdout!r}"
+        record = registry / f"{job_id}.json"
+        assert record.is_file(), (
+            "the real CLI did not publish into the private registry: "
+            f"{record}")
+
+        deadline = time.time() + 15
+        while time.time() < deadline and not marker.exists():
+            time.sleep(0.2)
+        assert marker.exists(), (
+            "the grandchild never recorded its pid, so this test would assert over "
+            "a process that was never created -- the fixture, not the tool"
+        )
+        gc_pid = int(marker.read_text().strip())
+        assert _alive(gc_pid), "precondition: the grandchild should be running"
+
+        reaped = subprocess.run(
+            [str(PY), str(bd_jobs), "reap", "--id", job_id],
+            capture_output=True, text=True, timeout=60)
+        assert reaped.returncode == 0, (
+            f"bd-jobs reap failed: {reaped.stdout[-600:]}{reaped.stderr[-600:]}")
         for _ in range(50):
             if not _alive(gc_pid):
                 break
@@ -191,7 +253,16 @@ def test_reap_kills_the_whole_process_group(tmp_path):
             "deploy on two hosts."
         )
     finally:
-        if _alive(gc_pid):
+        # A failed assertion before the explicit reap must not leave work or a
+        # record behind. Enumerate only the private registry this fixture owns.
+        ids = {job_id} if job_id else set()
+        if registry.is_dir():
+            ids.update(path.stem for path in registry.glob("*.json"))
+        for candidate in sorted(ids):
+            subprocess.run(
+                [str(PY), str(bd_jobs), "reap", "--id", candidate],
+                capture_output=True, text=True, timeout=60)
+        if gc_pid is not None and _alive(gc_pid):
             try:
                 os.kill(gc_pid, signal.SIGKILL)
             except OSError:
