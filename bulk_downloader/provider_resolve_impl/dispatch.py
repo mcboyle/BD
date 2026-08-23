@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from ._common import _apply_honeypot_filter, _cache_lookup, _honeypot_drop_threshold, _now, _primary_id
+from ._common import _PR_SHIM_CONTEXT
 from .vimeo import resolve_vimeo
 from .wistia import resolve_wistia
 from .jwplayer import resolve_jwplayer
@@ -23,6 +24,9 @@ def __pr_shim():
     # imported, the function a test invokes (via its collection-time `pr`)
     # still reads the SAME object that test monkeypatched -- a call-time
     # sys.modules re-fetch would return the reloaded twin and miss the patch.
+    contextual = _PR_SHIM_CONTEXT.get()
+    if contextual is not None:
+        return contextual
     global _PR_SHIM_REF
     if _PR_SHIM_REF is None:
         import bulk_downloader.provider_resolve as _m

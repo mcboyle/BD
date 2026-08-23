@@ -230,6 +230,11 @@ _DECLARED = {
     "tests/test_v3_66_1044_run_context_and_chains.py",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
     "tests/test_v3_66_1040_remote_job_registry.py",
+    # @1206 provider-facade. Retained implementation modules and re-imported
+    # public facades form a process-wide generation boundary, so the direct
+    # concurrency/ownership gate must execute even when no provider file is in
+    # the diff that triggered CI.
+    "tests/test_provider_resolve_surface_lock.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1031_socket_recorder_stages.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",

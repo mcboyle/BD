@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1206 - isolate provider facade generations
+
+- Bind retained provider implementation modules to the public facade that
+  owns their injection seams, while a per-call context keeps concurrent and
+  re-imported facade generations isolated. Direct and deferred transports,
+  dispatcher and YouTube helpers restore the prior owner on success, ordinary
+  failure, and cancellation. Seventeen tracked mutants exercise late binding,
+  re-import ownership, concurrent facade twins, and context restoration.
+
 ## v3.66.1205 - make capture truthful without optional requests or Markdown
 
 - Accept pytest module collection skips with an empty classname by assigning

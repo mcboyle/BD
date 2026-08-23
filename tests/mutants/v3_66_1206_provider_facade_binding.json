@@ -1,0 +1,152 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1206 fleet-remediation battery: a facade imported after retained implementation modules must bind every exported implementation back to the facade that owns its public injection seams.",
+  "subject": "v3.66.1206 -- provider facade late-binds retained implementation identities",
+  "band": [
+    "tests/test_provider_resolve_surface_lock.py::test_deferred_transport_baseexception_restores_exact_primary_and_owner",
+    "tests/test_provider_resolve_surface_lock.py::test_deferred_transport_success_restores_the_retained_facade_owner",
+    "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe",
+    "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner",
+    "tests/test_provider_resolve_surface_lock.py::test_facade_context_restores_after_baseexception_without_replacing_primary",
+    "tests/test_provider_resolve_surface_lock.py::test_facade_twins_bind_deferred_transport_and_ytdlp_helpers",
+    "tests/test_provider_resolve_surface_lock.py::test_facade_twins_isolate_injection_seams_during_concurrent_calls"
+  ],
+  "mutants": [
+    {
+      "label": "H07a omit the common-helper facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_common_impl)",
+      "new": "pass  # omitted common facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07b omit the dispatcher facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_dispatch_impl)",
+      "new": "pass  # omitted dispatcher facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07c omit the youtube facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_youtube_impl)",
+      "new": "pass  # omitted youtube facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07d omit every retained-implementation facade binding",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_bind_pr_facade_if_unowned(_pr_common_impl)\n_bind_pr_facade_if_unowned(_pr_dispatch_impl)\n_bind_pr_facade_if_unowned(_pr_youtube_impl)",
+      "new": "pass  # omitted every retained-implementation facade binding",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_late_binds_every_retained_implementation_before_module_wipe"
+    },
+    {
+      "label": "H07e overwrite an implementation's established facade owner",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "    if implementation._PR_SHIM_REF is None:\n        implementation._PR_SHIM_REF = _pr_facade",
+      "new": "    if True:\n        implementation._PR_SHIM_REF = _pr_facade",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner"
+    },
+    {
+      "label": "R12-N205 common shim ignores per-call facade context",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old": "    contextual = _PR_SHIM_CONTEXT.get()\n    if contextual is not None:\n        return contextual\n    global _PR_SHIM_REF",
+      "new": "    contextual = None\n    if contextual is not None:\n        return contextual\n    global _PR_SHIM_REF",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_twins_bind_deferred_transport_and_ytdlp_helpers"
+    },
+    {
+      "label": "R12-N206 dispatcher ignores per-call facade context",
+      "file": "bulk_downloader/provider_resolve_impl/dispatch.py",
+      "old": "    contextual = _PR_SHIM_CONTEXT.get()\n    if contextual is not None:\n        return contextual\n    global _PR_SHIM_REF",
+      "new": "    contextual = None\n    if contextual is not None:\n        return contextual\n    global _PR_SHIM_REF",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner"
+    },
+    {
+      "label": "R12-N207 YouTube helper ignores per-call facade context",
+      "file": "bulk_downloader/provider_resolve_impl/youtube.py",
+      "old": "    contextual = _PR_SHIM_CONTEXT.get()\n    if contextual is not None:\n        return contextual\n    global _PR_SHIM_REF",
+      "new": "    contextual = None\n    if contextual is not None:\n        return contextual\n    global _PR_SHIM_REF",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_twins_bind_deferred_transport_and_ytdlp_helpers"
+    },
+    {
+      "label": "R12-N208 new facade exports the unbound shared dispatcher",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "resolve_provider_embed = _bind_pr_facade_call(resolve_provider_embed)",
+      "new": "resolve_provider_embed = resolve_provider_embed",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner"
+    },
+    {
+      "label": "R12-N209 facade default transport is left unbound",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_default_http_get = _bind_pr_facade_call(_default_http_get)",
+      "new": "_default_http_get = _default_http_get",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_twins_bind_deferred_transport_and_ytdlp_helpers"
+    },
+    {
+      "label": "R12-N210 factory result loses its owning facade",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "        return bind_deferred(bound_factory(*args, **kwargs))",
+      "new": "        return bound_factory(*args, **kwargs)",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_twins_bind_deferred_transport_and_ytdlp_helpers"
+    },
+    {
+      "label": "R12-N211 direct yt-dlp helper is left unbound",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "_decipher_signed_formats_ytdlp = _bind_pr_facade_call(\n    _decipher_signed_formats_ytdlp)",
+      "new": "_decipher_signed_formats_ytdlp = _decipher_signed_formats_ytdlp",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_twins_bind_deferred_transport_and_ytdlp_helpers"
+    },
+    {
+      "label": "R12-N212 process-global owner races concurrent facade twins",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old": "_PR_SHIM_CONTEXT = ContextVar(\"provider_resolve_facade\", default=None)",
+      "new": "class _ProcessGlobalFacade:\n    value = None\n    def get(self):\n        return self.value\n    def set(self, value):\n        prior = self.value\n        self.value = value\n        return prior\n    def reset(self, prior):\n        self.value = prior\n_PR_SHIM_CONTEXT = _ProcessGlobalFacade()",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_twins_isolate_injection_seams_during_concurrent_calls"
+    },
+    {
+      "label": "R12-N213 successful facade call leaks context into retained raw implementation",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "    @_functools.wraps(function)\n    def bound(*args, **kwargs):\n        token = context.set(facade)\n        try:\n            return function(*args, **kwargs)\n        finally:\n            context.reset(token)",
+      "new": "    @_functools.wraps(function)\n    def bound(*args, **kwargs):\n        context.set(facade)\n        return function(*args, **kwargs)",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_facade_reimport_cannot_steal_a_retained_implementation_owner"
+    },
+    {
+      "label": "R12-N214 deferred callable leaks context after cancellation",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "        @wraps(function)\n        def bound(*args, **kwargs):\n            token = context.set(facade)\n            try:\n                return function(*args, **kwargs)\n            finally:\n                context.reset(token)",
+      "new": "        @wraps(function)\n        def bound(*args, **kwargs):\n            context.set(facade)\n            return function(*args, **kwargs)",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_deferred_transport_baseexception_restores_exact_primary_and_owner"
+    },
+    {
+      "label": "R12-N215 deferred wrapper omits reset only after success",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "        @wraps(function)\n        def bound(*args, **kwargs):\n            token = context.set(facade)\n            try:\n                return function(*args, **kwargs)\n            finally:\n                context.reset(token)",
+      "new": "        @wraps(function)\n        def bound(*args, **kwargs):\n            token = context.set(facade)\n            try:\n                result = function(*args, **kwargs)\n            except BaseException:\n                context.reset(token)\n                raise\n            else:\n                return result",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_deferred_transport_success_restores_the_retained_facade_owner"
+    },
+    {
+      "label": "R12-N216 deferred wrapper omits reset only after BaseException",
+      "file": "bulk_downloader/provider_resolve.py",
+      "old": "        @wraps(function)\n        def bound(*args, **kwargs):\n            token = context.set(facade)\n            try:\n                return function(*args, **kwargs)\n            finally:\n                context.reset(token)",
+      "new": "        @wraps(function)\n        def bound(*args, **kwargs):\n            token = context.set(facade)\n            try:\n                result = function(*args, **kwargs)\n            except Exception:\n                context.reset(token)\n                raise\n            except BaseException:\n                raise\n            else:\n                context.reset(token)\n                return result",
+      "direction": "regression",
+      "catcher": "tests/test_provider_resolve_surface_lock.py::test_deferred_transport_baseexception_restores_exact_primary_and_owner"
+    }
+  ]
+}
