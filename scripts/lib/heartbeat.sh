@@ -32,6 +32,37 @@
 # tools/capture_verdict.py names it rather than reporting a bare number. An
 # unfinished run is not a pass and not a failure of the code.
 
+# WHY EVERY LAUNCH BELOW GOES THROUGH `env --default-signal=INT,QUIT`, measured
+# 2026-08-23. All seven post-reboot fleet captures failed, and all seven failed
+# in the serial lane on the same nine signal-sensitive tests. POSIX requires a
+# NON-INTERACTIVE shell to start an ASYNCHRONOUS job with SIGINT and SIGQUIT set
+# to SIG_IGN -- and both launch paths here are `... &`. `setsid` changes the
+# session, not the dispositions; Python PRESERVES an inherited SIG_IGN instead
+# of installing its usual default_int_handler; and every process pytest spawns
+# inherits the ignore in turn. A test that sends SIGINT to its own subject
+# therefore sends it into a void, and the subject walks down a non-cancellation
+# path while the lane still reports a clean exit.
+#
+# This wrapper's job is to BOUND a lane and narrate it, not to change what the
+# lane is. Handing a subject different signal semantics than it would have in
+# the foreground makes the wrapper part of the experiment. The reset restores
+# the foreground contract and nothing else -- session and process-group
+# ownership are deliberately unchanged, because `_stop_process_group` and the
+# INT/TERM/HUP traps below depend on the child leading its own group.
+#
+# BOTH paths need it SEPARATELY. They are two `setsid` call sites, so a reset on
+# one leaves every capture that owns a vault descriptor defective while the
+# other looks correct. tests/test_v3_66_1208_the_heartbeat_keeps_foreground_
+# signal_semantics.py asserts each path on its own for exactly that reason.
+#
+# BD_HEARTBEAT_LAUNCH NAMES THE CALL SITE, and it is here so a test can assert
+# WHICH path ran rather than infer it. The obvious proxy -- the length of
+# _CAPTURE_CLOSE_FDS in the caller -- is not the same question: a mutation that
+# changed the `-gt 0` branch predicate to `-ge 0` sent the zero-descriptor case
+# through the descriptor-closing call site while that length stayed 0, and the
+# "ordinary path" test passed having exercised the other branch. The variable
+# is inert to the lane and costs one already-present `env`.
+
 # Seconds any one heartbeat-wrapped stage may take before it is stopped.
 # Default 5400 (90 min) is ~17x the slowest lane measured on this fleet (a full
 # suite at -n 48 completes in 219-315s), so it bounds a hang without ever
@@ -88,7 +119,7 @@ _start_capture_detached() {
   _capture_add_close_fd "${CAPTURE_VAULT_DIR_FD:-}" "capture vault directory"
   _capture_add_close_fd "${CAPTURE_VAULT_DIR_LOCK_FD:-}" "capture vault lock"
   if [ "${#_CAPTURE_CLOSE_FDS[@]}" -gt 0 ]; then
-    setsid bash -c '
+    setsid env --default-signal=INT,QUIT BD_HEARTBEAT_LAUNCH=close-fd bash -c '
       count=$1; shift
       case "$count" in ""|*[!0-9]*) exit 73 ;; esac
       while [ "$count" -gt 0 ]; do
@@ -101,7 +132,7 @@ _start_capture_detached() {
     ' bd-close-fds-exec "${#_CAPTURE_CLOSE_FDS[@]}" \
       "${_CAPTURE_CLOSE_FDS[@]}" "$@" > "$logfile" 2>&1 &
   else
-    setsid "$@" > "$logfile" 2>&1 &
+    setsid env --default-signal=INT,QUIT BD_HEARTBEAT_LAUNCH=ordinary "$@" > "$logfile" 2>&1 &
   fi
   CAPTURE_DETACHED_PID=$!
 }

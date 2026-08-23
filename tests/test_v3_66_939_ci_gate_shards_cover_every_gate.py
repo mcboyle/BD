@@ -84,6 +84,16 @@ BD_GATE_SCOPE = "repo-wide"
 # dropped file passes: the union would simply shrink to match. Adding a
 # repo-wide gate to CI is meant to be a two-file change.
 _DECLARED = {
+    # @1208, the capture execution signal contract. These three judge the
+    # heartbeat boundary that made all seven fleet captures fail at once:
+    # 1208 RUNS the wrapper and reads the wrapped process's own signal
+    # dispositions, 1111 proves the wall-clock bound still fires, and u45
+    # pins the shipped launch form 1208 exercises. They are module-scoped,
+    # so nothing else in CI would have seen a regression of
+    # scripts/lib/heartbeat.sh -- and capture is not CI.
+    "tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py",
+    "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
+    "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",
     "tests/test_pin_index_in_sync.py",
     "tests/test_route_index_in_sync.py",

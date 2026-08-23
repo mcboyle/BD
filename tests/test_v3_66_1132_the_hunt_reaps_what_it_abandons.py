@@ -53,6 +53,7 @@ that silently fails is outside its denominator.
 from __future__ import annotations
 
 import ast
+import errno
 import importlib.machinery
 import importlib.util
 import json
@@ -1327,6 +1328,10 @@ def test_the_interrupt_joins_its_threads_so_rows_are_written():
 W1_REGISTER_FAILURE_CODE = 73    # the stub registrar's distinctive exit
 W1_RUNNER_FAILURE_CODE = "91"    # what the runner must record for itself
 W1_RETAINED_FAILURE_CODE = "92"  # cleanup timed out with an exact retained id
+W1_SETUP_FAILURE_CODE = "94"     # setup owners settled UNSUCCESSFULLY,
+                                 # which is a PROVED settlement, not an
+                                 # unknown one -- see the gate-ready
+                                 # admission controls below
 W1_RELEASE_FAILURE_CODE = "93"   # registration landed but gate release failed
 W1_WORKLOAD_CODE = 7             # the success control's workload exit
 W1_STUB_MARKER = "STUB-REGISTRAR-REACHED"
@@ -1472,7 +1477,8 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      before_release_write_barrier=None,
                      after_release_pipe_probe=None,
                      owned_group_census_override=None,
-                     before_group_receipt_recheck_fifo=None):
+                     before_group_receipt_recheck_fifo=None,
+                     after_group_receipt_recheck_fifo=None):
     """Format the PRODUCTION template around a workload we can watch."""
     rundir = tmp_path / "rundir"
     workload = tmp_path / "workload.sh"
@@ -1619,6 +1625,24 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
             injected = "    W1_OWNED_GROUP_STATUS=%s\n    return 0\n" % (
                 owned_group_census_override)
         body = body.replace(anchor, anchor + injected, 1)
+    if after_group_receipt_recheck_fifo is not None:
+        # A barrier AFTER the deciding probe, not merely before it. Releasing
+        # the pre-probe barrier only proves the runner was WOKEN; it does not
+        # prove it reached the probe, and under load the gate can exit in the
+        # gap. That gap is exactly how the ABSENT control failed on a loaded
+        # 48-core host and on a 2-core CI runner. Reading this fifo proves the
+        # receipt recheck has already run.
+        anchor = (
+            "    W1_OWNER_FDS_BY_PID[$PYTEST_GATE_PID]=UNKNOWN\n"
+            "fi\n")
+        assert body.count(anchor) == 1, (
+            "the production runner has no unique gate receipt-recheck exit")
+        body = body.replace(
+            anchor,
+            anchor + "builtin printf 'gate-receipt-recheck-done\\n' > %s\n" %
+            shlex.quote(str(after_group_receipt_recheck_fifo)),
+            1,
+        )
     if before_group_receipt_recheck_fifo is not None:
         anchor = (
             'registration_cancel_checkpoint "after-gate-acquire"\n\n'
@@ -2200,6 +2224,34 @@ def _w1_fifo_barrier(tmp_path, name: str):
     os.mkfifo(release)
     entered_fd = os.open(entered, os.O_RDONLY | os.O_NONBLOCK)
     return entered, release, entered_fd
+
+
+def _w1_release_fifo(path, payload: str = "go\n", *,
+                     timeout: float = 10.0) -> None:
+    """Release a runner blocked on `read < path`, WITHOUT risking a hang.
+
+    A plain open-for-write on a fifo blocks until a reader arrives, so a runner
+    that never reached the injected barrier would turn a failing assertion into
+    a hung test. O_NONBLOCK turns "no reader yet" into ENXIO, which this retries
+    to a deadline and then REPORTS -- an unreached barrier is a fixture failure
+    with a name, not a timeout with none.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_NONBLOCK)
+            break
+        except OSError as exc:
+            if exc.errno != errno.ENXIO:
+                raise
+            assert time.monotonic() < deadline, (
+                "the runner never reached the injected barrier at %s, so the "
+                "precondition this control forces was never applied" % path)
+            time.sleep(0.01)
+    try:
+        os.write(fd, payload.encode("ascii"))
+    finally:
+        os.close(fd)
 
 
 def _w1_await_fifo(fd: int, *, timeout: float = 5.0) -> str:
@@ -3332,35 +3384,243 @@ test_pre_registration_target_is_never_signalled = (
     test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register)
 
 
-@pytest.mark.parametrize("preamble", [
+# The four ways a READY frame can be inadmissible: absent, partial, malformed,
+# and duplicate. Each must be refused before the registrar, under EITHER
+# settlement outcome below -- that half of the contract is not what was wrong.
+_W1_INADMISSIBLE_READY_PREAMBLES = [
     "exit 97",
     "printf 'READY'; exit 97",
     "printf 'WRONG v1\\n'; exit 97",
     "printf 'READY v1 pid=%s\\nEXTRA v1\\n' \"$BASHPID\"; exit 97",
-])
-def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble):
-    """Absent, partial, malformed, and duplicate READY never reach registrar."""
+]
+
+
+@pytest.mark.parametrize("preamble", _W1_INADMISSIBLE_READY_PREAMBLES)
+@pytest.mark.parametrize("settlement", ["ABSENT", "UNKNOWN"])
+def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
+    """Inadmissible READY never reaches the registrar, and the status it
+    reports is decided by a precondition this test FORCES rather than races.
+
+    WHY THIS IS PARAMETRIZED TWICE. Refusing the frame and classifying the
+    settlement are two different claims, and only the first one was ever
+    tested. `registration_settle_abort 94 92 "ready-refused"` resolves to a
+    PROVED setup failure (94) or a RETAINED unknown (92) according to whether
+    the runner could prove its gate group had settled -- and both answers are
+    correct for what each run could prove.
+
+    THE RACE THIS REPLACES, measured 2026-08-23 on seven hosts. Every
+    parametrization used a prelude that exits immediately, so the gate child
+    and the runner's own group-receipt probe at
+    `bd-wedge-hunt:W1_GATE_GROUP_READY_AT_ACQUIRE` raced. Gate still alive at
+    the probe -> group_ready=1 -> the census runs -> ABSENT -> 94. Gate already
+    a zombie or reaped -> `registration_child_group_is_leader` refuses ->
+    group_ready=0 -> THE GATE-ROLE CENSUS IS NEVER CALLED, because the `&&` at
+    `bd-wedge-hunt:2314` in `registration_checked_child_wait` short-circuits
+    (`registration_checked_gate_wait` only delegates to it) -> the status stays
+    at its initialised UNKNOWN -> 92. The census function has three call sites
+    and the other two still run; it is the gate one that is skipped. The test
+    demanded 92 unconditionally, so three of twenty-eight outcomes across the
+    fleet failed on test3 and test4 for being right. Thirty low-load
+    repetitions afterwards -- 120 parameter outcomes -- all returned 92, which
+    is exactly why a green rerun could not dispose of it.
+
+    WHY FORCING THE CENSUS WOULD NOT HAVE WORKED, and why these controls drive
+    the barrier instead: on the runs that produced 92 the census function is
+    never entered, so an injected census verdict is unobservable there.
+    `descendants=UNKNOWN` in those preserved records is an initialised value,
+    not a measurement. The deciding precondition is the group receipt, so that
+    is what gets held still.
+
+    NEITHER BRANCH IS ALLOWED TO LAUNDER THE OTHER. The status assertion is
+    exact per branch, the forced precondition is asserted from the runner's own
+    durable record, and each branch asserts the liveness state it built.
+    """
     mod = _load()
     marker = tmp_path / "workload-started"
     registrar = tmp_path / "registrar-started"
+    gate_pidfile = tmp_path / "gate-coproc.pid"
+    recheck = tmp_path / "before-group-receipt-recheck"
+    probed = tmp_path / "after-group-receipt-recheck"
+    hold = tmp_path / "gate-hold"
+    os.mkfifo(recheck)
+    os.mkfifo(probed)
+    # Opened BEFORE the runner starts, and non-blocking, so the runner's write
+    # can never block on a missing reader and this test can never deadlock on
+    # a barrier the runner reached first.
+    probed_fd = os.open(probed, os.O_RDONLY | os.O_NONBLOCK)
+
+    # $BASHPID inside the coproc body IS the pid the runner probes.
+    publish = (
+        'printf \'%%s\\n\' "$BASHPID" > %s\n'
+        'mv %s %s\n' % (
+            shlex.quote(str(gate_pidfile) + ".tmp"),
+            shlex.quote(str(gate_pidfile) + ".tmp"),
+            shlex.quote(str(gate_pidfile))))
+    # BOTH branches build the SAME gate and hold it on the SAME fifo. The only
+    # difference between a 94 and a 92 is the ORDER of the two releases below,
+    # which is exactly the difference the fleet was racing -- stating it as an
+    # ordering rather than as two different fixtures is what makes the contrast
+    # exact instead of merely plausible.
+    os.mkfifo(hold)
+    prelude = publish + "IFS= read -r _ < %s\n" % shlex.quote(str(hold))
+    prelude += preamble
+
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, gate_prelude=preamble,
+        reap_seconds=3, gate_prelude=prelude,
+        before_group_receipt_recheck_fifo=recheck,
+        after_group_receipt_recheck_fifo=probed,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-1\n"))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
-    proc = subprocess.run(
+    # EXACT PER BRANCH. `status in {92, 94}` would accept the very race this
+    # control exists to remove, so each forced precondition names one status.
+    expected_code = (W1_SETUP_FAILURE_CODE if settlement == "ABSENT"
+                     else W1_RETAINED_FAILURE_CODE)
+    proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True)
+    gate_pid = -1
+    try:
+        _w1_wait_for_path(gate_pidfile, timeout=15.0)
+        gate_pid = int(gate_pidfile.read_text().strip())
+        assert gate_pid > 0, gate_pid
+
+        # SHARED PRECONDITION, asserted before either branch relies on it: the
+        # gate is blocked on its hold fifo, so it is alive and is its own group
+        # leader -- which is what `registration_child_group_is_leader` requires.
+        # Nothing here is a timing argument: the child cannot exit until this
+        # test opens that fifo.
+        assert _w1_pid_is_live(gate_pid), (
+            "the gate child was not alive at the hold barrier, so neither "
+            "settlement precondition could be built from a known state")
+        assert os.getpgid(gate_pid) == gate_pid, (
+            "the gate child is not its own group leader")
+
+        if settlement == "ABSENT":
+            # Probe first, THEN let the gate exit -- and WAIT for the probe to
+            # actually finish before letting it.
+            #
+            # MEASURED, not assumed. An earlier draft released these two
+            # barriers back to back, reasoning that a released runner probes a
+            # still-blocked gate. Releasing the first barrier only proves the
+            # runner was WOKEN. Under 48 burners this host produced
+            # group_ready=0 on 3 of 4 ABSENT cases, and a 2-core CI runner
+            # produced the same 92-instead-of-94 -- the gate won the gap and
+            # exited before the probe read /proc. The mutation battery had
+            # already reported the swapped-order mutant as ESCAPED; it was a
+            # true positive about this exact gap, not an artefact.
+            _w1_release_fifo(recheck)
+            assert "gate-receipt-recheck-done" in _w1_await_fifo(
+                probed_fd, timeout=30.0), (
+                "the runner never reported completing its gate receipt "
+                "recheck, so the ABSENT precondition was not forced")
+            _w1_release_fifo(hold)
+        else:
+            # Let the gate exit FIRST, and prove it reached the state that
+            # makes the probe refuse, before releasing the probe.
+            _w1_release_fifo(hold)
+            # A SETTLED TERMINAL STATE, named exactly rather than inferred
+            # from "not live". Measured here: bash reaps the coproc child in
+            # its own SIGCHLD handling even while the runner script is blocked
+            # at the barrier, so the stable observation is REAPED (the stat
+            # file is gone) rather than the Z this first assumed. Both are
+            # terminal and both are what `registration_process_receipt` fails
+            # on, which is what makes the probe refuse -- but only one of them
+            # actually occurs, and the assertion says which.
+            #
+            # This is a bounded wait for a state TRANSITION, not a sleep, and
+            # it is LOAD-BEARING: released without it the gate is still waking
+            # from its fifo read and is observably alive. A mutation battery
+            # that deletes this loop goes RED on the assertion below -- an
+            # earlier draft polled `_w1_pid_is_live` before releasing `hold` at
+            # all, and that mutant ESCAPED because the gate had already exited
+            # on its own by then. The loop was doing nothing and the control
+            # was relying on the very race it claims to remove.
+            deadline = time.monotonic() + 15.0
+            state = None
+            while time.monotonic() < deadline:
+                try:
+                    state = _w1_proc_observation(gate_pid)[-1]
+                except (FileNotFoundError, ProcessLookupError, ValueError,
+                        AssertionError):
+                    state = "REAPED"
+                if state in {"Z", "REAPED"}:
+                    break
+                time.sleep(0.01)
+            assert state in {"Z", "REAPED"}, (
+                "the gate child never reached a settled terminal state, so "
+                "this control did not build the UNKNOWN precondition and the "
+                "receipt probe would still be racing: state=%r" % (state,))
+            _w1_release_fifo(recheck)
+            assert "gate-receipt-recheck-done" in _w1_await_fifo(
+                probed_fd, timeout=30.0), (
+                "the runner never reported completing its gate receipt "
+                "recheck, so the UNKNOWN precondition was not forced")
+
+        observed = _w1_wait_for_exit(proc, rundir)
+        if observed != int(expected_code):
+            # Say WHICH failure this is. A starved host cannot spawn the census
+            # or deadline owners the runner needs, records
+            # stop=DEADLINE-SPAWN-FAILED or no gate row at all, and honestly
+            # reports UNKNOWN -- which is the runner being right about not
+            # knowing, not the status policy being wrong. Measured under 64
+            # burners with concurrent -n 24 lanes; the capture serial lane runs
+            # this module at -n 0, where it is deterministic. Backlog row 221.
+            try:
+                owners = (rundir / "registration-owners.log").read_text(
+                    encoding="utf-8")
+            except OSError:
+                owners = "<no registration-owners.log>"
+            gate = [l for l in owners.splitlines()
+                    if l.startswith("OWNER role=gate ")]
+            raise AssertionError(
+                "gate-ready settlement status %s, expected %s for forced "
+                "%s.\ngate owner rows: %s\nIf that row says "
+                "stop=DEADLINE-SPAWN-FAILED, or there is no gate row at all, "
+                "this host could not spawn the runner's own measurement "
+                "owners and the runner reported UNKNOWN correctly -- see "
+                "backlog row 221, not a policy mismatch."
+                % (observed, expected_code, settlement, gate or "NONE"))
+    finally:
+        os.close(probed_fd)
+        if gate_pid > 0:
+            _w1_kill_group(gate_pid)
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=5)
+
+    # The half of the contract that was always right: no inadmissible frame
+    # reaches the registrar or the workload, under either settlement.
     assert not registrar.exists() and not marker.exists()
     err = (rundir / "jobid.err").read_text(encoding="utf-8")
     assert "phase=ready" in err and "release_writes=0" in err
-    assert (rundir / "exitcode").read_text().strip() == (
-        W1_RETAINED_FAILURE_CODE)
-    assert proc.returncode == int(W1_RETAINED_FAILURE_CODE)
+
+    # The forced precondition, read back from the runner's OWN durable record
+    # rather than assumed from the fixture that forced it.
+    owners = (rundir / "registration-owners.log").read_text(encoding="utf-8")
+    gate_rows = [line for line in owners.splitlines()
+                 if line.startswith("OWNER role=gate ")]
+    assert len(gate_rows) == 1, owners
+    expected_ready = "group_ready=1" if settlement == "ABSENT" else "group_ready=0"
+    assert expected_ready in gate_rows[0], (
+        "the forced settlement precondition did not take effect", gate_rows[0])
+    assert "group=%s" % settlement in err, err
+
+    # NEGATIVE CONTROL on the 94 branch. `registration_finish` downgrades a
+    # requested 94 to 92 when the owners were not all proved settled, and it
+    # SAYS SO. Its absence is what makes this 94 a proved settlement rather
+    # than a status that survived by not being checked.
+    if settlement == "ABSENT":
+        assert "SETUP-CLASSIFICATION-DOWNGRADE" not in err, err
+    else:
+        assert "wait_ok=0" in gate_rows[0], gate_rows[0]
+
+    assert (rundir / "exitcode").read_text().strip() == expected_code
 
 
 def test_live_wrong_ready_frame_never_reaches_the_registrar(tmp_path):

@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1208 - keep foreground signal semantics at the capture boundary
+
+- `scripts/lib/heartbeat.sh` launches every wrapped lane through
+  `env --default-signal=INT,QUIT` on BOTH launch paths, including the
+  descriptor-closing one. A non-interactive shell starts an asynchronous job
+  with SIGINT and SIGQUIT set to SIG_IGN and `setsid` does not reset them, so
+  Python preserved the inherited ignore and every process pytest spawned
+  inherited it in turn. All seven post-reboot fleet captures failed in the
+  serial lane on the same nine cancellation tests, which were sending SIGINT
+  into a void; the parallel and live lanes were unaffected because nothing in
+  them signals its own subject. Session and process-group ownership are
+  deliberately unchanged.
+- `tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py`
+  runs the real wrapper and asserts each launch path separately, with a real
+  valid descriptor close, plus a nested-child cancellation seam and a negative
+  control that reproduces the bare pattern to prove the probe discriminates.
+- `test_gate_ready_is_exact_terminal_admission` now forces and asserts the
+  precondition that decides its status instead of racing it. A proved-ABSENT
+  gate group settles to status 94; a proved-UNKNOWN one is retained at 92.
+  Both were always correct product behaviour: the runner reaches 94 only when
+  it can prove the gate group settled, and the group-receipt probe refuses a
+  settled child, so the `&&` at `bd-wedge-hunt:2315` in
+  `registration_checked_child_wait` short-circuits and the gate-role census
+  that would decide it is never called. The test demanded 92 unconditionally
+  and failed on test3 and test4 for being right.
+  The controls hold the runner at the existing group-receipt barrier and prove
+  the gate child's liveness state before releasing it, so neither branch can
+  launder the other. The controls also wait for the runner to REPORT that its
+  receipt recheck has run, because releasing a barrier only proves the runner
+  was woken: an earlier draft raced that gap and produced 92-instead-of-94 on
+  3 of 4 ABSENT cases under 48 burners, and on a 2-core CI runner.
+- `capture.sh` refuses at preflight when `env --default-signal` is unavailable
+  (coreutils 8.31+), next to the existing `setsid` check. Without it every lane
+  still starts and exits 125 into a per-lane logfile that
+  `tools/capture_verdict.py` does not name, so the operator would meet the real
+  cause as a bare number three stages later.
+- `.github/workflows/ci.yml` gains a `capture-heartbeat-contract` shard
+  carrying the new gate, `test_v3_66_1111` and `test_u45_capture_sh_shipped`.
+  The first two declare `BD_GATE_SCOPE = "module"` and the third is classified
+  by the frozen legacy mechanism; none of them ran in CI before, so nothing
+  there would have judged a regression of `scripts/lib/heartbeat.sh` -- and
+  capture is not CI.
+
 ## v3.66.1207 - make bd-jobs registration failure-atomic
 
 - Publish job records through one shared writer/reader schema and a locked

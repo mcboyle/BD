@@ -116,6 +116,37 @@ BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"
 # "keep the newest five" has an off-by-one, an mtime-versus-name ordering
 # question and a does-it-delete-the-current-run question, none of which are
 # visible in source text.
+# `env --default-signal` is what keeps a heartbeat-wrapped lane able to OBSERVE
+# a signal at all (scripts/lib/heartbeat.sh). Without it every lane still runs,
+# and every signal-sensitive test in it fails for a reason that has nothing to
+# do with the code under test.
+#
+# THIS CHECK IS DELIBERATELY THE FIRST THING CAPTURE DOES. An earlier placement
+# sat AFTER classified-root garbage collection and evidence pruning, so a host
+# that could not run a valid capture would still have destroyed old evidence
+# before refusing. A refusal that deletes evidence on the way to saying no is
+# not a refusal.
+#
+# IT RESOLVES THE EXTERNAL `env` ON PURPOSE. The runtime path is
+# `setsid env ...`, which necessarily execs a PATH binary; a shell FUNCTION
+# named env could satisfy a bare `env` here and pass a host whose real binary
+# then returns 125 on every lane. tools/capture_verdict.py names 124 and not
+# 125, so that failure would reach the operator as a bare number three stages
+# later. --default-signal arrived in coreutils 8.31 (2019).
+_bd_env_bin="$(command -v -- env 2>/dev/null || true)"
+case "$_bd_env_bin" in
+  /*) ;;
+  *) echo "FATAL: no external env binary on PATH; heartbeat-wrapped lanes cannot" >&2
+     echo "       preserve foreground signal semantics" >&2; exit 2 ;;
+esac
+if ! "$_bd_env_bin" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+  echo "FATAL: $_bd_env_bin lacks --default-signal, which heartbeat-wrapped lanes" >&2
+  echo "       need to keep foreground signal semantics (coreutils 8.31+); found:" >&2
+  echo "       $("$_bd_env_bin" --version 2>&1 | head -1)" >&2
+  exit 2
+fi
+unset _bd_env_bin
+
 # shellcheck source=scripts/lib/capture_run_dir.sh
 . "$(dirname "$0")/scripts/lib/capture_run_dir.sh"
 CAPTURE_KEEP="${CAPTURE_KEEP:-5}"
