@@ -58,6 +58,37 @@ def strip_ansi(text):
     return _ANSI.sub("", text)
 
 
+_CAP_ERASABLE = (("HUP", 0x1), ("INT", 0x2), ("QUIT", 0x4))
+
+
+def _sigign_mask() -> str:
+    """This process's SigIgn mask as /proc reports it, or UNKNOWN."""
+    try:
+        with open("/proc/self/status", "r", encoding="ascii",
+                  errors="replace") as handle:
+            for line in handle:
+                if line.startswith("SigIgn:"):
+                    return "0x" + line.split()[1]
+    except OSError:
+        pass
+    return "UNKNOWN"
+
+
+def _erased_by_cap(mask: str):
+    """Which of HUP/INT/QUIT the cap will reset for the subject.
+
+    UNKNOWN is not "none": an unreadable mask cannot say the subject is
+    unaffected, so it reports the whole erasable set rather than an empty one.
+    """
+    if not mask.startswith("0x"):
+        return [name for name, _ in _CAP_ERASABLE]
+    try:
+        value = int(mask, 16)
+    except ValueError:
+        return [name for name, _ in _CAP_ERASABLE]
+    return [name for name, bit in _CAP_ERASABLE if value & bit]
+
+
 def plain_env(base=None):
     """A child environment that will not colourise. Stripping alone is not
     enough: this box exports FORCE_COLOR=3, so the log on disk -- the artifact
@@ -241,10 +272,41 @@ def run(args):
     # to stop exactly that: these tools must be safe to run when you do not yet
     # know what is wrong. Delegating keeps that promise intact and gets the
     # better-tested implementation.
+    # THE CAP ERASES INHERITED SIGNAL DISPOSITIONS, AND THAT IS DECLARED RATHER
+    # THAN FIXED. coreutils `timeout` RESETS ignored signals to default before
+    # exec'ing its child, so a subject run under --max-seconds cannot observe an
+    # ignore its parent held. Measured 2026-08-24 on test5: a parent holding
+    # HUP/INT/QUIT ignored reports SigIgn=0x1001007, and the identical command
+    # through `timeout` reports 0x1001000 -- exactly bits 0,1,2 gone. `timeout
+    # --foreground` and `timeout -s TERM` were measured too and erase it the
+    # same way, so there is no mode of this tool that preserves it.
+    #
+    # WHY IT IS NOT FIXED HERE. The alternative is bd-run owning the kill
+    # itself, and the comment above plus
+    # test_only_bd_gc_and_bd_jobs_hold_a_destructive_verb deliberately forbid
+    # that: these tools must stay safe to run when you do not yet know what is
+    # wrong. Trading a declared, visible limitation for a destructive verb in a
+    # diagnostic tool is the worse bargain, so the limitation is SAID OUT LOUD
+    # in the log this run owns -- the same idiom as CAPTURE-HEARTBEAT-UNARMED.
+    # bd-sweep-run consumes this wrapper around pytest, so without this line a
+    # whole-fleet suite would silently produce weaker signal evidence than its
+    # own direct probes suggest (backlog row 227).
     capped = False
     if args.max_seconds:
         parts = ["timeout", "--kill-after=10", str(args.max_seconds)] + parts
     with open(log, "wb") as fh:
+        if args.max_seconds:
+            inherited = _sigign_mask()
+            erased = _erased_by_cap(inherited)
+            fh.write(("BD-RUN-CAP-RESETS-SIGNALS: this run is bounded by "
+                      "coreutils timeout, which resets inherited signal "
+                      "dispositions before exec. parent SigIgn=%s%s. Do NOT read "
+                      "this log as evidence about inherited signal handling.\n"
+                      % (inherited,
+                         "; ERASED FOR THE SUBJECT: " + ",".join(erased)
+                         if erased else "; nothing relevant was ignored"))
+                     .encode("ascii", "replace"))
+            fh.flush()
         proc = subprocess.Popen(parts, stdout=fh, stderr=subprocess.STDOUT,
                                 env=plain_env())
         rc = proc.wait()

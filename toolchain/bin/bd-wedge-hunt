@@ -504,9 +504,23 @@ def ssh(addr: str, script: str, timeout: int = 120) -> subprocess.CompletedProce
     """One ssh round trip. Never raises on a non-zero exit -- a host that is
     briefly unreachable must not end a 12-hour hunt."""
     try:
+        # THE SCRIPT GOES IN ON STDIN, NEVER AS REMOTE COMMAND ARGV. With argv
+        # the REMOTE LOGIN SHELL interprets it, so this tool's behaviour is at
+        # the mercy of whatever shell the remote account happens to use --
+        # bd-sweep-run:756 already states this contract and this call site was
+        # the one place that did not follow it (backlog row 226).
+        #
+        # IT FAILS SILENTLY, WHICH IS WHY THE SHAPE MATTERS RATHER THAN THE
+        # STYLE. Measured on test3 against a real tcsh 6.24.10 login shell: the
+        # quoted heredoc delimiter was handled differently, so `BDWEDGEEOF`,
+        # the background launch and the `echo LAUNCHED=` line were WRITTEN INTO
+        # runner.sh instead of executed. Nothing launched, and the call still
+        # returned rc=0 with empty output -- a transport that looks successful
+        # while the work never started.
         return subprocess.run(
-            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", addr, script],
-            capture_output=True, text=True, timeout=timeout)
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+             addr, "bash -s"],
+            input=script, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(args=[], returncode=124, stdout="",
                                            stderr="ssh timed out after %ds" % timeout)

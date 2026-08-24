@@ -95,6 +95,15 @@ _DECLARED = {
     # @1209 extends the same contract to every OTHER detached launch site
     # and to what the wrapper hands BACK to its caller.
     "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py",
+    # @1215, the same contract seen from the WRAPPER side rather than the
+    # launcher side: a wrapper must not silently alter the subject it bounds
+    # or carries. It judges two PRODUCTION toolchain scripts -- bd-wedge-hunt's
+    # remote transport and bd-run's cap declaration -- and both are
+    # module-scoped, so without an entry here a regression would be caught by
+    # nothing in CI. bd-sweep-run runs pytest through bd-run's cap, which is
+    # exactly how a whole-fleet suite came to carry weaker signal evidence
+    # than its own direct probes suggested.
+    "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",
