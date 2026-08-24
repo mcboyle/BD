@@ -4,6 +4,65 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1219 - the tool-state gate no longer outgrows the bound that governs it
+
+- A WORKER DIED AND THE SUITE LIVELOCKED FOR 19 MINUTES, and the proximate cause
+  was one of this repository's own gates.
+  `tests/test_v3_66_1046_gates_for_this_sessions_shapes.py` ran a NESTED pytest
+  over four suites with `timeout=600` inside an item bounded at
+  `--timeout=240`. MEASURED on a fully idle test5: 221s. Nineteen seconds of
+  headroom with zero competition, and none at all under 24-worker contention.
+  An inner budget above the bound that governs it can never fire, so its
+  `except subprocess.TimeoutExpired` was dead code and what ran instead was
+  pytest-timeout's `os._exit(1)` on the whole worker.
+- IT IS SPLIT, ONE SUITE PER ITEM, and each item's bound is DERIVED from that
+  suite's own measured baseline rather than chosen. Measured separately on an
+  idle host: 1043 168s / 51 tests, 1040 50s / 364, 1044 2s / 11, 1054 7s / 6.
+  The property under test is unchanged and attribution is strictly better -- a
+  failure now names WHICH suite dirtied real tool state instead of only that one
+  of four did. Parametrised rather than split into four functions on purpose, so
+  the three AST meta-gates that look the target up by name keep working.
+- THE CONTRACT IS NOW ASSERTED, not left to whoever edits a constant next: for
+  every suite the inner budget must be strictly below its item bound, separated
+  by a reserve for the item's own setup and teardown -- which the bound covers
+  and the inner budget does not, because pytest-timeout's `func_only` defaults
+  to False. That property makes a slow suite produce the DESIGNED diagnosis
+  instead of killing a worker, whichever timeout method is in force.
+- THE MUTATION BATTERY FOUND A REAL HOLE IN THE FIRST DRAFT, and it is recorded
+  because the shape is the one CLAUDE.md A7 warns about. The over-sensitivity
+  control compared the baselines only to EACH OTHER, so restating 1043's 168s as
+  7s left every fast gate green while shrinking its budget to the 60s floor --
+  an over-sensitive bound that fails correct work. Nothing but the run itself
+  knows how long the run takes, so the run now says so: each item measures its
+  own elapsed time and fails when the recorded baseline is stale. That also
+  catches the slow drift that created this defect, which reached 221s one suite
+  at a time with nothing ever announcing it. 5 of 5 mutants caught after the
+  addition; 4 of 5 before it.
+- WHAT THIS CUT DOES NOT CLAIM. The xdist livelock itself is untouched and is
+  not BD's to fix: `LoadScopeScheduling.tests_finished` treats a unit with fewer
+  than TWO pending tests as finished, so the drain latches every worker
+  `shutting_down` while their last tests still run, and a worker dying then
+  re-queues work `_reschedule` refuses to give any latched node. That is written
+  up in `upstream/xdist-drain-livelock/README.md`, prepared 2026-08-14 and held
+  unfiled by operator decision. This cut removes the trigger that fired, not the
+  mechanism that amplifies it.
+- ROWS 102 AND 144 ARE BOTH CLOSED AND NEITHER ANSWERED THIS. v3.66.1124 closed
+  102 having correctly identified `pytest_timeout.py:542`, and opened 144 owning
+  "(a) which test crosses 240s". Row 144 was then closed @1133 on a browser-wall
+  timing question instead. So the proximate cause went unattributed for ~94
+  cuts. Answer, measured: 1046, and it is SLOW, NOT HUNG.
+- NEW ROWS 233 AND 234 carry what is deliberately left open: whether the
+  sanctioned command should adopt `--timeout-method=signal` -- CLAUDE.md:211
+  justifies `thread` as "exposes stacks" and that is FALSE under xdist, measured
+  0 banners against 2 serially, because execnet points worker fd 1 at /dev/null
+  -- and making a killed worker name its test at all. Row 233 is an operator
+  decision, not an oversight: v3.66.1124 deliberately classified the signal flag
+  `is_section5` FALSE and shipped it only as a hunt arm.
+- Evidence: `fleet-run-artifacts/2026-08-24/xdist-wedge/` -- FINDING.md, py-spy
+  dumps of all 26 processes taken while the session was still wedged, the
+  zombie's wait status, and the three-arm timeout-method experiment with its
+  serial positive control.
+
 ## v3.66.1218 - the five wired gates now render the app instead of grepping it
 
 - Backlog rows 187, 191, 192, 193 and 194. Each named a *_wired.py gate that
