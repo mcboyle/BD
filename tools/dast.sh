@@ -106,7 +106,11 @@ APP_HOME="$(mktemp -d -t bd_dast_app_XXXXXX)"
 echo "  starting app on $APP_URL (BD_HOME=$APP_HOME)..."
 BD_HOME="$APP_HOME" BD_HOST="$APP_HOST" BD_PORT="$APP_PORT" \
     BD_DISABLE_KEEPALIVE=1 \
-    "$PY" downloader_ui.py > "$OUT/server.log" 2>&1 &
+    `# env --default-signal: a non-interactive shell starts an async job` \
+    `# with INT and QUIT ignored, and the EXIT trap below kills this app` \
+    `# with the DEFAULT signal -- so without the reset a cancelled scan` \
+    `# leaves its app running. Measured SigIgn=0x1001006 SigCgt=0.` \
+    env --default-signal=INT,QUIT "$PY" downloader_ui.py > "$OUT/server.log" 2>&1 &
 APP_PID=$!
 trap "kill $APP_PID 2>/dev/null; rm -rf $APP_HOME" EXIT
 

@@ -727,9 +727,23 @@ def build_launch(rundir, runner_text):
         # DETACHED, ALL THREE FDS REDIRECTED: the ssh channel has to be able to
         # close, and the run has to outlive it.
         "if command -v setsid >/dev/null 2>&1; then\n"
-        "  setsid nohup bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
+        # `env --default-signal=INT,QUIT` is what keeps the launched
+        # subject able to OBSERVE a signal. A non-interactive shell
+        # starts an asynchronous job with SIGINT and SIGQUIT set to
+        # SIG_IGN; setsid changes the session and nohup changes SIGHUP,
+        # but neither touches dispositions, and Python PRESERVES an
+        # inherited SIG_IGN instead of installing default_int_handler.
+        # Measured here at 674f98d9: SigIgn=0x1001007 with SigCgt=0.
+        # This runner executes the full pytest suite, so without the
+        # reset the nine row-212 cancellation tests fail in EVERY
+        # sample and contaminate the measurement this tool exists to
+        # take -- 9 failed / 1 passed, driven through this exact
+        # generated launch. Same defect closed in
+        # scripts/lib/heartbeat.sh at v3.66.1208; both branches need it
+        # separately. See tests/test_v3_66_1209_*.
+        "  setsid nohup env --default-signal=INT,QUIT bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
         "else\n"
-        "  nohup bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
+        "  nohup env --default-signal=INT,QUIT bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
         "fi\n"
         "echo \"BD-SWEEP-LAUNCH-OK pid=$!\"\n"
         % {"d": q(rundir), "m": marker, "body": runner_text})

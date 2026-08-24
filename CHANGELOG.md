@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1209 - keep signal semantics at every launch and wrapper boundary
+
+- v3.66.1208 fixed ONE launch site because that is the one capture runs its
+  lanes through. The mechanism was never specific to it: a non-interactive
+  shell starts an asynchronous job with SIGINT and SIGQUIT set to SIG_IGN,
+  `setsid` and `nohup` change session and hangup handling but never touch
+  dispositions, and Python preserves an inherited SIG_IGN. Four more sites are
+  fixed here, each measured at the launched child's own /proc/PID/status rather
+  than judged by reading source: `bd-sweep-run` lines 730 and 732 (the second
+  is a no-setsid fallback branch, so a fix to the first alone would leave every
+  host without setsid defective), `bd-wedge-hunt:3188`, and `tools/dast.sh:109`
+  -- all `SigIgn` INT+QUIT with `SigCgt=0`, meaning no handler was installed.
+- The consequence was measured, not inferred. `bd-sweep-run`'s runner executes
+  the full pytest suite, so driven through its real generated launch the
+  row-212 cancellation battery reported 9 failed / 1 passed -- the same nine
+  failures that took down seven captures. Every sweep sample taken through that
+  launcher against a tree containing those tests carried nine false failures,
+  contaminating the measurement the sweep exists to take.
+- `scripts/lib/heartbeat.sh` RESTORES its caller's INT/TERM/HUP traps instead
+  of clearing them. `trap - INT TERM HUP` resets to the default, which is not
+  what the caller had: a caller's cleanup handler was destroyed and a caller's
+  deliberate `trap '' SIG` was silently replaced by the default. Measured
+  `SigCgt` 0x43817efb going in and 0x43813efa coming out. `trap -p` round-trips
+  all three cases -- handler, default, and ignore -- exactly.
+- `capture.sh` re-execs itself once through
+  `env --default-signal=INT,QUIT,TERM,HUP` when it detects it was handed those
+  signals as SIG_IGN. A shell cannot un-ignore an inherited ignore, so every
+  trap it and the heartbeat install never armed and a stopped lane outlived its
+  wrapper -- 4 processes, measured, with nothing said about it. The repair is
+  bounded to one hop by an exported guard, because a capture that re-execs
+  forever is worse than one that runs unarmed, and the heartbeat still
+  announces `CAPTURE-HEARTBEAT-UNARMED` for anything that could not be
+  repaired.
+- Fixed a gate shipped at v3.66.1208 that could not fail. Its check that the
+  capture preflight refuses BEFORE deleting evidence compared directory counts
+  while the pruner was a no-op at this host's retention, so an independent
+  review moved the preflight back after evidence deletion and the mutant
+  escaped. It now plants its own directories with an ancient mtime and sizes
+  CAPTURE_KEEP so the pruner can reach only those -- a gate that checks nothing
+  was destroyed must not destroy anything itself.
+
 ## v3.66.1208 - keep foreground signal semantics at the capture boundary
 
 - `scripts/lib/heartbeat.sh` launches every wrapped lane through

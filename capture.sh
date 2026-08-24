@@ -147,6 +147,42 @@ if ! "$_bd_env_bin" --default-signal=INT,QUIT true >/dev/null 2>&1; then
 fi
 unset _bd_env_bin
 
+# RE-EXEC ONCE IF THIS SCRIPT ITSELF WAS HANDED IGNORED SIGNALS.
+#
+# A shell CANNOT un-ignore a signal it inherited as SIG_IGN at startup: `trap`
+# silently does nothing, so every trap capture.sh and run_with_heartbeat
+# install never arms, and a stopped lane outlives its wrapper. Measured at
+# 674f98d9: 4 lane processes still alive with the wrapper gone, and nothing
+# said so. scripts/lib/heartbeat.sh now ANNOUNCES that state, but announcing is
+# not fixing, and the only place it CAN be fixed is here -- before the traps
+# that depend on it exist.
+#
+# `env --default-signal` resets a CHILD's dispositions, so the repair is to
+# become that child exactly once. Capture is launched detached by design
+# (nohup, ssh without a tty, systemd, a CI runner), so this is the ordinary
+# case and not an exotic one.
+#
+# BOUNDED TO ONE HOP by an exported guard: if the re-exec somehow failed to
+# clear the ignores, a second attempt would loop forever, and a capture that
+# spins is worse than one that runs unarmed. The guard is checked before the
+# probe, so a second pass falls through and proceeds -- heartbeat.sh's
+# CAPTURE-HEARTBEAT-UNARMED line then names what could not be repaired.
+#
+# Placed AFTER the env capability check above, because re-execing through an
+# `env` that rejects the option would replace a clear refusal with exit 125.
+if [ -z "${BD_CAPTURE_SIGNAL_REEXEC:-}" ]; then
+  # Read the kernel's view rather than bash's: SigIgn in /proc/self/status is a
+  # 64-bit mask where signal N is bit N-1. INT=2, QUIT=3, TERM=15, HUP=1.
+  _bd_sigign="$(awk '/^SigIgn:/ {print $2}' /proc/self/status 2>/dev/null)"
+  if [ -n "${_bd_sigign:-}" ] && [ "$(( 0x$_bd_sigign & 0x4007 ))" -ne 0 ]; then
+    echo "capture.sh: inherited ignored signals (SigIgn=0x$_bd_sigign); re-execing" >&2
+    echo "            once through env --default-signal so stage bounds can arm" >&2
+    export BD_CAPTURE_SIGNAL_REEXEC=1
+    exec env --default-signal=INT,QUIT,TERM,HUP "$0" "$@"
+  fi
+  unset _bd_sigign
+fi
+
 # shellcheck source=scripts/lib/capture_run_dir.sh
 . "$(dirname "$0")/scripts/lib/capture_run_dir.sh"
 CAPTURE_KEEP="${CAPTURE_KEEP:-5}"

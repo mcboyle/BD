@@ -17,8 +17,8 @@
     {
       "label": "the cap reports 124 but does not kill the child",
       "file": "scripts/lib/heartbeat.sh",
-      "old": "      _stop_process_group \"$pid\"\n      trap - INT TERM HUP\n      return 124",
-      "new": "      trap - INT TERM HUP\n      return 124",
+      "old": "      _stop_process_group \"$pid\"\n      _heartbeat_restore_traps\n      return 124",
+      "new": "      _heartbeat_restore_traps\n      return 124",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_child_is_actually_dead_afterwards"
     },

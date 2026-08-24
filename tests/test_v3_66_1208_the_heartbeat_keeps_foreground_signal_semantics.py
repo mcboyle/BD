@@ -229,18 +229,56 @@ def test_capture_refuses_a_host_without_the_signal_reset_before_touching_evidenc
         "exec /usr/bin/env \"$@\"\n", encoding="utf-8")
     (shadow / "env").chmod(0o755)
 
-    before = sorted(pathlib.Path("/tmp").glob("bd_capture-*"))
-    result = subprocess.run(
-        [str(_CAPTURE)], capture_output=True, text=True, timeout=120,
-        cwd=str(_REPO), env={**os.environ, "PATH": "%s:%s" % (shadow, os.environ["PATH"])})
-    after = sorted(pathlib.Path("/tmp").glob("bd_capture-*"))
+    # THE PRUNER MUST BE ABLE TO FIRE, or this test cannot fail.
+    # `bd_capture_prune` deletes only when the directory count EXCEEDS
+    # CAPTURE_KEEP. An earlier draft left CAPTURE_KEEP at its default of 5 on a
+    # host that happened to hold 5 directories, so pruning was a no-op and the
+    # before/after comparison held whether or not the preflight ran first. An
+    # independent review moved the preflight back after the pruner and the
+    # mutant ESCAPED. Force keep=1 and plant enough directories that a prune
+    # would definitely delete, then assert it did not.
+    # THE BLAST RADIUS IS BOUNDED TO THIS TEST'S OWN DIRECTORIES.
+    # `bd_capture_prune` globs a hard-coded /tmp/bd_capture-*, sorts by mtime
+    # NEWEST first, and deletes everything past `keep`. So: plant three
+    # directories with an ancient mtime, and set keep to the number of real
+    # ones. Every real capture then sits inside the retention window and only
+    # the planted three are reachable by the pruner. An earlier draft used
+    # keep=1, which made a defective tree delete this host's actual capture
+    # evidence -- a gate must not destroy what it is checking is not destroyed.
+    real = [d for d in pathlib.Path("/tmp").glob("bd_capture-*") if d.is_dir()]
+    planted = []
+    for index in range(3):
+        d = pathlib.Path("/tmp") / ("bd_capture-19700101T00000%dZ-1208gate" % index)
+        d.mkdir(exist_ok=True)
+        (d / "marker").write_text("1208-preflight-ordering-gate", encoding="ascii")
+        os.utime(d, (1, 1))
+        planted.append(d)
+    try:
+        result = subprocess.run(
+            [str(_CAPTURE)], capture_output=True, text=True, timeout=120,
+            cwd=str(_REPO),
+            env={**os.environ, "CAPTURE_KEEP": str(max(len(real), 1)),
+                 "PATH": "%s:%s" % (shadow, os.environ["PATH"])})
 
-    assert result.returncode == 2, (
-        f"capture did not refuse: rc={result.returncode}\n{result.stdout}\n{result.stderr}")
-    assert "--default-signal" in result.stderr, result.stderr
-    assert after == before, (
-        "the refusal deleted capture evidence on its way to refusing; the "
-        f"check is running after a mutating step: {set(before) ^ set(after)}")
+        assert result.returncode == 2, (
+            f"capture did not refuse: rc={result.returncode}\n{result.stdout}\n{result.stderr}")
+        assert "--default-signal" in result.stderr, result.stderr
+        # THE ASSERTION THAT CAN ACTUALLY FAIL. These three are the oldest
+        # matches on the host, so a pruner that runs before the refusal takes
+        # exactly them. Verified against the shipped capture.sh with the
+        # preflight moved back after `bd_capture_prune`: all three vanish.
+        survived = [d for d in planted if d.exists()]
+        assert len(survived) == 3, (
+            "the refusal deleted capture evidence on its way to refusing, so "
+            "the preflight is running AFTER a mutating step: "
+            f"{[str(d) for d in planted if not d.exists()]}")
+    finally:
+        for d in planted:
+            try:
+                (d / "marker").unlink(missing_ok=True)
+                d.rmdir()
+            except OSError:
+                pass
 
 
 def test_the_defective_launch_pattern_still_reports_an_ignored_sigint(tmp_path):

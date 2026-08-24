@@ -503,6 +503,8 @@
     "window_enabled": "full",
     "youtube_cipher": "full",
     "ytdlp_archive_path": "full",
-    "ytdlp_concurrent_fragments": "full"
+    "ytdlp_concurrent_fragments": "full",
+    "BD_HEARTBEAT_LAUNCH": "display-only",
+    "BD_CAPTURE_SIGNAL_REEXEC": "display-only"
   }
 }
