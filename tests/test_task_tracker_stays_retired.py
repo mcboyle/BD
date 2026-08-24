@@ -34,8 +34,10 @@ failed, read the tombstone in BD_TOOLCHAIN_REFERENCE.md before deciding.
 from __future__ import annotations
 
 import ast
+import warnings
 from pathlib import Path
 
+from python_source import assembled_strings
 from tracked_source import tracked_source_files
 
 import pytest
@@ -71,14 +73,84 @@ RETIRED = (
 )
 
 TOMBSTONE = REPO_ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+GATE_PATH = "tests/test_task_tracker_stays_retired.py"
 
 # Prose about the past is not a live dependency. These files describe the
 # retirement or the history and are expected to name it.
 PROSE_EXEMPT = {
-    "tests/test_task_tracker_stays_retired.py",
+    GATE_PATH,
     "project-knowledge/IMPROVEMENT_BACKLOG.md",
     "CHANGELOG.md",
 }
+
+
+def _mentions_tracker(value: str) -> bool:
+    """Match the canonical, module-name, and PEP 8 spellings in any case."""
+    without_gate_path = value.casefold().replace(GATE_PATH, "")
+    return "tasktracker" in without_gate_path.replace("_", "")
+
+
+def _executable_tracker_references(repo_root, entries):
+    """Return executable tracker references from the tracked-source census."""
+    offenders = []
+    for rel, kind in entries:
+        if rel in PROSE_EXEMPT:
+            continue
+        path = repo_root / rel
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8", errors="replace")
+
+        if kind == "python":
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                try:
+                    tree = ast.parse(source)
+                except SyntaxError:
+                    continue
+                folded_strings = assembled_strings(path)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if _mentions_tracker(alias.name):
+                            offenders.append(
+                                f"{rel}:{node.lineno}: import {alias.name}"
+                            )
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module and _mentions_tracker(node.module):
+                        offenders.append(
+                            f"{rel}:{node.lineno}: from {node.module}"
+                        )
+
+            # The shared helper folds literal concatenation, str.join and
+            # os.path.join. Subtract docstrings because retirement prose is
+            # not an executable carrier.
+            docstrings = {
+                value
+                for node in ast.walk(tree)
+                if isinstance(
+                    node,
+                    (ast.Module, ast.ClassDef, ast.FunctionDef,
+                     ast.AsyncFunctionDef),
+                )
+                if (value := ast.get_docstring(node, clean=False)) is not None
+            }
+            values = {
+                value
+                for value in folded_strings
+                if _mentions_tracker(value) and value not in docstrings
+            }
+            for value in sorted(values):
+                offenders.append(f"{rel}: assembled literal {value[:60]!r}")
+        else:
+            for i, line in enumerate(source.splitlines(), 1):
+                stripped = line.lstrip()
+                if stripped.startswith("#"):
+                    continue
+                if _mentions_tracker(line):
+                    offenders.append(f"{rel}:{i}: {stripped[:70]}")
+
+    return offenders
 
 
 def test_the_retired_files_are_gone():
@@ -137,59 +209,44 @@ def test_nothing_still_executes_against_the_tracker():
         f"denominator collapsed and a pass here would mean nothing."
     )
 
-    offenders = []
-    for rel, kind in entries:
-        if rel in PROSE_EXEMPT:
-            continue
-        path = REPO_ROOT / rel
-        if not path.is_file():
-            continue
-        source = path.read_text(encoding="utf-8", errors="replace")
-        if "TASK_TRACKER" not in source and "tasktracker" not in source:
-            continue
-
-        if kind == "python":
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                continue
-            # AST, so docstrings are excluded -- a module explaining the
-            # history is not a caller.
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if "tasktracker" in alias.name:
-                            offenders.append(f"{rel}:{node.lineno}: import {alias.name}")
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module and "tasktracker" in node.module:
-                        offenders.append(f"{rel}:{node.lineno}: from {node.module}")
-                elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    if "TASK_TRACKER" in node.value or "tasktracker" in node.value:
-                        # A string literal naming the tracker is a path, an
-                        # argv entry or an error message -- all executable
-                        # surface. Docstrings are already excluded because
-                        # ast.get_docstring nodes are not reached here as
-                        # bare Constants in a Module/FunctionDef body position.
-                        parent_doc = any(
-                            ast.get_docstring(n, clean=False) == node.value
-                            for n in ast.walk(tree)
-                            if isinstance(n, (ast.Module, ast.ClassDef,
-                                              ast.FunctionDef, ast.AsyncFunctionDef))
-                        )
-                        if not parent_doc:
-                            offenders.append(f"{rel}:{node.lineno}: literal {node.value[:60]!r}")
-        else:
-            for i, line in enumerate(source.splitlines(), 1):
-                stripped = line.lstrip()
-                if stripped.startswith("#"):
-                    continue
-                if "TASK_TRACKER" in line or "tasktracker" in line:
-                    offenders.append(f"{rel}:{i}: {stripped[:70]}")
+    offenders = _executable_tracker_references(REPO_ROOT, entries)
 
     assert not offenders, (
         "the tracker is retired but these still reference it executably:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_assembled_tracker_literal_is_an_executable_reference(tmp_path):
+    """A runtime-built tracker path must not evade the tombstone scan."""
+    from python_source import contains_assembled
+
+    carrier = tmp_path / "tools" / "task_tracker_gen.py"
+    carrier.parent.mkdir()
+    carrier.write_text(
+        'TRACKER_PATH = "task_" + "tracker_data.json"\n',
+        encoding="utf-8",
+    )
+    source = carrier.read_text(encoding="utf-8")
+    assert "task_tracker" not in source
+    assert contains_assembled(carrier, "task_tracker")
+
+    registry = tmp_path / "tests" / "gate_registry.py"
+    registry.parent.mkdir()
+    registry.write_text(
+        'GATE = "tests/test_task_tracker_stays_retired.py"\n',
+        encoding="utf-8",
+    )
+    offenders = _executable_tracker_references(
+        tmp_path,
+        [
+            ("tools/task_tracker_gen.py", "python"),
+            ("tests/gate_registry.py", "python"),
+        ],
+    )
+    assert offenders == [
+        "tools/task_tracker_gen.py: assembled literal 'task_tracker_data.json'"
+    ]
 
 
 BD_GATE_SCOPE = "repo-wide"

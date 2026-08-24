@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1211 - a tombstone gate must survive an assembled literal
+
+- Backlog rows 190, 195, 205, 206, 207, 209 and 210 named seven RETIREMENT
+  gates that each proved a removed tool stayed removed by scanning source text
+  for its contiguous name. A caller that BUILDS the name at runtime --
+  `os.path.join("/home", "claude")`, an f-string, a `"".join(...)`, or a `cd`
+  into the directory followed by a bare relative invocation -- resurrects the
+  retired subject while no tracked file contains the string being searched for.
+- The evasion was reproduced before anything was changed. On a tree carrying
+  three hand-written evasions with ZERO contiguous substrings present, the OLD
+  gates went 14 pass / 1 fail, and the single failure was a denominator
+  self-check, not a catch. The NEW gates fail three of them BY NAME on the same
+  tree.
+- `tests/python_source.py` gains `assembled_strings()` and
+  `contains_assembled()`. They fold `Constant`, `BinOp` addition, `JoinedStr`,
+  `str.join` and `os.path.join` through the AST, so a name spelled in pieces is
+  compared as the name it evaluates to rather than as the pieces.
+- Each of the seven gates ships the evasion that beat it as a fixture, so a
+  rewrite back to the plain-substring shape goes RED rather than silently
+  losing the coverage.
+- `tests/test_sandbox_home_stays_retired.py` also gains
+  `test_every_excluded_file_is_really_gate_machinery`. Its two-file exclusion
+  list is what lets the gate quote its own subject, and nothing previously
+  stopped that list from growing to cover a real carrier; the new test proves
+  every excluded path is gate machinery. Census pins 71/260 are unchanged.
+- Node counts rose in all seven files and fell in none: 4->5, 4->5, 3->4, 4->5,
+  7->9, 5->6, 14->15. All seven run green together: 49 passed.
+
 ## v3.66.1210 - behavioralize the four sharpest textual-proxy gates
 
 - Backlog rows 199, 198, 202 and 208 named gates that scan SOURCE TEXT to judge

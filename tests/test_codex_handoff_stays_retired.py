@@ -31,8 +31,10 @@ anything.
 from __future__ import annotations
 
 import ast
+import warnings
 from pathlib import Path
 
+from python_source import assembled_strings
 from tracked_source import tracked_source_files
 
 import pytest
@@ -43,6 +45,7 @@ RETIRED = (
     "CODEX_HANDOFF.md",
     "tests/test_codex_handoff_defers_to_claude_md.py",
 )
+HANDOFF_NEEDLE = RETIRED[0].casefold()
 
 TOMBSTONE = REPO_ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
 
@@ -59,7 +62,16 @@ PROSE_EXEMPT = {
 
 
 def test_the_retired_files_are_gone():
-    present = [p for p in RETIRED if (REPO_ROOT / p).exists()]
+    present = []
+    for retired in RETIRED:
+        target = REPO_ROOT / retired
+        if not target.parent.is_dir():
+            continue
+        present.extend(
+            str(candidate.relative_to(REPO_ROOT))
+            for candidate in target.parent.iterdir()
+            if candidate.name.casefold() == target.name.casefold()
+        )
     assert not present, (
         "these were retired but are present again:\n  "
         + "\n  ".join(present)
@@ -109,6 +121,46 @@ def test_claude_md_still_owns_the_venv_fact_the_handoff_contradicted():
     )
 
 
+def test_assembled_lowercase_python_reference_is_detected(tmp_path):
+    carrier = tmp_path / "carrier.py"
+    carrier.write_text(
+        'from pathlib import Path\nPath("codex_" + "handoff.md").read_text()\n',
+        encoding="utf-8",
+    )
+    assert "codex_handoff" not in carrier.read_text(encoding="utf-8").casefold()
+    assert _python_handoff_references(carrier) == ["codex_handoff.md"]
+
+
+def _python_handoff_references(path: Path) -> list[str]:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        values = assembled_strings(path)
+    references = [
+        value for value in values if HANDOFF_NEEDLE in value.casefold()
+    ]
+    if not references:
+        return []
+    source = path.read_text(encoding="utf-8", errors="replace")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return []
+    docstrings = {
+        value
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef,
+                             ast.FunctionDef, ast.AsyncFunctionDef))
+        if (value := ast.get_docstring(node, clean=False)) is not None
+    }
+    return sorted(
+        value
+        for value in references
+        if value not in docstrings
+    )
+
+
 def test_nothing_still_executes_against_the_handoff():
     """Prose mentions are fine -- history is prose. Executable references are not."""
     # @918: NOT `-- '*.py' '*.sh'`. That glob misses 473 tracked
@@ -132,30 +184,14 @@ def test_nothing_still_executes_against_the_handoff():
         if not path.is_file():
             continue
         source = path.read_text(encoding="utf-8", errors="replace")
-        if "CODEX_HANDOFF" not in source:
-            continue
         if kind == "python":
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    if "CODEX_HANDOFF" not in node.value:
-                        continue
-                    parent_doc = any(
-                        ast.get_docstring(n, clean=False) == node.value
-                        for n in ast.walk(tree)
-                        if isinstance(n, (ast.Module, ast.ClassDef,
-                                          ast.FunctionDef, ast.AsyncFunctionDef))
-                    )
-                    if not parent_doc:
-                        offenders.append(f"{rel}:{node.lineno}: literal {node.value[:60]!r}")
+            for reference in _python_handoff_references(path):
+                offenders.append(f"{rel}: constant expression {reference[:60]!r}")
         else:
             for i, line in enumerate(source.splitlines(), 1):
                 if line.lstrip().startswith("#"):
                     continue
-                if "CODEX_HANDOFF" in line:
+                if HANDOFF_NEEDLE in line.casefold():
                     offenders.append(f"{rel}:{i}: {line.strip()[:70]}")
 
     assert not offenders, (

@@ -31,6 +31,30 @@ REPO = Path(__file__).resolve().parent.parent
 # Assembled, never spelled -- see the module docstring.
 NEEDLE = "/" + "home" + "/" + "claude"
 
+# @1211. THE SCAN NOW FOLDS ASSEMBLED LITERALS, because a contiguous substring
+# is trivially avoided: `os.path.join("/home", "claude")` in a new tracked file
+# put the carrier back while this ratchet, its census and this scan all stayed
+# green. `contains_assembled` evaluates what a file's CONSTANT expressions can
+# produce. Declared limit: constants only -- a needle built from a variable or
+# computed at runtime is still unseen, and that is the residual.
+#
+# WHICH MAKES THE HUNTERS VISIBLE TO THEMSELVES. This gate and its sibling
+# assemble the needle from parts precisely so they are not carriers of the
+# literal they hunt; folding sees straight through that. They are excluded from
+# the POPULATION rather than allowlisted as carriers, because they are not
+# carriers -- and `test_every_excluded_file_is_really_gate_machinery` below
+# proves the exclusion cannot be used to hide one.
+GATE_MACHINERY = frozenset({
+    "tests/test_sandbox_home_stays_retired.py",
+    "tests/test_v3_66_937_band_floor_is_not_dropped.py",
+})
+
+
+def _carries(path) -> bool:
+    """Does this file carry the retired home, contiguously OR assembled?"""
+    from python_source import contains_assembled  # noqa: PLC0415
+    return contains_assembled(path, NEEDLE)
+
 # Every tracked carrier has one machine-readable disposition. ``UNSWEPT`` is
 # temporary and separately names the authority phase that owns its removal.
 # Other reasons are durable exemptions. The vocabulary is deliberately closed.
@@ -232,7 +256,7 @@ def _tracked_carriers() -> set[str]:
             continue
         p = REPO / rel
         try:
-            if NEEDLE in p.read_text(encoding="utf-8", errors="replace"):
+            if rel not in GATE_MACHINERY and _carries(p):
                 carriers.add(rel)
         except (OSError, UnicodeDecodeError):
             continue
@@ -493,3 +517,28 @@ def test_the_gate_does_not_reenter_its_own_carrier_population():
 
 
 BD_GATE_SCOPE = "repo-wide"
+
+
+def test_every_excluded_file_is_really_gate_machinery():
+    """The exclusion above must not be usable to hide a carrier.
+
+    Each excluded file has to (a) be tracked, (b) actually contain the needle
+    only in ASSEMBLED form -- never contiguously, which is what a real carrier
+    looks like -- and (c) be a test that asserts on it. A file that fails any
+    of those is a carrier wearing the exclusion, and this goes RED."""
+    from python_source import assembled_strings
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=str(REPO),
+                         capture_output=True, text=True, check=True).stdout
+    tracked = {n for n in out.split("\0") if n}
+    assert len(tracked) > 500, f"tracked denominator collapsed: {len(tracked)}"
+    for rel in sorted(GATE_MACHINERY):
+        assert rel in tracked, f"{rel} is excluded but not tracked"
+        path = REPO / rel
+        text = path.read_text(encoding="utf-8", errors="replace")
+        assert NEEDLE not in text, (
+            f"{rel} carries the retired path CONTIGUOUSLY; that is a carrier, "
+            "not gate machinery, and it must not be excluded")
+        assert any(NEEDLE in s for s in assembled_strings(path)), (
+            f"{rel} does not assemble the needle at all, so it is not the gate "
+            "machinery this exclusion is for -- drop it from GATE_MACHINERY")
+        assert "def test_" in text, f"{rel} is not a test module"

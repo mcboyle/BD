@@ -86,3 +86,95 @@ def mentions_only(path: Path | str, needle: str) -> bool:
     """
     raw = Path(path).read_text(encoding="utf-8", errors="replace")
     return needle in raw and needle not in python_code_only(path)
+
+
+# ── assembled literals, added @1211 ─────────────────────────────────────
+# WHY A SUBSTRING TEST IS NOT ENOUGH FOR A TOMBSTONE. Every tombstone gate in
+# this tree asks "does the retired thing appear anywhere". Each asked it with
+# `NEEDLE in text`, and a contiguous substring is trivially avoided by BUILDING
+# the string at runtime. Measured 2026-08-24 against merged main:
+#
+#   os.path.join("/home", "claude")          evades NEEDLE = "/"+"home"+"/"+"claude"
+#   "toolchain/bin/bd-deploy" + "-manifest"  evades RETIRED = ".../bd-deploy-manifest"
+#   "scripts/" + "build_release.sh"          evades the same shape
+#
+# and in each case the ratchet, the census and the tombstone all stayed green
+# while the retired carrier was back in the tree. The needle being assembled in
+# the GATE (which these gates already do, so the gate's own source is not a
+# carrier) does nothing about the SUBJECT assembling it too.
+#
+# So: fold what the file can produce. Every string a constant expression could
+# evaluate to is a string that file effectively contains.
+#
+# DECLARED LIMIT, because a gate must say what it cannot see: this folds
+# CONSTANTS only. A needle built from a variable, an f-string interpolation, a
+# computed index, `chr()` arithmetic or a value read at runtime is not folded
+# and is not caught. That is the residual, and it is smaller than the residual
+# it replaces -- contiguous-substring-only -- by exactly the assembled-literal
+# class measured above.
+
+def assembled_strings(path: Path | str) -> set[str]:
+    """Every string this file's CONSTANT expressions can evaluate to.
+
+    Includes plain literals, implicit and explicit concatenation of constants,
+    `str.join` over constant parts, and `os.path.join` / `posixpath.join` of
+    constants -- the shapes a tombstone evasion actually uses.
+    """
+    import ast
+    import posixpath
+
+    source = Path(path).read_text(encoding="utf-8", errors="replace")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    out: set[str] = set()
+
+    def fold(node):
+        """Return the string this node evaluates to, or None."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = fold(node.left), fold(node.right)
+            if left is not None and right is not None:
+                return left + right
+            return None
+        if isinstance(node, ast.JoinedStr):        # f-string of constants only
+            parts = []
+            for value in node.values:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    parts.append(value.value)
+                else:
+                    return None
+            return "".join(parts)
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "attr", getattr(func, "id", None))
+            if name == "join":
+                args = [fold(a) for a in node.args]
+                if len(node.args) == 1 and isinstance(node.args[0], (ast.List, ast.Tuple)):
+                    args = [fold(e) for e in node.args[0].elts]
+                    sep = fold(func.value) if isinstance(func, ast.Attribute) else None
+                    if sep is not None and all(a is not None for a in args):
+                        return sep.join(args)
+                    return None
+                if args and all(a is not None for a in args):
+                    # os.path.join / posixpath.join semantics
+                    return posixpath.join(*args)
+            return None
+        return None
+
+    for node in ast.walk(tree):
+        folded = fold(node)
+        if folded:
+            out.add(folded)
+    return out
+
+
+def contains_assembled(path: Path | str, needle: str) -> bool:
+    """True if NEEDLE appears in the file's text OR in anything it assembles."""
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    if needle in text:
+        return True
+    return any(needle in s for s in assembled_strings(path))

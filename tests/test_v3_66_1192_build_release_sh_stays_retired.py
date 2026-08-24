@@ -9,17 +9,25 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import subprocess
+import warnings
 from pathlib import Path
 
 import pytest
 
+from python_source import contains_assembled
 from tracked_source import tracked_source_files
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RETIRED = "scripts/" + "build_release.sh"
 CURRENT = "tools/build_release.py"
+_GATE_RELATIVE = Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
+_CD_THEN_RELATIVE_WRAPPER = re.compile(
+    r"(?:^|[;&|])\s*cd\s+(?:--\s+)?(?:\./)?(?:scripts/?|['\"]scripts/?['\"])\s*"
+    r"(?:&&|;)\s*\./build_release\.sh(?:\s|$)"
+)
 
 
 def _tracked_paths() -> set[str]:
@@ -51,20 +59,35 @@ def _execution_references(entries, read_text) -> list[str]:
     offenders: list[str] = []
     for relative, kind in entries:
         source = read_text(relative)
-        if RETIRED not in source:
-            continue
         if kind == "python":
-            tree = ast.parse(source)
-            for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.Constant)
-                    and isinstance(node.value, str)
-                    and RETIRED in node.value
-                ):
-                    offenders.append(f"{relative}:{node.lineno}")
+            direct_reference = False
+            if RETIRED in source:
+                tree = ast.parse(source)
+                for node in ast.walk(tree):
+                    if (
+                        isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)
+                        and RETIRED in node.value
+                    ):
+                        offenders.append(f"{relative}:{node.lineno}")
+                        direct_reference = True
+            if not direct_reference and relative != _GATE_RELATIVE:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", SyntaxWarning)
+                    assembled_reference = contains_assembled(
+                        REPO_ROOT / relative, RETIRED
+                    )
+                if assembled_reference:
+                    offenders.append(f"{relative}:assembled")
         else:
             for lineno, line in enumerate(source.splitlines(), 1):
-                if RETIRED in line.split("#", 1)[0]:
+                executable = line.split("#", 1)[0]
+                # This source floor catches a literal same-line cd into scripts
+                # followed by a relative invocation. Variables, aliases, eval,
+                # and line continuations remain outside its declared surface.
+                if RETIRED in executable or _CD_THEN_RELATIVE_WRAPPER.search(
+                    executable
+                ):
                     offenders.append(f"{relative}:{lineno}")
     return offenders
 
@@ -99,6 +122,30 @@ def test_execution_reference_detector_fires_for_python_and_shell_subjects():
     assert _execution_references(
         [("comment.sh", "shell")], lambda _path: f"# {RETIRED}\n"
     ) == []
+
+
+def test_execution_reference_detector_catches_assembled_python_evasion(
+    tmp_path, monkeypatch
+):
+    source = 'target = "scripts/" + "build_release.sh"\n'
+    subject = tmp_path / "subject.py"
+    subject.write_text(source, encoding="utf-8")
+    assert RETIRED not in source
+    assert contains_assembled(subject, RETIRED)
+    monkeypatch.setattr(
+        "test_v3_66_1192_build_release_sh_stays_retired.REPO_ROOT", tmp_path
+    )
+    assert _execution_references(
+        [("subject.py", "python")], lambda _path: source
+    ) == ["subject.py:assembled"]
+
+
+def test_execution_reference_detector_catches_cd_then_relative_shell_evasion():
+    source = "cd scripts && ./build_release.sh --dist\n"
+    assert RETIRED not in source
+    assert _execution_references(
+        [("subject.sh", "shell")], lambda _path: source
+    ) == ["subject.sh:1"]
 
 
 def test_surviving_python_builder_is_tracked_and_guard_pinned():

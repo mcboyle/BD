@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from python_source import assembled_strings, contains_assembled
 from tracked_source import tracked_source_files
 
 import pytest
@@ -42,6 +43,8 @@ RETIRED = (
 )
 
 TOMBSTONE = REPO_ROOT / "project-knowledge" / "README.md"
+_RETIRED_REFERENCE_NEEDLES = ("deploy_manifest", "deploy-manifest")
+_NON_INVOCATION_REFERENCES = {"tests/test_deploy_manifest_stays_retired.py"}
 
 
 def test_the_fail_safe_branch_is_executable():
@@ -143,18 +146,17 @@ def test_nothing_still_calls_the_retired_tool():
             continue
         if rel == "tests/test_deploy_manifest_stays_retired.py":
             continue
-        if rel == "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py":
-            # @1082. That file's `_DECLARED` set lists this file's PATH so CI
-            # runs it, and a path is not an invocation. Naming the tombstone in
-            # order to SCHEDULE it is the opposite of resurrecting the tool --
-            # but the literal is the same, which is CLAUDE.md section 0's
-            # "explaining a removal by naming the removed thing recreates it",
-            # reached from the one direction that is legitimate. Narrowed to
-            # this single file rather than exempting declaration lists in
-            # general, so a real invocation there is still caught.
-            continue
         source = path.read_text(encoding="utf-8", errors="replace")
-        if "deploy_manifest" not in source and "deploy-manifest" not in source:
+        if kind == "python":
+            has_reference = any(
+                contains_assembled(path, needle)
+                for needle in _RETIRED_REFERENCE_NEEDLES
+            )
+        else:
+            has_reference = any(
+                needle in source for needle in _RETIRED_REFERENCE_NEEDLES
+            )
+        if not has_reference:
             continue
 
         if kind == "python":
@@ -182,12 +184,11 @@ def test_nothing_still_calls_the_retired_tool():
                 elif isinstance(node, ast.ImportFrom):
                     if node.module and "deploy_manifest" in node.module:
                         offenders.append(f"{rel}:{node.lineno}: from {node.module}")
-                elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    v = node.value
-                    if v in docstrings:
-                        continue
-                    if "deploy_manifest" in v or "deploy-manifest" in v:
-                        offenders.append(f"{rel}:{node.lineno}: string {v[:70]!r}")
+            for value in assembled_strings(path):
+                if value in docstrings or value in _NON_INVOCATION_REFERENCES:
+                    continue
+                if any(needle in value for needle in _RETIRED_REFERENCE_NEEDLES):
+                    offenders.append(f"{rel}: assembled string {value[:70]!r}")
         else:
             for lineno, line in enumerate(source.splitlines(), 1):
                 code = line.split("#", 1)[0]
@@ -197,6 +198,33 @@ def test_nothing_still_calls_the_retired_tool():
         "something still invokes the retired deploy manifest:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_an_assembled_literal_cannot_evade_the_invocation_scan(tmp_path, monkeypatch):
+    carrier_source = (
+        'import subprocess\n'
+        'subprocess.run(["toolchain/bin/bd-deploy" + "-manifest", "--emit"])\n'
+    )
+    carrier = tmp_path / "carrier.py"
+    carrier.write_text(carrier_source, encoding="utf-8")
+    assert "deploy_manifest" not in carrier_source
+    assert "deploy-manifest" not in carrier_source
+    assert contains_assembled(carrier, "deploy-manifest")
+
+    entries = [(carrier.name, "python")]
+    for index in range(100):
+        harmless = tmp_path / f"harmless_{index}.py"
+        harmless.write_text("value = 1\n", encoding="utf-8")
+        entries.append((harmless.name, "python"))
+    assert len(entries) == 101
+    assert all((tmp_path / rel).is_file() for rel, _kind in entries)
+
+    import sys
+    mod = sys.modules[__name__]
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mod, "tracked_source_files", lambda _root: entries)
+    with pytest.raises(AssertionError, match="something still invokes"):
+        test_nothing_still_calls_the_retired_tool()
 
 
 BD_GATE_SCOPE = "repo-wide"
