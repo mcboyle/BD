@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1217 - a test fixture is not evidence that the SPA wires a route
+
+- `tools/gui_parity_inventory.py::_spa_wiring` answers "does the React SPA
+  actually call this /api/* endpoint?", and the parity gates treat a YES as
+  coverage. Its POPULATION is therefore its DENOMINATOR -- anything inside it
+  can vouch for a route. It scanned `frontend/src` with `rglob("*.ts*")`, which
+  includes every *.test.tsx and *.spec.tsx, so a TEST FIXTURE could supply that
+  evidence.
+- MEASURED before the change: 457 wired endpoints with test files in the
+  population, 443 without. FOURTEEN existed only because a test named them, and
+  every one is an obvious fixture -- /api/auth/users/bob/role,
+  /api/auth/users/carol/password, /api/auth/users/dave,
+  /api/auth/users/a%20b%2Fc/role, /api/sites/alpha/ai_reanalyze,
+  /api/sites/s1/session/reuse_onboarding, /api/daily_budget/history/ex.com,
+  /api/knowledge/notes/7, /api/queue_templates/7 and /7/apply/{alpha,beta},
+  /api/cookie_clipboard/save and /save/alpha, /api/webhooks/1.
+- THIS IS THE LAUNDERING v3.66.754b CLOSED, THROUGH THE OTHER DOOR. That cut
+  began stripping TS COMMENTS so a path merely NAMED could not count as CALLED.
+  Comments are one way to name without calling; test files are the other, and
+  only the first was closed. The scanner's docstring records the comment case at
+  :535; nothing recorded this one.
+- WHAT THIS DOES NOT CLAIM. Removing the fourteen changed NO verdict:
+  tests/test_parity_method_aware.py and tests/test_gui_parity.py are 19/19 both
+  before and after, so no gap was being masked today. The defect is that the
+  evidence was ADMISSIBLE -- a future fixture naming a route product code had
+  stopped calling would have kept that route looking covered. A latent fail-open
+  fixed before it fired, stated as such rather than dressed up as a live bug.
+- BOTH scan sites over frontend/src are guarded, and a test asserts the counts
+  match, because fixing one and leaving the other would let the second re-admit
+  fixtures while every other assertion here still passed.
+- The census test names offenders rather than counting them, and is a heuristic
+  over fixture-shaped markers rather than a blocklist of the known fourteen, so
+  a NEW fixture-shaped path is caught rather than only the measured ones.
+- Found while verifying batch B: the five proposed Vitest specs would have added
+  five more fixture endpoints to the wired set. Fixing the scanner FIRST means
+  that cut no longer widens a known defect.
+
 ## v3.66.1216 - 499 frontend tests no pull request had ever been judged by
 
 - MEASURED BEFORE ANYTHING WAS CHANGED: the repository tracks 122 frontend spec
