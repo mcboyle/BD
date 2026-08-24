@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1214 - adjudicate the last four gate-antipattern candidates
+
+- Rows 200, 201, 203 and 204 were the remainder of the gate-antipattern audit,
+  and every one of them carried the same instruction: VERIFY THE EVASION OR
+  CLOSE AS NON-REPRODUCING. Two reproduce and are fixed; two do not and are
+  closed with the measurement that refutes them. A row closed because nobody
+  could reproduce it is a result, not a failure.
+- ROW 200 REPRODUCES. `test_no_tool_probes_a_root_contract_that_cannot_be_served`
+  scanned tools/ source for the literal retired probe strings, so a tool that
+  wrote the same probe as a REGEX -- `re.search(r'<meta\s+name="csrf-token"')`
+  -- matched a conforming meta tag while containing no literal the gate looked
+  for, and the gate stayed green. The scan now strips Python comments through
+  `tokenize`, casefolds, collapses whitespace, and recognises the ordinary regex
+  whitespace spellings (`\s`, `\s+`, bounded forms). The audit's exact regex
+  ships as a TWO-SIDED fixture: it must be reported while the contract is
+  unreachable AND spared once the contract is served again, so the fix cannot
+  degrade into banning a spelling.
+- ROW 201 REPRODUCES. The step [3] gate asked whether `capture.sh` CONTAINS the
+  probe literal, so a computed spelling built with concatenation and `chr(34)`
+  probed the retired contract while the gate saw nothing. The verdict is now
+  BEHAVIOURAL: the extracted step [3] program is executed against two controlled
+  GET / bodies of EQUAL LENGTH differing only in whether they carry the
+  contract, and a change in shipped output proves the step observes it whatever
+  the spelling. Equal lengths keep the legitimate body-length diagnostic
+  constant so it cannot masquerade as a contract probe. The biconditional
+  `probed == bool(reachable)` is preserved.
+- ROWS 203 AND 204 DO NOT REPRODUCE, and this was checked against the detectors
+  themselves rather than argued. `_always_true` returns False for
+  `assert len(items) >= 0`, `assert x is x` and `assert not False` while its
+  positive control `assert x or True` returns True; `findings()` returns [] for
+  the audit's `flag = 1 == 2; assert flag` while still catching the literal
+  `assert 1 == 2`. Both gates DECLARE that boundary -- 1108 ships
+  `test_an_unfoldable_expression_is_silence_not_a_verdict` and
+  `test_the_gate_states_the_denominator_it_could_actually_decide`, and empty
+  findings mean no verdict rather than a pass. Backlog row 26 carries the
+  undecidable remainder and stays open. CUT_TIERING calls an honestly declared
+  floor the model, so expanding these would be new scope, not hardening.
+- Also records, without acting on it, the measured attribution behind rows 230
+  and 231's remaining half; see those rows.
+
 ## v3.66.1213 - a census that forks counts its own instrument
 
 - Backlog row 231. `_w1_live_in_group` answered "which live pids share this
