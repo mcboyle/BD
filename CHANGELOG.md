@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1210 - behavioralize the four sharpest textual-proxy gates
+
+- Backlog rows 199, 198, 202 and 208 named gates that scan SOURCE TEXT to judge
+  a RUNTIME property, so each could pass over the exact defect it exists to
+  prevent. All four evasions were reproduced by measurement before anything was
+  changed, and each fix ships with the evasion as a fixture so a rewrite back to
+  the text-scan shape goes RED.
+- Row 199, arm 1: `workflow.count(path)` counted a COMMENTED mention, so turning
+  `tests/test_t1_dashboard_wired.py` into `# tests/...` -- two characters --
+  de-wired a required live-contract test from CI while the gate proving it was
+  wired stayed green. CI wiring is now read line-aware from the `suites` blocks
+  with per-line comment stripping. NOTE: `yaml.safe_load` alone is NOT enough
+  and the first draft of this fix failed its own fixture -- `suites` is a
+  FOLDED scalar, and inside one a `#` is ordinary text, not a comment.
+- Row 199, arm 2: the parked ratchet gate asserted a `pytest.skip(` count and
+  banned ONE comment spelling, so `return  # parked by operator` laundered both
+  parked tests from SKIP into PASS. The outcome is now OBSERVED by running them
+  and reading the JUnit result.
+- Row 208: a relative `<a href="home">` served from `/cockpit/settings`
+  resolves to the retired `/cockpit/home` while no source file contains that
+  string. The gate now drives the Flask test client, parses rendered anchors,
+  resolves each the way a browser would, and compares normalised paths. The
+  text scan is kept as a floor with its evasion surface declared.
+- Row 202: `base: "/app/",  // was base: "/"` re-rooted the SPA while the old
+  regex matched the COMMENT. Comments are stripped before matching and the
+  assignment must now be unique, so a second live `base:` cannot shadow it. The
+  residual -- a computed or env-driven base -- is declared, with
+  `test_real_asset_served_from_root` as the runtime half.
+- Row 198: deleting BOTH real invocations from `provision_test_host.sh` left
+  the gate green, because a quoted status message naming the functions
+  satisfied `fn in code`. Invocation must now appear in COMMAND POSITION.
+  Correction to the audit that raised it: the whole-gate RED is NON-REPRODUCING
+  -- another arm catches the deletion -- so only this arm was defective.
+
 ## v3.66.1209 - keep signal semantics at every launch and wrapper boundary
 
 - v3.66.1208 fixed ONE launch site because that is the one capture runs its
