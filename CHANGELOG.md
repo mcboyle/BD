@@ -4,6 +4,65 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1220 - the sanctioned suite reports a hanging test instead of killing a worker
+
+- CLAUDE.md JUSTIFIED `--timeout-method=thread` WITH SOMETHING THAT IS NOT TRUE
+  IN THE SHAPE THAT COMMAND RUNS. Section A5 read "thread mode exposes stacks".
+  Measured with a positive control, same subject, same interpreter: under
+  `-n 2` the `+++ Timeout +++` banner appears ZERO times; run SERIALLY it
+  appears twice with 34 stack lines. pytest-timeout writes the dump to
+  `item.config.get_terminal_writer()` -- the worker's own stdout -- and execnet
+  points every xdist worker's fd 1 at /dev/null. The flag's stated benefit was
+  nil under xdist while its cost was `os._exit(1)`, a dead worker, and exposure
+  to a drain livelock that once span 11.6 hours.
+- THE SANCTIONED FORM NOW USES `--timeout-method=signal --max-worker-restart=0`.
+  Signal raises inside the test's own thread, so the offender is REPORTED BY
+  NAME and the worker survives: measured 1 named failure and 0 crashed workers
+  in 5.9s, against 9 crashed-worker failures in 50.4s for thread. The one real
+  objection was tested rather than argued away -- a test parked inside
+  `subprocess.run`, which is the exact shape that killed gw10 -- and SIGALRM
+  reached it, named it, kept the worker and left 0 orphaned children.
+  `--max-worker-restart=0` is the containment net for the deaths signal cannot
+  prevent (a segfault, an OOM, an `os._exit` in test code); row 145 had already
+  measured that the livelock does not reproduce with it.
+- IT IS NOT ADDED TO THE CI SHARD COMMAND, and that asymmetry is deliberate:
+  `gate-suites` runs SERIAL, so `--max-worker-restart` is an xdist flag with
+  nothing to act on. The METHOD still changes there, for a different reason --
+  serially `os._exit(1)` kills the whole pytest process and takes the shard's
+  summary and every other result in it.
+- THE GATE IS BEHAVIOURAL, NOT A TEXT PIN.
+  `tests/test_v3_66_1220_a_timeout_names_its_test.py` runs REAL sub-pytests in
+  both shapes: the sanctioned one must name the offending test with zero crashed
+  workers, and the old one must still crash a worker AND still emit zero stack
+  banners. The second arm is what stops the first passing vacuously, and it
+  fails loudly if pytest-timeout or xdist ever change underneath it -- which is
+  the correct response, because then the premise is stale.
+- THE TRAP THIS AVOIDED, found before a line was written.
+  `bd-wedge-hunt`'s `full-signal` arm appended the very flag the sanctioned form
+  now carries, and the file forbids pooling its counts with `full`'s. The two
+  would have become ONE experiment recorded under two names, each refusing to be
+  pooled with the other -- a silently corrupted measurement, which is worse than
+  a loud break. The arm is INVERTED to `full-thread`, the historical control, and
+  the header records that `full` CHANGES MEANING at this commit. Rows already
+  carry a `commit` field for exactly this reason.
+- EVERY SITE MOVES TOGETHER or the flags disagree: CLAUDE.md's command and its
+  rationale, `.github/workflows/ci.yml`, `toolchain/bin/bd-fullsuite`,
+  `bd-sweep-run` (docstring, argv, and the expected form inside its own
+  selftest), `bd-wedge-hunt`'s SECTION5, `scripts/lib/heartbeat.sh`, and the two
+  pins in tests/test_v3_66_1170 and tests/test_v3_66_939.
+- WHAT THIS REVERSES, said plainly. v3.66.1124 shipped the signal arm
+  DELIBERATELY as a hunt arm only and classified it `is_section5` FALSE. Today's
+  evidence is stronger than 1124's -- it did not know the dump was going to
+  /dev/null, and it did not know which test crossed 240s. The operator took the
+  decision on that evidence.
+- RESULTS TAKEN AFTER THIS COMMIT MUST NOT BE POOLED WITH EARLIER ONES. A
+  different flag set is a different experiment, which is A5's own rule.
+- RESIDUAL, stated rather than glossed: SIGALRM was proven to interrupt a test
+  blocked in `subprocess.run`. It was NOT proven against a C extension holding
+  the GIL. A genuine hang of that kind can still kill a worker -- and
+  `--max-worker-restart=0` is why that now ends the run in seconds with a
+  message instead of hours of silence.
+
 ## v3.66.1219 - the tool-state gate no longer outgrows the bound that governs it
 
 - A WORKER DIED AND THE SUITE LIVELOCKED FOR 19 MINUTES, and the proximate cause

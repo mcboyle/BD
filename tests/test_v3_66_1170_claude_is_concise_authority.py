@@ -151,7 +151,8 @@ def test_exact_canonical_commands_and_environment_contract_remain():
         "-n 24",
         "--dist loadfile",
         "--timeout=240",
-        "--timeout-method=thread",
+        "--timeout-method=signal",
+        "--max-worker-restart=0",
         "-p no:randomly",
         'venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"',
     )

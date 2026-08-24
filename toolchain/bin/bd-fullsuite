@@ -25,7 +25,8 @@ USE INSTEAD, when pytest is importable -- which section 5 now documents as the
 one sanctioned whole-suite form:
 
     BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ \\
-        -n 24 --dist loadfile --timeout=240 --timeout-method=thread -p no:randomly
+        -n 24 --dist loadfile --timeout=240 --timeout-method=signal \\
+        --max-worker-restart=0 -p no:randomly
 
 Use the same command with explicit ``-n 4`` only as the comparison and
 regression oracle; it is no longer the canonical fleet worker count.

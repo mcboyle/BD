@@ -11,7 +11,7 @@ The operator then granted a one-time exemption to run the suite whole. Measured
 2026-08-08 at v3.66.948, with `pytest-timeout` armed specifically to name a
 hanging test and dump its stack:
 
-    tests/  -n 4 --dist loadfile --timeout=240 --timeout-method=thread
+    tests/  -n 4 --dist loadfile --timeout=240 --timeout-method=signal
     -> 14 failed, 14943 passed, 91 skipped in 635.42s (10m35s)
     -> tests exceeding 240s: ZERO. The timeout guard never fired.
 

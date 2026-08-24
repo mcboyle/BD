@@ -22,7 +22,7 @@
 # `failed` and reads as clean to anything scanning for it.
 #
 # THE BOUND IS A WALL CLOCK, NOT A PER-TEST TIMEOUT, and the two are not
-# substitutes. `--timeout=240 --timeout-method=thread` runs INSIDE the worker,
+# substitutes. `--timeout=240 --timeout-method=signal` runs INSIDE the worker,
 # so it cannot fire when the worker is the thing that died -- that is exactly
 # why the wedge survives it. This bound lives in the parent, outside the
 # process it bounds, because a limit that shares a fate with its subject is not

@@ -193,7 +193,8 @@ HOSTS = [("test4", "10.0.70.85"), ("test6", "10.0.70.249"), ("test7", "10.0.70.8
 SECTION5 = ["env", "-u", "BD_INSTALL_DIR", "BD_DISABLE_KEEPALIVE=1",
             "venv/bin/python", "-u", "-m", "pytest", "tests/",
             "-n", "{workers}", "--dist", "loadfile",
-            "--timeout=240", "--timeout-method=thread", "-v", "-p", "no:randomly"]
+            "--timeout=240", "--timeout-method=signal", "--max-worker-restart=0",
+            "-v", "-p", "no:randomly"]
 
 # PHASE 2 ARMS. Phase 1 ran three arms x three hosts for 74 samples and
 # established two things that reshape the experiment:
@@ -404,17 +405,25 @@ def _size_arm(pct, keep_every, offset):
     return ("full-%s" % pct, extra, False, dict(_FAULTHANDLER), note)
 
 
-# THE ARM THAT TURNS THE WEDGE INTO A TEST NAME (added 2026-08-14, @1124).
+# THE HISTORICAL CONTROL. Added 2026-08-14 (@1124) as `full-signal`, INVERTED
+# at v3.66.1220 when the sanctioned form itself moved to signal.
 #
-# THE MECHANISM IS NOW KNOWN AND IT IS NOT AN XDIST BUG. The exit tracer caught
-# the dying worker's own stack: pytest_timeout.py:542 calls os._exit(1) from its
-# timer thread. `--timeout-method=thread` cannot unwind another thread, so it
-# hard-exits the whole worker -- which is why there is no traceback, no core, no
-# signal, and why the master sees only a channel closed with NO ERROR ATTACHED.
+# THE MECHANISM IS NOT AN XDIST BUG AT THIS END. The exit tracer caught the dying
+# worker's own stack: pytest-timeout's timer thread calls os._exit(1).
+# `--timeout-method=thread` cannot unwind another thread, so it hard-exits the
+# whole worker -- which is why there is no traceback, no core, no signal, and why
+# the master sees only a channel closed with NO ERROR ATTACHED.
 #
-# SO A TEST IS EXCEEDING 240s, and the instrument chosen to NAME a hanging test
-# is the thing preventing it from being named. `--timeout-method=signal` unwinds
-# instead of hard-exiting: the worker SURVIVES and pytest reports the offender.
+# WHY THE ARM FLIPPED RATHER THAN RETIRED. Once `full` runs signal, an arm that
+# APPENDS signal is the same experiment under a second name -- and this file
+# forbids pooling the two, so it would have gone on recording one population as
+# though it were two. Appending `thread` keeps the comparison and makes it the
+# deviation, which is what it now is.
+#
+# EVERY WEDGE MEASURED BEFORE v3.66.1220 WAS TAKEN IN THIS ARM'S SHAPE, not
+# `full`'s. Rows carry a `commit` field for exactly this reason: `full` CHANGES
+# MEANING at that commit and rows either side of it are different experiments.
+# Pooling them has to be a deliberate act, not an accident of `cat`.
 #
 # VERIFIED BEFORE SHIPPING, with a 20s test against a 5s timeout:
 #     thread          -> "worker 'gw7' crashed while running ...", 9 failed/50s
@@ -431,12 +440,13 @@ def _size_arm(pct, keep_every, offset):
 # the wedge is TWO failures -- pytest-timeout kills the worker, AND xdist's
 # recovery path works mid-run but not during the drain, when there is no work
 # left to reassign. This arm addresses only the first.
-ARM_FULL_SIGNAL = ("full-signal", ["--timeout-method=signal"], False,
+ARM_FULL_THREAD = ("full-thread", ["--timeout-method=thread"], False,
                    dict(_FAULTHANDLER),
-                   "The sanctioned form with --timeout-method=signal appended, "
-                   "so pytest-timeout unwinds instead of calling os._exit(1) and "
-                   "the offending test is REPORTED BY NAME instead of taking the "
-                   "worker with it. Counts are not comparable with a full run.")
+                   "The HISTORICAL control. v3.66.1220 moved the sanctioned form "
+                   "to --timeout-method=signal, so the deviation is now the OTHER "
+                   "way round: this arm appends thread, which calls os._exit(1) "
+                   "on the worker and is the shape every wedge before 1220 was "
+                   "measured in. Counts are not comparable with a full run.")
 
 ARM_FULL_75 = _size_arm("75", 4, None)   # every 4th file DROPPED -> 75% kept
 ARM_FULL_50 = _size_arm("50", 2, 0)
@@ -476,12 +486,13 @@ ARMS_BY_HOST = {
     # verbose >= 0). That single line decides whether worker_errordown's clone
     # path runs, which is the open half of row 144.
     #
-    # ARM_FULL_SIGNAL stays at its current share: it is the only arm that NAMES
-    # the offending test, because --timeout-method=signal unwinds instead of
-    # hard-exiting. full and full-signal answer DIFFERENT questions and neither
-    # substitutes for the other. ARM_FULL_75 stays to keep the 50<->100 boundary
+    # ARM_FULL_THREAD stays at that share for the opposite reason it was first
+    # given one: since v3.66.1220 `full` NAMES the offending test and this arm is
+    # the only one that still reproduces the hard-exit, so it is now the only way
+    # to keep sampling the wedge at all. full and full-thread answer DIFFERENT
+    # questions and neither substitutes for the other. ARM_FULL_75 stays to keep the 50<->100 boundary
     # accruing, since it is the one size arm whose answer is still open (0/7).
-    "test6": [ARM_FULL, ARM_FULL_SIGNAL, ARM_FULL, ARM_FULL_75],
+    "test6": [ARM_FULL, ARM_FULL_THREAD, ARM_FULL, ARM_FULL_75],
 }
 
 REMOTE_ROOT = "/tmp/bd-wedge"

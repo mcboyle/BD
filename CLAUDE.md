@@ -203,15 +203,22 @@ env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest 
 The only sanctioned canonical local full-suite command is:
 
 ```bash
-env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ -n 24 --dist loadfile --timeout=240 --timeout-method=thread -p no:randomly
+env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ -n 24 --dist loadfile --timeout=240 --timeout-method=signal --max-worker-restart=0 -p no:randomly
 ```
 
 Every token is load-bearing. `-n 24` is fixed; host capacity does not rewrite
 the experiment. `--dist loadfile` preserves the qualified scheduling contract.
-The timeout names hangs, thread mode exposes stacks, no `-q` keeps xdist worker
-crash narration visible, and `PYTHONUNBUFFERED=1` preserves output from a run
-that never exits. A different worker count, scheduler, plugin, interpreter, or
-environment is a different experiment and cannot authorize merge.
+The timeout names hangs. `signal` mode raises inside the test's own thread so
+the offending test is REPORTED BY NAME; `thread` mode called `os._exit(1)` and
+killed the worker instead, and wrote its stack dump to a worker stdout that
+xdist points at /dev/null -- measured 0 dumps under xdist against 2 serially, so
+it named nothing in the only shape this command uses.
+`--max-worker-restart=0` turns any surviving worker death into an immediate
+abort rather than the drain livelock that once span 11.6 hours. No `-q` keeps
+xdist worker crash narration visible, and `PYTHONUNBUFFERED=1` preserves output
+from a run that never exits. A different worker count, scheduler, plugin,
+interpreter, or environment is a different experiment and cannot authorize
+merge.
 
 Do not export `BD_INSTALL_DIR` into pytest. `BD_HOME` does not govern the same
 resources. Pop inherited values with `env -u BD_INSTALL_DIR`; merely omitting an

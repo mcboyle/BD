@@ -375,6 +375,7 @@ jobs:
           - name: measurement-isolation
             suites: >-
               tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
+              tests/test_v3_66_1220_a_timeout_names_its_test.py
           - name: jobs-registration
             suites: >-
               tests/test_v3_66_1040_remote_job_registry.py
@@ -544,7 +545,7 @@ jobs:
       - name: ${{ matrix.name }} gates
         run: >-
           python -m pytest -q -p no:randomly
-          --timeout=240 --timeout-method=thread
+          --timeout=240 --timeout-method=signal
           ${{ matrix.suites }}
         # @850: two of these were added because they were RED somewhere nothing
         # could see.
