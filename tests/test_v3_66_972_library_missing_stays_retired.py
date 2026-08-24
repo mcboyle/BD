@@ -20,6 +20,11 @@ fixed. CI caught that one, not review.
 So this gate reads code only. A future comment explaining WHY this endpoint was
 retired -- exactly the comment someone will want to write -- must not be able to
 resurrect it.
+
+@1211. `_carries` also folds strings built from constant expressions through
+the shared `python_source` helper. Declared residual: values assembled from
+variables, computed indexes, `chr()` arithmetic, or runtime input remain
+outside this source-floor gate; comments remain excluded.
 """
 
 import ast
@@ -67,8 +72,19 @@ def _code_only(path):
         return src
 
 
+def _carries(path, needle):
+    """Whether executable source contains or constant-assembles NEEDLE."""
+    from python_source import assembled_strings, contains_assembled
+
+    if not contains_assembled(path, needle):
+        return False
+    return (needle in _code_only(path)
+            or any(needle in value for value in assembled_strings(path)))
+
+
 def test_the_route_and_its_view_are_gone_from_the_blueprint():
-    src = (REPO / "bulk_downloader" / "app_library.py").read_text(encoding="utf-8")
+    path = REPO / "bulk_downloader" / "app_library.py"
+    src = path.read_text(encoding="utf-8")
     tree = ast.parse(src)
     names = {n.name for n in ast.walk(tree)
              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
@@ -76,7 +92,7 @@ def test_the_route_and_its_view_are_gone_from_the_blueprint():
         "%s() is still defined in app_library.py -- the retired view came back"
         % _VIEW)
     # the decorator string is a LIVE reference, so it is checked on real source
-    assert _ROUTE not in src, (
+    assert not _carries(path, _ROUTE), (
         "%s is still registered in app_library.py" % _ROUTE)
 
 
@@ -100,8 +116,8 @@ def test_no_TRACKED_SOURCE_reintroduces_it():
     for f in files:
         if f == "tests/" + pathlib.Path(__file__).name:
             continue          # this file names them in order to forbid them
-        code = _code_only(f)
-        if _ROUTE in code or _VIEW in code:
+        if (_carries(REPO / f, _ROUTE)
+                or _carries(REPO / f, _VIEW)):
             hits.append(f)
     assert not hits, (
         "the retired endpoint reappeared in tracked source (comments excluded, "
@@ -129,6 +145,22 @@ def test_the_SURVIVING_missing_producers_are_untouched():
         assert fn in names, (
             "%s() vanished from %s -- the retirement took a LIVE producer with "
             "it. Three of the four 'missing' producers are on screen." % (fn, path))
+
+
+def test_ASSEMBLED_route_evasion_is_caught(tmp_path):
+    """A constant-built retired route must not evade the source ratchet."""
+    fixture = tmp_path / "assembled_route.py"
+    fixture.write_text(
+        '@library_bp.route("/api/library/" + "missing")\n'
+        "def list_missing_media():\n"
+        "    return {}\n",
+        encoding="utf-8",
+    )
+    source = fixture.read_text(encoding="utf-8")
+    assert _ROUTE not in source, (
+        "fixture must exercise assembly, not contain the retired route")
+    assert _carries(fixture, _ROUTE), (
+        "constant assembly restored the retired route but escaped the gate")
 
 
 BD_GATE_SCOPE = "repo-wide"
