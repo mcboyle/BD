@@ -3185,7 +3185,11 @@ def launch(addr: str, rundir: str, cmd: str, purpose: str, origin: str) -> dict:
     script = (
         "install -d -m 700 %s && cat > %s/runner.sh <<'BDWEDGEEOF'\n%s\nBDWEDGEEOF\n"
         "BD_WEDGE_EXPECTED_PARENT=1 BD_WEDGE_RUN_ID=%s "
-        "setsid nohup bash %s/runner.sh >/dev/null 2>&1 < /dev/null &\n"
+        # env --default-signal: see tests/test_v3_66_1209_*. setsid and
+        # nohup do not reset dispositions, and this runner is a subject
+        # this tool later expects to cancel. Measured SigIgn=0x1001007
+        # SigCgt=0 before this reset.
+        "setsid nohup env --default-signal=INT,QUIT bash %s/runner.sh >/dev/null 2>&1 < /dev/null &\n"
         "echo LAUNCHED=$! RUN_ID=%s\n" % (
             shlex.quote(rundir), shlex.quote(rundir), body,
             shlex.quote(run_id), shlex.quote(rundir), shlex.quote(run_id))

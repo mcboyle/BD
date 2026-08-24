@@ -137,6 +137,45 @@ _start_capture_detached() {
   CAPTURE_DETACHED_PID=$!
 }
 
+
+# RESTORE the caller's traps, do not CLEAR them. `trap - INT TERM HUP` resets to
+# the DEFAULT, which is not what the caller had: a script that installed its own
+# cleanup loses it, and a script that deliberately IGNORED a signal has that
+# ignore silently replaced by the default. Measured at 674f98d9: a caller whose
+# SigCgt was 0x43817efb came back 0x43813efa, and a deliberate `trap '' SIG`
+# came back as SIG_DFL.
+#
+# `trap -p SIG` prints a re-executable `trap -- '<cmd>' SIG`, prints NOTHING when
+# the caller held the default, and prints `trap -- '' SIG` when it was ignored --
+# so saving its output and eval'ing it reproduces all three cases exactly.
+_heartbeat_restore_traps() {
+  trap - INT TERM HUP
+  eval "${_HEARTBEAT_SAVED_INT:-}"
+  eval "${_HEARTBEAT_SAVED_TERM:-}"
+  eval "${_HEARTBEAT_SAVED_HUP:-}"
+}
+
+# ANNOUNCE what cannot be repaired. A shell CANNOT un-ignore a signal it
+# inherited as SIG_IGN at startup -- `trap` silently does nothing, so the
+# handlers below never install and a stopped lane can outlive its wrapper.
+# Measured: 4 lane processes left alive with the wrapper gone. There is no
+# in-shell remedy (`env --default-signal` fixes a CHILD, not this shell), and
+# CLAUDE.md A7 is explicit that an unmeasurable bound is UNKNOWN, not OK -- so
+# it is said out loud, in the log the stage owns, because the archive is what
+# survives. capture.sh refusing or re-execing at entry is the durable fix and is
+# a separate contract; see backlog row 225.
+_heartbeat_assert_armed() {
+  local label="$1" logfile="$2" sig unarmed=""
+  for sig in INT TERM HUP; do
+    case "$(trap -p "$sig")" in
+      "trap -- '' SIG$sig") unarmed="$unarmed $sig" ;;
+    esac
+  done
+  [ -n "$unarmed" ] || return 0
+  echo "CAPTURE-HEARTBEAT-UNARMED: $label inherited$unarmed as SIG_IGN; those signals cannot stop this lane and it may outlive its wrapper" \
+    | tee -a "$logfile" >&2
+}
+
 # Keep long commands quiet while reporting elapsed progress once a minute.
 # Polling here avoids a second monitor process and delays completion by at most
 # one second; the child command's complete output still lands in its artifact.
@@ -145,13 +184,19 @@ run_with_heartbeat() {
   local logfile="$2"
   shift 2
   local started pid elapsed last_report
+  # Saved BEFORE any trap of ours is installed.
+  local _HEARTBEAT_SAVED_INT _HEARTBEAT_SAVED_TERM _HEARTBEAT_SAVED_HUP
+  _HEARTBEAT_SAVED_INT=$(trap -p INT)
+  _HEARTBEAT_SAVED_TERM=$(trap -p TERM)
+  _HEARTBEAT_SAVED_HUP=$(trap -p HUP)
   started=$(date +%s)
   last_report=$started
   _start_capture_detached "$logfile" "$@"
   pid="$CAPTURE_DETACHED_PID"
-  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 130' INT
-  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 143' TERM
-  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 129' HUP
+  trap '_stop_process_group "$pid"; _heartbeat_restore_traps; exit 130' INT
+  trap '_stop_process_group "$pid"; _heartbeat_restore_traps; exit 143' TERM
+  trap '_stop_process_group "$pid"; _heartbeat_restore_traps; exit 129' HUP
+  _heartbeat_assert_armed "$label" "$logfile"
   # ONE loop and ONE cap test, polled every second. An earlier draft nested a
   # 60-tick inner loop inside an outer one and tested the cap in BOTH, which a
   # mutation battery showed was not merely redundant: it made two mutants
@@ -171,7 +216,7 @@ run_with_heartbeat() {
       echo "CAPTURE-STAGE-CAP: $label exceeded ${CAPTURE_STAGE_CAP}s and was stopped (exit 124)" \
         | tee -a "$logfile"
       _stop_process_group "$pid"
-      trap - INT TERM HUP
+      _heartbeat_restore_traps
       return 124
     fi
     if [ $(($(date +%s) - last_report)) -ge 60 ] && kill -0 "$pid" 2>/dev/null; then
@@ -181,6 +226,6 @@ run_with_heartbeat() {
   done
   wait "$pid"
   local command_exit=$?
-  trap - INT TERM HUP
+  _heartbeat_restore_traps
   return "$command_exit"
 }

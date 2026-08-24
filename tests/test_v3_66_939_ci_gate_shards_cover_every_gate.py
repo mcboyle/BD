@@ -92,6 +92,9 @@ _DECLARED = {
     # so nothing else in CI would have seen a regression of
     # scripts/lib/heartbeat.sh -- and capture is not CI.
     "tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py",
+    # @1209 extends the same contract to every OTHER detached launch site
+    # and to what the wrapper hands BACK to its caller.
+    "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",

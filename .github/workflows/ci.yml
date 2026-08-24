@@ -352,6 +352,7 @@ jobs:
           - name: capture-heartbeat-contract
             suites: >-
               tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py
+              tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py
               tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py
               tests/test_u45_capture_sh_shipped.py
           - name: jobs-determinism
