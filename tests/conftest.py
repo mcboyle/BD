@@ -1252,8 +1252,31 @@ def pytest_runtest_logstart(nodeid, location):
         # produced a 32-entry master chain.
         return
     worker_id = worker["workerid"] if worker else "main"
-    _run_context.note_file(_run_context_dir(config), worker_id,
-                           str(nodeid).split("::")[0])
+    directory = _run_context_dir(config)
+    _run_context.note_file(directory, worker_id, str(nodeid).split("::")[0])
+    # AND THE EXACT NODEID, so a worker that DIES here can be named. The chain
+    # above records the FILE and is deduped, which is right for replaying a
+    # worker's sequence and useless for attributing a death: on 2026-08-24 the
+    # chain named the file and that file held 51 candidate items. Written before
+    # the test runs and cleared when it finishes, so a marker that SURVIVES is
+    # itself the evidence.
+    _run_context.note_current(directory, worker_id, nodeid)
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    """Drop this worker's nodeid marker; the test finished, however it finished.
+
+    Without this every worker would still point at its last test after a clean
+    run, and "died here" would be indistinguishable from "finished here".
+    """
+    config = _BD_CONFIG
+    if config is None:
+        return
+    worker = getattr(config, "workerinput", None)
+    if worker is None and getattr(config.option, "numprocesses", None):
+        return
+    worker_id = worker["workerid"] if worker else "main"
+    _run_context.clear_current(_run_context_dir(config), worker_id)
 
 
 def _write_run_context(terminalreporter, config):
@@ -1292,3 +1315,13 @@ def _write_run_context(terminalreporter, config):
         write("  assignment: %s -- RECORDED, not pinned: --dist loadfile hands "
               "files to whichever worker is free, and nothing here changes that."
               % path.name)
+
+    # A MARKER THAT OUTLIVED ITS TEST NAMES A WORKER THAT DID NOT FINISH ONE.
+    # This is the line that would have ended the 2026-08-24 investigation in a
+    # sentence instead of a night. It prints only when there is something to say.
+    stranded = _run_context.read_current(directory)
+    if stranded:
+        write("  WORKER(S) DIED MID-TEST -- each was running exactly this when "
+              "it stopped:")
+        for worker_id in sorted(stranded):
+            write("    %s: %s" % (worker_id, stranded[worker_id]))

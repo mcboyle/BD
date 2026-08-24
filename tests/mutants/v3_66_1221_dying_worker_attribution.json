@@ -1,0 +1,50 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "v3.66.1221 row-234 battery: a worker that dies mid-test must leave the nodeid it was running, and a worker that FINISHES must not. The clearing mutant is the reason this spec exists as a tracked artifact -- the first version of its catcher was VACUOUS (one marker per worker, overwritten by every logstart, so a stale marker could never be observed mid-run) and the battery is what found that.",
+ "subject": "v3.66.1221 -- a dying xdist worker names the test it was running",
+ "band": [
+  "tests/test_v3_66_1221_a_dying_worker_names_its_test.py"
+ ],
+ "mutants": [
+  {
+   "label": "the marker is never written: logstart records only the file",
+   "file": "tests/conftest.py",
+   "old": "    _run_context.note_current(directory, worker_id, nodeid)",
+   "new": "    pass  # marker not written",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1221_a_dying_worker_names_its_test.py::test_a_test_can_read_its_own_marker_so_the_write_precedes_the_body"
+  },
+  {
+   "label": "the marker is never cleared, so a finished test looks like a death",
+   "file": "tests/conftest.py",
+   "old": "    _run_context.clear_current(_run_context_dir(config), worker_id)",
+   "new": "    pass  # never cleared",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1221_a_dying_worker_names_its_test.py::test_the_logfinish_hook_actually_removes_the_marker"
+  },
+  {
+   "label": "the write stops being atomic, so a reader can catch a fragment",
+   "file": "tests/_run_context.py",
+   "old": "    tmp = target.with_suffix(\".current.tmp\")\n    with open(tmp, \"w\", encoding=\"utf-8\") as fh:\n        fh.write(str(nodeid) + \"\\n\")\n        fh.flush()\n        os.fsync(fh.fileno())\n    os.replace(tmp, target)",
+   "new": "    with open(target, \"w\", encoding=\"utf-8\") as fh:\n        for _ch in str(nodeid) + \"\\n\":\n            fh.write(_ch)\n            fh.flush()",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1221_a_dying_worker_names_its_test.py::test_the_marker_is_never_readable_half_written"
+  },
+  {
+   "label": "the reader reports nothing, so a death is unattributable again",
+   "file": "tests/_run_context.py",
+   "old": "    for p in sorted(d.glob(\"*.current\")):",
+   "new": "    for p in []:",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1221_a_dying_worker_names_its_test.py::test_read_current_reports_a_stranded_marker_and_ignores_a_cleared_one"
+  },
+  {
+   "label": "the summary stops announcing a stranded worker",
+   "file": "tests/conftest.py",
+   "old": "    stranded = _run_context.read_current(directory)\n    if stranded:",
+   "new": "    stranded = _run_context.read_current(directory)\n    if False:",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1221_a_dying_worker_names_its_test.py::test_the_summary_actually_prints_the_stranded_worker"
+  }
+ ]
+}
