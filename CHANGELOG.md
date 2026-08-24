@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1215 - a wrapper must not silently alter its subject
+
+- Rows 226 and 227 are one contract seen twice. `bd-wedge-hunt` CARRIES a script
+  to a remote host and `bd-run` BOUNDS a command locally; both sat between a
+  caller and a subject and changed the subject in a way the caller could not
+  see. The shared defect is the SILENCE, not the mechanism -- and the two rows
+  get different honest answers because only one of them can be fixed.
+- ROW 226, FIXED. `ssh()` passed the whole generated script as the remote COMMAND
+  ARGV, so the REMOTE LOGIN SHELL interpreted it and this tool's behaviour
+  depended on whatever shell the remote account uses. Measured on test3 against a
+  real tcsh 6.24.10: the quoted heredoc delimiter was handled differently, so
+  `BDWEDGEEOF`, the background launch and the `echo LAUNCHED=` line were WRITTEN
+  INTO runner.sh instead of executed -- nothing launched, and the call still
+  returned rc=0 with empty output. The script now travels on stdin with the
+  remote command literally `bash -s`, which is the contract `bd-sweep-run:756`
+  already states and implements; this call site was the one place that did not
+  follow it. That tcsh run is NOT reproduced here (tcsh is not installed on the
+  integrator host) and the gate does not pretend otherwise: it asserts the
+  structural property that makes the remote shell irrelevant, which is row 226's
+  stated acceptance criterion.
+- ROW 227, DECLARED RATHER THAN FIXED, AND THAT IS THE FINDING. coreutils
+  `timeout` RESETS inherited signal dispositions before exec, so a subject under
+  `bd-run --max-seconds` cannot observe an ignore its parent held. Measured on
+  test5: parent SigIgn=0x1001007, the same command through `timeout` 0x1001000 --
+  bits 0,1,2, exactly HUP/INT/QUIT. `--foreground` and `-s TERM` were measured
+  too and erase it identically, so no mode of that tool preserves it.
+- WHY IT IS NOT FIXED. The alternative is bd-run owning the kill, and
+  `test_only_bd_gc_and_bd_jobs_hold_a_destructive_verb` deliberately forbids that
+  so these diagnostic tools stay safe to run when you do not yet know what is
+  wrong. Trading a visible, declared limitation for a destructive verb inside a
+  diagnostic tool is the worse bargain. bd-run now says it out loud in the log it
+  owns, naming exactly which signals were erased -- the CAPTURE-HEARTBEAT-UNARMED
+  idiom. This is live rather than theoretical: `bd-sweep-run:636` runs pytest
+  through this wrapper, so a whole-fleet suite was producing weaker signal
+  evidence than its own direct probes suggested.
+- THE PRESCRIBED WEDGE FIX WOULD HAVE HIT THIS. The xdist-wedge research
+  recommended making the sanctioned suite terminal by wrapping it in
+  `bd-run --max-seconds 5400`. That would have erased inherited dispositions for
+  the entire suite and silently defeated the foreground-signal contract cuts 1208
+  and 1209 established. Recorded so the wedge work starts from this measurement.
+- Seven controls, none of them timing-based: both halves of the transport shape
+  (argv is `bash -s` AND the script is absent from argv), the payload really
+  containing the quoted heredoc, the declaration being TRUE (the subject's own
+  mask is read from the same log and must differ in exactly the named bits), an
+  over-sensitivity control that must not cry wolf when nothing was ignored, an
+  uncapped control that must carry no declaration at all, a fail-closed control
+  where an unreadable mask reports every erasable signal rather than none, and a
+  check that the cap still returns 124.
+
 ## v3.66.1214 - adjudicate the last four gate-antipattern candidates
 
 - Rows 200, 201, 203 and 204 were the remainder of the gate-antipattern audit,

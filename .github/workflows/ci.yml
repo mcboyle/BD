@@ -321,6 +321,7 @@ jobs:
           - name: measurement-tools
             suites: >-
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
+              tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py
           - name: measurement-tools-core
             suites: >-
               tests/test_v3_66_1044_run_context_and_chains.py
