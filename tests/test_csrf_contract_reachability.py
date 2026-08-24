@@ -33,6 +33,13 @@ if and only if some reachable body can contain it. The same shape guards the
 403 hint: every endpoint the hint names is EXTRACTED from the hint and then
 CALLED, so the hint is proven by being followed rather than pinned by spelling.
 
+ROW 201 CLOSED THE SPELLING GAP BEHAVIOURALLY. The exact extracted step [3]
+program runs against two equal-length controlled GET / bodies that differ only
+in whether they carry the retired contract. Equal lengths keep the legitimate
+body-length diagnostic constant; a change in shipped output proves the step
+observes the contract regardless of concatenation, quote style, `chr()`, or a
+regex. The audit's computed spelling is a RED-first executable fixture.
+
 TWO CRY-WOLF FIXES THAT ARE LOAD-BEARING, both measured before they were made.
 (1) The "does the hint still push the client at HTML" arm must not trip on the
 bare substring "meta" -- the truthful wording "...returns the token and its
@@ -53,10 +60,14 @@ artifact from Vite source inputs.
 """
 from __future__ import annotations
 
+import io
 import os
 import re
+import subprocess
+import sys
 import tempfile
-from contextlib import ExitStack
+import types
+from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -90,6 +101,75 @@ def _step3_program() -> str:
         "the extracted block no longer requests GET / -- the anchor moved, and "
         "every assertion below would be made over the wrong text")
     return code
+
+
+def _step3_output(program: str, body: bytes) -> str:
+    """Run the extracted diagnostic against a controlled GET / response."""
+    class Headers:
+        @staticmethod
+        def getlist(_name):
+            return []
+
+    class Response:
+        status_code = 200
+        headers = Headers()
+
+        def __init__(self, data):
+            self.data = data
+
+        def get_data(self, as_text=False):
+            return self.data.decode() if as_text else self.data
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        @staticmethod
+        def get(path):
+            assert path == "/", f"step [3] requested an unexpected path: {path}"
+            return Response(body)
+
+    class App:
+        @staticmethod
+        def test_client():
+            return Client()
+
+    fake = types.ModuleType("bulk_downloader.app")
+    fake.app = App()
+    import bulk_downloader
+    missing = object()
+    previous_module = sys.modules.get("bulk_downloader.app", missing)
+    previous_attribute = getattr(bulk_downloader, "app", missing)
+    sys.modules["bulk_downloader.app"] = fake
+    bulk_downloader.app = fake
+    output = io.StringIO()
+    try:
+        with redirect_stdout(output):
+            exec(compile(program, "capture.sh step [3]", "exec"), {})
+    finally:
+        if previous_module is missing:
+            sys.modules.pop("bulk_downloader.app", None)
+        else:
+            sys.modules["bulk_downloader.app"] = previous_module
+        if previous_attribute is missing:
+            delattr(bulk_downloader, "app")
+        else:
+            bulk_downloader.app = previous_attribute
+    return output.getvalue()
+
+
+def _step3_observes_probe(program: str, probe: str) -> bool:
+    """Whether step [3]'s shipped output changes only with probe presence."""
+    encoded = probe.encode()
+    absent = b"prefix:" + (b"x" * len(encoded)) + b":suffix"
+    present = b"prefix:" + encoded + b":suffix"
+    assert len(absent) == len(present), (
+        "paired bodies differ in length, so the legitimate body-length "
+        "diagnostic would masquerade as a contract probe")
+    return _step3_output(program, absent) != _step3_output(program, present)
 
 
 def _root_bodies() -> dict[str, bytes]:
@@ -154,12 +234,37 @@ def test_step3_probes_only_contracts_the_root_can_actually_serve(probe):
     ok, why = _root_evidence_is_complete()
     assert ok, f"cannot establish what GET / can serve, so UNKNOWN and FAIL: {why}"
     reachable = _reachable(probe)
-    probed = probe in _step3_program()
+    probed = _step3_observes_probe(_step3_program(), probe)
     assert probed == bool(reachable), (
         f"capture.sh step [3] and the app disagree about {probe!r}: "
         f"probed={probed}, reachable branches={reachable} ({why}). "
         f"A probe no reachable body can satisfy is a constant, not a check; a "
         f"reachable contract nobody probes is an unwatched one.")
+
+
+def test_step3_probe_verdict_rejects_a_computed_spelling(tmp_path, monkeypatch):
+    """ROW 201 RED: a real computed probe must not escape literal matching."""
+    source = CAPTURE_SH.read_text(encoding="utf-8")
+    anchor = "   print('body length:', len(r.data))"
+    assert source.count(anchor) == 1, (
+        "the evasion was not planted exactly once; capture step [3] moved")
+    computed_probe = (
+        anchor + "\n"
+        "   print('computed meta probe:', "
+        "('<meta name=' + chr(34) + 'csrf-token' + chr(34)) "
+        "in r.data.decode())"
+    )
+    candidate = tmp_path / "capture.sh"
+    candidate.write_text(source.replace(anchor, computed_probe), encoding="utf-8")
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(candidate)], capture_output=True, text=True)
+    assert syntax.returncode == 0, syntax.stderr
+    monkeypatch.setattr(sys.modules[__name__], "CAPTURE_SH", candidate)
+    compile(_step3_program(), str(candidate), "exec")
+
+    with pytest.raises(AssertionError, match="disagree"):
+        test_step3_probes_only_contracts_the_root_can_actually_serve(META_PROBE)
 
 
 def test_csrf_403_hint_names_a_token_source_that_actually_works():

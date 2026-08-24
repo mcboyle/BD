@@ -46,6 +46,15 @@ anything about its spelling, which is also why it catches a defect no literal
 ban would (that arm tests `csrf-token`, a fragment that is legitimate in the
 X-CSRF-Token header name and so cannot be banned by spelling at all).
 
+THE TOOLS/ SOURCE HALF REMAINS AN EXPLICIT FLOOR. Arbitrary diagnostics have no
+common callable interface through which this test can supply paired root
+bodies. The floor strips Python comments, normalises case and whitespace, and
+recognises regex whitespace spellings such as `\\s+`; row 200's exact regex
+evasion is an executable two-sided fixture below. A computed, encoded, or
+dynamically supplied pattern remains outside this floor. If tools acquire a
+common probe interface, this arm must become behavioural rather than growing a
+list of source spellings.
+
 UNKNOWN IS A THIRD STATE: GET /'s 200 branch is measured only when a real built
 artifact exists. A clean source checkout measures its explicit not-built 503
 branch and does not certify a fabricated Vite stand-in.
@@ -100,6 +109,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tokenize
 from pathlib import Path
 
 from tools import _probe_lib
@@ -118,6 +128,10 @@ RETIRED_PROBES = (
     '<meta name="csrf-token"',
     "{{ csrf_token }}",
     "<!--CSRF_META-->",
+)
+
+_REGEX_WHITESPACE = re.compile(
+    r"\\s(?:[+*?]|\{\d+(?:,\d*)?\})?"
 )
 
 
@@ -178,6 +192,24 @@ def _rel(p: Path) -> str:
         return str(p)
 
 
+def _normalised_probe_source(text: str) -> str:
+    """Comment-free, case/whitespace-normalised Python source.
+
+    This remains a source-scan floor because tools/ diagnostics have no common
+    executable interface.  It deliberately recognises the ordinary regex
+    whitespace spellings (``\\s``, ``\\s+`` and bounded variants) that can
+    express the retired HTML probe without carrying its literal spelling.
+    Computed, encoded, or dynamically supplied patterns remain outside this
+    floor and must be handled by a behavioural contract if tools acquire a
+    common probe interface.
+    """
+    tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+    code = tokenize.untokenize(
+        token for token in tokens if token.type != tokenize.COMMENT)
+    code = _REGEX_WHITESPACE.sub(" ", code)
+    return re.sub(r"\s+", " ", code).casefold()
+
+
 def _scan_for_retired_probes(bodies: dict[str, bytes],
                              sources: list[Path]) -> list[str]:
     """Sources probing a RETIRED_PROBES literal that NO body in `bodies` carries.
@@ -190,13 +222,18 @@ def _scan_for_retired_probes(bodies: dict[str, bytes],
     escaped.
     """
     offenders: list[str] = []
+    normalised_sources = [
+        (p, _normalised_probe_source(
+            p.read_text(encoding="utf-8", errors="replace")))
+        for p in sources
+    ]
     for probe in RETIRED_PROBES:
         reachable = [k for k, b in bodies.items() if probe.encode() in b]
         if reachable:
             continue  # a real contract again; probing it is legitimate
-        for p in sources:
-            text = p.read_text(encoding="utf-8", errors="replace")
-            if probe in text:
+        normalised_probe = _normalised_probe_source(probe)
+        for p, text in normalised_sources:
+            if normalised_probe in text:
                 offenders.append(f"{_rel(p)} probes {probe!r}")
     return offenders
 
@@ -417,6 +454,33 @@ def test_the_retired_probe_scan_can_see_a_planted_offender():
             f"the scan reported {probe!r} as retired while a reachable body "
             "carries it. The contract is live again, so probing it is exactly "
             "what a tool should do -- this gate would be banning a spelling.")
+
+    # ROW 200 RED: this is the audit's natural evasion, not a hand-waved
+    # variant.  The regex really matches the retired HTML contract while its
+    # source contains no literal RETIRED_PROBES member.  The same predicate as
+    # the real verdict must still report it, and must spare it when the
+    # contract is reachable again.
+    regex_probe = RETIRED_PROBES[0]
+    planted.write_text(
+        "import re\n"
+        "MATCH = re.search(r'<meta\\s+name=\"csrf-token\"', body)\n",
+        encoding="utf-8",
+    )
+    assert re.search(
+        r'<meta\s+name="csrf-token"',
+        '<meta   name="csrf-token" content="token">',
+    ), "the evasion fixture's regex does not match the contract it claims to probe"
+
+    unreachable = {"dist-absent-503": b"<h1>installer</h1>"}
+    found = _scan_for_retired_probes(unreachable, sources)
+    assert [f for f in found if "planted_offender.py" in f], (
+        "the scan missed a regex spelling of the retired meta probe; the row "
+        f"200 evasion still reproduces. returned: {found}")
+
+    served = {"built-dist": regex_probe.encode() + b" is served again"}
+    assert not _scan_for_retired_probes(served, sources), (
+        "the regex spelling was reported after the probed contract became "
+        "reachable again; the biconditional direction was broken")
 
 
 def test_the_defect_grader_sees_exactly_the_grades_probe_lib_fails_on():
