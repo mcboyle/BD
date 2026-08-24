@@ -104,6 +104,10 @@ _DECLARED = {
     # exactly how a whole-fleet suite came to carry weaker signal evidence
     # than its own direct probes suggested.
     "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py",
+    # @1216. The frontend suite entered CI in this cut; this gate judges the
+    # CHECKER that gives that job a denominator, because `vitest run` exits 0
+    # over an empty collection and the job alone would go green over nothing.
+    "tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",

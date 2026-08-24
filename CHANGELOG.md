@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1216 - 499 frontend tests no pull request had ever been judged by
+
+- MEASURED BEFORE ANYTHING WAS CHANGED: the repository tracks 122 frontend spec
+  files containing 499 tests, all green in 14 seconds, and
+  `.github/workflows/ci.yml` contained no `setup-node`, no `npm ci` and no
+  `vitest` -- zero hits. They were not UNRUN; `vitest.config.ts` calls itself
+  "a sandbox-cut gate only" and `bd-cut:368` runs them before a deploy. They
+  were UN-CI'd, which means no pull request had ever been judged by them. That
+  is the "a gate CI does not run does not exist" class at a scale of 499.
+- WIRING THE JOB IN WOULD HAVE BEEN THE WRONG FIX ON ITS OWN, because
+  `vitest run` EXITS 0 WHEN IT COLLECTS NOTHING. An include pattern that stops
+  matching, a moved directory, a renamed extension -- each produces a PASSING CI
+  job over an empty denominator. The job alone buys the appearance of 499 tests
+  and the reality of whatever survived, which is worse than not adding it,
+  because it also buys confidence.
+- So the job emits `--reporter=json` and `tools/check_vitest_denominator.py`
+  reconciles the files vitest reported against `git ls-files`. The FILE count is
+  reconciled at run time rather than pinned, so it cannot go stale as specs are
+  added and a spec that fails to LOAD is caught too. The TEST count gets a floor
+  instead, because tests are written constantly and an exact pin would fail every
+  cut that adds one. Those are different questions and get different instruments.
+- A MISSING REPORT IS UNKNOWN (exit 2), NOT A PASS. If the vitest step dies
+  before writing its report, the checker must not read the absence as an empty
+  collection or as nothing to complain about.
+- THE CHECKER IS ITSELF TESTED, against each way the denominator can lie: an
+  empty collection, a single dropped file (named, not just counted), a test-count
+  collapse with every file still present, a failing test, and an unreadable
+  report. A checker nobody tests is a longer way to write `|| true`.
+- The workflow assertion is STRUCTURAL rather than a substring hunt: the steps
+  are parsed and their ORDER asserted, because a checker that ran before vitest
+  would judge a stale report and a vitest step with no checker after it is
+  exactly the hole this cut closes.
+- Carries a regression test for the measurement bug that nearly became this
+  gate's foundation: git's `src/**/*.test.ts` requires an intermediate
+  directory, so the two specs sitting directly in `src/` were silently excluded
+  and the first count read 120 against 122 real files. Both the bare and nested
+  glob shapes are now required, and a test fails if the bare shapes are dropped.
+
 ## v3.66.1215 - a wrapper must not silently alter its subject
 
 - Rows 226 and 227 are one contract seen twice. `bd-wedge-hunt` CARRIES a script
