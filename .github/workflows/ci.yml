@@ -233,6 +233,41 @@ jobs:
   #
   # Do not "fix" a slow shard by trimming its list. Every entry is a gate that
   # was RED somewhere nothing else could see; see the @850 note below.
+  frontend-vitest:
+    # 122 TRACKED SPEC FILES AND 499 TESTS THAT CI HAS NEVER RUN. vitest.config.ts
+    # calls itself "a sandbox-cut gate only" and bd-cut:368 runs it before a
+    # deploy, so these specs were not unrun -- they were UN-CI'd, which means no
+    # pull request has ever been judged by them. Measured 2026-08-24: the whole
+    # suite is green in 14 seconds, so the only reason it was not here is that
+    # nobody wired it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: vitest run
+        working-directory: frontend
+        # --reporter=json is not cosmetic: the denominator check below needs the
+        # per-file list, and `vitest run` alone EXITS 0 OVER AN EMPTY COLLECTION.
+        # Its exit code cannot distinguish "499 tests passed" from "nothing was
+        # collected", which is the whole reason the next step exists.
+        run: npx vitest run --reporter=json --outputFile=/tmp/vitest.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Every tracked spec file actually ran
+        # THE GATE THAT MAKES THE JOB ABOVE MEAN SOMETHING. It reconciles the
+        # files vitest reported against `git ls-files`, so a config change that
+        # silently stops matching fails here instead of going green over an
+        # empty denominator. A missing report is UNKNOWN (exit 2), not a pass.
+        run: python tools/check_vitest_denominator.py /tmp/vitest.json --root "$GITHUB_WORKSPACE"
+
   gate-suites:
     runs-on: ubuntu-latest
     # pytest-timeout runs inside pytest. This is the independent owner bound
@@ -321,6 +356,7 @@ jobs:
           - name: measurement-tools
             suites: >-
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
+              tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py
               tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py
           - name: measurement-tools-core
             suites: >-
