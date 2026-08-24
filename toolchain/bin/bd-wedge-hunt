@@ -2860,7 +2860,14 @@ if [[ ! "$PYTEST_GATE_PID" =~ ^[0-9]+$ \
     echo "REGISTER-GATE-SETUP-FAILED phase=coproc" > "$RUNDIR/jobid.err"
     registration_settle_setup "coproc-pid"
 fi
-echo "$PYTEST_PID" > "$RUNDIR/pytest.pid"
+W1_PYTEST_PID_TEMP="$RUNDIR/pytest.pid.tmp.$BASHPID"
+if ! builtin printf '%s\n' "$PYTEST_PID" > "$W1_PYTEST_PID_TEMP" \
+        || ! mv "$W1_PYTEST_PID_TEMP" "$RUNDIR/pytest.pid"; then
+    command rm -f -- "$W1_PYTEST_PID_TEMP"
+    echo "REGISTER-GATE-SETUP-FAILED phase=pytest-pid-publish" \
+        > "$RUNDIR/jobid.err"
+    registration_settle_setup "pytest-pid-publish"
+fi
 PYTEST_ORIGINAL_RECEIPT=""
 PYTEST_PGID="$PYTEST_GATE_PID"
 if [[ ! "$W1_GATE_READ_FD" =~ ^[0-9]+$ \

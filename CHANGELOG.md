@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1212 - a path that exists is not a path that has been written
+
+- Backlog row 222. `_w1_wait_for_path` proves a path EXISTS and nothing about
+  its CONTENT. Its writers publish with `write_text`, which opens O_CREAT
+  O_TRUNC and THEN writes, so a reader can win the gap and parse an empty file.
+  CI reproduced this on PR #476 -- a cut that touched neither the module nor
+  the tool -- as `ValueError: invalid literal for int() with base 10: ''`.
+- The same defect existed in PRODUCTION. `toolchain/bin/bd-wedge-hunt` published
+  the pytest pid with `echo "$PYTEST_PID" > "$RUNDIR/pytest.pid"`, which has the
+  identical create-then-write gap. It now writes a sibling temp and `mv`s it into
+  place, and a failure to publish settles the registration with its own
+  distinctive `phase=pytest-pid-publish` evidence rather than leaving a partial
+  target behind.
+- All 13 `_w1_wait_for_path` callers were swept. Ten wait on EVENT markers whose
+  content is never read and keep the existence wait. Three consumed content
+  unsafely and now publish atomically with `os.replace`: the descendant pid, the
+  gate-leader child marker, and the inherited-descriptor report. The last of
+  those mattered most quietly -- a transient empty read made a NEGATIVE
+  assertion pass for the wrong reason.
+- RED IS FORCED, NOT SAMPLED. `_w1_delay_path_write` installs a `sitecustomize`
+  shim that pauses `pathlib.Path.write_text` between the open and the payload
+  write and hands the test a FIFO barrier, so the create/write gap is held open
+  deterministically instead of being waited for. `_w1_delay_shell_publish` and
+  `_w1_fail_shell_publish` do the same for the shell publisher. Four sites carry
+  such a control.
+- ONE MORE OF THE SAME SHAPE, ONE LEVEL UP, FOUND BY CI ON THIS CUT'S OWN
+  CANDIDATE. `_w1_wait_for_gate` proves a PARSEABLE PID and a LIVE GROUP; it
+  does not prove the gate finished installing its descriptors, and
+  `test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd` then
+  read `/proc/<pid>/fd/3` directly. That was LATENT UNTIL THE PUBLICATION
+  BECAME ATOMIC: the old `echo > pytest.pid` created the file and wrote it in
+  two steps, so the waiter's `.isdigit()` guard rejected the empty file and
+  slept another tick, and that accidental delay was load-bearing. Publishing
+  atomically hands the reader a gate that may not have got there yet, measured
+  on CI as `FileNotFoundError: /proc/<pid>/fd/3`. The fix is the missing
+  assertion, not a sleep: `_w1_readlink_when_installed` waits for the
+  descriptor, refuses a gate that exited, and names which of the two it saw.
+- Module denominator 146 -> 148 nodes.
+
 ## v3.66.1211 - a tombstone gate must survive an assembled literal
 
 - Backlog rows 190, 195, 205, 206, 207, 209 and 210 named seven RETIREMENT
