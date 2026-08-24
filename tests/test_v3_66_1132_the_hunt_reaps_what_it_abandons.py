@@ -1419,8 +1419,11 @@ def _w1_fake_home(tmp_path, *, code: int, stdout: str = "", sleep: float = 0.0):
         "            rows.append(item.name + '=' + os.readlink(item))\n"
         "        except OSError:\n"
         "            pass\n"
-        "    pathlib.Path(fd_report).write_text('\\n'.join(rows) + '\\n', "
-        "encoding='utf-8')\n"
+        "    fd_report_path = pathlib.Path(fd_report)\n"
+        "    fd_report_temp = fd_report_path.with_name(\n"
+        "        fd_report_path.name + '.tmp.%d' % os.getpid())\n"
+        "    fd_report_temp.write_text('\\n'.join(rows) + '\\n', encoding='utf-8')\n"
+        "    os.replace(fd_report_temp, fd_report_path)\n"
         "sys.stderr.write({marker!r} + ' ' + ' '.join(sys.argv[1:]) + '\\n')\n"
         "sys.stderr.flush()\n"
         "time.sleep({sleep!r})\n"
@@ -2216,6 +2219,89 @@ def _w1_wait_for_path(path: pathlib.Path, *, timeout=5.0) -> None:
     assert path.exists(), f"timed out waiting for fixture marker {path}"
 
 
+def _w1_delay_path_write(tmp_path, target: pathlib.Path):
+    """Pause a real Path.write_text after open but before its payload write."""
+    entered, release, entered_fd = _w1_fifo_barrier(
+        tmp_path, "delayed-path-write")
+    shim = tmp_path / "delayed-path-write-shim"
+    shim.mkdir()
+    (shim / "sitecustomize.py").write_text(
+        "import pathlib\n"
+        "_target = %r\n"
+        "_entered = %r\n"
+        "_release = %r\n"
+        "_original_write_text = pathlib.Path.write_text\n"
+        "def _delayed_write_text(self, data, encoding=None, errors=None, newline=None):\n"
+        "    candidate = str(self)\n"
+        "    if candidate == _target or candidate.startswith(_target + '.tmp.'):\n"
+        "        with self.open('w', encoding=encoding, errors=errors, newline=newline) as stream:\n"
+        "            with open(_entered, 'w', encoding='ascii') as marker:\n"
+        "                marker.write('payload-write-opened\\n')\n"
+        "            with open(_release, 'r', encoding='ascii') as barrier:\n"
+        "                barrier.readline()\n"
+        "            return stream.write(data)\n"
+        "    return _original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)\n"
+        "pathlib.Path.write_text = _delayed_write_text\n" % (
+            str(target), str(entered), str(release)),
+        encoding="utf-8",
+    )
+    return shim, entered_fd, release
+
+
+def _w1_prepend_pythonpath(env, path: pathlib.Path) -> None:
+    inherited = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(path) + (
+        os.pathsep + inherited if inherited else "")
+
+
+def _w1_delay_shell_publish(tmp_path, target: pathlib.Path):
+    """Pause old redirection or new rename at the same publication boundary."""
+    entered, release, entered_fd = _w1_fifo_barrier(
+        tmp_path, "delayed-shell-publish")
+    bash_env = tmp_path / "delayed-shell-publish.bash"
+    bash_env.write_text(
+        "_w1_test_hold_publish() {\n"
+        "    builtin printf 'publish-boundary-entered\\n' > %s\n"
+        "    IFS= read -r W1_TEST_PUBLISH_RELEASED < %s\n"
+        "}\n"
+        "echo() {\n"
+        "    if [ \"/proc/$$/fd/1\" -ef %s ]; then\n"
+        "        _w1_test_hold_publish\n"
+        "    fi\n"
+        "    builtin echo \"$@\"\n"
+        "}\n"
+        "mv() {\n"
+        "    local W1_TEST_LAST_ARG=${!#}\n"
+        "    if [ \"$W1_TEST_LAST_ARG\" = %s ]; then\n"
+        "        _w1_test_hold_publish\n"
+        "    fi\n"
+        "    command mv \"$@\"\n"
+        "}\n"
+        "export -f _w1_test_hold_publish echo mv\n" % (
+            shlex.quote(str(entered)), shlex.quote(str(release)),
+            shlex.quote(str(target)), shlex.quote(str(target))),
+        encoding="utf-8",
+    )
+    return bash_env, entered_fd, release
+
+
+def _w1_fail_shell_publish(tmp_path, target: pathlib.Path):
+    """Fail only the rename that would publish the selected target."""
+    bash_env = tmp_path / "fail-shell-publish.bash"
+    bash_env.write_text(
+        "mv() {\n"
+        "    local W1_TEST_LAST_ARG=${!#}\n"
+        "    if [ \"$W1_TEST_LAST_ARG\" = %s ]; then\n"
+        "        return 73\n"
+        "    fi\n"
+        "    command mv \"$@\"\n"
+        "}\n"
+        "export -f mv\n" % shlex.quote(str(target)),
+        encoding="utf-8",
+    )
+    return bash_env
+
+
 def _w1_fifo_barrier(tmp_path, name: str):
     """Create a scheduler-independent entered/release handshake."""
     entered = tmp_path / (name + "-entered")
@@ -2699,6 +2785,8 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
         tmp_path, "descendant-terminal-owner-ready")
     owner_pid_path = tmp_path / "descendant-terminal-owner.pid"
     descendant_pid_path = tmp_path / "terminal-owner-descendant.pid"
+    write_shim, payload_entered_fd, payload_release = _w1_delay_path_write(
+        tmp_path, descendant_pid_path)
     marker = tmp_path / "workload-started"
     print_anchor = 'print("S:" + state)\n'
     assert mod.REGISTRATION_CHANNEL_READER_PROGRAM.count(print_anchor) == 1
@@ -2707,7 +2795,11 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
         "    child = os.fork()\n"
         "    if child == 0:\n"
         "        import pathlib, signal\n"
-        "        pathlib.Path(%r).write_text(str(os.getpid()), encoding='ascii')\n"
+        "        descendant_pid_path = pathlib.Path(%r)\n"
+        "        descendant_pid_temp = descendant_pid_path.with_name(\n"
+        "            descendant_pid_path.name + '.tmp.%%d' %% os.getpid())\n"
+        "        descendant_pid_temp.write_text(str(os.getpid()), encoding='ascii')\n"
+        "        os.replace(descendant_pid_temp, descendant_pid_path)\n"
         "        for inherited_fd in (0, 1, 2):\n"
         "            try:\n"
         "                os.close(inherited_fd)\n"
@@ -2729,6 +2821,7 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
+    _w1_prepend_pythonpath(env, write_shim)
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -2737,6 +2830,12 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
     try:
         assert _w1_await_fifo(entered_fd) == "owner-ready-read\n"
         owner_pid = int(owner_pid_path.read_text(encoding="ascii"))
+        assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
+        try:
+            assert not descendant_pid_path.exists(), (
+                "descendant pid became visible before its payload was complete")
+        finally:
+            _w1_release_fifo(payload_release)
         _w1_wait_for_path(descendant_pid_path)
         descendant_pid = int(descendant_pid_path.read_text(encoding="ascii"))
         assert _w1_pid_is_live(descendant_pid)
@@ -2768,6 +2867,7 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
         assert not marker.exists()
     finally:
         os.close(entered_fd)
+        os.close(payload_entered_fd)
         if owner_pid > 0:
             _w1_kill_group(owner_pid)
         if proc.poll() is None:
@@ -3127,6 +3227,8 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
     mod = _load()
     marker = tmp_path / "workload-started"
     child_marker = tmp_path / "gate-child"
+    write_shim, payload_entered_fd, payload_release = _w1_delay_path_write(
+        tmp_path, child_marker)
     gate_post_setsid = tmp_path / "gate-post-setsid"
     os.mkfifo(gate_post_setsid)
     gate_program = (
@@ -3144,7 +3246,11 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
         "if child == 0:\n"
         "    os.close(ready_read)\n"
         "    os.close(3)\n"
-        "    pathlib.Path(%r).write_text(str(os.getpid()))\n"
+        "    child_marker = pathlib.Path(%r)\n"
+        "    child_marker_temp = child_marker.with_name(\n"
+        "        child_marker.name + '.tmp.%%d' %% os.getpid())\n"
+        "    child_marker_temp.write_text(str(os.getpid()))\n"
+        "    os.replace(child_marker_temp, child_marker)\n"
         "    os.write(ready_write, b'1')\n"
         "    os.close(ready_write)\n"
         "    time.sleep(30)\n"
@@ -3166,12 +3272,19 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
+    _w1_prepend_pythonpath(env, write_shim)
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
+        assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
+        try:
+            assert not child_marker.exists(), (
+                "gate-child pid became visible before its payload was complete")
+        finally:
+            _w1_release_fifo(payload_release)
         assert proc.wait(timeout=6) == int(W1_RETAINED_FAILURE_CODE)
         _w1_wait_for_path(child_marker)
         child_pid = int(child_marker.read_text().strip())
@@ -3181,6 +3294,7 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
         assert "group=PRESENT" in err and "wait=0" in err
         assert (rundir / "exitcode").read_text().strip() == W1_RETAINED_FAILURE_CODE
     finally:
+        os.close(payload_entered_fd)
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
@@ -4696,9 +4810,13 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
         reap_seconds=1, gate_program=gate_program,
         monotonic_samples=[10_000_000, 9_000_000, 8_000_000],
     )
+    pytest_pid_path = rundir / "pytest.pid"
+    bash_env, publish_entered_fd, publish_release = _w1_delay_shell_publish(
+        tmp_path, pytest_pid_path)
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-4242\n"))
+    env["BASH_ENV"] = str(bash_env)
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -4710,8 +4828,15 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
         # scheduler-delayed test process can observe it live.  Its durable PID
         # is the non-racy proof that the real gate existed; post-exit absence
         # proves the rollback path did not abandon the owned group.
-        _w1_wait_for_path(rundir / "pytest.pid")
-        gate_pid = int((rundir / "pytest.pid").read_text().strip())
+        assert _w1_await_fifo(publish_entered_fd) == (
+            "publish-boundary-entered\n")
+        try:
+            assert not pytest_pid_path.exists(), (
+                "pytest pid became visible before its payload was complete")
+        finally:
+            _w1_release_fifo(publish_release)
+        _w1_wait_for_path(pytest_pid_path)
+        gate_pid = int(pytest_pid_path.read_text().strip())
         rc = proc.wait(timeout=5)
         assert not marker.exists()
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -4721,6 +4846,7 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
         assert rc in {
             int(W1_RETAINED_FAILURE_CODE), int(W1_RELEASE_FAILURE_CODE)}
     finally:
+        os.close(publish_entered_fd)
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
@@ -5227,6 +5353,8 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
     mod = _load()
     marker = tmp_path / "workload-started"
     fd_report = tmp_path / "registrar-fds"
+    write_shim, payload_entered_fd, payload_release = _w1_delay_path_write(
+        tmp_path, fd_report)
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
@@ -5235,6 +5363,7 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=1.0))
     env["W1_REGISTRAR_FD_REPORT"] = str(fd_report)
+    _w1_prepend_pythonpath(env, write_shim)
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -5245,6 +5374,12 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         status_pipe = os.readlink("/proc/%d/fd/3" % gate_pid)
         assert release_pipe.startswith("pipe:[")
         assert status_pipe.startswith("pipe:[")
+        assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
+        try:
+            assert not fd_report.exists(), (
+                "registrar fd report became visible before its payload was complete")
+        finally:
+            _w1_release_fifo(payload_release)
         _w1_wait_for_path(fd_report)
         inherited = fd_report.read_text(encoding="utf-8")
         assert release_pipe not in inherited and status_pipe not in inherited
@@ -5255,10 +5390,42 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
             "production created a pathname control endpoint")
         assert rc == int(W1_RUNNER_FAILURE_CODE)
     finally:
+        os.close(payload_entered_fd)
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
+
+
+def test_pytest_pid_publish_failure_is_settled_without_partial_target(tmp_path):
+    """A failed rename cannot publish partial authority or continue the run."""
+    mod = _load()
+    marker = tmp_path / "workload-started"
+    script, rundir = _w1_build_runner(
+        mod, tmp_path,
+        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
+        reap_seconds=3,
+    )
+    pytest_pid_path = rundir / "pytest.pid"
+    bash_env = _w1_fail_shell_publish(tmp_path, pytest_pid_path)
+    env = dict(os.environ)
+    env["HOME"] = str(_w1_fake_home(
+        tmp_path, code=0, stdout="stubhost-4242\n"))
+    env["BASH_ENV"] = str(bash_env)
+
+    result = subprocess.run(
+        ["bash", str(script)], env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+
+    evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
+    assert "REGISTER-GATE-SETUP-FAILED phase=pytest-pid-publish" in evidence
+    assert "context=pytest-pid-publish" in evidence
+    assert not pytest_pid_path.exists()
+    assert not list(rundir.glob("pytest.pid.tmp.*"))
+    assert not marker.exists()
+    expected = {W1_SETUP_FAILURE_CODE, W1_RETAINED_FAILURE_CODE}
+    assert (rundir / "exitcode").read_text().strip() in expected
+    assert result.returncode in {int(code) for code in expected}
 
 
 @pytest.mark.parametrize(("missing_fd", "missing_pid", "expected"), [
