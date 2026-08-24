@@ -383,6 +383,79 @@ def test_bd_jobs_diff_does_not_trust_a_log_outside_the_registry(tmp_path):
         entry.name]
 
 
+# ── the tool-state gate's measured budgets ───────────────────────────────────
+#
+# WHY THESE NUMBERS EXIST AT ALL. This gate runs a NESTED pytest, and a nested
+# pytest inside an item that pytest-timeout is bounding is a budget problem, not
+# a style problem. Run as ONE subprocess over all four suites it measured 221s
+# on a FULLY IDLE test5 against the sanctioned `--timeout=240` -- and that 240
+# covers setup and teardown too, because pytest-timeout's `func_only` defaults
+# to False. Nineteen seconds of headroom with zero competition, and none at all
+# under 24-worker contention.
+#
+# On 2026-08-24 that is exactly what happened: the item crossed 240s, and
+# `--timeout-method=thread` responded by writing its whole diagnostic to the
+# worker's stdout -- which xdist points at /dev/null -- and calling os._exit(1).
+# The worker died with wait status 256, execnet reported "Not properly
+# terminated", and the session then livelocked in the drain for 19 minutes.
+# Full chain: fleet-run-artifacts/2026-08-24/xdist-wedge/FINDING.md, and the
+# xdist side is written up in upstream/xdist-drain-livelock/README.md.
+#
+# MEASURED per suite, one subprocess each, idle test5, v3.66.1218:
+_SUITE_BASELINE_S = {
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py": 168,   # 51 tests
+    "tests/test_v3_66_1040_remote_job_registry.py": 50,            # 364 tests
+    "tests/test_v3_66_1044_run_context_and_chains.py": 2,          # 11 tests
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 7,  # 6
+}
+
+# The stretch a suite may suffer from sibling workers before its budget fires.
+# NOT a guess dressed as a constant: the 2026-08-24 wedge needed only 221 -> 240,
+# a factor of 1.09, so anything at or below ~1.1 reproduces the defect. 2.0 is
+# the smallest round factor that leaves the worst suite (168s) unable to fire on
+# healthy work while still bounding a genuine hang in minutes rather than hours.
+_CONTENTION_FACTOR = 2.0
+
+# Room for this item's own setup, teardown and reporting ON TOP of the inner
+# budget, because the item bound covers all three and the inner one does not.
+_ITEM_RESERVE_S = 30
+
+# A floor, so a suite that measures near zero still tolerates a cold start.
+_MIN_INNER_BUDGET_S = 60
+
+
+def _inner_budget_s(suite):
+    """The subprocess budget for one suite -- ALWAYS below its item bound."""
+    return max(_MIN_INNER_BUDGET_S,
+               int(_SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR))
+
+
+def _item_timeout_s(suite):
+    """The pytest-timeout bound governing this suite's item.
+
+    Set EXPLICITLY per suite rather than inherited from the command line, so the
+    relationship the gate depends on -- inner budget strictly below the bound
+    that governs it -- is expressed in one place and asserted by
+    test_every_suite_budget_is_below_the_bound_that_governs_it. An item whose
+    inner budget can never fire has an unreachable error path and kills its
+    worker instead of failing; that is the defect this replaces.
+    """
+    return _inner_budget_s(suite) + _ITEM_RESERVE_S
+
+
+# The suite the monkeypatched controls below drive. They fake subprocess.run,
+# so WHICH suite is irrelevant to what they prove -- but naming it beats an
+# index, and asserting it is in the denominator keeps the controls from drifting
+# onto a suite this gate no longer runs.
+_A_SUITE = "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py"
+
+
+def _tool_state_suite_params():
+    return [pytest.param(s, marks=pytest.mark.timeout(_item_timeout_s(s)),
+                         id=s.rsplit("/", 1)[-1][:-3])
+            for s in _SUITE_BASELINE_S]
+
+
 def test_the_tool_state_gate_calls_the_bd_jobs_attribution_helper():
     """Structural wiring floor paired with behavioral controls above.
 
@@ -421,13 +494,20 @@ def test_the_tool_state_gate_denominator_includes_the_real_bd_jobs_writer():
     """1054 is the one in-band test that really registers and reaps a job.
     Leaving it outside this denominator would make the leak gate claim a wider
     writer surface than it executes."""
-    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
-    target = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
-                  and n.name ==
-                  "test_the_tool_suites_do_not_write_the_real_tool_state_directories")
-    literals = {n.value for n in ast.walk(target)
-                if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-    assert "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py" in literals
+    # READ THE DENOMINATOR WHERE IT NOW LIVES. v3.66.1219 split this gate to one
+    # suite per item, so the suite list moved out of the function body and into
+    # `_SUITE_BASELINE_S`. Walking the function for a literal would now find
+    # nothing and pass vacuously -- the exact fail-open this file exists to
+    # prevent -- so the constant is read directly and its size is asserted too.
+    assert len(_SUITE_BASELINE_S) >= 4, (
+        "the tool-state denominator shrank to %d suites; a smaller denominator "
+        "is a weaker claim, not a faster gate" % len(_SUITE_BASELINE_S))
+    assert ("tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py"
+            in _SUITE_BASELINE_S), (
+        "1054 is the one in-band suite that really registers and reaps a job; "
+        "without it this gate claims a wider writer surface than it executes")
+    assert _A_SUITE in _SUITE_BASELINE_S, (
+        "the controls drive a suite this gate no longer runs")
 
 
 def test_the_tool_state_gate_rejects_a_failed_inner_run_even_with_passes(
@@ -450,7 +530,8 @@ def test_the_tool_state_gate_rejects_a_failed_inner_run_even_with_passes(
 
     monkeypatch.setattr(subprocess, "run", mixed_result)
     with pytest.raises(AssertionError, match="inner pytest failed"):
-        test_the_tool_suites_do_not_write_the_real_tool_state_directories()
+        test_the_tool_suites_do_not_write_the_real_tool_state_directories(
+            _A_SUITE)
 
 
 def test_the_tool_state_gate_propagates_and_grades_the_same_marker(
@@ -474,10 +555,78 @@ def test_the_tool_state_gate_propagates_and_grades_the_same_marker(
 
     monkeypatch.setattr(subprocess, "run", marked_leak)
     with pytest.raises(AssertionError, match="added entries to real tool state"):
-        test_the_tool_suites_do_not_write_the_real_tool_state_directories()
+        test_the_tool_suites_do_not_write_the_real_tool_state_directories(
+            _A_SUITE)
 
 
-def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
+def test_every_suite_budget_is_below_the_bound_that_governs_it():
+    """THE CONTRACT, and the whole reason this gate was rewritten.
+
+    An inner subprocess budget that exceeds the pytest-timeout bound governing
+    its own item can never fire. Its `except subprocess.TimeoutExpired` is dead
+    code, and what happens instead is that pytest-timeout kills the WORKER --
+    which under `--timeout-method=thread` means os._exit(1) after writing its
+    diagnostic to a stdout xdist has pointed at /dev/null. A killed worker is
+    then capable of livelocking the whole session during the drain
+    (upstream/xdist-drain-livelock/README.md).
+
+    So the ordering is asserted, per suite, rather than left to whoever edits a
+    constant next. This is backlog row 230's acceptance criterion applied where
+    the defect actually fired.
+    """
+    assert _SUITE_BASELINE_S, "the budget denominator is empty"
+    for suite in _SUITE_BASELINE_S:
+        inner = _inner_budget_s(suite)
+        item = _item_timeout_s(suite)
+        assert inner < item, (
+            "%s: inner budget %ds is not below its item bound %ds, so the "
+            "inner timeout can never fire and the worker dies instead"
+            % (suite, inner, item))
+        assert item - inner >= _ITEM_RESERVE_S, (
+            "%s: only %ds separates the inner budget from the item bound, "
+            "which is less than the reserve this item's own setup and teardown "
+            "need" % (suite, item - inner))
+
+
+def test_no_suite_budget_can_fire_on_healthy_work():
+    """OVER-SENSITIVITY CONTROL. A bound low enough to fire on a correct run is
+    a soundness bug, not a safe default (CLAUDE.md A5), and it is the failure
+    row 230 names explicitly: "do NOT simply raise the numbers" cuts both ways.
+
+    Every budget must clear its MEASURED baseline by a real margin, so the only
+    way to make one fire is for the suite to become genuinely slower or hang.
+    """
+    for suite, baseline in _SUITE_BASELINE_S.items():
+        inner = _inner_budget_s(suite)
+        assert inner >= baseline * 1.5, (
+            "%s: budget %ds is under 1.5x its measured baseline %ds, so "
+            "ordinary contention would fail a correct suite"
+            % (suite, inner, baseline))
+    assert _CONTENTION_FACTOR > 1.1, (
+        "the 2026-08-24 wedge needed only a 1.09x stretch (221s against a 240s "
+        "bound), so a contention factor at or below that reproduces it")
+
+
+def test_the_baselines_are_measurements_not_placeholders():
+    """A baseline table nobody measured is a guess with a docstring.
+
+    Each entry must be positive and distinct enough to show someone timed the
+    suites separately rather than filling the column with one number.
+    """
+    values = list(_SUITE_BASELINE_S.values())
+    assert all(v > 0 for v in values), _SUITE_BASELINE_S
+    assert len(set(values)) >= 3, (
+        "the baselines are nearly all the same value (%r), which is what a "
+        "placeholder looks like; measure the suites one at a time"
+        % (_SUITE_BASELINE_S,))
+    assert max(values) < 240, (
+        "a suite baseline of %ds already meets the sanctioned per-item bound "
+        "on an IDLE host, so splitting further -- not a bigger budget -- is "
+        "the fix" % max(values))
+
+
+@pytest.mark.parametrize("suite", _tool_state_suite_params())
+def test_the_tool_suites_do_not_write_the_real_tool_state_directories(suite):
     """410 JUNK ENTRIES, one per run per worker, in the registry whose whole
     job is telling you what is actually running.
 
@@ -486,17 +635,22 @@ def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
     when all of it is test residue, and it took an unrelated bd-fleet run to
     notice.
 
-    DENOMINATOR: the tool suites, named here, run in one subprocess. Not the
-    whole tree -- that would be a five-minute gate -- and these are the files
-    that touch the tools that own those directories.  1054 is included because
-    it is the one in-band suite that really registers and reaps a job.
+    DENOMINATOR: the tool suites, named in `_SUITE_BASELINE_S`. Not the whole
+    tree -- that would be a five-minute gate -- and these are the files that
+    touch the tools that own those directories. 1054 is included because it is
+    the one in-band suite that really registers and reaps a job.
+
+    ONE SUITE PER ITEM, and that is a budget decision rather than a style one.
+    All four in a single nested pytest measured 221s on an idle host against a
+    240s item bound, which is how this gate killed an xdist worker and
+    livelocked the session on 2026-08-24. Split, the worst suite is 168s under
+    a bound derived from its own measured baseline. The property under test is
+    unchanged -- no suite may add entries to real tool state -- and per-suite
+    attribution is strictly better, because a failure now names WHICH suite
+    dirtied the directory instead of only that one of four did.
     """
-    suites = ["tests/test_v3_66_1043_measurement_and_fleet_tools.py",
-              "tests/test_v3_66_1040_remote_job_registry.py",
-              "tests/test_v3_66_1044_run_context_and_chains.py",
-              "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py"]
-    for rel in suites:
-        assert (_REPO / rel).is_file(), "%s is missing from the denominator" % rel
+    assert (_REPO / suite).is_file(), (
+        "%s is missing from the denominator" % suite)
 
     def snapshot():
         out = {}
@@ -510,11 +664,31 @@ def test_the_tool_suites_do_not_write_the_real_tool_state_directories():
     env = dict(os.environ, BD_DISABLE_KEEPALIVE="1", NO_COLOR="1",
                BD_NESTED_PYTEST="1", BD_JOBS_RUN_MARKER=run_marker)
     env.pop("FORCE_COLOR", None)
-    r = subprocess.run([sys.executable, "-m", "pytest", *suites, "-q",
+    started = time.monotonic()
+    r = subprocess.run([sys.executable, "-m", "pytest", suite, "-q",
                         "-p", "no:randomly"],
-                       capture_output=True, text=True, timeout=600,
+                       capture_output=True, text=True,
+                       timeout=_inner_budget_s(suite),
                        cwd=str(_REPO), env=env)
+    elapsed = time.monotonic() - started
     after = snapshot()
+
+    # THE BASELINE POLICES ITSELF, because nothing else can police it. The fast
+    # gates above compare the baselines to EACH OTHER, which a mutation battery
+    # showed is not a constraint: restating 1043's 168s as 7s left them all
+    # green while shrinking its budget to the 60s floor -- an over-sensitive
+    # bound that would fail a correct suite, which CLAUDE.md A5 counts as a
+    # soundness bug. Only the run itself knows how long the run takes, so it
+    # says so here. This also catches the slow drift that created the defect in
+    # the first place: the gate reached 221s against a 240s bound one suite at
+    # a time, and nothing ever announced it.
+    assert elapsed <= _SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR, (
+        "%s took %.1fs against a recorded baseline of %ds. Either the recorded "
+        "baseline is wrong -- in which case its budget is wrong too and this "
+        "gate is one contended run from firing on correct work -- or the suite "
+        "genuinely grew. Re-measure it on an idle host and update "
+        "_SUITE_BASELINE_S; do not simply widen _CONTENTION_FACTOR."
+        % (suite, elapsed, _SUITE_BASELINE_S[suite]))
 
     assert r.returncode == 0, (
         "inner pytest failed, so its state evidence is not a valid completed "
