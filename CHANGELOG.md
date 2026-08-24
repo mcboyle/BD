@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1213 - a census that forks counts its own instrument
+
+- Backlog row 231. `_w1_live_in_group` answered "which live pids share this
+  process group" by forking `ps -eo pgid=,pid=,stat=` -- a dump of the WHOLE
+  process table -- from inside `_w1_wait_for_gate`'s 10ms polling loop. It had
+  two independent defects and one change fixes both.
+- IT COUNTED ITS OWN INSTRUMENT. `subprocess.run` puts the `ps` child in the
+  CALLER'S process group, so censusing a group containing the caller returned
+  the caller PLUS the `ps` doing the counting -- a pid already gone by the time
+  the caller read the list. Reproduced exactly at 852 processes: the forking
+  form returned `['1640295', '1640296']` where 1640295 was the caller and
+  1640296 was the `ps` itself; the /proc form returned `['1640295']`. That is a
+  correctness bug however fast it runs, and it is the A7 shape -- an instrument
+  inside its own denominator.
+- ITS COST ALSO SCALED WITH THE HOST RATHER THAN THE SUBJECT. Measured on test5
+  at 852 processes: 114.9 ms per call forking `ps` against 40.4 ms reading
+  /proc, and `_w1_wait_for_gate` paid it every 10 ms for processes with nothing
+  to do with the test.
+- WHAT THIS DOES NOT CLAIM, because it was measured and did not hold. This
+  module takes 414-431s on test5 and 97-119s on a 4-core CI runner carrying
+  ~100 processes, and the census looked like the explanation. It is not: after
+  this change the module's wall time did not materially move, so the census was
+  not the dominant cost. Two candidate causes were tested and REFUTED --
+  `BD_DISABLE_KEEPALIVE=1` changed nothing (7.15s vs 6.86s on one node, and CI
+  does not set it at all), and host process-table size does not account for the
+  remainder. A `-v` run shows the shape the dot stream hid: the first 71 nodes
+  complete in ~55s and the rest are far slower, so the cost is concentrated in
+  specific registration nodes, not spread across the file. Naming them is row
+  231's remaining work; this cut ships the correctness half and the per-call
+  measurement, and claims nothing further.
+- The census now reads /proc in-process, anchoring the comm split on the LAST
+  ')' because a command name may contain spaces and parentheses. The RESULT is
+  unchanged: same pgid, zombies excluded, pids as strings.
+- `_w1_group_has_at_least` is a separate leader-first PRESENCE probe that stops
+  at the threshold, so a poll that finds nothing costs one /proc walk instead of
+  a fork. It is deliberately a different function rather than an early-exit flag:
+  five callers read the complete list, and every absence assertion in the file
+  needs the complete census. A truncated list is a different answer, not a
+  faster one, and the probe's docstring says so.
+- RED IS FORCED, NOT TIMED. One control bans `subprocess.run`, `Popen` and
+  `os.popen` outright while the census runs, so a rewrite back to `ps` fails for
+  its own reason with no timing measurement involved. A second control asserts
+  the census never reports a pid that has already vanished -- which is exactly
+  what counting a forked instrument looks like, and is the assertion the mutant
+  fails. A third proves the cheap probe and the complete census agree on the
+  threshold question in both directions, including on a group that is gone.
+
 ## v3.66.1212 - a path that exists is not a path that has been written
 
 - Backlog row 222. `_w1_wait_for_path` proves a path EXISTS and nothing about
