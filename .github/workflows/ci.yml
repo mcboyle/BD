@@ -317,6 +317,7 @@ jobs:
               tests/test_v3_66_1157_build_output_is_from_this_attempt.py
           - name: parity-graph
             suites: >-
+              tests/test_v3_66_1217_a_fixture_is_not_wiring.py
               tests/test_gui_parity.py
               tests/test_t1_dashboard_wired.py
               tests/test_t2_history_wired.py

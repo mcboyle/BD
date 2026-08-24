@@ -672,6 +672,31 @@ def _resolve_dynamic_dispatchers(txt, eps, method_eps=None):
                     method_eps.add((meth, synth))
 
 
+_TEST_FILE_RE = re.compile(r"\.(test|spec)\.tsx?$")
+
+
+def _is_spa_source(path) -> bool:
+    """True for PRODUCT source, False for a test/spec file.
+
+    THE SCANNER'S POPULATION IS ITS DENOMINATOR. ``_spa_wiring`` is the evidence
+    that the SPA actually wires an endpoint, and a *.test.tsx / *.spec.tsx file
+    is not the SPA -- it is a description of it. Leaving test files in meant a
+    FIXTURE could vouch for a route no product code calls, which is the same
+    laundering v3.66.754b closed when it began stripping COMMENTS so a path
+    merely NAMED could not count. Comments were one way to name without calling;
+    test files are the other, and only the first was closed.
+
+    MEASURED at v3.66.1217 before the change: 457 wired endpoints with test files
+    in the population, 443 without -- 14 present ONLY because a test names them,
+    every one an obvious fixture (/api/auth/users/bob/role,
+    /api/auth/users/carol/password, /api/auth/users/dave,
+    /api/sites/alpha/ai_reanalyze, /api/daily_budget/history/ex.com,
+    /api/knowledge/notes/7, /api/queue_templates/7/apply/beta,
+    /api/cookie_clipboard/save/alpha, /api/auth/users/a%20b%2Fc/role and others).
+    """
+    return not _TEST_FILE_RE.search(getattr(path, "name", str(path)))
+
+
 def _spa_wiring(root):
     """Scan the React SPA source for the set of /api/* endpoints it references,
     normalised. Uses one robust literal matcher (quoted + backtick template +
@@ -692,6 +717,8 @@ def _spa_wiring(root):
     if not src.is_dir():
         return eps, method_eps
     for f in src.rglob("*.ts*"):          # .ts and .tsx
+        if not _is_spa_source(f):     # a fixture is not wiring; see _is_spa_source
+            continue
         try:
             raw_txt = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -755,6 +782,8 @@ def spa_wiring_unresolved(root):
     if not src.is_dir():
         return out
     for f in sorted(src.rglob("*.ts*")):
+        if not _is_spa_source(f):     # same population rule as _spa_wiring
+            continue
         try:
             txt = strip_ts_comments(f.read_text(encoding="utf-8", errors="replace"))
         except OSError:

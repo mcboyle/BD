@@ -108,6 +108,9 @@ _DECLARED = {
     # CHECKER that gives that job a denominator, because `vitest run` exits 0
     # over an empty collection and the job alone would go green over nothing.
     "tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py",
+    # @1217. The parity scanner's POPULATION is its denominator, and a test
+    # fixture must not be admissible as evidence that the SPA wires a route.
+    "tests/test_v3_66_1217_a_fixture_is_not_wiring.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",
