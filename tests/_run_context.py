@@ -205,3 +205,73 @@ def prune(keep=20):
         except OSError:
             pass
     return removed
+# ---- appended to tests/_run_context.py by cut 1221 (row 234) ----
+
+def current_path(directory, worker_id):
+    return pathlib.Path(directory) / ("%s.current" % worker_id)
+
+
+def note_current(directory, worker_id, nodeid):
+    """Record the nodeid this worker is ABOUT to run, atomically.
+
+    WHY THIS EXISTS. When a worker dies mid-test its identity is destroyed three
+    ways at once: pytest-timeout writes its diagnostic to a stdout xdist points
+    at /dev/null, xdist's synthetic crash report names the nodeid but renders
+    only in a final summary a livelocked session never reaches, and `-q`
+    suppresses the recovery narration entirely. On 2026-08-24 the only surviving
+    evidence was the sibling `.chain` file, which names the FILE -- and that file
+    held 51 candidate items.
+
+    WRITTEN BEFORE THE TEST RUNS, and atomically. A reader that catches a
+    half-written marker learns a truncated nodeid, which is worse than none:
+    backlog row 222 is an entire row about a pid file read between create and
+    write. Temp plus os.replace, the same discipline that closed it.
+    """
+    d = pathlib.Path(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    target = current_path(d, worker_id)
+    tmp = target.with_suffix(".current.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(str(nodeid) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, target)
+    return target
+
+
+def clear_current(directory, worker_id):
+    """Drop the marker once the test finishes, however it finished.
+
+    A marker that outlives its test would accuse an innocent one: after a clean
+    run every worker would still be pointing at whatever it happened to run
+    last, and the ONE fact this instrument exists to provide -- "this worker died
+    here" -- would be indistinguishable from "this worker finished here". So the
+    presence of a marker is itself the signal, and it must be cleared on the
+    normal path for that to mean anything.
+    """
+    try:
+        current_path(directory, worker_id).unlink()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+
+def read_current(directory):
+    """Every worker that left a marker behind, i.e. did not finish its test.
+
+    Returns {worker_id: nodeid}. Empty on a clean run, which is the point.
+    """
+    d = pathlib.Path(directory)
+    if not d.is_dir():
+        return {}
+    out = {}
+    for p in sorted(d.glob("*.current")):
+        try:
+            text = p.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text:
+            out[p.stem] = text
+    return out

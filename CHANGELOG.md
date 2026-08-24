@@ -4,6 +4,52 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1221 - a worker that dies mid-test now says which test it was running
+
+- ON 2026-08-24 A WORKER WAS KILLED AT 99% AND EVERY ARTIFACT THAT WOULD HAVE
+  NAMED THE TEST FAILED AT ONCE. pytest-timeout wrote its banner and every
+  thread's stack to the worker's own stdout, which xdist points at /dev/null
+  (measured: 0 dumps under `-n 2` against 2 serially). xdist's synthetic crash
+  report DOES carry the nodeid but renders only in a final summary, and the
+  session livelocked before reaching one. `-q` drops the recovery narration
+  entirely. What survived was BD's own `.chain` file -- which records the FILE,
+  deduped, because that is what replaying a worker's sequence needs. The file it
+  named held 51 candidate items.
+- THE INSTRUMENT NOW RECORDS THE NODEID. `tests/_run_context.py` gained
+  `note_current` / `clear_current` / `read_current`, called from
+  `pytest_runtest_logstart` and a new `pytest_runtest_logfinish`. Written BEFORE
+  the test body and cleared when it finishes, so the PRESENCE of a marker is
+  itself the evidence. The run-context summary announces any worker that left
+  one behind -- the line that would have ended that investigation in a sentence.
+- THE WRITE IS ATOMIC, and that is not pedantry. Backlog row 222 is an entire
+  row about a pid file read between its create and its write, yielding
+  `int('')`. A truncated nodeid is WORSE than none: it names a test that does
+  not exist and sends the next investigation somewhere real tests do not live.
+  Temp + fsync + `os.replace`, and a concurrent reader hammering the file across
+  2,360 writes must never observe a fragment.
+- PROVEN AGAINST THE LIVE HOOKS, NOT A COPY. The first draft ran a sub-pytest
+  with a COPIED conftest, which cannot import this repository's modules -- and a
+  copied harness only ever proves the copy works. Instead a test reads its OWN
+  marker while it is executing, which is the only way to prove the write
+  precedes the body, since every other arm inspects after the fact.
+- THE BATTERY FOUND A VACUOUS TEST, which is the most valuable thing a battery
+  can find. The first clearing test looked for an EARLIER test's marker
+  surviving into a later one. It never could: there is exactly one marker per
+  worker and every `logstart` overwrites it, so mid-run the marker always names
+  the current test whether or not clearing happens -- disabling `clear_current`
+  outright left it GREEN. Clearing is only observable at the END, when nothing
+  overwrites the marker again, so the replacement drives the real `logfinish`
+  hook and asserts the file is gone. 5 of 5 mutants caught after the fix, 4 of 5
+  before; the spec is tracked at
+  `tests/mutants/v3_66_1221_dying_worker_attribution.json`.
+- THE ANNOUNCEMENT HAS AN OVER-SENSITIVITY CONTROL. A banner printed on every
+  clean run is a banner nobody reads, and this one has to mean something when it
+  appears, so a test asserts it stays silent when nothing is stranded.
+- NOT CLAIMED: this names the test a dead worker was running. It does not
+  prevent the death, and it does not unwedge a livelocked session -- v3.66.1220
+  addresses the first and the second is upstream, written up at
+  `upstream/xdist-drain-livelock/README.md`. Closes row 234.
+
 ## v3.66.1220 - the sanctioned suite reports a hanging test instead of killing a worker
 
 - CLAUDE.md JUSTIFIED `--timeout-method=thread` WITH SOMETHING THAT IS NOT TRUE
