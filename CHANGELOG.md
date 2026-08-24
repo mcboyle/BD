@@ -58,6 +58,57 @@ archive is not present in this repository; consult source-control history.
   tests/test_v3_66_1218_* derives the contract from the tree: every shard running
   a Vitest-delegating gate must have node, no shard that does not need it may
   have it, and those gates must remain in a shard at all.
+- THE CUT'S OWN NEW SPEC THEN TRIPPED AN OLD SCANNER, AND THE SCANNER WAS
+  WRONG. `tests/test_t5_t6_wired.py::test_no_raw_mutating_fetch_outside_api_client`
+  walks `frontend/src` with `rglob("*.ts*")` and forbids a raw state-changing
+  fetch(), because one ships to a browser without X-CSRF-Token and 403s on a
+  real cookie-session deployment. A Vitest spec never ships; it stubs global
+  fetch and asserts against the stub, so the tokenless-fetch NEGATIVE CONTROL
+  added above is evidence, not a vulnerability. This is the SAME population
+  defect v3.66.1217 fixed in the parity inventory, failing in the opposite
+  direction: there a fixture manufactured a pass, here a spec manufactured a
+  failure. The tempting fix -- reshaping the control so no literal
+  `method: "POST"` survives a grep -- was refused; evading a textual gate is
+  the disease this entire sweep is treating.
+- THE NARROWING IS GUARDED, because a narrowed population is how the next
+  defect gets in (CLAUDE.md A7). Both halves are proven nonzero on the real
+  tree; a planted product offender must still be flagged by the same scan that
+  ignores a planted spec; the rule is asserted IDENTICAL to the parity
+  inventory's, read out of that file with `ast` rather than by importing it
+  (that module mutates sys.path at import); and no product module may import a
+  spec module, which is the only route by which shipped code could hide behind
+  the suffix -- with a positive control, since that scan legitimately finds
+  nothing today and an empty result from a dead regex looks the same. Mutation
+  battery: 3 of 3 caught, each by its named catcher.
+- HOW IT REACHED CI AT ALL, recorded because the answer is not "the band was
+  wrong". `bd-band-derive` maps that spec to test_t5_t6_wired.py correctly --
+  re-derived from the committed file list it returns a 76-file band containing
+  it, against the 75-file band the pre-commit run actually used. The one
+  missing file is the spec itself, so the changed-file list was captured before
+  the spec existed. The gap was that the sanctioned full suite never ran on the
+  frozen candidate, which CLAUDE.md A3 step 8 already requires.
+- THE FULL SUITE WAS RUN ON THIS CANDIDATE AND DID NOT FINISH, for a reason
+  that has nothing to do with this cut. At 99% a worker was killed and the xdist
+  session then DEADLOCKED for 19 minutes at 99.1% idle CPU until it was killed
+  by hand. That is backlog row 102's wedge, and this occurrence was dissected
+  live and is now ATTRIBUTED for the first time:
+  tests/test_v3_66_1046_gates_for_this_sessions_shapes.py:515 runs a nested
+  pytest with `timeout=600` inside an item governed by `--timeout=240`, so the
+  outer bound wins; pytest-timeout's thread method writes its entire diagnostic
+  to the worker's stdout, which xdist points at /dev/null, and then calls
+  os._exit(1) (proven by the zombie's wait status 256 and an empty dmesg). The
+  one artifact that names the test is destroyed by the same event that creates
+  the need for it. Evidence and the full chain:
+  `fleet-run-artifacts/2026-08-24/xdist-wedge/FINDING.md`. Row 232 is unrelated
+  to that; the wedge work is its own cut and is NOT folded in here.
+  What this cut therefore rests on: the exact parity-graph shard that CI failed
+  passes locally at 222 passed / 2 skipped, the release and backlog gates pass
+  at 120 passed, and exact-head CI is the tree-wide denominator (CLAUDE.md A5).
+- Backlog row 232 files the remainder: 22 sites in tracked tests/ and tools/
+  scan `frontend/src` with this glob and 14 apply no population rule. It is
+  filed as a CLASSIFICATION task, not a blanket patch -- the auth_surface scan
+  eleven lines above the one fixed here is deliberately left repo-wide, because
+  a spec naming a dead route is also a defect.
 
 ## v3.66.1217 - a test fixture is not evidence that the SPA wires a route
 
