@@ -342,6 +342,18 @@ jobs:
           - name: jobs-process-lifecycle
             suites: >-
               tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py
+          # @1208. The heartbeat signal contract guards the boundary that made
+          # all seven fleet captures fail at once, so CI must see it: it is a
+          # module-scoped gate, and without an entry here a regression of
+          # scripts/lib/heartbeat.sh back to a bare `setsid "$@"` would be
+          # caught only by capture -- and capture is not CI. Its own runtime
+          # owners ride with it so the wrapper's bound, its vault descriptor
+          # handling and its signal semantics are judged together.
+          - name: capture-heartbeat-contract
+            suites: >-
+              tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py
+              tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py
+              tests/test_u45_capture_sh_shipped.py
           - name: jobs-determinism
             suites: >-
               tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py

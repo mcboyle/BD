@@ -261,7 +261,18 @@ class TestCaptureShFinalVerdict:
         assert os.path.isfile(lib), f"{lib} is missing"
         with open(lib, "r", encoding="utf-8") as f:
             libtext = f.read()
-        assert 'setsid "$@"' in libtext
+        # Updated at v3.66.1208, when both launch paths gained
+        # `env --default-signal=INT,QUIT BD_HEARTBEAT_LAUNCH=<site>`. The
+        # marker names the call site so a test can assert WHICH path ran
+        # rather than infer it from a descriptor count.
+        # A non-interactive shell starts an
+        # asynchronous job with SIGINT/SIGQUIT ignored and `setsid` does not
+        # reset them, so without this the wrapped lane could not observe a
+        # signal at all -- which is what broke seven fleet captures at once.
+        # This stays a SOURCE pin; what RUNS the property is
+        # tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py.
+        assert ('setsid env --default-signal=INT,QUIT '
+                'BD_HEARTBEAT_LAUNCH=ordinary "$@"') in libtext
         assert "trap" in libtext
         for signal in ("INT", "TERM", "HUP"):
             assert signal in libtext
