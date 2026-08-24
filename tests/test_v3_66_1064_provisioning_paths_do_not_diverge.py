@@ -93,15 +93,66 @@ def test_neither_script_redefines_the_capability(script, fn):
     )
 
 
+def _command_position_invocations(code: str, fn: str) -> int:
+    """Count invocations of `fn` in COMMAND POSITION, not mere mentions.
+
+    Measured 2026-08-24: deleting both real invocations at
+    provision_test_host.sh:699,701 left this arm green, because line 244 is a
+    quoted STATUS MESSAGE --
+        record "dev_capabilities fragment" "OK" "sourced; bd_mod3_pg_provision
+        and bd_dev_inspect_provision defined"
+    -- which `shell_code_only` correctly keeps (it strips comments, not
+    strings) and which satisfies a bare `fn in code`. The provisioner would
+    stop provisioning entirely while a log string that now lies kept the gate
+    green.
+
+    Stripping all quoted strings would be the wrong fix: it destroys legitimate
+    shell word structure and still would not prove command position. So this
+    asks the narrower, truer question -- does the name appear where a shell
+    would EXECUTE it: at the start of a line or after a separator such as
+    `;`, `&&`, `||`, `|`, `(`, or `then`/`else`/`do`.
+    """
+    import re
+    count = 0
+    for line in code.splitlines():
+        # a quoted argument cannot be command position; drop anything after the
+        # first quote on the line for this purpose only.
+        for quote in ("'", '"'):
+            if quote in line:
+                line = line.split(quote, 1)[0]
+        for segment in re.split(r'(?:;|&&|\|\||\||\(|\bthen\b|\belse\b|\bdo\b)', line):
+            if re.match(r'^\s*%s(?:\s|$)' % re.escape(fn), segment):
+                count += 1
+    return count
+
+
 @pytest.mark.parametrize("fn", _FUNCS)
 def test_the_host_provisioner_actually_invokes_it(fn):
     """Sourcing is not calling. A library that nothing invokes provisions
     nothing, and the verdict would still read READY."""
     code = shell_code_only(_HOST)
-    assert fn in code, (
-        f"provision_test_host.sh never invokes {fn}; it would source the "
-        f"library and install nothing, and the verdict would still say READY"
+    assert len(code) > 2000, f"provisioner stripped to {len(code)} chars"
+    invocations = _command_position_invocations(code, fn)
+    assert invocations >= 1, (
+        f"provision_test_host.sh never invokes {fn} in command position; it "
+        "would source the library and install nothing, and the verdict would "
+        "still say READY. A mention inside a quoted status message is not an "
+        "invocation."
     )
+
+
+@pytest.mark.parametrize("fn", _FUNCS)
+def test_a_quoted_status_message_is_not_an_invocation(fn):
+    """EVASION FIXTURE. The old `fn in code` passed on exactly this input."""
+    lying_log = ('record "dev_capabilities fragment" "OK" '
+                 '"sourced; %s defined"\n' % fn)
+    assert fn in lying_log, "fixture does not reproduce the old gate's input"
+    assert _command_position_invocations(lying_log, fn) == 0, (
+        f"a quoted status message still reads as an invocation of {fn}")
+    real = "  %s || true\n" % fn
+    assert _command_position_invocations(real, fn) == 1, (
+        "the real invocation form is no longer recognised, so this gate would "
+        "reject a correct provisioner")
 
 
 def test_the_capabilities_are_optional_not_core():

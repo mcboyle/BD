@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3868,
+  "edge_count": 3869,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4427,6 +4427,9 @@
     ],
     "tests/test_v3_66_1115_live_checks_read_keys_the_producer_emits.py": [
       "bulk_downloader/vpn_kill_switch.py"
+    ],
+    "tests/test_v3_66_1117_cockpit_home_stays_retired.py": [
+      "bulk_downloader/app.py"
     ],
     "tests/test_v3_66_111_login_template_intel.py": [
       "tools/cockpit_console.py",

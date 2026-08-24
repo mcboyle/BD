@@ -119,3 +119,78 @@ def test_the_exemption_list_does_not_silently_cover_the_whole_tree():
         assert (REPO / rel).is_file(), (
             f"exempt path {rel!r} does not exist; a stale exemption is an "
             f"unguarded file that reads as guarded")
+
+
+# ── the RENDERED half, added @1210 ──────────────────────────────────────
+# The scan above is a floor, not a ceiling, and its evasion surface is now
+# declared: it matches the literal "/cockpit/home" in SOURCE TEXT. Measured
+# 2026-08-24 on merged main -- serving
+#     <a href="home">&larr; Cockpit Home</a>
+# from a surviving cockpit page reproduces the exact operator-facing 404 that
+# backlog row 113 was written for, while the source contains no "/cockpit/home"
+# anywhere and the scan stays green. `urljoin("http://h/cockpit/settings",
+# "home")` is "http://h/cockpit/home".
+#
+# A browser resolves hrefs; a grep does not. So this half asks the application
+# what it actually SERVES, resolves every anchor the way a browser would, and
+# compares normalised paths rather than raw text.
+
+def _cockpit_pages():
+    """Server-rendered cockpit pages, named explicitly so the denominator is
+    reviewable rather than discovered -- an empty crawl would make every
+    assertion below vacuously true."""
+    return [
+        "/cockpit/settings",
+        "/cockpit/settings/secrets",
+        "/cockpit/template-manager",
+    ]
+
+
+def test_no_rendered_cockpit_anchor_resolves_to_the_retired_home():
+    """THE PROPERTY, exercised. A relative href that RESOLVES to the retired
+    route is the failure; whether the string appears in source is irrelevant."""
+    from urllib.parse import urljoin, urlsplit
+    import re as _re
+
+    from bulk_downloader.app import app  # noqa: PLC0415
+
+    app.config["TESTING"] = True
+    checked = 0
+    anchors_seen = 0
+    offenders = []
+    with app.test_client() as client:
+        for page in _cockpit_pages():
+            resp = client.get(page, follow_redirects=True)
+            if resp.status_code != 200:
+                continue
+            checked += 1
+            html = resp.get_data(as_text=True)
+            for href in _re.findall(r'<a\b[^>]*?href=["\']([^"\']+)["\']',
+                                    html, _re.IGNORECASE):
+                anchors_seen += 1
+                resolved = urljoin("http://bd.local" + page, href)
+                if urlsplit(resolved).path == RETIRED:
+                    offenders.append((page, href, resolved))
+
+    # PRECONDITIONS, before any verdict: a page set that 404s everywhere, or a
+    # page with no anchors at all, would pass this test while testing nothing.
+    assert checked >= 1, (
+        "no cockpit page returned 200, so no anchor was resolved and this gate "
+        f"judged an empty denominator: {_cockpit_pages()}")
+    assert anchors_seen >= 1, (
+        f"{checked} cockpit page(s) rendered but contained no anchors at all")
+    assert not offenders, (
+        "a rendered cockpit anchor RESOLVES to the retired "
+        f"{RETIRED} even though the source text does not contain it: {offenders}")
+
+
+def test_a_relative_href_that_resolves_to_the_retired_route_is_caught():
+    """EVASION FIXTURE. Pins the resolution semantics the scan cannot see, so
+    that a future rewrite back to raw-text matching goes RED here."""
+    from urllib.parse import urljoin, urlsplit
+    resolved = urljoin("http://bd.local/cockpit/settings", "home")
+    assert urlsplit(resolved).path == RETIRED, resolved
+    assert RETIRED not in '<a href="home">&larr; Cockpit Home</a>', (
+        "the evasion string unexpectedly contains the retired path, so this "
+        "fixture is not reproducing the shape that defeated the scan")
+

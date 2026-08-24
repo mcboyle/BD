@@ -136,15 +136,74 @@ def test_api_routes_not_shadowed_by_catch_all():
     assert "version" in body, "/api/health shadowed by the SPA catch-all?"
 
 
+def _strip_ts_comments(text: str) -> str:
+    r"""Remove // and /* */ comments so a scan judges CODE, not prose.
+
+    Measured 2026-08-24: `base: "/app/",  // was base: "/"` re-roots the SPA
+    while the old `re.search(r'base:\s*["\']/["\']', vite_cfg)` matched the
+    COMMENT and stayed green. The behavioural sibling below reads the already
+    BUILT frontend/dist/index.html, so it does not re-derive from the changed
+    config and does not backstop it either. Strings are left intact; the
+    subject here is an assignment, and stripping quotes would destroy it."""
+    out, i, n_, in_s = [], 0, len(text), None
+    while i < n_:
+        c = text[i]
+        if in_s:
+            out.append(c)
+            if c == "\\" and i + 1 < n_:
+                out.append(text[i + 1]); i += 2; continue
+            if c == in_s:
+                in_s = None
+            i += 1; continue
+        if c in "\"'`":
+            in_s = c; out.append(c); i += 1; continue
+        if c == "/" and i + 1 < n_ and text[i + 1] == "/":
+            while i < n_ and text[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n_ and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n_ and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2; continue
+        out.append(c); i += 1
+    return "".join(out)
+
+
 def test_frontend_re_rooted_in_source():
-    """vite base and router basename are both "/" — the single
-    coupling between build output and Flask mount."""
-    vite_cfg = (_REPO_ROOT / "frontend" / "vite.config.ts"
-                ).read_text(encoding="utf-8")
-    assert re.search(r'base:\s*["\']/["\']', vite_cfg)
-    main_tsx = (_REPO_ROOT / "frontend" / "src" / "main.tsx"
-                ).read_text(encoding="utf-8")
+    """vite base and router basename are both "/" -- the single coupling
+    between build output and Flask mount.
+
+    DECLARED EVASION SURFACE: this remains a source scan, because the effective
+    base can only be proved by building. It is now comment-stripped, and it
+    asserts the assignment is UNIQUE so a second live `base:` cannot shadow it.
+    A computed or env-driven base would still evade it; that is the residual,
+    and `test_real_asset_served_from_root` is the runtime half."""
+    vite_cfg = _strip_ts_comments(
+        (_REPO_ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8"))
+    live = re.findall(r'\bbase\s*:\s*(["\'][^"\']*["\'])', vite_cfg)
+    assert len(live) == 1, (
+        f"expected exactly one live `base:` assignment, found {live}")
+    assert re.fullmatch(r'["\']/["\']', live[0]), (
+        f"vite base is {live[0]}, not \"/\"; the SPA is re-rooted off the "
+        "Flask mount")
+    main_tsx = _strip_ts_comments(
+        (_REPO_ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8"))
     assert 'basename="/"' in main_tsx
+
+
+def test_a_commented_out_vite_base_does_not_satisfy_the_scan():
+    """EVASION FIXTURE for the measured re-rooting. The old gate passed on
+    exactly this input."""
+    evaded = 'export default defineConfig({\n  base: "/app/",  // was base: "/"\n})\n'
+    assert re.search(r'base:\s*["\']/["\']', evaded), (
+        "the fixture no longer reproduces the shape that defeated the old "
+        "gate, so it is pinning nothing")
+    stripped = _strip_ts_comments(evaded)
+    live = re.findall(r'\bbase\s*:\s*(["\'][^"\']*["\'])', stripped)
+    assert live == ['"/app/"'], live
+    assert not re.fullmatch(r'["\']/["\']', live[0]), (
+        "a commented-out base still reads as \"/\" after stripping")
 
 
 def test_bootstrap_hook_covers_spa_root():
