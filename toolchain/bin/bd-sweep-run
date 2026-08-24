@@ -227,12 +227,15 @@ def section5_tokens(workers):
     """CLAUDE.md section A5's inner pytest form, verbatim:
 
         BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
-            -n 24 --dist loadfile --timeout=240 --timeout-method=thread \\
+            -n 24 --dist loadfile --timeout=240 --timeout-method=signal \\
+            --max-worker-restart=0 \\
             -p no:randomly
 
     Every flag is load-bearing and a different one is a different experiment:
-    --timeout turns a hang into a named test, --timeout-method=thread dumps its
-    stack, --dist loadfile is the distribution that was actually measured, and
+    --timeout turns a hang into a named test, --timeout-method=signal reports
+    that test BY NAME instead of calling os._exit(1) on its worker (thread mode
+    wrote its stack to a worker stdout xdist points at /dev/null, so it named
+    nothing), --max-worker-restart=0 aborts instead of livelocking the drain, --dist loadfile is the distribution that was actually measured, and
     -p no:randomly is the ordering that was measured. The canonical default is
     fixed at 24 so changing host capacity cannot silently change the experiment;
     explicit worker counts remain available for the four-worker comparison
@@ -257,7 +260,8 @@ def section5_tokens(workers):
     return ["BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
             "venv/bin/python", "-m", "pytest", "tests/",
             "-n", str(workers),
-            "--dist", "loadfile", "--timeout=240", "--timeout-method=thread",
+            "--dist", "loadfile", "--timeout=240", "--timeout-method=signal",
+            "--max-worker-restart=0",
             "-p", "no:randomly"]
 
 
@@ -1645,7 +1649,8 @@ def selftest(repo_src=None):                                # noqa: C901
                 "BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
                 "venv/bin/python", "-m", "pytest",
                 "tests/", "-n", "24", "--dist", "loadfile", "--timeout=240",
-                "--timeout-method=thread", "-p", "no:randomly"]
+                "--timeout-method=signal", "--max-worker-restart=0",
+                "-p", "no:randomly"]
     check(built == expected, "the built command is not the sanctioned form: %s" % built)
     contract = contract_tokens_from_claude_md(os.path.join(repo_src, "CLAUDE.md"))
     if contract is None:

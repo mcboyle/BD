@@ -84,6 +84,12 @@ BD_GATE_SCOPE = "repo-wide"
 # dropped file passes: the union would simply shrink to match. Adding a
 # repo-wide gate to CI is meant to be a two-file change.
 _DECLARED = {
+    # @1220, the timeout-method contract. It runs REAL sub-pytests in both
+    # shapes and asserts that a test exceeding its bound is reported BY NAME
+    # with no worker killed -- the property the sanctioned command was changed
+    # to obtain. Its negative arm stops it passing vacuously and fails loudly
+    # if pytest-timeout or xdist ever change underneath it.
+    "tests/test_v3_66_1220_a_timeout_names_its_test.py",
     # @1208, the capture execution signal contract. These three judge the
     # heartbeat boundary that made all seven fleet captures fail at once:
     # 1208 RUNS the wrapper and reads the wrapped process's own signal
@@ -756,7 +762,7 @@ def test_every_gate_suite_has_the_canonical_per_test_timeout():
         tokens = shlex.split(command)
         assert "--timeout=240" in tokens, (
             f"{job_name} pytest has no 240-second per-test bound: {command!r}")
-        assert "--timeout-method=thread" in tokens, (
+        assert "--timeout-method=signal" in tokens, (
             f"{job_name} pytest cannot expose a hung test's thread stacks: "
             f"{command!r}")
 

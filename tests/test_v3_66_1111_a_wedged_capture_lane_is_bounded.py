@@ -17,7 +17,7 @@ when `self._active_nodes` empties, so it span every 2s forever. Left alone it
 would still be running.
 
 WHY A PER-TEST TIMEOUT CANNOT COVER THIS, which is the whole argument for a
-second bound. `--timeout=240 --timeout-method=thread` runs INSIDE the worker.
+second bound. `--timeout=240 --timeout-method=signal` runs INSIDE the worker.
 When the worker is the thing that died there is nothing left to fire it -- and
 capture.sh's lanes do not pass it at all. The bound has to live in the parent,
 outside the process it bounds, because a limit that shares a fate with its
