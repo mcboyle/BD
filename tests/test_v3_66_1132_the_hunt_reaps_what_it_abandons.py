@@ -1985,6 +1985,42 @@ def _w1_stat_row(pid: int, *, ppid: int, pgrp: int, starttime: int,
     return "%d (%s) %s\n" % (pid, comm, " ".join(tail))
 
 
+def _w1_readlink_when_installed(pid: int, fd: int, *, timeout=5.0) -> str:
+    """Read /proc/<pid>/fd/<fd> only once the gate has actually installed it.
+
+    ROW 222'S SHAPE, ONE LEVEL UP. `_w1_wait_for_gate` proves a PARSEABLE PID
+    and a LIVE GROUP. It does not prove the gate has finished installing its
+    descriptors, and a reader that assumes it did is making the same
+    existence-is-not-content mistake this cut exists to remove -- here it is
+    pid-is-published is not descriptors-are-open.
+
+    THIS WAS LATENT UNTIL THE PUBLICATION BECAME ATOMIC, which is why it is
+    fixed in the same cut. `echo "$PYTEST_PID" > pytest.pid` created the file
+    and wrote it in two steps, so `_w1_wait_for_gate`'s `.isdigit()` guard
+    rejected the empty file and slept another tick. That accidental delay was
+    load-bearing: it gave the gate time to open fd 3. Publishing atomically
+    makes the pid readable on the FIRST observation and hands the reader a gate
+    that may not have got there yet -- measured on CI as
+    `FileNotFoundError: /proc/<pid>/fd/3`. Removing an accidental delay is not
+    a regression to paper over with a sleep; the missing assertion is the bug.
+    """
+    path = "/proc/%d/fd/%d" % (pid, fd)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return os.readlink(path)
+        except FileNotFoundError:
+            if not _w1_pid_is_live(pid):
+                raise AssertionError(
+                    "the gate exited before installing fd %d; %s never appeared"
+                    % (fd, path))
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    "the gate stayed alive but never installed fd %d within "
+                    "%.1fs (%s)" % (fd, timeout, path))
+            time.sleep(0.005)
+
+
 def _w1_wait_for_gate(rundir, *, minimum_live=1, timeout=5.0):
     """Return the real launched gate pid after proving its group is live."""
     deadline = time.time() + timeout
@@ -5370,8 +5406,8 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        release_pipe = os.readlink("/proc/%d/fd/0" % gate_pid)
-        status_pipe = os.readlink("/proc/%d/fd/3" % gate_pid)
+        release_pipe = _w1_readlink_when_installed(gate_pid, 0)
+        status_pipe = _w1_readlink_when_installed(gate_pid, 3)
         assert release_pipe.startswith("pipe:[")
         assert status_pipe.startswith("pipe:[")
         assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
@@ -5395,6 +5431,62 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
+
+
+def test_a_descriptor_wait_is_required_because_a_live_pid_proves_nothing(tmp_path):
+    """RED CONTROL for _w1_readlink_when_installed, forced rather than sampled.
+
+    A child is held LIVE at a point where it has NOT yet opened fd 3. At that
+    exact instant the bare `os.readlink` the test used to call raises -- the CI
+    failure, reproduced deterministically rather than waited for -- and the
+    waiting form then returns the real link once the child installs it. The
+    negative control proves the wait does not hang on a dead gate and names its
+    own reason instead of timing out anonymously.
+    """
+    alive = tmp_path / "late-fd-alive"
+    program = (
+        "import os, sys\n"
+        "open(%r, 'w').write('alive\\n')\n"
+        "sys.stdin.readline()\n"
+        "r, w = os.pipe()\n"
+        "os.dup2(r, 3)\n"
+        "sys.stdout.write('installed\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdin.readline()\n"
+    ) % str(alive)
+    child = subprocess.Popen(
+        [sys.executable, "-c", program], text=True,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        _w1_wait_for_path(alive)
+        assert alive.read_text() == "alive\n"
+        assert _w1_pid_is_live(child.pid), "precondition: the child must be live"
+        assert not os.path.lexists("/proc/%d/fd/3" % child.pid), (
+            "precondition: the child must NOT have installed fd 3 yet")
+
+        # THE DEFECT, at the exact instant the old code could observe it.
+        with pytest.raises(FileNotFoundError):
+            os.readlink("/proc/%d/fd/3" % child.pid)
+
+        child.stdin.write("go\n")
+        child.stdin.flush()
+        link = _w1_readlink_when_installed(child.pid, 3, timeout=10.0)
+        assert link.startswith("pipe:["), link
+        assert child.stdout.readline() == "installed\n"
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait(timeout=5)
+
+    # NEGATIVE CONTROL: a dead gate must fail fast with its distinctive reason,
+    # not burn the whole timeout and not report a descriptor it never had.
+    dead = subprocess.Popen([sys.executable, "-c", "raise SystemExit(0)"])
+    dead.wait(timeout=5)
+    started = time.monotonic()
+    with pytest.raises(AssertionError, match="exited before installing fd"):
+        _w1_readlink_when_installed(dead.pid, 3, timeout=10.0)
+    assert time.monotonic() - started < 5.0, (
+        "the wait burned its timeout on a process that was already gone")
 
 
 def test_pytest_pid_publish_failure_is_settled_without_partial_target(tmp_path):

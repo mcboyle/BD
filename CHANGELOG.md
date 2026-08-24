@@ -29,7 +29,19 @@ archive is not present in this repository; consult source-control history.
   deterministically instead of being waited for. `_w1_delay_shell_publish` and
   `_w1_fail_shell_publish` do the same for the shell publisher. Four sites carry
   such a control.
-- Module denominator 146 -> 147 nodes.
+- ONE MORE OF THE SAME SHAPE, ONE LEVEL UP, FOUND BY CI ON THIS CUT'S OWN
+  CANDIDATE. `_w1_wait_for_gate` proves a PARSEABLE PID and a LIVE GROUP; it
+  does not prove the gate finished installing its descriptors, and
+  `test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd` then
+  read `/proc/<pid>/fd/3` directly. That was LATENT UNTIL THE PUBLICATION
+  BECAME ATOMIC: the old `echo > pytest.pid` created the file and wrote it in
+  two steps, so the waiter's `.isdigit()` guard rejected the empty file and
+  slept another tick, and that accidental delay was load-bearing. Publishing
+  atomically hands the reader a gate that may not have got there yet, measured
+  on CI as `FileNotFoundError: /proc/<pid>/fd/3`. The fix is the missing
+  assertion, not a sleep: `_w1_readlink_when_installed` waits for the
+  descriptor, refuses a gate that exited, and names which of the two it saw.
+- Module denominator 146 -> 148 nodes.
 
 ## v3.66.1211 - a tombstone gate must survive an assembled literal
 
