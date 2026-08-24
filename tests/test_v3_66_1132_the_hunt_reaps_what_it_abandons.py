@@ -1441,12 +1441,95 @@ def _w1_fake_home(tmp_path, *, code: int, stdout: str = "", sleep: float = 0.0):
     return home
 
 
+def _w1_stat_pgid_and_state(pid) -> tuple[str, str] | None:
+    """(pgid, state) for `pid` from /proc, or None if it is gone.
+
+    The comm field is parenthesised and may itself contain spaces and
+    parentheses, so the split is anchored on the LAST ')' rather than on
+    whitespace. After it the fields are state, ppid, pgrp.
+    """
+    try:
+        with open("/proc/%s/stat" % pid, "rb") as handle:
+            raw = handle.read()
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
+        return None
+    close = raw.rfind(b")")
+    if close == -1:
+        return None
+    rest = raw[close + 2:].split()
+    if len(rest) < 3:
+        return None
+    return rest[2].decode("ascii", "replace"), rest[0].decode("ascii", "replace")
+
+
 def _w1_live_in_group(pgid: int) -> list[str]:
-    """Live (non-zombie) pids sharing `pgid`. A zombie is gone for our purpose."""
-    r = subprocess.run(["ps", "-eo", "pgid=,pid=,stat="],
-                       capture_output=True, text=True)
-    rows = [l.split() for l in r.stdout.splitlines() if l.split()]
-    return [x[1] for x in rows if x[0] == str(pgid) and not x[2].startswith("Z")]
+    """Live (non-zombie) pids sharing `pgid`. A zombie is gone for our purpose.
+
+    READ /proc DIRECTLY; DO NOT FORK `ps`. The forking version had two defects
+    and this fixes both, measured 2026-08-24 on test5 at 852 processes:
+
+    (1) IT COUNTED ITS OWN INSTRUMENT. `subprocess.run(["ps", ...])` puts the
+        `ps` child in the CALLER'S process group, so censusing a group that
+        contains the caller returned the caller plus the `ps` that was doing
+        the counting -- a pid already gone by the time the list was read.
+        Reproduced exactly: ps reported ['1640295', '1640296'] where 1640295
+        was the caller and 1640296 was the ps itself; the /proc census
+        reported ['1640295']. That is CLAUDE.md A7's shape -- an instrument
+        inside its own denominator -- and it is a correctness bug regardless
+        of how fast it runs.
+
+    (2) ITS COST SCALED WITH THE WHOLE HOST, NOT WITH THE SUBJECT. A full
+        table dump plus fork/exec plus text parsing measured 114.9 ms per
+        call against 40.4 ms for this /proc read, and `_w1_wait_for_gate`
+        called it every 10 ms. That is why the same module took 414-431s here
+        and 97-119s on a 4-core CI runner with ~100 processes: the census was
+        charging every poll for processes that have nothing to do with the
+        test. See backlog row 231.
+
+    The RESULT is unchanged: same pgid, zombies excluded, pids as strings.
+    """
+    target = str(pgid)
+    live: list[str] = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        observed = _w1_stat_pgid_and_state(entry)
+        if observed is None:
+            continue
+        if observed[0] == target and observed[1] != "Z":
+            live.append(entry)
+    return live
+
+
+def _w1_group_has_at_least(pgid: int, wanted: int) -> bool:
+    """Cheap PRESENCE probe for a polling loop. NEVER use it to prove absence.
+
+    The group LEADER is checked first because in this module the pgid is a real
+    pid, so the common case costs one file read instead of a walk of /proc. It
+    stops as soon as `wanted` members are seen, which is exactly why it cannot
+    answer "is the group empty" -- that question needs the complete census
+    above, and every absence assertion in this file uses that one.
+    """
+    if wanted <= 0:
+        return True
+    seen = 0
+    leader = _w1_stat_pgid_and_state(pgid)
+    if leader is not None and leader[0] == str(pgid) and leader[1] != "Z":
+        seen = 1
+        if seen >= wanted:
+            return True
+    target = str(pgid)
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit() or entry == str(pgid):
+            continue
+        observed = _w1_stat_pgid_and_state(entry)
+        if observed is None:
+            continue
+        if observed[0] == target and observed[1] != "Z":
+            seen += 1
+            if seen >= wanted:
+                return True
+    return False
 
 
 def _w1_pid_is_live(pid: int) -> bool:
@@ -2030,9 +2113,15 @@ def _w1_wait_for_gate(rundir, *, minimum_live=1, timeout=5.0):
         pidfile = rundir / "pytest.pid"
         if pidfile.is_file() and pidfile.read_text().strip().isdigit():
             pid = int(pidfile.read_text().strip())
-            live = _w1_live_in_group(pid)
-            if len(live) >= minimum_live:
-                return pid, live
+            # PROBE CHEAPLY, CENSUS ONCE. The presence probe is leader-first and
+            # stops at the threshold, so a poll that finds nothing costs one
+            # /proc walk instead of a fork; the COMPLETE list is then taken once,
+            # because five callers read it and a truncated list would be a
+            # different answer, not a faster one.
+            if _w1_group_has_at_least(pid, minimum_live):
+                live = _w1_live_in_group(pid)
+                if len(live) >= minimum_live:
+                    return pid, live
         time.sleep(0.01)
     raise AssertionError(
         "the runner never established the required real child-led group: "
@@ -5431,6 +5520,97 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
+
+
+def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
+    """ROW 231 RED, both arms, forced rather than timed.
+
+    ARM 1 -- SELF-OBSERVATION. The forking census ran `ps` as a child of the
+    caller, so it landed in the CALLER'S process group and the census reported
+    it as a member. Censusing our own group is therefore the exact case that
+    exposes it: the forking form returns a pid that is already gone, the /proc
+    form does not.
+
+    ARM 2 -- NO FORK AT ALL. Any subprocess launch inside the census is banned
+    outright by making the launchers raise. A census that shells out fails here
+    for its own distinctive reason, so a rewrite back to `ps` goes RED without
+    depending on any timing measurement.
+    """
+    own_group = os.getpgid(0)
+
+    # ARM 1: the census must report only processes that are STILL THERE.
+    reported = _w1_live_in_group(own_group)
+    assert str(os.getpid()) in reported, (
+        "precondition: this process is in its own group and must be reported")
+    vanished = [pid for pid in reported
+                if _w1_stat_pgid_and_state(pid) is None]
+    assert not vanished, (
+        "the census reported pids that no longer exist, which is what counting "
+        "its own forked instrument looks like: %r" % vanished)
+
+    # The defect made concrete: a fork DOES join this group and WOULD be counted.
+    probe = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.readline()"],
+                             stdin=subprocess.PIPE, text=True)
+    try:
+        assert _w1_stat_pgid_and_state(probe.pid)[0] == str(own_group), (
+            "precondition: an ordinary child shares the caller's process group, "
+            "which is why a census that forks counts its own instrument")
+        assert str(probe.pid) in _w1_live_in_group(own_group), (
+            "the census must see a real live member of the group")
+    finally:
+        probe.stdin.close()
+        probe.wait(timeout=5)
+
+    # A reaped child is a zombie or gone; either way it is not live.
+    assert str(probe.pid) not in _w1_live_in_group(own_group)
+
+    # ARM 2: no subprocess launch of any kind.
+    import unittest.mock as _mock
+    def _banned(*args, **kwargs):
+        raise AssertionError(
+            "the group census launched a subprocess; its cost then scales with "
+            "the whole host and it counts its own instrument (row 231)")
+    with _mock.patch.object(subprocess, "run", _banned), \
+            _mock.patch.object(subprocess, "Popen", _banned), \
+            _mock.patch.object(os, "popen", _banned):
+        assert str(os.getpid()) in _w1_live_in_group(own_group)
+        assert _w1_group_has_at_least(own_group, 1)
+
+
+def test_the_cheap_presence_probe_agrees_with_the_complete_census(tmp_path):
+    """The fast path must not be a different answer from the slow one.
+
+    A probe that stops early is only safe if it agrees with the full census on
+    the THRESHOLD question. Both directions are checked against a real planted
+    group, and the absence direction is checked against a group that is gone --
+    the case the probe must never be used to decide, asserted here so the
+    distinction is recorded rather than assumed.
+    """
+    entered = tmp_path / "probe-alive"
+    child = subprocess.Popen(
+        [sys.executable, "-c",
+         "import os, sys; os.setpgrp(); open(%r,'w').write(str(os.getpgid(0)));"
+         " sys.stdin.readline()" % str(entered)],
+        stdin=subprocess.PIPE, text=True)
+    try:
+        _w1_wait_for_path(entered)
+        pgid = int(entered.read_text())
+        assert pgid == child.pid, "precondition: the child leads its own group"
+
+        census = _w1_live_in_group(pgid)
+        assert census == [str(child.pid)], census
+        assert _w1_group_has_at_least(pgid, 1) is True
+        assert _w1_group_has_at_least(pgid, 2) is False, (
+            "the probe claimed more members than the census found")
+        assert _w1_group_has_at_least(pgid, 0) is True
+    finally:
+        child.stdin.close()
+        child.wait(timeout=5)
+
+    # Group gone: the COMPLETE census is what proves absence, and the probe
+    # must agree here even though it is not the instrument for that question.
+    assert _w1_live_in_group(child.pid) == []
+    assert _w1_group_has_at_least(child.pid, 1) is False
 
 
 def test_a_descriptor_wait_is_required_because_a_live_pid_proves_nothing(tmp_path):
