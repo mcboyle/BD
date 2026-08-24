@@ -111,6 +111,10 @@ _DECLARED = {
     # @1217. The parity scanner's POPULATION is its denominator, and a test
     # fixture must not be admissible as evidence that the SPA wires a route.
     "tests/test_v3_66_1217_a_fixture_is_not_wiring.py",
+    # @1218. The five T-series gates now RUN Vitest instead of grepping for it,
+    # so the shard carrying them must be given node. This asserts that contract
+    # from the tree rather than from a pinned shard name.
+    "tests/test_v3_66_1218_vitest_delegating_shards_have_node.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",

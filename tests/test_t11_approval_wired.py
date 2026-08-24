@@ -1,52 +1,19 @@
-"""Current approval UI SPA safety contract.
+"""T11 approval caller behavior plus real backend interposition pins."""
 
-Ports the legacy per-site auto-submit / post-reveal approval gate
-(bulk_downloader/static/approval_ui.js, 233 lines) into the React SPA.
-The BACKEND DOES NOT CHANGE — the two decision endpoints already exist and
-are pinned by tests/test_auto_submit_approval.py. The only new risk is an
-SPA-side gate BYPASS, which these tests pin.
-
-The tests guarantee the SPA-surfaced path cannot bypass the backend gate:
-  * test_endpoint_interposition_auto_submit / _post_reveal — drive the real
-    Flask routes the SPA will call; a challenge-marked candidate stays
-    do_not_auto_submit=True / approval_status="pending" until an operator
-    approve, and a decline keeps it closed.
-  * test_no_raw_mutating_fetch_to_decision_paths — the decision
-    POSTs must ride apiPost (CSRF), never a raw fetch().
-
-run_tests.py conventions: zero-arg test functions; repo root from
-Path(__file__).resolve().parent.parent; no pytest builtins.
-"""
-import importlib.util
-import re
 from pathlib import Path
-
-BD_GATE_SCOPE = "repo-wide"
 import sys
 
 import pytest
+
+from tests.frontend_vitest import run_vitest
+
+BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 pytestmark = pytest.mark.bd_module_wipe
-
-# The three backend endpoints T11 wires (normalised spelling: path
-# params -> '*', method dropped — matches gui_parity_inventory._norm_ep).
-DECISION_ENDPOINTS = [
-    "/api/sites/*/auto_submit_decision",
-    "/api/sites/*/post_reveal_decision",
-    "/api/sites/*/pending_approvals",
-]
-
-# The exact FULL /api/ literals the SPA must carry for scanner credit
-# (template literals, NOT a concatenated base var).
-REQUIRED_LITERALS = [
-    "/api/sites/${sid}/pending_approvals",
-    "/api/sites/${sid}/auto_submit_decision",
-    "/api/sites/${sid}/post_reveal_decision",
-]
 
 # Bot-defense login form (cf-turnstile) — pending-by-default; mirrors
 # tests/test_auto_submit_approval.py _BOT_FORM.
@@ -57,79 +24,8 @@ _BOT_FORM = (
     '<button>Sign in</button></form></body></html>'
 )
 
-
-def _load_inventory():
-    spec = importlib.util.spec_from_file_location(
-        "gui_parity_inventory", REPO / "tools" / "gui_parity_inventory.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _norm(path):
-    """Same normalisation the inventory uses for endpoint matching."""
-    p = (path or "").strip()
-    p = re.sub(r"<[^>]+>|\{[^}]+\}|\$\{[^}]+\}|:[A-Za-z_]+", "*", p)
-    return p.rstrip("/ ")
-
-
-# ── RED: SPA wiring ──────────────────────────────────────────────────
-
-def test_decision_endpoints_spa_wired():
-    """Both decision endpoints must read spa_wired=True in the parity
-    inventory — the migration gate. RED on pristine 263 (the SPA references
-    neither endpoint yet), GREEN once useApproval.ts + the SiteDetail gate
-    carry the full /api/ literals."""
-    inv = _load_inventory()
-    items = inv.build(str(REPO))["items"]
-    want = set(DECISION_ENDPOINTS)
-    by_ep = {}
-    for it in items:
-        ep = it.get("command_or_endpoint") or ""
-        n = inv._norm_ep(ep)  # the inventory's own normaliser (drops METHOD)
-        if n in want:
-            if not by_ep.get(n) or it.get("spa_wired"):
-                by_ep[n] = it
-    unwired = [w for w in DECISION_ENDPOINTS
-               if not (by_ep.get(w) and by_ep[w].get("spa_wired"))]
-    assert not unwired, (
-        "T11 endpoints not spa_wired in the inventory "
-        "(useApproval.ts + SiteDetail gate must carry the full /api/ "
-        "literals): " + repr(unwired))
-
-
-def test_useapproval_full_literals_present():
-    """The hook must carry FULL /api/ template literals (scanner credit) —
-    not a concatenated base var. RED on pristine 263 (file absent)."""
-    hook = REPO / "frontend" / "src" / "hooks" / "useApproval.ts"
-    assert hook.exists(), "frontend/src/hooks/useApproval.ts does not exist"
-    text = hook.read_text(encoding="utf-8", errors="replace")
-    missing = [lit for lit in REQUIRED_LITERALS if lit not in text]
-    assert not missing, (
-        "full /api/ literals missing from useApproval.ts: " + repr(missing))
-
-
-# ── GREEN guardrail: no CSRF-less raw mutation to the decision paths ──
-
-def test_no_raw_mutating_fetch_to_decision_paths():
-    """The decision POSTs must ride apiPost (which injects X-CSRF-Token),
-    never a raw fetch() — a raw mutating fetch to these paths would 403 on a
-    real cookie session and, worse, route around the wrapper. Scans all of
-    frontend/src for a mutating fetch() whose options literal names either
-    decision path."""
-    spa_dir = REPO / "frontend" / "src"
-    pat = re.compile(
-        r"fetch\([^;]{0,400}?(auto_submit_decision|post_reveal_decision)"
-        r"[^;]{0,400}?method:\s*[\"'](POST|PUT|PATCH|DELETE)[\"']",
-        re.S,
-    )
-    offenders = []
-    for f in spa_dir.rglob("*.ts*"):
-        if pat.search(f.read_text(encoding="utf-8", errors="replace")):
-            offenders.append(str(f.relative_to(REPO)))
-    assert not offenders, (
-        "raw state-changing fetch() to a decision path (must use apiPost): "
-        + repr(offenders))
+def test_approval_caller_runtime_contract():
+    run_vitest("src/routes/ApprovalGate.wired.test.tsx", expected_tests=3)
 
 
 # ── GREEN regression pins: the SPA-surfaced path still interposes ────

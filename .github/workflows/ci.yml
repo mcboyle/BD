@@ -317,6 +317,7 @@ jobs:
               tests/test_v3_66_1157_build_output_is_from_this_attempt.py
           - name: parity-graph
             suites: >-
+              tests/test_v3_66_1218_vitest_delegating_shards_have_node.py
               tests/test_v3_66_1217_a_fixture_is_not_wiring.py
               tests/test_gui_parity.py
               tests/test_t1_dashboard_wired.py
@@ -510,6 +511,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # NODE, BUT ONLY FOR THE SHARD THAT NEEDS IT. The five T-series gates
+      # delegate to Vitest through tests/frontend_vitest.py, which asserts the
+      # vitest binary exists rather than skipping when it does not -- correctly,
+      # since a gate that skips when its tool is missing is a gate that does not
+      # exist. Those five live in the parity-graph shard, so without this they
+      # would fail on EVERY CI run. Installing node on all eighteen shards to fix
+      # five tests would pay npm ci seventeen times for nothing, so it is
+      # conditional, and tests/test_v3_66_1218_* asserts the condition still
+      # covers every shard that actually delegates.
+      - uses: actions/setup-node@v4
+        if: matrix.name == 'parity-graph'
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies (shards that delegate to vitest)
+        if: matrix.name == 'parity-graph'
+        working-directory: frontend
+        run: npm ci
 
       - name: Install dependencies
         # BOTH manifests. requirements-test.txt carries the test-only chain

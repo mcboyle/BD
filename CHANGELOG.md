@@ -4,6 +4,61 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1218 - the five wired gates now render the app instead of grepping it
+
+- Backlog rows 187, 191, 192, 193 and 194. Each named a *_wired.py gate that
+  judged a RUNTIME property -- "does the dashboard fetch its endpoints", "is the
+  section reachable", "does the decision write carry CSRF" -- by scanning SOURCE
+  TEXT. All five evasions were REPRODUCED before anything was replaced; the
+  headline one is row 193, where changing `<DevToolsSection />` to
+  `{false && <DevToolsSection />}` leaves the substring intact, strands nine
+  endpoint families behind a section React never renders, and the old gate
+  reported 6 passed.
+- THE REPLACEMENTS WERE THEMSELVES ADVERSARIALLY REVIEWED, and four of the five
+  were defective. That review is the reason this cut is not the one originally
+  proposed:
+- ROW 187 pinned a hand-maintained 12-item endpoint list -- the SAME denominator
+  shape as the text gate, merely observed at runtime instead of grepped. The set
+  is now DERIVED from useDashboardData.ts at test time, so adding a query adds it
+  to the gate. THE FIRST DERIVATION REPRODUCED THE DEFECT IT WAS FIXING: it
+  matched a COMMENTED-OUT apiGet call, which is the "a path NAMED is not a path
+  CALLED" laundering v3.66.754b closed for the parity scanner and v3.66.1217
+  closed again. Comments are stripped before deriving, and both directions are
+  proven -- a commented call is ignored, a real repoint is caught.
+- ROW 193's spec rendered the component directly inside MemoryRouter; the harness
+  contained ZERO <Routes>/<Route>, so the path argument only seeded
+  initialEntries and the App.tsx binding was as untested as before, while the
+  test was NAMED "through their real routes". renderAppAt() now mounts the real
+  route table. Proven: repathing `<Route path="/settings/advanced">` leaves all
+  six component-level tests GREEN and fails only the binding test.
+- ROW 194's spec mocked @/lib/api-client wholesale, so it pinned a spy identity
+  and never observed an X-CSRF-Token -- the same class of assertion as the grep
+  it replaced. A grep for X-CSRF-Token across all 122 existing spec files
+  returned NOTHING, so the client half was genuinely uncovered; the backend half
+  was already covered by test_t11's real Flask arms, which prove the server
+  REFUSES a tokenless write but cannot prove the client SENDS one. The missing
+  half now exists, with a negative control showing a bare fetch is tokenless.
+- ROW 192's spec failed on a CORRECT implementation: `await import("@/main")`
+  takes 7,583ms against vitest's 5000ms default testTimeout. The bound was the
+  defect, not the product. Explicit 30s timeout. This is also why one integrator
+  measurement said 24/24 green and a reviewer said 23/24 -- it is host-load
+  dependent, and the single unrepeated measurement was mine and was wrong. The
+  set now measures 25/25 across three consecutive runs.
+- ROW 191's text assertion is DELETED rather than replaced. It was redundant:
+  tests/test_parity_method_aware.py already catches that evasion by DERIVATION
+  and, verified here, fails with "regressed (no longer spa_wired):
+  ['/api/stream/token/<int:hid>']" -- and it strips comments, which is exactly
+  what the T9a evasion exploited. Deleting the weakest of three gates covering
+  one property loses nothing; the parity derivation and the runtime spec remain.
+- CI HAD TO CHANGE OR ALL FIVE WOULD FAIL EVERY RUN. tests/frontend_vitest.py is
+  fail-closed by design -- it ASSERTS the Vitest binary rather than skipping,
+  because a gate that skips when its tool is missing is a gate that does not
+  exist. The five live in the parity-graph shard and gate-suites installed only
+  Python. Node is now installed for that shard CONDITIONALLY, and
+  tests/test_v3_66_1218_* derives the contract from the tree: every shard running
+  a Vitest-delegating gate must have node, no shard that does not need it may
+  have it, and those gates must remain in a shard at all.
+
 ## v3.66.1217 - a test fixture is not evidence that the SPA wires a route
 
 - `tools/gui_parity_inventory.py::_spa_wiring` answers "does the React SPA
