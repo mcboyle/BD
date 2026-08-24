@@ -208,21 +208,31 @@ def test_a_capped_run_declares_the_signal_dispositions_its_cap_erased(tmp_path):
                    ignore_signals=True)
     assert proc.returncode == 0, proc.stderr[-1200:]
     body = _newest_log(logdir, "capped").read_text(encoding="utf-8")
+    said = proc.stdout
 
-    assert "BD-RUN-CAP-RESETS-SIGNALS" in body, (
+    assert "BD-RUN-CAP-RESETS-SIGNALS" in said, (
         "a capped run said nothing about the dispositions its cap erased, so a "
-        "reader cannot tell this log is not signal evidence (row 227):\n%s"
-        % body[:600])
+        "reader cannot tell this run is not signal evidence (row 227):\n%s"
+        % said[:600])
+    declaration = [ln for ln in said.splitlines()
+                   if "BD-RUN-CAP-RESETS-SIGNALS" in ln][0]
     for name in ("HUP", "INT", "QUIT"):
-        assert name in body.split("\n", 1)[0], (
+        assert name in declaration, (
             "the declaration did not name %s even though the parent held it "
-            "ignored: %r" % (name, body.split("\n", 1)[0]))
+            "ignored: %r" % (name, declaration))
 
-    parent = re.search(r"parent SigIgn=0x([0-9a-fA-F]+)", body)
+    assert "BD-RUN-CAP-RESETS-SIGNALS" not in body, (
+        "the declaration was written INTO the subject's log. That makes this "
+        "tool alter the artifact its consumers parse -- the exact defect this "
+        "cut fixes, one layer up. bd-sweep-run's selftest builds a fixture for "
+        "an EMPTY log and CI caught this in the first draft.")
+
+    parent = re.search(r"parent SigIgn=0x([0-9a-fA-F]+)", said)
     subject = re.search(r"SUBJECT_SIGIGN=0x([0-9a-fA-F]+)", body)
     assert parent and subject, (
-        "could not read both masks out of the log, so the declaration's truth "
-        "is unmeasured: %r" % body[:600])
+        "could not read the parent mask from the declaration and the subject "
+        "mask from the log, so the declaration's truth is unmeasured: "
+        "said=%r log=%r" % (said[:300], body[:300]))
     parent_mask, subject_mask = int(parent.group(1), 16), int(subject.group(1), 16)
     assert parent_mask & 0x7 == 0x7, (
         "precondition: the parent must really hold HUP/INT/QUIT ignored, else "
@@ -244,12 +254,15 @@ def test_the_declaration_does_not_cry_wolf_when_nothing_was_ignored(tmp_path):
                     "--dir", str(logdir), "--", sys.executable, str(probe)],
                    ignore_signals=False)
     assert proc.returncode == 0, proc.stderr[-1200:]
-    first = _newest_log(logdir, "quiet").read_text(encoding="utf-8").split("\n", 1)[0]
-    assert "BD-RUN-CAP-RESETS-SIGNALS" in first
-    assert "nothing relevant was ignored" in first, (
+    said = [ln for ln in proc.stdout.splitlines()
+            if "BD-RUN-CAP-RESETS-SIGNALS" in ln]
+    assert said, proc.stdout[:600]
+    assert "nothing relevant was ignored" in said[0], (
         "the declaration claimed an erasure that could not have happened: %r"
-        % first)
-    assert "ERASED FOR THE SUBJECT" not in first, first
+        % said[0])
+    assert "ERASED FOR THE SUBJECT" not in said[0], said[0]
+    body = _newest_log(logdir, "quiet").read_text(encoding="utf-8")
+    assert "BD-RUN-CAP-RESETS-SIGNALS" not in body, "the log must stay pure"
 
 
 def test_an_uncapped_run_carries_no_declaration_because_nothing_is_erased(tmp_path):
@@ -265,6 +278,7 @@ def test_an_uncapped_run_carries_no_declaration_because_nothing_is_erased(tmp_pa
     assert proc.returncode == 0, proc.stderr[-1200:]
     body = _newest_log(logdir, "uncapped").read_text(encoding="utf-8")
     assert "BD-RUN-CAP-RESETS-SIGNALS" not in body, body[:400]
+    assert "BD-RUN-CAP-RESETS-SIGNALS" not in proc.stdout, proc.stdout[:400]
     subject = re.search(r"SUBJECT_SIGIGN=0x([0-9a-fA-F]+)", body)
     assert subject, body[:400]
     assert int(subject.group(1), 16) & 0x7 == 0x7, (

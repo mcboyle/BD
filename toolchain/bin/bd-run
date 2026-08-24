@@ -294,19 +294,26 @@ def run(args):
     capped = False
     if args.max_seconds:
         parts = ["timeout", "--kill-after=10", str(args.max_seconds)] + parts
+    # SAID IN THE TOOL'S OWN VOICE, NOT WRITTEN INTO THE SUBJECT'S LOG. The
+    # first draft put this line at the top of the log file and CI caught what
+    # that costs: bd-sweep-run's selftest builds a fixture for an EMPTY log with
+    # pytest exit 0, and an annotation at the top means the log is no longer the
+    # subject's output. That is the very defect this change exists to fix,
+    # reproduced one layer up -- a wrapper altering the artifact its consumers
+    # parse. The log stays pure; the declaration goes to bd-run's stdout beside
+    # its other verdict lines, which is where a human reads it and where callers
+    # already capture this tool's narration.
+    if args.max_seconds:
+        inherited = _sigign_mask()
+        erased = _erased_by_cap(inherited)
+        print("BD-RUN-CAP-RESETS-SIGNALS: this run is bounded by coreutils "
+              "timeout, which resets inherited signal dispositions before exec. "
+              "parent SigIgn=%s%s. Do NOT read this run as evidence about "
+              "inherited signal handling."
+              % (inherited,
+                 "; ERASED FOR THE SUBJECT: " + ",".join(erased)
+                 if erased else "; nothing relevant was ignored"), flush=True)
     with open(log, "wb") as fh:
-        if args.max_seconds:
-            inherited = _sigign_mask()
-            erased = _erased_by_cap(inherited)
-            fh.write(("BD-RUN-CAP-RESETS-SIGNALS: this run is bounded by "
-                      "coreutils timeout, which resets inherited signal "
-                      "dispositions before exec. parent SigIgn=%s%s. Do NOT read "
-                      "this log as evidence about inherited signal handling.\n"
-                      % (inherited,
-                         "; ERASED FOR THE SUBJECT: " + ",".join(erased)
-                         if erased else "; nothing relevant was ignored"))
-                     .encode("ascii", "replace"))
-            fh.flush()
         proc = subprocess.Popen(parts, stdout=fh, stderr=subprocess.STDOUT,
                                 env=plain_env())
         rc = proc.wait()
