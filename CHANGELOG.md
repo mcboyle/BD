@@ -4,6 +4,73 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1235 - the retired-sandbox census asks the parser, not the bytes
+
+- TWENTY-FIVE BYTES STOOD IN FOR A RUNTIME DEFAULT. The gate asked whether a
+  file's TEXT contained a `default=` naming the retired sandbox work root --
+  written out here as a description rather than as the literal, because
+  `test_sandbox_home_stays_retired.py` freezes how many tracked files carry that
+  string and assembles its own needle from parts for exactly this reason. This
+  entry tripped that census at 261 against a frozen 260 before being reworded:
+  explaining a removal by naming the removed thing recreates it, which this
+  repository has now recorded six times. Across 2536 python-typed
+  tracked files, to certify that no tool still defaults `--work` into the
+  retired sandbox root (row 196). Five runtime-identical evasions are invisible
+  to that -- an imported constant, a named constant, a line break inside the
+  call, and so on -- and, in the other direction, INERT PROSE mentioning the
+  path was counted as a live carrier.
+- IT NOW MEASURES. An AST pass enumerates the 146 files that actually DECLARE
+  `--work` (an `add_argument` call with a Constant option name, fail-closed --
+  no bare `except SyntaxError`), then forks one child per target with
+  `ArgumentParser.add_argument` intercepted and classifies the RESOLVED default
+  against the retired root and everything under it. A target that cannot be
+  reached is UNKNOWN and UNKNOWN FAILS. Measured: 146/146 reached, 0 errors, 0
+  carriers, tree byte-identical across three runs, 0.534s idle.
+- THE BUDGET IS DERIVED AND DELIBERATELY NOT RATCHETED. `max(60, 6 x 0.534)` =
+  60s under an explicit 90s item bound, both under 240. It is deliberately NOT
+  added to `_MEASURED_S`, because that would arm the `elapsed <= 2x baseline`
+  assertion and reproduce row 230's own hazard inside the fix for row 196.
+- RED PROVENANCE IS A REAL REPLAY. The new test lives in its own file and drives
+  the EXISTING gate function by name, so every symbol it touches exists on the
+  parent: 7 failed in 2.53s on the true base, each with a distinctive named
+  diagnostic, in BOTH directions -- five evasions the scan cannot see plus prose
+  it wrongly counts.
+- A 6-OF-6 FIRST BATTERY WAS AGAIN TREATED AS A REASON TO LOOK HARDER, and
+  again it paid: two rules had NO CATCHER AT ALL -- the multi-declaration
+  refusal and the BD_ROOT/BD_REPO/BD_INSTALL_DIR/BD_WORK_TREE pop. Both were
+  DEAD: no tracked file declares `--work` twice and none of those variables is
+  set here, so blunting either changed nothing anywhere and no test could
+  notice. Both are now covered, each hand-verified RED-with and GREEN-without.
+- FIFTEEN REAL TOOLS SPELL IT `add_argument("--tree", "--work", ...)`, which
+  argparse names `dest="tree"` -- so a probe reading `.work` would have missed
+  every one of them. The fixture was rewritten to that shape.
+- THE PLAN WAS WRONG IN SIX PLACES, each corrected with a measurement: the
+  population is 2536 not 2533; deleting the known-carriers set would orphan the
+  classifier's own message and discard a live set-equality discipline (it is
+  EMPTIED instead); its residence arm is a different property with two rot-prone
+  lists and no mutant using it, so it is out of scope; one of its anchors occurs
+  TWICE in the shipped file; its probe read `.work`; and it shipped five mutants
+  with no test able to see an attribution bug.
+- STATED PLAINLY RATHER THAN BURIED: the gate now EXECUTES each candidate's
+  module-level code up to its first `--work` declaration. All 146 prologues are
+  parser construction today, but a future tool that ACTS at import time would be
+  run by this gate. That is the cost of measuring instead of reading, and it is
+  recorded so the next person does not discover it.
+- AND CI CAUGHT ONE MORE THING THE LOCAL BAND COULD NOT. The new census forks a
+  child with `os.environ` INHERITED, which carries the ambient `LC_ALL`, so
+  locale collation inside the child could decide a verdict. That is row 178's
+  defect, and `test_v3_66_1197_ambient_locale_into_subprocess.py` exists to
+  refuse it tree-wide -- but it is in no derived band, so only the exact-head CI
+  run saw it. `LC_ALL=C` is now pinned at all three inheriting sites.
+- ALSO IN THIS CUT, and named because it is a register correction rather than
+  part of the subject: row 237's text is replaced with the DIAGNOSED version.
+  The split's race is now located -- every owner observation runs under
+  `timeout $W1_SPAWN_TIMEOUT`, which is `registration_remaining_owner_timeout`,
+  what REMAINS of the forward phase deadline (about 1.5s at reap_seconds=3). A
+  python3 fork/exec plus a /proc walk fits that on an idle box and not when the
+  split doubles the concurrent runner count. Leaving the row carrying my weaker
+  guess when a measurement exists would misdirect exactly the way row 91 did.
+
 ## v3.66.1234 - CI is proved to RUN the guard lane, not to mention it
 
 - ONE `in` TEST STOOD FOR A WHOLE SAFETY LANE. The gate asserted

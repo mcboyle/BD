@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 196 runtime --work default census. bd-mutate refuses a work tree inside its own repository, so run it from a DETACHED clone whose HEAD tree is the candidate tree: git clone <candidate-worktree> /tmp/row196-clone && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1235_runtime_work_default_census.json --work /tmp/row196-clone. M1 and M2 name the whole-tree census as catcher, so each of those arms probes all 146 declarers; the battery is minutes, not seconds. No anchor here embeds a count or a version, so a later cut that moves the candidate floor or renumbers the release does not rot this spec. ADVERSARIAL PROBING AFTER A CLEAN FIRST BATTERY (6/6 CAUGHT) found two rules with no catcher, and both were hardened IN THIS CUT rather than left standing: the refusal of a SECOND option declaration (no tracked file declares twice, so blunting it to `if False` changed nothing anywhere) and the popping of BD_ROOT/BD_REPO/BD_INSTALL_DIR/BD_WORK_TREE from the census environment (none is set on this host or in CI, so deleting the pop changed nothing either). Their catchers are the last two band entries. Both were verified by hand on a detached clone -- each mutation RED with its catcher and GREEN without -- rather than by adding a seventh and eighth mutant, because the battery is capped at six.",
+  "subject": "Row 196 -- test_the_bare_work_default_is_not_a_sandbox_path decides whether a tool defaults --work to the retired sandbox tree by BUILDING the tool's parser in an isolated child and reading the resolved default, not by finding one exact byte spelling in the file",
+  "band": [
+    "tests/test_desandbox_tool_verifiers.py::test_the_bare_work_default_is_not_a_sandbox_path",
+    "tests/test_desandbox_tool_verifiers.py::test_an_unprobeable_candidate_is_a_failure_not_a_pass",
+    "tests/test_desandbox_tool_verifiers.py::test_every_work_option_declaration_is_visible_to_the_census",
+    "tests/test_desandbox_tool_verifiers.py::test_the_sandbox_carrier_classifier_fires_in_all_three_directions",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_runtime_work_default_evasion_is_seen_by_the_census[single-quoted]",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_runtime_work_default_evasion_is_seen_by_the_census[named-constant]",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_runtime_work_default_evasion_is_seen_by_the_census[imported-constant]",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_runtime_work_default_evasion_is_seen_by_the_census[line-broken]",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_runtime_work_default_evasion_is_seen_by_the_census[retired-subdirectory]",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_inert_retired_prose_is_not_a_runtime_work_default",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_the_census_attributes_each_verdict_to_the_tool_it_measured",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_second_option_declaration_is_refused_rather_than_half_measured",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_an_ambient_bd_repo_cannot_steer_the_census"
+  ],
+  "mutants": [
+    {
+      "label": "M1 -- the enumeration hunts a DIFFERENT option, so the candidate population collapses to nothing and the census certifies an empty set. This is the row's own defect shape one level up: a gate that cannot reach its subject reporting OK. Non-equivalent by measurement -- no tracked file anywhere in this repository declares that option, so the mutated enumeration returns zero candidates against 146 today.",
+      "file": "tests/test_desandbox_tool_verifiers.py",
+      "old": "_WORK_OPTION = \"--work\"",
+      "new": "_WORK_OPTION = \"--workspace\"",
+      "direction": "regression",
+      "catcher": "tests/test_desandbox_tool_verifiers.py::test_the_bare_work_default_is_not_a_sandbox_path"
+    },
+    {
+      "label": "M2 -- the probe stops putting the target's own directory on sys.path. The harness then manufactures its own failure: toolchain/bin/bd-decomp relies on the implicit sys.path[0] a real invocation gives it and dies with ModuleNotFoundError for bdtools_sec. Non-equivalent by direct measurement in BOTH states at v3.66.1235: 0 unreached targets with the insert, exactly bd-decomp unreached without it. The fail-closed branch must turn that into a named failure rather than a silent omission from the denominator.",
+      "file": "tests/test_desandbox_tool_verifiers.py",
+      "old": "    sys.path.insert(0, os.path.dirname(os.path.realpath(target)))\n",
+      "new": "    pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_desandbox_tool_verifiers.py::test_the_bare_work_default_is_not_a_sandbox_path"
+    },
+    {
+      "label": "M3 -- a tool whose parser could not be built is treated as clean instead of UNKNOWN. This is the SKIP-becomes-PASS shape this whole file was written about. Every candidate reaches its declaration on a healthy tree, so no mutant could reach this branch from the real census; the constructed-input test is what makes it reachable, which is precisely why it is not optional.",
+      "file": "tests/test_desandbox_tool_verifiers.py",
+      "old": "        if not row.get(\"reached\"):\n",
+      "new": "        if False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_desandbox_tool_verifiers.py::test_an_unprobeable_candidate_is_a_failure_not_a_pass"
+    },
+    {
+      "label": "M4 -- the classifier matches one exact retired path instead of the retired ROOT and everything under it, so any subdirectory of the vanished sandbox escapes. Non-equivalent and narrowly so: only the retired-subdirectory arm flips, while the other four evasion arms stay green, which is what proves this mutant is about the prefix rule and not about the census working at all.",
+      "file": "tests/test_desandbox_tool_verifiers.py",
+      "old": "        if text == _RETIRED_SANDBOX_ROOT or text.startswith(_RETIRED_SANDBOX_ROOT + \"/\"):\n",
+      "new": "        if text == _RETIRED_SANDBOX_WORK:\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_a_runtime_work_default_evasion_is_seen_by_the_census[retired-subdirectory]"
+    },
+    {
+      "label": "M5 -- every target reads back the FIRST child's result instead of its own, so N measurements collapse into one and the census attributes it to N names. A fail-open, not merely a bad diagnosis: on a tree where the first tool is clean, every other tool inherits that verdict. Invisible to a single-fixture population and invisible to the whole-tree census on a healthy tree, because there all 146 records look alike -- which is exactly why the two-fixture attribution test exists.",
+      "file": "tests/test_desandbox_tool_verifiers.py",
+      "old": "        blob = outdir / (\"%d.json\" % i)\n",
+      "new": "        blob = outdir / \"0.json\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_the_census_attributes_each_verdict_to_the_tool_it_measured"
+    },
+    {
+      "label": "O1 OVERCORRECTION -- the retired textual reflex is bolted back on top of the runtime verdict, so any candidate whose SOURCE mentions the retired path is a carrier again. This is the defect's own shape rebuilt inside its fix (CLAUDE.md A7), and it is the direction that gets a gate switched off: it reddens files whose only contact with the path is a comment explaining this very class of bug. The preserved tests both drive PURE classifier functions with constructed input and never execute the mutated line, so a failure there would mean the mutant is indiscriminate rather than narrow.",
+      "file": "tests/test_desandbox_tool_verifiers.py",
+      "old": "    carriers, problems = _classify_work_defaults(probed)\n    problems = problems + _classify_sandbox_carriers(\n",
+      "new": "    carriers, problems = _classify_work_defaults(probed)\n    carriers |= {r for r in probed\n                 if _RETIRED_SANDBOX_WORK in (REPO / r).read_text(errors=\"replace\")}\n    problems = problems + _classify_sandbox_carriers(\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py::test_inert_retired_prose_is_not_a_runtime_work_default",
+      "preserves": [
+        "tests/test_desandbox_tool_verifiers.py::test_the_sandbox_carrier_classifier_fires_in_all_three_directions",
+        "tests/test_desandbox_tool_verifiers.py::test_an_unprobeable_candidate_is_a_failure_not_a_pass"
+      ]
+    }
+  ]
+}
