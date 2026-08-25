@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 81,
+    "total": 82,
     "version": 1,
-    "count_dict": 80,
-    "test_files_scanned": 1420,
+    "count_dict": 81,
+    "test_files_scanned": 1421,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -40,6 +40,7 @@
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1040_remote_job_registry.py": 1,
+      "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py": 1,
       "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
@@ -239,7 +240,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1247",
+      "value": "3.66.1248",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -357,6 +358,22 @@
         "GATE_ABANDONED": 75
       },
       "gates_what": "test_lifecycle_exit_status_table_is_exact_and_collision_free — Every machine-facing lifecycle outcome owns one stable numeric code."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "line": 322,
+      "value": {
+        "literal_bindings_seen": 4,
+        "literal_bindings_excluded_declaration": 1,
+        "literal_bindings_tracked": 3,
+        "variable_asserts_seen": 3,
+        "variable_asserts_excluded_already_true": 1,
+        "variable_asserts_eligible": 2,
+        "variable_asserts_decided_true": 1,
+        "variable_asserts_not_decided_true": 1
+      },
+      "gates_what": "test_the_variable_slice_reports_an_exact_metrics_dictionary"
     },
     {
       "form": "count_dict",

@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1248 - the vacuity and over-sensitivity routes each gain a decidable slice
+
+-    for path in _tracked_test_files():
+-        for lineno, text in _vacuous_asserts(path):
+-            rel = path.relative_to(_REPO)
+-            offenders.append(f"{rel}:{lineno}  assert {text}")
+-        "%d assertion(s) are true for every input, so they constrain nothing
+-        "and pass on any implementation:\n  %s\n\n"
+-        % (len(offenders), "\n  ".join(offenders))
+- [Assertion gate](/home/mboyle/bd-codex-wt/row26/tests/test_v3_66_1098_no_as
+- [Mutation spec](/home/mboyle/bd-codex-wt/row26/tests/mutants/v3_66_1098_ass
+- [Backlog row 26](/home/mboyle/bd-codex-wt/row26/project-knowledge/IMPROVEME
+- Modified `@1098` gate: `12 passed, 2 warnings in 29.51s`.
+- Complete 24-file derived floor: `186 passed, 9 warnings in 301.03s`.
+- Existing slice-2/3 gate: `28 passed, 3 warnings in 32.53s`.
+
 ## v3.66.1247 - a wired gate judges behaviour rather than source text
 
 - Replaced the textual proxy with runtime Vitest delegates and an exact nonze

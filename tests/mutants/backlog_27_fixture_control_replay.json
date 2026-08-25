@@ -1,0 +1,45 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 27 decidable-slice battery. Re-run from a detached scratch copy: toolchain/bin/bd-mutate --spec tests/mutants/backlog_27_fixture_control_replay.json --work DETACHED_SCRATCH. The independent denominator is the exact nonzero control-plus-preserves nodeid set, replayed after source restoration. M4 is the over-correction: replaying the whole band would make unrelated third-run behavior decide an attributed mutant verdict.",
+  "subject": "bd-mutate proves fixture-backed controls turn green again after source restoration",
+  "band": [
+    "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restored-source control replay is disabled",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        elif (operation_problem is None\n              and row[\"direction\"] == \"overcorrection\"\n              and jrec is not None):",
+      "new": "        elif False:",
+      "direction": "regression",
+      "catcher": "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py::test_fixture_residue_makes_a_caught_control_UNKNOWN"
+    },
+    {
+      "label": "M2 restored replay omits the named control and runs only preserves",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "            replay_targets = [m[\"control\"], *m[\"preserves\"]]",
+      "new": "            replay_targets = [*m[\"preserves\"]]",
+      "direction": "regression",
+      "catcher": "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py::test_fixture_residue_makes_a_caught_control_UNKNOWN"
+    },
+    {
+      "label": "M3 a red restored replay no longer changes the false CAUGHT verdict",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "            if replay_problem is not None:\n                row[\"verdict\"] = UNKNOWN\n                row[\"why\"] = replay_problem",
+      "new": "            if False:\n                row[\"verdict\"] = UNKNOWN\n                row[\"why\"] = replay_problem",
+      "direction": "regression",
+      "catcher": "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py::test_fixture_residue_makes_a_caught_control_UNKNOWN"
+    },
+    {
+      "label": "M4 OVER-CORRECTION restored replay widens from named verdict tests to the whole band",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "            replay_targets = [m[\"control\"], *m[\"preserves\"]]",
+      "new": "            replay_targets = band",
+      "direction": "overcorrection",
+      "control": "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py::test_restored_replay_judges_only_the_named_nonzero_population",
+      "preserves": [
+        "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py::test_fixture_residue_makes_a_caught_control_UNKNOWN"
+      ]
+    }
+  ]
+}
