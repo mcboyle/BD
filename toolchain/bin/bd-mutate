@@ -57,6 +57,12 @@ THE CONTRACT
     control  required for overcorrection; this nodeid must fail
     preserves required for overcorrection; these nodeids must still pass
 
+  After an overcorrection runs, its control and preserves are run once more
+  against the restored source.  Every one must PASS.  A fixture can leave
+  state outside the mutated file; without this independent replay, that state
+  can keep the control red and manufacture a CAUGHT verdict after the mutant
+  itself is gone.
+
   --direction {regression,overcorrection,all} filters a recorded battery;
   filtering to zero mutants is UNKNOWN rather than vacuous success.
   --timeout SECONDS bounds collection and execution separately (default: 900).
@@ -1599,6 +1605,47 @@ def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
     return CAUGHT, f"named control failed and every preserved test passed: {control}"
 
 
+def _restored_control_replay_problem(mutant: dict, result: dict) -> str | None:
+    """Return why an overcorrection's restored-source replay is not GREEN.
+
+    The exact named set is independent of the mutant run's JUnit artifact.  It
+    is deliberately narrower than the whole band: unrelated bandmates do not
+    decide the mutant's attributed verdict, so rerunning them here would add a
+    new, over-sensitive denominator after the verdict was already measured.
+    """
+    expected = [mutant["control"], *mutant["preserves"]]
+    if not expected:
+        return "restored-source replay has a zero named-test denominator"
+    if result.get("collection_error"):
+        return "restored-source replay had a pytest collection error: " + result["tail"][-700:]
+    if result.get("measurement_error"):
+        return "restored-source replay is unproved: " + result["measurement_error"]
+
+    expected_counts = Counter(expected)
+    collected_counts = Counter(result.get("collected", []))
+    if collected_counts != expected_counts:
+        missing = sorted((expected_counts - collected_counts).elements())
+        extra = sorted((collected_counts - expected_counts).elements())
+        return (
+            "restored-source replay did not execute its exact named-test "
+            f"denominator: expected={expected} missing={missing} extra={extra}"
+        )
+
+    not_passed: list[tuple[str, str | None]] = []
+    for nodeid in expected:
+        outcome, why = _named_outcome(result, nodeid)
+        if why:
+            return "restored-source replay is unproved: " + why
+        if outcome != "passed":
+            not_passed.append((nodeid, outcome))
+    if result.get("rc") != 0 or not_passed:
+        return (
+            "restored-source replay was not GREEN: "
+            f"rc={result.get('rc')} nonpasses={not_passed}"
+        )
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # @875 -- THE INTERRUPTED BATTERY, and why a signal handler is not the fix.     #
 # --------------------------------------------------------------------------- #
@@ -2200,6 +2247,7 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         operation_problem = None
         restore_problem = None
         close_problem = None
+        replay_problem = None
         jrec = None
         try:
             try:
@@ -2313,7 +2361,25 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         if restore_problem is not None:
             row["verdict"] = ERROR
             row["why"] = restore_problem
-        elif jrec is not None:
+        elif (operation_problem is None
+              and row["direction"] == "overcorrection"
+              and jrec is not None):
+            # A byte-identical source restore cannot restore state a fixture
+            # wrote elsewhere.  Re-run the exact named verdict population
+            # while the original bytes are back, before another mutant can
+            # inherit that residue and turn it into a false CAUGHT.
+            replay_targets = [m["control"], *m["preserves"]]
+            try:
+                replay = _run_band(replay_targets, work, timeout=timeout)
+                replay_problem = _restored_control_replay_problem(m, replay)
+            except Exception as exc:
+                replay_problem = "restored-source replay is unproved (%s)" % (
+                    _exception_summary(exc),
+                )
+            if replay_problem is not None:
+                row["verdict"] = UNKNOWN
+                row["why"] = replay_problem
+        if restore_problem is None and jrec is not None:
             try:
                 _journal_unlink(
                     work, jrec, journal_dir_identity,
@@ -2327,6 +2393,10 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         if restore_problem is not None:
             print("BD-MUTATE-UNRUNNABLE: %s; retained %s"
                   % (restore_problem, jrec), file=sys.stderr)
+            return 2, out
+        if replay_problem is not None:
+            print("BD-MUTATE-UNRUNNABLE: %s; restoration and journal removal "
+                  "were verified" % replay_problem, file=sys.stderr)
             return 2, out
         if operation_problem is not None:
             print("BD-MUTATE-UNRUNNABLE: %s; restoration and journal removal "

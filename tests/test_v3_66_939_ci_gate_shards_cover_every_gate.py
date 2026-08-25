@@ -232,6 +232,11 @@ _DECLARED = {
     "tests/test_v3_66_1188_bd_mutate_review_controls.py",
     "tests/test_v3_66_1189_bd_mutate_durable_contract.py",
     "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py",
+    # Backlog 27's executable route is module-scoped, but it decides whether
+    # bd-mutate may publish a false CAUGHT after a fixture contaminates the
+    # restored-source control.  Mutation evidence is a safety boundary, so the
+    # test runs on every PR with the rest of the mutation-tools shard.
+    "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",
     "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py",
     "tests/test_frontend_secret_keys_in_sync.py",
     "tests/test_templates_list_identity.py",

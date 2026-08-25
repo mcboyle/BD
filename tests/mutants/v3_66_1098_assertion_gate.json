@@ -1,0 +1,97 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 26 slice 4 extends the @1098 always-true assertion gate with one variable-mediated decidable shape. Re-run from an independent detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1098_assertion_gate.json --work DETACHED_SCRATCH --timeout 300. Eight behavioral mutants must be CAUGHT. The final duplicate transform mutant deliberately names the import-only control as its catcher and must ESCAPE; that proves the behavioral catchers fail on assertions rather than on an invalid transform or collection break.",
+  "subject": "row 26 slice 4 -- straight-line immutable local literals cannot make an assertion's root-or chain vacuously true",
+  "band": [
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_variable_slice_reports_an_exact_metrics_dictionary",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_bare_truthy_local_is_inside_the_decidable_slice",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_falsy_local_clause_remains_a_real_assertion",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_rebinding_and_dynamic_scope_refuse_stale_literal_facts",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_nested_control_flow_remains_outside_the_decidable_slice",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_variable_slice_transform_control_imports_without_judging_behaviour"
+  ],
+  "mutants": [
+    {
+      "label": "M1 variable values are never resolved, restoring the row's missed truthy-name defect",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "    if isinstance(node, ast.Name) and env is not None and node.id in env:\n        return bool(env[node.id])",
+      "new": "    if False:\n        return bool(env[node.id])",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous"
+    },
+    {
+      "label": "M2 intervening rebindings no longer invalidate a stale truthy literal",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "            for name in _statement_bindings(statement):\n                env.pop(name, None)",
+      "new": "            for name in ():\n                env.pop(name, None)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_rebinding_and_dynamic_scope_refuse_stale_literal_facts"
+    },
+    {
+      "label": "M3 OVER-CORRECTION global and nonlocal declarations stop refusing unstable names",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "                if name in refused:\n                    metrics[\"literal_bindings_excluded_declaration\"] += 1",
+      "new": "                if False:\n                    metrics[\"literal_bindings_excluded_declaration\"] += 1",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_rebinding_and_dynamic_scope_refuse_stale_literal_facts",
+      "preserves": [
+        "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous"
+      ]
+    },
+    {
+      "label": "M4 OVER-CORRECTION every tracked literal is treated as truthy, including False",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "        return bool(env[node.id])",
+      "new": "        return True",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_falsy_local_clause_remains_a_real_assertion",
+      "preserves": [
+        "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous"
+      ]
+    },
+    {
+      "label": "M5 the supported bare-name and root-or variable positions disappear",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "    if isinstance(node, ast.Name):\n        return {node.id}",
+      "new": "    if isinstance(node, ast.Name):\n        return set()",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous"
+    },
+    {
+      "label": "M6 OVER-CORRECTION the straight-line boundary expands into nested control flow",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "        for statement in scope.body:",
+      "new": "        for statement in [node for node in ast.walk(scope) if isinstance(node, (ast.Assign, ast.AnnAssign, ast.Assert))]:",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_nested_control_flow_remains_outside_the_decidable_slice",
+      "preserves": [
+        "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous"
+      ]
+    },
+    {
+      "label": "M7 the eligible metric silently stops counting the population the gate judges",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "                        metrics[\"variable_asserts_eligible\"] += 1",
+      "new": "                        metrics[\"variable_asserts_eligible\"] += 0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_variable_slice_reports_an_exact_metrics_dictionary"
+    },
+    {
+      "label": "M8 assertions already vacuous in the syntax-only slice are double-counted as variable evidence",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "                    if _always_true(statement.test):\n                        metrics[\"variable_asserts_excluded_already_true\"] += 1",
+      "new": "                    if False:\n                        metrics[\"variable_asserts_excluded_already_true\"] += 1",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_variable_slice_reports_an_exact_metrics_dictionary"
+    },
+    {
+      "label": "TRANSFORM CONTROL: disabling variable resolution must escape when the named test only imports the mutated module",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "    if isinstance(node, ast.Name) and env is not None and node.id in env:\n        return bool(env[node.id])",
+      "new": "    if False:\n        return bool(env[node.id])",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_variable_slice_transform_control_imports_without_judging_behaviour"
+    }
+  ]
+}
