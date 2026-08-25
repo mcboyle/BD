@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1245 - the release gate sees prose above the newest header
+
+-    preamble is instead the first non-heading prose block after the document
+-    level-one title.  Blank separator lines are allowed; any other line befo
+-    the first level-two header is orphan content.
+-    preamble_start = cursor
+-    while cursor < len(lines) and lines[cursor].strip():
+-    if preamble_start == cursor or lines[preamble_start].lstrip().startswith
+-                "reason": "the prose preamble boundary cannot be measured",
+- [diff_release_zips.py](/home/mboyle/bd-codex-wt/row242/tools/diff_release_z
+- [mutation spec](/home/mboyle/bd-codex-wt/row242/tests/mutants/v3_66_1244_re
+- CI visibility already existed: the modified test file is in `artifacts-pins
+- Caught: `M1 delete the orphan-preamble-region finding from the release-diff
+- Transform control: `CONTROL delete the region verdict but assert importabil
+- Full pytest suite, GitHub CI, or `bd-precut`.
+
 ## v3.66.1243 - the cluster gate drives the route instead of reading it
 
 - ANOTHER TEXT SCAN STANDING IN FOR RUNTIME WIRING (row 185), converted in the

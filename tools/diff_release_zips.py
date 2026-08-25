@@ -86,6 +86,112 @@ def changelog_top(zip_path: str) -> str:
     return ""
 
 
+_CHANGELOG_PREAMBLE_BLOCKS = (
+    (
+        "Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by",
+        "phase number. Notes here cover recent releases. For pre-v3.46 history",
+        "see [CHANGELOG_archive.md](CHANGELOG_archive.md).",
+    ),
+    (
+        "Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by",
+        "phase number. Notes here cover recent releases. The former pre-v3.46",
+        "archive is not present in this repository; consult source-control history.",
+    ),
+)
+
+
+def changelog_preamble_layout(text: str) -> Dict:
+    """Measure content between the independently parsed preamble and first H2.
+
+    The first release header cannot define the start of its own denominator:
+    that is how a headerless draft above it escaped at v3.66.1240.  The
+    preamble is instead one of the two explicit blocks carried by accepted
+    history.  A candidate cannot redefine an orphan bullet block as its own
+    preamble. Blank separator lines are allowed; any other line before the
+    first level-two header is orphan content.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return {"status": "unknown", "reason": "CHANGELOG.md is empty",
+                "offending_lines": []}
+    if lines[0].strip() != "# Changelog":
+        return {"status": "unknown",
+                "reason": "the '# Changelog' title is absent or displaced",
+                "offending_lines": []}
+
+    cursor = 1
+    while cursor < len(lines) and not lines[cursor].strip():
+        cursor += 1
+    matched_preamble = next(
+        (
+            block for block in _CHANGELOG_PREAMBLE_BLOCKS
+            if tuple(lines[cursor:cursor + len(block)]) == block
+        ),
+        None,
+    )
+    if matched_preamble is None:
+        return {"status": "unknown",
+                "reason": "the explicit prose preamble is not recognized",
+                "offending_lines": []}
+    cursor += len(matched_preamble)
+
+    headers = [
+        index for index, line in enumerate(lines)
+        if line.startswith("## ")
+    ]
+    if not headers:
+        return {"status": "unknown",
+                "reason": "CHANGELOG.md has no level-two header",
+                "offending_lines": []}
+    first_header = headers[0]
+    if first_header < cursor:
+        return {"status": "unknown",
+                "reason": "the first level-two header precedes the preamble end",
+                "offending_lines": []}
+
+    offending = [
+        index + 1 for index in range(cursor, first_header)
+        if lines[index].strip()
+    ]
+    return {
+        "status": "finding" if offending else "ok",
+        "reason": "content exists after the preamble and before the first header"
+                  if offending else "",
+        "preamble_end_line": cursor,
+        "first_header_line": first_header + 1,
+        "offending_lines": offending,
+    }
+
+
+def changelog_layout(zip_path: str) -> Dict:
+    with zipfile.ZipFile(zip_path) as zf:
+        for name in zf.namelist():
+            if name.rsplit("/", 1)[-1] != "CHANGELOG.md":
+                continue
+            try:
+                text = zf.read(name).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                return {"status": "unknown",
+                        "reason": "CHANGELOG.md is not valid UTF-8: %s" % exc,
+                        "offending_lines": []}
+            return changelog_preamble_layout(text)
+    return {"status": "unknown", "reason": "CHANGELOG.md is absent",
+            "offending_lines": []}
+
+
+def _line_ranges(line_numbers: List[int]) -> str:
+    ranges = []
+    start = previous = line_numbers[0]
+    for line_number in line_numbers[1:]:
+        if line_number == previous + 1:
+            previous = line_number
+            continue
+        ranges.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = line_number
+    ranges.append(str(start) if start == previous else f"{start}-{previous}")
+    return ", ".join(ranges)
+
+
 # A bundler (vite) emits content-hashed asset filenames like
 # `dist/assets/index-<hash>.js` / `.css` / `.js.map`. A legitimate SPA
 # rebuild therefore REMOVES the old hashed name and ADDS a new one for the
@@ -130,6 +236,7 @@ def diff(old_zip: str, new_zip: str) -> Dict:
     return {
         "old_version": version_of(old_zip), "new_version": version_of(new_zip),
         "old_changelog_top": changelog_top(old_zip), "new_changelog_top": changelog_top(new_zip),
+        "new_changelog_layout": changelog_layout(new_zip),
         "old_files": len(o), "new_files": len(n),
         "removed": removed, "added": added, "changed": changed,
         "frontend_dropped": fe_dropped, "frontend_changed": fe_changed,
@@ -157,13 +264,25 @@ def _run(argv: List[str]) -> int:
             print("  FRONTEND DROPPED ", p)
         for p in d["forbidden_new"]:
             print("  FORBIDDEN ARTIFACT ", p)
+        layout = d["new_changelog_layout"]
+        if layout["status"] == "finding":
+            print("  CHANGELOG ORPHAN PROSE  lines %s appear after the preamble "
+                  "and before the first level-two header"
+                  % _line_ranges(layout["offending_lines"]))
+        elif layout["status"] == "unknown":
+            print("  CHANGELOG LAYOUT UNKNOWN  %s" % layout["reason"])
         if d["new_changelog_top"] and d["new_version"] and d["new_changelog_top"] != d["new_version"]:
             print("  CHANGELOG MISMATCH  __version__=%s  CHANGELOG top=%s"
                   % (d["new_version"], d["new_changelog_top"]))
 
-    failed = bool(d["frontend_dropped"]) or bool(d["forbidden_new"])
+    layout = d["new_changelog_layout"]
+    failed = (bool(d["frontend_dropped"]) or bool(d["forbidden_new"])
+              or layout["status"] == "finding")
     if d["new_changelog_top"] and d["new_version"] and d["new_changelog_top"] != d["new_version"]:
         failed = True
+    if layout["status"] == "unknown":
+        print("RELEASE DIFF GATE: UNKNOWN")
+        return 2
     print("RELEASE DIFF GATE:", "FAIL" if failed else "OK")
     return 1 if failed else 0
 
