@@ -1878,11 +1878,53 @@ def test_every_mutation_anchor_resolves_to_exactly_its_declared_count():
 # checkpoint/rollback/snapshot tools and decomp helpers, which is item 8c and
 # is deliberately NOT in this cut. Listing them makes them visible; before
 # this, a gate reading ONE file certified the whole population.
-_SANDBOX_WORK_DEFAULT = 'default="/home/claude/work"'
-_KNOWN_SANDBOX_DEFAULT_CARRIERS = {
-    # this file: the literal appears in the assertion itself
-    "tests/test_desandbox_tool_verifiers.py",
+#
+# ROW 196, v3.66.1235 -- THE VERDICT MOVES FROM TEXT TO BEHAVIOUR. The census
+# used to ask whether a file's bytes contained one exact spelling of the
+# assignment. That is a textual proxy for a runtime property and it was wrong in
+# both directions: five byte-different, runtime-identical spellings walked
+# straight past it (single quotes, a module constant, an imported module
+# attribute, a line-broken keyword, a subdirectory of the retired tree), while a
+# docstring quoting the retired assignment was reported as a live configuration.
+# The path constant survives because the classifier still has to name what it is
+# hunting; nothing reads a file's TEXT for it any more.
+_RETIRED_SANDBOX_WORK = "/home/claude/work"
+_RETIRED_SANDBOX_ROOT = _RETIRED_SANDBOX_WORK.rsplit("/", 1)[0]
+# EMPTY, AND THAT IS THE POINT. The one entry this set ever held was THIS FILE,
+# listed because the gate's own literal matched itself -- the A7 self-reference
+# the row is about. A runtime probe never reads this file's text, so the
+# self-reference is gone rather than renamed. The set stays, with its
+# set-EQUALITY discipline in _classify_sandbox_carriers intact, so a future real
+# carrier can be recorded and cannot rot into a one-directional amnesty.
+_KNOWN_SANDBOX_DEFAULT_CARRIERS = frozenset()
+
+# The option whose resolved default this census judges.
+_WORK_OPTION = "--work"
+
+# Floor on the candidate population. 146 tracked python-typed files declare this
+# option today (measured at v3.66.1235); a census that suddenly certifies a
+# handful of them is certifying almost nothing and must say so rather than pass.
+_WORK_CANDIDATE_FLOOR = 120
+
+# Files that carry the option TOKEN and call add_argument, yet declare no
+# --work option. Set equality, so a new one is a forced human decision rather
+# than a silent hole in the enumeration.
+_WORK_OPTION_NON_DECLARERS = {
+    "toolchain/bin/bd-coretest": "runs other tools with the option in argv",
+    "toolchain/bin/bd-sweep": "prose about the option contract",
+    "toolchain/bin/bd-tool-lint": "the option appears inside its selftest fixture",
 }
+
+# MEASURED ON THIS HOST, v3.66.1235, idle test5 (48 cores), load 1.06-1.87:
+# 0.534s wall for all 146 targets, three consecutive runs, `git status
+# --porcelain` byte-identical before and after each. The budget is
+# max(_MIN_BUDGET_S, 6 x measured) = max(60, 4) = 60, which is the file's own
+# floor and is 180s clear of the 240s bound governing the item. Deliberately NOT
+# a _MEASURED_S entry: that table arms _run_tool's `elapsed <= baseline x
+# _CONTENTION_FACTOR` self-policing, and a 0.5s baseline would make a perfectly
+# healthy run under suite contention fail an assertion about SPEED.
+_WORK_CENSUS_MEASURED_S = 0.534
+_WORK_CENSUS_BUDGET_S = 60
 
 
 def _python_typed_tracked():
@@ -1943,33 +1985,340 @@ def _classify_sandbox_carriers(n_files, carriers, known, floor=2000):
     return problems
 
 
-def test_the_bare_work_default_is_not_a_sandbox_path():
-    """@877 -- this gate used to read ONE FILE.
+def _work_option_candidates(files):
+    """rel -> [lineno] for every file that DECLARES the option to argparse.
+
+    Parsing, not grepping. An `in` test counts docstrings, comments and argv
+    strings; an ast.Call with a Constant option name counts declarations. The
+    cheap `in` pre-filter only decides which files are worth parsing -- it can
+    only ever over-include, and the AST makes the decision.
+
+    FAIL-CLOSED: no `except SyntaxError`. Every python-typed tracked file parses
+    today (measured: 0 SyntaxError over 2536 files at v3.66.1235), so a file
+    that stops parsing is a real event and must raise rather than be silently
+    dropped from the denominator.
+    """
+    out = {}
+    for rel in files:
+        try:
+            src = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _WORK_OPTION not in src:
+            continue
+        tree = ast.parse(src, filename=rel)
+        sites = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "add_argument"
+                 and any(isinstance(a, ast.Constant) and a.value == _WORK_OPTION
+                         for a in n.args)]
+        if sites:
+            out[rel] = [n.lineno for n in sites]
+    return out
+
+
+# THE PROBE. Runs in a child of a child: one fork per target, so a tool that
+# dies, exits, or corrupts interpreter state cannot take the census with it.
+#
+# It monkeypatches ArgumentParser.add_argument and raises the moment the option
+# is declared, which is as far into the tool as the census ever needs to go --
+# before parse_args, before main's real work.
+#
+# THIS IS A STRING LITERAL ON PURPOSE. It is written to a temporary file at run
+# time, so its `add_argument` text is invisible to this module's own AST and
+# this file can never enumerate itself as a candidate.
+#
+# sys.path.insert of the target's own directory is LOAD-BEARING, not tidiness:
+# without it toolchain/bin/bd-decomp raises ModuleNotFoundError for bdtools_sec,
+# because it relies on the implicit sys.path[0] a real invocation gives it.
+# MEASURED both ways at v3.66.1235 -- 0 unreached with the insert, exactly
+# bd-decomp unreached without it. A harness that manufactures its own failure is
+# the defect one level up.
+#
+# runpy.run_path is NOT usable here: it swaps sys.modules['__main__'], the
+# probe's own globals are torn down, and the child produces no output at all
+# with rc=0. Anyone "simplifying" this back to runpy silently empties the
+# census.
+_WORK_PROBE_SOURCE = '''\
+import argparse, json, os, sys
+
+
+def probe_one(option, target):
+    class Reached(Exception):
+        pass
+
+    seen = {}
+    real = argparse.ArgumentParser.add_argument
+
+    def add(self, *args, **kw):
+        action = real(self, *args, **kw)
+        if option in args:
+            seen["default"] = action.default
+            raise Reached
+        return action
+
+    argparse.ArgumentParser.add_argument = add
+    sys.argv = [target]
+    sys.path.insert(0, os.path.dirname(os.path.realpath(target)))
+    err = None
+    try:
+        exec(compile(open(target, "rb").read(), target, "exec"),
+             {"__name__": "__main__", "__file__": target,
+              "__builtins__": __builtins__})
+    except Reached:
+        pass
+    except BaseException as exc:
+        err = "%s: %s" % (type(exc).__name__, exc)
+    d = seen.get("default")
+    return {"target": target, "reached": "default" in seen,
+            "default": d if (isinstance(d, str) or d is None) else str(d),
+            "kind": type(d).__name__, "error": err}
+
+
+def main():
+    option, outdir, targets = sys.argv[1], sys.argv[2], sys.argv[3:]
+    devnull = os.open(os.devnull, os.O_RDONLY)
+    for i, t in enumerate(targets):
+        pid = os.fork()
+        if pid == 0:
+            code = 0
+            try:
+                os.dup2(devnull, 0)
+                with open(os.path.join(outdir, "%d.json" % i), "w") as fh:
+                    json.dump(probe_one(option, t), fh)
+            except BaseException:
+                code = 3
+            finally:
+                os._exit(code)
+    for _ in targets:
+        os.wait()
+    return 0
+
+
+raise SystemExit(main())
+'''
+
+
+def _probe_work_defaults(rels, tmpdir):
+    """rel -> the probe's record of what that tool resolves the option to.
+
+    THE PARENT MUST STAY SINGLE-THREADED. It forks; forking a process that owns
+    a thread pool is a real hazard, so a future refactor that adds one here is
+    a correctness change and not an optimisation.
+
+    Isolation: HOME and TMPDIR are redirected inside tmpdir, stdin is /dev/null
+    per child so no tool can block on it, bytecode writing is off, and the four
+    BD_* variables that could inject a default are POPPED rather than merely not
+    set -- the census must measure the code, not the operator's shell.
+
+    cwd is REPO deliberately: at least one tool defaults to a cwd-relative ".",
+    and a census run from an arbitrary directory would report a different answer
+    than a real invocation from the checkout.
+    """
+    probe = Path(tmpdir) / "work_default_probe.py"
+    probe.write_text(_WORK_PROBE_SOURCE, encoding="utf-8")
+    outdir = Path(tmpdir) / "probe-out"
+    outdir.mkdir(exist_ok=True)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("BD_ROOT", "BD_REPO", "BD_INSTALL_DIR", "BD_WORK_TREE")}
+    # ROW 178 / v3.66.1197: a subprocess that INHERITS os.environ inherits the
+    # ambient LC_ALL, and locale collation then decides sort order inside the
+    # child -- so the host's language can change a verdict. Pinned to C, which
+    # is what the tree-wide gate at test_v3_66_1197 requires and what caught
+    # this at v3.66.1235 in CI rather than locally.
+    env["LC_ALL"] = "C"
+    home = Path(tmpdir) / "probe-home"
+    scratch = Path(tmpdir) / "probe-tmp"
+    home.mkdir(exist_ok=True)
+    scratch.mkdir(exist_ok=True)
+    env.update(PYTHONDONTWRITEBYTECODE="1", HOME=str(home), TMPDIR=str(scratch))
+    assert not ({"BD_ROOT", "BD_REPO", "BD_INSTALL_DIR", "BD_WORK_TREE"} & set(env)), (
+        "an ambient BD_* variable survived into the census environment, so the "
+        "measurement would describe this shell rather than the tools")
+
+    result = _run_tool(
+        [sys.executable, str(probe), _WORK_OPTION, str(outdir)]
+        + [str(REPO / rel) for rel in rels],
+        budget_s=_WORK_CENSUS_BUDGET_S,
+        what="the runtime %s default census" % _WORK_OPTION,
+        cwd=str(REPO), env=env)
+    assert result.returncode == 0, (
+        "the census driver itself failed (rc=%d), so no target has a verdict:\n%s"
+        % (result.returncode, result.stderr[-800:]))
+
+    probed, missing = {}, []
+    for i, rel in enumerate(rels):
+        blob = outdir / ("%d.json" % i)
+        try:
+            probed[rel] = json.loads(blob.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            missing.append("%s: the probe produced no readable result (%s)"
+                           % (rel, exc))
+    assert not missing, (
+        "the census could not measure these targets, so their verdict is "
+        "UNKNOWN, which fails:\n  " + "\n  ".join(missing))
+    return probed
+
+
+def _classify_work_defaults(probed):
+    """(carriers, problems) from probe records. PURE, so it is drivable.
+
+    The retired-path question ONLY. Matches the retired ROOT and anything under
+    it, not one exact string: a default of <retired>/checkout is just as absent
+    from this host as <retired> itself.
+    """
+    carriers, problems = set(), []
+    for rel in sorted(probed):
+        row = probed[rel]
+        if not row.get("reached"):
+            problems.append(
+                "%s: the census could not build its parser (%s) -- a tool whose "
+                "option default cannot be MEASURED is UNKNOWN, not OK, and "
+                "UNKNOWN fails" % (rel, row.get("error")))
+            continue
+        value = row.get("default")
+        if value is None:
+            continue
+        text = str(value)
+        if text == _RETIRED_SANDBOX_ROOT or text.startswith(_RETIRED_SANDBOX_ROOT + "/"):
+            carriers.add(rel)
+    return carriers, problems
+
+
+@pytest.mark.timeout(_WORK_CENSUS_BUDGET_S + _ITEM_RESERVE_S)
+def test_the_bare_work_default_is_not_a_sandbox_path(tmp_path):
+    """@877 -- this gate used to read ONE FILE. ROW 196 -- then it read TEXT.
 
     `MT.read_text()` -- bd-mutation-test, and nothing else -- while 20 other
     tracked files carried the identical `default="/home/claude/work"`. It
     certified a population of 2568 by looking at one member of it, and reported
-    OK. CLAUDE.md section 0: the denominator excluded the subject.
+    OK. CLAUDE.md A7: the denominator excluded the subject.
 
-    Kept NARROW on the `default=` FORM, not on the bare path. Several of these
-    files legitimately mention /home/claude in a comment explaining this very
-    class of bug -- including the one @876 added to bd-bandcheck -- so a
-    whole-file scan would fire on a fixed tree. Over-sensitivity is a soundness
-    bug too; that distinction is why the original author scoped it, and it is
-    kept.
+    @877 widened the denominator to every python-typed tracked file but kept the
+    VERDICT textual, and a textual verdict on a runtime property fails in both
+    directions at once. It could not see a single-quoted default, a module
+    constant, an imported module attribute (which is how 129 of this repo's 146
+    real declarers spell it), a line-broken keyword, or a subdirectory of the
+    retired tree -- and it DID fire on files that merely mention /home/claude in
+    a comment explaining this very class of bug, which the original author
+    worked around by narrowing the needle rather than by asking the question
+    behaviourally.
+
+    So the AST is demoted to ENUMERATION and the verdict is RUNTIME: each
+    candidate's own parser is built in an isolated child and asked what it
+    resolves the option to.
+
+    THE HAZARD, STATED RATHER THAN HIDDEN: this executes each candidate's
+    module-level code and its main() up to the first declaration of the option.
+    Measured at v3.66.1235, all 146 prologues are parser construction only, and
+    three full runs left `git status --porcelain` byte-identical. A future tool
+    that ACTS before declaring the option would be run by this gate.
+
+    WHAT THIS STILL DOES NOT CONSTRAIN: an option declared from a non-constant
+    name in a file that never calls add_argument at all (narrowed, not closed,
+    by test_every_work_option_declaration_is_visible_to_the_census); a default
+    reachable only with BD_ROOT/BD_REPO/BD_WORK_TREE set, which the probe pops
+    on purpose; a second declaration in the same file, which the probe would not
+    reach and which the multi-site assertion below refuses; and non-argparse
+    CLIs.
     """
     files = _python_typed_tracked()
-    carriers = set()
-    for rel in files:
-        try:
-            if _SANDBOX_WORK_DEFAULT in (REPO / rel).read_text(
-                    encoding="utf-8", errors="replace"):
-                carriers.add(rel)
-        except OSError:
-            continue
-    problems = _classify_sandbox_carriers(
+    candidates = _work_option_candidates(files)
+    assert len(candidates) >= _WORK_CANDIDATE_FLOOR, (
+        "only %d file(s) declare the option (floor %d); the census would be "
+        "certifying almost nothing, which is the shape this gate exists to "
+        "refuse" % (len(candidates), _WORK_CANDIDATE_FLOOR))
+    multi = {rel: lines for rel, lines in candidates.items() if len(lines) != 1}
+    assert not multi, (
+        "these files declare the option more than once; the probe stops at the "
+        "FIRST declaration and cannot see the rest, so their later declarations "
+        "would be certified without being measured: %r" % (multi,))
+
+    probed = _probe_work_defaults(sorted(candidates), tmp_path)
+    assert set(probed) == set(candidates), (
+        "the probe denominator does not reconcile with the candidate set, so "
+        "some file was enumerated and never measured: %r"
+        % (sorted(set(candidates) ^ set(probed)),))
+
+    carriers, problems = _classify_work_defaults(probed)
+    problems = problems + _classify_sandbox_carriers(
         len(files), carriers, _KNOWN_SANDBOX_DEFAULT_CARRIERS)
     assert not problems, "\n".join(problems)
+
+
+def test_an_unprobeable_candidate_is_a_failure_not_a_pass():
+    """FAIL-CLOSED CONTROL, on constructed input.
+
+    On a healthy tree every candidate reaches its declaration, so this branch is
+    unreachable from the real census and no mutant could touch it there. That is
+    exactly the "a guard that only fires in a state the tree is not in is a
+    guard no mutant can reach" problem its sibling classifier test was written
+    for, so it gets the same treatment: drive the pure function directly.
+    """
+    probed = {
+        "toolchain/bin/bd-example": {
+            "reached": False, "default": None, "kind": "NoneType",
+            "error": "ModuleNotFoundError: No module named 'bdtools_sec'"},
+    }
+    carriers, problems = _classify_work_defaults(probed)
+    assert carriers == set(), (
+        "an unmeasurable tool must not be counted as a carrier either -- that "
+        "would be a false accusation rather than a fail-closed")
+    assert len(problems) == 1, problems
+    assert "bd-example" in problems[0] and "UNKNOWN" in problems[0], problems[0]
+    assert "bdtools_sec" in problems[0], (
+        "the diagnosis must carry the tool's own error, or the operator cannot "
+        "tell a broken tool from a broken census: %r" % problems[0])
+
+    # OVER-SENSITIVITY, same function: a measured, healthy default is silent.
+    ok = {"toolchain/bin/bd-example": {
+        "reached": True, "default": str(REPO), "kind": "str", "error": None}}
+    assert _classify_work_defaults(ok) == (set(), [])
+
+
+def test_every_work_option_declaration_is_visible_to_the_census():
+    """THE ENUMERATION'S OWN DENOMINATOR PROOF.
+
+    The census only sees declarations whose option name is a STRING CONSTANT in
+    an add_argument call. This asks the complementary question over the whole
+    python-typed population: which files carry the option TOKEN and call
+    add_argument, yet are not candidates? Set equality against a declared list,
+    so a new one is a forced human decision instead of a silent hole.
+
+    RAW text on purpose, not a comment-stripped view: the token lives inside a
+    string literal, which comment/string stripping removes. The token boundary
+    stops `--workspace` or `--work-tree` from counting.
+    """
+    files = _python_typed_tracked()
+    assert len(files) > 2000, (
+        "the python-typed denominator collapsed to %d files; every claim below "
+        "would be about nothing" % len(files))
+    candidates = _work_option_candidates(files)
+    token = re.compile(re.escape(_WORK_OPTION) + r"(?![\w-])")
+
+    unseen = set()
+    for rel in files:
+        if rel in candidates:
+            continue
+        try:
+            src = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not token.search(src):
+            continue
+        tree = ast.parse(src, filename=rel)
+        if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr == "add_argument" for n in ast.walk(tree)):
+            unseen.add(rel)
+
+    assert unseen == set(_WORK_OPTION_NON_DECLARERS), (
+        "the set of files that carry the option token AND build an argument "
+        "parser but are NOT enumerated as declarers has changed. Every such "
+        "file is a place the census could be blind. Added: %r. Gone (remove "
+        "them from _WORK_OPTION_NON_DECLARERS in the SAME cut): %r"
+        % (sorted(unseen - set(_WORK_OPTION_NON_DECLARERS)),
+           sorted(set(_WORK_OPTION_NON_DECLARERS) - unseen)))
 
 
 def test_the_sandbox_carrier_classifier_fires_in_all_three_directions():
