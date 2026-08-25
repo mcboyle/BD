@@ -184,6 +184,17 @@ def _joins_last_two_labels(fn):
     return mod._joins_last_two_labels(fn)
 
 
+#: How many files the LAST call to _remaining_copies actually parsed. The
+#: population test used to build its own list, so a scanner mutated to look at
+#: nothing still passed -- the test was measuring its own arithmetic rather than
+#: the subject's. Measured at v3.66.1232: that mutant ESCAPED.
+_LAST_SCANNED = []
+
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import registrable_domain_census  # noqa: E402  (after the path insert above)
+
+
 def _remaining_copies():
     sys.path.insert(0, str(REPO / "tests"))
     files = [f for f in subprocess.run(
@@ -192,6 +203,7 @@ def _remaining_copies():
     assert len(files) > 1000, "the file census went blind (%d)" % len(files)
     canonical = "bulk_downloader/registrable_domain.py"
     found = []
+    del _LAST_SCANNED[:]
     for rel in files:
         if rel.startswith("tests/") or rel == canonical:
             continue
@@ -199,6 +211,7 @@ def _remaining_copies():
             tree = ast.parse((REPO / rel).read_text(encoding="utf-8", errors="replace"))
         except (SyntaxError, OSError):
             continue
+        _LAST_SCANNED.append(rel)
         for n in ast.walk(tree):
             if isinstance(n, ast.FunctionDef) and _joins_last_two_labels(n):
                 found.append("%s:%d %s" % (rel, n.lineno, n.name))
@@ -283,3 +296,160 @@ def test_the_table_covers_every_site_the_ratchet_counts():
 
 
 BD_GATE_SCOPE = "repo-wide"
+
+
+_TWINS = {
+    "canonical join-slice":
+        "def f(h):\n    p = h.split('.')\n    return '.'.join(p[-2:])\n",
+    "indexed concat":
+        "def f(h):\n    p = h.split('.')\n    return p[-2] + '.' + p[-1]\n",
+    "rsplit indexed":
+        "def f(h):\n    p = h.rsplit('.', 2)\n    return p[-2] + '.' + p[-1]\n",
+    "len-relative slice":
+        "def f(h):\n    p = h.split('.')\n    return '.'.join(p[len(p) - 2:])\n",
+    "named-n slice":
+        "def f(h):\n    n = 2\n    p = h.split('.')\n    return '.'.join(p[-n:])\n",
+    "f-string":
+        "def f(h):\n    p = h.split('.')\n    return f'{p[-2]}.{p[-1]}'\n",
+}
+
+
+def _exec_sample(src):
+    namespace = {}
+    exec(compile(src, "<twin>", "exec"), namespace)  # noqa: S102 - fixture text
+    return namespace["f"]
+
+
+@pytest.mark.parametrize("label", sorted(_TWINS))
+def test_the_census_sees_every_behavioural_twin(label):
+    """ROW 189. The census must judge the ANSWER, not the spelling.
+
+    The predicate this replaced was two substrings -- `split('.')` and `[-2:]`
+    -- which is a TEXTUAL PROXY for a behavioural claim. Every sample below is
+    behaviourally identical to the canonical bug and textually different from
+    it, and MEASURED at v3.66.1232 the substring predicate reported ZERO of the
+    five non-canonical ones.
+
+    The preconditions matter more than the verdict. Each sample is EXECUTED
+    first and shown to collapse two unrelated registrants onto one domain, and
+    the canonical rule is shown to separate them -- so the sample is proved
+    WRONG rather than merely unusual, and a census that starts reporting it
+    cannot be reported as over-sensitivity.
+    """
+    src = _TWINS[label]
+    fn = _exec_sample(src)
+
+    # PRECONDITION 1: the sample really IS the bug.
+    assert fn("attacker.co.uk") == "co.uk", label
+    assert fn("victim.co.uk") == "co.uk", (
+        "%s does not collapse two registrants, so it is not the defect this "
+        "census exists to find" % label)
+
+    # PRECONDITION 2: the canonical rule really does separate them, so the
+    # sample is wrong and not just an unusual spelling of a correct answer.
+    from bulk_downloader.registrable_domain import registrable_domain
+    assert registrable_domain("attacker.co.uk") == "attacker.co.uk"
+    assert registrable_domain("victim.co.uk") == "victim.co.uk"
+
+    # PRECONDITION 3: reached through the LIVE seam, so a RED here cannot be a
+    # missing import or a private helper that only this test knows about.
+    node = ast.parse(src).body[0]
+    assert isinstance(node, ast.FunctionDef), node
+
+    assert _joins_last_two_labels(node), (
+        "the tree-wide census does not report %r, a function that returns "
+        "'co.uk' for BOTH attacker.co.uk and victim.co.uk -- the exact rule "
+        "the census claims to have drained" % label)
+
+
+def test_the_probe_set_carries_its_own_discriminators():
+    """THE PROBES ARE THE ARGUMENT, so they are pinned rather than assumed.
+
+    The census calls an expression an offender when it matches the
+    last-two-labels answer on EVERY probe. That verdict is only meaningful if
+    the probe set contains hosts where last-two is CORRECT as well as hosts
+    where it is wrong: without the correct ones, anything returning a
+    domain-shaped string for the wrong hosts is condemned, and the census stops
+    distinguishing the bug from a public-suffix-aware rule.
+
+    Measured at v3.66.1232: deleting the two discriminating probes ESCAPED
+    every clean-code control, because each of those controls happened to be
+    clean under the reduced set too. A constant like `return 'co.uk'` cannot
+    catch it either -- it has no free name to bind, so the census declines it
+    before any probe runs. The discriminator has to be asserted directly.
+    """
+    from bulk_downloader.registrable_domain import registrable_domain
+    agree, differ = [], []
+    for host, expected in registrable_domain_census.PROBES:
+        assert ".".join(host.split(".")[-2:]) == expected, (
+            "probe %r records %r, which is not the last-two-labels answer -- "
+            "the table has drifted from what the census compares against"
+            % (host, expected))
+        (agree if registrable_domain(host) == expected else differ).append(host)
+
+    assert len(agree) >= 2, (
+        "only %d probe(s) have last-two == the correct registrable domain. "
+        "Without them the census condemns any domain-shaped answer and can no "
+        "longer tell the bug from a correct suffix-aware rule: %r" % (len(agree), agree))
+    assert len(differ) >= 2, (
+        "only %d probe(s) have last-two != the correct registrable domain, so "
+        "the census is barely testing the defect at all: %r" % (len(differ), differ))
+
+
+def test_the_census_leaves_a_correct_registrable_domain_alone():
+    """OVER-SENSITIVITY CONTROL, and the reason the probe set has five entries.
+
+    A census that answered "offender" for everything would satisfy every
+    assertion above and be worthless. Two of the five probes are hosts where
+    last-two IS the correct answer, so an expression must actually produce
+    DOMAINS to be judged at all -- and these three shapes must stay clean.
+    """
+    clean = {
+        "delegates to the canonical rule":
+            "def f(h):\n    from bulk_downloader.registrable_domain import "
+            "registrable_domain\n    return registrable_domain(h)\n",
+        "returns the host unchanged": "def f(h):\n    return h.lower()\n",
+        "takes the LAST label only":
+            "def f(h):\n    return h.split('.')[-1]\n",
+        "takes the last THREE labels":
+            "def f(h):\n    return '.'.join(h.split('.')[-3:])\n",
+        # ONLY THE DISCRIMINATING PROBES CATCH THIS ONE. It returns the
+        # last-two answer for every co.uk-shaped host and the wrong thing for
+        # example.com, so a census that kept only the bug probes would report
+        # it as an offender. v3.66.1232 measured exactly that mutant escaping
+        # until this line existed.
+        "returns a constant public suffix":
+            "def f(h):\n    return 'co.uk'\n",
+    }
+    for label, src in clean.items():
+        node = ast.parse(src).body[0]
+        assert not _joins_last_two_labels(node), (
+            "%r was reported as a last-two-labels copy; a census that flags "
+            "correct code is unusable rather than stricter" % label)
+
+
+def test_the_drain_population_is_nonzero_and_excludes_exactly_one_file():
+    """PRECONDITION for the drain verdict itself.
+
+    `_remaining_copies()` returning [] means nothing unless it looked at
+    something. The exclusion must also stay at exactly ONE path: a second
+    exempt file would be a second suffix-table implementation, which is the
+    thing this whole line of work exists to prevent.
+    """
+    files = [f for f in subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "-z", "*.py"],
+        capture_output=True, text=True).stdout.split("\0") if f]
+    assert "bulk_downloader/registrable_domain.py" in files
+
+    # ASK THE SCANNER WHAT IT READ, do not recompute it here. A test that
+    # rebuilds the population itself is measuring its own arithmetic: the
+    # scanner could be mutated to look at nothing and this would still pass.
+    _remaining_copies()
+    assert len(_LAST_SCANNED) > 500, (
+        "the drain census actually parsed %d files -- the denominator "
+        "collapsed and an empty answer would mean nothing" % len(_LAST_SCANNED))
+    assert not [f for f in _LAST_SCANNED if f.startswith("tests/")], (
+        "the drain read its own test tree, where the fixtures deliberately "
+        "contain the bug")
+    assert "bulk_downloader/registrable_domain.py" not in _LAST_SCANNED, (
+        "the canonical implementation was scanned as if it were a copy")

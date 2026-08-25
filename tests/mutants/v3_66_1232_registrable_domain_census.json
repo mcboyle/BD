@@ -1,0 +1,55 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1232 row-189 battery. The census decides by EVALUATING a candidate expression, so the mutants are the ways evaluation can be quietly turned back into a spelling test or made to answer for everything. M4 is the over-correction: a census that reports every function is caught only by the clean-code control, which is why that control exists. FIRST RUN: 3 caught, 2 ESCAPED, both real. Nothing distinguished a census that had lost its DISCRIMINATING probes -- every clean-code control happened to also be clean under the reduced probe set -- and the population test rebuilt the file list itself instead of asking the scanner, so a scanner mutated to read nothing still passed. A constant-public-suffix control and a _LAST_SCANNED publication were added for them.",
+  "subject": "v3.66.1232 -- the registrable-domain census judges the answer, not the spelling",
+  "band": [
+    "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_census_sees_every_behavioural_twin[rsplit indexed]",
+    "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_census_sees_every_behavioural_twin[f-string]",
+    "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_census_leaves_a_correct_registrable_domain_alone",
+    "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_drain_population_is_nonzero_and_excludes_exactly_one_file",
+    "tests/test_v3_66_1018_registrable_domain_drain.py::test_no_last_two_labels_copy_survives_anywhere",
+    "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_probe_set_carries_its_own_discriminators"
+  ],
+  "mutants": [
+    {
+      "label": "M1 single-assignment aliases are no longer inlined, so  hides the rule",
+      "file": "tests/registrable_domain_census.py",
+      "old": "    aliases = _single_assignments(fn)",
+      "new": "    aliases = {}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_census_sees_every_behavioural_twin[rsplit indexed]"
+    },
+    {
+      "label": "M2 f-strings drop out of the evaluable grammar, so one spelling escapes again",
+      "file": "tests/registrable_domain_census.py",
+      "old": "                         ast.JoinedStr, ast.FormattedValue, ast.Index)):",
+      "new": "                         ast.Index)):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_census_sees_every_behavioural_twin[f-string]"
+    },
+    {
+      "label": "M3 the discriminating probes go, leaving only hosts where last-two is wrong",
+      "file": "tests/registrable_domain_census.py",
+      "old": "    (\"www.example.com\", \"example.com\"),\n    (\"a.b.example.com\", \"example.com\"),",
+      "new": "    (\"www.bbc.co.uk\", \"co.uk\"),",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_probe_set_carries_its_own_discriminators"
+    },
+    {
+      "label": "M4 one matching probe is enough, so any domain-shaped answer is an offender",
+      "file": "tests/registrable_domain_census.py",
+      "old": "        if value != expected:\n            return False\n    return True",
+      "new": "        if value == expected:\n            return True\n    return True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_census_leaves_a_correct_registrable_domain_alone"
+    },
+    {
+      "label": "M5 the drain scans nothing and reports clean",
+      "file": "tests/test_v3_66_1018_registrable_domain_drain.py",
+      "old": "        if rel.startswith(\"tests/\") or rel == canonical:",
+      "new": "        if True or rel == canonical:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1018_registrable_domain_drain.py::test_the_drain_population_is_nonzero_and_excludes_exactly_one_file"
+    }
+  ]
+}

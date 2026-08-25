@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1232 - the registrable-domain census judges the answer, not the spelling
+
+- THE PREDICATE WAS TWO SUBSTRINGS. `("split('.')" in code or 'split(".")' in
+  code) and "[-2:]" in code` decided whether a function computed a registrable
+  domain by joining the last two labels -- a TEXTUAL PROXY for a BEHAVIOURAL
+  claim, judging the characters while asserting something about the answer
+  (row 189).
+- FIVE BEHAVIOURAL TWINS WALK PAST IT, and they are not exotic:
+  `p[-2] + '.' + p[-1]`, `h.rsplit('.', 2)`, `'.'.join(p[len(p) - 2:])`,
+  `n = 2; p[-n:]`, and `f'{p[-2]}.{p[-1]}'`. Every one returns `co.uk` for BOTH
+  `attacker.co.uk` and `victim.co.uk` -- two unrelated registrants collapsing
+  into one origin, which is the cookie and same-site boundary the rule defends.
+  MEASURED: the substring predicate reported ZERO of the five.
+- THE CENSUS NOW EVALUATES. `tests/registrable_domain_census.py` inlines
+  single-assignment aliases, abstracts every maximal impure subtree to a bound
+  host-ish name (so `urlparse(u).hostname` is still analysable), compiles the
+  expression in a restricted namespace, and compares its VALUE to the
+  last-two-labels answer. A spelling nobody anticipated is caught because the
+  arithmetic is the subject, not the characters.
+- THE PROBE SET IS THE ARGUMENT, so it is pinned rather than assumed. TWO
+  probes are hosts where last-two IS correct (`www.example.com` and
+  `a.b.example.com`), which forces an expression to actually produce DOMAINS
+  before it can be judged at all; THREE are hosts where last-two is wrong
+  (`www.bbc.co.uk`, `a.github.io`, `site.com.au`). An expression is an offender
+  only when it matches on ALL FIVE.
+- RED PROVENANCE IS A REAL REPLAY, not a battery: 5 of the 6 twins FAIL on the
+  unfixed parent ad9f577 and all 6 pass on the fix. The sixth is the canonical
+  spelling, which the substring predicate already caught -- so it passes on both
+  trees, which is exactly what makes it the control.
+- THE PRECONDITIONS DO THE REAL WORK. Each twin is EXECUTED first and shown to
+  collapse two unrelated registrants, and the canonical rule is shown to
+  separate them -- so the sample is proved WRONG rather than merely unusual, and
+  a census that starts reporting it cannot be dismissed as over-sensitivity.
+- THE STRONGER CENSUS FOUND NO NEW OFFENDERS IN PRODUCTION CODE, which is the
+  good news it looks like: the v3.66.1018 drain really was complete, and now
+  that is a measurement rather than a hope.
+- ONE IMPORT EDGE IS DECLARED, not absorbed: the twin tests import
+  `bulk_downloader.registrable_domain` to PROVE the canonical rule separates the
+  two registrants before condemning the sample, so `edge_count` goes 3881 ->
+  3882 and the baseline records exactly that one edge. The diff was inspected
+  rather than regenerated blind.
+- MUTATION: the first battery scored 3 caught / 2 ESCAPED and both were real.
+  Nothing distinguished a census that had lost its DISCRIMINATING probes --
+  every clean-code control happened to be clean under the reduced set too, and a
+  constant like `return 'co.uk'` cannot catch it either because it has no free
+  name to bind, so the census declines it before any probe runs. The
+  discriminator had to be asserted directly. And the population test rebuilt the
+  file list ITSELF instead of asking the scanner, so a scanner mutated to read
+  nothing still passed -- it was measuring its own arithmetic. Re-run after both
+  fixes: 5 caught, 0 escaped.
+
 ## v3.66.1231 - the census costs the group, and settlement gets its own clock
 
 - THE ROW'S PREMISE WAS STALE, AND SAYING SO IS PART OF THE ANSWER.

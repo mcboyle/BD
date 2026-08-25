@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3881,
+  "edge_count": 3882,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4354,7 +4354,8 @@
     ],
     "tests/test_v3_66_1018_registrable_domain_drain.py": [
       "bulk_downloader/login_templates_data.py",
-      "bulk_downloader/rate_limit.py"
+      "bulk_downloader/rate_limit.py",
+      "bulk_downloader/registrable_domain.py"
     ],
     "tests/test_v3_66_101_cockpit_wave3.py": [
       "bulk_downloader/capture_ingest.py",
