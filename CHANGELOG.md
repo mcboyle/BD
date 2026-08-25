@@ -4,6 +4,98 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+- THREE MORE UNSEEDED FIELDS, THE OTHER HALF OF ROW 238'S CENSUS.
+  `Settings.tsx:366-368` declared `supEnabled` / `supGlobalBps` /
+  `supPerSiteJson` unseeded, and `:403-406` put all three into
+  `POST /api/supervisor/configure` UNCONDITIONALLY. The `.trim()` guard at `:384`
+  gates only PARSING, not inclusion, so an untouched form applied
+  `{enabled:false, global_bps:0, per_site_bps:{}}` and silently reset every live
+  supervisor limit (row 240).
+- THE REASON THIS WAS ITS OWN ROW RATHER THAN PART OF v3.66.1238: THERE WAS NO
+  GET CONSUMER AT ALL. `grep -rn supervisor/status frontend/src` returned zero
+  matches -- `GET /api/supervisor/status` existed and nothing in the SPA read it.
+  Seeding therefore meant WIRING A NEW QUERY, which is a feature rather than a
+  seeding correction, and A3 forbids folding that into a cut about another page.
+  The RED test says it out loud: "the SPA consumes GET /api/supervisor/status at
+  all" fails on the parent with `expected 0 to be greater than 0`.
+- THE RESPONSE SHAPE WAS READ, NOT ASSUMED. `app_supervisor.py:32-39` and
+  `download_supervisor.py:302-315` put the limits under `stats.config`;
+  `stats.global` and `stats.per_site` are COUNTERS and are deliberately not
+  modelled. A form seeded from a counter would have looked right and been wrong.
+- SAME NULL-SENTINEL OVERLAY AS v3.66.1238, so an emptied field still removes a
+  limit and "cleared on purpose" stays distinguishable from "never typed". The
+  POST body shape is unchanged on purpose: all three keys are still sent.
+- A TRAP THE SIBLING CUT NEVER MET, and it would have made a copied spec pass
+  vacuously: this section is `collapsible defaultOpen={false}`, and
+  `collapsible.tsx` renders `{shown && children}` -- so the controls are
+  UNMOUNTED until the header is clicked. A spec written from the Notifications
+  template fails on element lookup and never reaches its verdict.
+- MUTATION: 10 caught, 0 escaped, no first-run escapes. Because bd-mutate could
+  not parse `.tsx` until v3.66.1237 and scores CAUGHT on "named catcher failed"
+  alone, two extra passes were run anyway: every one of the ten was confirmed to
+  fail on an `expect()` ASSERTION, and the transform control -- one mutant judged
+  by a spec that renders the module without asserting the behaviour -- correctly
+  ESCAPED.
+- STATED, NOT HIDDEN: the pre-resolve window is still open. With the status GET
+  never resolving, the page still puts `{enabled:false, global_bps:0,
+  per_site_bps:{}}` on the wire. `isPending` closes the in-flight window but not
+  the error window; `isSuccess` closes both by making the throttle unappliable
+  whenever the status read fails, which changes product behaviour when the
+  backend is sick. That is the operator's call (A2), so it is reported rather
+  than decided. Measured mitigation: the section is collapsed, so reaching Apply
+  costs a deliberate click the fetch easily beats.
+- ALSO FOUND AND NOT FIXED: the row and my briefing both call this control
+  "typed-confirm". It is not -- `Settings.tsx:2248` is a plain Cancel/Confirm
+  dialog with no token, and the in-code hint at `:1284` repeats the error. That
+  is tier copy on a neighbouring line and belongs to whoever sets the tier (A3).
+
+## v3.66.1240 - the supervisor form shows what the server actually has
+
+- THREE MORE UNSEEDED FIELDS, THE OTHER HALF OF ROW 238'S CENSUS.
+  `Settings.tsx:366-368` declared `supEnabled` / `supGlobalBps` /
+  `supPerSiteJson` unseeded, and `:403-406` put all three into
+  `POST /api/supervisor/configure` UNCONDITIONALLY. The `.trim()` guard at `:384`
+  gates only PARSING, not inclusion, so an untouched form applied
+  `{enabled:false, global_bps:0, per_site_bps:{}}` and silently reset every live
+  supervisor limit (row 240).
+- WHY IT WAS ITS OWN ROW: THERE WAS NO GET CONSUMER AT ALL. `grep -rn
+  supervisor/status frontend/src` returned zero matches -- the endpoint existed
+  and nothing in the SPA read it. Seeding therefore meant WIRING A NEW QUERY,
+  which is a feature rather than a seeding correction, and A3 forbids folding
+  that into a cut about another page. The RED test says it out loud: "the SPA
+  consumes GET /api/supervisor/status at all" fails on the parent with
+  `expected 0 to be greater than 0`.
+- THE RESPONSE SHAPE WAS READ, NOT ASSUMED. `app_supervisor.py:32-39` and
+  `download_supervisor.py:302-315` put the limits under `stats.config`;
+  `stats.global` and `stats.per_site` are COUNTERS and are deliberately not
+  modelled. A form seeded from a counter would have looked right and been wrong.
+- SAME NULL-SENTINEL OVERLAY AS v3.66.1238, so an emptied field still removes a
+  limit and "cleared on purpose" stays distinguishable from "never typed". The
+  POST body shape is unchanged on purpose: all three keys are still sent.
+- A TRAP THE SIBLING CUT NEVER MET, and it would have made a copied spec pass
+  vacuously: this section is `collapsible defaultOpen={false}`, and
+  `collapsible.tsx` renders `{shown && children}` -- so the controls are
+  UNMOUNTED until the header is clicked. A spec written from the Notifications
+  template fails on element lookup and never reaches its verdict.
+- MUTATION: 10 caught, 0 escaped, no first-run escapes. Because bd-mutate could
+  not parse `.tsx` until v3.66.1237 and scores CAUGHT on "named catcher failed"
+  alone, two extra passes were run anyway: every one of the ten was confirmed to
+  fail on an `expect()` ASSERTION, and the transform control -- one mutant judged
+  by a spec that renders the module without asserting the behaviour -- correctly
+  ESCAPED.
+- STATED, NOT HIDDEN: the pre-resolve window is still open. With the status GET
+  never resolving, the page still puts `{enabled:false, global_bps:0,
+  per_site_bps:{}}` on the wire. `isPending` closes the in-flight window but not
+  the error window; `isSuccess` closes both by making the throttle unappliable
+  whenever the status read fails, which changes product behaviour when the
+  backend is sick. That is the operator's call (A2), so it is reported rather
+  than decided. Measured mitigation: the section is collapsed, so reaching Apply
+  costs a deliberate click the fetch easily beats.
+- ALSO FOUND AND NOT FIXED: the row and the briefing both call this control
+  "typed-confirm". It is not -- `Settings.tsx:2248` is a plain Cancel/Confirm
+  dialog with no token, and the in-code hint at `:1284` repeats the error. That
+  is tier copy on a neighbouring line and belongs to whoever sets the tier (A3).
+
 ## v3.66.1239 - bd-precut runs the gates a derived band can never select
 
 - FOUR DEFECTS, ONE HOLE. Between v3.66.1223 and v3.66.1238 this integrator
