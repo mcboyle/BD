@@ -42,6 +42,29 @@ fail-closed bridge in ``tests/frontend_vitest.py``:
   at another path, and the command palette's item is SELECTED and the resulting
   pathname asserted.
 
+BACKLOG ROW 238 (v3.66.1238) ADDS THE COMPLEMENT OF THE (R) RULE. Write-only is
+the exception, not the house style, and the four specs above deliberately did
+not assert what the NON-secret fields do. They were doing something bad: the tg
+chat-id allowlist and both enable flags sat in ``useState(<constant>)``, were
+never seeded from the GET, and rode every save patch UNCONDITIONALLY -- so
+opening the page and toggling the bot PATCHed ``tg_bot_allowlist: ""``, which
+app_tg.py writes through on mere key presence and tg_bot.py then refuses to
+start on. Silent data loss plus a self-inflicted outage (it fails CLOSED; it is
+NOT an authorization widening). Two more specs pin the fix from both sides:
+
+* ``Notifications.roundtrip.test.tsx`` -- the TRANSPORT contract. With the
+  operator's stored settings preloaded into the query cache, an untouched field
+  is sent back byte for byte, and the named control proves a DELIBERATELY
+  emptied allowlist still sends ``""`` -- "cleared on purpose" and "never typed"
+  stay distinguishable, so a fix that made clearing impossible fails here;
+* ``Notifications.seeding.test.tsx``   -- the DISPLAY half, including the case a
+  preloaded cache cannot pose: a payload that arrives AFTER mount must still
+  reach the field, which is what separates the shipped fix from a
+  ``useState(query.data)`` initializer that observes ``undefined`` on first
+  render. Its own control proves a later payload does not clobber an
+  in-progress edit, which is what a ``useEffect`` seed would do on every 30s
+  refetch.
+
 The lazy-chunk half of claim (b) is proved by the Vite manifest, and the two
 backend claims stay in-process here, unchanged.
 
@@ -71,6 +94,8 @@ _SPEC_DENOMINATORS = {
     "src/routes/Notifications.writeonly.test.tsx": 6,
     "src/routes/Notifications.confirm.test.tsx": 5,
     "src/routes/Notifications.route.test.tsx": 3,
+    "src/routes/Notifications.roundtrip.test.tsx": 4,
+    "src/routes/Notifications.seeding.test.tsx": 3,
 }
 
 
@@ -98,6 +123,21 @@ def test_t7_route_is_reachable_at_runtime():
     """/notifications resolves through the real App route table, and selecting
     the palette item lands on that pathname."""
     spec = "src/routes/Notifications.route.test.tsx"
+    run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
+
+
+def test_t7_saves_preserve_settings_the_operator_never_retyped():
+    """Row 238: with the stored settings loaded, a save sends the operator's own
+    allowlist and enable flags back -- and a deliberate clear still sends ""."""
+    spec = "src/routes/Notifications.roundtrip.test.tsx"
+    run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
+
+
+def test_t7_non_secret_settings_fields_are_seeded_from_get():
+    """Row 238: the non-secret fields display the stored values, including when
+    the GET payload lands AFTER mount, and a later payload does not clobber an
+    in-progress edit."""
+    spec = "src/routes/Notifications.seeding.test.tsx"
     run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
 
 
