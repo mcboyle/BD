@@ -88,6 +88,10 @@ BD_GATE_SCOPE = "repo-wide"
 # dropped file passes: the union would simply shrink to match. Adding a
 # repo-wide gate to CI is meant to be a two-file change.
 _DECLARED = {
+    # Backlog row 176. Verdict pins cannot detect a fixture whose recognizer
+    # result is correct for the wrong site's bytes, so this gate independently
+    # declares every recognizer fixture's page host and checks the payload.
+    "tests/test_recognizer_fixture_site_identity.py",
     # @1240, the preflight that runs what a derived band cannot select. Four
     # defects shipped between v3.66.1223 and v3.66.1238 because bd-band-derive
     # derives from CHANGED PATHS while those gates judge the TREE, so no diff

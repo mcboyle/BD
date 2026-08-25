@@ -464,19 +464,19 @@
     "ssai": false
   },
   "reptyle": {
-    "anti_bot": [],
-    "caption_count": 1,
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
     "downloadable": true,
     "drm": false,
-    "player_family": "jwplayer",
-    "primary_protocol": "progressive",
+    "player_family": "videojs",
+    "primary_protocol": "hls",
     "recommended_path": "pick_test_promote",
-    "rendition_count": 4,
+    "rendition_count": 9,
     "requires_runtime_capture": true,
-    "signing_schemes": [
-      "generic_token"
-    ],
-    "site_type": "signed_generic_token",
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
     "ssai": false
   },
   "scroller": {

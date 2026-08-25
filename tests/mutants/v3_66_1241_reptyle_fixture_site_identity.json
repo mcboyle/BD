@@ -1,0 +1,37 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 176. Re-run from a detached scratch copy: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1241_reptyle_fixture_site_identity.json --work /tmp/row176-mutation-tree --timeout 300. The durable battery must catch all three regressions. The separate transform control re-points M2 at test_transform_control_imports_builder_without_judging_site_identity and must ESCAPE, proving that import/collection success alone does not manufacture the CAUGHT verdict.",
+  "subject": "The recognizer corpus's independently declared fixture population matches each fixture payload's nonempty, count-consistent page host, and the Reptyle producer is pinned to a genuine app.reptyle.com capture rather than the mislabelled WowGirls source.",
+  "band": [
+    "tests/test_recognizer_fixture_site_identity.py::test_every_recognizer_fixture_declares_the_host_its_payload_records",
+    "tests/test_recognizer_fixture_site_identity.py::test_reptyle_fixture_producer_names_the_genuine_source_capture",
+    "tests/test_recognizer_fixture_site_identity.py::test_site_mismatch_control_rejects_wowgirls_bytes_labelled_reptyle",
+    "tests/test_recognizer_fixture_site_identity.py::test_transform_control_imports_builder_without_judging_site_identity"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the tracked Reptyle fixture is relabelled with the internally consistent WowGirls page identity that caused row 176",
+      "file": "tests/corpus/recognizer/reptyle.cap.json",
+      "old": "{\"url\": \"https://app.reptyle.com/\", \"origin\": \"https://app.reptyle.com\", \"host\": \"app.reptyle.com\"",
+      "new": "{\"url\": \"https://auth.wowgirls.com\", \"origin\": \"https://auth.wowgirls.com\", \"host\": \"auth.wowgirls.com\"",
+      "direction": "regression",
+      "catcher": "tests/test_recognizer_fixture_site_identity.py::test_every_recognizer_fixture_declares_the_host_its_payload_records"
+    },
+    {
+      "label": "M2 the corpus producer points Reptyle back at the known-mislabelled reptyle.redacted.wacz source",
+      "file": "tools/build_recognizer_corpus.py",
+      "old": "\"reptyle\": \"Reptyle-1.redacted.wacz\",",
+      "new": "\"reptyle\": \"reptyle.redacted.wacz\",",
+      "direction": "regression",
+      "catcher": "tests/test_recognizer_fixture_site_identity.py::test_reptyle_fixture_producer_names_the_genuine_source_capture"
+    },
+    {
+      "label": "M3 the site mismatch comparison is disabled, recreating a gate that fires 46 times but judges none of them",
+      "file": "tests/test_recognizer_fixture_site_identity.py",
+      "old": "if payloads[name].get(\"host\") != declared[name]",
+      "new": "if False",
+      "direction": "regression",
+      "catcher": "tests/test_recognizer_fixture_site_identity.py::test_site_mismatch_control_rejects_wowgirls_bytes_labelled_reptyle"
+    }
+  ]
+}
