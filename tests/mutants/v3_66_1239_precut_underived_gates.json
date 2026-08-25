@@ -1,0 +1,53 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1239 battery. The subject is a preflight that RUNS other gates, so the mutants are the ways it can stop running them or stop caring about the answer. M4 is the fail-open this whole cut is about: reporting an absent population as nothing to see. FIRST RUN: 3 caught, M1 and M2 ESCAPED, and the escape was in MY OWN GATE. It regexed bd-precut's SOURCE TEXT for the gate names, so commenting an entry out left the string in the file and the regex still found it. Comments are inside a text scanner's denominator and outside the AST's -- the exact defect class this cut exists to stop me repeating, caught inside the cut. The gate now reads the AST.",
+  "subject": "v3.66.1239 -- bd-precut runs the gates a derived band cannot select",
+  "band": [
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_every_underived_gate_is_named_by_the_tool",
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_the_tool_treats_a_failing_underived_gate_as_BLOCKING",
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_an_absent_population_is_UNKNOWN_and_not_OK",
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_each_named_gate_actually_exists_and_is_tracked"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the anchor-uniqueness gate is dropped from the list",
+      "file": "toolchain/bin/bd-precut",
+      "old": "        (\"tests/test_v3_66_1184_mutation_specs_are_tracked.py\",\n         \"every tracked mutant anchor occurs exactly once\"),\n",
+      "new": "        # DROPPED: (\"tests/test_v3_66_1184_mutation_specs_are_tracked.py\",\n        # DROPPED: \"every tracked mutant anchor occurs exactly once\"),\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_every_underived_gate_is_named_by_the_tool"
+    },
+    {
+      "label": "M2 the budget gate is dropped from the list",
+      "file": "toolchain/bin/bd-precut",
+      "old": "        (\"tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py\",\n         \"no inner budget is at or above the bound governing its item\"),\n",
+      "new": "        # DROPPED: (\"tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py\",\n        # DROPPED: \"no inner budget is at or above the bound governing its item\"),\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_every_underived_gate_is_named_by_the_tool"
+    },
+    {
+      "label": "M3 a failing gate only warns instead of refusing the cut",
+      "file": "toolchain/bin/bd-precut",
+      "old": "            blocking.append(\n                \"underived gate(s) FAILED",
+      "new": "            unknown.append(\n                \"underived gate(s) FAILED",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_the_tool_treats_a_failing_underived_gate_as_BLOCKING"
+    },
+    {
+      "label": "M4 an absent population reads as nothing to report -- the fail-open itself",
+      "file": "toolchain/bin/bd-precut",
+      "old": "    if not present:\n        unknown.append(\"underived gates (none of the four are present in this tree)\")",
+      "new": "    if not present:\n        pass  # nothing to report",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_an_absent_population_is_UNKNOWN_and_not_OK"
+    },
+    {
+      "label": "M5 a PARTIALLY vanished population is no longer reported",
+      "file": "toolchain/bin/bd-precut",
+      "old": "        if len(present) < len(_UNDERIVED_GATES):",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_an_absent_population_is_UNKNOWN_and_not_OK"
+    }
+  ]
+}

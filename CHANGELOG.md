@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1239 - bd-precut runs the gates a derived band can never select
+
+- FOUR DEFECTS, ONE HOLE. Between v3.66.1223 and v3.66.1238 this integrator
+  shipped a mutation anchor resolving zero or two times FOUR TIMES OVER, a
+  subprocess budget of 600s inside a 240s bound, and a subprocess inheriting the
+  ambient LC_ALL. NONE was a missing gate. `test_v3_66_1184` checks anchor
+  uniqueness, `test_v3_66_1222` checks budgets, `test_v3_66_1197` checks LC_ALL,
+  and `test_import_graph_no_new_edges` checks edges. Every one EXISTS and did
+  not RUN, because `bd-band-derive` derives from CHANGED PATHS and these four
+  judge the TREE -- so no diff ever selects them.
+- TWO OF THE FOUR WERE CAUGHT BY GITHUB CI AFTER A PUSH, each costing a re-run
+  and a force-push. The other two were caught by a battery that ran only because
+  someone remembered. A floor is not a ceiling (A5); this is the part of the
+  ceiling that is mechanical, so it belongs in a tool rather than a habit that
+  four cuts proved unreliable.
+- `bd-precut` NOW RUNS THEM AND REFUSES ON FAILURE. Blocking, not advisory,
+  because advisory output is exactly what got skimmed past twice.
+- AND IT BLOCKED ITS OWN CUT ON THE FIRST RUN. This cut's new gate carried
+  `timeout=300` inside the 240s bound -- the FIFTH instance of that defect in
+  one session -- and the check being added is what caught it, before the push
+  rather than by CI afterwards. Re-bounded at 60s from measurement: one
+  `bd-band-derive` call takes about 3s idle, so max(30, 6x6) = 36, and 60 leaves
+  room for four calls under load.
+- THE RELEASE TRIO IS NOW CHECKED FROM GIT. `precut_check` owns it but needs a
+  baseline release zip, and the zip flow is retired here, so bd-precut printed
+  "version/pin/surface NOT RUN" on EVERY invocation. AN UNKNOWN THAT APPEARS
+  EVERY SINGLE TIME IS WORSE THAN NO LINE AT ALL -- it trains the reader to skip
+  the summary, which is where the real UNKNOWNs also live. The version, the test
+  pin, the CHANGELOG head and its ASCII-ness are now derived from the tree.
+- CI SHARD HEADROOM IS REPORTED, ADVISORY BY CONSTRUCTION. A5 forbids trimming a
+  slow shard and demands a split or a question when one exceeds its budget, but
+  nothing MEASURED the budget, so the first symptom of a squeeze would be a
+  timeout on somebody else's unrelated cut -- and v3.66.1236 added 87s to one
+  shard in a single cut. It reads the LAST CI run, which is about a DIFFERENT
+  commit than the one being cut, and a verdict from stale evidence is not a
+  verdict (A2), so it prints headroom and never blocks.
+- CLAUDE.md A5 gains the standing rule, because the lesson is not "remember to
+  run these" but "a derived band structurally cannot see a tree-wide gate".
+- AND THE TRIO CHECK CAUGHT ITS OWN CUT TOO, one push later. The three SOURCE
+  facts agreed while `PIN_INDEX.json` still recorded the previous version,
+  because a regen had run BEFORE the last version edit rather than after it
+  (A3 step 7). Three CI jobs went red for it. Source agreement is not release
+  readiness when a GENERATED artifact carries the same fact, so the check now
+  reads PIN_INDEX too. Worth naming plainly: the tool was built and then not
+  RUN on the frozen candidate, which is the same failure this whole cut is
+  about, one level up.
+- AND THE BATTERY CAUGHT THE SAME DEFECT INSIDE THIS CUT. The gate proving
+  bd-precut still names all four regexed bd-precut's SOURCE TEXT, so commenting
+  an entry out left the string in the file, the regex still found it, and two
+  mutants ESCAPED. Comments are inside a text scanner's denominator and outside
+  the AST's -- the exact class this cut exists to stop me repeating, repeated
+  inside it. It now reads the AST. First battery 3 caught / 2 escaped; re-run
+  after the fix: 5 caught, 0 escaped.
+
 ## v3.66.1238 - saving a settings page stops erasing what you never retyped
 
 - SAVING TELEGRAM SETTINGS ERASED THE CHAT-ID ALLOWLIST. `Notifications.tsx:60`
