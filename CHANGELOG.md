@@ -4,6 +4,73 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1229 - the SSRF guards run on the posture where nobody is watching
+
+- TWO SAFETY GATES SKIPPED ENTIRELY ON A SUPPORTED POSTURE. Both
+  `tests/test_v3_66_550_weather_ssrf.py` and `tests/test_webhooks_subscription_ssrf.py`
+  opened with a MODULE-LEVEL `pytest.importorskip("requests")`, so on the
+  requests-less capture posture the SSRF guards they exist to prove were never
+  executed: 0 tests ran, 2 collection skips, exit 5. A gate that cannot see its
+  subject reporting OK is CLAUDE.md A7's central failure, and a whole-file skip
+  is the most complete version of it (row 215).
+- THE DEPENDENCY WAS NEVER NEEDED. Measured across all 9 tests: ZERO require a
+  single byte of the real `requests` distribution -- every HTTP call was already
+  a spy. Two of them touch no HTTP library at all; the `add_subscription`
+  registration guards only call `_validate_webhook_url` and write SQLite, and
+  were skipped for a dependency they never had. The other seven reach a seam
+  that soft-imports requests INSIDE the function and returns "requests not
+  installed" before any guard runs, which a minimal fake satisfies.
+- THE SEAM IS `sys.modules`, NOT A MODULE ATTRIBUTE. Both call sites import
+  inside the function body, so copying v3.66.1205's `setattr` shape would have
+  patched nothing and passed anyway. Each test now uses
+  `monkeypatch.setitem(sys.modules, "requests", fake)` and ASSERTS THE INJECTION
+  TOOK EFFECT before its verdict.
+- AND THE LAUNDERING IS CLOSED. `ok=False` is ALSO the missing-package value, so
+  a blocked probe and an absent dependency were indistinguishable at the
+  assertion. Every blocked case now asserts the DISTINCTIVE diagnostic.
+- REQUESTS-LESS EXECUTION: 0 -> 14. Zero skips remain in either file on either
+  posture, so no narrow named skip was needed either.
+- THE CENSUS IS THE PART THAT GENERALISES. An AST pass over 1424 tracked
+  `tests/*.py` finds exactly THREE whole-file skip constructs in the tree, and
+  ALL THREE guard a safety property. The third is
+  `test_v3_66_939_ci_gate_shards_cover_every_gate.py`'s `importorskip("yaml")` --
+  the gate that proves every repo-wide gate is in a CI shard, so losing it loses
+  the CI denominator itself. It is REPORTED AND NOT FIXED here: PyYAML is
+  declared in requirements-test.txt and its skip names an unprovisioned
+  environment, which is a different failure class from an undeclared optional
+  distribution on a supported posture. Whole-file skips: 3 -> 1.
+- AN IN-CUT DEFECT IN THE NEW GATE, FOUND BEFORE SHIPPING: the control probed
+  the parent with `importlib.util.find_spec`, which PROPAGATES
+  ModuleNotFoundError when a finder refuses by raising -- so it errored on
+  exactly the posture it describes. Replaced with a try/except import, with the
+  measurement recorded at the site.
+- AND THIS CUT BROKE v3.66.1228'S BATTERY IN A WAY WORTH RECORDING. That cut's
+  M4 mutant anchored on the literal register header `rows=231 open=26
+  ids-sha256=`. Closing row 215 here changed the count to 25, so bd-mutate's
+  exactly-once contract refused the whole battery -- correctly. AN ANCHOR THAT
+  EMBEDS A VALUE EVERY FUTURE CUT EDITS IS A MAINTENANCE TRAP, and pinning a
+  mutable COUNT is the clearest form of it. M4 now lives in the gate's own
+  arithmetic (`sum(status == "OPEN")` becoming `sum(status != "CLOSED")`, which
+  silently counts PARKED and MOOT rows as available work), where the property is
+  stable and the mutant is strictly better. Re-run: 5 caught, 0 escaped.
+- THE BUDGET RATCHET CAUGHT THIS CUT'S OWN NEW GATE, IN CI, AND WAS RIGHT.
+  The requests-less posture arm ran its child pytest under `timeout=600` -- above
+  the 240s bound governing the item, which makes its own
+  `except subprocess.TimeoutExpired` DEAD CODE. That is precisely the defect
+  v3.66.1222 froze a population against and v3.66.1226 generalised, reappearing
+  inside the cut that adds a safety gate. Bounded at 120s by v3.66.1226's rule:
+  measured 5.62s for both arms on an idle test5, floor 30, times-six gives 36,
+  and 120 leaves room for a 4-core CI runner while clearing the 210s ceiling.
+  Worth stating plainly: the local band did not catch it because
+  `test_v3_66_1222` was not in the derived band. CI was the tree-wide
+  denominator that saw it.
+- MUTATION: 5 caught, 0 escaped. M5 restores the module-level importorskip and
+  is caught by the new gate, which is how the gate proves it catches its own
+  de-wiring. A second arm run with the blocker on the battery's own interpreter
+  scores M5 UNKNOWN BY CONSTRUCTION -- the module vanishes at collection, so
+  collected and executed counts disagree and bd-mutate correctly refuses to
+  score it. That is a refusal, not an escape, and it is recorded in the spec.
+
 ## v3.66.1228 - the register stops directing work at rows that are already done
 
 - CLAUDE.md A1 STATES THAT ROUGHLY HALF A STALE REGISTER'S OPEN ROWS TURN OUT
