@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 77,
+    "total": 81,
     "version": 1,
-    "count_dict": 76,
+    "count_dict": 80,
     "test_files_scanned": 1420,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -34,6 +34,7 @@
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
       "tests/test_settings_center_slice4.py": 1,
+      "tests/test_spa_root_routing_contract.py": 4,
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
@@ -238,8 +239,56 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1246",
+      "value": "3.66.1247",
       "gates_what": "test_containment_routes_and_version"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_spa_root_routing_contract.py",
+      "line": 268,
+      "value": {
+        "copy": 1,
+        "build": 1,
+        "references": 0,
+        "root_check": 0
+      },
+      "gates_what": "fake_build"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_spa_root_routing_contract.py",
+      "line": 286,
+      "value": {
+        "copy": 1,
+        "build": 1,
+        "references": 1,
+        "root_check": 0
+      },
+      "gates_what": "fake_references"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_spa_root_routing_contract.py",
+      "line": 297,
+      "value": {
+        "copy": 1,
+        "build": 1,
+        "references": 1,
+        "root_check": 1
+      },
+      "gates_what": "fake_root_check"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_spa_root_routing_contract.py",
+      "line": 328,
+      "value": {
+        "copy": 1,
+        "build": 1,
+        "references": 1,
+        "root_check": 1
+      },
+      "gates_what": "test_real_asset_gate_invokes_one_fresh_build — The behavioral gate cannot silently regress to reading shipped dist."
     },
     {
       "form": "count_dict",

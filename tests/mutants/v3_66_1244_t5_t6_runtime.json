@@ -1,0 +1,113 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 184. Run from a detached standalone scratch tree with frontend/node_modules available: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1244_t5_t6_runtime.json --work SCRATCH --timeout 300. Every TypeScript mutant must fail on a named semantic assertion, never a transform error. The separate v3_66_1244_t5_t6_transform_control.json intentionally ESCAPES a valid endpoint rename under an import-only spec, proving these catches are behavioural assertions rather than compilation failures.",
+  "subject": "the executed 30-family governance/integrations/VPN/CSRF contract, the parsed repository-wide raw state-changing fetch boundary, and Maintenance/Integrations confirmation gating",
+  "band": [
+    "tests/test_t5_t6_wired.py::test_t5_t6_vpn_endpoint_and_confirmation_contract_at_runtime",
+    "tests/test_t5_t6_wired.py::test_csrf_token_is_sourced_and_attached_at_runtime",
+    "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source",
+    "tests/test_t5_t6_wired.py::test_t5_t6_vpn_routes_are_reachable_at_runtime"
+  ],
+  "mutants": [
+    {
+      "label": "M1 row-184 headline evasion: a real lowercase, spaced raw POST is added to product source outside api-client; caught structurally by the parsed complete-product boundary",
+      "file": "frontend/src/hooks/useIntegrations.ts",
+      "old": "export function useAiStatus() {\n  return useQuery<AiStatus, Error>({",
+      "new": "export function useAiStatus() {\n  void fetch(\"/api/row184-mutant\", { method : \"post\", body: \"{}\" });\n  return useQuery<AiStatus, Error>({",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source"
+    },
+    {
+      "label": "M2 the CSRF bootstrap is repointed to the nonexistent auth_surface route; the runtime apiPost receives no token and the exact source call is absent",
+      "file": "frontend/src/lib/api-client.ts",
+      "old": "fetch(\"/api/csrf\", { credentials: \"same-origin\" })",
+      "new": "fetch(\"/api/auth_surface\", { credentials: \"same-origin\" })",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_csrf_token_is_sourced_and_attached_at_runtime"
+    },
+    {
+      "label": "M3 lowercase methods are conditionally ignored, recreating the retired regex's exact case-sensitive hole; the shipped lowercase fixture fails semantically",
+      "file": "frontend/src/lib/rawFetchBoundary.test.ts",
+      "old": "        if (!SAFE_METHODS.has(normalized)) {",
+      "new": "        if (!SAFE_METHODS.has(normalized) && method.value === method.value.toLocaleUpperCase(\"en-US\")) {",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source"
+    },
+    {
+      "label": "M4 unresolved visible fetch options are treated as clean instead of UNKNOWN; the explicit unresolved-method fixture rejects the fail-open verdict",
+      "file": "frontend/src/lib/rawFetchBoundary.test.ts",
+      "old": "        findings.push({ file, line: pos.line + 1, method: `UNKNOWN: ${method.reason}` });",
+      "new": "        void pos; // mutant: unresolved measurement is silently accepted",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source"
+    },
+    {
+      "label": "M5 T6 endpoint drift remains syntactically valid and still imports, but the executed independent family denominator reports ai/status missing",
+      "file": "frontend/src/hooks/useIntegrations.ts",
+      "old": "apiGet<AiStatus>(\"/api/ai/status\", signal)",
+      "new": "apiGet<AiStatus>(\"/api/ai/status_v2\", signal)",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_t5_t6_vpn_endpoint_and_confirmation_contract_at_runtime"
+    },
+    {
+      "label": "M6 named-handler indirection dispatches subtitles immediately; the old onClick-brace regex escaped this spelling, while the real click observes the pre-confirm POST",
+      "file": "frontend/src/routes/Integrations.tsx",
+      "old": "          <Button\n            variant=\"outline\"\n            disabled={busy || hid == null}\n            onClick={() => setPending({ kind: \"subtitles\", hid: hid as number })}\n          >\n            Fetch subtitles\n          </Button>",
+      "new": "          {(() => {\n            const fire = () => subtitles.mutate({ hid: hid as number });\n            return (\n              <Button\n                variant=\"outline\"\n                disabled={busy || hid == null}\n                onClick={fire}\n              >\n                Fetch subtitles\n              </Button>\n            );\n          })()}",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_t5_t6_vpn_endpoint_and_confirmation_contract_at_runtime"
+    },
+    {
+      "label": "M7 /integrations is repathed in the real App table; direct component tests still render, but real-route resolution fails",
+      "file": "frontend/src/App.tsx",
+      "old": "        <Route path=\"/integrations\" element={<Integrations />} />",
+      "new": "        <Route path=\"/integrations-v2\" element={<Integrations />} />",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_t5_t6_vpn_routes_are_reachable_at_runtime"
+    },
+    {
+      "label": "M8 OVER-CORRECTION: every identifier call is misclassified as fetch, so clean apiGet/apiPost calls become UNKNOWN offenders; the raw-boundary negative/product controls must reject this hypersensitive scanner while unrelated runtime and CSRF nodeids remain green",
+      "file": "frontend/src/lib/rawFetchBoundary.test.ts",
+      "old": "  if (ts.isIdentifier(callee)) {\n    if (callee.text === \"fetch\") return true;\n    if (seen.has(callee.text)) return false;\n    const target = bindings.get(callee.text);\n    if (!target) return false;\n    const next = new Set(seen);\n    next.add(callee.text);\n    return isFetchExpression(target, bindings, next);\n  }",
+      "new": "  if (ts.isIdentifier(callee)) return true;",
+      "direction": "overcorrection",
+      "control": "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source",
+      "preserves": [
+        "tests/test_t5_t6_wired.py::test_t5_t6_vpn_endpoint_and_confirmation_contract_at_runtime",
+        "tests/test_t5_t6_wired.py::test_csrf_token_is_sourced_and_attached_at_runtime"
+      ]
+    },
+    {
+      "label": "M9 the Maintenance route stops consuming rights/audit while the hook and full literal survive; the rendered 12-family runtime sweep reports the missing call",
+      "file": "frontend/src/routes/Maintenance.tsx",
+      "old": "  const rightsList = useRightsBlocklist();\n  const rightsAudit = useRightsAudit(100);\n  const rightsRemove = useRightsRemove();",
+      "new": "  const rightsList = useRightsBlocklist();\n  const rightsAudit = { isLoading: false, data: { entries: [] as Record<string, unknown>[] } };\n  const rightsRemove = useRightsRemove();",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_t5_t6_vpn_endpoint_and_confirmation_contract_at_runtime"
+    },
+    {
+      "label": "M10 the Integrations route stops consuming ai/status while its hook and literal survive; the rendered 14-family runtime sweep reports the missing call",
+      "file": "frontend/src/routes/Integrations.tsx",
+      "old": "  const aiStatus = useAiStatus();\n  const aiModels = useAiModels();",
+      "new": "  const aiStatus = { isLoading: false, data: { boot_readiness: undefined } };\n  const aiModels = useAiModels();",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_t5_t6_vpn_endpoint_and_confirmation_contract_at_runtime"
+    },
+    {
+      "label": "M11 local aliases of fetch are ignored; the computed-key alias evasion fixture fails while the source remains valid TypeScript",
+      "file": "frontend/src/lib/rawFetchBoundary.test.ts",
+      "old": "  if (ts.isIdentifier(callee)) {\n    if (callee.text === \"fetch\") return true;\n    if (seen.has(callee.text)) return false;\n    const target = bindings.get(callee.text);\n    if (!target) return false;\n    const next = new Set(seen);\n    next.add(callee.text);\n    return isFetchExpression(target, bindings, next);\n  }",
+      "new": "  if (ts.isIdentifier(callee)) return callee.text === \"fetch\";",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source"
+    },
+    {
+      "label": "M12 an unresolved computed RequestInit key is treated as absent instead of UNKNOWN; the fail-closed computed-key fixture rejects the verdict",
+      "file": "frontend/src/lib/rawFetchBoundary.test.ts",
+      "old": "        result = { kind: \"unknown\", reason: `computed option key: ${computed.reason}` };",
+      "new": "        result = { kind: \"absent\" }; // mutant: computed key silently accepted",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_no_raw_state_changing_fetch_in_product_source"
+    }
+  ]
+}

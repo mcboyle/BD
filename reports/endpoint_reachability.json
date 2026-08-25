@@ -148,8 +148,6 @@
     "/api/community_scrapers/install",
     "/api/community_scrapers/remove",
     "/api/concurrent/<sid>",
-    "/api/crash_recovery/delete",
-    "/api/crash_recovery/ignore",
     "/api/crash_recovery/resume",
     "/api/dev/cache_clear",
     "/api/dev/config_reload",
@@ -191,7 +189,6 @@
     "/api/macros/validate",
     "/api/multi_conn/probe",
     "/api/phoenix/lookup",
-    "/api/phoenix/suggest",
     "/api/plex_advanced/mark/<sid>/<int:rating_key>",
     "/api/provenance/verify",
     "/api/retention/mark_excluded/<int:hid>",
@@ -229,7 +226,6 @@
     "/api/sites/preview_filename",
     "/api/thumbnail_sheets/single/<int:hid>",
     "/api/thumbnails/regenerate",
-    "/api/thumbs/contact_sheet",
     "/api/thumbs/single",
     "/api/thumbs/sprite_sheet",
     "/api/user_templates/<tid>",
@@ -240,5 +236,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 101
+  "dark_count": 97
 }

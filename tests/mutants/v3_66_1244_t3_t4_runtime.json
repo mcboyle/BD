@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 183. Re-run from a detached clone that contains this cut and frontend/node_modules: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1244_t3_t4_runtime.json --work DETACHED_CLONE --timeout 300'. M1-M3 are the mandatory evasion fixtures replayed against the untouched 3372dbe base, where the retired 3-test text gate scored 0 caught / 3 escaped. TSX validity is controlled separately: point M1 at test_t3_t4_transform_control_imports_subjects_without_judging_behaviour; it must ESCAPE, while the safety nodeid catches the same bytes with a semantic dangerous-write assertion. A clone without node_modules returns UNKNOWN, not a score.",
+  "subject": "row 183 -- the 23 T3/T4 families are consumed by rendered SPA controls and crash delete, overwrite NFO regen, and bulk site import cannot dispatch from one initial runtime-bound pointer/mouse/keyboard handler",
+  "band": [
+    "tests/test_t3_t4_wired.py::test_t3_t4_family_denominator_is_exact_and_nonzero",
+    "tests/test_t3_t4_wired.py::test_t3_t4_endpoint_families_are_consumed_at_runtime",
+    "tests/test_t3_t4_wired.py::test_dangerous_selection_writes_are_confirmation_gated_at_runtime",
+    "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour"
+  ],
+  "mutants": [
+    {
+      "label": "M1 exact row-183 evasion: no space after ({ makes a real overwrite NFO run one-click while the retired regex remains green",
+      "file": "frontend/src/routes/Library.tsx",
+      "old": "            onClick={() => arm({ kind: \"regenNfos\", overwrite: false, token: \"\" })}",
+      "new": "            onClick={() => regenNfos.mutate({overwrite: true, dry_run: false})}",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_dangerous_selection_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M2 named fire handler: onClick={fire} hides a one-click overwrite from every regex that expects mutate text inside the JSX brace",
+      "file": "frontend/src/routes/Library.tsx",
+      "old": "          <Button\n            variant=\"destructive\"\n            disabled={busy}\n            onClick={() => arm({ kind: \"regenNfos\", overwrite: false, token: \"\" })}\n          >\n            Regen missing NFOs\n          </Button>",
+      "new": "          {(() => {\n            const fire = () => regenNfos.mutate({ overwrite: true, dry_run: false });\n            return (\n              <Button variant=\"destructive\" disabled={busy} onClick={fire}>\n                Regen missing NFOs\n              </Button>\n            );\n          })()}",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_dangerous_selection_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M3 event-name evasion found in the Maintenance regex: onMouseDown crash delete fires during one press while onClick-only text remains clean",
+      "file": "frontend/src/routes/Maintenance.tsx",
+      "old": "                    onClick={() => arm({ kind: \"crashDelete\", path: o.path as string, token: \"DELETE PART\" })}",
+      "new": "                    onMouseDown={() => crashAction.mutate({ action: \"delete\", path: o.path as string })}",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_dangerous_selection_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M4 tags/for_many returns a local value instead of reaching the transport; its full endpoint literal survives in the exported hook, which is why the retired scan credited an unused hook",
+      "file": "frontend/src/routes/Library.tsx",
+      "old": "            onClick={() => tagsForMany.mutate({ history_ids: parseIds(bulkIds) })}",
+      "new": "            onClick={() => void Promise.resolve({ tags: {} })}",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_t3_t4_endpoint_families_are_consumed_at_runtime"
+    },
+    {
+      "label": "M5 library stats is no longer fetched while a comment preserves the exact apiGet literal for a source scan",
+      "file": "frontend/src/hooks/useLibraryOps.ts",
+      "old": "    queryFn: ({ signal }) => apiGet<LibraryStatsResult>(\"/api/library/stats\", signal),",
+      "new": "    queryFn: () => Promise.resolve({ stats: {} } as LibraryStatsResult), // apiGet<LibraryStatsResult>(\"/api/library/stats\")",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_t3_t4_endpoint_families_are_consumed_at_runtime"
+    },
+    {
+      "label": "M6 template hrefs are assigned but never clicked, so both strings remain while neither browser download executes",
+      "file": "frontend/src/hooks/useOpsControls.ts",
+      "old": "  a.click();",
+      "new": "  void a.href; // a.click();",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_t3_t4_endpoint_families_are_consumed_at_runtime"
+    },
+    {
+      "label": "M7 over-correction: every NFO regen, including overwrite=false, is classified dangerous; the negative control must reject this widened safety verdict while endpoint and transform nodeids remain green",
+      "file": "frontend/src/routes/T3T4.confirm.test.tsx",
+      "old": "  return typeof record.body === \"object\"\n    && record.body !== null\n    && (record.body as Record<string, unknown>).overwrite === true;",
+      "new": "  return true;",
+      "direction": "overcorrection",
+      "control": "tests/test_t3_t4_wired.py::test_dangerous_selection_writes_are_confirmation_gated_at_runtime",
+      "preserves": [
+        "tests/test_t3_t4_wired.py::test_t3_t4_family_denominator_is_exact_and_nonzero",
+        "tests/test_t3_t4_wired.py::test_t3_t4_endpoint_families_are_consumed_at_runtime",
+        "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour"
+      ]
+    }
+  ]
+}

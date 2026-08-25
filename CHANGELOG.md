@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1247 - a wired gate judges behaviour rather than source text
+
+- Replaced the textual proxy with runtime Vitest delegates and an exact nonze
+- Added runtime endpoint reconciliation in [T3T4.endpoints.test.tsx](/home/mb
+- Added rendered interaction/confirmation coverage with a declared evasion su
+- Added the import-only transform control in [T3T4.transform.test.tsx](/home/
+- Added seven mutation cases in [v3_66_1244_t3_t4_runtime.json](/home/mboyle/
+- Against untouched base, the retired three-test gate reported: `0 caught, 3 
+- Escapes were the no-space overwrite, named `fire` handler, and `onMouseDown
+- Focused gate: `4 passed in 36.32s`.
+- Derived affected floor plus CI/SPA guards: `243 passed, 1 skipped, 11 warni
+- Skip: `release parity artifact absent; packaging requires it via tools/chec
+- TypeScript project compilation exited 0.
+- CI visibility verified: `BD_GATE_SCOPE` exists, and the gate occurs exactly
+- Transform control: expected `CONTROL-M1` escape, `0 caught, 1 escaped`; the
+- ENDPOINT REACHABILITY RE-PINNED, AND THE MOVE IS NAMED: dark=97 but the ledger pins 101.
+  This cut wires SPA behaviour, so endpoints that the ledger recorded as dark
+  are now reached. The ledger is re-frozen with bd-regen-order --declare-reach,
+  which is the sanctioned declaration; the count is stated here because a
+  silent re-pin cannot be told apart from a wiring regression frozen in.
+
 ## v3.66.1246 - the reptyle fixture is identified rather than labelled
 
 - Updated its HLS/video.js verdict pin in [expected_verdicts.json](/home/mboy

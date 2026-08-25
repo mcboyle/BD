@@ -1,0 +1,46 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 229. Re-run with toolchain/bin/bd-mutate from a detached scratch clone containing this cut and a frontend/node_modules link; the gate builds the SPA twice per pytest session, so use --timeout 300 or greater. The all-CAUGHT battery is this file. Transform control: re-run M2 alone with its catcher changed to test_transform_control_imports_gate_without_judging_effective_base and the band reduced to that nodeid; it must ESCAPE, proving the TypeScript transform remains importable and the CAUGHT verdict comes from the emitted-reference assertions rather than a compile break.",
+  "subject": "Row 229 -- the SPA root gate builds current Vite inputs into attempt-owned output, reconciles a nonzero population of emitted executable/style references, and proves Flask serves those exact bytes at /assets instead of trusting source literals or a pre-existing frontend/dist",
+  "band": [
+    "tests/test_spa_root_routing_contract.py::test_real_asset_served_from_root",
+    "tests/test_spa_root_routing_contract.py::test_real_asset_gate_invokes_one_fresh_build",
+    "tests/test_spa_root_routing_contract.py::test_frontend_re_rooted_in_source",
+    "tests/test_spa_root_routing_contract.py::test_a_source_evasive_effective_base_is_rejected",
+    "tests/test_spa_root_routing_contract.py::test_transform_control_imports_gate_without_judging_effective_base"
+  ],
+  "mutants": [
+    {
+      "label": "M1 literal re-root: Vite emits /app/assets references while Flask still mounts the dist tree at root",
+      "file": "frontend/vite.config.ts",
+      "old": "  base: \"/\",\n  plugins: [react()],",
+      "new": "  base: \"/app/\",\n  plugins: [react()],",
+      "direction": "regression",
+      "catcher": "tests/test_spa_root_routing_contract.py::test_real_asset_served_from_root"
+    },
+    {
+      "label": "M2 row defect, source-evasive: a computed spread overrides the one surviving literal root assignment only at runtime, so the row-202 scan remains green but the current build emits /app/assets",
+      "file": "frontend/vite.config.ts",
+      "old": "export default defineConfig({\n  base: \"/\",",
+      "new": "const row229Override: Record<string, string> = {};\nrow229Override[\"base\"] = \"/\" + \"app/\";\n\nexport default defineConfig({\n  base: \"/\",\n  ...row229Override,",
+      "direction": "regression",
+      "catcher": "tests/test_spa_root_routing_contract.py::test_real_asset_served_from_root"
+    },
+    {
+      "label": "M3 recreated fail-open: accept any nested URL containing /assets/, including /app/assets/, instead of requiring Flask's root /assets mount; the built adversarial fixture must fail its expected refusal",
+      "file": "tests/test_spa_root_routing_contract.py",
+      "old": "    off_mount = [ref for ref in references if not ref.startswith(\"/assets/\")]",
+      "new": "    off_mount = [ref for ref in references if \"/assets/\" not in ref]",
+      "direction": "regression",
+      "catcher": "tests/test_spa_root_routing_contract.py::test_a_source_evasive_effective_base_is_rejected"
+    },
+    {
+      "label": "M4 row defect restored in the gate: read the already-built frontend/dist instead of invoking the fresh build; the exact one-build wiring catcher fails before stale output can manufacture green",
+      "file": "tests/test_spa_root_routing_contract.py",
+      "old": "    dist = _build_spa_fresh(frontend, tmp_path / \"fresh-dist\")",
+      "new": "    dist = _DIST.parent  # stale shipped output, no build",
+      "direction": "regression",
+      "catcher": "tests/test_spa_root_routing_contract.py::test_real_asset_gate_invokes_one_fresh_build"
+    }
+  ]
+}

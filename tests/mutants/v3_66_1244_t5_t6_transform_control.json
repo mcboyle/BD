@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for backlog row 184. This battery is EXPECTED to exit 1 with exactly one ESCAPED valid mutant: its only spec imports useIntegrations and asserts only that module transformation succeeded. If this mutant is caught here, a compile/import failure is masquerading as behavioural evidence in the primary battery.",
+  "subject": "transform-only control proving a valid semantic T6 endpoint mutant can import without any behavioural assertion",
+  "band": [
+    "tests/test_t5_t6_wired.py::test_transform_control_imports_without_asserting_runtime_behaviour"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL valid ai/status endpoint rename must ESCAPE an import-only spec",
+      "file": "frontend/src/hooks/useIntegrations.ts",
+      "old": "apiGet<AiStatus>(\"/api/ai/status\", signal)",
+      "new": "apiGet<AiStatus>(\"/api/ai/status_v2\", signal)",
+      "direction": "regression",
+      "catcher": "tests/test_t5_t6_wired.py::test_transform_control_imports_without_asserting_runtime_behaviour"
+    }
+  ]
+}
