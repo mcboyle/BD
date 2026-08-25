@@ -202,6 +202,11 @@ _MEASURED_S = {
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait-2":    (0.0638, 5),
     "a_registrar_that_succeeds_still_gets_waited_for_and_recorded/wait":         (2.8743, 40.0),
     "a_registrar_that_succeeds_still_gets_waited_for_and_recorded/wait-2":       (0.0035, 10),
+    "an_absence_claim_is_immune_to_a_live_neighbour_group/wait":                 (0.0160, 0),
+    "an_absence_claim_is_immune_to_a_live_neighbour_group/wait-2":               (0.0035, 0),
+    "a_non_descendant_group_member_fails_the_probe_closed_not_open/wait":       (0.0158, 0),
+    "a_slow_settlement_never_downgrades_a_decided_cancellation/wait":           (6.8895, 0),
+    "a_slow_settlement_never_downgrades_a_decided_cancellation/wait-2":         (0.0035, 0),
     "abort_timeout_retains_inert_gate_under_one_budget/exit":                    (5.4935, 20.0),
     "abort_timeout_retains_inert_gate_under_one_budget/wait":                    (0.0035, 5),
     "cancellation_after_relay_before_gate_settles_the_acquired_owner/fifo":      (0.2102, 5),
@@ -321,6 +326,9 @@ _MEASURED_S = {
     "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/exit":      (6.2437, 20.0),
     "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait":      (0.0035, 5),
     "terminal_relay_wait_failure_reconciles_registered_id/run":                  (2.3323, 7),
+    "the_presence_probe_costs_the_group_and_not_the_host/wait":                 (0.0157, 0),
+    "the_settlement_deadline_still_bounds_a_gate_that_will_not_settle/wait":    (0.4157, 0),
+    "the_settlement_deadline_still_bounds_a_gate_that_will_not_settle/wait-2":  (0.0035, 0),
     "the_cheap_presence_probe_agrees_with_the_complete_census/wait":             (0.0155, 5),
     "the_group_census_never_forks_and_so_cannot_count_itself/wait":              (0.0154, 5),
     "unreadable_group_absence_probe_never_grants_status_91/run":                 (4.7896, 6),
@@ -1892,26 +1900,41 @@ def _w1_live_in_group(pgid: int) -> list[str]:
     return live
 
 
-def _w1_group_has_at_least(pgid: int, wanted: int) -> bool:
-    """Cheap PRESENCE probe for a polling loop. NEVER use it to prove absence.
+def _w1_children_of(pid) -> list[str]:
+    """Direct children of `pid`, read from /proc/<pid>/task/<tid>/children.
 
-    The group LEADER is checked first because in this module the pgid is a real
-    pid, so the common case costs one file read instead of a walk of /proc. It
-    stops as soon as `wanted` members are seen, which is exactly why it cannot
-    answer "is the group empty" -- that question needs the complete census
-    above, and every absence assertion in this file uses that one.
+    O(children), never O(host). The kernel publishes one `children` file per
+    THREAD, so every task directory is read; a single-threaded process has
+    exactly one. A missing directory means the process is gone, and the empty
+    list is the same answer a walk would reach.
     """
-    if wanted <= 0:
-        return True
-    seen = 0
-    leader = _w1_stat_pgid_and_state(pgid)
-    if leader is not None and leader[0] == str(pgid) and leader[1] != "Z":
-        seen = 1
-        if seen >= wanted:
-            return True
+    root = "/proc/%s/task" % pid
+    kids: list[str] = []
+    try:
+        tids = os.listdir(root)
+    except (FileNotFoundError, ProcessLookupError, PermissionError,
+            NotADirectoryError):
+        return kids
+    for tid in tids:
+        try:
+            with open("%s/%s/children" % (root, tid), "rb") as handle:
+                raw = handle.read()
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        kids.extend(entry.decode("ascii", "replace") for entry in raw.split())
+    return kids
+
+
+def _w1_walk_group_has_at_least(pgid: int, wanted: int) -> bool:
+    """The complete-walk threshold answer. Correct at the cost of the host.
+
+    Kept as the fallback for the one case descent cannot serve -- a leader
+    that is not observable in its own group leaves the descent no root.
+    """
     target = str(pgid)
+    seen = 0
     for entry in os.listdir("/proc"):
-        if not entry.isdigit() or entry == str(pgid):
+        if not entry.isdigit():
             continue
         observed = _w1_stat_pgid_and_state(entry)
         if observed is None:
@@ -1920,6 +1943,69 @@ def _w1_group_has_at_least(pgid: int, wanted: int) -> bool:
             seen += 1
             if seen >= wanted:
                 return True
+    return False
+
+
+def _w1_group_has_at_least(pgid: int, wanted: int) -> bool:
+    """Cheap PRESENCE probe for a polling loop. NEVER use it to prove absence.
+
+    ROW 231, THE HALF v3.66.1213 LEFT. That cut stopped the census forking
+    `ps`, but the probe it added still fell through to a WALK OF THE WHOLE
+    /proc whenever the leader alone did not satisfy `wanted` -- and that is
+    exactly the state a poll loop sits in while it waits. `_w1_wait_for_gate`
+    polls every 10ms, so `minimum_live=2` charged one full host walk per 10ms
+    for the entire wait. v3.66.1224 measured a full walk at 39.3ms median over
+    856 pids; replacing a fork with a walk of the same denominator is the same
+    defect wearing different clothes, and this is the version that stops
+    paying for processes that have nothing to do with the test.
+
+    THE ANSWER IS NOW REACHED BY DESCENT: the leader, then its descendants via
+    /proc/<pid>/task/<tid>/children, stopping the moment `wanted` members with
+    the exact pgid have been seen. Cost is O(group), not O(host).
+
+    AND THE BOUNDARY IS STATED RATHER THAN HIDDEN. Descent sees a member only
+    if it is a descendant of the leader. Every group in this module is created
+    by bash job control -- one forked leader, and everything after it inherits
+    -- so the two sets coincide, and
+    `test_the_cheap_presence_probe_agrees_with_the_complete_census` proves it
+    on planted groups of one, two and three. A member placed in the group from
+    OUTSIDE that subtree is invisible here, which is a FALSE NEGATIVE: the
+    caller polls again and finally raises its own distinctive assertion. That
+    is fail-closed, it is asserted by
+    `test_a_non_descendant_group_member_fails_the_probe_closed_not_open`, and
+    it is why this function must never be asked whether a group is EMPTY.
+    Absence needs the complete denominator and every absence assertion in this
+    file uses `_w1_live_in_group`.
+    """
+    if wanted <= 0:
+        return True
+    target = str(pgid)
+    leader = _w1_stat_pgid_and_state(pgid)
+    if leader is None or leader[0] != target or leader[1] == "Z":
+        # NO ROOT FOR THE DESCENT. A leader that is gone, reparented out of
+        # its own group, or a zombie cannot enumerate anything, so the only
+        # complete answer left is the walk. This is bounded by the caller's
+        # own deadline and is not the polling steady state.
+        return _w1_walk_group_has_at_least(pgid, wanted)
+    seen = 1
+    if seen >= wanted:
+        return True
+    pending = [target]
+    visited = {target}
+    while pending:
+        for kid in _w1_children_of(pending.pop()):
+            if kid in visited:
+                continue
+            visited.add(kid)
+            # DESCEND THROUGH a child even when its own pgid does not match:
+            # a grandchild can be in the group while its parent has left it.
+            pending.append(kid)
+            observed = _w1_stat_pgid_and_state(kid)
+            if observed is not None and observed[0] == target \
+                    and observed[1] != "Z":
+                seen += 1
+                if seen >= wanted:
+                    return True
     return False
 
 
@@ -1941,7 +2027,7 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      timeout_owner_program=None,
                      owner_kill_grace_us=None,
                      missing_setup_fd=None, missing_setup_pid=None,
-                     registrar_seconds=None,
+                     registrar_seconds=None, cleanup_seconds=None,
                      reconcile_seconds=None, checked_wait_probe=None,
                      monotonic_samples=None,
                      cancel_before_observation=False,
@@ -2000,6 +2086,19 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
             "the production runner has no finite READY-owner deadline")
         body = body.replace(
             ready_anchor, "W1_READY_SECONDS=%d" % ready_seconds)
+    if cleanup_seconds is not None:
+        # THE SETTLEMENT DEADLINE, DRIVEN SEPARATELY FROM THE FORWARD ONE.
+        # Before v3.66.1230 `reap_seconds` moved both, so a test that wanted
+        # the FORWARD gate protocol to give up in 3s also gave every
+        # settlement path 3s, and a settlement path that runs out of time
+        # replaces a decided status with 92. Only a test whose SUBJECT is the
+        # cleanup timeout should set this.
+        cleanup_anchor = "W1_CLEANUP_SECONDS=%d" % (
+            _w1_runner_deadline_constants()["W1_CLEANUP_SECONDS"])
+        assert body.count(cleanup_anchor) == 1, (
+            "the production runner has no single finite settlement deadline")
+        body = body.replace(
+            cleanup_anchor, "W1_CLEANUP_SECONDS=%d" % cleanup_seconds)
     if registrar_seconds is not None:
         registrar_anchor = "W1_REGISTRAR_SECONDS=30"
         assert body.count(registrar_anchor) == 1, (
@@ -2364,6 +2463,77 @@ def _w1_adversarial_gate_program(*, ready=None, terminal=None,
            float(delay_before_terminal), terminal_stmt,
            suffix_stmt, float(hold), int(status))
     )
+
+
+def _w1_slow_settlement_gate_program(marker, seconds):
+    """A gate that settles CORRECTLY, and not INSTANTLY.
+
+    The production gate answers a closed release pipe by emitting
+    `ABORTED v1 reason=release-eof` and exiting. This one does exactly that
+    after a bounded delay, so the runner's SETTLEMENT deadline -- and nothing
+    else -- decides whether the settlement completes. The marker proves the
+    delay was entered, so a run that never reached this branch cannot pass for
+    either verdict.
+
+    `seconds` is a FORCED-BRANCH constant, not a budget: it is chosen to sit
+    above the 3s the pre-v3.66.1230 runner gave settlement and well under the
+    10s it gives now, which is the whole point of the pair of tests below.
+    """
+    return (
+        "import os, sys, time\n"
+        "def emit(fd, frame):\n"
+        "    os.write(fd, (frame + '\\n').encode('ascii', 'strict'))\n"
+        "if len(sys.argv) != 2:\n"
+        "    emit(3, 'ABORTED v1 reason=bad-shim-argv')\n"
+        "    raise SystemExit(95)\n"
+        "emit(1, 'READY v1 pid=%d' % os.getpid())\n"
+        "os.close(1)\n"
+        "release = bytearray()\n"
+        "while True:\n"
+        "    chunk = os.read(0, 4096)\n"
+        "    if not chunk:\n"
+        "        break\n"
+        "    release.extend(chunk)\n"
+        "with open(" + repr(str(marker)) + ", 'w') as handle:\n"
+        "    handle.write('settlement-entered\\n')\n"
+        "time.sleep(" + repr(float(seconds)) + ")\n"
+        "emit(3, 'ABORTED v1 reason=release-eof')\n"
+        "raise SystemExit(0)\n"
+    )
+
+
+#: How long the planted gate takes to settle in the pair of tests below. It is
+#: deterministically ABOVE the 3 seconds the shared constant used to leave for
+#: settlement and deterministically BELOW the 10 the runner now gives it, so
+#: neither arm depends on host speed to reach its branch.
+_W1_SLOW_SETTLEMENT_S = 5.0
+
+
+def _w1_cancel_a_registrar_bound_runner(tmp_path, mod, *, gate_program,
+                                        cleanup_seconds=None):
+    """Drive the runner to the point where only settlement remains, then INT.
+
+    The registrar stub sleeps for five minutes, so no job id is ever recorded
+    and `registration_settle_cancel` -- not `registration_fail_registered` --
+    is the path that classifies the run. That is the exact shape whose
+    misclassification v3.66.1226 recorded and left open.
+    """
+    marker = tmp_path / "workload-started"
+    registrar = tmp_path / "registrar-started"
+    script, rundir = _w1_build_runner(
+        mod, tmp_path,
+        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
+        reap_seconds=3, registrar_seconds=3, cleanup_seconds=cleanup_seconds,
+        gate_program=gate_program,
+    )
+    env = dict(os.environ)
+    env["HOME"] = str(_w1_fake_home(
+        tmp_path, code=0, stdout="stubhost-4242\n", sleep=300))
+    env["W1_REGISTRAR_MARKER"] = str(registrar)
+    proc = subprocess.Popen(
+        ["bash", str(script)], env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    return marker, registrar, rundir, proc
 
 
 def _w1_pre_ready_descendant_gate_program():
@@ -3422,7 +3592,7 @@ def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=1,
+        reap_seconds=1, cleanup_seconds=1,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -4550,7 +4720,7 @@ def test_real_release_sigpipe_is_contained_and_enters_registered_failure(
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3,
+        reap_seconds=3, cleanup_seconds=3,
         before_release_write_barrier=(entered, release),
     )
     env = dict(os.environ)
@@ -5205,7 +5375,7 @@ def test_abort_timeout_retains_inert_gate_under_one_budget(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, checked_wait_probe=checked_wait_log,
+        reap_seconds=3, cleanup_seconds=3, checked_wait_probe=checked_wait_log,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -5299,7 +5469,7 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=2,
+        reap_seconds=2, cleanup_seconds=2,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
@@ -5871,9 +6041,33 @@ def test_runner_cancellation_closes_gate_and_does_not_start_workload(tmp_path):
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         _w1_wait_for_path(registrar)
+        signalled = time.monotonic()
         os.kill(proc.pid, signal.SIGINT)
         rc = proc.wait(timeout=_w1_budget_s("runner_cancellation_closes_gate_and_does_not_start_workload/wait"))
+        settled_in = time.monotonic() - signalled
         assert rc == 130
+        # THE RECORDED SETTLEMENT COST, COMPARED TO THE CLOCK RATHER THAN TO
+        # ITSELF. This is the exact shape `_W1_SETTLEMENT_MEASURED_S` was taken
+        # from -- SIGINT delivered to runner exited, with a registrar that never
+        # returns -- so it is the one place a restated baseline can be caught by
+        # a real run. v3.66.1219's first over-sensitivity control compared
+        # baselines only to each other and stayed green while a 168s cost was
+        # written down as 7s.
+        # THE MARGIN IS THE DEADLINE'S OWN ARITHMETIC, not the tighter warning
+        # one. 1226 measured a 4.13x RIGHT-CENSORED contention stretch, so a 3x
+        # margin here would fire on correct work under `-n 24` -- which is the
+        # defect class this whole row descends from. 6x is what the deadline is
+        # derived with, so a baseline this check accepts is a baseline the
+        # deadline is safe for. RESIDUAL, same as 1226 recorded for budgets: a
+        # scheduling stall of the 1209 magnitude would still cross it.
+        assert settled_in <= _W1_SETTLEMENT_MEASURED_S * _W1_RUNNER_STRETCH_FACTOR, (
+            "settlement took %.3fs against a recorded baseline of %.4fs "
+            "(%.1fx, past the %.1fx margin the deadline is derived with). The "
+            "deadline derived from that baseline is now too tight; re-measure "
+            "it rather than widening the margin."
+            % (settled_in, _W1_SETTLEMENT_MEASURED_S,
+               settled_in / _W1_SETTLEMENT_MEASURED_S,
+               _W1_RUNNER_STRETCH_FACTOR))
         assert not marker.exists() and not signal_log.exists()
         assert (rundir / "exitcode").read_text().strip() == "130"
         err = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -5936,6 +6130,47 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
             proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait-2"))
 
 
+def test_the_settlement_deadline_still_bounds_a_gate_that_will_not_settle(
+        tmp_path):
+    """THE OVER-SENSITIVITY CONTROL. The fix must not delete the deadline.
+
+    Same planted gate, same signal, same everything -- except that this run
+    DECLARES a settlement deadline below the gate's delay. The runner must
+    still give up and report the retained-uncertainty code, which is what
+    proves the deadline is live rather than removed. Without this arm, a
+    change that simply stopped bounding settlement would pass the test above.
+    """
+    mod = _load()
+    settled = tmp_path / "gate-settlement-entered"
+    marker, registrar, rundir, proc = _w1_cancel_a_registrar_bound_runner(
+        tmp_path, mod,
+        gate_program=_w1_slow_settlement_gate_program(
+            settled, _W1_SLOW_SETTLEMENT_S),
+        cleanup_seconds=1)
+    gate_pid = -1
+    try:
+        gate_pid, _ = _w1_wait_for_gate(rundir)
+        _w1_wait_for_path(registrar)
+        os.kill(proc.pid, signal.SIGINT)
+        rc = proc.wait(timeout=_w1_budget_s(
+            "the_settlement_deadline_still_bounds_a_gate_that_will_not_settle/wait"))
+        assert settled.is_file(), (
+            "the planted gate never entered its settlement delay")
+        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
+        assert "REGISTER-CANCELLED status=130" in evidence, evidence
+        assert rc == int(W1_RETAINED_FAILURE_CODE), (
+            "the settlement deadline no longer bounds an unsettleable gate, so "
+            "the runner would wait on it for as long as it takes")
+        assert (rundir / "exitcode").read_text().strip() == W1_RETAINED_FAILURE_CODE
+        assert not marker.exists()
+    finally:
+        _w1_kill_group(gate_pid)
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=_w1_budget_s(
+                "the_settlement_deadline_still_bounds_a_gate_that_will_not_settle/wait-2"))
+
+
 def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
     """ROW 231 RED, both arms, forced rather than timed.
 
@@ -5991,6 +6226,23 @@ def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
         assert _w1_group_has_at_least(own_group, 1)
 
 
+#: A group leader that grows a CHILD and a GRANDCHILD on demand. Descent has
+#: to be transitive to see the third member, and a one-member group cannot
+#: tell a transitive probe from a one-level one.
+_W1_GROWABLE_GROUP_LEADER = (
+    "import os, sys, time\n"
+    "os.setpgrp()\n"
+    "with open(%r, 'w') as handle:\n"
+    "    handle.write(str(os.getpgid(0)))\n"
+    "if sys.stdin.readline():\n"
+    "    if os.fork() == 0:\n"
+    "        os.fork()\n"
+    "        time.sleep(300)\n"
+    "        os._exit(0)\n"
+    "sys.stdin.readline()\n"
+)
+
+
 def test_the_cheap_presence_probe_agrees_with_the_complete_census(tmp_path):
     """The fast path must not be a different answer from the slow one.
 
@@ -6002,9 +6254,7 @@ def test_the_cheap_presence_probe_agrees_with_the_complete_census(tmp_path):
     """
     entered = tmp_path / "probe-alive"
     child = subprocess.Popen(
-        [sys.executable, "-c",
-         "import os, sys; os.setpgrp(); open(%r,'w').write(str(os.getpgid(0)));"
-         " sys.stdin.readline()" % str(entered)],
+        [sys.executable, "-c", _W1_GROWABLE_GROUP_LEADER % str(entered)],
         stdin=subprocess.PIPE, text=True)
     try:
         _w1_wait_for_path(entered)
@@ -6017,14 +6267,243 @@ def test_the_cheap_presence_probe_agrees_with_the_complete_census(tmp_path):
         assert _w1_group_has_at_least(pgid, 2) is False, (
             "the probe claimed more members than the census found")
         assert _w1_group_has_at_least(pgid, 0) is True
+
+        # A CHILD AND A GRANDCHILD, because v3.66.1230 reaches the answer by
+        # DESCENT and a one-member group cannot tell a one-level probe from a
+        # transitive one. The complete census is the oracle at every size.
+        child.stdin.write("grow\n")
+        child.stdin.flush()
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and len(_w1_live_in_group(pgid)) < 3:
+            time.sleep(0.01)
+        grown = sorted(_w1_live_in_group(pgid), key=int)
+        assert len(grown) == 3, (
+            "precondition: the planted group never reached three members: %r"
+            % (grown,))
+        assert _w1_children_of(pgid) != [], (
+            "precondition: the leader has a child to descend into")
+        assert len(_w1_children_of(pgid)) == 1, (
+            "precondition: the third member is a GRANDCHILD, so descent has "
+            "to be transitive to find it: %r" % (_w1_children_of(pgid),))
+        for wanted in (1, 2, 3):
+            assert _w1_group_has_at_least(pgid, wanted) is True, wanted
+        assert _w1_group_has_at_least(pgid, 4) is False, (
+            "the probe claimed a fourth member the census cannot see")
     finally:
+        # THE DESCENDANTS OUTLIVE THEIR LEADER unless the whole group is
+        # signalled, and a leaked pair would make the absence arm below assert
+        # the opposite of what it means to.
+        _w1_kill_group(child.pid)
         child.stdin.close()
         child.wait(timeout=_w1_budget_s("the_cheap_presence_probe_agrees_with_the_complete_census/wait"))
 
     # Group gone: the COMPLETE census is what proves absence, and the probe
     # must agree here even though it is not the instrument for that question.
+    drain = time.monotonic() + 5.0
+    while time.monotonic() < drain and _w1_live_in_group(child.pid):
+        time.sleep(0.01)
     assert _w1_live_in_group(child.pid) == []
     assert _w1_group_has_at_least(child.pid, 1) is False
+
+
+def test_the_presence_probe_costs_the_group_and_not_the_host(tmp_path):
+    """ROW 231, PART A. The poll loop must not charge for the whole host.
+
+    v3.66.1213 stopped the census forking `ps`, and that was the correctness
+    half. THE COST HALF SURVIVED: the presence probe fell through to a walk of
+    every pid on the host whenever the leader alone did not satisfy `wanted`,
+    which is precisely the state `_w1_wait_for_gate` sits in while it waits at
+    10ms intervals for the second member to appear. v3.66.1224 measured one
+    full walk at 39.3ms median over 856 pids. Replacing a fork with a walk of
+    the same denominator is the same defect wearing different clothes.
+
+    THE ASSERTION IS A COUNT, NOT A CLOCK, so it cannot be flaky and cannot
+    pass on a fast host. It counts the per-pid `/proc/<pid>/stat` reads the
+    probe performs and compares them to the size of the process table, which
+    is asserted large first so the bound means something.
+    """
+    entered = tmp_path / "probe-alive"
+    child = subprocess.Popen(
+        [sys.executable, "-c",
+         "import os, sys; os.setpgrp(); open(%r,'w').write(str(os.getpgid(0)));"
+         " sys.stdin.readline()" % str(entered)],
+        stdin=subprocess.PIPE, text=True)
+    reads = []
+    real = _w1_stat_pgid_and_state
+
+    def counting(pid):
+        reads.append(str(pid))
+        return real(pid)
+
+    try:
+        _w1_wait_for_path(entered)
+        pgid = int(entered.read_text())
+        assert pgid == child.pid, "precondition: the child leads its own group"
+        table = [p for p in os.listdir("/proc") if p.isdigit()]
+        assert len(table) >= 50, (
+            "only %d processes on this host, so a bound of 'much less than "
+            "the table' proves nothing" % len(table))
+        assert _w1_live_in_group(pgid) == [str(child.pid)], (
+            "precondition: the planted group has exactly one member")
+
+        module = sys.modules[__name__]
+        polls = 20
+        try:
+            setattr(module, "_w1_stat_pgid_and_state", counting)
+            for _ in range(polls):
+                # The UNSATISFIED threshold: exactly what a poll loop asks
+                # while it waits, and the state the old probe answered by
+                # walking every pid on the box.
+                assert _w1_group_has_at_least(pgid, 2) is False
+        finally:
+            setattr(module, "_w1_stat_pgid_and_state", real)
+
+        assert reads, "the probe read nothing, so it was not the subject"
+        ceiling = polls * 8
+        assert len(reads) <= ceiling, (
+            "%d per-pid /proc reads over %d polls against a %d-process table: "
+            "the probe still costs the HOST rather than the GROUP, so this "
+            "module's wall time is a claim about how busy the box is (row 231)"
+            % (len(reads), polls, len(table)))
+        assert len(reads) >= polls, (
+            "fewer reads than polls means the probe short-circuited without "
+            "observing anything, and the ceiling above would be vacuous")
+    finally:
+        child.stdin.close()
+        child.wait(timeout=_w1_budget_s(
+            "the_presence_probe_costs_the_group_and_not_the_host/wait"))
+
+
+def test_a_non_descendant_group_member_fails_the_probe_closed_not_open(
+        tmp_path):
+    """THE STATED BOUNDARY OF THE FAST PATH, asserted rather than assumed.
+
+    Descent from the leader sees a member only if it is IN the leader's
+    subtree. Every group this module drives is created by bash job control, so
+    the two sets coincide -- but a process placed in the group from OUTSIDE
+    that subtree is invisible to the probe. This plants exactly that shape and
+    proves the disagreement is a FALSE NEGATIVE: the complete census still
+    reports both members, and the probe under-reports. A caller therefore
+    polls again and finally raises its own assertion, which is fail-closed; a
+    probe that over-reported would let an absence claim pass on a live group.
+    """
+    ready = tmp_path / "leader-pgid"
+    leader = subprocess.Popen(
+        [sys.executable, "-c",
+         "import os, sys; os.setpgrp(); open(%r,'w').write(str(os.getpgid(0)));"
+         " sys.stdin.readline()" % str(ready)],
+        stdin=subprocess.PIPE, text=True)
+    joined = None
+    try:
+        _w1_wait_for_path(ready)
+        pgid = int(ready.read_text())
+        assert pgid == leader.pid
+        # A SIBLING of the leader, put into the leader's group by its own
+        # parent. It is in the group and it is not in the subtree.
+        joined = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.readline()"],
+            stdin=subprocess.PIPE, text=True,
+            process_group=pgid)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if sorted(_w1_live_in_group(pgid)) == sorted(
+                    [str(leader.pid), str(joined.pid)]):
+                break
+            time.sleep(0.01)
+        census = sorted(_w1_live_in_group(pgid), key=int)
+        assert census == sorted([str(leader.pid), str(joined.pid)], key=int), (
+            "precondition: the planted outsider never joined the group: %r"
+            % (census,))
+        assert str(joined.pid) not in _w1_children_of(pgid), (
+            "precondition: the outsider is not a child of the leader")
+
+        assert _w1_group_has_at_least(pgid, 1) is True
+        assert _w1_group_has_at_least(pgid, 2) is False, (
+            "the probe claimed to see a member outside the leader's subtree; "
+            "if it can do that its cost is back to the size of the host")
+    finally:
+        for proc in (joined, leader):
+            if proc is None:
+                continue
+            proc.stdin.close()
+            proc.wait(timeout=_w1_budget_s(
+                "a_non_descendant_group_member_fails_the_probe_closed_not_open/wait"))
+
+
+def test_an_absence_claim_is_immune_to_a_live_neighbour_group(tmp_path):
+    """ROW 231, PART B. THE PROOF THAT LET THIS MODULE BE SPLIT.
+
+    The row asks for it in exactly these terms: "tests that assert group
+    ABSENCE must be proven immune to a neighbour's pids before any split, and
+    that proof is the work, not the assumption." Once two halves of this family
+    run on different workers at the same time, every
+    `assert not _w1_live_in_group(gate_pid)` is made while somebody else's
+    group is alive on the same host.
+
+    THE MECHANISM, not a probability argument: the census filters on an EXACT
+    pgid, and a pgid IS a live pid, so two concurrently live groups cannot
+    share one. This plants a NEIGHBOUR that is alive, three members deep, and
+    asserts that the absence claim about a different, dead group is unmoved --
+    with the neighbour's liveness asserted at the moment of the claim, so an
+    empty answer cannot come from an empty host.
+
+    WHAT THIS DOES NOT PROVE, recorded rather than implied: pid RECYCLING. If
+    the kernel reissues a dead group's pgid to a new group leader, the census
+    would count it. `pid_max` is 4194304 and allocation is sequential, so reuse
+    inside one assertion's window needs a full wraparound; that is a bound on
+    the hazard and not a mechanism against it, and the backlog row carries it.
+    """
+    ready_a = tmp_path / "neighbour-pgid"
+    neighbour = subprocess.Popen(
+        [sys.executable, "-c", _W1_GROWABLE_GROUP_LEADER % str(ready_a)],
+        stdin=subprocess.PIPE, text=True)
+    ready_b = tmp_path / "subject-pgid"
+    subject = subprocess.Popen(
+        [sys.executable, "-c", _W1_GROWABLE_GROUP_LEADER % str(ready_b)],
+        stdin=subprocess.PIPE, text=True)
+    try:
+        _w1_wait_for_path(ready_a)
+        _w1_wait_for_path(ready_b)
+        neighbour_pgid = int(ready_a.read_text())
+        subject_pgid = int(ready_b.read_text())
+        assert neighbour_pgid != subject_pgid, (
+            "precondition: two live groups cannot share a pgid, and these two "
+            "did -- the fixture is not building what this test is about")
+
+        neighbour.stdin.write("grow\n")
+        neighbour.stdin.flush()
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline \
+                and len(_w1_live_in_group(neighbour_pgid)) < 3:
+            time.sleep(0.01)
+        assert len(_w1_live_in_group(neighbour_pgid)) == 3, (
+            "precondition: the neighbour group never reached three members")
+
+        # The subject group dies. This is the moment every absence assertion in
+        # this family is made at, with a neighbour alive beside it.
+        _w1_kill_group(subject_pgid)
+        subject.stdin.close()
+        subject.wait(timeout=_w1_budget_s(
+            "an_absence_claim_is_immune_to_a_live_neighbour_group/wait"))
+        drain = time.monotonic() + 5.0
+        while time.monotonic() < drain and _w1_live_in_group(subject_pgid):
+            time.sleep(0.01)
+
+        assert _w1_live_in_group(subject_pgid) == [], (
+            "an absence claim saw a neighbour's pids")
+        assert _w1_group_has_at_least(subject_pgid, 1) is False
+        assert len(_w1_live_in_group(neighbour_pgid)) == 3, (
+            "the neighbour died during the claim, so the empty answer above "
+            "could have come from an empty host rather than from filtering")
+    finally:
+        _w1_kill_group(neighbour_pgid)
+        neighbour.stdin.close()
+        neighbour.wait(timeout=_w1_budget_s(
+            "an_absence_claim_is_immune_to_a_live_neighbour_group/wait"))
+        if subject.poll() is None:
+            subject.kill()
+            subject.wait(timeout=_w1_budget_s(
+                "an_absence_claim_is_immune_to_a_live_neighbour_group/wait-2"))
 
 
 def test_a_descriptor_wait_is_required_because_a_live_pid_proves_nothing(tmp_path):
@@ -6435,9 +6914,85 @@ def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
         "epoch_end is missing on the success path; the sample has no duration")
 
 
+def test_a_slow_settlement_never_downgrades_a_decided_cancellation(tmp_path):
+    """ROW 231, PART C. A SIGINT that was received is 130, not 92.
+
+    THE DEFECT, as v3.66.1226 recorded it and left open. `W1_GATE_SECONDS` was
+    ONE constant doing TWO jobs: bounding the FORWARD gate protocol, which a
+    test may legitimately drive small because its expiry is the subject, and
+    bounding every SETTLEMENT path, which must not expire on correct work.
+    `reap_seconds=3` therefore gave settlement three seconds as a SIDE EFFECT,
+    and `registration_settle_cancel` reaches `registration_finish
+    "$W1_CANCEL_STATUS"` only when the terminal reached EOF, the relay was
+    waited for, and the gate wait succeeded. Miss the deadline and the runner
+    reports 92 -- RETAINED UNCERTAINTY -- for a cancellation it classified
+    exactly. One key describing two costs is the v3.66.1222 defect; this is
+    that defect in the product rather than in a test budget.
+
+    RED ON THE PARENT, WITHOUT A STOPWATCH IN THE ASSERTION. The planted gate
+    settles correctly after `_W1_SLOW_SETTLEMENT_S`, which is above the three
+    seconds the shared constant left and below the ten the split gives. At
+    2a2fc85 this returns 92; here it must return 130.
+    """
+    mod = _load()
+    settled = tmp_path / "gate-settlement-entered"
+    marker, registrar, rundir, proc = _w1_cancel_a_registrar_bound_runner(
+        tmp_path, mod,
+        gate_program=_w1_slow_settlement_gate_program(
+            settled, _W1_SLOW_SETTLEMENT_S))
+    gate_pid = -1
+    try:
+        gate_pid, _ = _w1_wait_for_gate(rundir)
+        _w1_wait_for_path(registrar)
+        assert not settled.exists(), (
+            "precondition: the gate has not begun settling before the signal")
+        started = time.monotonic()
+        os.kill(proc.pid, signal.SIGINT)
+        rc = proc.wait(timeout=_w1_budget_s(
+            "a_slow_settlement_never_downgrades_a_decided_cancellation/wait"))
+        elapsed = time.monotonic() - started
+
+        # PRECONDITIONS BEFORE THE VERDICT. A gate that never reached the
+        # delay would settle instantly and pass for the wrong reason.
+        assert settled.is_file(), (
+            "the planted gate never entered its settlement delay, so this run "
+            "says nothing about the settlement deadline")
+        assert not (rundir / "jobid").exists(), (
+            "precondition: no id was recorded, so settle_cancel and not "
+            "fail_registered is the path under test")
+        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
+        assert "REGISTER-CANCELLED status=130" in evidence, evidence
+        assert "primary_cancel=130" in evidence, evidence
+
+        # THE DISTINCTIVE VERDICT COMES FIRST. A later precondition that fires
+        # instead would launder the very failure this test exists to report --
+        # on the parent the runner ABANDONS settlement early, so an
+        # "it did not wait long enough" assertion placed above this one would
+        # be the message the run produced. A5: assert the distinctive
+        # diagnostic, and let the remaining conditions pass afterwards.
+        assert rc == 130, (
+            "a received SIGINT was classified exactly and then downgraded to "
+            "%d after %.2fs, because settlement ran out of a deadline it "
+            "never should have shared with the forward gate protocol"
+            % (rc, elapsed))
+        assert (rundir / "exitcode").read_text().strip() == "130"
+        assert elapsed >= _W1_SLOW_SETTLEMENT_S, (
+            "the runner reported 130 in %.2fs, before the planted %.1fs "
+            "settlement could have completed, so the verdict above was not "
+            "earned by settling" % (elapsed, _W1_SLOW_SETTLEMENT_S))
+        assert not marker.exists()
+    finally:
+        _w1_kill_group(gate_pid)
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=_w1_budget_s(
+                "a_slow_settlement_never_downgrades_a_decided_cancellation/wait-2"))
+
+
 # ===========================================================================
 # ROW 230: the budgets above are a CONTRACT, and these are the gates on it.
 # ===========================================================================
+
 
 def _w1_budget_census():
     """Every wall-clock budget declared anywhere in THIS file.
@@ -6793,3 +7348,293 @@ def test_no_budget_in_this_file_is_at_or_above_the_bound():
     near = {s: float(_w1_budget_s(s)) for s in _MEASURED_S
             if float(_w1_budget_s(s)) > ceiling}
     assert not near, "budget(s) past the reserve line %.0fs: %r" % (ceiling, near)
+
+
+# ===========================================================================
+# ROW 231 PART C -- THE RUNNER'S OWN DEADLINES ANSWER TO THE SAME RULE.
+#
+# v3.66.1226 made every wall-clock budget IN THIS FILE clear both hazards. The
+# constants below are not test budgets: they are PRODUCT deadlines inside
+# `bd-wedge-hunt` that this file's fixture drives. The rule is the same and the
+# governing bound is different. A budget answers to pytest-timeout's 240s; a
+# runner deadline answers to the runner's own lifecycle -- forward phases are
+# capped at W1_TOTAL_SECONDS - W1_CLEANUP_RESERVE_SECONDS and settlement at
+# W1_TOTAL_SECONDS, so the RESERVE is what governs a settlement value.
+#
+# WHAT THE MEASUREMENT SAID, and it is not what the row assumed. Two
+# perturbation arms were run on this module at 2a2fc85 on test5 (161 nodes,
+# ~700-process table, load 1.3-2.0):
+#   * settlement 3s -> 10s: 161 pass, 407.76s -> 429.33s, and only FOUR nodes
+#     move by more than half a second.
+#   * every forward gate deadline +3s: 158 pass / 3 fail, 429.33s -> 444.43s,
+#     and only FIVE nodes move by more than half a second.
+# So the 6.7-8.3s cluster across 35 nodes is NOT a fixed elapsed wait on either
+# deadline family: a deadline that always elapsed would have moved every one of
+# them. Those two families together account for ~35s of a ~408s module. The
+# remainder is the production runner's own startup and settle, which a
+# test-only change cannot reach -- recorded here because row 231's acceptance
+# asks for the attribution, and the honest attribution is a negative result.
+# ===========================================================================
+
+#: SIGINT delivered -> runner exited, for the shape this cut is about: a
+#: registrar that never returns, so `registration_settle_cancel` is the path
+#: that classifies the run. MEASURED directly, because a settlement that
+#: SUCCEEDS is invisible inside a node's duration -- see the changelog for
+#: host, load, n and spread.
+_W1_SETTLEMENT_MEASURED_S = 2.4737
+#: Named separately from `_CONTENTION_FACTOR` so that moving one cannot
+#: silently move the other, and set to the same 6.0 for the same measured
+#: reason: v3.66.1226 ran three concurrent copies of this module and recorded a
+#: maximum per-site stretch of 4.13x, right-censored.
+_W1_RUNNER_STRETCH_FACTOR = 6.0
+#: Headroom between a settlement deadline and the reserve that caps it, so the
+#: constant is not dead on arrival the way a budget at or above
+#: pytest-timeout's bound is.
+_W1_RUNNER_RESERVE_S = 5.0
+
+_W1_RUNNER_DEADLINE_NAMES = (
+    "W1_READY_SECONDS", "W1_GATE_SECONDS", "W1_CLEANUP_SECONDS",
+    "W1_REGISTRAR_SECONDS", "W1_RECONCILE_SECONDS", "W1_TOTAL_SECONDS",
+    "W1_CLEANUP_RESERVE_SECONDS",
+)
+
+#: The runner deadlines this file's fixture may drive, and which one of them
+#: bounds SETTLEMENT rather than a forward phase.
+_W1_RUNNER_DEADLINE_KNOBS = (
+    "reap_seconds", "ready_seconds", "registrar_seconds",
+    "reconcile_seconds", "cleanup_seconds",
+)
+_W1_SETTLEMENT_KNOB = "cleanup_seconds"
+
+#: Every test allowed to shorten the SETTLEMENT deadline, with the reason.
+#: MEASURED, not guessed: these are exactly the nodes that moved when the
+#: settlement deadline was separated from the forward one and left at its
+#: shipped 10s. Static reading would have got this wrong in both directions --
+#: several tests that ASSERT 92 did not move at all, because their retained
+#: status comes from a settle path that finishes inside the deadline.
+_W1_SETTLEMENT_EXPIRY_IS_THE_SUBJECT = (
+    ("test_abort_timeout_retains_inert_gate_under_one_budget",
+     "W1_GATE_WITHHOLD_ABORT holds the gate for 30s and the test's own name "
+     "carries the claim: the runner classifies under ONE budget and leaves "
+     "the inert gate alive. Settlement has to expire for that to be "
+     "observable at all. MEASURED 5.90s -> 13.22s."),
+    ("test_real_release_sigpipe_is_contained_and_enters_registered_failure",
+     "The release peer is SIGKILLed mid-write, so the terminal descriptor "
+     "outlives the gate and settlement can only end by deadline. Here the "
+     "expiry is incidental to the subject rather than the subject itself, and "
+     "the prior effective value is kept because the shipped one reaches the "
+     "same verdict more slowly. MEASURED 8.22s -> 15.16s."),
+    ("test_one_second_lifecycle_cap_remains_truthfully_unknown",
+     "The ONE SECOND cap is the subject. A settlement phase exempt from it "
+     "would be a lifecycle the cap does not actually cap. MEASURED 1.90s -> "
+     "3.59s."),
+    ("test_term_resistant_observer_stays_inside_gate_budget",
+     "The observer ignores TERM and the test asserts the runner stays inside "
+     "its budget regardless, which requires the deadline to end the wait. "
+     "MEASURED 4.29s -> 5.24s."),
+    ("test_the_settlement_deadline_still_bounds_a_gate_that_will_not_settle",
+     "The over-sensitivity control for this cut: it exists to prove the "
+     "settlement deadline still fires, so its expiry IS its subject."),
+)
+
+
+def _w1_runner_source_without_comments():
+    """The shipped runner's CODE. Its prose is not part of any denominator.
+
+    CLAUDE.md A7: a gate that scans source text has that text's comments and
+    examples inside its denominator, and the comment block this cut adds to
+    `bd-wedge-hunt` necessarily names the identifiers the gate asserts on.
+    """
+    lines = [line for line in HUNT.read_text(encoding="utf-8").splitlines()
+             if not line.lstrip().startswith("#")]
+    text = "\n".join(lines)
+    assert "registration_begin_cleanup_deadline" in text, (
+        "the runner source was read but carries no settlement deadline at "
+        "all, so this gate has lost its subject")
+    return text
+
+
+def _w1_runner_deadline_constants():
+    """Each deadline constant the runner declares, parsed from the script."""
+    text = _w1_runner_source_without_comments()
+    found = {}
+    for name in _W1_RUNNER_DEADLINE_NAMES:
+        matches = re.findall(r"^%s=([0-9]+)$" % re.escape(name), text,
+                             re.MULTILINE)
+        assert len(matches) == 1, (
+            "expected exactly one %s declaration in %s, found %d"
+            % (name, HUNT, len(matches)))
+        found[name] = int(matches[0])
+    return found
+
+
+def _w1_runner_deadline_sites():
+    """(enclosing test, knob, value) for every fixture-fed runner deadline.
+
+    An AST census, never a grep: this file's prose names every one of these
+    identifiers, and backlog row 196 is an entire row about textual-proxy
+    gates.
+    """
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"),
+                     filename=__file__)
+    tops = sorted(
+        (node for node in tree.body
+         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))),
+        key=lambda node: node.lineno)
+
+    def owner(lineno):
+        found = "<module>"
+        for node in tops:
+            if node.lineno <= lineno <= (node.end_lineno or node.lineno):
+                found = node.name
+        return found
+
+    sites = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg not in _W1_RUNNER_DEADLINE_KNOBS:
+                continue
+            if not isinstance(keyword.value, ast.Constant):
+                continue     # forwarded from a parameter; the caller carries it
+            sites.append((owner(node.lineno), keyword.arg,
+                          keyword.value.value))
+    assert sites, (
+        "no fixture-fed runner deadline found at all, so every assertion that "
+        "reads this census would be vacuous")
+    return sites
+
+
+def test_no_settlement_path_is_bounded_by_the_forward_deadline():
+    """THE SPLIT ITSELF, asserted over the runner's complete population.
+
+    RED on the parent: at 2a2fc85 all six settlement paths read
+    `$W1_GATE_SECONDS`, the same constant the forward gate protocol uses, so a
+    caller that legitimately shortened the forward deadline silently shortened
+    settlement as well.
+
+    BOTH HALVES ARE PROVED NONZERO. A gate that only checked "no settlement
+    site reads the forward constant" would also pass on a runner that had no
+    settlement sites left at all.
+    """
+    text = _w1_runner_source_without_comments()
+    settlement = re.findall(
+        r'registration_begin_cleanup_deadline "\$\{?(\w+)', text)
+    forward = re.findall(
+        r'registration_begin_gate_deadline "\$\{?[0-9:\-]*\$?\{?(\w+)', text)
+    assert len(settlement) >= 6, (
+        "only %d settlement-deadline sites found; the population this gate "
+        "judges has gone missing" % len(settlement))
+    assert forward, "no forward gate-deadline site found"
+    assert "W1_GATE_SECONDS" not in settlement, (
+        "a settlement path is bounded by the FORWARD deadline again, so a "
+        "caller that shortens the gate protocol shortens settlement too and a "
+        "DECIDED status can be downgraded to %s: %r"
+        % (W1_RETAINED_FAILURE_CODE, settlement))
+    assert "W1_GATE_SECONDS" in forward, (
+        "the forward gate deadline is no longer used by any forward phase, so "
+        "the assertion above proves nothing: %r" % (forward,))
+    assert settlement.count("W1_CLEANUP_SECONDS") == 6, (
+        "expected the six settlement paths to share one settlement deadline, "
+        "found %r" % (settlement,))
+    assert settlement.count("W1_RECONCILE_SECONDS") == 1, (
+        "reconciliation had its own deadline before this cut and must keep "
+        "it: %r" % (settlement,))
+
+
+def test_the_shipped_settlement_deadline_clears_both_hazards():
+    """THE TWO-SIDED RULE, applied to a PRODUCT deadline.
+
+    CEILING. A settlement deadline at or above the cleanup reserve is capped
+    by the lifecycle deadline the moment settlement begins at the forward
+    boundary, so it can never be the thing that decides -- the same dead-code
+    hazard v3.66.1219 and v3.66.1222 removed from test budgets.
+
+    FLOOR. A settlement deadline below the measured cost of settling fires on
+    correct work, and at the assertion that is indistinguishable from the
+    defect it exists to catch. That is the hazard this cut actually hit.
+
+    THE TWO TERMS ARE READ SEPARATELY AND NOT THROUGH ONE COMBINED VALUE.
+    v3.66.1226's first battery lost two mutants to exactly that shape: every
+    gate read `max(prior, floor, derived)`, so either input could hide the
+    loss of the other.
+    """
+    constants = _w1_runner_deadline_constants()
+    value = constants["W1_CLEANUP_SECONDS"]
+    reserve = constants["W1_CLEANUP_RESERVE_SECONDS"]
+    total = constants["W1_TOTAL_SECONDS"]
+    assert 0 < reserve < total, (
+        "the runner's cleanup reserve is not a proper part of its total "
+        "lifecycle, so neither term below has a meaning: %r" % (constants,))
+    assert value <= reserve - _W1_RUNNER_RESERVE_S, (
+        "the settlement deadline %ds is not subordinate to the %ds cleanup "
+        "reserve that caps it (reserve %ds). A deadline the lifecycle cap "
+        "always beats cannot decide anything."
+        % (value, reserve, _W1_RUNNER_RESERVE_S))
+    assert _W1_SETTLEMENT_MEASURED_S > 0, (
+        "the settlement cost is unmeasured, so the floor below is UNKNOWN "
+        "rather than satisfied")
+    assert value >= _W1_SETTLEMENT_MEASURED_S * _W1_RUNNER_STRETCH_FACTOR, (
+        "the settlement deadline %ds does not clear its measured cost %.4fs by "
+        "the stated %.1fx contention margin, so it can fire on a run that was "
+        "going to succeed -- and settlement that runs out of time replaces a "
+        "decided status with %s"
+        % (value, _W1_SETTLEMENT_MEASURED_S, _W1_RUNNER_STRETCH_FACTOR,
+           W1_RETAINED_FAILURE_CODE))
+    # THE FORWARD DEADLINE IS NOT CONSTRAINED BY THE FLOOR ABOVE, and saying
+    # so is part of the fix: its expiry is a legitimate subject, which is
+    # exactly why it must not be the constant settlement reads.
+    assert constants["W1_GATE_SECONDS"] <= total - reserve, (
+        "the forward gate deadline outlives the forward window that caps it")
+
+    # EACH KNOB IS PINNED ON ITS OWN. v3.66.1226's first battery lost two
+    # mutants because every gate read a COMBINED value, so collapsing either
+    # term left the other carrying the result. Both comparisons above take one
+    # term each, and these two make each term unable to go to zero quietly.
+    assert _W1_RUNNER_STRETCH_FACTOR >= _WARN_FACTOR, (
+        "the runner contention factor %.1f is below the %.1f margin this file "
+        "already calls the minimum credible stretch, so the floor above would "
+        "accept a deadline equal to its own measured cost"
+        % (_W1_RUNNER_STRETCH_FACTOR, _WARN_FACTOR))
+    assert _W1_RUNNER_RESERVE_S >= reserve * 0.2, (
+        "the ceiling keeps %.1fs of headroom under a %ds bound, which is less "
+        "than a fifth of it -- a deadline that close to its cap is decided by "
+        "the cap and not by itself" % (_W1_RUNNER_RESERVE_S, reserve))
+
+
+def test_only_a_declared_subject_shortens_the_settlement_deadline():
+    """A test may drive settlement small ONLY where that expiry is its point.
+
+    THE DEFECT THIS PREVENTS RECURRING is not "a small number": it is a small
+    number arrived at BY ACCIDENT. Before this cut no site named the
+    settlement deadline at all and every `reap_seconds` site set it anyway.
+    The census is over the tree, the declared set is written down here, and
+    both halves are asserted nonzero.
+    """
+    sites = _w1_runner_deadline_sites()
+    forward = [site for site in sites if site[1] != _W1_SETTLEMENT_KNOB]
+    assert len(forward) > 20, (
+        "the forward-deadline population this gate contrasts against has gone "
+        "missing: %d site(s)" % len(forward))
+    declared = {name for name, _why in _W1_SETTLEMENT_EXPIRY_IS_THE_SUBJECT}
+    assert len(declared) == len(_W1_SETTLEMENT_EXPIRY_IS_THE_SUBJECT), (
+        "the declared settlement set names a test twice")
+    shortened = {test for test, knob, _value in sites
+                 if knob == _W1_SETTLEMENT_KNOB}
+    assert shortened, (
+        "no test drives the settlement deadline at all, so the knob is dead "
+        "and the control proving the deadline still fires has gone with it")
+    assert shortened == declared, (
+        "settlement is shortened by test(s) that do not declare why (%r), or "
+        "declared by entries no site uses (%r)"
+        % (sorted(shortened - declared), sorted(declared - shortened)))
+    for _name, why in _W1_SETTLEMENT_EXPIRY_IS_THE_SUBJECT:
+        assert len(why) > 40, (
+            "a declared settlement site carries no real reason: %r" % why)
+    shipped = _w1_runner_deadline_constants()["W1_CLEANUP_SECONDS"]
+    over = [(test, value) for test, knob, value in sites
+            if knob == _W1_SETTLEMENT_KNOB and value >= shipped]
+    assert not over, (
+        "a declared settlement site is not actually shorter than the shipped "
+        "deadline, so it declares an intent it does not have: %r" % (over,))
