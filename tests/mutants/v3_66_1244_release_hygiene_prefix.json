@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 242 / v3.66.1244. Re-run from a detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1244_release_hygiene_prefix.json --work DETACHED_CLONE. The regression removes only the new finding from the gate verdict; the real bfbc073 fixture must catch it by returning OK again. A separate scratch transform control points the same replacement at test_transform_control_only_imports_the_gate_module and must ESCAPE, proving the caught result comes from the behavioural assertion rather than an import or parse failure.",
+  "subject": "the release-diff gate rejects nonblank content between the independently parsed CHANGELOG preamble and first level-two header",
+  "band": [
+    "tests/test_release_hygiene_gates.py::test_release_diff_rejects_bfbc073_headerless_duplicate"
+  ],
+  "mutants": [
+    {
+      "label": "M1 delete the orphan-preamble-region finding from the release-diff verdict",
+      "file": "tools/diff_release_zips.py",
+      "old": "    failed = (bool(d[\"frontend_dropped\"]) or bool(d[\"forbidden_new\"])\n              or layout[\"status\"] == \"finding\")",
+      "new": "    failed = (bool(d[\"frontend_dropped\"]) or bool(d[\"forbidden_new\"]))",
+      "direction": "regression",
+      "catcher": "tests/test_release_hygiene_gates.py::test_release_diff_rejects_bfbc073_headerless_duplicate"
+    }
+  ]
+}
