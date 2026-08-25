@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1243 - the cluster gate drives the route instead of reading it
+
+- ANOTHER TEXT SCAN STANDING IN FOR RUNTIME WIRING (row 185), converted in the
+  shape v3.66.1236 and v3.66.1242 established: mount the route, drive it, and
+  reconcile what the TRANSPORT was actually handed rather than what the source
+  happens to spell.
+- The existing `wiredGateHarness.tsx` and `tests/frontend_vitest.py` are reused
+  rather than a second harness being invented, which is what keeps six of these
+  gates one mechanism instead of six.
+
 ## v3.66.1242 - the history gate drives the route instead of reading it
 
 - THREE TEXT SCANS STOOD IN FOR RUNTIME CLAIMS, and the live hole is visible in
