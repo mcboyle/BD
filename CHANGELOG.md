@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1230 - the parity gate judges installers, not file extensions
+
+- THE GATE SCANNED `*.sh` AND CLAIMED SOMETHING ABOUT INSTALLERS. Its own test
+  names say "every provisioning path takes its engine list from one place", but
+  its denominator was chosen by FILE EXTENSION, so any tracked python program or
+  extensionless tool could hardcode `chromium` and the gate reported clean.
+  `toolchain/bin` is entirely extensionless by design, which means the whole
+  directory was invisible to a gate whose subject lives in it (row 197).
+- CLASSIFICATION IS NOW BY SHEBANG, WITH EXTENSION AS FALLBACK. That reaches
+  `toolchain/bin` without a location allowlist, and it keeps the DECLARED
+  boundaries for the right reason: `install_windows.bat` and
+  `frontend/package.json` classify as neither shell nor python and drop out
+  because of WHAT THEY ARE, not because somebody remembered to list where they
+  sit. A blocklist needs a new entry for every directory anyone ever creates.
+- THE PYTHON ARM READS THE AST, NOT THE TEXT, and that is the point rather than
+  a preference. The shell arm strips comments with a hand-written stripper
+  because there is no parser to hand; a docstring mentioning
+  `playwright install chromium` is inside a text scanner's denominator and
+  outside the AST's. Two rules are unioned because one alone is evadable: any
+  argv-shaped list literal ANYWHERE in the module (because `args = [...]` on one
+  line and `run(args)` on the next is the natural respelling), and any spawn
+  call whose literal string arguments match (because the `shell=True` and
+  `os.system` forms carry no list at all).
+- THE WIDENED POPULATION IMMEDIATELY FOUND A REAL ONE: `toolchain/bin/bd-fetch`
+  hardcodes `playwright install chromium`. It was already "exempt" -- in PROSE,
+  in this file's own header -- and prose is not a denominator: nothing failed,
+  because nothing READ the exemption. That is the same shape as the textual
+  proxy the row is about, one level up. `INSTALL_VERIFICATION` makes the
+  exemption machine-visible with a reason, and a gate proves each declared path
+  is still tracked, still classifies as a program, and STILL INSTALLS SOMETHING
+  -- an exemption for a file that no longer installs anything is stale
+  permission that the next reader inherits with no way to notice.
+- PROVENANCE, STATED RATHER THAN GLOSSED: this gate's fix and its tests live in
+  the same file, so replaying the tests on the parent cannot be RED -- the
+  widened denominator travels with them. The battery IS the provenance.
+- AND THE FIRST BATTERY SCORED 2 CAUGHT / 3 ESCAPED, ALL THREE REAL. Nothing
+  drove the single-string spawn form, so removing that rule left every test
+  green. Nothing forced an EMPTY population, so the nonzero refusal could never
+  fire -- the real repository is never empty, which is exactly why an untested
+  refusal reads as working. And nothing made a declared exemption go stale.
+  Three catchers were added, including a negative control proving a docstring
+  and a comment are NOT counted as invocations. Re-run: 5 caught, 0 escaped.
+
 ## v3.66.1229 - the SSRF guards run on the posture where nobody is watching
 
 - TWO SAFETY GATES SKIPPED ENTIRELY ON A SUPPORTED POSTURE. Both

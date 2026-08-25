@@ -78,6 +78,7 @@ script really does install browsers.
 
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 import re
@@ -324,18 +325,84 @@ def _shell_files() -> list[Path]:
     lives under such a path. Both are the same error -- a denominator defined by
     where files sit rather than by what they are.)
     """
+    return _tracked_programs()["shell"]
+
+
+_SHEBANG_PYTHON_RE = re.compile(rb"^#!.*\bpython[0-9.]*\b")
+_SHEBANG_SHELL_RE = re.compile(rb"^#!.*\b(?:bash|sh|dash|zsh|ksh)\b")
+
+
+def _program_kind(path: Path) -> "str | None":
+    """The LANGUAGE of a tracked file. Shebang first, extension as fallback.
+
+    EXTENSION-FIRST IS WHAT LET `bin/bd-provision` OUT. `toolchain/bin` is
+    entirely extensionless by design, so a `*.sh` denominator could never see a
+    single tool in it -- and this gate's whole claim is that EVERY tracked
+    program able to install Playwright browsers resolves its engine list
+    through the one fragment. A glob chosen for convenience decided the
+    population, which is backlog row 197 and, more generally, row 232.
+
+    Shebang-first also keeps the DECLARED boundaries without a location
+    blocklist: install_windows.bat and frontend/package.json classify as
+    neither shell nor python and drop out because of WHAT THEY ARE, not because
+    somebody remembered to list where they sit. A blocklist needs a new entry
+    for every directory anyone ever creates; this needs none.
+    """
+    try:
+        with path.open("rb") as handle:
+            first = handle.readline()
+    except OSError:
+        return None
+    if first.startswith(b"#!"):
+        if _SHEBANG_PYTHON_RE.search(first):
+            return "python"
+        if _SHEBANG_SHELL_RE.search(first):
+            return "shell"
+        return None
+    if path.suffix == ".py":
+        return "python"
+    if path.suffix == ".sh":
+        return "shell"
+    return None
+
+
+def _tracked_programs() -> "dict[str, list[Path]]":
+    """Tracked shell and python programs, from git rather than a tree walk.
+
+    rglob was wrong here and CLAUDE.md A7 says why. An rglob denominator
+    includes anything sitting in the working directory -- and isolated
+    subagents create full git worktrees under .claude/worktrees/, each a
+    complete copy of this repo carrying the UNFIXED scripts. This gate once
+    failed naming `.claude/worktrees/agent-*/install_linux.sh` as an offender:
+    files that are gitignored, not part of the repository, and not the subject
+    of any assertion here. Asking git makes the denominator exactly the
+    repository, by construction.
+
+    (The inverse mistake is equally available: a filter EXCLUDING any path
+    containing ".claude" would drop the whole tree when the checkout itself
+    lives under such a path. Both are the same error -- a denominator defined
+    by where files sit rather than by what they are.)
+    """
     out = subprocess.run(
-        ["git", "ls-files", "-z", "*.sh"],
+        ["git", "ls-files", "-z"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     ).stdout
-    found = [REPO_ROOT / rel for rel in out.split("\0") if rel]
-    assert found, (
-        "git ls-files returned no .sh files -- the denominator is empty, so "
-        "every assertion below would pass over nothing. Refusing to report a "
-        "clean scan (CLAUDE.md 0: a zero-in-every-bucket summary is a failure "
-        "signal, not a pass)."
+    groups = {"shell": [], "python": []}
+    for rel in out.split("\0"):
+        if not rel or "node_modules" in rel.split("/"):
+            continue
+        path = REPO_ROOT / rel
+        kind = _program_kind(path)
+        if kind is not None:
+            groups[kind].append(path)
+    assert groups["shell"] and groups["python"], (
+        "git ls-files produced no shell (%d) or no python (%d) program -- the "
+        "denominator is empty on one side, so every assertion below would pass "
+        "over nothing. Refusing to report a clean scan (CLAUDE.md A7: a "
+        "zero-in-every-bucket summary is a failure signal, not a pass)."
+        % (len(groups["shell"]), len(groups["python"]))
     )
-    return sorted(p for p in found if "node_modules" not in p.parts)
+    return {kind: sorted(paths) for kind, paths in groups.items()}
 
 
 def _install_sites(path: Path) -> list[tuple[int, str, str]]:
@@ -535,6 +602,309 @@ def test_bd_playwright_engines_rejects_unknown_groups(snippet: str, label: str) 
         f"{ENGINE_FUNCTION} ({label}) failed silently -- failing loudly means "
         f"saying why, on stderr"
     )
+
+
+_INSTALL_VERBS = frozenset({"install", "install-deps"})
+_SPAWN_CALLEES = frozenset({
+    "run", "call", "check_call", "check_output", "Popen", "system",
+    "create_subprocess_exec", "create_subprocess_shell",
+    "execv", "execvp", "execve", "getoutput", "getstatusoutput",
+})
+
+
+def _argv_shaped(elements) -> bool:
+    """True when two adjacent literals read as `.../playwright` then a verb."""
+    for first, second in zip(elements, elements[1:]):
+        if first.rsplit("/", 1)[-1] == "playwright" and second in _INSTALL_VERBS:
+            return True
+    return False
+
+
+def _python_install_sites(path: Path):
+    """Lines in a PYTHON program that invoke `playwright install[-deps]`.
+
+    READ FROM THE AST, NOT THE TEXT, and that is the point rather than a
+    stylistic preference. The shell arm strips comments with a hand-written
+    stripper because shell has no parser here; a comment or a docstring
+    mentioning `playwright install chromium` is inside a text scanner's
+    denominator and outside the AST's, so this arm is prose-immune BY
+    CONSTRUCTION (CLAUDE.md A7).
+
+    Two populations, unioned, because one alone is evadable:
+
+      R1  any list or tuple literal ANYWHERE in the module whose adjacent
+          string elements are argv-shaped. Anywhere -- not only as a call
+          argument -- because `args = [...]` on one line and
+          `subprocess.run(args)` on the next is the natural respelling, and a
+          call-argument-only scan cannot see it.
+      R2  any call whose simple callee name is a known spawn verb and whose
+          flattened literal string arguments match the install regex. This
+          covers the single-string `shell=True` / `os.system` form, which
+          carries no argv list for R1 to find.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return []
+    sites = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.List, ast.Tuple)):
+            literals = [e.value for e in node.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if _argv_shaped(literals):
+                sites.append((node.lineno, " ".join(literals)))
+            continue
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name not in _SPAWN_CALLEES:
+                continue
+            flat = " ".join(
+                a.value for a in node.args
+                if isinstance(a, ast.Constant) and isinstance(a.value, str))
+            if flat and _PW_INSTALL_RE.search(flat):
+                sites.append((node.lineno, flat))
+    return sorted(set(sites))
+
+
+def _python_offenders(programs=None):
+    """(rel, lineno, rendered) for python installers that name an engine.
+
+    Returns the DIAGNOSTIC the verdict tests assert on, so a post-fix gate that
+    fails for some unrelated reason cannot be mistaken for this one catching
+    its subject.
+    """
+    programs = _tracked_programs()["python"] if programs is None else programs
+    offenders = []
+    for path in programs:
+        for lineno, rendered in _python_install_sites(path):
+            if any(engine in rendered.split() for engine in _engines("all")):
+                try:
+                    rel = str(path.relative_to(REPO_ROOT))
+                except ValueError:
+                    rel = str(path)  # a fixture repo, not this one
+                offenders.append((rel, lineno, rendered))
+    return offenders
+
+
+#: WHY A REGISTRY AND NOT A DOCSTRING. This file's header already listed
+#: `toolchain/bin/bd-fetch` as exempt, in prose, and prose is not a
+#: denominator: nothing failed when the widened population found it, because
+#: nothing READ the exemption. That is the same shape as the textual proxy row
+#: 197 is about -- a claim asserted in words beside a scan that cannot see it.
+#:
+#: An entry here is a DECLARATION with a reason a reader can check, and the
+#: gate below proves each declared path still exists and still looks the way
+#: the reason says. An offender that is NOT declared fails; a declared one that
+#: has moved or been fixed fails too, so the list cannot rot into permission.
+INSTALL_VERIFICATION = {
+    "toolchain/bin/bd-fetch": {
+        "mode": "EXEMPT",
+        "reason": (
+            "an operator convenience that fetches missing DEV prerequisites on "
+            "demand, not a provisioning path the box runs. It installs the "
+            "single engine it needs to answer 'can this machine drive a "
+            "browser at all', and resolving the full contracted set here would "
+            "make an interactive helper pull engines nobody asked for."),
+    },
+}
+
+
+def test_every_exempt_installer_still_exists_and_still_matches_its_reason():
+    """A registry that is never checked is a docstring with extra syntax.
+
+    Each declared path must (a) still be tracked, (b) still classify as a
+    program, and (c) still contain an install site -- because an exemption for
+    a file that no longer installs anything is stale permission, and the next
+    reader would inherit it without a way to notice.
+    """
+    tracked = set(subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True,
+        check=True).stdout.split())
+    assert INSTALL_VERIFICATION, "the registry is empty, so it constrains nothing"
+    for rel, entry in INSTALL_VERIFICATION.items():
+        assert rel in tracked, ("declared installer %s is not tracked" % rel)
+        assert entry["mode"] in {"EXEMPT", "SCANNED"}, entry
+        assert entry["reason"].strip(), rel
+        path = REPO_ROOT / rel
+        kind = _program_kind(path)
+        assert kind is not None, ("%s no longer classifies as a program" % rel)
+        sites = (_python_install_sites(path) if kind == "python"
+                 else [(n, c) for n, c, _ in _install_sites(path)])
+        assert sites, (
+            "%s is declared here but installs nothing any more -- the "
+            "exemption is stale and would silently cover a future edit" % rel)
+
+
+def test_the_python_program_denominator_is_nonzero_and_sees_extensionless_tools():
+    """PRECONDITION for every python verdict below.
+
+    The gate's claim is about EVERY tracked program that can install browsers.
+    `toolchain/bin` is entirely extensionless, so a `*.sh` or `*.py` glob sees
+    none of it -- and an empty population makes every assertion beside it pass
+    over nothing.
+    """
+    programs = _tracked_programs()
+    assert len(programs["python"]) > 100, (
+        "python denominator collapsed to %d" % len(programs["python"]))
+    kinds = {p: _program_kind(REPO_ROOT / p) for p in
+             ("toolchain/bin/bd-jobs", "toolchain/bin/bd-fleet")}
+    assert set(kinds.values()) == {"python"}, (
+        "extensionless toolchain programs are invisible to the classifier, "
+        "which is the exact hole row 197 names: %r" % kinds)
+
+
+def test_no_python_program_hardcodes_a_playwright_engine():
+    """THE VERDICT the shell arm already makes, over the other language.
+
+    Row 197: the parity gate scanned `*.sh` only, so any tracked python or
+    extensionless program could hardcode `chromium` and the gate reported
+    clean. It was never a claim about shell scripts -- it was a claim about
+    installers, judged over a population chosen by file extension.
+    """
+    exempt = {rel for rel, e in INSTALL_VERIFICATION.items()
+              if e["mode"] == "EXEMPT"}
+    offenders = [o for o in _python_offenders() if o[0] not in exempt]
+    assert not offenders, (
+        "python program(s) hardcode a Playwright engine instead of resolving "
+        "it through the one fragment: %r" % offenders)
+
+
+def test_the_python_arm_sees_the_single_string_spawn_form(tmp_path):
+    """R2's own catcher. A mutation battery is why it exists.
+
+    An argv LIST is only one way to spell it. `subprocess.run("playwright
+    install chromium", shell=True)` and `os.system(...)` carry no list for the
+    literal scan to find, so removing the call-site rule left no test failing:
+    the mutant ESCAPED at v3.66.1230. Both spellings are now driven.
+    """
+    for name, body in {
+        "shell_true.py": ('import subprocess\n'
+                          'subprocess.run("playwright install chromium", shell=True)\n'),
+        "os_system.py": ('import os\n'
+                         'os.system("playwright install chromium")\n'),
+    }.items():
+        path = tmp_path / name
+        path.write_text(body, encoding="utf-8")
+        sites = _python_install_sites(path)
+        assert sites, ("the python arm found no install site in %s -- the "
+                       "single-string spawn form is outside its population" % name)
+        assert _python_offenders([path]), (
+            "%s hardcodes chromium and was not reported as an offender" % name)
+
+    # NEGATIVE CONTROL: prose must not count. This is the whole reason the arm
+    # reads the AST instead of the text.
+    prose = tmp_path / "prose.py"
+    prose.write_text('"""Run: playwright install chromium."""\n'
+                     '# playwright install chromium\n'
+                     'X = 1\n', encoding="utf-8")
+    assert not _python_install_sites(prose), (
+        "a docstring and a comment were counted as invocations -- the arm is "
+        "reading text, not structure")
+
+
+def test_an_empty_program_population_refuses_rather_than_reporting_clean(monkeypatch):
+    """The nonzero denominator, driven rather than described.
+
+    Removing the assertion left every test green at v3.66.1230, because the
+    real repository is never empty -- so nothing measured whether the refusal
+    could still fire. A gate over an empty population passes vacuously, and
+    that is CLAUDE.md A7's central case.
+    """
+    class _Empty:
+        stdout = ""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Empty())
+    with pytest.raises(AssertionError) as excinfo:
+        _tracked_programs()
+    assert "denominator is empty" in str(excinfo.value), str(excinfo.value)
+
+
+def test_a_stale_exemption_is_refused_rather_than_inherited(monkeypatch):
+    """The registry's own catcher.
+
+    An exemption for a file that no longer installs anything is stale
+    permission, and the next reader inherits it with no way to notice. Removing
+    that check left every test green, so this drives a declared entry that
+    points at a tracked file with no install site in it.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True,
+        check=True).stdout.split()
+    innocent = "bulk_downloader/__init__.py"
+    assert innocent in tracked, tracked[:5]
+    assert not _python_install_sites(REPO_ROOT / innocent), (
+        "the control file installs something, so it cannot stand in for a "
+        "stale exemption")
+    monkeypatch.setitem(INSTALL_VERIFICATION, innocent,
+                        {"mode": "EXEMPT", "reason": "a deliberately stale entry"})
+    with pytest.raises(AssertionError) as excinfo:
+        test_every_exempt_installer_still_exists_and_still_matches_its_reason()
+    assert "installs nothing any more" in str(excinfo.value), str(excinfo.value)
+
+
+@pytest.mark.parametrize("kind", ["extensionless-shell", "python-argv-literal"])
+def test_a_non_sh_provisioning_path_cannot_evade_the_parity_gate(tmp_path, kind):
+    """RED on the pre-197 gate, for the intended defect.
+
+    Builds a real tracked repo containing a correct control installer AND one
+    evader, then calls the REAL classifier. Preconditions are asserted first so
+    that an empty git index or a broken scanner fails loudly rather than
+    manufacturing a green result.
+    """
+    repo = tmp_path / "repo"
+    (repo / "bin").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    (repo / "good.sh").write_text(
+        "#!/usr/bin/env bash\n"
+        "./venv/bin/python -m playwright install $(bd_playwright_engines all)\n",
+        encoding="utf-8")
+    if kind == "extensionless-shell":
+        rel = "bin/bd-provision"
+        (repo / rel).write_text(
+            "#!/usr/bin/env bash\n"
+            "./venv/bin/python -m playwright install chromium\n", encoding="utf-8")
+    else:
+        rel = "scripts/provision_browsers.py"
+        (repo / rel).write_text(
+            "#!/usr/bin/env python3\n"
+            "import subprocess, sys\n"
+            "_argv = [sys.executable, '-m', 'playwright', 'install', 'chromium']\n"
+            "subprocess.run(_argv, check=True)\n", encoding="utf-8")
+
+    subprocess.run(["git", "init", "-q", "."], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    tracked = subprocess.run(["git", "ls-files"], cwd=repo, capture_output=True,
+                             text=True, check=True).stdout.split()
+    assert rel in tracked, ("the fixture never staged the evader: %r" % tracked)
+    assert "good.sh" in tracked, tracked
+
+    classified = _program_kind(repo / rel)
+    expected = "shell" if kind == "extensionless-shell" else "python"
+    assert classified == expected, (
+        "the classifier called %s %r, not %r -- the arm below would then be "
+        "measuring the wrong language" % (rel, classified, expected))
+    assert "bd_playwright_engines" not in (repo / rel).read_text(encoding="utf-8")
+
+    if expected == "shell":
+        sites = _install_sites(repo / rel)
+        assert sites, "the shell scanner found no install site in the evader"
+        offending = [s for s in sites
+                     if any(e in s[2].split() for e in _engines("all"))]
+        assert offending, (
+            "the parity gate accepted a tracked %s provisioning path that "
+            "hardcodes an engine: %s is outside the population it scans" % (kind, rel))
+    else:
+        offenders = _python_offenders([repo / rel])
+        assert offenders, (
+            "the parity gate accepted a tracked %s provisioning path that "
+            "hardcodes an engine: %s is outside the population it scans" % (kind, rel))
+
+    # OVER-SENSITIVITY CONTROL: the correct installer beside it must stay clean.
+    good = _install_sites(repo / "good.sh")
+    assert good, "the control installer produced no install site at all"
+    assert not [s for s in good if any(e in s[2].split() for e in _engines("all"))], (
+        "the widened population flagged a CORRECT installer, which would make "
+        "the gate unusable rather than stricter")
 
 
 # --- C. anti-drift: no consumer restates the list ----------------------------
