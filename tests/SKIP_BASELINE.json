@@ -1,9 +1,6 @@
 {
   "schema": "bd-skip-baseline/1",
-  "collection_skips": [
-    {"identity":"<collection>::tests.test_v3_66_550_weather_ssrf","reason":"could not import 'requests': No module named 'requests'"},
-    {"identity":"<collection>::tests.test_webhooks_subscription_ssrf","reason":"could not import 'requests': No module named 'requests'"}
-  ],
+  "collection_skips": [],
   "skips": [
     {"identity":"tests.test_v3_66_1154_the_object_not_the_name::test_tmproot_release_close_cannot_replace_primary_memoryerror[bd-cut-OSError]","reason":"_release_root_fd is _tmproot-specific"},
     {"identity":"tests.test_v3_66_1154_the_object_not_the_name::test_tmproot_release_close_cannot_replace_primary_memoryerror[bd-cut-KeyboardInterrupt]","reason":"_release_root_fd is _tmproot-specific"},
