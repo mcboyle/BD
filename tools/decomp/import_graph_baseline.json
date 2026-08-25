@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3869,
+  "edge_count": 3881,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2843,6 +2843,9 @@
       "bulk_downloader/capture_template.py",
       "bulk_downloader/capture_workbench.py"
     ],
+    "tests/test_f2_3_needs_review_wired.py": [
+      "tools/spa_population.py"
+    ],
     "tests/test_ffmpeg_capability_health.py": [
       "bulk_downloader/healthcheck.py"
     ],
@@ -4520,6 +4523,9 @@
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
     ],
+    "tests/test_v3_66_1225_spa_scanner_populations.py": [
+      "tools/spa_population.py"
+    ],
     "tests/test_v3_66_122_guardrails.py": [
       "tools/autonomy_guardrails.py",
       "tools/autonomy_policy.py",
@@ -4994,6 +5000,9 @@
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/wacz_export.py"
     ],
+    "tests/test_v3_66_292_dom_analyzer_link.py": [
+      "tools/spa_population.py"
+    ],
     "tests/test_v3_66_29_phase5_honeypot_log_event.py": [
       "bulk_downloader/detect.py"
     ],
@@ -5037,14 +5046,16 @@
     "tests/test_v3_66_310_site_editor_parity.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/app_settings_center.py",
-      "tools/config_surface_inventory.py"
+      "tools/config_surface_inventory.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_312_parity_abc.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/app_settings_center.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/global_config.py",
-      "tools/config_surface_inventory.py"
+      "tools/config_surface_inventory.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_313_challenge_parity.py": [
       "bulk_downloader/__init__.py",
@@ -5052,13 +5063,15 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/honeypot_threshold.py",
       "bulk_downloader/provider_resolve.py",
-      "tools/config_surface_inventory.py"
+      "tools/config_surface_inventory.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_314_challenge_wait_guard.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/global_config.py",
       "tools/capture_session.py",
-      "tools/config_surface_inventory.py"
+      "tools/config_surface_inventory.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_315_advanced_env_tranche.py": [
       "bulk_downloader/__init__.py",
@@ -5070,14 +5083,16 @@
       "tools/autonomy_held_out_assist.py",
       "tools/autonomy_library_reconcile.py",
       "tools/config_surface_inventory.py",
-      "tools/framework_fleet.py"
+      "tools/framework_fleet.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_316_bucket3_guard.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/global_config.py",
       "tools/build_release.py",
       "tools/capture_session.py",
-      "tools/config_surface_inventory.py"
+      "tools/config_surface_inventory.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_317_final_env_parity.py": [
       "bulk_downloader/__init__.py",
@@ -5426,7 +5441,8 @@
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/widgets_config.py",
-      "tools/config_surface_inventory.py"
+      "tools/config_surface_inventory.py",
+      "tools/spa_population.py"
     ],
     "tests/test_v3_66_509_plugin_install_route.py": [
       "bulk_downloader/app.py",
@@ -6678,7 +6694,8 @@
       "bulk_downloader/app_settings_center.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/site_editor.py",
-      "tools/report_core.py"
+      "tools/report_core.py",
+      "tools/spa_population.py"
     ],
     "tools/ct1_synth.py": [
       "bulk_downloader/capture_synth.py"
@@ -6782,7 +6799,8 @@
       "tools/capture_session.py"
     ],
     "tools/nav_reachability.py": [
-      "bulk_downloader/app.py"
+      "bulk_downloader/app.py",
+      "tools/spa_population.py"
     ],
     "tools/normalize_template_draft.py": [
       "bulk_downloader/template_normalize.py"

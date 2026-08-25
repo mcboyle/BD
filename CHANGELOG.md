@@ -4,6 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1225 - the SPA text scanners judge a population they can name
+
+- FIFTEEN SCANNERS DEFINED A DENOMINATOR BY ACCIDENT. Each test that reads
+  `frontend/` source TEXT to judge a property picked whatever glob or regex it
+  happened to need, and none of them proved that population was the right one.
+  Row 232 filed the class after v3.66.1217 and v3.66.1218 each fixed ONE
+  instance: same over-inclusive glob, opposite consequences -- at 1217 a FIXTURE
+  vouched for a route no product code called (457 wired), and at 1218 a spec's
+  own negative control tripped the product-source raw-fetch gate.
+- THE ROW SAID FOURTEEN AND AN AST CENSUS FOUND FIFTEEN. Row 232's `rg` hits
+  reproduce exactly at HEAD -- 22 raw, of which 3 are a comment/docstring/`count`
+  argument and 5 were already guarded, confirming the row's 14 site for site. The
+  fifteenth is `tools/body_contract.py::fe_calls`, which uses `glob.glob` rather
+  than `rglob` and so could not appear in a search written for the others. A
+  scanner that hides from the census of scanners is exactly the shape this row is
+  about.
+- WHAT THE SCANNERS COULD ACTUALLY REACH WAS MEASURED, NOT ASSUMED.
+  `frontend/src` holds 354 files: 223 product, 128 spec, 1 harness. `dist` and
+  `node_modules` are SIBLINGS of `src`, so no site could reach them -- a hazard
+  worth checking and then ruling out with a number rather than repeating.
+- ONE SHARED `tools/spa_population.py` with PRODUCT / SPEC / HARNESS, a
+  `select()` that returns BOTH halves so a caller can assert each is nonzero
+  instead of trusting the rule, and `require_nonzero` as a SEPARATE fail-closed
+  decision. A rule that quietly matched everything would empty the scan and pass
+  forever; a rule that matched nothing would restore the defect while every
+  assertion beside it stayed green. Both halves are returned so neither can hide.
+- IT IS DELIBERATELY NOT FORCED ON EVERY SITE. The all-source scanner keeps its
+  wide glob, because its subject really is all source. `gui_parity_inventory` and
+  `test_t5_t6_wired` keep their own copies, because
+  `test_v3_66_1217::test_both_scan_sites_share_the_population_rule` pins their
+  LITERAL TEXT -- rewriting them to import the helper would have broken the gate
+  that exists to keep them identical. The new gate asserts the two regexes are
+  EQUAL instead. Suffix sets are preserved per call: `_source_has_prefix` stays
+  `*.tsx`-only, because widening it would REDUCE the orphans it reports.
+- THE VERDICT ON THE REAL TREE DOES NOT MOVE: every existence token resolves in
+  the product half, `check_spa` reports 0 orphans before and after, 96/96 config
+  rows unchanged, and the harness directory contains 0 `/api/` literals. Thirteen
+  of the fourteen defects were LATENT and one was live -- a scanner whose
+  `if not _SRC.is_dir(): return` made an absent tree a silent pass.
+- RED-FIRST: the new gate ran 13 FAILED / 9 passed before the edits -- ten
+  per-site laundering arms, the routing test, the census, and the silent return,
+  each for its intended reason. Both control arms plant IDENTICAL BYTES and
+  differ only in the filename, so a green result cannot come from the content.
+- MUTATION: 5 caught, 0 escaped. M3 -- `select` returns the EXCLUDED half, so
+  every count stays nonzero -- is caught only by the behavioural control, which
+  is the point of having one. A first run exited 2 on a HARNESS bug rather than
+  the subject: `::` inside parametrize ids broke bd-mutate's JUnit-to-nodeid
+  mapping and it graded its own green baseline RED. The separator is now `--`,
+  with a comment at the site.
+- LEFT OPEN AND NAMED, NOT QUIETLY SKIPPED: `tools/body_contract.py::fe_calls`
+  excludes `.test.*` and `.d.ts` but NOT `.spec.*`. It is latent today (no spec
+  uses `apiPost` and friends) and `toolchain/bin/bd-body-contract` holds a second
+  copy, so it is FROZEN IN THE GATE'S TABLE rather than fixed here. Four other
+  tools -- bd-fe-route-diff, bd-html-taint, bd-spa-boundary, bd-ui-contract --
+  are outside the row and untouched.
+
 ## v3.66.1224 - a zombie is not residue
 
 - A CORRECT CAPTURE COULD REPORT FAILURE, AND THE PROBE IS WHY. After the traced

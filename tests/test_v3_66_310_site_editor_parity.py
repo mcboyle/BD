@@ -26,6 +26,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO))
 sys.path.insert(0, str(_REPO / "tools"))
+import spa_population  # noqa: E402  (needs the sys.path insert above)
 
 from flask import Flask  # noqa: E402
 from bulk_downloader import app_settings_center as sc  # noqa: E402
@@ -160,13 +161,16 @@ def test_manifest_ledgers_all_site_keys():
 
 # ── SPA: a schema-driven site editor fetches the endpoint + writes via PUT ───
 def test_spa_site_editor_wires_endpoints():
+    # POPULATION: PRODUCT-ONLY (row 232). This is a positive-existence claim
+    # about the SHIPPED app, so a Vitest spec naming the token must not satisfy
+    # it -- that is the v3.66.1217 laundering, where a FIXTURE vouched for 14
+    # endpoints no product code called. require_both_halves keeps the narrowing
+    # honest: an empty product half would pass this gate vacuously, and an empty
+    # excluded half would mean the rule never fires on the real tree.
     src_dir = _REPO / "frontend" / "src"
-    blob = ""
-    for p in src_dir.rglob("*.ts*"):
-        try:
-            blob += p.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    _sel, _exc = spa_population.select(src_dir)
+    spa_population.require_both_halves(_sel, _exc, "test_spa_site_editor_wires_endpoints")
+    blob = spa_population.product_text(src_dir)
     assert "/api/settings/site/" in blob, "no SPA consumer of the editable endpoint"
     assert "/editable" in blob, "SPA does not fetch the editable descriptor surface"
     # the write must use the full /api/sites/<id> literal (parity scanner credits literals)
