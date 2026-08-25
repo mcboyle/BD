@@ -1,0 +1,53 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1227 row-216 battery. The census now asks the VALIDATED reader instead of counting pathnames, so the mutants are the ways that could quietly become a pathname count again, or could over-correct into calling everything UNKNOWN. M5 is the over-correction: a census that reports UNKNOWN for a perfectly readable registry passes every test about malformed finals and is useless. FIRST RUN: 4 caught, M3 ESCAPED -- nothing drove the parser off its happy path, so the fallback could be replaced with a guessed count and stay green. test_bd_fleet_refuses_to_guess_when_bd_jobs_output_does_not_parse was added for it.",
+  "subject": "v3.66.1227 -- bd-fleet counts validated jobs, not pathnames",
+  "band": [
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_uses_validated_counts_and_preserves_malformed_evidence",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_valid_only_census_remains_known",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_empty_registry_is_known_empty_not_unknown",
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_refuses_to_guess_when_bd_jobs_output_does_not_parse"
+  ],
+  "mutants": [
+    {
+      "label": "M1 count pathnames again instead of asking the validated reader",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "jobs_out=$(toolchain/bin/bd-jobs list 2>/dev/null)",
+      "new": "jobs_out=\"$(ls /tmp/bd-jobs/*.json 2>/dev/null | wc -l) live, 0 stale on x\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_uses_validated_counts_and_preserves_malformed_evidence"
+    },
+    {
+      "label": "M2 fold malformed finals back into the valid count",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "printf \"jobs=%d\\njobs_malformed=%d\\njobs_state=UNKNOWN\\n\", valid, malformed",
+      "new": "printf \"jobs=%d\\njobs_malformed=%d\\njobs_state=UNKNOWN\\n\", valid + malformed, malformed",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_uses_validated_counts_and_preserves_malformed_evidence"
+    },
+    {
+      "label": "M3 an unparseable summary guesses a number instead of UNKNOWN",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "printf \"jobs=?\\njobs_malformed=?\\njobs_state=UNKNOWN\\n\"",
+      "new": "printf \"jobs=%d\\njobs_malformed=0\\njobs_state=OK\\n\", valid",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_refuses_to_guess_when_bd_jobs_output_does_not_parse"
+    },
+    {
+      "label": "M4 an UNREADABLE registry is described as an EMPTY one again",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "        if d.get(\"jobs_state\") == \"UNKNOWN\":",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_uses_validated_counts_and_preserves_malformed_evidence"
+    },
+    {
+      "label": "M5 every registry is graded UNKNOWN, which passes the malformed tests and is useless",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "if (rc == 0 && summaries == 1 && unknowns == 0) {",
+      "new": "if (0) {",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_valid_only_census_remains_known"
+    }
+  ]
+}

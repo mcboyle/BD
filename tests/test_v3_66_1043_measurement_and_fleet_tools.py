@@ -367,6 +367,171 @@ def test_bd_fleet_counts_pytest_without_matching_its_own_probe():
     assert counted["pytest"].isdigit(), counted
 
 
+def _fleet_probe_with_registry(tmp_path, finals):
+    """Run bd-fleet's REAL probe against a private bd-jobs registry.
+
+    The probe's first line is `cd ~/BulkDownloader || { echo tree=ABSENT; }`, so
+    it needs a HOME with a tree AND the toolchain it now calls. Both `bd-fleet`
+    and `bd-jobs` carry a unique `/tmp/bd-jobs` anchor; only that anchor is
+    rewritten, so everything else under test is the shipped text.
+    """
+    home = tmp_path / "home"
+    tree = home / "BulkDownloader"
+    (tree / "toolchain" / "bin").mkdir(parents=True)
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    # bd-jobs REFUSES a group- or other-writable registry root, which is
+    # correct and which pytest's tmp_path is by default. Without this the probe
+    # reports jobs=0 for a reason that has nothing to do with row 216, and the
+    # test would look like it was measuring the census when it was measuring
+    # the harness.
+    registry.chmod(0o700)
+
+    jobs_src = (_BIN / "bd-jobs").read_text(encoding="utf-8")
+    old = 'JOBS_DIR = pathlib.Path("/tmp/bd-jobs")'
+    assert jobs_src.count(old) == 1, (
+        "bd-jobs' registry anchor is no longer unique, so this harness would "
+        "rewrite the wrong site or none at all")
+    jobs = tree / "toolchain" / "bin" / "bd-jobs"
+    jobs.write_text(jobs_src.replace(
+        old, 'JOBS_DIR = pathlib.Path(%r)' % str(registry), 1), encoding="utf-8")
+    jobs.chmod(0o755)
+
+    for name, body in finals.items():
+        (registry / name).write_text(body, encoding="utf-8")
+
+    # PRECONDITION: the RAW pathname denominator is what the old census counted.
+    raw = sorted(registry.glob("*.json"))
+    assert len(raw) == len(finals), raw
+
+    probe = _load("bd-fleet").PROBE
+    env = dict(os.environ, HOME=str(home))
+    r = subprocess.run(["bash", "-c", probe], capture_output=True, text=True,
+                       timeout=180, cwd=str(home), env=env)
+    counted = {k: v for k, v in
+               (ln.split("=", 1) for ln in r.stdout.splitlines() if "=" in ln)}
+    assert counted.get("tree") != "ABSENT", (
+        "the probe never reached the registry line, so this proves nothing: %s"
+        % r.stdout)
+    assert "jobs" in counted, r.stdout
+    return counted, registry, r
+
+
+def _valid_final(host="test5", pid=1):
+    """One schema-complete record bd-jobs' validated reader accepts.
+
+    Returns (filename, body). The id, the host/pid it encodes, and the FILENAME
+    must all agree -- bd-jobs checks each against the others, which is why this
+    builds the name rather than letting the caller pick one.
+    """
+    ident = "%s-%d" % (host, pid)
+    return ident + ".json", json.dumps({
+        "id": ident, "host": host, "pid": pid, "starttime": 1,
+        "purpose": "row-216 fixture", "cmd": "sleep 0",
+        "origin": host, "started_at": "2026-08-25T00:00:00+00:00",
+    })
+
+
+def test_bd_fleet_uses_validated_counts_and_preserves_malformed_evidence(tmp_path):
+    """ROW 216. A malformed final is not a registered job.
+
+    `bd-jobs` RETAINS a malformed final deliberately -- it is the only evidence
+    of what went wrong -- and grades the read UNKNOWN. `bd-fleet` counted raw
+    `*.json` pathnames, so that retained evidence was reported to the operator
+    as a registered job: a number where the honest answer is "I could not read
+    this", in precisely the situation where the operator most needs to look.
+    """
+    name, body = _valid_final()
+    counted, registry, r = _fleet_probe_with_registry(tmp_path, {
+        name: body,
+        "truncated.json": '{"id": "req-216", "pid":',
+    })
+
+    assert counted.get("jobs") == "1", (
+        "bd-fleet reported jobs=%r for one validated record plus one malformed "
+        "retained final; expected jobs='1'. Raw pathname count was 2, which is "
+        "exactly the number the old census published.\n%s"
+        % (counted.get("jobs"), r.stdout))
+    assert counted.get("jobs_malformed") == "1", counted
+    assert counted.get("jobs_state") == "UNKNOWN", counted
+
+    # THE EVIDENCE IS STILL THERE. A census that tidied away what it could not
+    # read would be worse than the one being replaced.
+    assert (registry / "truncated.json").read_text(encoding="utf-8") == \
+        '{"id": "req-216", "pid":'
+
+    notes = " ".join(_load("bd-fleet").divergences(
+        [("a", "1", counted, None)]))
+    assert "census is UNKNOWN" in notes, notes
+    assert "NOTHING registered" not in notes, (
+        "an UNREADABLE registry was described as an EMPTY one: %s" % notes)
+
+
+def test_bd_fleet_valid_only_census_remains_known(tmp_path):
+    """OVER-SENSITIVITY CONTROL. A census that called everything UNKNOWN would
+    pass the test above and be useless. One valid record must read as one valid
+    record, with no malformed count and no UNKNOWN."""
+    name, body = _valid_final()
+    counted, registry, r = _fleet_probe_with_registry(tmp_path, {name: body})
+    assert counted.get("jobs") == "1", (counted, r.stdout)
+    assert counted.get("jobs_malformed") == "0", counted
+    assert counted.get("jobs_state") == "OK", counted
+    notes = " ".join(_load("bd-fleet").divergences([("a", "1", counted, None)]))
+    assert "census is UNKNOWN" not in notes, notes
+
+
+def test_bd_fleet_empty_registry_is_known_empty_not_unknown(tmp_path):
+    """The third state, and the one the reordered branch could have eaten: an
+    empty registry is a FACT, not a failure to read. The pytest-with-nothing-
+    registered warning depends on being able to tell those apart."""
+    counted, _registry, r = _fleet_probe_with_registry(tmp_path, {})
+    assert counted.get("jobs") == "0", (counted, r.stdout)
+    assert counted.get("jobs_state") == "OK", counted
+    counted["pytest"] = "3"
+    notes = " ".join(_load("bd-fleet").divergences([("a", "1", counted, None)]))
+    assert "NOTHING registered" in notes, notes
+
+
+def test_bd_fleet_refuses_to_guess_when_bd_jobs_output_does_not_parse(tmp_path):
+    """PARSER DRIFT MUST FAIL CLOSED, and a mutation battery is why this exists.
+
+    The census now depends on a TEXT PROTOCOL between two tools. If `bd-jobs`
+    rewords its summary line, the parser stops recognising it -- and the
+    tempting failure mode is to keep whatever did parse and publish a number
+    anyway. That number would be arrived at by ignoring the part that did not
+    parse, which is the same defect as counting pathnames wearing better
+    clothes.
+
+    A v3.66.1227 mutant that replaced the `?/?/UNKNOWN` fallback with a guessed
+    count ESCAPED the rest of this file, because nothing drove the parser off
+    its happy path.
+    """
+    home = tmp_path / "home"
+    tree = home / "BulkDownloader"
+    (tree / "toolchain" / "bin").mkdir(parents=True)
+    stub = tree / "toolchain" / "bin" / "bd-jobs"
+    # Exit 0 and say something plausible that is NOT the pinned summary shape.
+    stub.write_text("#!/bin/sh\necho 'registry: 4 entries'\nexit 0\n",
+                    encoding="utf-8")
+    stub.chmod(0o755)
+
+    probe = _load("bd-fleet").PROBE
+    env = dict(os.environ, HOME=str(home))
+    r = subprocess.run(["bash", "-c", probe], capture_output=True, text=True,
+                       timeout=180, cwd=str(home), env=env)
+    counted = {k: v for k, v in
+               (ln.split("=", 1) for ln in r.stdout.splitlines() if "=" in ln)}
+    assert counted.get("tree") != "ABSENT", r.stdout
+    assert counted.get("jobs") == "?", (
+        "bd-fleet published %r for output it could not parse; an unparseable "
+        "summary must be UNKNOWN, not a guess.\n%s"
+        % (counted.get("jobs"), r.stdout))
+    assert counted.get("jobs_malformed") == "?", counted
+    assert counted.get("jobs_state") == "UNKNOWN", counted
+    notes = " ".join(_load("bd-fleet").divergences([("a", "1", counted, None)]))
+    assert "census is UNKNOWN" in notes, notes
+
+
 def test_bd_fleet_reports_an_unreachable_host_rather_than_omitting_it():
     """A fleet report that silently covers two hosts out of three reads as a
     clean bill of health for all three."""

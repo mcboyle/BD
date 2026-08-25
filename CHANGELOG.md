@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1227 - bd-fleet counts validated jobs, not pathnames
+
+- A MALFORMED FINAL WAS REPORTED TO THE OPERATOR AS A REGISTERED JOB.
+  `bd-fleet`'s probe ran `ls /tmp/bd-jobs/*.json | wc -l` and labelled the result
+  "jobs". That counts directory ENTRIES without reading a byte of them, so a
+  malformed final -- which `bd-jobs` deliberately RETAINS, because it is the only
+  evidence of what went wrong, and correctly grades UNKNOWN -- appeared in the
+  fleet census as a healthy registration. The denominator was semantically false
+  in exactly the situation where an operator most needs it to be true (row 216).
+- THE VALIDATED READER ALREADY EXISTED. `bd-jobs list` separates valid rows from
+  malformed ones and publishes both counts, so the probe now asks IT. The census
+  reports `jobs`, `jobs_malformed` and `jobs_state`, and the table column is
+  renamed from "jobs" to "valid" so the number says what it means.
+- SILENT DRIFT FAILS CLOSED. Two tools now share a text protocol, so the parser
+  is STRICT: exactly one `N live, M stale on HOST` summary with status 0 is OK;
+  exactly one summary plus one `UNKNOWN: U of T ... unreadable` with status 4 is
+  UNKNOWN; every missing, duplicate, incoherent or other-status shape is
+  `?/?/UNKNOWN`. If `bd-jobs` rewords a line, the honest answer to "how many
+  jobs" becomes UNKNOWN -- never a number reached by ignoring the part that did
+  not parse.
+- "NOTHING IS REGISTERED" AND "WE COULD NOT READ WHAT IS REGISTERED" ARE
+  OPPOSITE FACTS, and the second was being reported as the first. `divergences`
+  now decides registry state BEFORE the empty-registry branch, and an UNKNOWN
+  census makes a reachable host contribute a nonzero exit, the same way an
+  unreachable one does. Both mean "this report does not cover what you asked".
+- THE OVER-CORRECTION IS TESTED, NOT ASSUMED. A census that graded everything
+  UNKNOWN would pass every assertion about malformed finals and be useless, so
+  `test_bd_fleet_valid_only_census_remains_known` pins that one valid record
+  reads as one valid record with no malformed count and no UNKNOWN, and
+  `test_bd_fleet_empty_registry_is_known_empty_not_unknown` pins that an empty
+  registry is a FACT rather than a failure to read -- the pytest-with-nothing-
+  registered warning depends on telling those apart, and this cut reorders the
+  branch that produces it.
+- THE TEST DRIVES THE REAL PROBE against a private registry, rewriting only the
+  unique `/tmp/bd-jobs` anchor in each tool, so everything else under test is
+  shipped text. RED verified by replay against dc98dd8: 2 of the new tests fail
+  there, and the empty-registry control passes on both trees because it asserts
+  behaviour that was already correct.
+- ONE HARNESS BUG WORTH RECORDING: `bd-jobs` REFUSES a group- or other-writable
+  registry root, which pytest's `tmp_path` is by default. Without an explicit
+  `chmod(0o700)` the probe reported `jobs=0` for a reason with nothing to do with
+  row 216, and the test would have looked like it was measuring the census when
+  it was measuring the harness.
+- MUTATION: the first run scored 4 caught / 1 ESCAPED, and the escape was real.
+  Nothing drove the parser off its happy path, so the `?/?/UNKNOWN` fallback
+  could be replaced with a guessed count and stay green -- the strictness above
+  was asserted in prose and by nothing else.
+  `test_bd_fleet_refuses_to_guess_when_bd_jobs_output_does_not_parse` drives a
+  stub that exits 0 with a plausible line that is NOT the pinned shape. Re-run:
+  5 caught, 0 escaped.
+
 ## v3.66.1226 - an inner budget must clear both hazards, not one
 
 - v3.66.1222 FIXED THE WRONG HALF FOR THIS FILE, AND THE MEASUREMENT SAYS SO.
