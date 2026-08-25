@@ -84,6 +84,12 @@ BD_GATE_SCOPE = "repo-wide"
 # dropped file passes: the union would simply shrink to match. Adding a
 # repo-wide gate to CI is meant to be a two-file change.
 _DECLARED = {
+    # @1239, the preflight that runs what a derived band cannot select. Four
+    # defects shipped between v3.66.1223 and v3.66.1238 because bd-band-derive
+    # derives from CHANGED PATHS while those gates judge the TREE, so no diff
+    # ever reached them. This gate has the same property and is declared for
+    # the same reason.
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
     # @1222, the budget ratchet. An inner budget at or above the bound
     # governing its item has a dead error path, so a hang kills the process
     # instead of failing the test -- twice over on 2026-08-24. The frozen

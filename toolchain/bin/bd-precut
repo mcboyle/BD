@@ -247,8 +247,25 @@ def main(argv=None):
                     entry = changelog[first.start():]
                     nxt = re.search(r"\n## v", entry)
                     body = entry[:nxt.start()] if nxt else entry
+                    # AND THE GENERATED PIN, which is the half that actually
+                    # bit. At v3.66.1239 the three SOURCE facts agreed while
+                    # PIN_INDEX.json still recorded the previous version,
+                    # because a regen ran before the last version edit rather
+                    # than after it (A3 step 7). Source agreement is not
+                    # release readiness when a generated artifact carries the
+                    # same fact.
+                    pin_index = pathlib.Path(root, "PIN_INDEX.json")
+                    if pin_index.is_file():
+                        blob = pin_index.read_text(encoding="utf-8")
+                        if ('"%s"' % version) not in blob:
+                            trio_problem = (
+                                "PIN_INDEX.json does not record %s -- regenerate "
+                                "with bd-regen-order AFTER the last source edit"
+                                % version)
                     nonascii = [c for c in body if ord(c) > 127]
-                    if nonascii:
+                    if trio_problem:
+                        pass
+                    elif nonascii:
                         trio_problem = ("the %s CHANGELOG entry contains %d non-ASCII "
                                         "character(s) (%r) -- A6 requires ASCII-only"
                                         % (first.group(1), len(nonascii), nonascii[:4]))

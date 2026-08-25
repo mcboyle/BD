@@ -22,6 +22,7 @@ unreliable.
 """
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 import subprocess
@@ -46,12 +47,38 @@ def _precut_source() -> str:
     return PRECUT.read_text(encoding="utf-8")
 
 
+def _declared_gates() -> set[str]:
+    """The gate list read from the AST, not from the file's text.
+
+    THE FIRST VERSION OF THIS REGEXED THE SOURCE, and a mutation battery caught
+    it inside the very cut about textual proxies: commenting an entry out left
+    the string sitting in the file, so the regex still found it and the mutant
+    ESCAPED. Comments are inside a text scanner's denominator and outside the
+    AST's -- the same lesson v3.66.1232 learned for the registrable-domain
+    census, arriving here seven cuts later in the tool that is supposed to stop
+    me repeating myself.
+    """
+    tree = ast.parse(_precut_source())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if "_UNDERIVED_GATES" not in targets:
+            continue
+        assert isinstance(node.value, (ast.List, ast.Tuple)), node.value
+        out = set()
+        for elt in node.value.elts:
+            assert isinstance(elt, (ast.Tuple, ast.List)) and elt.elts, elt
+            first = elt.elts[0]
+            assert isinstance(first, ast.Constant) and isinstance(first.value, str), first
+            out.add(first.value)
+        return out
+    raise AssertionError("bd-precut no longer declares _UNDERIVED_GATES at all")
+
+
 def test_every_underived_gate_is_named_by_the_tool():
     """The four are RUN, not merely mentioned in a comment."""
-    src = _precut_source()
-    block = re.search(r"_UNDERIVED_GATES\s*=\s*\[(.*?)\]", src, re.S)
-    assert block, "bd-precut no longer declares _UNDERIVED_GATES at all"
-    named = set(re.findall(r'"(tests/[^"]+\.py)"', block.group(1)))
+    named = _declared_gates()
     assert named == EXPECTED_GATES, (
         "bd-precut runs %r but this contract pins %r. A gate removed from that "
         "list stops running and nothing else would notice -- which is exactly "
@@ -64,6 +91,7 @@ def test_each_named_gate_actually_exists_and_is_tracked():
     tracked = set(subprocess.run(
         ["git", "ls-files"], cwd=str(REPO), capture_output=True, text=True,
         check=True).stdout.split())
+    assert _declared_gates() == EXPECTED_GATES, "declaration drifted"
     for rel in sorted(EXPECTED_GATES):
         assert rel in tracked, "%s is named by bd-precut but not tracked" % rel
         assert (REPO / rel).is_file(), rel

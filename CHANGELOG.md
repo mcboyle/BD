@@ -42,6 +42,21 @@ archive is not present in this repository; consult source-control history.
   verdict (A2), so it prints headroom and never blocks.
 - CLAUDE.md A5 gains the standing rule, because the lesson is not "remember to
   run these" but "a derived band structurally cannot see a tree-wide gate".
+- AND THE TRIO CHECK CAUGHT ITS OWN CUT TOO, one push later. The three SOURCE
+  facts agreed while `PIN_INDEX.json` still recorded the previous version,
+  because a regen had run BEFORE the last version edit rather than after it
+  (A3 step 7). Three CI jobs went red for it. Source agreement is not release
+  readiness when a GENERATED artifact carries the same fact, so the check now
+  reads PIN_INDEX too. Worth naming plainly: the tool was built and then not
+  RUN on the frozen candidate, which is the same failure this whole cut is
+  about, one level up.
+- AND THE BATTERY CAUGHT THE SAME DEFECT INSIDE THIS CUT. The gate proving
+  bd-precut still names all four regexed bd-precut's SOURCE TEXT, so commenting
+  an entry out left the string in the file, the regex still found it, and two
+  mutants ESCAPED. Comments are inside a text scanner's denominator and outside
+  the AST's -- the exact class this cut exists to stop me repeating, repeated
+  inside it. It now reads the AST. First battery 3 caught / 2 escaped; re-run
+  after the fix: 5 caught, 0 escaped.
 
 ## v3.66.1238 - saving a settings page stops erasing what you never retyped
 

@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1239 battery. The subject is a preflight that RUNS other gates, so the mutants are the ways it can stop running them or stop caring about the answer. M4 is the fail-open this whole cut is about: reporting an absent population as nothing to see.",
+  "_comment": "v3.66.1239 battery. The subject is a preflight that RUNS other gates, so the mutants are the ways it can stop running them or stop caring about the answer. M4 is the fail-open this whole cut is about: reporting an absent population as nothing to see. FIRST RUN: 3 caught, M1 and M2 ESCAPED, and the escape was in MY OWN GATE. It regexed bd-precut's SOURCE TEXT for the gate names, so commenting an entry out left the string in the file and the regex still found it. Comments are inside a text scanner's denominator and outside the AST's -- the exact defect class this cut exists to stop me repeating, caught inside the cut. The gate now reads the AST.",
   "subject": "v3.66.1239 -- bd-precut runs the gates a derived band cannot select",
   "band": [
     "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_every_underived_gate_is_named_by_the_tool",
