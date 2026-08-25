@@ -4,6 +4,88 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1222 - every budget in tests/ is subordinate to the bound governing it
+
+- THE SECOND FAILURE OF THE 2026-08-24 WEDGE IS FIXED, AND IT WAS NEVER A HANG.
+  `test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation` carried
+  `budget_s=600` inside an item bounded at 240s. MEASURED on an idle test5 at
+  load 0.46: **201 seconds**. Thirty-nine seconds of headroom, which is the same
+  shape as the 1046 gate v3.66.1219 split at 221s. Under `-n 24` it crossed the
+  bound, and before v3.66.1220 that meant `os._exit(1)` on the worker.
+- THE RECORDED BASELINE WAS WRONG BY 8x AND THE TABLE'S SHAPE IS WHY.
+  `_MEASURED_S` was keyed by TOOL. `bd-mutation-test` takes 2s as `--selftest`
+  and 201s as `--only route_index/spa_wired`; one key cannot describe both. It is
+  now keyed per CALL SITE, because the cost is a property of the invocation.
+  Measured this cut, one test per process, idle host: selftest 2s (budget was
+  300), the end-to-end row 38s against a detached clone -- 201s against the live
+  tree, see below (budget was 600) -- band-derive selftest 6s (budget was 600).
+- AND THE ADVICE IT PRINTED ON FAILURE WAS MISLEADING. The old note recorded
+  25.8s measured "in the cloud sandbox" and reasoned that a run exceeding 600s
+  "hung rather than ran slowly", telling the reader that a hand-run completing in
+  about 25.8s proved a HANG. On this box the row takes 201 seconds with nothing
+  else running. It is slow, not stuck, and the next reader is no longer sent
+  looking for a hang that is not there.
+- BUDGETS AND ITEM BOUNDS ARE NOW DERIVED, using the arithmetic 1219 proved:
+  budget = max(60, baseline x 2.0), item bound = budget + 30s reserve. Each site
+  states its own bound with `@pytest.mark.timeout` rather than inheriting one,
+  so a regression in either direction is visible. `_run_tool` self-polices:
+  every site asserts its own elapsed time against its recorded baseline, so the
+  next drift announces itself while there is still headroom instead of by
+  crossing the bound under load.
+- REMOVING THE TIMEOUT UNMASKED A SECOND DEFECT IN THE SAME TEST -- the
+  now-familiar shape of this whole incident: one symptom, several causes. With
+  the 240s bound no longer killing it first, the end-to-end row failed under
+  `-n 12` with `_SnapshotError: tracked source changed between pristine and
+  mutant trees`. It ran `bd-mutation-test --work REPO` against the LIVE
+  repository, snapshotting tracked source, so any sibling test touching a
+  tracked file broke it. The timeout had been MASKING a race: the test was
+  already failing under parallelism before this cut, and only the reason
+  changed.
+- IT NOW MUTATES A DETACHED CLONE, which is what `bd-mutate` already demands of
+  itself -- "refusing work that intersects the repository containing this
+  bd-mutate ... Use a detached scratch copy". `bd-mutation-test` accepting
+  `--work REPO` was the anomaly. A test that snapshots a shared resource from
+  inside a parallel suite measures the suite, which is the same rule
+  tests/test_v3_66_1046 states about counting a global directory and row 231
+  states about the process table.
+- AND THAT FIX MADE IT 5.3x FASTER: 201s against the live tree, 38s against the
+  clone, both measured on an idle host. The cost was never the mutation -- it
+  was what the tool was pointed at, since the live repository carries whatever
+  else sits in the working directory while a fresh clone carries tracked files
+  only. The end-to-end row therefore no longer needs a bound above the
+  sanctioned 240s at all: 38s baseline, 76s budget, 106s bound. THE FIRST DRAFT
+  OF THIS CUT RECORDED 201s AND A 432s BOUND, and shipping that would have
+  frozen exactly the kind of stale number this cut exists to stop.
+- THE RATCHET. 83 sites in tests/ carried a constant budget at or above the 240s
+  bound when it was first counted. Fixing all of them in one cut would mean
+  touching 49 files including timing-sensitive ones, on numbers nobody has
+  re-measured -- and this entire incident began with a baseline wrong by 8x. So
+  `project-knowledge/BUDGET_RATCHET.json` freezes the population: it MAY SHRINK
+  AND MAY NOT GROW. 59 distinct keys, 7 of them carrying a documented reason
+  (four Playwright millisecond defaults, three sites that pass a deliberately
+  over-large value to assert the PRODUCT clamps it). Known-benign entries are
+  RECORDED rather than filtered, because a classifier that is wrong once is worse
+  than a frozen list that is honest.
+- IT IS AN AST CENSUS, NOT A GREP. Backlog row 196 is an entire row about
+  textual-proxy gates, and an earlier hand count of this same population died on
+  two comment lines. Parsing sees keyword arguments and parameter defaults and
+  nothing else. The millisecond exclusion keys on the CALLEE, never the value: a
+  value rule would also discard a real 1800-second budget as "obviously ms".
+- KEYS ARE (file, callee, value) AND DELIBERATELY NOT LINE NUMBERS, so an
+  unrelated edit does not churn the baseline into something nobody reads.
+- THE GATE'S OWN ARITHMETIC CAUGHT A BUG IN THE GATE. Its first run reported
+  four new sites; the baseline stores one entry per distinct key with a count
+  beside it, and the comparison was counting each entry as one. Fixed, and RED
+  is proven by planting a new site: `added: [('tests/test_versync_gate.py',
+  'subprocess.run', 1234)]`, that site and no other.
+- WHAT IT DOES NOT CLAIM, stated in the gate itself: it sees CONSTANT budgets. A
+  computed budget or one read from the environment is invisible to it. The
+  ratchet bounds a known population; it does not prove the population complete.
+- Row 230 advances but does NOT close: 1219 fixed one instance, this fixes three
+  more and freezes the remaining 59 keys. The 113 budgets inside
+  tests/test_v3_66_1132 remain, and so does that row's separate question about
+  budgets firing on correct work under load.
+
 ## v3.66.1221 - a worker that dies mid-test now says which test it was running
 
 - ON 2026-08-24 A WORKER WAS KILLED AT 99% AND EVERY ARTIFACT THAT WOULD HAVE

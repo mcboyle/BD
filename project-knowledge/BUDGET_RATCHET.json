@@ -1,0 +1,369 @@
+{
+ "schema": "bd-budget-ratchet/1",
+ "_comment": "FROZEN DENOMINATOR of constant wall-clock budgets in tests/ that are >= the sanctioned per-item bound (240s). A budget above the bound governing its item can never fire, so its own `except TimeoutExpired` is dead code and what runs instead is pytest-timeout killing the worker -- which on 2026-08-24 took the whole session into a 19-minute livelock. This list MAY SHRINK AND MAY NOT GROW. Keys are (file, callee, value) and deliberately NOT line numbers, so an unrelated edit does not churn the baseline. Entries carrying `why` are known-benign and are recorded rather than filtered, because a clever classifier that is wrong once is worse than a frozen list that is honest.",
+ "measured_at": "v3.66.1222",
+ "governing_bound_s": 240,
+ "entries": [
+  {
+   "file": "tests/test_cloud_setup_truthfulness.py",
+   "callee": "_run_bash",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_csrf_tool_contracts.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_env_example_matches_the_ledger.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_macro_replay.py",
+   "callee": "DEFAULT:click",
+   "value": 5000,
+   "count": 1,
+   "why": "Playwright helper defaults in MILLISECONDS (5000 = 5s); the ms exclusion keys on callee and these are bare def defaults with no callee to key on."
+  },
+  {
+   "file": "tests/test_macro_replay.py",
+   "callee": "DEFAULT:fill",
+   "value": 5000,
+   "count": 1,
+   "why": "Playwright helper defaults in MILLISECONDS (5000 = 5s); the ms exclusion keys on callee and these are bare def defaults with no callee to key on."
+  },
+  {
+   "file": "tests/test_macro_replay.py",
+   "callee": "DEFAULT:focus",
+   "value": 5000,
+   "count": 1,
+   "why": "Playwright helper defaults in MILLISECONDS (5000 = 5s); the ms exclusion keys on callee and these are bare def defaults with no callee to key on."
+  },
+  {
+   "file": "tests/test_macro_replay.py",
+   "callee": "DEFAULT:type",
+   "value": 5000,
+   "count": 1,
+   "why": "Playwright helper defaults in MILLISECONDS (5000 = 5s); the ms exclusion keys on callee and these are bare def defaults with no callee to key on."
+  },
+  {
+   "file": "tests/test_provision_test_host.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_secret_display_never.py",
+   "callee": "out_q.get",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_t43_tls_check.py",
+   "callee": "ds.tls_cert_check",
+   "value": 999,
+   "count": 1,
+   "why": "Deliberately over-large: the test asserts the PRODUCT clamps it (tls_cert_check clamps to 5.0s). Fixing it would delete the assertion."
+  },
+  {
+   "file": "tests/test_t44_request_replay.py",
+   "callee": "rr.replay",
+   "value": 999,
+   "count": 1,
+   "why": "Deliberately over-large: asserts rr.replay clamps to 10s internally."
+  },
+  {
+   "file": "tests/test_t9_vision_test.py",
+   "callee": "ds.vision_test_harness",
+   "value": 9999,
+   "count": 1,
+   "why": "Deliberately over-large: test_vision_test_clamps_timeout asserts the clamp into [1,120]."
+  },
+  {
+   "file": "tests/test_toolchain_534.py",
+   "callee": "DEFAULT:_band_tool",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_toolchain_534.py",
+   "callee": "_band_tool",
+   "value": 300,
+   "count": 2
+  },
+  {
+   "file": "tests/test_toolchain_534.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 9
+  },
+  {
+   "file": "tests/test_toolchain_534.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 3
+  },
+  {
+   "file": "tests/test_v3_66_1015_capture_analytics_bounds.py",
+   "callee": "_ca().analyze",
+   "value": 600.0,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1044_run_context_and_chains.py",
+   "callee": "DEFAULT:_pytest",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1044_run_context_and_chains.py",
+   "callee": "_pytest",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1049_the_leaker_restores_the_module_table.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1068_modwatch_measures_per_file.py",
+   "callee": "subprocess.run",
+   "value": 900,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1069_the_wipe_does_not_escape_its_file.py",
+   "callee": "subprocess.run",
+   "value": 900,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1145_step0_fails_closed.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 3
+  },
+  {
+   "file": "tests/test_v3_66_1168_tests_are_current_contracts.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_796_runner_teardown_module.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_797_runner_isolate.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_820_installer_browser_reach.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_873_rollback_repairs_itself.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_879_provision_trigger_sees_its_subject.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_882_restart_without_the_hook.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_889_import_graph_sees_tests.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_889_import_graph_sees_tests.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_895_gates_refuse_when_blind.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_912_wired_gates_refuse_on_empty.py",
+   "callee": "DEFAULT:_run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_934_ai_config_is_not_inherited.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_936_golden_carries_no_ambient_state.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_936_golden_carries_no_ambient_state.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_937_band_floor_is_not_dropped.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_945_envfile_seeding_does_not_escape_its_test.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_946_the_leak_guard_does_not_fire_on_inherited_state.py",
+   "callee": "subprocess.run",
+   "value": 900,
+   "count": 3
+  },
+  {
+   "file": "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
+   "callee": "subprocess.run",
+   "value": 900,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_950_the_band_runs_real_pytest.py",
+   "callee": "subprocess.run",
+   "value": 600,
+   "count": 2
+  },
+  {
+   "file": "tests/test_v3_66_963_import_does_not_persist_config.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_964_app_config_writer_does_not_lose_updates.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_969_a_restart_survives_the_hooks_rerecord.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_971_capture_scrub_sniffs_content.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_973_wacz_corpus_survey.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_974_template_merge.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_978_wacz_dupes_and_derivatives.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_981_wacz_host_grouping.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_983_derivative_marker_forms.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_984_template_viability.py",
+   "callee": "subprocess.run",
+   "value": 900,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_985_templates_parallel.py",
+   "callee": "subprocess.run",
+   "value": 1800,
+   "count": 1
+  },
+  {
+   "file": "tests/test_v3_66_990_runner_risk_is_about_imports_not_prose.py",
+   "callee": "subprocess.run",
+   "value": 300,
+   "count": 3
+  }
+ ]
+}

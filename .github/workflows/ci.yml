@@ -441,6 +441,7 @@ jobs:
           - name: tree-gates-3
             suites: >-
               tests/test_v3_66_820_share_tools_saw_no_session_keys.py
+              tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py
               tests/test_history_file_size_is_the_size_on_disk.py
               tests/test_playwright_engines_single_source.py
           - name: tree-gates-4

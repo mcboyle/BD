@@ -84,6 +84,11 @@ BD_GATE_SCOPE = "repo-wide"
 # dropped file passes: the union would simply shrink to match. Adding a
 # repo-wide gate to CI is meant to be a two-file change.
 _DECLARED = {
+    # @1222, the budget ratchet. An inner budget at or above the bound
+    # governing its item has a dead error path, so a hang kills the process
+    # instead of failing the test -- twice over on 2026-08-24. The frozen
+    # population may shrink and may not grow.
+    "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
     # @1220, the timeout-method contract. It runs REAL sub-pytests in both
     # shapes and asserts that a test exceeding its bound is reported BY NAME
     # with no worker killed -- the property the sanctioned command was changed

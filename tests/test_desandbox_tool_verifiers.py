@@ -62,11 +62,69 @@ import shlex
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
+
+# MEASURED PER CALL SITE ON THIS HOST, v3.66.1222, one test per process, idle
+# test5 (48 cores), load 0.41-0.46 recorded per run:
+#
+#     mutation-engine-selftest      2s   (budget was 300)
+#     real-gate-row-end-to-end     38s   (budget was 600, item bound 240)
+#     band-derive-selftest          6s   (budget was 600)
+#
+# THE END-TO-END ROW MEASURED 201s BEFORE THIS CUT AND 38s AFTER, and the
+# difference is not the mutation -- it is what the tool was pointed at. Against
+# the LIVE repository it carried whatever else sits in the working directory;
+# against a detached clone it carries tracked files only. Fixing the snapshot
+# race made the row 5.3x faster as a side effect, so the 201s figure is kept
+# here only to explain why the budget is no longer 402s.
+#
+# THE OLD TABLE WAS KEYED BY TOOL AND THAT IS THE DEFECT. `bd-mutation-test`
+# takes 2s as `--selftest` and 201s as `--only route_index/spa_wired`; one key
+# cannot describe both, so the ratio printed on failure was wrong by 8x. The
+# cost is a property of the INVOCATION, so the baseline is too.
+#
+# AND THE 25.8s WAS MEASURED IN A CLOUD SANDBOX, from which the previous note
+# reasoned that a run exceeding 600s "hung rather than ran slowly". On this box
+# the same row takes 201 SECONDS with nothing else running. It is slow, not
+# stuck -- and 201s against the sanctioned `--timeout=240` leaves 39s of
+# headroom, which is what made it the second failure of the 2026-08-24 wedge.
+# See fleet-run-artifacts/2026-08-24/xdist-wedge/FINDING.md.
+_MEASURED_S = {
+    "mutation-engine-selftest": 2,
+    "real-gate-row-end-to-end": 38,
+    "band-derive-selftest": 6,
+}
+
+# Same arithmetic v3.66.1219 established for the tool-state gate, and for the
+# same reason: an inner budget that cannot fire before the bound governing its
+# item has a dead `except` clause, and what runs instead is pytest-timeout
+# killing the worker.
+_CONTENTION_FACTOR = 2.0
+_ITEM_RESERVE_S = 30
+_MIN_BUDGET_S = 60
+
+
+def _budget_s(site):
+    """The subprocess budget for one call site -- always below its item bound."""
+    return max(_MIN_BUDGET_S, int(_MEASURED_S[site] * _CONTENTION_FACTOR))
+
+
+def _item_timeout_s(site):
+    """The pytest-timeout bound governing that site's item, set EXPLICITLY.
+
+    Every site now lands well inside the sanctioned 240s -- the end-to-end row
+    needed 432s while it was mutating the live tree and needs 106s against a
+    detached copy. Stating each bound explicitly keeps the relationship the
+    tests depend on visible instead of inherited, and makes a future regression
+    in either direction obvious.
+    """
+    return _budget_s(site) + _ITEM_RESERVE_S
+
 BIN = REPO / "toolchain" / "bin"
 MT = BIN / "bd-mutation-test"
 BD = BIN / "bd-band-derive"
@@ -1959,7 +2017,9 @@ def test_the_mutation_engine_selftest_still_passes():
     disturb them.
     """
     r = _run_tool([sys.executable, str(MT), "--selftest"],
-                  budget_s=300, what="bd-mutation-test", cwd=REPO)
+                  budget_s=_budget_s("mutation-engine-selftest"),
+                  what="bd-mutation-test", site="mutation-engine-selftest",
+                  cwd=REPO)
     assert r.returncode == 0, f"selftest exit={r.returncode}\n{r.stdout[-2000:]}"
     assert "SELFTEST PASS" in r.stdout, r.stdout[-2000:]
 
@@ -4829,7 +4889,8 @@ def test_bd_mutate_rechecks_later_subject_after_each_mutant(tmp_path):
 
 
 @pytest.mark.slow
-def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation():
+@pytest.mark.timeout(_item_timeout_s("real-gate-row-end-to-end"))
+def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation(tmp_path):
     """RED, and the only assertion that exercises the {py} substitution.
 
     Everything above is structural over the registry text. If the substitution
@@ -4838,10 +4899,28 @@ def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation():
     notice. This drives one real row all the way through copy -> mutate -> gate
     and requires the four-state engine to return CAUGHT.
     """
+    # AGAINST A DETACHED COPY, NOT THE LIVE TREE, and this is a correctness fix
+    # rather than tidiness. bd-mutation-test snapshots TRACKED SOURCE, mutates,
+    # and compares; pointed at REPO it fails the moment any sibling test in a
+    # parallel run touches a tracked file --
+    #   _SnapshotError: tracked source changed between pristine and mutant trees
+    # -- which is what this test did under -n 12 the moment v3.66.1222 stopped
+    # the 240s bound killing it first. The timeout had been MASKING a race.
+    #
+    # bd-mutate already refuses this by construction: "refusing work that
+    # intersects the repository containing this bd-mutate ... Use a detached
+    # scratch copy." bd-mutation-test accepting --work REPO is the anomaly, and
+    # a test that measures a shared resource from inside a parallel suite
+    # measures the suite -- the same rule tests/test_v3_66_1046 states about
+    # counting a global directory, and backlog row 231 states about the process
+    # table.
+    work = _detached_clone(tmp_path / "detached")
+
     r = _run_tool(
         [sys.executable, str(MT), "--only", "route_index/spa_wired",
-         "--work", str(REPO), "--json"],
-        budget_s=600, what="bd-mutation-test", cwd=REPO)
+         "--work", str(work), "--json"],
+        budget_s=_budget_s("real-gate-row-end-to-end"),
+        what="bd-mutation-test", site="real-gate-row-end-to-end", cwd=str(work))
     row = _one_mutation_result(r, expected_id="route_index/spa_wired")
     state = row.get("state")
     assert state == "CAUGHT", (
@@ -4866,7 +4945,9 @@ def test_band_derive_selftest_actually_executes_its_controls():
     """
     env = {**os.environ, "PYTHONPATH": str(BIN)}
     r = _run_tool([sys.executable, str(BD), "--selftest"],
-                  budget_s=600, what="bd-band-derive", cwd=REPO, env=env)
+                  budget_s=_budget_s("band-derive-selftest"),
+                  what="bd-band-derive", site="band-derive-selftest",
+                  cwd=REPO, env=env)
     out = r.stdout + r.stderr
     assert "SKIP  no work tree" not in out, (
         "bd-band-derive still skipped its own controls and reported success:\n"
@@ -4904,10 +4985,37 @@ def test_band_derive_selftest_actually_executes_its_controls():
 # budget stays calibrated to measurement and the message names the ratio, so the
 # next reader can tell "slow" from "stuck" without re-deriving it.
 
-_MEASURED_S = {"bd-mutation-test": 25.8, "bd-band-derive": 2.0}
 
 
-def _run_tool(argv, *, budget_s, what, **kwargs):
+# A local clone of tracked files only. Measured at a few seconds inside a 38s
+# test; 120s is generous and, crucially, BELOW the 240s bound governing the item
+# -- the first draft of this helper used 300s, which the ratchet this same cut
+# ships caught immediately as a new over-bound site. The gate was right.
+_CLONE_BUDGET_S = 120
+
+
+def _detached_clone(dest):
+    """A tracked-files-only copy of this repository, for tools that mutate.
+
+    DELIBERATELY NOT INSIDE THE TEST. `test_the_tool_rows_go_through_the_
+    diagnosing_runner` forbids a bare `subprocess.run` in any function that
+    drives MT or BD, so that nobody can revert a tool call to an undiagnosed
+    subprocess and keep the timeout test green. That gate is right, and this
+    clone is SETUP rather than a tool invocation, so it belongs out here where
+    the rule does not apply and cannot be weakened to accommodate it.
+    """
+    result = subprocess.run(
+        ["git", "clone", "--quiet", "--no-hardlinks", str(REPO), str(dest)],
+        capture_output=True, text=True, timeout=_CLONE_BUDGET_S)
+    assert result.returncode == 0, (
+        "could not build a detached copy to mutate:\n%s" % result.stderr[-800:])
+    assert (dest / ".git").is_dir() and (dest / "tests").is_dir(), (
+        "the detached copy is not a usable repository, so a green result from "
+        "anything run against it would prove nothing")
+    return dest
+
+
+def _run_tool(argv, *, budget_s, what, site=None, **kwargs):
     """Run a whole-tree tool, converting a timeout into a DIAGNOSIS.
 
     Unknown is a third state and it fails -- this never downgrades a timeout to
@@ -4915,11 +5023,12 @@ def _run_tool(argv, *, budget_s, what, **kwargs):
     the measured baseline, and the one command that distinguishes a hang from
     ordinary slowness.
     """
+    started = time.monotonic()
     try:
-        return subprocess.run(argv, capture_output=True, text=True,
-                              timeout=budget_s, **kwargs)
+        result = subprocess.run(argv, capture_output=True, text=True,
+                                timeout=budget_s, **kwargs)
     except subprocess.TimeoutExpired as exc:
-        baseline = _MEASURED_S.get(what)
+        baseline = _MEASURED_S.get(site)
         ratio = f" (~{budget_s / baseline:.0f}x its measured {baseline}s)" if baseline else ""
         printable = " ".join(str(a) for a in argv)
         pytest.fail(
@@ -4933,6 +5042,20 @@ def _run_tool(argv, *, budget_s, what, **kwargs):
             f"only make the next occurrence burn longer before failing.\n"
             f"  partial stdout: {(exc.stdout or b'')[-1500:]!r}"
         )
+    # THE BASELINE POLICES ITSELF. Nothing but the run knows how long the run
+    # takes, and the table above was wrong by 8x precisely because nobody
+    # re-measured it. A site that outgrows its recorded cost says so here, while
+    # there is still headroom, rather than by crossing the item bound under load
+    # and taking its worker with it.
+    elapsed = time.monotonic() - started
+    baseline = _MEASURED_S.get(site)
+    if baseline is not None:
+        assert elapsed <= baseline * _CONTENTION_FACTOR, (
+            f"{what} took {elapsed:.1f}s against a recorded baseline of "
+            f"{baseline}s for site {site!r}. Re-measure it on an idle host and "
+            f"update _MEASURED_S; do not widen _CONTENTION_FACTOR to hide it."
+        )
+    return result
 
 
 def test_the_slow_marker_is_registered():
