@@ -62,6 +62,10 @@ DEFAULT_CORPUS = [
 # Most names are the bare ``<name>.redacted.wacz`` stem (the default), so only
 # the entries whose source filename differs from the fixture name are listed.
 CORPUS_SRC = {
+    # Row 176: the default ``reptyle.redacted.wacz`` is a mislabelled
+    # auth.wowgirls.com capture.  This independently verified source records
+    # app.reptyle.com and exercises the real Reptyle movie path.
+    "reptyle": "Reptyle-1.redacted.wacz",
     "theo":   "t_1619e7c3f01f442b_theo.redacted.wacz",
     "shaka":  "t_10852616644c4edf_shaka.redacted.wacz",
     "media":  "t_b1051d912ba2408f_media.redacted.wacz",

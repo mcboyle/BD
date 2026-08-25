@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1246 - the reptyle fixture is identified rather than labelled
+
+- Updated its HLS/video.js verdict pin in [expected_verdicts.json](/home/mboy
+- Added a complete 46-fixture identity gate with nonempty/count/origin/url pr
+- Wired the repo-wide gate into [CI](/home/mboyle/bd-codex-wt/row176/.github/
+- Added the durable [mutation spec](/home/mboyle/bd-codex-wt/row176/tests/mut
+- Full recognizer corpus: `52 passed in 166.97s`.
+- Final derived 37-file floor: `933 passed, 1 skipped, 3 warnings in 527.51s`.
+- The skip was the absent ignored release parity artifact.
+- CI shard/identity/import boundary: `21 passed`.
+- Release trio unchanged: 3/3.
+- CAUGHT: 3/3 behavior mutants, 100%.
+- ESCAPED: 0 behavior mutants.
+- INVALID/UNKNOWN/ERROR: 0.
+- Mutation scratch restored byte-identically, with no journal residue.
+
 ## v3.66.1245 - the release gate sees prose above the newest header
 
 -    preamble is instead the first non-heading prose block after the document
