@@ -9,6 +9,8 @@ import re
 import subprocess
 import pytest
 
+from ci_workflow_model import enabled_guard_lanes, guard_lanes
+
 
 BD_GATE_SCOPE = "repo-wide"
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,8 +66,30 @@ def test_guards_json_is_the_only_embedded_guard_hash_authority():
         text = (ROOT / rel).read_text()
         leaked = sorted(pin[:16] for pin in pins if pin[:16] in text)
         assert not leaked, f"{rel} duplicates guard pins: {leaked}"
-    ci = (ROOT / ".github/workflows/ci.yml").read_text()
-    assert "toolchain/bin/bd-guardcheck --tree" in ci
+    # Row 186. This used to be `assert "toolchain/bin/bd-guardcheck --tree" in
+    # ci` -- a substring standing in for a scheduling property it cannot see.
+    # `if: false`, `continue-on-error`, a narrowed pull_request trigger, the run
+    # line moved into a YAML comment and `echo '...'` all leave that substring
+    # exactly where it was. The parse below asks the question the substring was
+    # a proxy for: will GitHub run this step, and will a nonzero exit from
+    # bd-guardcheck fail the job? Whether the running command actually detects a
+    # tampered guard is the other half, and it is executed rather than parsed in
+    # tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py.
+    #
+    # Both messages below are REQUIRED, not stylistic: 1233 loads this module by
+    # path, without pytest's assertion rewriting, so a bare assert would raise
+    # AssertionError('') and its `match="bd-guardcheck"` clause could then be
+    # satisfied by nothing -- or, worse, by an unrelated assertion above.
+    lanes = guard_lanes(ROOT)
+    assert lanes, (
+        "no step in .github/workflows/ci.yml runs bd-guardcheck, so an "
+        "unannounced edit to a release guard reaches main unchallenged"
+    )
+    enabled = enabled_guard_lanes(ROOT)
+    assert enabled, (
+        "CI declares a bd-guardcheck step that will not run or will not fail "
+        "the job: " + "; ".join(lane.describe() for lane in lanes)
+    )
 
 
 def test_footgun_runtime_and_package_share_one_42_row_registry(tmp_path):

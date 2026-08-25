@@ -1,0 +1,88 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1233 row-186 battery. The retired check was one substring against .github/workflows/ci.yml text; the replacement is a parse of the workflow plus an EXECUTION of the lane's own run script against nine fixture trees. M1-M3 remove one structural rule each and a named evasion fixture must stop being rejected; M4-M5 attack the behavioural half, which is the only thing in the tree that can see a lane that runs, exits 0 and is checking the wrong subject. O1 is the anti-brittleness control: it pins the exact-token-tuple implementation an earlier proposal reached for, which still rejects every evasion and still accepts the live workflow -- and rejects a legitimate python3/$GITHUB_WORKSPACE/--guards spelling, turning the gate into one that cries wolf. RECORDED RATHER THAN GLOSSED: M1-M5 and O1 were 6 caught 0 escaped on the first run, which was suspicious rather than reassuring, because the same author picked the mutants and their catchers. A second probe battery was then aimed at three rules of the battery ITSELF that no test named, and all three ESCAPED: the clean control's requirement that the tool actually REPORT every guard ok (rc 0 alone was enough, which is precisely the historical bd-guardcheck defect of certifying a tree it never read), the requirement that a tampered run NAME the file that drifted rather than merely exit nonzero, and the reconciliation that stops an eighth entry entering guards.json without entering the loop. Three fixtures and one test were added for them -- output-discarded, drift-not-attributed, and the eighth-guard reconciliation -- and H6-H8 below are those three mutants, now caught.",
+  "subject": "v3.66.1233 -- CI's guard lane is judged by scheduling and by execution, not by a substring",
+  "band": [
+    "tests/test_v3_66_1167_safety_authorities_are_single_source.py",
+    "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the tool need only appear somewhere in the line, so echoing it counts as running it",
+      "file": "tests/ci_workflow_model.py",
+      "old": "        if tool in tokens and \"--selftest\" not in tokens:",
+      "new": "        if tool in line and \"--selftest\" not in tokens:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_a_disabled_or_faked_lane_is_rejected[echo-only]"
+    },
+    {
+      "label": "M2 the YAML 1.1 boolean `on` key is not resolved, so every trigger rule reads an empty mapping",
+      "file": "tests/ci_workflow_model.py",
+      "old": "    raw = document.get(\"on\", document.get(True))",
+      "new": "    raw = document.get(\"on\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_the_workflow_declares_an_enabled_guardcheck_lane"
+    },
+    {
+      "label": "M3 trigger narrowing is no longer a disqualifier, so a paths-ignore that skips the guarded trees is accepted",
+      "file": "tests/ci_workflow_model.py",
+      "old": "    return [f\"{label} trigger is narrowed by {key}: {trigger[key]!r}\"\n            for key in _NARROWING_KEYS if key in trigger]",
+      "new": "    return [f\"{label} trigger is narrowed by {key}: {trigger[key]!r}\"\n            for key in () if key in trigger]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_a_disabled_or_faked_lane_is_rejected[pr-paths-ignore]"
+    },
+    {
+      "label": "M4 the lane checks a subtree that holds no guards -- enabled, unchained, and structurally invisible",
+      "file": ".github/workflows/ci.yml",
+      "old": "--tree \"$PWD\"",
+      "new": "--tree \"$PWD/toolchain\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_the_ci_guard_lane_detects_drift_in_every_guarded_file"
+    },
+    {
+      "label": "M5 the battery stops tampering and only ever runs the clean fixture, so a lane blind to six of seven guards passes",
+      "file": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py",
+      "old": "    for index, tamper in enumerate((None, *GUARDED)):",
+      "new": "    for index, tamper in enumerate((None,)):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_a_structurally_perfect_lane_can_still_fail_the_battery[manifest-narrowed-to-one]"
+    },
+    {
+      "label": "H6 the clean control stops requiring the tool to report every guard ok",
+      "file": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py",
+      "old": "            elif clean_report not in proc.stdout:",
+      "new": "            elif not clean_report:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_a_structurally_perfect_lane_can_still_fail_the_battery[output-discarded]"
+    },
+    {
+      "label": "H7 a tampered run need only exit nonzero, not name the file that drifted",
+      "file": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py",
+      "old": "        elif len(drift) != 1 or tamper not in drift[0]:",
+      "new": "        elif proc.returncode == 0:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_a_structurally_perfect_lane_can_still_fail_the_battery[drift-not-attributed]"
+    },
+    {
+      "label": "H8 an eighth guard may enter guards.json without entering the battery",
+      "file": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py",
+      "old": "    assert set(GUARDED) == set(manifest), (",
+      "new": "    assert set(GUARDED) <= set(manifest), (",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_an_eighth_guard_cannot_enter_the_manifest_unexercised"
+    },
+    {
+      "label": "O1 the lane must match one exact token tuple, so a legitimate alternative invocation is rejected",
+      "file": "tests/ci_workflow_model.py",
+      "old": "        if tool in tokens and \"--selftest\" not in tokens:",
+      "new": "        if tokens == [\"env\", \"-u\", \"BD_INSTALL_DIR\", \"python\", tool, \"--tree\", '\"$PWD\"']:",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_benign_workflow_variants_are_still_accepted[different-valid-invocation]",
+      "preserves": [
+        "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_the_workflow_declares_an_enabled_guardcheck_lane",
+        "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_the_ci_guard_lane_detects_drift_in_every_guarded_file",
+        "tests/test_v3_66_1233_ci_really_executes_the_guard_lane.py::test_a_disabled_or_faked_lane_is_rejected[step-if-false]"
+      ]
+    }
+  ]
+}
