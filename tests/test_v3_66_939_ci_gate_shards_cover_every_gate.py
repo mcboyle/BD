@@ -126,6 +126,12 @@ _DECLARED = {
     # so the shard carrying them must be given node. This asserts that contract
     # from the tree rather than from a pinned shard name.
     "tests/test_v3_66_1218_vitest_delegating_shards_have_node.py",
+    # @1225, row 232. Generalises 1217 and 1218: it DERIVES every site in
+    # tracked tests/ and tools/ that reads frontend/src text, requires each to
+    # declare its population, and runs each product-only site against a planted
+    # tree whose two arms differ only in a filename. Repo-wide because a new
+    # scanner can appear in any file in that population.
+    "tests/test_v3_66_1225_spa_scanner_populations.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",

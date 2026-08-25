@@ -39,6 +39,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+if str(REPO / "tools") not in sys.path:
+    sys.path.insert(0, str(REPO / "tools"))
+
+import spa_population  # noqa: E402  (needs the sys.path insert above)
 
 SPA_SRC = REPO / "frontend" / "src"
 CAPTURE = SPA_SRC / "routes" / "CaptureWorkflow.tsx"
@@ -50,14 +54,25 @@ _DEAD_HASH_HREF = re.compile(r'href\s*=\s*["\']#/')
 
 
 def _tsx_files():
-    return sorted(SPA_SRC.rglob("*.tsx"))
+    """POPULATION: PRODUCT-ONLY (row 232). ``href="#/x"`` is a dead link on a
+    path-based BrowserRouter -- a property of what SHIPS. A Vitest spec is free
+    to plant one as a fixture or negative control, and letting it decide this
+    gate is the v3.66.1218 shape: a correct spec manufacturing a CI failure.
+    Returns absolute paths, unchanged in kind from the old rglob."""
+    selected, _ = spa_population.select(SPA_SRC, suffixes=("*.tsx",))
+    return [SPA_SRC / rel for rel in selected]
 
 
 def test_spa_src_present():
     """Sanity: the SPA source tree and the workflow file exist, so a future
-    move can't silently turn this gate into a vacuous pass."""
+    move can't silently turn this gate into a vacuous pass. Since row 232
+    narrowed the population, BOTH halves are proven -- a rule that ate every
+    product file would leave nothing to scan, and one that excluded nothing
+    would be untested by the real tree."""
     files = _tsx_files()
     assert files, f"no .tsx files found under {SPA_SRC}"
+    selected, excluded = spa_population.select(SPA_SRC, suffixes=("*.tsx",))
+    spa_population.require_both_halves(selected, excluded, "test_spa_src_present")
     assert CAPTURE.exists(), f"missing {CAPTURE}"
 
 

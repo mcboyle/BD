@@ -43,6 +43,13 @@ from urllib.parse import urljoin, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Imported by absolute path AND as ``tools.nav_reachability`` (see
+# tools/code_intelligence/reachability_service.py), so its own directory has to
+# be on sys.path before the sibling import can resolve either way.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import spa_population  # noqa: E402  (needs the sys.path insert above)
+
 # ── shared page-classification filters (v3.66.766: canonical HERE -- NOT a mirror.
 # These filters are defined only in this tool; there is no separate "audit" source
 # to keep in sync with. Earlier wording claimed a mirror that does not exist.) ─────
@@ -208,11 +215,23 @@ def check_server(verbose: bool = False) -> list[str]:
     src_cache: dict[str, str] = {}
 
     def _source_has_prefix(prefix: str) -> bool:
+        # POPULATION: PRODUCT-ONLY, and *.tsx-only. This is the FALLBACK
+        # evidence that a parametrised server route is linked from somewhere,
+        # so anything inside it can suppress an orphan report. The Python half
+        # already excludes tests/ -- it walks only bulk_downloader/ and tools/
+        # -- and the frontend half must agree: a route named by a Vitest spec
+        # is not a route the product links to. The suffix set is NOT widened
+        # to *.ts here on purpose; more voucher files would mean FEWER orphans
+        # reported, which is a silent loosening. See tools/spa_population.py.
         for base in ("bulk_downloader", "tools", "frontend/src"):
             d = ROOT / base
             if not d.exists():
                 continue
-            for p in list(d.rglob("*.py")) + list(d.rglob("*.tsx")):
+            if base == "frontend/src":
+                candidates = spa_population.product_files(d, ("*.tsx",))
+            else:
+                candidates = sorted(d.rglob("*.py"))
+            for p in candidates:
                 key = str(p)
                 if key not in src_cache:
                     try:
@@ -296,8 +315,11 @@ def check_spa(verbose: bool = False) -> list[str]:
     for m in re.finditer(r'<Route\s+path="([^"]+)"\s+element=\{<(\w+)', app_src):
         routes[m.group(1)] = m.group(2)
 
+    # POPULATION: PRODUCT-ONLY. The question is "can a USER reach this route by
+    # clicking?", so a <Link to="/x"> inside a Vitest spec must not answer it --
+    # a spec never ships and nobody clicks it. See tools/spa_population.py.
     files = {str(p): p.read_text(encoding="utf-8", errors="replace")
-             for p in list(src_dir.rglob("*.tsx")) + list(src_dir.rglob("*.ts"))}
+             for p in spa_population.product_files(src_dir, ("*.tsx", "*.ts"))}
 
     orphans: list[str] = []
     for route, comp in sorted(routes.items()):

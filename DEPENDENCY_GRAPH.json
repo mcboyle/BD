@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1644,
+    "edge_count": 1646,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -5033,6 +5033,10 @@
       "tools/safe_temp_remove.py": [
         "tools/reap_orphan_tempdirs.py"
       ],
+      "tools/spa_population.py": [
+        "tools/config_surface_inventory.py",
+        "tools/nav_reachability.py"
+      ],
       "tools/template_analytics.py": [
         "tools/template_statistics.py"
       ],
@@ -7463,7 +7467,8 @@
         "bulk_downloader/app_settings_center.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/site_editor.py",
-        "tools/report_core.py"
+        "tools/report_core.py",
+        "tools/spa_population.py"
       ],
       "tools/ct1_synth.py": [
         "bulk_downloader/capture_synth.py"
@@ -7567,7 +7572,8 @@
         "tools/capture_session.py"
       ],
       "tools/nav_reachability.py": [
-        "bulk_downloader/app.py"
+        "bulk_downloader/app.py",
+        "tools/spa_population.py"
       ],
       "tools/normalize_template_draft.py": [
         "bulk_downloader/template_normalize.py"
@@ -7832,7 +7838,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 225,
+    "total": 226,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",

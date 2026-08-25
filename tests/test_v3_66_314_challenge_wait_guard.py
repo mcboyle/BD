@@ -28,6 +28,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO))
 sys.path.insert(0, str(_REPO / "tools"))
+import spa_population  # noqa: E402  (needs the sys.path insert above)
 
 _PROMOTED = "BD_CHALLENGE_WAIT_S"
 
@@ -120,12 +121,16 @@ def test_ratchet_open_dropped():
 
 # ── SPA control present ──────────────────────────────────────────────────────
 def test_spa_challenge_wait_control_present():
-    blob = ""
-    for p in (_REPO / "frontend" / "src").rglob("*.ts*"):
-        try:
-            blob += p.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    # POPULATION: PRODUCT-ONLY (row 232). This is a positive-existence claim
+    # about the SHIPPED app, so a Vitest spec naming the token must not satisfy
+    # it -- that is the v3.66.1217 laundering, where a FIXTURE vouched for 14
+    # endpoints no product code called. require_both_halves keeps the narrowing
+    # honest: an empty product half would pass this gate vacuously, and an empty
+    # excluded half would mean the rule never fires on the real tree.
+    src_dir = _REPO / "frontend" / "src"
+    _sel, _exc = spa_population.select(src_dir)
+    spa_population.require_both_halves(_sel, _exc, "test_spa_challenge_wait_control_present")
+    blob = spa_population.product_text(src_dir)
     assert "challenge_wait_s" in blob
 
 
