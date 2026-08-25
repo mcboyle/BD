@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1242 - the history gate drives the route instead of reading it
+
+- THREE TEXT SCANS STOOD IN FOR RUNTIME CLAIMS, and the live hole is visible in
+  the tree: `tests/test_t2_history_wired.py:97` asserted
+  `not re.search(r"onClick=\{[^}]*\.mutate", route)` over History.tsx's raw
+  text, while `History.tsx:495-511` defines `onToggleAction` -- which dispatches
+  `savedUpdate.mutate` at `:500` with NO arm and NO dialog -- and wires it at
+  `:405-408` as a BARE IDENTIFIER. The string ".mutate" never appears inside an
+  onClick brace, so the regex reports clean on a real one-click write (row 182).
+- IT NOW DRIVES THE ROUTE, in the shape v3.66.1236 established for t7 rather
+  than the plan's single 9-test spec: four nodeids, three delegating to Vitest
+  and one reading the Vite manifest. One nodeid would have given a battery
+  nothing to attribute, and folding the manifest build into it would have made
+  every mutant pay for a `vite build`.
+- NO PRODUCT SOURCE WAS TOUCHED. History.tsx, App.tsx, useHistoryData.ts and
+  CommandPalette.tsx are byte-identical.
+- RED IN BOTH LAYERS, and one is a REAL BASE REPLAY. The gate rewritten before
+  any spec existed gives 3 failed / 1 passed with
+  `AssertionError: Vitest subject missing`. Then the replay: a one-mutant
+  scratch spec carrying row 182's OWN evasion -- `arm()` dispatching the vacuum
+  -- run at the unmodified parent against the OLD gate, ESCAPED with "band
+  stayed green with the behaviour broken".
+- MUTATION: 7 caught, 0 escaped, no first-run escapes, with catchers spread
+  across all four nodeids. Because a clean first battery is a reason to look
+  harder, five more rules that NO shipped mutant names were probed -- family
+  drift, raw mutating fetch, write-on-mount, dialog focus default, FTS firing on
+  mount -- and those were 5/5 caught too. Twelve for twelve.
+- ONE OPEN QUESTION IN THE PLAN IS SETTLED BY THAT PROBE: the
+  `activeElement != accept button` assertion is LOAD-BEARING, not decoration.
+
 ## v3.66.1241 - an observation gets its own clock, and the split lands
 
 - ROW 237'S DIAGNOSIS IS CONFIRMED AND ONE STEP OF IT SHARPENED.
