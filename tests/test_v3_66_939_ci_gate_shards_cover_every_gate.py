@@ -376,6 +376,13 @@ _DECLARED = {
     "tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
     "tests/test_history_records_whether_bytes_were_fetched.py",
     "tests/test_v3_66_972_library_missing_stays_retired.py",
+    # @1234, row 186. It judges .github/workflows/ci.yml itself -- whether the
+    # guard-drift lane is scheduled, failure-propagating, and actually detects a
+    # tampered guard when its own run script is executed. A gate about CI that
+    # CI does not run is the purest form of the defect it exists to close, and
+    # the workflow is not in any diff-derived band, so nothing else would pull
+    # it in on the pull request that disabled the step.
+    "tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
