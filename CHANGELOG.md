@@ -4,6 +4,75 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1231 - the census costs the group, and settlement gets its own clock
+
+- THE ROW'S PREMISE WAS STALE, AND SAYING SO IS PART OF THE ANSWER.
+  `_w1_live_in_group` no longer forks `ps -eo pgid=,pid=,stat=`; v3.66.1213 fixed
+  that and row 231 records it. There was nothing left to de-fork.
+- WHAT WAS STILL BROKEN, MEASURED RATHER THAN READ. `_w1_group_has_at_least`
+  checked the leader and then fell through to a walk of EVERY pid in /proc, and
+  `_w1_wait_for_gate` polls it every 10ms. RED, replayed on the defective
+  parent: **14048 per-pid /proc reads over 20 polls** against a 703-process
+  table -- 702 reads per poll, paying for the whole HOST to answer a question
+  about one GROUP. The assertion is a COUNT, not a clock, so it cannot be flaky
+  and cannot pass on a fast machine.
+- THE FIX IS TO DESCEND, NOT TO WALK. `_w1_children_of` reads
+  `/proc/<pid>/task/<tid>/children` and the probe walks the leader's subtree
+  transitively, stopping at `wanted`. GREEN: **20 reads over 20 polls.** Per
+  call, same interpreter, 60 reps at 796 processes: **31.891 ms -> 0.077 ms**
+  median.
+- THE COMPLETE CENSUS IS DELIBERATELY LEFT WALKING /proc. Absence needs a
+  complete denominator (A7), and descent from a leader that is GONE returns the
+  empty list for ANY group -- fail-OPEN on the one question that matters. Every
+  absence assertion keeps the complete census at ~34ms, and the probe keeps a
+  full-walk fallback for a leader not observable in its own group. The
+  fast path's boundary is proved to be a FALSE NEGATIVE by planting a sibling
+  `setpgid`'d into the group from outside the leader's subtree.
+- THE HONEST EFFECT SIZE IS SMALL and is reported as such: one poll loop asks for
+  two members, so the module-level saving is about a second. Row 231 had already
+  withdrawn the claim that the census explained the 414-431s local vs 97-119s CI
+  gap.
+- ONE CONSTANT WAS DOING TWO JOBS, IN THE PRODUCT THIS TIME. `bd-wedge-hunt`
+  declared `W1_GATE_SECONDS=10` and used it for the FORWARD gate protocol (4
+  sites) AND for SETTLEMENT (6 sites). A forward deadline is MEANT to expire; a
+  settlement deadline must not, because it runs after the outcome is decided. So
+  a test driving `reap_seconds=3` for the forward protocol handed settlement 3
+  seconds as a SIDE EFFECT, and a slow settlement replaced a correctly
+  classified 130 with the retained-uncertainty code 92. That is the 92-vs-130
+  failure the v3.66.1223 band saw, and it was NOT the budget defect it looked
+  like -- my own hypothesis was refuted by the runner's preserved diagnostics.
+- `W1_CLEANUP_SECONDS = 15` IS DERIVED, NOT CHOSEN. 24 serial repetitions driving
+  the real runner with a real SIGINT: median 2.4737s, max 2.6251s, all 24
+  classified 130. Two-sided, against the RUNNER's own bound rather than
+  pytest's: ceiling 15 <= reserve(20) - 5; floor 15 >= 2.4737 x 6.0 = 14.842.
+  The 6.0 is v3.66.1226's measured contention factor, named separately as
+  `_W1_RUNNER_CONTENTION_FACTOR` so moving one cannot silently move the other.
+  RESIDUAL, stated: 0.158s of floor margin is thin, and widening it means moving
+  the reserve.
+- THE SPLIT WAS BUILT, MEASURED, AND WITHHELD -- which is the part worth reading.
+  Splitting the module would end its reign as the suite's serial long pole, and
+  it does: 229.99s against the base's 420.85s. But `--dist loadfile` hands one
+  FILE to one worker, so the split is what FIRST makes these tests run
+  concurrently with each other, and that exposed a latent race. Matched
+  experiment, candidate against base 0209fce, `-n 12`, two interleaved rounds
+  plus the affected band: **candidate failed 2 of 3 runs, base failed 0 of 2.**
+  The two failures were DIFFERENT tests, both filesystem-shaped rather than
+  pgid-shaped, and each passes 3/3 in isolation. The pgid-isolation argument is
+  sound and is not what these failures are about. NEW ROW 237 carries the split,
+  its measurement, and acceptance criteria that require the race to be found
+  with a captured path or an exact count -- not an argument -- and the split arm
+  to fail 0 of at least 5 rounds before it lands. The patch and full evidence
+  are preserved at fleet-run-artifacts/2026-08-25/row231/.
+- MUTATION: 7 caught, 0 escaped. The two escapes v3.66.1226's shape predicted --
+  a collapsed contention factor and a restated baseline -- were hardened BEFORE
+  the first run rather than after: each derivation term is read separately, and
+  the baseline is compared at the 6.0x the deadline actually uses rather than
+  the tighter 3x warning factor.
+- The pid-recycling residual is filed as row 236 rather than absorbed: every
+  census here identifies a group by PGID alone, and a PGID is a PID. `pid_max`
+  is 4194304 against roughly 3.02M pids issued on test5, so wraparound is about
+  1.2M pids away -- bounded, not impossible.
+
 ## v3.66.1230 - the parity gate judges installers, not file extensions
 
 - THE GATE SCANNED `*.sh` AND CLAIMED SOMETHING ABOUT INSTALLERS. Its own test

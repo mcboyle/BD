@@ -2236,7 +2236,7 @@
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N250 WG8-ZERO-BUDGET",
       "new": "registration_settle_abort() {{\n    local W1_SETTLED_STATUS=\"$1\"\n    local W1_FALLBACK_STATUS=\"$2\"\n    local W1_ABORT_CONTEXT=\"$3\"\n    W1_IN_SETTLEMENT=1\n    registration_begin_cleanup_deadline 0 || :",
-      "old": "registration_settle_abort() {{\n    local W1_SETTLED_STATUS=\"$1\"\n    local W1_FALLBACK_STATUS=\"$2\"\n    local W1_ABORT_CONTEXT=\"$3\"\n    W1_IN_SETTLEMENT=1\n    registration_begin_cleanup_deadline \"$W1_GATE_SECONDS\" || :"
+      "old": "registration_settle_abort() {{\n    local W1_SETTLED_STATUS=\"$1\"\n    local W1_FALLBACK_STATUS=\"$2\"\n    local W1_ABORT_CONTEXT=\"$3\"\n    W1_IN_SETTLEMENT=1\n    registration_begin_cleanup_deadline \"$W1_CLEANUP_SECONDS\" || :"
     },
     {
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register",
@@ -2251,8 +2251,8 @@
       "direction": "regression",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
       "label": "R12-N252 SHORT-CAP-FIXTURE-EXTENSION",
-      "new": "        reap_seconds=3,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))",
-      "old": "        reap_seconds=1,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))"
+      "new": "        reap_seconds=3, cleanup_seconds=3,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))",
+      "old": "        reap_seconds=1, cleanup_seconds=1,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))"
     },
     {
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_delayed_extra_ready_frame_never_reaches_the_registrar",

@@ -1589,8 +1589,29 @@ W1_GATE_READ_FD=""
 W1_GATE_WRITE_FD=""
 PYTEST_PID=""
 
+# W1_GATE_SECONDS bounds the FORWARD gate protocol; W1_CLEANUP_SECONDS bounds
+# the SETTLEMENT paths that run after the outcome is already decided. They were
+# one constant until v3.66.1230 and that is the v3.66.1222 defect -- one key
+# describing two costs. The forward deadline is meant to expire when a gate
+# never arrives, so a caller may legitimately drive it to a small value; the
+# cleanup deadline must NOT expire on correct work, because expiry there
+# downgrades a KNOWN classification (a received SIGINT is exactly 130) to the
+# retained-uncertainty code 92. Sharing one constant meant shortening the
+# former silently shortened the latter. Bounds: the forward deadline is capped
+# at W1_TOTAL_SECONDS - W1_CLEANUP_RESERVE_SECONDS and the cleanup deadline at
+# W1_TOTAL_SECONDS, so the reserve (20s) is what governs the cleanup value.
+# 15 is DERIVED, not chosen: SIGINT-delivered to runner-exited measured
+# 2.4737s median over 24 serial repetitions on test5 (load 1.82, 979-process
+# table), and 2.4737 x 6.0 = 14.85 against the same contention factor
+# v3.66.1226 measured for this module. It clears the reserve by five seconds
+# and the measured cost by six times; that headroom is thin on the ceiling
+# side and the changelog says so rather than rounding it away.
+# registration_begin_cleanup_deadline is the discriminator: every one of its
+# call sites is a settlement path, and every forward phase still reads
+# W1_GATE_SECONDS.
 W1_READY_SECONDS=10
 W1_GATE_SECONDS=10
+W1_CLEANUP_SECONDS=15
 W1_REGISTRAR_SECONDS=30
 W1_RECONCILE_SECONDS=10
 W1_TOTAL_SECONDS=70
@@ -2513,7 +2534,7 @@ registration_settle_abort() {{
     local W1_FALLBACK_STATUS="$2"
     local W1_ABORT_CONTEXT="$3"
     W1_IN_SETTLEMENT=1
-    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_begin_cleanup_deadline "$W1_CLEANUP_SECONDS" || :
     registration_close_release
     registration_read_terminal
     W1_ABORT_FRAME="$W1_FRAME"
@@ -2641,11 +2662,11 @@ registration_fail_registered() {{
     if [ "$W1_STATUS_CLOSED" -eq 0 ] \
             && [[ "$W1_GATE_READ_FD" =~ ^[0-9]+$ ]] \
             && [ "${{W1_TERMINAL_EOF:-0}}" -ne 1 ]; then
-        registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+        registration_begin_cleanup_deadline "$W1_CLEANUP_SECONDS" || :
         registration_read_terminal || :
     fi
     registration_reconcile_known_id || :
-    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_begin_cleanup_deadline "$W1_CLEANUP_SECONDS" || :
     if [ "${{W1_TERMINAL_EOF:-0}}" -eq 1 ] \
             && [ "${{W1_TERMINAL_RELAY_OK:-0}}" -eq 1 ] \
             && registration_checked_gate_wait ANY; then
@@ -2676,7 +2697,7 @@ registration_settle_cancel() {{
             registration_copy_raw_jobid
         fi
     fi
-    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_begin_cleanup_deadline "$W1_CLEANUP_SECONDS" || :
     registration_close_release
     registration_close_terminal_parent_writer
     registration_handover_terminal_reader
@@ -2716,7 +2737,7 @@ registration_settle_setup() {{
     local W1_SETUP_CONTEXT="$1" W1_SETUP_GATE_ACCEPTED=0
     local W1_SETUP_RELAY_ACCEPTED=0
     W1_IN_SETTLEMENT=1
-    registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+    registration_begin_cleanup_deadline "$W1_CLEANUP_SECONDS" || :
     registration_close_release
     registration_close_terminal_parent_writer
     registration_handover_terminal_reader
@@ -2762,7 +2783,7 @@ registration_on_exit() {{
     registration_close_release
     registration_close_terminal_parent_writer
     if [ "${{W1_LIFECYCLE_INITIALIZED:-0}}" -eq 1 ]; then
-        registration_begin_cleanup_deadline "$W1_GATE_SECONDS" || :
+        registration_begin_cleanup_deadline "$W1_CLEANUP_SECONDS" || :
         if [[ "${{W1_ACTIVE_OWNER_PID:-}}" =~ ^[0-9]+$ ]]; then
             W1_SPAWN_PID="$W1_ACTIVE_OWNER_PID"
             W1_SPAWN_PARENT_PID="$$"
