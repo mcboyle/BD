@@ -11,12 +11,29 @@ ALLOWING RFC1918 LAN + loopback + public (Plex/Jellyfin/Home Assistant live on
 the LAN). Validated at BOTH registration and delivery (delivery re-check =
 DNS-rebind / hand-edited-DB defense).
 
-Self-contained (no pytest fixtures); literal IPs resolve locally, no network.
+WHY THIS FILE NO LONGER SKIPS ITSELF (v3.66.1229, backlog row 215).
+`requests` is declared in no requirements manifest -- it arrives only
+transitively, through requirements-cloak.txt's cloakbrowser[geoip] -> geoip2 ->
+requests, and that install step is NON-FATAL by design -- so its absence is a
+SUPPORTED posture, not a broken box. This file used to answer that posture with
+a module-level `pytest.importorskip("requests")`, which threw away MORE than the
+delivery tests: add_subscription never touches requests at all, so the two
+registration guards -- the F-APP05-03 entrypoint itself -- were being skipped for
+a dependency they do not have. A check that cannot see its subject must say so;
+a WHOLE-FILE skip says nothing about four different guards at once (CLAUDE.md A7).
+_deliver_one soft-imports requests inside its own body, so sys.modules is the
+seam; the minimal API it uses (post, and a response carrying status_code) is
+injected for the duration of each delivery test, and the missing-dependency
+return is asserted directly instead of being skipped past.
+
+Self-contained (no network); literal IPs resolve locally.
 """
 import os
 import json
+import sys
 import time
 import tempfile
+from types import SimpleNamespace
 
 os.environ.setdefault("BD_HOME", tempfile.mkdtemp())
 os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
@@ -24,19 +41,6 @@ os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 import pytest
 
 from bulk_downloader import webhooks
-
-# The module under test SOFT-imports requests and returns
-# {"ok": False, "error": "requests not installed"} without it, so the guard this
-# file exercises never runs on an install that lacks it. requests is declared in
-# no requirements manifest -- it arrives only transitively, through
-# requirements-cloak.txt's cloakbrowser[geoip] -> geoip2 -> requests, and that
-# install step is NON-FATAL by design -- so its absence is a supported posture,
-# not a broken box. MEASURED before this line existed: with requests blocked,
-# this file and its sibling SSRF file went to 7 failed / 2 passed (control, same
-# command, blocker removed: 9 passed) -- a missing dependency presenting as an
-# SSRF-guard failure. A check that cannot see its subject must SAY so (CLAUDE.md
-# section 0). A skip says so; a failure lies about which thing is broken.
-requests = pytest.importorskip("requests")
 
 _BAD = [
     "http://169.254.169.254/latest/meta-data/",  # cloud metadata / link-local
@@ -53,13 +57,18 @@ _GOOD = [
 
 
 # ---- F-APP05-03: entrypoint (add_subscription) ----
+# These two need NO HTTP library at all: add_subscription calls
+# hooks._validate_webhook_url and writes SQLite. They were collateral damage of
+# the module-level importorskip this cut removed.
 def test_add_subscription_rejects_ssrf_hosts():
+    assert _BAD, "empty _BAD would make this pass over nothing"
     for bad in _BAD:
         assert webhooks.add_subscription(url=bad, events=["download.done"]) is None, \
             f"add_subscription must reject SSRF host: {bad}"
 
 
 def test_add_subscription_allows_lan_and_public():
+    assert _GOOD, "empty _GOOD would make this pass over nothing"
     for good in _GOOD:
         sid = webhooks.add_subscription(url=good, events=["download.done"])
         assert isinstance(sid, int), f"add_subscription must allow: {good}"
@@ -79,46 +88,145 @@ def _insert_raw_sub(url):
         return cur.lastrowid
 
 
-def _drive_deliver(url, sid_offset):
-    sid = _insert_raw_sub(url)
-    calls = {"n": 0, "url": None}
+def _install_requests(monkeypatch, calls):
+    """Inject the MINIMAL requests API _deliver_one actually uses.
 
+    _deliver_one does `import requests` in its own body, so sys.modules is the
+    seam. monkeypatch.setitem restores the previous entry whether the real
+    package was present or absent, which is what makes this file
+    posture-independent."""
     class _Resp:
         status_code = 200
 
     def fake_post(u, *a, **k):
         calls["n"] += 1
         calls["url"] = u
+        calls["kwargs"] = k
         return _Resp()
 
-    orig = requests.post
-    requests.post = fake_post
-    try:
-        res = webhooks._deliver_one({"subscription_id": sid, "payload": "{}",
-                                     "event_name": "download.done", "id": sid_offset})
-    finally:
-        requests.post = orig
+    fake = SimpleNamespace(post=fake_post)
+    monkeypatch.setitem(sys.modules, "requests", fake)
+    # PRECONDITION: the seam is really the injected object, so a host that HAS
+    # requests installed is measuring the same thing as one that does not.
+    assert sys.modules["requests"] is fake
+    return fake
+
+
+def _hide_requests(monkeypatch):
+    """Reproduce the supported posture in which the distribution is absent.
+    A None entry makes `import requests` raise ImportError, which is what
+    _deliver_one catches."""
+    monkeypatch.setitem(sys.modules, "requests", None)
+
+
+def _drive_deliver(url, sid_offset, monkeypatch):
+    sid = _insert_raw_sub(url)
+    calls = {"n": 0, "url": None, "kwargs": None}
+    _install_requests(monkeypatch, calls)
+    res = webhooks._deliver_one({"subscription_id": sid, "payload": "{}",
+                                 "event_name": "download.done", "id": sid_offset})
     return calls, res
 
 
-def test_deliver_blocks_ssrf_even_if_stored():
-    calls, res = _drive_deliver("http://169.254.169.254/latest/meta-data/", 9001)
+def test_deliver_blocks_ssrf_even_if_stored(monkeypatch):
+    calls, res = _drive_deliver("http://169.254.169.254/latest/meta-data/", 9001,
+                                monkeypatch)
     assert calls["n"] == 0, "delivery must NOT POST to a cloud-metadata URL"
     assert res.get("ok") is False, res
+    # The missing-dependency return is also ok=False, so name the refusal: a
+    # blocked target must not be laundered by an absent package.
+    assert "blocked url" in (res.get("error") or ""), \
+        f"refused for the wrong reason -- the guard never ran: {res!r}"
+    assert res.get("permanent") is True, res
 
 
-def test_deliver_allows_lan_receiver():
-    calls, res = _drive_deliver("http://192.168.1.50/hook", 9002)
+def test_deliver_allows_lan_receiver(monkeypatch):
+    calls, res = _drive_deliver("http://192.168.1.50/hook", 9002, monkeypatch)
     assert calls["n"] == 1 and calls["url"] == "http://192.168.1.50/hook", calls
     assert res.get("ok") is True, res
 
 
+def test_deliver_allows_public_receiver(monkeypatch):
+    """Over-sensitivity control on the other side of the policy, plus the
+    redirect contract.
+
+    LAN is allowed here by operator decision, so a LAN-only positive control
+    could not tell "policy applied" from "policy inverted". A public receiver
+    must also be delivered to -- and with allow_redirects=False, because
+    following a redirect would hand the delivery back to requests' own engine
+    and let a public receiver bounce the POST inward."""
+    calls, res = _drive_deliver("http://93.184.216.34/webhook", 9003, monkeypatch)
+    assert calls["n"] == 1 and calls["url"] == "http://93.184.216.34/webhook", calls
+    assert res.get("ok") is True, res
+    assert calls["kwargs"].get("allow_redirects") is False, \
+        f"delivery must not follow redirects: {calls['kwargs']!r}"
+
+
+def test_deliver_reports_supported_missing_requests_posture(monkeypatch):
+    """The one genuinely requests-dependent behaviour, asserted rather than
+    skipped. It says the seam DEGRADES -- not that any guard holds."""
+    sid = _insert_raw_sub("http://93.184.216.34/webhook")
+    _hide_requests(monkeypatch)
+    res = webhooks._deliver_one({"subscription_id": sid, "payload": "{}",
+                                 "event_name": "download.done", "id": 9004})
+    assert res == {"ok": False, "error": "requests not installed"}, res
+
+
+def test_requests_seam_restores_sys_modules_in_either_order(monkeypatch):
+    """The injection must not leak into the rest of the session, in EITHER
+    order. A leaked sys.modules['requests'] is a suite-wide hazard: every later
+    test importing requests would silently get a one-method SimpleNamespace."""
+    sentinel = object()
+    original_present = "requests" in sys.modules
+    original_value = sys.modules.get("requests", sentinel)
+    sid = _insert_raw_sub("http://93.184.216.34/webhook")
+
+    def assert_restored():
+        assert ("requests" in sys.modules) is original_present, \
+            "sys.modules['requests'] presence was not restored"
+        assert sys.modules.get("requests", sentinel) is original_value, \
+            "sys.modules['requests'] was replaced beyond the test that injected it"
+
+    def available():
+        with monkeypatch.context() as scoped:
+            calls = {"n": 0, "url": None, "kwargs": None}
+            _install_requests(scoped, calls)
+            res = webhooks._deliver_one({"subscription_id": sid, "payload": "{}",
+                                         "event_name": "download.done", "id": 9005})
+            assert res.get("ok") is True and calls["n"] == 1, (res, calls)
+        assert_restored()
+
+    def missing():
+        with monkeypatch.context() as scoped:
+            _hide_requests(scoped)
+            res = webhooks._deliver_one({"subscription_id": sid, "payload": "{}",
+                                         "event_name": "download.done", "id": 9006})
+            assert res == {"ok": False, "error": "requests not installed"}, res
+        assert_restored()
+
+    assert_restored()
+    available()
+    missing()
+    missing()
+    available()
+
+
 if __name__ == "__main__":
+    import inspect
     import traceback
     for n in [k for k in sorted(dict(globals())) if k.startswith("test_")]:
+        fn = globals()[n]
+        # Fixture-taking tests are RUN here too, with a real MonkeyPatch, rather
+        # than quietly passed over: a script runner that silently drops half its
+        # subjects is the same defect this file was cut to remove.
+        mp = pytest.MonkeyPatch() if "monkeypatch" in inspect.signature(fn).parameters else None
         try:
-            globals()[n](); print(f"PASS  {n}")
+            fn(mp) if mp is not None else fn()
+            print(f"PASS  {n}")
         except AssertionError as e:
             print(f"FAIL  {n}: {e}")
         except Exception:
             print(f"ERROR {n}"); traceback.print_exc()
+        finally:
+            if mp is not None:
+                mp.undo()

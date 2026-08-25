@@ -1,5 +1,6 @@
 """Cut 8: live tests state current contracts and skip evidence is exact."""
 
+import importlib
 import os
 import subprocess
 import sys
@@ -151,10 +152,19 @@ def test_skip_baseline_is_exact_identity_reason_data_not_a_count():
     path = ROOT / "tests/SKIP_BASELINE.json"
     ordinary, collection = SB._read_baseline(path)
 
-    assert (len(ordinary), len(collection)) == (39, 2)
-    assert len(ordinary | collection) == 41
+    assert (len(ordinary), len(collection)) == (39, 0)
+    assert len(ordinary | collection) == 39
     assert set(ordinary).isdisjoint(collection)
+    # The namespace rule stays -- it is the standing invariant for any future
+    # row -- but an all() over an EMPTY map proves nothing, so the emptiness is
+    # asserted by name as well (CLAUDE.md A7). v3.66.1229 (backlog row 215)
+    # emptied this namespace: the two SSRF modules that occupied it now execute
+    # without the optional `requests` distribution, so leaving a policy row in
+    # place would make the whole-file skip legal again.
     assert all(identity.startswith("<collection>::") for identity in collection)
+    assert not collection, (
+        "a collection-skip policy row is back -- a whole-file skip is exactly "
+        f"the shape row 215 removed: {sorted(collection)}")
 
 
 def test_config_parity_parking_is_visible_as_skip_not_pass():
@@ -217,3 +227,265 @@ def test_a_parked_test_that_returns_early_is_not_mistaken_for_skipped():
     assert "return  # ratchet parked" not in evaded, (
         "the evasion used the one banned spelling; it must use a different one")
     assert "return  # parked by operator" in evaded
+
+
+# ── Row 215: an SSRF guard must not vanish with an optional distribution ─────
+#
+# `requests` is declared in NO requirements manifest -- it arrives only
+# transitively through requirements-cloak.txt, whose install step is NON-FATAL
+# by design -- so a box without it is a SUPPORTED posture, not a broken one.
+# Until v3.66.1229 the two subscription/weather SSRF modules answered that
+# posture with a module-level `pytest.importorskip("requests")`, so on exactly
+# the install where nobody is watching, every SSRF guard they exist to prove
+# reported nothing at all. A whole-file collection skip is the most complete
+# form of CLAUDE.md A7's central failure: a gate that cannot see its subject.
+#
+# The product seams are unchanged -- site_weather.probe_http and
+# webhooks._deliver_one still soft-import `requests` and still return
+# {"ok": False, "error": "requests not installed"} without it. What changed is
+# that the TESTS now inject the minimal API those seams use, so the guard's own
+# logic (URL parsing, address classification, per-hop redirect policy,
+# allow/deny) is proved with no HTTP distribution present.
+#
+# WHY A CHILD PROCESS. The posture is a property of the interpreter's import
+# system, and the parent here may well have `requests` installed. Only a child
+# whose meta_path refuses the name can answer the question, and it must prove
+# the refusal IS EFFECTIVE in the same process that ran the tests -- an
+# installed-but-inert blocker would make every claim below vacuous.
+_SSRF_FILES = (
+    "tests/test_v3_66_550_weather_ssrf.py",
+    "tests/test_webhooks_subscription_ssrf.py",
+)
+
+# INDEPENDENT DENOMINATOR. Pinned here rather than read back from the files
+# under test, so that deleting a guard fails this gate instead of quietly
+# shrinking its own expectation (CLAUDE.md A7). Kept a REQUIRED SUBSET, not an
+# equality: adding a guard must not be a failure, and the zero-skip plus
+# collected==executed assertions below close the drift the subset leaves open.
+_SSRF_REQUIRED_NODEIDS = frozenset({
+    "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_loopback",
+    "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_cgnat",
+    "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_link_local_metadata",
+    "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_redirect_to_private",
+    "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_allows_public_reaches_fetch",
+    "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_reports_supported_missing_requests_posture",
+    "tests/test_v3_66_550_weather_ssrf.py::test_requests_seam_restores_sys_modules_in_either_order",
+    "tests/test_webhooks_subscription_ssrf.py::test_add_subscription_rejects_ssrf_hosts",
+    "tests/test_webhooks_subscription_ssrf.py::test_add_subscription_allows_lan_and_public",
+    "tests/test_webhooks_subscription_ssrf.py::test_deliver_blocks_ssrf_even_if_stored",
+    "tests/test_webhooks_subscription_ssrf.py::test_deliver_allows_lan_receiver",
+    "tests/test_webhooks_subscription_ssrf.py::test_deliver_allows_public_receiver",
+    "tests/test_webhooks_subscription_ssrf.py::test_deliver_reports_supported_missing_requests_posture",
+    "tests/test_webhooks_subscription_ssrf.py::test_requests_seam_restores_sys_modules_in_either_order",
+})
+
+_SSRF_COLLECTION_IDENTITIES = (
+    "<collection>::tests.test_v3_66_550_weather_ssrf",
+    "<collection>::tests.test_webhooks_subscription_ssrf",
+)
+
+# Loaded with `-p`, so it runs before conftest collection. It writes its own
+# verdict to a marker file: the gate reads that marker rather than trusting
+# that installing a finder made the name unimportable.
+_POSTURE_PLUGIN = '''"""Reproduce (or merely record) the optional-`requests` posture."""
+import importlib
+import os
+import sys
+
+_BLOCK = os.environ.get("BD_REQUESTS_BLOCK") == "1"
+_NAME = "requests"
+
+
+class _Refuse:
+    """A meta_path finder that refuses one distribution by name."""
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == _NAME or fullname.startswith(_NAME + "."):
+            raise ModuleNotFoundError(
+                "No module named %r" % fullname, name=fullname)
+        return None
+
+
+if _BLOCK:
+    for _loaded in [m for m in list(sys.modules)
+                    if m == _NAME or m.startswith(_NAME + ".")]:
+        del sys.modules[_loaded]
+    sys.meta_path.insert(0, _Refuse())
+
+try:
+    importlib.import_module(_NAME)
+except ModuleNotFoundError as _exc:
+    _VERDICT = "ABSENT"
+else:
+    _VERDICT = "PRESENT"
+
+with open(os.environ["BD_REQUESTS_MARKER"], "w", encoding="utf-8") as _fh:
+    _fh.write(_VERDICT)
+'''
+
+
+def _run_ssrf_lane(tmp_path, *, block):
+    """Run both SSRF modules in a child interpreter and return
+    (posture, nodeid -> outcome).  `posture` is what the CHILD measured."""
+    import xml.etree.ElementTree as ET
+
+    lane = tmp_path / ("blocked" if block else "ambient")
+    (lane / "plug").mkdir(parents=True)
+    (lane / "plug" / "bd_requests_posture.py").write_text(
+        _POSTURE_PLUGIN, encoding="utf-8")
+    marker = lane / "posture.txt"
+    report = lane / "report.xml"
+    home = lane / "home"
+    home.mkdir()
+
+    env = {k: v for k, v in os.environ.items() if k != "BD_INSTALL_DIR"}
+    env.update({
+        "BD_DISABLE_KEEPALIVE": "1",
+        "BD_HOME": str(home),
+        "BD_REQUESTS_MARKER": str(marker),
+        "BD_REQUESTS_BLOCK": "1" if block else "0",
+        "LC_ALL": "C",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    })
+    inherited = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (str(lane / "plug") + os.pathsep + inherited
+                         if inherited else str(lane / "plug"))
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", *(_SSRF_FILES), "-p", "no:randomly",
+         "-p", "bd_requests_posture", "-q", "--timeout=120", "--tb=short",
+         f"--junitxml={report}", f"--basetemp={lane / 'pt'}"],
+        # BOUNDED BELOW THE BOUND THAT GOVERNS THIS ITEM (v3.66.1226's rule).
+        # 600s is above the 240s pytest-timeout bound, which makes the
+        # `except subprocess.TimeoutExpired` handler DEAD CODE -- pytest-timeout
+        # kills the process first and the test can never report the failure it
+        # was written to report. v3.66.1229's own budget ratchet caught this in
+        # CI, which is what that ratchet is for.
+        #
+        # MEASURED: both posture arms together take 5.62s on an idle test5
+        # (load 3.80). The rule is max(30s floor, measured x 6); at ~6s per arm
+        # that gives 36s. 120 is used instead because CI runs on a 4-core runner
+        # where this same file's sibling arm is several times slower, and the
+        # ceiling is 240 - 30 = 210, so 120 clears both hazards with room.
+        cwd=ROOT, capture_output=True, text=True, env=env, timeout=120)
+
+    # PRECONDITION: the child says what it could import. Without this the whole
+    # lane could be measuring the wrong interpreter posture.
+    assert marker.exists(), (
+        "the posture plugin never ran, so nothing below is about the "
+        f"requests-less posture. rc={proc.returncode}\n{proc.stdout[-3000:]}")
+    posture = marker.read_text(encoding="utf-8").strip()
+    assert posture in {"ABSENT", "PRESENT"}, posture
+
+    assert report.exists(), (
+        f"no JUnit report from the SSRF lane. rc={proc.returncode}\n"
+        f"{proc.stdout[-3000:]}\n{proc.stderr[-2000:]}")
+    root = ET.parse(report).getroot()
+    suite = root.find("testsuite") if root.tag == "testsuites" else root
+    outcomes = {}
+    for case in suite.iter("testcase"):
+        # A module-level collection skip has an EMPTY classname and carries the
+        # dotted module path in `name`; naming it as `<classname>.py::<name>`
+        # would print a nonsense identity for the one row that matters most.
+        classname, name = case.get("classname", ""), case.get("name", "")
+        nodeid = (classname.replace(".", "/") + ".py::" + name
+                  if classname else name)
+        if case.find("skipped") is not None:
+            outcomes[nodeid] = "skipped"
+        elif case.find("failure") is not None:
+            outcomes[nodeid] = "failed"
+        elif case.find("error") is not None:
+            outcomes[nodeid] = "error"
+        else:
+            outcomes[nodeid] = "passed"
+    return posture, outcomes
+
+
+def _parent_can_import_requests():
+    """Measure THIS interpreter the same way the child plugin measures its own.
+
+    NOT importlib.util.find_spec: a meta_path finder that refuses a name by
+    RAISING -- which is how this posture is reproduced here, and how a capture
+    box that hides the package behaves -- makes find_spec propagate
+    ModuleNotFoundError instead of returning None, so the probe would FAIL
+    rather than answer. MEASURED at v3.66.1229: the first draft of the control
+    below did exactly that, erroring on the requests-less posture it exists to
+    describe. Asking for the import is the question actually being asked."""
+    try:
+        importlib.import_module("requests")
+    except ImportError:
+        return False
+    return True
+
+
+def test_the_ssrf_guards_execute_with_requests_unimportable(tmp_path):
+    """The row-215 subject, measured rather than read.
+
+    RED before v3.66.1229: both modules carried a module-level
+    `pytest.importorskip("requests")`, so this lane collected TWO module skips
+    and executed ZERO guards -- an SSRF check reporting OK over a denominator
+    that structurally excluded every one of its assertions."""
+    posture, outcomes = _run_ssrf_lane(tmp_path, block=True)
+
+    # PRECONDITION, from the child that ran the tests: the name really is gone.
+    assert posture == "ABSENT", (
+        "the blocker did not make `requests` unimportable in the child, so "
+        "this lane is not the supported requests-less posture")
+
+    skipped = sorted(n for n, o in outcomes.items() if o == "skipped")
+    assert not skipped, (
+        "SSRF guards skipped on the requests-less posture -- the exact "
+        f"deferred-coverage shape row 215 exists to remove: {skipped}")
+
+    executed = sorted(outcomes)
+    # NONZERO DENOMINATOR, asserted as a count so an empty lane cannot pass.
+    assert len(executed) >= len(_SSRF_REQUIRED_NODEIDS), (
+        f"only {len(executed)} SSRF nodeids executed without `requests`; "
+        f"expected at least {len(_SSRF_REQUIRED_NODEIDS)}: {executed}")
+    missing = sorted(_SSRF_REQUIRED_NODEIDS - set(executed))
+    assert not missing, f"required SSRF guards did not run: {missing}"
+    bad = sorted(n for n, o in outcomes.items() if o != "passed")
+    assert not bad, f"SSRF guards did not pass without `requests`: {bad}"
+
+
+def test_the_same_ssrf_guards_execute_when_requests_is_installed(tmp_path):
+    """OVER-SENSITIVITY CONTROL. Injecting a fake must not cost the ambient
+    posture: with whatever the host actually has, the same guards run and pass,
+    and none of them silently skips.
+
+    The two arms coincide on a host that genuinely lacks `requests`; that is a
+    true statement about such a host, not a hidden skip, and the postures are
+    asserted against each other so the coincidence is visible."""
+    ambient, outcomes = _run_ssrf_lane(tmp_path, block=False)
+    blocked_posture = "ABSENT"
+
+    parent_has = _parent_can_import_requests()
+    assert ambient == ("PRESENT" if parent_has else "ABSENT"), (
+        f"child measured requests={ambient} while the parent measured "
+        f"{'PRESENT' if parent_has else 'ABSENT'}; the lanes do not share an "
+        "import posture and the control proves nothing")
+    if ambient == blocked_posture:
+        # Say so rather than imply a comparison that was not made.
+        assert not parent_has, "posture bookkeeping is inconsistent"
+
+    skipped = sorted(n for n, o in outcomes.items() if o == "skipped")
+    assert not skipped, (
+        f"SSRF guards skipped on the ambient ({ambient}) posture: {skipped}")
+    missing = sorted(_SSRF_REQUIRED_NODEIDS - set(outcomes))
+    assert not missing, f"required SSRF guards did not run: {missing}"
+    bad = sorted(n for n, o in outcomes.items() if o != "passed")
+    assert not bad, f"SSRF guards did not pass with requests={ambient}: {bad}"
+
+
+def test_neither_ssrf_module_is_allowlisted_as_a_collection_skip():
+    """The policy exemption must be GONE, not merely unused.
+
+    Row 215's acceptance is two-sided: the guards execute, AND the baseline
+    stops permitting them not to. While the rows stand, a reintroduced
+    module-level skip is silently legal again."""
+    ordinary, collection = SB._read_baseline(ROOT / "tests/SKIP_BASELINE.json")
+    assert ordinary, "skip baseline parsed no ordinary rows -- nothing examined"
+    still_permitted = [i for i in _SSRF_COLLECTION_IDENTITIES if i in collection]
+    assert not still_permitted, (
+        "requests-less SSRF guards are still allowlisted at collection: "
+        f"{still_permitted}")

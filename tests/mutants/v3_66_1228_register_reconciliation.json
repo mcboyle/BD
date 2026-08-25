@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1228 register reconciliation. NOTE ON PROVENANCE: the PARKED gate cannot be proved RED by copying it onto the parent tree, because the status vocabulary it asserts lives in that same file and travels with it. Its real proof is HERE -- each mutant removes one half of the contract and the gate must fail. Recorded rather than glossed: a test whose RED provenance is a battery and not a replay should say so.",
+  "_comment": "v3.66.1228 register reconciliation. NOTE ON PROVENANCE: the PARKED gate cannot be proved RED by copying it onto the parent tree, because the status vocabulary it asserts lives in that same file and travels with it. Its real proof is HERE -- each mutant removes one half of the contract and the gate must fail. Recorded rather than glossed: a test whose RED provenance is a battery and not a replay should say so. M4 WAS RE-ANCHORED AT v3.66.1229. Its first form matched the literal header text `rows=231 open=26 ids-sha256=`, and the very next cut to close a row changed that count to 25, so bd-mutate's exactly-once contract refused the whole battery. An anchor that embeds a value every future cut edits is a maintenance trap, and pinning a MUTABLE COUNT is the clearest form of it. The mutant now lives in the gate's own arithmetic, where the property -- only OPEN is available work -- is stable.",
   "subject": "v3.66.1228 -- the register can hold PARKED, and closures cite evidence",
   "band": [
     "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
@@ -32,10 +32,10 @@
       "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
     },
     {
-      "label": "M4 the published open count drifts from the rows it claims to summarise",
-      "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
-      "old": "rows=231 open=26 ids-sha256=",
-      "new": "rows=231 open=30 ids-sha256=",
+      "label": "M4 'open' silently means 'not closed', so PARKED and MOOT rows are counted as available work",
+      "file": "tests/test_v3_66_1164_one_task_authority.py",
+      "old": "    open_count = sum(status == \"OPEN\" for _, status, _ in rows)",
+      "new": "    open_count = sum(status != \"CLOSED\" for _, status, _ in rows)",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
     },

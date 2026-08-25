@@ -1,0 +1,52 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1229 / backlog row 215. Re-run from a DETACHED clone with: /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1229_optional_requests_ssrf.json --work /tmp/<clone>. SCORE THIS ON THE AMBIENT POSTURE (5/5 CAUGHT at 7c5a198): M5 makes the webhook module vanish at COLLECTION, so on an interpreter that itself cannot import requests the band collects 16 and executes 17 and bd-mutate returns UNKNOWN for M5 by construction, not because the catcher failed to fire. M5's catcher blocks requests inside its own child either way.",
+  "subject": "the weather and subscription-webhook SSRF guards execute their real request branches with no `requests` distribution installed, and the gate that proves it cannot be de-wired by restoring a module-level importorskip",
+  "band": [
+    "tests/test_v3_66_550_weather_ssrf.py",
+    "tests/test_webhooks_subscription_ssrf.py",
+    "tests/test_v3_66_1168_tests_are_current_contracts.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass the weather target AND redirect-hop host validation",
+      "file": "bulk_downloader/site_weather.py",
+      "old": "            if not ok:\n                raise SSRFBlocked(reason)",
+      "new": "            if False and not ok:\n                raise SSRFBlocked(reason)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_loopback"
+    },
+    {
+      "label": "M2 launder every weather probe through the missing-dependency return despite an injected requests API",
+      "file": "bulk_downloader/site_weather.py",
+      "old": "    try:\n        import requests\n    except ImportError:\n        return {\"ok\": False, \"error\": \"requests not installed\"}",
+      "new": "    try:\n        raise ImportError(\"bd-mutate: forced missing-dependency posture\")\n    except ImportError:\n        return {\"ok\": False, \"error\": \"requests not installed\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_allows_public_reaches_fetch"
+    },
+    {
+      "label": "M3 bypass delivery-time re-validation of the stored subscription URL",
+      "file": "bulk_downloader/webhooks.py",
+      "old": "    if not _ok:\n        return {\"ok\": False, \"error\": f\"blocked url: {_why}\", \"permanent\": True}",
+      "new": "    if False and not _ok:\n        return {\"ok\": False, \"error\": f\"blocked url: {_why}\", \"permanent\": True}",
+      "direction": "regression",
+      "catcher": "tests/test_webhooks_subscription_ssrf.py::test_deliver_blocks_ssrf_even_if_stored"
+    },
+    {
+      "label": "M4 hand webhook delivery back to requests' own redirect engine",
+      "file": "bulk_downloader/webhooks.py",
+      "old": "        r = requests.post(url, data=body_bytes, headers=headers,\n                         timeout=10, allow_redirects=False)",
+      "new": "        r = requests.post(url, data=body_bytes, headers=headers,\n                         timeout=10, allow_redirects=True)",
+      "direction": "regression",
+      "catcher": "tests/test_webhooks_subscription_ssrf.py::test_deliver_allows_public_receiver"
+    },
+    {
+      "label": "M5 restore the module-level importorskip that made the whole webhook SSRF file vanish on the requests-less posture",
+      "file": "tests/test_webhooks_subscription_ssrf.py",
+      "old": "from bulk_downloader import webhooks\n",
+      "new": "from bulk_downloader import webhooks\n\nrequests = pytest.importorskip(\"requests\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1168_tests_are_current_contracts.py::test_the_ssrf_guards_execute_with_requests_unimportable"
+    }
+  ]
+}
