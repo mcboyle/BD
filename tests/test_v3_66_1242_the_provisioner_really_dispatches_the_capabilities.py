@@ -81,8 +81,10 @@ BD_GATE_SCOPE = "repo-wide"
 ROOT = Path(__file__).resolve().parents[1]
 SCAN_GATE = ROOT / "tests" / "test_v3_66_1064_provisioning_paths_do_not_diverge.py"
 
-# MEASURED on test5 at this base: the extracted run_step unit runs in well under
-# a second. max(30, 6 x measured) = 30s, under the suite's 240s bound.
+# MEASURED on test5 at this base, worst of 5 consecutive runs of the extracted
+# run_step unit: 0.029s wall (0.025/0.024/0.029/0.024/0.025, load ~7).
+# max(30, 6 x 0.029) = max(30, 0.18) = 30s, well under the 240s pytest bound in
+# the sanctioned suite command, so the TimeoutExpired arm can actually fire.
 UNIT_BUDGET_S = 30
 
 
