@@ -50,6 +50,8 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import registrable_domain_census  # noqa: E402  (after the path insert above)
 
 
 def _rd():
@@ -175,8 +177,15 @@ def _joins_last_two_labels(fn: ast.FunctionDef) -> bool:
                     and isinstance(body[0].value, ast.Constant)
                     and isinstance(body[0].value.value, str)):
                 node.body = body[1:] or [ast.Pass()]
-    code = ast.unparse(stripped)
-    return ("split('.')" in code or 'split(".")' in code) and "[-2:]" in code
+    # THE VERDICT IS A VALUE, NOT A SPELLING (backlog row 189). Two substrings
+    # judged the CHARACTERS of the rule while claiming something about its
+    # ANSWER, so every behavioural twin walked past: `p[-2] + '.' + p[-1]`,
+    # `h.rsplit('.', 2)`, `'.'.join(p[len(p)-2:])`, `n = 2; p[-n:]` and
+    # `f'{p[-2]}.{p[-1]}'` all return `co.uk` for BOTH attacker.co.uk and
+    # victim.co.uk. Measured at v3.66.1232: the substring predicate reported
+    # ZERO of those five. The census now EVALUATES the expression against
+    # probes chosen to discriminate.
+    return registrable_domain_census.function_joins_last_two_labels(stripped)
 
 
 _SECURITY_SITES = ("bulk_downloader/playlist_extractor.py",
