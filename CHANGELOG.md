@@ -4,6 +4,97 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1226 - an inner budget must clear both hazards, not one
+
+- v3.66.1222 FIXED THE WRONG HALF FOR THIS FILE, AND THE MEASUREMENT SAYS SO.
+  That cut removed budgets at or ABOVE the 240s bound, where the `except
+  subprocess.TimeoutExpired` handler is dead code because pytest-timeout kills
+  the process first. `tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py`
+  has ZERO budgets at or above 240 -- its largest constant is 60. The hazard here
+  is the OPPOSITE one: a budget so tight it fires on work that was going to
+  succeed.
+- THE KNIFE EDGE, MEASURED PER CALL SITE:
+  `partial_or_duplicate_release_frame_never_execs/run` costs 6.993s against a
+  7-SECOND budget. That is a ratio of 1.00. `registration_receipt_drift_before_go
+  /wait` is 6.891/7 and `gate_exec_failure.../run` is 6.825/7. These are the exact
+  tests that failed the v3.66.1223 band, and they were not flaky in any
+  interesting sense -- they were correct work timed against a stopwatch set to
+  its own duration.
+- THE POPULATION IS 125 CONSTANT BUDGETS, NOT THE 113 IN THE ROW TEXT. 113 is
+  exactly the 5-10s band (53+13+12+17+18). Widening the denominator past the 1222
+  ratchet's argument names found two more the ratchet cannot see: `watchdog=20.0`
+  twice, and a `proc.wait(timeout=W1_RUNNER_BOUND)` behind a named constant.
+  Complete population 129, minus 3 product-parameter sites and 1 pass-through =
+  125 declarations across 144 per-call-site keys.
+- THE RULE: `budget = max(prior, 30s floor, ceil(measured x 6.0))`, asserted
+  `<= 240 - 30` at every hand-out AND again as a per-function sum. Prior constants
+  are a FLOOR, so nothing shrinks. 48 of 144 sites were under 3x before; 0 after,
+  with a minimum of 6.0x.
+- THE ABSOLUTE FLOOR EXISTS BECAUSE OF A DATA POINT FROM ANOTHER FILE. During the
+  v3.66.1223 full suite, `test_v3_66_1209 ... reexecs_itself_when_handed_ignored
+  _stop_signals` consumed a 90-SECOND budget; measured serially on both the
+  candidate and the base it costs 1.26-1.80s. A multiplier cannot describe 88
+  seconds of scheduling delay on 1.5 seconds of work. Stated plainly and recorded
+  in the file: this rule would have prevented every failure in THIS file
+  (6.993 -> 42s against a 4.13x worst measured stretch) and would NOT have
+  prevented 1209's, whose budget was already 60x its cost.
+- CONTENTION WAS MEASURED, NOT GUESSED. Three concurrent copies (load 3.91-6.07):
+  median stretch 1.00x, p90 1.16x, max 4.13x and RIGHT-CENSORED. That arm also
+  reproduced the row: 29 failures where the serial arm had zero.
+- SHARED DEFAULTS WERE KEPT ONLY WHERE THE SPREAD IS NARROW. `_w1_wait_for_gate`
+  spans 0.304-0.792s across 24 sites and keeps one default; `_w1_await_fifo`
+  spans 0.000-4.398s and was split per call site, as were both
+  `_w1_wait_for_exit*`. One key describing two costs is the v3.66.1222 defect and
+  it is not repeated here.
+- 147 EDITS DRIVEN BY THE AST, not by regex: spans taken from the tree, asserted
+  before replacement, one write at the end, byte arithmetic checked
+  (265163 -> 298188). Nine new gates hold the rule.
+- THE 92-vs-130 FAILURE IS A DIFFERENT DEFECT AND IS NOT CLOSED HERE. The
+  integrator's hypothesis that it was the same budget firing is REFUTED by the
+  runner's own preserved diagnostics: the 7s budget did not fire and `proc.wait`
+  RETURNED 92. The SIGINT was received and classified correctly; the runner's
+  INTERNAL `reap_seconds=3` / `registrar_seconds=3` deadlines expired against a
+  `sleep=300` fake-home child and downgraded 130 to W1_RETAINED_FAILURE_CODE.
+  Those are fixture-fed PRODUCT deadlines on `mod.RUNNER` (47 sites at
+  `reap_seconds=3`) and several tests depend on them expiring. Open row 231
+  already names that work.
+- RUNTIME IS UNCHANGED AND THAT IS THE EXPECTED RESULT: 435.98s before, 423.90s
+  after, with the difference inside the load delta between runs. A budget is a
+  ceiling, not a sleep. The fix lives in the ratio column, not on the clock.
+- BUDGET_RATCHET.json shrinks by nothing: it carries zero entries for this file,
+  measured. The tree-wide census goes 837 -> 715, still above the gate's 500 floor.
+- RESIDUAL, STATED NOT SOLVED: budgets are calibrated at up to ~3x self-contention
+  (load <= 6). A 1209-magnitude scheduling stall would still cross them. A budget
+  cannot tell slow from stuck.
+- THE FIRST MUTATION BATTERY SCORED 1 CAUGHT / 4 ESCAPED, AND TWO OF THOSE
+  ESCAPES WERE REAL. Dropping the contention factor from six to one stayed
+  GREEN, because the thirty-second floor rescued every ratio; dropping the floor
+  to zero stayed GREEN, because the factor rescued every ratio instead. Every
+  gate read `_w1_budget_s`, which returns `max(prior, floor, derived)` -- a
+  COMBINED value in which either input hides the loss of the other. Deriving the
+  expectation from the artifact under test is the shape CLAUDE.md A7 forbids, and
+  it had been written into the gates that exist to enforce this rule.
+  `test_each_knob_is_constrained_independently_of_the_other` now reads the two
+  terms SEPARATELY.
+- A THIRD ESCAPE WAS AN ASSERTION NOBODY COULD SHOW WOULD FIRE. No site is near
+  the ceiling, so deleting the per-hand-out `assert value <= bound - reserve`
+  changed nothing observable. An assertion that cannot be made to fire is
+  indistinguishable from a comment;
+  `test_the_handout_assertion_is_live_and_not_decoration` drives one through it.
+- THE FOURTH ESCAPE FOUND A BLINDNESS IN THE WARNING ITSELF. `_w1_warn_s` is
+  `max(30s, measured x 3)`, and the 30s term is inherited from the BUDGET's
+  scheduling floor. Restating a site's baseline from 6.8905s to 0.5s -- a 14x
+  understatement, exactly the v3.66.1219 vacuity shape -- left the police
+  assertion green, because 6.89s is under 30s whatever the table claims. The
+  warning had been given a floor that hides the one thing it exists to detect. A
+  second, UNFLOORED comparison now runs above `_POLICE_ABSOLUTE_S = 5.0`, where
+  scheduling noise cannot explain the elapsed time. Re-run: 5 caught, 0 escaped.
+- AND THE FIX'S OWN DOCUMENTATION BROKE THE BATTERY ONCE MORE. The new gate's
+  docstring quoted both constant assignments verbatim, so bd-mutate's
+  exactly-once anchor contract refused both knob mutants with "anchor occurs 2
+  times". Comments are inside the denominator (CLAUDE.md A7). The docstring was
+  reworded rather than the anchors widened.
+
 ## v3.66.1225 - the SPA text scanners judge a population they can name
 
 - FIFTEEN SCANNERS DEFINED A DENOMINATOR BY ACCIDENT. Each test that reads
