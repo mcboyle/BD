@@ -1,0 +1,73 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 182 / v3.66.1240. bd-mutate refuses a work tree inside its own repository, so re-run from a DETACHED clone -- and that clone needs frontend/node_modules or the fail-closed Vitest bridge makes every band run red and every verdict INDISCRIMINATE (a CAUGHT for a reason unrelated to the mutant, which must never read as success): git clone /home/mboyle/BulkDownloader /tmp/row182-clone && git -C /tmp/row182-clone checkout <candidate> && cp -al /home/mboyle/BulkDownloader/frontend/node_modules /tmp/row182-clone/frontend/node_modules && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1240_t2_history_runtime.json --work /tmp/row182-clone --timeout 900. MEASURED AT THE PARENT b489289: M1 -- a one-click destructive vacuum reached through the shared arm() handler -- scored ESCAPED against the source-text gate this cut deleted, exactly as row 182 predicted.",
+  "subject": "v3.66.1240 -- the T2 history gate proves endpoint consumption, confirmation gating and route reachability by RENDERING AND CLICKING the real route, so an evasion that preserves the source substrings (or that never touched them at all) no longer passes",
+  "band": [
+    "tests/test_t2_history_wired.py::test_t2_endpoint_families_are_consumed_at_runtime",
+    "tests/test_t2_history_wired.py::test_t2_writes_are_confirmation_gated_at_runtime",
+    "tests/test_t2_history_wired.py::test_t2_route_is_reachable_at_runtime",
+    "tests/test_t2_history_wired.py::test_t2_route_is_a_lazy_dynamic_entry"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the shared arm() handler DISPATCHES the vacuum instead of arming it -- row 182's own named evasion: no '.mutate' ever appears inside an onClick brace, so the retired regex reports clean over a one-click destructive database compaction",
+      "file": "frontend/src/routes/History.tsx",
+      "old": "  const arm = (p: Pending) => {\n    setPending(p);\n  };",
+      "new": "  const arm = (p: Pending) => {\n    if (p.kind === \"vacuum\") {\n      vacuum.mutate(undefined);\n      return;\n    }\n    setPending(p);\n  };",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_t2_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M2 PROP INDIRECTION at the JSX call site turns Clear log into a one-click destructive write -- structurally different from M1: the mutation is in neither a handler nor an onClick, so both the retired regex and any handler-name heuristic stay silent",
+      "file": "frontend/src/routes/History.tsx",
+      "old": "          <LogsTab arm={arm} busy={busy} />",
+      "new": "          <LogsTab arm={(p) => (p.kind === \"logsClear\" ? logsClear.mutate(undefined) : arm(p))} busy={busy} />",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_t2_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M3 PROP INDIRECTION deletes a saved search with no dialog -- covers the DELETE verb and an id-bearing path, which M1 and M2 (both POST, both bodyless) do not, and which only the closed-allowlist sweep bounds",
+      "file": "frontend/src/routes/History.tsx",
+      "old": "          <SavedSearchesTab arm={arm} busy={busy} onToggleAction={onToggleAction} />",
+      "new": "          <SavedSearchesTab arm={(p) => (p.kind === \"savedDelete\" ? savedDelete.mutate(p.id) : arm(p))} busy={busy} onToggleAction={onToggleAction} />",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_t2_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M4 /api/saved_searches/digest is never fetched; the literal survives only in a trailing comment, so a path NAMED passes a scan for a path CALLED -- the wiring claim, which the retired gate could not judge at all",
+      "file": "frontend/src/hooks/useHistoryData.ts",
+      "old": "    queryFn: ({ signal }) =>\n      apiGet<SavedSearchDigest>(\n        `/api/saved_searches/digest?hours_back=${hoursBack}`,\n        signal,\n      ),",
+      "new": "    queryFn: () =>\n      Promise.resolve({ searches: [] } as unknown as SavedSearchDigest), // was apiGet(\"/api/saved_searches/digest?hours_back=\")",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_t2_endpoint_families_are_consumed_at_runtime"
+    },
+    {
+      "label": "M5 /history 404s: the <Route> is repathed and the old path restored in a JSX comment -- caught only by resolving the REAL App route table, never by placing the component by hand in a MemoryRouter",
+      "file": "frontend/src/App.tsx",
+      "old": "        <Route path=\"/history\" element={<History />} />",
+      "new": "        <Route path=\"/history-v2\" element={<History />} />{/* path=\"/history\" */}",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_t2_route_is_reachable_at_runtime"
+    },
+    {
+      "label": "M6 the route stops being a code-split chunk while still rendering correctly -- every jsdom test stays green, which is exactly why the lazy claim keeps its own nodeid over the Vite manifest instead of being folded into a vitest run",
+      "file": "frontend/src/App.tsx",
+      "old": "const History = lazy(() => import(\"./routes/History\"));",
+      "new": "import HistoryStatic from \"./routes/History\";\nconst History = HistoryStatic;",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_t2_route_is_a_lazy_dynamic_entry"
+    },
+    {
+      "label": "M7 OVER-CORRECTION: the sweep's immediate-write allowlist is emptied, so the gate starts REJECTING correct product code -- History.tsx de-escalates the enqueue lane back to notify in one click by design. If the allowance were dead text, deleting it would leave the gate green and bd-mutate would report ESCAPED. The preserved nodeids do not read the mutated file at all",
+      "file": "frontend/src/routes/History.confirm.test.tsx",
+      "old": "const ALLOWED_IMMEDIATE_WRITES = [\n  'PATCH /api/saved_searches/7 {\"action\":\"notify\"}',\n];",
+      "new": "const ALLOWED_IMMEDIATE_WRITES: string[] = [];",
+      "direction": "overcorrection",
+      "control": "tests/test_t2_history_wired.py::test_t2_writes_are_confirmation_gated_at_runtime",
+      "preserves": [
+        "tests/test_t2_history_wired.py::test_t2_route_is_reachable_at_runtime",
+        "tests/test_t2_history_wired.py::test_t2_route_is_a_lazy_dynamic_entry"
+      ]
+    }
+  ]
+}
