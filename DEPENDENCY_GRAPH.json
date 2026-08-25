@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1646,
+    "edge_count": 1647,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3946,6 +3946,7 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/dev_suite/introspection.py",
+        "bulk_downloader/login_flow_recorder.py",
         "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/macro_recorder.py": [
@@ -6512,6 +6513,7 @@
         "bulk_downloader/model_registry.py"
       ],
       "bulk_downloader/login_flow_recorder.py": [
+        "bulk_downloader/login_templates_data.py",
         "bulk_downloader/macro_recorder.py"
       ],
       "bulk_downloader/login_impl/manual.py": [

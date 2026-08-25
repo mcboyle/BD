@@ -196,6 +196,109 @@ def _origin_for(entry, nav_origins):
     return ""
 
 
+def _captured_login_transition(network_log):
+    """Return ``(login_origin, success_origin)`` for a successful form POST.
+
+    A capture's later document navigations include member pages, downloads and
+    media origins.  Only the FIRST different document origin after a 3xx login
+    POST is part of the login drive; treating every later document as a flow
+    step is how the old deriver manufactured waits for video CDNs.
+    """
+    entries = [e for e in (network_log or []) if isinstance(e, dict)]
+    entries.sort(key=lambda e: (
+        e.get("timestamp") if isinstance(e.get("timestamp"), int) else 0,
+        e.get("seq") if isinstance(e.get("seq"), int) else 0))
+    submission = None
+    for e in entries:
+        method = str(e.get("method") or "").upper()
+        status = e.get("response_status")
+        path = urlsplit(str(e.get("url") or "")).path.lower()
+        is_login_path = any(term in path for term in (
+            "login", "sign-in", "signin", "authenticate", "oauth"))
+        if (method == "POST" and isinstance(status, int)
+                and 300 <= status < 400 and is_login_path):
+            submission = e
+            break
+    if submission is None:
+        return "", ""
+
+    login_origin = _origin(submission.get("url"))
+    submitted_at = submission.get("timestamp")
+    if not login_origin or not isinstance(submitted_at, int):
+        return login_origin, ""
+    for ts, origin in _nav_origins(entries):
+        if ts > submitted_at and origin != login_origin:
+            return login_origin, origin
+    return login_origin, ""
+
+
+def _entry_login_kind(entry):
+    """Classify a captured pick by element shape before its broad role label.
+
+    Cloak's ``login/submit`` label describes the login surface as a whole; it
+    appears on credential inputs as well as the submit control.  The tag,
+    selector and redacted element excerpt retain the field's actual type.
+    """
+    role = str(entry.get("role") or "").lower()
+    tag = str(entry.get("tag") or "").lower()
+    shape = " ".join((
+        str(entry.get("selector") or ""),
+        str(entry.get("excerpt") or ""),
+    )).lower()
+    input_element = tag in ("input", "textarea")
+
+    if "password" in role or "password" in shape:
+        return "password"
+    credential_terms = ("username", "email", "user", "login")
+    if input_element and ("login" in role
+                          or any(term in shape for term in credential_terms)):
+        return "credential"
+    if ("submit" in role or "next" in role) and not input_element:
+        return "submit"
+    if any(term in role for term in credential_terms):
+        return "credential"
+    return ""
+
+
+def _template_login_actions(login_origin, vault_marker):
+    """Build the three credential actions from an exact-host curated template.
+
+    This is a fallback only for captures such as Reptyle whose successful login
+    POST is present but whose pre-navigation action recorder retained no login
+    picks.  Registered-domain suggestions are intentionally insufficient here:
+    replaying selectors from a sister host is not capture-derived evidence.
+    """
+    host = urlsplit(login_origin).hostname or ""
+    if not host:
+        return []
+    try:
+        from . import login_templates_data as _ltd
+        suggestions = _ltd.suggest_login_for_url(login_origin)
+        template = _ltd.get_login_template(suggestions[0]) if suggestions else None
+    except Exception:
+        return []
+    if not template or str(template.get("host") or "").lower() != host.lower():
+        return []
+    selectors = template.get("login") or {}
+
+    def first(field):
+        values = selectors.get(field) or []
+        return next((v for v in values if isinstance(v, str) and v), "")
+
+    user = first("user_field")
+    password = first("pass_field")
+    submit = first("submit_btn")
+    if not all((user, password, submit)):
+        return []
+    return [
+        {"kind": "type", "selector": user,
+         "text": "", "credential": True},
+        {"kind": "type", "selector": password,
+         "text": vault_marker, "secret": True},
+        {"kind": "click", "selector": submit},
+    ]
+
+
 def derive_login_flow(action_timeline, *, network_log=None, name="login"):
     """Turn an operator-recorded ``action_timeline`` into a general N-step
     login flow (a macro_recorder action list). Structure-only; F2.
@@ -211,6 +314,12 @@ def derive_login_flow(action_timeline, *, network_log=None, name="login"):
         of the new origin so replay waits for that origin to load. The origin is
         read from each pick's ``page_url`` when present, else inferred from the
         network log's navigation responses.
+      * a successful login POST followed by a document on another origin adds
+        one final ``await_url`` for that first post-submit origin. Later member
+        pages and media documents are not login steps.
+      * when the successful POST exists but the capture retained no usable
+        credential picks, an exact-auth-host curated login template supplies
+        the field selectors. A sister-domain template is never guessed.
 
     NOTE on 2FA/OTP: a non-password text field on a later step (e.g. an OTP) is
     emitted as a ``type`` with empty text — it cannot be replayed unattended and
@@ -231,22 +340,44 @@ def derive_login_flow(action_timeline, *, network_log=None, name="login"):
         sel = e.get("selector")
         if not isinstance(sel, str) or not sel:
             continue
+        login_kind = _entry_login_kind(e)
+        if not login_kind:
+            continue
         org = _origin_for(e, navs)
         if prev_origin and org and org != prev_origin:
             actions.append({"kind": "await_url", "url": org + "/*"})
-        role = str(e.get("role") or "").lower()
-        if "password" in role:
-            actions.append({"kind": "type", "selector": sel,
-                            "text": _VM, "secret": True})
-        elif "submit" in role or "next" in role:
-            actions.append({"kind": "click", "selector": sel})
-        elif ("username" in role or "email" in role or "user" in role
-              or "login" in role):
-            actions.append({"kind": "type", "selector": sel,
-                            "text": "", "credential": not cred_filled})
+        if login_kind == "password":
+            action = {"kind": "type", "selector": sel,
+                      "text": _VM, "secret": True}
+        elif login_kind == "submit":
+            action = {"kind": "click", "selector": sel}
+        else:
+            action = {"kind": "type", "selector": sel,
+                      "text": "", "credential": not cred_filled}
+        if (actions and actions[-1].get("kind") == action["kind"]
+                and actions[-1].get("selector") == sel):
+            # Inspect-pick timelines can contain the same field twice (focus,
+            # then fill). Replay needs one deterministic fill, not both picks.
+            continue
+        actions.append(action)
+        if login_kind == "credential":
             cred_filled = True
         if org:
             prev_origin = org
+
+    login_origin, success_origin = _captured_login_transition(network_log)
+    has_credential = any(a.get("kind") == "type" and a.get("credential")
+                         for a in actions)
+    has_password = any(a.get("kind") == "type" and a.get("secret")
+                       for a in actions)
+    has_submit = any(a.get("kind") == "click" for a in actions)
+    if login_origin and not (has_credential and has_password and has_submit):
+        fallback = _template_login_actions(login_origin, _VM)
+        if fallback:
+            actions = fallback
+            prev_origin = login_origin
+    if actions and success_origin and success_origin != prev_origin:
+        actions.append({"kind": "await_url", "url": success_origin + "/*"})
 
     return {
         "actions": actions,

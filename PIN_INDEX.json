@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 82,
+    "total": 84,
     "version": 1,
-    "count_dict": 81,
-    "test_files_scanned": 1421,
+    "count_dict": 83,
+    "test_files_scanned": 1422,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -46,6 +46,7 @@
       "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
       "tests/test_v3_66_1159_fleet_prune_is_object_bound.py": 1,
       "tests/test_v3_66_1166_historical_docs_are_adjudicated.py": 1,
+      "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py": 2,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -240,7 +241,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1248",
+      "value": "3.66.1249",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -670,6 +671,27 @@
         "AI-BOOT-OBS": 1
       },
       "gates_what": "test_closed_rows_and_free_prose_cannot_launder_a_live_residual"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py",
+      "line": 286,
+      "value": {
+        "api2.reptyle.com": 51,
+        "ma-store.reptyle.com": 43
+      },
+      "gates_what": "test_reptyle_capture_derives_its_own_successful_login_drive — Reptyle is one complete proof; no WowGirls evidence is borrowed."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py",
+      "line": 347,
+      "value": {
+        "Cookie": 0,
+        "Set-Cookie": 0,
+        "Authorization": 0
+      },
+      "gates_what": "test_wowgirls_capture_derives_its_own_successful_login_drive — WowGirls is a second proof; state continuity is NOT OBSERVED here."
     },
     {
       "form": "count_dict",

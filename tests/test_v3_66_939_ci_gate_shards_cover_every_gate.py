@@ -92,6 +92,10 @@ _DECLARED = {
     # result is correct for the wrong site's bytes, so this gate independently
     # declares every recognizer fixture's page host and checks the payload.
     "tests/test_recognizer_fixture_site_identity.py",
+    # Row 121. Two distinct real-capture slices drive derive_login_flow and a
+    # fake browser independently; the gate catches role-collapsed input clicks,
+    # missing-selector fallback and post-login media origins posing as steps.
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py",
     # @1240, the preflight that runs what a derived band cannot select. Four
     # defects shipped between v3.66.1223 and v3.66.1238 because bd-band-derive
     # derives from CHANGED PATHS while those gates judge the TREE, so no diff

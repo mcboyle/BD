@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1249 - derive_login_flow emits a plan that reproduces the capture
+
+- Excluded post-login player/download picks from the login-step and origin de
+- Limited post-submit navigation to the first different document origin.
+- Registered the new gate in CI and added an 11-mutant specification.
+- Initial M3 post-login-pick mutant escaped; the test was hardened with an ex
+- Mutant schema/anchor validation: `2 passed in 114.21s`.
+- `DEPENDENCY_GRAPH.json drift`
+- `DEPENDENCY_GRAPH.md drift`
+- Four new import edges absent from the frozen import graph
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _login_flow_derives_the_observed_drive.py -> bulk_downloader
+    login_flow_recorder.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1248 - the vacuity and over-sensitivity routes each gain a decidable slice
 
 -    for path in _tracked_test_files():

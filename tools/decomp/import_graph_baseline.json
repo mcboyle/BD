@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3883,
+  "edge_count": 3887,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1438,6 +1438,7 @@
       "bulk_downloader/model_registry.py"
     ],
     "bulk_downloader/login_flow_recorder.py": [
+      "bulk_downloader/login_templates_data.py",
       "bulk_downloader/macro_recorder.py"
     ],
     "bulk_downloader/login_impl/manual.py": [
@@ -4526,6 +4527,11 @@
       "tools/autonomy_policy.py",
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py": [
+      "bulk_downloader/login_flow_recorder.py",
+      "bulk_downloader/login_templates_data.py",
+      "bulk_downloader/macro_recorder.py"
     ],
     "tests/test_v3_66_1225_spa_scanner_populations.py": [
       "tools/spa_population.py"

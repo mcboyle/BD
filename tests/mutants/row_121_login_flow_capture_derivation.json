@@ -1,0 +1,112 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 121. Re-run from a detached scratch copy with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row_121_login_flow_capture_derivation.json --work DETACHED_SCRATCH --timeout 300 --json. The capture gate has an import-only transform control. After the ordinary battery catches every mutant, M1 must be re-run with its catcher changed to test_transform_control_imports_the_deriver_without_judging_its_behaviour; it must ESCAPE, proving the normal CAUGHT verdict is an assertion failure rather than an invalid transform or import failure.",
+  "subject": "row 121 -- derive_login_flow classifies capture element shape before broad roles, ignores non-login picks for origin tracking, falls back only to an exact-host curated selector set after an observed successful login POST, and awaits only the first different post-submit document origin",
+  "band": [
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive",
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_wowgirls_capture_derives_its_own_successful_login_drive",
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_capture_oracle_rejects_the_role_collapsed_empty_form_plan",
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_post_login_picks_are_outside_the_login_step_and_origin_denominator",
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_template_fallback_requires_success_and_an_exact_auth_host",
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_transform_control_imports_the_deriver_without_judging_its_behaviour"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the capture's password-as-click defect by classifying the password-shaped input as submit",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    if \"password\" in role or \"password\" in shape:\n        return \"password\"",
+      "new": "    if \"password\" in role or \"password\" in shape:\n        return \"submit\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_wowgirls_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M2 erase element-type precedence so a login/submit username input becomes a click again",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    input_element = tag in (\"input\", \"textarea\")",
+      "new": "    input_element = False  # broad login/submit role wins again",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_wowgirls_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M3 let every irrelevant player and download pick pose as a credential step",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "        if not login_kind:\n            continue",
+      "new": "        if not login_kind:\n            login_kind = \"credential\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_post_login_picks_are_outside_the_login_step_and_origin_denominator"
+    },
+    {
+      "label": "M4 replay both duplicate WowGirls email picks instead of one deterministic fill",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "        if (actions and actions[-1].get(\"kind\") == action[\"kind\"]\n                and actions[-1].get(\"selector\") == sel):",
+      "new": "        if (False and actions and actions[-1].get(\"kind\") == action[\"kind\"]\n                and actions[-1].get(\"selector\") == sel):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_wowgirls_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M5 disable the exact-host template recovery needed by Reptyle's zero-login-pick capture",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    if login_origin and not (has_credential and has_password and has_submit):",
+      "new": "    if False and login_origin and not (has_credential and has_password and has_submit):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M6 overcorrect by accepting a registered-domain sister host's selectors as capture evidence",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    if not template or str(template.get(\"host\") or \"\").lower() != host.lower():",
+      "new": "    if not template:",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_template_fallback_requires_success_and_an_exact_auth_host",
+      "preserves": [
+        "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive"
+      ]
+    },
+    {
+      "label": "M7 overcorrect by treating a 200 failed form response as a successful credential redirect",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "                and 300 <= status < 400 and is_login_path):",
+      "new": "                and 200 <= status < 400 and is_login_path):",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_template_fallback_requires_success_and_an_exact_auth_host",
+      "preserves": [
+        "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive"
+      ]
+    },
+    {
+      "label": "M8 choose the last post-submit document origin, restoring the unrelated media-CDN await",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    for ts, origin in _nav_origins(entries):",
+      "new": "    for ts, origin in reversed(_nav_origins(entries)):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_wowgirls_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M9 drop the observed post-submit cross-origin wait from both derived plans",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    if actions and success_origin and success_origin != prev_origin:",
+      "new": "    if False and actions and success_origin and success_origin != prev_origin:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M10 reverse each curated selector chain so Reptyle no longer replays the selected first-choice controls",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "        return next((v for v in values if isinstance(v, str) and v), \"\")",
+      "new": "        return next((v for v in reversed(values) if isinstance(v, str) and v), \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive"
+    },
+    {
+      "label": "M11 overcorrect by replacing even a complete observed WowGirls plan with generic template selectors",
+      "file": "bulk_downloader/login_flow_recorder.py",
+      "old": "    if login_origin and not (has_credential and has_password and has_submit):",
+      "new": "    if login_origin:",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_wowgirls_capture_derives_its_own_successful_login_drive",
+      "preserves": [
+        "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py::test_reptyle_capture_derives_its_own_successful_login_drive"
+      ]
+    }
+  ]
+}
