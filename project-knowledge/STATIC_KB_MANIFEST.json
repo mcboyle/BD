@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-24T22:58:12+00:00",
- "version_context": "v3.66.1221",
- "file_count": 87,
+ "generated": "2026-08-24T23:47:28+00:00",
+ "version_context": "v3.66.1222",
+ "file_count": 88,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -67,6 +67,10 @@
   "BDSUITE_TOOL_BUDGET": {
    "sha256": "f27a03251cd3b16edaa8634f04a6345043d56b67ee0a503aab65cfdfa19b43be",
    "bytes": 560
+  },
+  "BUDGET_RATCHET.json": {
+   "sha256": "82b076076fdd6007db64bb16682f139f0df9f147407bc03f2b60e29f30752865",
+   "bytes": 9529
   },
   "CAPTURE_SHARING_POLICY.md": {
    "sha256": "e379ac889e6b36146daaecb121abfdac7bfe4b1deb24ab1a6b1c94615304111a",
@@ -149,8 +153,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "1c15d7bd09e3ff7abc73944050a8c48591d8b5eb4caff263bee283f11958e601",
-   "bytes": 222053
+   "sha256": "82e073214fad3662f4d123fbcf0b97e6b3014d0168a62204e2c825d5b8c3d4de",
+   "bytes": 223261
   },
   "KB_ACTIVE_INDEX.md": {
    "sha256": "78c4d7785f3a952ec17e45039812f132a080d169bb6444504b0ebccb09685855",
