@@ -1,0 +1,54 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 214 battery: a zombie in a just-exited tracer's group is an uncollected exit status, not residue. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/writerec_zombie_residue.json --work DETACHED_SCRATCH. Reasoning that cannot live on a mutant: M1 is the defect itself -- one killpg reading, which succeeds for a zombie, deciding permanently. M2 is the mutant that matters, because a fix that only made the false refusal go away would be indistinguishable from deleting the check; it must be caught by a LIVE process still being terminated and reported. M3 pins fail-closed: an unreadable /proc is residue, never innocence. M4 pins the race the census itself introduces -- the group can drain between the probe and the walk, and without the re-probe the fix reproduces the defect one window later. M5 is an overcorrection rather than a regression: it is CORRECT and it is the draft's shape, so only the cost-structure test can see it -- 39ms per /proc walk over 856 pids on test5, against 0.003ms for the killpg probe. NOT INCLUDED: SETTLE_SECONDS -> 0.0, which is near-equivalent because the census still rescues the zombie case. BAND: this file only. The end-to-end residual path (a real strace tracer handing back a live group) is pinned by M13/M14 of tests/mutants/v3_66_1194_write_recorder.json, whose band is that suite.",
+  "subject": "row 214 -- bd-writerec must not refuse a correct capture over a zombie",
+  "band": [
+    "tests/test_writerec_zombie_is_not_residue.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 judge the group on the killpg reading alone, as before row 214",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "            if _group_is_only_residue(pgid) or _group_gone(pgid):",
+      "new": "            if _group_gone(pgid):",
+      "direction": "regression",
+      "catcher": "tests/test_writerec_zombie_is_not_residue.py::test_a_real_zombie_in_the_group_does_not_latch_a_refusal"
+    },
+    {
+      "label": "M2 launder a running process into the residue states",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "_RESIDUE_STATES = (b\"Z\", b\"X\")",
+      "new": "_RESIDUE_STATES = (b\"Z\", b\"X\", b\"S\")",
+      "direction": "regression",
+      "catcher": "tests/test_writerec_zombie_is_not_residue.py::test_a_real_survivor_is_still_terminated_and_still_reported"
+    },
+    {
+      "label": "M3 skip a /proc entry that cannot be read instead of refusing (fail open)",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "        except OSError:\n            return False\n        # `pid (comm) state ppid pgrp ...`, and comm may itself contain \") \".",
+      "new": "        except OSError:\n            continue\n        # `pid (comm) state ppid pgrp ...`, and comm may itself contain \") \".",
+      "direction": "regression",
+      "catcher": "tests/test_writerec_zombie_is_not_residue.py::test_an_unreadable_or_unparseable_proc_is_residue_not_innocence"
+    },
+    {
+      "label": "M4 drop the post-census re-probe, so a group that drained mid-census is signalled",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "            if _group_is_only_residue(pgid) or _group_gone(pgid):",
+      "new": "            if _group_is_only_residue(pgid):",
+      "direction": "regression",
+      "catcher": "tests/test_writerec_zombie_is_not_residue.py::test_a_group_that_empties_during_the_census_is_not_signalled"
+    },
+    {
+      "label": "M5 move the /proc census onto the polling path (the draft's shape)",
+      "file": "toolchain/bin/bd-writerec",
+      "old": "            if time.monotonic() < settle_until:\n                time.sleep(_SETTLE_POLL)\n                continue\n",
+      "new": "            if _group_is_only_residue(pgid):\n                return True, residual_terminated\n            if time.monotonic() < settle_until:\n                time.sleep(_SETTLE_POLL)\n                continue\n",
+      "direction": "overcorrection",
+      "control": "tests/test_writerec_zombie_is_not_residue.py::test_the_census_runs_once_even_when_it_answers_no",
+      "preserves": [
+        "tests/test_writerec_zombie_is_not_residue.py::test_a_real_zombie_in_the_group_does_not_latch_a_refusal",
+        "tests/test_writerec_zombie_is_not_residue.py::test_a_real_survivor_is_still_terminated_and_still_reported"
+      ]
+    }
+  ]
+}

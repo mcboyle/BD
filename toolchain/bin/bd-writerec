@@ -340,6 +340,17 @@ def _signal_group(pgid, sig):
         pass
 
 
+# How long a just-exited tracer's group may take to drain before anything still
+# visible in it is treated as residue worth signalling.  50ms is ~100x the 80-460
+# MICROSECOND window measured on test6 and two orders of magnitude below the 10s
+# overall `timeout`, so it cannot mask a real survivor: anything alive after it is
+# still terminated and still reported.  The window is polled with the O(1) killpg
+# probe, not with the /proc census -- see _reap_group.
+SETTLE_SECONDS = 0.05
+_SETTLE_POLL = 0.001
+_RESIDUE_STATES = (b"Z", b"X")
+
+
 def _group_gone(pgid):
     try:
         os.killpg(pgid, 0)
@@ -348,6 +359,58 @@ def _group_gone(pgid):
     except PermissionError:
         return False
     return False
+
+
+def _group_is_only_residue(pgid, procfs="/proc"):
+    """True when every remaining member of `pgid` is a zombie or already dead.
+
+    `killpg(pgid, 0)` SUCCEEDS FOR A ZOMBIE, because a zombie is an exit status
+    nobody has collected yet, still holding a slot in the process table -- not a
+    process that can open a file, write a byte, or outlive its reaper.  Reading
+    that as live residue is what made a correct capture report failure.
+
+    Returns False -- "there is residue" -- for anything in another state, and
+    ALSO whenever the states cannot be established: an unlistable /proc, a stat
+    file that cannot be read for any reason other than the process having gone,
+    an unparseable or truncated line, or a group with no visible members at all.
+    Such an entry might be exactly the process that matters, so skipping it would
+    fail open on the only case worth catching.  UNKNOWN is not "harmless".
+
+    Cost note: this walks /proc, so it is a census whose cost scales with
+    unrelated system load.  `_reap_group` calls it AT MOST ONCE per reap.
+    """
+    seen = False
+    try:
+        entries = os.listdir(procfs)
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open("%s/%s/stat" % (procfs, entry), "rb") as handle:
+                raw = handle.read()
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # it exited while we walked; that is an answer, not a gap
+        except OSError:
+            return False
+        # `pid (comm) state ppid pgrp ...`, and comm may itself contain ") ".
+        close = raw.rfind(b")")
+        if close == -1:
+            return False
+        fields = raw[close + 2:].split()
+        if len(fields) < 3:
+            return False
+        try:
+            group = int(fields[2])
+        except ValueError:
+            return False
+        if group != pgid:
+            continue
+        seen = True
+        if fields[0] not in _RESIDUE_STATES:
+            return False
+    return seen
 
 
 def _reap_group(proc, pgid, escalate, hard_after=1.0, timeout=10.0):
@@ -362,10 +425,17 @@ def _reap_group(proc, pgid, escalate, hard_after=1.0, timeout=10.0):
     definition, and nothing legitimate can still be running there.  Such residue is
     terminated unconditionally and reported, because observing an orphan and leaving it
     alive is the failure this function exists to prevent.
+
+    That judgement is made after a bounded SETTLE_SECONDS window and on process
+    STATES, not on a single killpg reading: killpg succeeds for a zombie, and a
+    zombie is an uncollected exit status rather than something that can still act.
+    Nothing else is relaxed -- a member that is genuinely alive when the window
+    ends is still TERMed, still escalated, and still reported (row 214).
     """
     start = time.monotonic()
     escalated = residual_terminated = False
     residual_deadline = None
+    settle_until = None
     while time.monotonic() - start < timeout:
         if proc.poll() is None:
             try:
@@ -378,6 +448,38 @@ def _reap_group(proc, pgid, escalate, hard_after=1.0, timeout=10.0):
         elif _group_gone(pgid):
             return True, residual_terminated
         elif not residual_terminated:
+            # SETTLE BEFORE CONCLUDING -- ONCE, BRIEFLY, AND WITHOUT SIGNALLING.
+            #
+            # The tracer has exited and something is still visible in its group.
+            # Before this window existed the FIRST reading decided permanently:
+            # one killpg that happened to catch a short-lived orphan sent SIGTERM
+            # and latched residual_terminated, which the caller publishes as
+            # complete=false and exit 125 -- even when the group emptied naturally
+            # microseconds later.  Measured on test6 with the exact fork/exit
+            # command: 45 FALSE REFUSALS IN 300 TRIALS, residue visible for
+            # roughly 80-460 MICROSECONDS (backlog row 214).
+            #
+            # The window is entered at most once and polled by the loop's own
+            # O(1) killpg probe above; nothing is signalled during it, because
+            # signalling is precisely what is being deferred.  A genuine survivor
+            # therefore still gets TERM within SETTLE_SECONDS of the tracer's
+            # exit, still escalates to KILL, and is still reported.
+            if settle_until is None:
+                settle_until = time.monotonic() + SETTLE_SECONDS
+            if time.monotonic() < settle_until:
+                time.sleep(_SETTLE_POLL)
+                continue
+            # THE CENSUS RUNS HERE AND NOWHERE ELSE.  Reading every process's
+            # state costs time that scales with unrelated system load, so it is
+            # off the polling path: both outcomes below leave this branch for
+            # good, which bounds it at one /proc walk per reap.  A group holding
+            # only zombies is gone for every purpose this function has.  If the
+            # census can see no members at all it reports residue (UNKNOWN), so
+            # the cheap probe is asked once more -- otherwise a group that
+            # drained between the two readings would be signalled and refused,
+            # which is this very defect one window later.
+            if _group_is_only_residue(pgid) or _group_gone(pgid):
+                return True, residual_terminated
             _signal_group(pgid, signal.SIGTERM)
             residual_terminated = True
             residual_deadline = time.monotonic() + hard_after
