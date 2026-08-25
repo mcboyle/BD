@@ -120,6 +120,15 @@ untracked CI path. GREEN means the same test reaches the intended production
 path and passes after the fix. A test written after implementation has no RED
 provenance unless the defective parent is replayed explicitly.
 
+Some gates judge the TREE rather than a diff, so `bd-band-derive` can never
+select them: it derives from changed paths and their subject is everything.
+Between v3.66.1223 and v3.66.1238 four defects shipped that such a gate already
+in this tree would have caught -- a mutation anchor resolving zero or two times
+(four times over), a subprocess budget above the bound governing its item, and a
+subprocess inheriting the ambient locale. None was a missing gate; each was a
+gate that did not run. Run `toolchain/bin/bd-precut --gate` before freezing a
+candidate; it executes that undertow explicitly and refuses on failure.
+
 The affected band is necessary but not sufficient. A green band is not proof
 that no regression exists; adversarial review, schedule interactions, generated
 state, packaging, and full-suite behavior are separate questions.

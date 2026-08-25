@@ -85,7 +85,14 @@ def test_none_of_them_is_derivable_from_a_changed_path():
     for rel in sorted(EXPECTED_GATES):
         r = subprocess.run(
             [sys.executable, str(derive), "--files", rel, "--json"],
-            cwd=str(REPO), capture_output=True, text=True, timeout=300)
+            # BOUNDED BELOW THE BOUND GOVERNING THIS ITEM. The first draft
+            # of this very file carried timeout=300 inside the 240s pytest
+            # bound -- the fifth instance of that defect in one session, and
+            # the check this cut ADDS is what caught it, before the push.
+            # MEASURED: one bd-band-derive call takes ~6s on an idle test5.
+            # max(30, 6 x 6) = 36; 60 leaves room for four calls under load
+            # and clears the 240 - 30 ceiling with margin.
+            cwd=str(REPO), capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             continue
         try:

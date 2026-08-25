@@ -18,7 +18,7 @@ Usage:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
-import argparse, glob, os, re, subprocess, sys, tempfile
+import argparse, glob, os, pathlib, re, subprocess, sys, tempfile
 
 # Placed AFTER the whole import block on purpose: inserting above `import sys`
 # leaves sys undefined at the insertion point and --help dies with NameError,
@@ -214,6 +214,102 @@ def main(argv=None):
         unknown.append("core tool integrity (bd-coretest not found)")
 
     print()
+    # N-1. THE RELEASE TRIO, FROM GIT RATHER THAN FROM A ZIP.
+    #
+    # precut_check owns this, but it needs a baseline release zip and the zip
+    # flow is retired in this checkout -- so it printed
+    # "version/pin/surface NOT RUN" on EVERY invocation. An UNKNOWN that appears
+    # every single time is worse than no line at all: it trains the reader to
+    # skip the summary, which is where the real UNKNOWNs also live. This derives
+    # the same three facts from the working tree.
+    trio_problem = None
+    try:
+        init = pathlib.Path(root, "bulk_downloader", "__init__.py").read_text(encoding="utf-8")
+        m = re.search(r'^__version__ = "([^"]+)"', init, re.M)
+        if not m:
+            trio_problem = "bulk_downloader/__init__.py declares no __version__"
+        else:
+            version = m.group(1)
+            pin = pathlib.Path(root, "tests", "test_settings_center_slice4.py").read_text(encoding="utf-8")
+            if ('__version__ == "%s"' % version) not in pin:
+                trio_problem = ("the version pin in tests/test_settings_center_slice4.py "
+                                "does not name %s" % version)
+            else:
+                changelog = pathlib.Path(root, "CHANGELOG.md").read_text(encoding="utf-8")
+                first = re.search(r"^## (v\S+)", changelog, re.M)
+                if not first:
+                    trio_problem = "CHANGELOG.md has no release header"
+                elif first.group(1) != "v" + version:
+                    trio_problem = ("CHANGELOG.md's top entry is %s, not v%s -- the "
+                                    "entry must be PREPENDED and anchored on the "
+                                    "previous release" % (first.group(1), version))
+                else:
+                    entry = changelog[first.start():]
+                    nxt = re.search(r"\n## v", entry)
+                    body = entry[:nxt.start()] if nxt else entry
+                    nonascii = [c for c in body if ord(c) > 127]
+                    if nonascii:
+                        trio_problem = ("the %s CHANGELOG entry contains %d non-ASCII "
+                                        "character(s) (%r) -- A6 requires ASCII-only"
+                                        % (first.group(1), len(nonascii), nonascii[:4]))
+    except OSError as exc:
+        trio_problem = "release trio unreadable: %s" % exc
+    if trio_problem:
+        blocking.append("release trio: " + trio_problem)
+    else:
+        print("  [release trio] version, pin and CHANGELOG head agree; entry is ASCII")
+
+    # N-2. CI SHARD HEADROOM.
+    #
+    # CLAUDE.md A5 forbids trimming a slow shard and requires splitting or
+    # asking when one exceeds its budget -- but nothing MEASURED the budget, so
+    # the first symptom of a squeeze is a timeout on somebody else's unrelated
+    # cut. v3.66.1236 added 87s to one shard in a single cut (a gate went 3s to
+    # 89.6s), which is the rate that makes this worth watching.
+    #
+    # ADVISORY BY CONSTRUCTION: it reads the LAST CI run, which is about a
+    # different commit than the one being cut. A verdict from stale evidence is
+    # not a verdict (A2), so this reports headroom and never blocks.
+    try:
+        wf = pathlib.Path(root, ".github", "workflows", "ci.yml").read_text(encoding="utf-8")
+        cap = re.search(r"^\s*timeout-minutes:\s*(\d+)", wf, re.M)
+        cap_s = int(cap.group(1)) * 60 if cap else None
+        jobs = subprocess.run(
+            ["gh", "run", "list", "--limit", "1", "--json", "databaseId",
+             "--jq", ".[0].databaseId"],
+            cwd=root, capture_output=True, text=True, timeout=120)
+        run_id = jobs.stdout.strip()
+        if cap_s and run_id:
+            det = subprocess.run(
+                ["gh", "run", "view", run_id, "--json", "jobs", "--jq",
+                 ".jobs[] | select(.conclusion==\"success\") | "
+                 "[.name, (((.completedAt|fromdate) - (.startedAt|fromdate))|tostring)] | @tsv"],
+                cwd=root, capture_output=True, text=True, timeout=120)
+            worst = None
+            for line in det.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) != 2:
+                    continue
+                try:
+                    secs = int(float(parts[1]))
+                except ValueError:
+                    continue
+                if worst is None or secs > worst[1]:
+                    worst = (parts[0], secs)
+            if worst:
+                pct = 100.0 * worst[1] / cap_s
+                print("  [shard headroom] slowest lane %r ran %ds of a %ds cap (%.0f%%)"
+                      % (worst[0], worst[1], cap_s, pct))
+                if pct >= 70.0:
+                    print("      NOTE: past 70%% of the cap. A5 says SPLIT or ASK -- "
+                          "never trim the shard to regain green.")
+            else:
+                unknown.append("CI shard headroom (no successful lane durations read)")
+        else:
+            unknown.append("CI shard headroom (no timeout-minutes or no recent run)")
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        unknown.append("CI shard headroom is UNKNOWN: %s" % exc)
+
     # N. THE GATES bd-band-derive DOES NOT DERIVE.
     #
     # WHY THIS CHECK EXISTS, and it is not four checks but one. Between
