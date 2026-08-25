@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1228 register reconciliation. NOTE ON PROVENANCE: the PARKED gate cannot be proved RED by copying it onto the parent tree, because the status vocabulary it asserts lives in that same file and travels with it. Its real proof is HERE -- each mutant removes one half of the contract and the gate must fail. Recorded rather than glossed: a test whose RED provenance is a battery and not a replay should say so.",
+  "subject": "v3.66.1228 -- the register can hold PARKED, and closures cite evidence",
+  "band": [
+    "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
+    "tests/test_v3_66_1164_one_task_authority.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 PARKED is not a recognised status, so a parked row reads as unknown",
+      "file": "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
+      "old": "VALID_STATUS = {\"OPEN\", \"CLOSED\", \"MOOT\", \"PARKED\"}",
+      "new": "VALID_STATUS = {\"OPEN\", \"CLOSED\", \"MOOT\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1052_the_backlog_is_machine_visible.py::test_parked_is_a_state_the_register_can_hold_and_must_evidence"
+    },
+    {
+      "label": "M2 PARKED is not terminal, so a park need cite no evidence at all",
+      "file": "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
+      "old": "TERMINAL = {\"CLOSED\", \"MOOT\", \"PARKED\"}",
+      "new": "TERMINAL = {\"CLOSED\", \"MOOT\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1052_the_backlog_is_machine_visible.py::test_parked_is_a_state_the_register_can_hold_and_must_evidence"
+    },
+    {
+      "label": "M3 a reconciled row goes back to OPEN without the header following",
+      "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
+      "old": "| 119 | CLOSED @1228 -- MIS-SCOPED |",
+      "new": "| 119 | OPEN |",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
+    },
+    {
+      "label": "M4 the published open count drifts from the rows it claims to summarise",
+      "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
+      "old": "rows=231 open=26 ids-sha256=",
+      "new": "rows=231 open=30 ids-sha256=",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
+    },
+    {
+      "label": "M5 the parked row is silently reopened, putting blocked work back in the queue",
+      "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
+      "old": "| 127 | PARKED @1195 |",
+      "new": "| 127 | OPEN |",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
+    }
+  ]
+}
