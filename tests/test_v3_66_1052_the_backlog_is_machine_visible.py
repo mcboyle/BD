@@ -29,6 +29,7 @@ confusion, so this file asserts nothing across the two.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 # Its subject is a REGISTER, not a module -- the backlog is the whole project's
@@ -44,8 +45,21 @@ BD_GATE_SCOPE = "repo-wide"
 REPO = Path(__file__).resolve().parents[1]
 BACKLOG = REPO / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
 
-VALID_STATUS = {"OPEN", "CLOSED", "MOOT"}
-TERMINAL = {"CLOSED", "MOOT"}
+# PARKED IS A STATE THE OPERATOR ALREADY USED AND THE SCHEMA COULD NOT EXPRESS.
+# Row 127 was parked by operator ruling at v3.66.1195 pending a two-week soak.
+# With only OPEN / CLOSED / MOOT available it had to be recorded as OPEN, which
+# tells every reader -- and every agent working this list -- that it is
+# available work. It is not: it is waiting on wall-clock time and a decision
+# that is not the reader's to make. Forcing a state into a vocabulary that
+# cannot hold it makes the register lie in the direction of MORE work, which is
+# the one direction nobody audits.
+#
+# PARKED is TERMINAL for the purpose of "do not pick this up", and it cites its
+# evidence like any other terminal state, so a park is as checkable as a close.
+# It is NOT terminal for the item's life: a park can be unparked, and that is
+# the operator's call rather than this gate's.
+VALID_STATUS = {"OPEN", "CLOSED", "MOOT", "PARKED"}
+TERMINAL = {"CLOSED", "MOOT", "PARKED"}
 
 # | 21 | CLOSED @1049 | text |
 _ROW = re.compile(
@@ -140,6 +154,60 @@ def test_every_terminal_row_cites_evidence():
         f"terminal rows with no evidence: {missing}. Add @<version> or a commit "
         "-- otherwise the row asserts the work happened and nothing can confirm it."
     )
+
+
+def test_parked_is_a_state_the_register_can_hold_and_must_evidence(monkeypatch):
+    """PARKED must be BOTH recognised and disciplined, and this drives each.
+
+    The gap was measured while reconciling the register at v3.66.1228: row 127
+    was parked by operator ruling at v3.66.1195 pending a two-week soak, and the
+    only statuses available were OPEN, CLOSED and MOOT. It had to be written
+    OPEN, which told every reader it was available work. A register whose
+    vocabulary cannot hold a state the operator actually used will lie, and it
+    lies in the direction of MORE open work -- the direction nobody audits.
+
+    Adding a status is worthless if it is merely TOLERATED, so both directions
+    are driven here: a parked row must be accepted AND must cite the version
+    that parked it, exactly like any other terminal state.
+    """
+    import textwrap
+
+    def _with(body):
+        f = tmp = Path(str(BACKLOG) + ".parked-control")
+        f.write_text(textwrap.dedent(body), encoding="utf-8")
+        monkeypatch.setattr(sys.modules[__name__], "BACKLOG", f)
+        return f
+
+    good = _with("""\
+        | 1 | OPEN | still to do |
+        | 2 | PARKED @1195 | waiting on an operator soak |
+        """)
+    try:
+        rows = _rows()
+        assert [r["status"] for r in rows] == ["OPEN", "PARKED"], rows
+        assert "PARKED" in VALID_STATUS
+        assert "PARKED" in TERMINAL, (
+            "a PARKED row that is not TERMINAL would be required to carry NO "
+            "evidence, which is the opposite of what a park needs")
+        bad = [r["id"] for r in rows if r["status"] not in VALID_STATUS]
+        assert not bad, bad
+        missing = [r["id"] for r in rows
+                   if r["status"] in TERMINAL and not r["evidence"]]
+        assert not missing, missing
+
+        # NEGATIVE CONTROL: a park with no evidence is a claim, not a record.
+        _with("""\
+            | 1 | PARKED | parked by nobody, at no version |
+            """)
+        rows = _rows()
+        assert rows and rows[0]["status"] == "PARKED", rows
+        assert not rows[0]["evidence"].strip(), rows
+        assert [r["id"] for r in rows
+                if r["status"] in TERMINAL and not r["evidence"].strip()], (
+            "a PARKED row citing nothing was accepted; a park nobody can check "
+            "is indistinguishable from an item that was quietly dropped")
+    finally:
+        good.unlink(missing_ok=True)
 
 
 def test_open_rows_carry_no_evidence_marker():

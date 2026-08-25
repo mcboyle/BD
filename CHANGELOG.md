@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1228 - the register stops directing work at rows that are already done
+
+- CLAUDE.md A1 STATES THAT ROUGHLY HALF A STALE REGISTER'S OPEN ROWS TURN OUT
+  CLOSED OR MIS-SCOPED, and names the proof: row 91 sat OPEN through the two cuts
+  that fixed it and was still telling readers to START WITH 91 when re-derived.
+  This cut re-derives 30 rows against the current tree instead of trusting them.
+- FOUR ROWS WERE CLOSED, EACH WITH THE THING THAT SETTLES IT.
+  119 is a MIS-SCOPED duplicate of 122 -- arm C's settle already runs through
+  122's own seam, and 122 stays OPEN carrying the real gap. 125 has no subject at
+  all: zero `A6.3` hits anywhere in `tools/`, `tests/` or `bulk_downloader/`, and
+  the gap report maps all four addressable targets to A6-1/A6-2 only. 177 and 178
+  were settled at v3.66.1197 by 83171fb and are recorded as CLOSED @1197 rather
+  than at this cut -- a register records WHEN a thing was fixed, not when someone
+  noticed.
+- THREE CLOSURE CLAIMS WERE REJECTED, which matters more than the four accepted.
+  120's own analysis says it "remains real and OPEN" and it was reopened by
+  operator ruling at v1195. 126's verification debt is real and lives outside Git
+  behind an authenticated operation. 127 is operator-PARKED, and parked is not
+  closed. Closing any of these would be the same misdirection running the other
+  way, which is the failure this cut exists to remove.
+- THE REGISTER COULD NOT EXPRESS A STATE THE OPERATOR HAD ALREADY USED. Row 127
+  was parked at v3.66.1195 pending a two-week soak, and the vocabulary was
+  OPEN / CLOSED / MOOT. It therefore had to be written OPEN, which tells every
+  reader -- and every agent working this list -- that it is available work. It is
+  not: it is waiting on wall-clock time and a decision that is not the reader's
+  to make. A register whose vocabulary cannot hold a state its operator uses will
+  lie, and it lies in the direction of MORE open work, which is the one direction
+  nobody audits. PARKED is now a status, is TERMINAL for the purpose of "do not
+  pick this up", and must cite the version that parked it exactly like any other
+  terminal state, so a park is as checkable as a close.
+- OPEN ROWS: 31 -> 26.
+- PROVENANCE, STATED RATHER THAN GLOSSED: the PARKED gate cannot be proved RED by
+  replaying it on the parent tree, because the status vocabulary it asserts lives
+  in that same file and travels with it. Its proof is the mutation battery, where
+  each mutant removes one half of the contract. 5 caught, 0 escaped -- including
+  a row silently reopened, a published count drifting from the rows it summarises,
+  and the parked row being put back in the queue.
+
 ## v3.66.1227 - bd-fleet counts validated jobs, not pathnames
 
 - A MALFORMED FINAL WAS REPORTED TO THE OPERATOR AS A REGISTERED JOB.
