@@ -4,50 +4,74 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-- THREE MORE UNSEEDED FIELDS, THE OTHER HALF OF ROW 238'S CENSUS.
-  `Settings.tsx:366-368` declared `supEnabled` / `supGlobalBps` /
-  `supPerSiteJson` unseeded, and `:403-406` put all three into
-  `POST /api/supervisor/configure` UNCONDITIONALLY. The `.trim()` guard at `:384`
-  gates only PARSING, not inclusion, so an untouched form applied
-  `{enabled:false, global_bps:0, per_site_bps:{}}` and silently reset every live
-  supervisor limit (row 240).
-- THE REASON THIS WAS ITS OWN ROW RATHER THAN PART OF v3.66.1238: THERE WAS NO
-  GET CONSUMER AT ALL. `grep -rn supervisor/status frontend/src` returned zero
-  matches -- `GET /api/supervisor/status` existed and nothing in the SPA read it.
-  Seeding therefore meant WIRING A NEW QUERY, which is a feature rather than a
-  seeding correction, and A3 forbids folding that into a cut about another page.
-  The RED test says it out loud: "the SPA consumes GET /api/supervisor/status at
-  all" fails on the parent with `expected 0 to be greater than 0`.
-- THE RESPONSE SHAPE WAS READ, NOT ASSUMED. `app_supervisor.py:32-39` and
-  `download_supervisor.py:302-315` put the limits under `stats.config`;
-  `stats.global` and `stats.per_site` are COUNTERS and are deliberately not
-  modelled. A form seeded from a counter would have looked right and been wrong.
-- SAME NULL-SENTINEL OVERLAY AS v3.66.1238, so an emptied field still removes a
-  limit and "cleared on purpose" stays distinguishable from "never typed". The
-  POST body shape is unchanged on purpose: all three keys are still sent.
-- A TRAP THE SIBLING CUT NEVER MET, and it would have made a copied spec pass
-  vacuously: this section is `collapsible defaultOpen={false}`, and
-  `collapsible.tsx` renders `{shown && children}` -- so the controls are
-  UNMOUNTED until the header is clicked. A spec written from the Notifications
-  template fails on element lookup and never reaches its verdict.
-- MUTATION: 10 caught, 0 escaped, no first-run escapes. Because bd-mutate could
-  not parse `.tsx` until v3.66.1237 and scores CAUGHT on "named catcher failed"
-  alone, two extra passes were run anyway: every one of the ten was confirmed to
-  fail on an `expect()` ASSERTION, and the transform control -- one mutant judged
-  by a spec that renders the module without asserting the behaviour -- correctly
-  ESCAPED.
-- STATED, NOT HIDDEN: the pre-resolve window is still open. With the status GET
-  never resolving, the page still puts `{enabled:false, global_bps:0,
-  per_site_bps:{}}` on the wire. `isPending` closes the in-flight window but not
-  the error window; `isSuccess` closes both by making the throttle unappliable
-  whenever the status read fails, which changes product behaviour when the
-  backend is sick. That is the operator's call (A2), so it is reported rather
-  than decided. Measured mitigation: the section is collapsed, so reaching Apply
-  costs a deliberate click the fetch easily beats.
-- ALSO FOUND AND NOT FIXED: the row and my briefing both call this control
-  "typed-confirm". It is not -- `Settings.tsx:2248` is a plain Cancel/Confirm
-  dialog with no token, and the in-code hint at `:1284` repeats the error. That
-  is tier copy on a neighbouring line and belongs to whoever sets the tier (A3).
+## v3.66.1241 - an observation gets its own clock, and the split lands
+
+- ROW 237'S DIAGNOSIS IS CONFIRMED AND ONE STEP OF IT SHARPENED.
+  `registration_owner_spawn` bounded EVERY owned helper with
+  `registration_remaining_owner_timeout` -- what remains of the ACTIVE FORWARD
+  deadline. Four of those call sites are OBSERVATIONS whose payload is a
+  QUESTION, not a step of the protocol, so for them expiry is a FALSE VERDICT
+  rather than the subject. One key describing two costs, for the third time in
+  this file's history: v3.66.1226 fixed it for test budgets, v3.66.1231 for
+  settlement, this one for observations.
+- THE ROW DID NOT NAME THE ONE THAT MATTERS MOST. `registration_owner_collect`
+  runs the owned-group census after EVERY owned helper with census policy
+  REQUIRED, and that result GATES the helper's own verdict. A census that ran
+  out of the forward remainder therefore turned a correct run into a failure.
+- THE SPLIT LANDS. 236-239s against the 420.85s the single file measured at
+  v3.66.1230 -- the halving it exists for -- and the module stops being the
+  suite's serial long pole.
+- THE ACCEPTANCE ARM IS FIVE OF FIVE CLEAN at `-n 12`, the sanctioned shape,
+  which is exactly what row 237 demanded before the split could land.
+- AND THE VERDICT IS HONEST ABOUT WHAT IT DOES NOT COVER. Under a synthetic load
+  far past the sanctioned shape -- twelve procfs-walking generators plus four
+  concurrent workers, load ~16 on 48 cores -- the family still flaked ONCE in
+  three candidate rounds, and the preserved rundir shows a group probe answering
+  UNKNOWN about a leader in transition. That is a probe returning uncertainty,
+  NOT a bound expiring, so it is a different mechanism. The zero-floor control
+  arm flaked once in two rounds on a third leg, the READY reader. Both are filed
+  as ROW 241 with their captured basetemps relocated out of /tmp, rather than
+  folded into this cut's claim.
+- THE CONTROL ARM IS THE PART WORTH COPYING. A `floor0` build -- the candidate
+  tree with the new floor set to zero and nothing else changed -- is proved to be
+  EXACT PARITY with the parent by its own test, so it isolates this fix and
+  nothing else. Running the candidate TESTS against the parent PRODUCT was
+  measured to be CONFOUNDED (fifteen nodes fail because they require the
+  candidate product) and is reported as such rather than dressed up as a result.
+- REBASE REPAIR, DECLARED RATHER THAN QUIET: this cut was frozen before v3.66.1240
+  landed, so rebasing it onto main had to reconcile the release trio by hand. Doing
+  that surfaced a defect ALREADY ON MAIN. Commit `bfbc073` added 92 CHANGELOG lines,
+  and its entry's opening bullet occurs TWICE among them, because v3.66.1240
+  prepended its entry twice: once as a HEADERLESS earlier draft sitting between the
+  preamble and the first level-two header, then again under its real header. The two
+  drafts differ only in the wording of two bullets. Prepending this entry above that
+  orphan would have made 44 lines of v3.66.1240's text read as part of v3.66.1241,
+  so the orphan draft is removed here. NOTHING ELSE in v3.66.1240's region is
+  touched, and no product behaviour changes.
+- THE GATE HOLE IS NOT FIXED HERE AND IS FILED AS ROW 242. The release-hygiene gate
+  passed v3.66.1240 in exact-head CI, so it cannot see prose ABOVE the newest
+  level-two header -- it anchors on the first header it finds and never asks what
+  precedes it. Fixing that is its own cut with its own RED test (A3); this cut
+  removes the data and names the gate rather than folding a second subject in.
+- A REPEAT OF A KNOWN TRAP, CAUGHT BY THE CHECK RATHER THAN BY LUCK: the first
+  draft of the two bullets above quoted the duplicated line VERBATIM, which put a
+  third copy of it in the file and failed the very count that had just detected the
+  duplicate. Prose about a scanned string is inside that string's denominator. The
+  wording was changed; the check was not widened.
+- EVERY SPAWN OF THE BUILT W1 RUNNER NOW PINS ITS WORKING DIRECTORY -- 62 sites
+  across the two files. The production RUNNER template shells out to `git
+  rev-parse --short HEAD`, and every spawn passed `env=` but no `cwd=`, so it
+  inherited whatever directory the pytest worker happened to hold. That is the
+  current-directory isolation A7 names alongside HOME, TMPDIR and module globals.
+- THE RACE IS NOT CLAIMED FIXED, AND THE EXPERIMENT SAYS WHY. A matched run --
+  this candidate against origin/main, same band, INTERLEAVED rounds, load
+  recorded per round -- put the SAME test on BOTH ARMS:
+  `test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group`
+  failed in candidate round 3 and again in control round 3. This cut MOVED that
+  test into the new file, so the filename changed and the test did not. It fails
+  on main too, so it is PRE-EXISTING and this cut does not own it. Both it and
+  the earlier rc=93 / writes=0 observations are recorded verbatim on ROW 241 as
+  open schedule-sensitive legs rather than dressed up as fixed here.
 
 ## v3.66.1240 - the supervisor form shows what the server actually has
 

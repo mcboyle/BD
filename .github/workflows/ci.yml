@@ -384,6 +384,14 @@ jobs:
           - name: jobs-process-lifecycle
             suites: >-
               tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py
+          # @1241 row 237. --dist loadfile hands one FILE to one worker, so
+          # a single 174-node module is serial however many workers exist
+          # and is the suite's long pole. The split halves it by measured
+          # call time, and each half needs its own runner for the same
+          # reason the comment above gives.
+          - name: jobs-registration-lifecycle
+            suites: >-
+              tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py
           # @1208. The heartbeat signal contract guards the boundary that made
           # all seven fleet captures fail at once, so CI must see it: it is a
           # module-scoped gate, and without an entry here a regression of

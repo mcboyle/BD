@@ -53,6 +53,7 @@ that silently fails is outside its denominator.
 from __future__ import annotations
 
 import ast
+import builtins
 import errno
 import importlib.machinery
 import importlib.util
@@ -66,6 +67,7 @@ import shlex
 import signal
 import stat
 import subprocess
+import tempfile
 import sys
 import threading
 import time
@@ -206,6 +208,11 @@ _MEASURED_S = {
     "an_absence_claim_is_immune_to_a_live_neighbour_group/wait-2":               (0.0035, 0),
     "a_non_descendant_group_member_fails_the_probe_closed_not_open/wait":       (0.0158, 0),
     "a_slow_settlement_never_downgrades_a_decided_cancellation/wait":           (6.8895, 0),
+    "_w1_observation_timeout/run":                                               (0.0095, 0),
+    "a_slow_owner_observation_never_downgrades_a_correct_run/run":              (7.9826, 0),
+    "the_recorded_observation_cost_matches_a_real_observation/wait":            (0.2650, 0),
+    "the_recorded_observation_cost_matches_a_real_observation/wait-2":          (0.0035, 0),
+    "the_observation_floor_still_bounds_an_observation_that_will_not_answer/run": (6.3104, 0),
     "a_slow_settlement_never_downgrades_a_decided_cancellation/wait-2":         (0.0035, 0),
     "abort_timeout_retains_inert_gate_under_one_budget/exit":                    (5.4935, 20.0),
     "abort_timeout_retains_inert_gate_under_one_budget/wait":                    (0.0035, 5),
@@ -329,6 +336,7 @@ _MEASURED_S = {
     "the_presence_probe_costs_the_group_and_not_the_host/wait":                 (0.0157, 0),
     "the_settlement_deadline_still_bounds_a_gate_that_will_not_settle/wait":    (0.4157, 0),
     "the_settlement_deadline_still_bounds_a_gate_that_will_not_settle/wait-2":  (0.0035, 0),
+    "the_budget_boundary_followed_the_tests_into_this_file/wait":            (0.0530, 0),
     "the_cheap_presence_probe_agrees_with_the_complete_census/wait":             (0.0155, 5),
     "the_group_census_never_forks_and_so_cannot_count_itself/wait":              (0.0154, 5),
     "unreadable_group_absence_probe_never_grants_status_91/run":                 (4.7896, 6),
@@ -343,6 +351,15 @@ _MEASURED_S = {
     "zero_owner_kill_grace_is_rejected_before_timeout_launch/run":               (0.3019, 7),
 }
 
+
+# EVERY SPAWN OF THE BUILT RUNNER PINS ITS WORKING DIRECTORY. The production
+# RUNNER template shells out to `git rev-parse --short HEAD`, so a spawn that
+# inherits the pytest worker's directory is asserting over ambient state -- the
+# exact isolation A7 names alongside HOME, TMPDIR and module globals. One band
+# spawn returned rc=93 with `fatal: not a git repository`; that event is
+# recorded as an open flake on row 241 and is NOT claimed to be fixed here.
+# What is fixed is that the directory is now DETERMINISTIC instead of inherited.
+_W1_SPAWN_CWD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class _Budget(float):
     """A budget that remembers which call site it was derived for.
@@ -2028,6 +2045,7 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      owner_kill_grace_us=None,
                      missing_setup_fd=None, missing_setup_pid=None,
                      registrar_seconds=None, cleanup_seconds=None,
+                     observation_seconds=None,
                      reconcile_seconds=None, checked_wait_probe=None,
                      monotonic_samples=None,
                      cancel_before_observation=False,
@@ -2099,6 +2117,24 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
             "the production runner has no single finite settlement deadline")
         body = body.replace(
             cleanup_anchor, "W1_CLEANUP_SECONDS=%d" % cleanup_seconds)
+    if observation_seconds is not None:
+        # THE OWNER-OBSERVATION FLOOR, DRIVEN SEPARATELY FROM EVERY
+        # FORWARD DEADLINE. Before v3.66.1241 an owner OBSERVATION -- the
+        # fd observer, the process observer, the group observer and the
+        # descendant census that follows every owned helper -- was bounded
+        # by WHAT REMAINED of the active forward deadline, so a test that
+        # wanted the gate protocol to give up in 3s also told a helper it
+        # had about a second and a half to ANSWER A QUESTION. Expiry there
+        # is a FALSE VERDICT: the observation returns UNKNOWN and a
+        # correct run settles into retained uncertainty. Only a test whose
+        # SUBJECT is an observation expiring should set this.
+        observation_anchor = "W1_OWNER_OBSERVATION_SECONDS=%d" % (
+            _w1_runner_deadline_constants()["W1_OWNER_OBSERVATION_SECONDS"])
+        assert body.count(observation_anchor) == 1, (
+            "the production runner has no single owner-observation floor")
+        body = body.replace(
+            observation_anchor,
+            "W1_OWNER_OBSERVATION_SECONDS=%d" % observation_seconds)
     if registrar_seconds is not None:
         registrar_anchor = "W1_REGISTRAR_SECONDS=30"
         assert body.count(registrar_anchor) == 1, (
@@ -2531,7 +2567,7 @@ def _w1_cancel_a_registrar_bound_runner(tmp_path, mod, *, gate_program,
         tmp_path, code=0, stdout="stubhost-4242\n", sleep=300))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     return marker, registrar, rundir, proc
 
@@ -3300,7 +3336,7 @@ def test_zero_owner_kill_grace_is_rejected_before_timeout_launch(tmp_path):
     env["W1_TIMEOUT_ARGV_LOG"] = str(timeout_log)
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("zero_owner_kill_grace_is_rejected_before_timeout_launch/run"),
     )
 
@@ -3394,7 +3430,7 @@ def test_completed_owner_ready_receipt_remains_census_authority(tmp_path):
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     try:
@@ -3452,7 +3488,7 @@ def test_completed_owner_forged_ready_receipt_never_grants_census_authority(
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     try:
@@ -3532,7 +3568,7 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     _w1_prepend_pythonpath(env, write_shim)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     owner_pid = descendant_pid = -1
@@ -3592,7 +3628,7 @@ def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=1, cleanup_seconds=1,
+        reap_seconds=1, cleanup_seconds=1, observation_seconds=0,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -3600,7 +3636,7 @@ def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("one_second_lifecycle_cap_remains_truthfully_unknown/run"))
 
     assert not registrar.exists() and not marker.exists(), (
@@ -3629,7 +3665,7 @@ def test_every_authority_helper_is_named_and_checked_waited(tmp_path):
         tmp_path, code=0, stdout="stubhost-4242\n"))
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("every_authority_helper_is_named_and_checked_waited/run"))
 
     assert result.returncode == 0, (
@@ -3693,7 +3729,7 @@ def test_descendant_census_is_itself_a_named_checked_owner(tmp_path):
         tmp_path, code=0, stdout="stubhost-4242\n"))
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("descendant_census_is_itself_a_named_checked_owner/run"))
 
     assert result.returncode == 0
@@ -3712,60 +3748,6 @@ def test_descendant_census_is_itself_a_named_checked_owner(tmp_path):
             assert record["descendants"] == "NOT-APPLICABLE", record
     assert "registration_builtin_group_census" not in mod.RUNNER
     assert "No such file or directory" not in result.stderr
-
-
-def test_failed_registration_never_releases_the_workload(tmp_path):
-    """A rejected registry transaction must never start the real command."""
-    mod = _load()
-    workload_marker = tmp_path / "workload-started"
-    registrar_marker = tmp_path / "registrar-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\n"
-        "touch %s\n"
-        "sleep 0.2\n" % shlex.quote(str(workload_marker)),
-        reap_seconds=3,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=1.5))
-    env["W1_REGISTRAR_MARKER"] = str(registrar_marker)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True)
-    pgid = -1
-    try:
-        pgid, live = _w1_wait_for_gate(rundir)
-        _w1_wait_for_path(registrar_marker)
-        observation = _w1_proc_observation(pgid)
-        assert observation[:3] == (pgid, proc.pid, pgid), (
-            "the registration receipt was not a direct-child group leader: "
-            f"{observation!r}")
-        assert len(live) == 1, (
-            "the gate started the workload or descendants before registration: "
-            f"{live!r}")
-        # Let the real transaction settle all of its named owners before the
-        # mutation assertion can unwind pytest.  The early-work mutant is
-        # still observed by its durable marker, but cannot strand a registrar
-        # by killing the runner at the assertion boundary.
-        rc = proc.wait(timeout=_w1_budget_s("failed_registration_never_releases_the_workload/wait"))
-        err = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "release_writes=0" in err, (
-            "REGISTRAR-REFUSAL-WROTE-GO", err)
-        assert not workload_marker.exists(), (
-            "the workload ran before its registry transaction committed")
-        assert not workload_marker.exists(), (
-            "a registration failure released a workload the registry cannot see")
-        assert (rundir / "exitcode").read_text().strip() == W1_RUNNER_FAILURE_CODE
-        assert not _w1_live_in_group(pgid)
-        assert rc == int(W1_RUNNER_FAILURE_CODE)
-    finally:
-        _w1_kill_group(pgid)
-        if proc.poll() is None:
-            _w1_kill_group(os.getpgid(proc.pid))
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("failed_registration_never_releases_the_workload/wait-2"))
 
 
 def test_successful_registration_releases_exact_command_and_status(tmp_path):
@@ -3789,7 +3771,7 @@ def test_successful_registration_releases_exact_command_and_status(tmp_path):
         tmp_path, code=0, stdout="stubhost-4242\n", sleep=1.0))
     env["W1_REGISTRAR_MARKER"] = str(registrar_marker)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     pgid = -1
     try:
@@ -3814,121 +3796,6 @@ def test_successful_registration_releases_exact_command_and_status(tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=_w1_budget_s("successful_registration_releases_exact_command_and_status/wait-2"))
-
-
-def test_registration_release_failure_is_bounded_and_classified(tmp_path):
-    """A committed row with an unreleased gate is neither success nor a hang."""
-    mod = _load()
-    workload_marker = tmp_path / "workload-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\n"
-        "touch %s\n"
-        "sleep 300\n" % shlex.quote(str(workload_marker)),
-        reap_seconds=3,
-    )
-    bash_env = tmp_path / "fail-gate-release.bash"
-    bash_env.write_text(
-        "printf() {\n"
-        "    if [ \"$1\" = '%s\\n' ] && [ \"${2-}\" = 'GO v1' ]; then\n"
-        "        return 1\n"
-        "    fi\n"
-        "    builtin printf \"$@\"\n"
-        "}\n"
-        "export -f printf\n",
-        encoding="utf-8",
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["BASH_ENV"] = str(bash_env)
-    started = time.monotonic()
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    pgid = -1
-    try:
-        pgid, _ = _w1_wait_for_gate(rundir)
-        rc = proc.wait(timeout=_w1_budget_s("registration_release_failure_is_bounded_and_classified/wait"))
-        assert time.monotonic() - started < 8
-        assert rc == int(W1_RELEASE_FAILURE_CODE)
-        assert not workload_marker.exists(), (
-            "a failed release nevertheless started the registered command")
-        assert (rundir / "exitcode").read_text().strip() == W1_RELEASE_FAILURE_CODE
-        err = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "REGISTER-HANDOFF write_status=1 writes=1" in err
-        assert "frame=ABORTED v1 reason=release-eof" in err
-        assert "receipt=" in err
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        assert not _w1_live_in_group(pgid)
-    finally:
-        _w1_kill_group(pgid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("registration_release_failure_is_bounded_and_classified/wait-2"))
-
-
-def test_registration_failure_never_signals_after_original_child_disappears(
-        tmp_path):
-    """A READY gate that dies during registration is collected, never killed."""
-    mod = _load()
-    workload_marker = tmp_path / "workload-started"
-    registrar_marker = tmp_path / "registrar-started"
-    disappeared, release_disappearance, disappeared_fd = _w1_fifo_barrier(
-        tmp_path, "gate-disappearance")
-    gate_program = (
-        "import os\n"
-        "def emit(fd, frame):\n"
-        "    os.write(fd, (frame + '\\n').encode('ascii'))\n"
-        "emit(1, 'READY v1 pid=%%d' %% os.getpid())\n"
-        "os.close(1)\n"
-        "with open(%r, 'w', encoding='ascii') as stream:\n"
-        "    stream.write('gate-ready-to-disappear\\n')\n"
-        "with open(%r, 'r', encoding='ascii') as stream:\n"
-        "    if not stream.readline():\n"
-        "        raise SystemExit(97)\n"
-        "raise SystemExit(98)\n" % (
-            str(disappeared), str(release_disappearance))
-    )
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(workload_marker)),
-        reap_seconds=3, gate_program=gate_program,
-    )
-    bash_env, signal_log = _w1_signal_probe(tmp_path)
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=1.0))
-    env["W1_REGISTRAR_MARKER"] = str(registrar_marker)
-    env["BASH_ENV"] = str(bash_env)
-    env["W1_SIGNAL_LOG"] = str(signal_log)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(disappeared_fd, site="registration_failure_never_signals_after_original_child_disappears/fifo") == (
-            "gate-ready-to-disappear\n")
-        _w1_wait_for_path(registrar_marker)
-        with release_disappearance.open("w", encoding="ascii") as stream:
-            stream.write("disappear\n")
-        rc = proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_after_original_child_disappears/wait"))
-        assert rc == int(W1_RETAINED_FAILURE_CODE)
-        assert not workload_marker.exists()
-        assert not signal_log.exists(), (
-            "registration cleanup restored a negative numeric signal sink")
-        err = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "context=registrar-refused" in err
-        assert "frame_rc=1" in err and "wait=98" in err
-        assert "receipt=" in err and "release_writes=0" in err
-        assert (rundir / "exitcode").read_text().strip() == W1_RETAINED_FAILURE_CODE
-    finally:
-        os.close(disappeared_fd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_after_original_child_disappears/wait-2"))
 
 
 def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path):
@@ -3983,7 +3850,7 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     _w1_prepend_pythonpath(env, write_shim)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -4035,7 +3902,7 @@ def test_unreadable_group_absence_probe_never_grants_status_91(tmp_path):
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     env["BASH_ENV"] = str(bash_env)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("unreadable_group_absence_probe_never_grants_status_91/run"))
     assert result.returncode == int(W1_RETAINED_FAILURE_CODE)
     assert not marker.exists()
@@ -4065,7 +3932,7 @@ def test_registration_failure_never_signals_changed_process_identity(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     env["W1_SIGNAL_LOG"] = str(signal_log)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
         rc = proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_changed_process_identity/wait"))
@@ -4083,75 +3950,6 @@ def test_registration_failure_never_signals_changed_process_identity(tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_changed_process_identity/wait-3"))
-
-
-@pytest.mark.parametrize("field,reason", [
-    ("ppid", "initial-not-direct-child"),
-    ("pgrp", "initial-not-group-leader"),
-    ("state", "initial-receipt-refused"),
-])
-def test_gate_receipt_admission_rejects_wrong_provenance(
-        tmp_path, field, reason):
-    mod = _load()
-    workload_marker = tmp_path / "workload-started"
-    registrar_marker = tmp_path / "registrar-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(workload_marker)),
-        reap_seconds=3,
-    )
-    bash_env, counter = _w1_process_probe_drift(
-        tmp_path, field, after_calls=0, mutate_group=False, one_shot=True)
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
-    env["W1_REGISTRAR_MARKER"] = str(registrar_marker)
-    env["BASH_ENV"] = str(bash_env)
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("gate_receipt_admission_rejects_wrong_provenance/run"))
-    assert not registrar_marker.exists() and not workload_marker.exists(), (
-        "N219-N220-FORBIDDEN-REGISTRAR-CROSSING")
-    assert counter.read_text().strip() == "1"
-    err = (rundir / "jobid.err").read_text(encoding="utf-8")
-    assert reason in err and "release_writes=0" in err
-    assert result.returncode == int(W1_RETAINED_FAILURE_CODE)
-
-
-@pytest.mark.parametrize("field", ["pgrp", "starttime"])
-def test_registration_receipt_drift_before_go_refuses_release(tmp_path, field):
-    """Separate pgrp/starttime changes both block GO after registration."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3,
-    )
-    bash_env, counter = _w1_process_probe_drift(
-        tmp_path, field, after_calls=2, mutate_group=False)
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n", sleep=0.1))
-    env["BASH_ENV"] = str(bash_env)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        rc = proc.wait(timeout=_w1_budget_s("registration_receipt_drift_before_go_refuses_release/wait"))
-        assert rc == int(W1_RELEASE_FAILURE_CODE)
-        assert counter.read_text().strip() == "3"
-        assert not marker.exists()
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        err = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "pre-go-identity-refused" in err and "release_writes=0" in err
-    finally:
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("registration_receipt_drift_before_go_refuses_release/wait-2"))
 
 
 def test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register(tmp_path):
@@ -4304,7 +4102,7 @@ def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
     expected_code = (W1_SETUP_FAILURE_CODE if settlement == "ABSENT"
                      else W1_RETAINED_FAILURE_CODE)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     gate_pid = -1
@@ -4463,7 +4261,7 @@ def test_live_wrong_ready_frame_never_reaches_the_registrar(tmp_path):
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("live_wrong_ready_frame_never_reaches_the_registrar/run"))
     assert not registrar.exists() and not marker.exists(), (
         "WRONG-READY-REACHED-REGISTRAR", registrar.exists(), marker.exists(),
@@ -4489,7 +4287,7 @@ def test_live_duplicate_ready_frame_never_reaches_the_registrar(tmp_path):
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("live_duplicate_ready_frame_never_reaches_the_registrar/run"))
     assert not registrar.exists() and not marker.exists()
     err = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -4537,7 +4335,7 @@ def test_delayed_extra_ready_frame_never_reaches_the_registrar(tmp_path):
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -4580,7 +4378,7 @@ def test_nul_bearing_ready_frame_never_reaches_the_registrar(tmp_path):
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("nul_bearing_ready_frame_never_reaches_the_registrar/run"))
     assert not registrar.exists() and not marker.exists()
     evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -4602,7 +4400,7 @@ def test_pre_ready_descendant_refuses_registration(tmp_path):
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -4622,157 +4420,6 @@ def test_pre_ready_descendant_refuses_registration(tmp_path):
             proc.wait(timeout=_w1_budget_s("pre_ready_descendant_refuses_registration/wait-2"))
 
 
-@pytest.mark.parametrize("stdout,valid", [
-    ("", False),
-    ("stubhost-4242\nother-7\n", False),
-    ("not an id\n", False),
-    ("stubhost-4242\n", True),
-])
-def test_registrar_success_requires_one_exact_job_id_before_release(
-        tmp_path, stdout, valid):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\nexit %d\n" %
-        (shlex.quote(str(marker)), W1_WORKLOAD_CODE),
-        reap_seconds=3,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout=stdout))
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("registrar_success_requires_one_exact_job_id_before_release/run"))
-    if valid:
-        assert marker.exists()
-        assert (rundir / "exitcode").read_text().strip() == str(W1_WORKLOAD_CODE)
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        assert result.returncode == 0
-    else:
-        assert not marker.exists()
-        assert (rundir / "jobid").read_text(encoding="utf-8") == stdout
-        err = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "invalid-job-id" in err and "release_writes=0" in err
-        assert (rundir / "exitcode").read_text().strip() == W1_RELEASE_FAILURE_CODE
-        assert result.returncode == int(W1_RELEASE_FAILURE_CODE)
-
-
-@pytest.mark.parametrize("effect_then_error", [False, True])
-def test_release_write_error_is_resolved_only_by_gate_status(
-        tmp_path, effect_then_error):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\nexit %d\n" %
-        (shlex.quote(str(marker)), W1_WORKLOAD_CODE),
-        reap_seconds=3,
-    )
-    bash_env = tmp_path / "release-effect-return.bash"
-    effect = "        builtin printf \"$@\"\n" if effect_then_error else ""
-    bash_env.write_text(
-        "printf() {\n"
-        "    if [ \"$1\" = '%s\\n' ] && [ \"${2-}\" = 'GO v1' ]; then\n"
-        + effect
-        + "        return 1\n"
-          "    fi\n"
-          "    builtin printf \"$@\"\n"
-          "}\n"
-          "export -f printf\n",
-        encoding="utf-8",
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["BASH_ENV"] = str(bash_env)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    try:
-        rc = _w1_wait_for_exit(proc, rundir, site="release_write_error_is_resolved_only_by_gate_status/exit")
-        protocol = (rundir / "registration-gate.protocol").read_text()
-        assert "write_status=1 writes=1" in protocol
-        if effect_then_error:
-            assert rc == 0 and marker.exists()
-            assert "frame=EXEC-OK v1" in protocol
-            assert (rundir / "exitcode").read_text().strip() == str(W1_WORKLOAD_CODE)
-        else:
-            assert rc == int(W1_RELEASE_FAILURE_CODE)
-            assert not marker.exists() and (
-                "frame=ABORTED v1 reason=release-eof" in protocol)
-    finally:
-        if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate(timeout=_w1_budget_s("release_write_error_is_resolved_only_by_gate_status/communicate"))
-
-
-def test_real_release_sigpipe_is_contained_and_enters_registered_failure(
-        tmp_path):
-    """A dead release peer must not terminate Bash before reconciliation.
-
-    A shell function returning 1 does not model the kernel's SIGPIPE delivery to
-    a Bash builtin.  Hold the runner after its last identity check, terminate
-    the exact gate through a pidfd, and only then permit the real ``printf``.
-    """
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    entered, release, entered_fd = _w1_fifo_barrier(
-        tmp_path, "release-write-sigpipe")
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, cleanup_seconds=3,
-        before_release_write_barrier=(entered, release),
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    calls_path = tmp_path / "bd-jobs-calls"
-    env["W1_STUB_ARGV_LOG"] = str(calls_path)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    gate_pidfd = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, site="real_release_sigpipe_is_contained_and_enters_registered_failure/fifo") == "release-write-entered\n"
-        gate_pidfd = os.pidfd_open(gate_pid)
-        os.kill(gate_pid, signal.SIGKILL)
-        readable, _, _ = select.select([gate_pidfd], [], [], 5)
-        assert readable == [gate_pidfd], (
-            "the exact release peer did not reach a terminal state")
-        with release.open("w", encoding="ascii") as stream:
-            stream.write("release\n")
-
-        returncode = proc.wait(timeout=_w1_budget_s("real_release_sigpipe_is_contained_and_enters_registered_failure/wait"))
-        protocol = (rundir / "registration-gate.protocol").read_text(
-            encoding="utf-8")
-        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert returncode == int(W1_RELEASE_FAILURE_CODE), (
-            "REAL-RELEASE-SIGPIPE-BYPASSED-REGISTERED-FUNNEL: "
-            f"runner returned {returncode}")
-        assert (rundir / "exitcode").read_text().strip() == W1_RELEASE_FAILURE_CODE
-        assert "write_status=" in protocol and "sigpipe=1" in protocol
-        assert "writes=1" in protocol
-        assert "REGISTERED-FAILURE" in evidence and "reconcile=0" in evidence
-        assert "id=stubhost-4242" in evidence
-        calls = calls_path.read_text(encoding="utf-8").splitlines()
-        assert len(calls) == 2, (
-            "REAL-RELEASE-SIGPIPE-DID-NOT-RECONCILE-EXACTLY-ONCE: " +
-            repr(calls))
-        assert calls[0].startswith("register ")
-        assert calls[1] == "reap --id stubhost-4242"
-        assert not marker.exists()
-    finally:
-        os.close(entered_fd)
-        if gate_pidfd >= 0:
-            os.close(gate_pidfd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("real_release_sigpipe_is_contained_and_enters_registered_failure/wait-2"))
-
-
 def test_release_sigpipe_handler_is_scoped_and_restored_after_write(tmp_path):
     """The containment handler must not become ambient runner signal policy."""
     mod = _load()
@@ -4787,7 +4434,7 @@ def test_release_sigpipe_handler_is_scoped_and_restored_after_write(tmp_path):
         tmp_path, code=0, stdout="stubhost-4242\n"))
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("release_sigpipe_handler_is_scoped_and_restored_after_write/run"))
 
     assert result.returncode == 0
@@ -4795,107 +4442,6 @@ def test_release_sigpipe_handler_is_scoped_and_restored_after_write(tmp_path):
     assert pipe_state.is_file()
     assert pipe_state.read_text(encoding="utf-8") == "", (
         "RELEASE-SIGPIPE-HANDLER-LEAKED-PAST-WRITE")
-
-
-@pytest.mark.parametrize("frame", ["G", "GO v1\nX", "GO v1\nGO v1\n"])
-def test_partial_or_duplicate_release_frame_never_execs(tmp_path, frame):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3,
-    )
-    bash_env = tmp_path / "bad-release-frame.bash"
-    bash_env.write_text(
-        "printf() {\n"
-        "    if [ \"$1\" = '%s\\n' ] && [ \"${2-}\" = 'GO v1' ]; then\n"
-        "        builtin printf " + shlex.quote(frame) + "\n"
-        "        return 0\n"
-        "    fi\n"
-        "    builtin printf \"$@\"\n"
-        "}\n"
-        "export -f printf\n",
-        encoding="utf-8",
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["BASH_ENV"] = str(bash_env)
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("partial_or_duplicate_release_frame_never_execs/run"))
-    assert not marker.exists()
-    assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-    protocol = (rundir / "registration-gate.protocol").read_text()
-    assert "writes=1" in protocol and "ABORTED v1 reason=release-protocol" in protocol
-    assert result.returncode == int(W1_RELEASE_FAILURE_CODE)
-
-
-def test_gate_exec_failure_is_named_registered_handoff_failure(tmp_path):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    argv_log = tmp_path / "stub-argv"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXECUTABLE"] = str(tmp_path / "does-not-exist")
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("gate_exec_failure_is_named_registered_handoff_failure/run"))
-    assert not marker.exists()
-    assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-    protocol = (rundir / "registration-gate.protocol").read_text()
-    assert "EXEC-FAIL v1 errno=2" in protocol
-    calls = argv_log.read_text().splitlines()
-    assert len(calls) == 2 and calls[0].startswith("register ")
-    assert calls[1] == "reap --id stubhost-4242"
-    assert result.returncode == int(W1_RELEASE_FAILURE_CODE)
-
-
-def test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group(
-        tmp_path):
-    """EXEC-OK without terminal EOF is delivery-unknown, owned by its id."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    argv_log = tmp_path / "stub-argv"
-    gate_program = _w1_adversarial_gate_program(
-        terminal="EXEC-OK v1", hold=30, status=0)
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, reconcile_seconds=3, gate_program=gate_program,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    started = time.monotonic()
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        rc = proc.wait(timeout=_w1_budget_s("invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait"))
-        assert _w1_live_in_group(gate_pid), (
-            "the fixture did not retain the hostile registered gate")
-        calls = argv_log.read_text(encoding="utf-8").splitlines()
-        assert len(calls) == 2 and calls[0].startswith("register ")
-        assert calls[1] == "reap --id stubhost-4242"
-        assert not marker.exists()
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        assert time.monotonic() - started < 7.0
-        assert rc == int(W1_RELEASE_FAILURE_CODE)
-    finally:
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait-2"))
 
 
 def test_terminal_relay_wait_failure_reconciles_registered_id(tmp_path):
@@ -4926,7 +4472,7 @@ def test_terminal_relay_wait_failure_reconciles_registered_id(tmp_path):
         tmp_path, code=0, stdout="stubhost-4242\n"))
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("terminal_relay_wait_failure_reconciles_registered_id/run"))
     calls = argv_log.read_text(encoding="utf-8").splitlines()
     assert len(calls) == 2 and calls[1] == "reap --id stubhost-4242"
@@ -4965,7 +4511,7 @@ def test_failed_workload_wait_reconciles_registered_id(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("failed_workload_wait_reconciles_registered_id/run"))
     wait_evidence = (
         rundir / "registration-workload-wait.err").read_text(encoding="utf-8")
@@ -4975,64 +4521,6 @@ def test_failed_workload_wait_reconciles_registered_id(tmp_path):
     assert calls[1] == "reap --id stubhost-4242"
     assert marker.exists()
     assert result.returncode == int(W1_RELEASE_FAILURE_CODE)
-
-
-def test_reconciliation_term_resistance_stays_inside_total_budget(tmp_path):
-    """The reconciliation owner reserves a KILL grace inside its one budget."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    argv_log = tmp_path / "stub-argv"
-    reap_pid_path = tmp_path / "reap.pid"
-    reap_child_path = tmp_path / "reap-child.pid"
-    entered, _release, entered_fd = _w1_fifo_barrier(
-        tmp_path, "timeout-reap")
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, reconcile_seconds=2,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXECUTABLE"] = str(tmp_path / "does-not-exist")
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    env["W1_REAP_IGNORE_TERM"] = "300"
-    env["W1_REAP_PID_MARKER"] = str(reap_pid_path)
-    env["W1_REAP_CHILD_PID_MARKER"] = str(reap_child_path)
-    env["W1_REAP_ENTERED_FIFO"] = str(entered)
-    env["W1_REAP_RELEASE_FIFO"] = str(_release)
-    started = time.monotonic()
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    try:
-        assert _w1_await_fifo(entered_fd, site="reconciliation_term_resistance_stays_inside_total_budget/fifo") == "reap-entered\n"
-        reap_pid = int(reap_pid_path.read_text().strip())
-        reap_child_pid = int(reap_child_path.read_text().strip())
-        assert _w1_pid_is_live(reap_pid) and _w1_pid_is_live(reap_child_pid)
-        try:
-            rc = proc.wait(timeout=_w1_budget_s("reconciliation_term_resistance_stays_inside_total_budget/wait"))
-        except subprocess.TimeoutExpired as exc:
-            raise AssertionError(
-                "TERM-resistant reconciliation escaped its owner") from exc
-        assert not _w1_pid_is_live(reap_pid)
-        assert not _w1_pid_is_live(reap_child_pid)
-        records = [record for record in _w1_owner_records(rundir)
-                   if record["role"] == "reconciliation"]
-        assert len(records) == 1 and records[0]["wait_ok"] == "1", records
-        assert records[0]["descendants"] == "ABSENT", records
-        calls = argv_log.read_text(encoding="utf-8").splitlines()
-        assert calls[-1] == "reap --id stubhost-4242"
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        assert records[0]["status"] in {"124", "137"}
-        assert '--kill-after="$W1_SPAWN_KILL_AFTER"' in mod.RUNNER
-        assert rc == int(W1_RELEASE_FAILURE_CODE)
-    finally:
-        os.close(entered_fd)
-        if proc.poll() is None:
-            _w1_kill_group(os.getpgid(proc.pid))
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("reconciliation_term_resistance_stays_inside_total_budget/wait-2"))
 
 
 @pytest.mark.parametrize("terminal,status", [
@@ -5057,7 +4545,7 @@ def test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait(
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-4242\n"))
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True)
     gate_pid = -1
@@ -5085,90 +4573,6 @@ def test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait(
             proc.wait(timeout=_w1_budget_s("terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait"))
 
 
-def test_cancellation_during_reconciliation_retains_primary_and_reaps_owner(
-        tmp_path):
-    """Registered uncertainty stays 93, but INT cannot disappear from evidence."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    reap_pid_path = tmp_path / "reap.pid"
-    reap_child_path = tmp_path / "reap-child.pid"
-    _entered, release, entered_fd = _w1_fifo_barrier(tmp_path, "reap")
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, reconcile_seconds=3,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXECUTABLE"] = "/definitely/missing/w1-executable"
-    env["W1_REAP_IGNORE_TERM"] = "300"
-    env["W1_REAP_PID_MARKER"] = str(reap_pid_path)
-    env["W1_REAP_CHILD_PID_MARKER"] = str(reap_child_path)
-    env["W1_REAP_ENTERED_FIFO"] = str(_entered)
-    env["W1_REAP_RELEASE_FIFO"] = str(release)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, site="cancellation_during_reconciliation_retains_primary_and_reaps_owner/fifo") == "reap-entered\n"
-        reap_pid = int(reap_pid_path.read_text().strip())
-        reap_child_pid = int(reap_child_path.read_text().strip())
-        assert _w1_pid_is_live(reap_pid) and _w1_pid_is_live(reap_child_pid)
-        os.kill(proc.pid, signal.SIGINT)
-        assert proc.wait(timeout=_w1_budget_s("cancellation_during_reconciliation_retains_primary_and_reaps_owner/wait")) == int(W1_RELEASE_FAILURE_CODE)
-        assert not marker.exists()
-        assert not _w1_pid_is_live(reap_pid)
-        assert not _w1_pid_is_live(reap_child_pid)
-        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "primary_cancel=130" in evidence
-        reconcile = [record for record in _w1_owner_records(rundir)
-                     if record["role"] == "reconciliation"]
-        assert len(reconcile) == 1
-        assert reconcile[0]["wait_ok"] == "1"
-        assert reconcile[0]["descendants"] == "ABSENT"
-    finally:
-        os.close(entered_fd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("cancellation_during_reconciliation_retains_primary_and_reaps_owner/wait-2"))
-
-
-def test_cooperative_registered_cancellation_returns_primary_status(tmp_path):
-    """The conventional-cancel branch is reachable when every owner settles."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    argv_log = tmp_path / "bd-jobs.argv"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, reconcile_seconds=3,
-        cancel_registered_failure=True,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXECUTABLE"] = "/definitely/missing/w1-executable"
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("cooperative_registered_cancellation_returns_primary_status/run"))
-
-    assert not marker.exists()
-    calls = argv_log.read_text(encoding="utf-8").splitlines()
-    assert calls.count("reap --id stubhost-4242") == 1, calls
-    assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-    evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-    assert "primary_cancel=130" in evidence
-    assert "reconcile=0" in evidence and "gate_settled=1" in evidence
-    assert result.returncode == 130
-    assert (rundir / "exitcode").read_text().strip() == "130"
-
-
 def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
     mod = _load()
     marker = tmp_path / "workload-started"
@@ -5182,7 +4586,7 @@ def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
     env["W1_GATE_WITHHOLD_STATUS"] = "30"
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True)
     gate_pid = -1
@@ -5209,127 +4613,6 @@ def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
             proc.wait(timeout=_w1_budget_s("handoff_timeout_retains_registered_id_under_one_budget/wait"))
 
 
-def test_post_ready_protocol_budget_is_positive_and_reaches_terminal_frame(
-        tmp_path):
-    """ZERO-BUDGET must fail after READY/register/GO, not beside admission."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    gate_program = _w1_adversarial_gate_program(
-        terminal="ABORTED v1 reason=synthetic", delay_before_terminal=0.2)
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        gate_program=gate_program,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("post_ready_protocol_budget_is_positive_and_reaches_terminal_frame/run"))
-    assert not marker.exists()
-    protocol = (rundir / "registration-gate.protocol").read_text()
-    assert "writes=1" in protocol
-    assert "frame=ABORTED v1 reason=synthetic" in protocol
-    assert "eof=1" in protocol
-
-
-def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    entered, _release, entered_fd = _w1_fifo_barrier(
-        tmp_path, "partial-terminal")
-    checked_wait_log = tmp_path / "checked-wait-entered"
-    deadline_probe = tmp_path / "handoff-deadlines"
-    gate_program = _w1_adversarial_gate_program(
-        terminal_bytes=b"EX", terminal_suffix=b"EC\n",
-        terminal_suffix_entered=entered, terminal_suffix_release=_release,
-        hold=30, status=99)
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, gate_program=gate_program,
-        checked_wait_probe=checked_wait_log,
-        handoff_deadline_probe=deadline_probe,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, site="partial_handoff_frame_does_not_restart_the_protocol_budget/fifo") == (
-            "partial-terminal-written\n")
-        deadline_rows = deadline_probe.read_text(encoding="ascii").splitlines()
-        assert len(deadline_rows) == 2, deadline_rows
-        pre_deadline = int(deadline_rows[0].removeprefix("pre="))
-        post_deadline = int(deadline_rows[1].removeprefix("post="))
-        assert post_deadline == pre_deadline, (
-            "N225-PARTIAL-FRAME-RESTARTED-TOTAL-BUDGET",
-            pre_deadline, post_deadline)
-        rc = _w1_wait_for_exit_or_forbidden_checked_wait(
-            proc, rundir, checked_wait_log, site="partial_handoff_frame_does_not_restart_the_protocol_budget/exit")
-        assert not marker.exists()
-        protocol = (rundir / "registration-gate.protocol").read_text()
-        assert "writes=1" in protocol and "frame_hex=4558" in protocol
-        post_write = mod.RUNNER.index(
-            'registration_cancel_checkpoint "post-release-write"')
-        terminal_read = mod.RUNNER.index(
-            "registration_read_terminal", post_write)
-        handoff_slice = mod.RUNNER[post_write:terminal_read]
-        assert "registration_begin_gate_deadline" not in handoff_slice and (
-            'W1_ACTIVE_DEADLINE_US=' not in handoff_slice), (
-            "the handoff phase replaces its absolute deadline after partial input")
-        terminal = [record for record in _w1_owner_records(rundir)
-                    if record["role"] == "terminal-reader"]
-        assert len(terminal) == 1 and terminal[0]["wait_ok"] == "1", terminal
-        assert rc == int(W1_RELEASE_FAILURE_CODE)
-    finally:
-        os.close(entered_fd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
-            try:
-                proc.wait(timeout=_w1_budget_s("partial_handoff_frame_does_not_restart_the_protocol_budget/wait"))
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=_w1_budget_s("partial_handoff_frame_does_not_restart_the_protocol_budget/wait-2"))
-
-
-def test_handoff_eof_is_not_exec_success(tmp_path):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    argv_log = tmp_path / "stub-argv"
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXIT_AFTER_GO"] = "1"
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    try:
-        rc = _w1_wait_for_exit(proc, rundir, site="handoff_eof_is_not_exec_success/exit")
-        assert not marker.exists()
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        protocol = (rundir / "registration-gate.protocol").read_text()
-        assert "writes=1 sigpipe=0 frame_rc=1 frame=" in protocol
-        calls = argv_log.read_text(encoding="utf-8").splitlines()
-        assert len(calls) == 2 and calls[1] == "reap --id stubhost-4242"
-        assert rc == int(W1_RELEASE_FAILURE_CODE)
-    finally:
-        if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate(timeout=_w1_budget_s("handoff_eof_is_not_exec_success/communicate"))
-
-
 def test_nul_bearing_terminal_frame_is_not_exec_success(tmp_path):
     """Terminal classification is over exact bytes, never Bash strings."""
     mod = _load()
@@ -5347,7 +4630,7 @@ def test_nul_bearing_terminal_frame_is_not_exec_success(tmp_path):
         tmp_path, code=0, stdout="stubhost-4242\n"))
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
         rc = _w1_wait_for_exit(proc, rundir, site="nul_bearing_terminal_frame_is_not_exec_success/exit")
@@ -5384,7 +4667,7 @@ def test_abort_timeout_retains_inert_gate_under_one_budget(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     env["W1_SIGNAL_LOG"] = str(signal_log)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True)
     gate_pid = -1
@@ -5443,7 +4726,7 @@ def test_registration_cleanup_timeout_is_internal_and_names_retained_group(
         tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=0.1))
     env["BASH_ENV"] = str(bash_env)
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("registration_cleanup_timeout_is_internal_and_names_retained_group/run"))
     assert not marker.exists()
     assert "synthetic not-a-child" in (
@@ -5459,6 +4742,344 @@ def test_registration_cleanup_timeout_is_internal_and_names_retained_group(
     assert result.returncode == int(W1_RETAINED_FAILURE_CODE)
 
 
+_W1_OBSERVATION_SUFFIX = "/registration-gate-fd-observer.out"
+
+
+def _w1_run_with_a_slow_gate_fd_observation(tmp_path, delay_s, *, site):
+    """Drive a runner whose gate fd OBSERVATION answers correctly but late.
+
+    `ready_seconds=2` is what makes the remainder small at the moment the
+    observation spawns -- the same shape the split exposed, where the forward
+    phase had already spent most of its deadline before anything asked a
+    question. Nothing else about the run is unusual: the workload is the
+    ordinary success control's.
+    """
+    mod = _load()
+    marker = tmp_path / "workload-started"
+    registrar = tmp_path / "registrar-started"
+    observed = tmp_path / "observation-delay"
+    owner = _w1_slow_observation_owner(
+        mod, suffix=_W1_OBSERVATION_SUFFIX, delay_s=delay_s, marker=observed)
+    script, rundir = _w1_build_runner(
+        mod, tmp_path,
+        "#!/bin/bash\ntouch %s\nexit %d\n"
+        % (shlex.quote(str(marker)), W1_WORKLOAD_CODE),
+        reap_seconds=3, ready_seconds=2, timeout_owner_program=owner)
+    env = dict(os.environ)
+    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
+    env["W1_REGISTRAR_MARKER"] = str(registrar)
+    result = subprocess.run(
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=_w1_budget_s(site))
+    evidence = (rundir / "jobid.err").read_text(encoding="utf-8") \
+        if (rundir / "jobid.err").exists() else ""
+    records = [record for record in _w1_owner_records(rundir)
+               if record["role"] == "gate-fd-observer"]
+    return result, evidence, records, observed, registrar, marker
+
+
+_W1_OBSERVATION_TIMEOUT_FN = "registration_remaining_observation_timeout"
+
+
+def _w1_runner_function_source(mod, name):
+    """One shell function, lifted out of the FORMATTED production runner.
+
+    Formatted, not raw: the template's `{{`/`}}` escapes are not shell, and a
+    gate that read them would be judging a program that never runs.
+    """
+    body = mod.RUNNER.format(
+        rundir="'/nonexistent'", run_id="'probe'", cmd="true",
+        purpose="'probe'", origin="'probe'", cmdq="'true'",
+        registration_probe="''", registration_gate="''",
+        registration_bootstrap="''", registration_terminal_relay="''",
+        registration_timeout_owner="''", registration_channel_reader="''",
+        process_guard="''", workload_shim="''")
+    opening = "%s() {\n" % name
+    assert body.count(opening) == 1, (
+        "the runner declares %r %d times, so this probe has no unique subject"
+        % (name, body.count(opening)))
+    start = body.index(opening)
+    end = body.index("\n}\n", start) + len("\n}\n")
+    source = body[start:end]
+    assert source.count("\n}\n") == 1 and len(source) > 200, source
+    return source
+
+
+def _w1_observation_timeout(mod, *, active_in_us, lifecycle_in_us,
+                            floor_s, reserve_us=0, grace_us=100000,
+                            initialized=1):
+    """Drive the real shell function with planted clock state.
+
+    The seam, not the whole runner: every branch of the floor/ceiling/refusal
+    arithmetic is reachable here in milliseconds, and none of them is
+    reachable from a full runner run inside a test's budget.
+    """
+    source = _w1_runner_function_source(mod, _W1_OBSERVATION_TIMEOUT_FN)
+    script = "\n".join([
+        "set -u",
+        "W1_NOW_US=1000000000",
+        "W1_ACTIVE_DEADLINE_US=$((W1_NOW_US + %d))" % int(active_in_us),
+        "W1_LIFECYCLE_DEADLINE_US=$((W1_NOW_US + %d))" % int(lifecycle_in_us),
+        "W1_OWNER_KILL_GRACE_US=%d" % int(grace_us),
+        "W1_OWNER_OBSERVATION_SECONDS=%d" % int(floor_s),
+        "W1_LIFECYCLE_INITIALIZED=%d" % int(initialized),
+        "W1_OWNER_TIMEOUT=UNSET",
+        "W1_OWNER_KILL_AFTER=UNSET",
+        "registration_now_us() { W1_NOW_US=$W1_NOW_US; }",
+        source,
+        "if %s %d; then" % (_W1_OBSERVATION_TIMEOUT_FN, int(reserve_us)),
+        '    echo "OK $W1_OWNER_TIMEOUT $W1_OWNER_KILL_AFTER"',
+        "else",
+        '    echo "REFUSED $W1_OWNER_TIMEOUT"',
+        "fi",
+        "",
+    ])
+    env = dict(os.environ)
+    env["LC_ALL"] = "C"
+    result = subprocess.run(
+        ["bash", "-c", script], text=True, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=_w1_budget_s("_w1_observation_timeout/run"))
+    assert result.returncode == 0, (result.returncode, result.stderr)
+    row = result.stdout.split()
+    assert row and row[0] in {"OK", "REFUSED"}, result.stdout
+    return row
+
+
+def test_an_owner_observation_takes_its_floor_when_the_phase_is_nearly_spent():
+    """THE FLOOR BRANCH, at the seam, with no clock of its own.
+
+    RED on the parent product: there is no observation timeout at all, so
+    `_w1_runner_function_source` refuses by name. With the fix, a phase with a
+    tenth of a second left still hands an observation its whole floor -- which
+    is the entire point, because the question the observation asks does not
+    get cheaper as the deadline it happens to run under gets closer.
+    """
+    mod = _load()
+    floor = _w1_runner_deadline_constants()["W1_OWNER_OBSERVATION_SECONDS"]
+    lean = _w1_observation_timeout(
+        mod, active_in_us=100_000, lifecycle_in_us=60_000_000, floor_s=floor)
+    assert lean[0] == "OK", lean
+    assert float(lean[1]) == float(floor), (
+        "an observation with %.1fs of forward deadline left was given %ss "
+        "rather than its %ds floor, so its bound is still the forward phase's "
+        "leftovers and expiry there is a false verdict"
+        % (0.1, lean[1], floor))
+    assert float(lean[2]) == 0.1, lean
+    # AND THE FLOOR IS A FLOOR, NOT A VALUE: a phase with room to spare must
+    # still hand out the larger remainder, or an observation could be cut
+    # SHORTER than the deadline it runs under.
+    roomy = _w1_observation_timeout(
+        mod, active_in_us=30_000_000, lifecycle_in_us=60_000_000,
+        floor_s=floor)
+    assert roomy[0] == "OK" and float(roomy[1]) > float(floor), roomy
+
+
+def test_an_owner_observation_never_outlives_the_lifecycle_deadline():
+    """THE CEILING BRANCH. The total lifecycle cap stays absolute.
+
+    A floor that could reach past the run's own lifecycle deadline would buy
+    one false UNKNOWN by making the lifecycle cap untrue, which is the shape
+    v3.66.1219 removed from test budgets. Unreachable from a whole-runner test
+    inside any sane budget, and one assertion away here.
+    """
+    mod = _load()
+    floor = _w1_runner_deadline_constants()["W1_OWNER_OBSERVATION_SECONDS"]
+    row = _w1_observation_timeout(
+        mod, active_in_us=100_000, lifecycle_in_us=1_100_000, floor_s=floor)
+    assert row[0] == "OK", row
+    assert float(row[1]) == 1.0, (
+        "an observation whose floor is %ds was allowed %ss against a lifecycle "
+        "deadline 1.1s away, so the total cap no longer caps it"
+        % (floor, row[1]))
+    exhausted = _w1_observation_timeout(
+        mod, active_in_us=100_000, lifecycle_in_us=50_000, floor_s=floor)
+    assert exhausted[0] == "REFUSED", (
+        "an observation was started with the lifecycle deadline already inside "
+        "the kill grace: %r" % (exhausted,))
+
+
+def test_a_zero_observation_floor_reproduces_the_forward_remainder_exactly():
+    """THE OVER-SENSITIVITY CONTROL FOR THE KNOB, and the parity proof.
+
+    Two tests declare `observation_seconds=0` because their subject IS an
+    observation being refused. That declaration is only honest if a zero floor
+    behaves exactly as the parent did -- remainder minus the kill grace minus
+    the caller's reserve, and a refusal when that is not positive.
+    """
+    mod = _load()
+    row = _w1_observation_timeout(
+        mod, active_in_us=5_000_000, lifecycle_in_us=60_000_000, floor_s=0,
+        reserve_us=1_000_000)
+    assert row[0] == "OK", row
+    assert float(row[1]) == 3.9, (
+        "a zero floor did not reproduce remainder(5.0s) - grace(0.1s) - "
+        "reserve(1.0s): %r" % (row,))
+    refused = _w1_observation_timeout(
+        mod, active_in_us=1_000_000, lifecycle_in_us=60_000_000, floor_s=0,
+        reserve_us=1_000_000)
+    assert refused[0] == "REFUSED", (
+        "a zero floor did not refuse a phase that cannot pay for the "
+        "observation, so the two declared subjects no longer have a subject: "
+        "%r" % (refused,))
+    uninitialised = _w1_observation_timeout(
+        mod, active_in_us=5_000_000, lifecycle_in_us=60_000_000, floor_s=3,
+        initialized=0)
+    assert uninitialised[0] == "REFUSED", (
+        "an observation was bounded before the lifecycle clock existed")
+
+
+def test_the_recorded_observation_cost_matches_a_real_observation():
+    """THE MEASUREMENT IS PINNED TO THE HOST, not only to the arithmetic.
+
+    `_W1_OBSERVATION_MEASURED_S` is the floor rule's only empirical input, and
+    a rule of the form `floor >= measured x margin` gets EASIER as the measured
+    term shrinks -- v3.66.1219's vacuity shape, and the escape v3.66.1226's
+    first battery lost. So one complete observation is run here exactly as
+    `registration_owner_spawn` runs it and the table entry is compared to the
+    clock in BOTH directions.
+    """
+    mod = _load()
+    owner = mod.REGISTRATION_TIMEOUT_OWNER_PROGRAM
+    probe = mod.REGISTRATION_PROBE_PROGRAM
+    assert "os.setsid()" in owner and "OWNER-READY v2" in owner, (
+        "the timeout owner is not the shipped one, so this measurement is "
+        "about something else")
+    out = tmp_observation_out = None
+    with tempfile.TemporaryDirectory() as scratch:
+        out = os.path.join(scratch, "observation.out")
+        err = os.path.join(scratch, "observation.err")
+        pgid = os.getpgid(0)
+        env = dict(os.environ)
+        env["LC_ALL"] = "C"
+        started = time.monotonic()
+        proc = subprocess.Popen(
+            ["python3", "-c", owner, str(os.getpid()), "", out, err,
+             "timeout", "--kill-after=0.100000", "30.000000",
+             "python3", "-c", probe, "group", str(pgid), "/proc"],
+            stdout=subprocess.PIPE, text=True, env=env)
+        try:
+            ready = proc.stdout.readline()
+            rc = proc.wait(timeout=_w1_budget_s(
+                "the_recorded_observation_cost_matches_a_real_observation/wait"))
+        finally:
+            proc.stdout.close()
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=_w1_budget_s(
+                    "the_recorded_observation_cost_matches_a_real_observation"
+                    "/wait-2"))
+        elapsed = time.monotonic() - started
+        assert ready.startswith("OWNER-READY v2 receipt="), (
+            "the observation never announced itself, so the elapsed time below "
+            "is not an observation's cost: %r" % (ready,))
+        assert rc == 0, (rc, pathlib.Path(err).read_text(encoding="utf-8"))
+        answer = pathlib.Path(out).read_text(encoding="utf-8").strip()
+        assert answer.startswith("PRESENT|"), (
+            "the observation did not answer the question it was asked: %r"
+            % (answer,))
+    assert elapsed <= _W1_OBSERVATION_MEASURED_S * _W1_RUNNER_STRETCH_FACTOR, (
+        "one observation took %.4fs against a recorded cost of %.4fs and a "
+        "%.1fx contention margin -- the table is stale, and the shipped floor "
+        "is derived from it" % (elapsed, _W1_OBSERVATION_MEASURED_S,
+                                _W1_RUNNER_STRETCH_FACTOR))
+    assert _W1_OBSERVATION_MEASURED_S * _WARN_FACTOR >= elapsed, (
+        "the recorded observation cost %.4fs is more than %.1fx below a real "
+        "observation's %.4fs on this host. A floor rule of the form "
+        "`floor >= measured x margin` gets EASIER as the measurement shrinks, "
+        "so an understated cost silently retires the rule"
+        % (_W1_OBSERVATION_MEASURED_S, _WARN_FACTOR, elapsed))
+
+
+def test_a_slow_owner_observation_never_downgrades_a_correct_run(tmp_path):
+    """AN OBSERVATION IS A QUESTION, AND ITS BOUND IS NOT THE FORWARD DEADLINE.
+
+    RED, replayed against the parent `bd-wedge-hunt` at b489289: the gate fd
+    observation is handed what remains of a 2s READY deadline -- about a second
+    and a half -- so an observation that answers correctly in 2.5s is TERMed,
+    `registration_authority_fd_observation` returns 1, and a run that was going
+    to succeed aborts with `REGISTER-GATE-SETUP-FAILED phase=authority-fds`
+    and the retained-uncertainty code. That is one of the two field failures
+    the split's matched experiment captured, reproduced deterministically
+    instead of by load.
+
+    THE PRECONDITION IS ASSERTED BEFORE THE VERDICT. The injected delay writes
+    the elapsed time it actually slept, so a run that reached the abort because
+    the observation never ran at all cannot be read as this defect. A5: the
+    distinctive diagnostic is asserted first, and the ordinary outcome
+    assertions follow it.
+    """
+    delay_s = 2.5
+    (result, evidence, records, observed, registrar,
+     marker) = _w1_run_with_a_slow_gate_fd_observation(
+        tmp_path, delay_s,
+        site="a_slow_owner_observation_never_downgrades_a_correct_run/run")
+    # THE DISTINCTIVE DIAGNOSTIC COMES FIRST. On the parent the observation is
+    # not merely cut short, it is REFUSED before it starts -- what remains of a
+    # spent forward deadline does not even cover the caller's reserve -- so the
+    # delay marker below can never exist there. A precondition asserted first
+    # would replace the failure this node exists to report with "the delay
+    # never ran", which is CLAUDE.md A5's laundering shape exactly.
+    assert "phase=authority-fds" not in evidence, (
+        "a gate fd OBSERVATION that only needed %.1fs to answer was bounded by "
+        "what remained of the FORWARD deadline, returned UNKNOWN, and "
+        "downgraded a run that was going to succeed to %s. An observation's "
+        "expiry is a false verdict, not a subject: %r"
+        % (delay_s, W1_RETAINED_FAILURE_CODE, evidence))
+    # AND THE GREEN IS NOT VACUOUS: the observation really did take longer than
+    # the forward phase had left, so the run above was carried by the floor.
+    assert observed.exists(), (
+        "the run succeeded without the injected observation delay ever "
+        "running, so this node proves nothing: stderr=%r" % (result.stderr,))
+    slept = [float(row) for row in
+             observed.read_text(encoding="ascii").split()]
+    assert len(slept) == 1 and slept[0] >= delay_s, (
+        "the gate fd observation did not actually take %.1fs: %r"
+        % (delay_s, slept))
+    assert len(records) == 1 and records[0]["wait_ok"] == "1", records
+    assert records[0]["descendants"] == "ABSENT", records
+    assert result.returncode == 0, (
+        "runner returned %d; stderr=%r" % (result.returncode, result.stderr))
+    assert registrar.exists() and marker.exists(), (
+        "the run did not reach registration and workload after the slow "
+        "observation was allowed to answer")
+
+
+def test_the_observation_floor_still_bounds_an_observation_that_will_not_answer(
+        tmp_path):
+    """THE OVER-SENSITIVITY CONTROL, and the proof the refusal fires here.
+
+    Without it, a change that simply stopped bounding observations would pass
+    the node above. The delay is longer than the shipped floor, so the runner
+    must still end the observation and still report the phase by name -- and
+    the injected sleep must NOT have completed, which is what separates "the
+    floor cut it off" from "it answered and something else failed".
+    """
+    floor = _w1_runner_deadline_constants()["W1_OWNER_OBSERVATION_SECONDS"]
+    delay_s = float(floor) * 2.0
+    (result, evidence, records, observed, registrar,
+     marker) = _w1_run_with_a_slow_gate_fd_observation(
+        tmp_path, delay_s,
+        site="the_observation_floor_still_bounds_an_observation_that_will"
+             "_not_answer/run")
+    assert len(records) == 1, (
+        "the gate fd observation never spawned, so nothing here is about a "
+        "bound at all: %r" % (records,))
+    assert not observed.exists(), (
+        "the %.1fs observation ran to completion against a %ds floor, so the "
+        "floor did not bound it and this control proves nothing"
+        % (delay_s, floor))
+    assert "phase=authority-fds" in evidence, (
+        "an observation that never answered was not reported by its phase, so "
+        "the floor has stopped bounding observations altogether: %r"
+        % (evidence,))
+    assert result.returncode == int(W1_RETAINED_FAILURE_CODE), (
+        "runner returned %d; stderr=%r" % (result.returncode, result.stderr))
+    assert not registrar.exists() and not marker.exists(), (
+        "an unanswered observation still crossed into registration")
+
+
 def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
     """An observer is an owned subprocess and cannot outlive the phase budget."""
     mod = _load()
@@ -5469,7 +5090,7 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=2, cleanup_seconds=2,
+        reap_seconds=2, cleanup_seconds=2, observation_seconds=0,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
@@ -5477,7 +5098,7 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     started = time.monotonic()
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
         assert _w1_await_fifo(entered_fd, site="term_resistant_observer_stays_inside_gate_budget/fifo") == "observer-entered\n"
@@ -5527,7 +5148,7 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
         tmp_path, code=0, stdout="stubhost-4242\n"))
     env["BASH_ENV"] = str(bash_env)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     gate_pid = -1
@@ -5579,7 +5200,7 @@ def test_cancellation_after_relay_before_gate_settles_the_acquired_owner(
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-4242\n"))
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     relay_receipt = None
@@ -5671,7 +5292,7 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
 
     owner_pidfd = -1
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True,
     )
@@ -5749,7 +5370,7 @@ def test_cancellation_during_delayed_ready_preserves_primary(tmp_path):
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -5788,7 +5409,7 @@ def test_cancellation_during_pre_register_observation_never_registers(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -5826,7 +5447,7 @@ def test_cancellation_during_group_observer_forbids_registration(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -5849,100 +5470,6 @@ def test_cancellation_during_group_observer_forbids_registration(tmp_path):
             proc.wait(timeout=_w1_budget_s("cancellation_during_group_observer_forbids_registration/wait-2"))
 
 
-def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
-    """A registered terminal reader owner cannot hide the primary cancel."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    registrar = tmp_path / "registrar-started"
-    argv_log = tmp_path / "bd-jobs.argv"
-    reader, entered_fd, release = _w1_terminal_reader_barrier(mod, tmp_path)
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, reconcile_seconds=3,
-        channel_reader_program=reader,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXECUTABLE"] = "/definitely/missing/w1-executable"
-    env["W1_REGISTRAR_MARKER"] = str(registrar)
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, site="cancellation_during_terminal_reader_reconciles_exact_id_once/fifo") == (
-            "terminal-reader-entered\n")
-        assert registrar.exists() and not marker.exists()
-        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        os.kill(proc.pid, signal.SIGINT)
-        with release.open("w", encoding="utf-8") as stream:
-            stream.write("continue\n")
-        assert not marker.exists()
-        rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait"))
-        calls = argv_log.read_text(encoding="utf-8").splitlines()
-        assert calls.count("reap --id stubhost-4242") == 1, calls
-        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "primary_cancel=130" in evidence
-        assert rc == 130
-    finally:
-        os.close(entered_fd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait-2"))
-
-
-def test_cancellation_during_terminal_relay_wait_reconciles_once(tmp_path):
-    """The named relay checked wait retains cancellation after registration."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    registrar = tmp_path / "registrar-started"
-    argv_log = tmp_path / "bd-jobs.argv"
-    bash_env, entered_fd, release = _w1_checked_child_wait_barrier(
-        tmp_path, "terminal-relay")
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, reconcile_seconds=3,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=0, stdout="stubhost-4242\n"))
-    env["W1_GATE_EXECUTABLE"] = "/definitely/missing/w1-executable"
-    env["W1_REGISTRAR_MARKER"] = str(registrar)
-    env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    env["BASH_ENV"] = str(bash_env)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, site="cancellation_during_terminal_relay_wait_reconciles_once/fifo") == (
-            "terminal-relay-wait-entered\n")
-        assert registrar.exists() and not marker.exists()
-        os.kill(proc.pid, signal.SIGINT)
-        with release.open("w", encoding="utf-8") as stream:
-            stream.write("continue\n")
-        assert not marker.exists()
-        rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_relay_wait_reconciles_once/wait"))
-        calls = argv_log.read_text(encoding="utf-8").splitlines()
-        assert calls.count("reap --id stubhost-4242") == 1, calls
-        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "primary_cancel=130" in evidence
-        assert rc == 130
-    finally:
-        os.close(entered_fd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_relay_wait_reconciles_once/wait-2"))
-
-
 def test_pre_observation_cancellation_settles_only_in_the_top_shell(tmp_path):
     """A latched cancel cannot let a command-substitution child finalize files."""
     mod = _load()
@@ -5959,7 +5486,7 @@ def test_pre_observation_cancellation_settles_only_in_the_top_shell(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("pre_observation_cancellation_settles_only_in_the_top_shell/run"))
 
     assert not registrar.exists() and not marker.exists()
@@ -5994,7 +5521,7 @@ def test_cancellation_during_gate_settlement_wait_preserves_primary(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     env["BASH_ENV"] = str(bash_env)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -6035,7 +5562,7 @@ def test_runner_cancellation_closes_gate_and_does_not_start_workload(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     env["W1_SIGNAL_LOG"] = str(signal_log)
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
     try:
@@ -6079,55 +5606,6 @@ def test_runner_cancellation_closes_gate_and_does_not_start_workload(tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=_w1_budget_s("runner_cancellation_closes_gate_and_does_not_start_workload/wait-2"))
-
-
-def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
-        tmp_path):
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    fd_report = tmp_path / "registrar-fds"
-    write_shim, payload_entered_fd, payload_release = _w1_delay_path_write(
-        tmp_path, fd_report)
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(
-        tmp_path, code=W1_REGISTER_FAILURE_CODE, sleep=1.0))
-    env["W1_REGISTRAR_FD_REPORT"] = str(fd_report)
-    _w1_prepend_pythonpath(env, write_shim)
-    proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        release_pipe = _w1_readlink_when_installed(gate_pid, 0)
-        status_pipe = _w1_readlink_when_installed(gate_pid, 3)
-        assert release_pipe.startswith("pipe:[")
-        assert status_pipe.startswith("pipe:[")
-        assert _w1_await_fifo(payload_entered_fd, site="gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/fifo") == "payload-write-opened\n"
-        try:
-            assert not fd_report.exists(), (
-                "registrar fd report became visible before its payload was complete")
-        finally:
-            _w1_release_fifo(payload_release)
-        _w1_wait_for_path(fd_report)
-        inherited = fd_report.read_text(encoding="utf-8")
-        assert release_pipe not in inherited and status_pipe not in inherited
-        rc = proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait"))
-        assert not marker.exists()
-        assert not [path for path in rundir.iterdir()
-                    if stat.S_ISFIFO(path.stat().st_mode)], (
-            "production created a pathname control endpoint")
-        assert rc == int(W1_RUNNER_FAILURE_CODE)
-    finally:
-        os.close(payload_entered_fd)
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait-2"))
 
 
 def test_the_settlement_deadline_still_bounds_a_gate_that_will_not_settle(
@@ -6579,7 +6057,7 @@ def test_pytest_pid_publish_failure_is_settled_without_partial_target(tmp_path):
     env["BASH_ENV"] = str(bash_env)
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("pytest_pid_publish_failure_is_settled_without_partial_target/run"))
 
     evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -6591,72 +6069,6 @@ def test_pytest_pid_publish_failure_is_settled_without_partial_target(tmp_path):
     expected = {W1_SETUP_FAILURE_CODE, W1_RETAINED_FAILURE_CODE}
     assert (rundir / "exitcode").read_text().strip() in expected
     assert result.returncode in {int(code) for code in expected}
-
-
-@pytest.mark.parametrize(("missing_fd", "missing_pid", "expected"), [
-    ("gate_read", None, None),
-    ("gate_write", None, None),
-    ("terminal_read", None, None),
-    ("terminal_write", None, None),
-    (None, "gate", 92),
-    (None, "relay", 92),
-])
-def test_partial_coproc_setup_settles_every_acquired_owner(
-        tmp_path, missing_fd, missing_pid, expected):
-    """94 requires accepted checked waits for both independently saved owners."""
-    mod = _load()
-    marker = tmp_path / "workload-started"
-    wait_log = tmp_path / "gate-waits"
-    bash_env = tmp_path / "record-gate-wait.bash"
-    bash_env.write_text(
-        "wait() {\n"
-        "    builtin printf '%s\\n' \"$*\" >> \"$W1_WAIT_LOG\"\n"
-        "    builtin wait \"$@\"\n"
-        "}\n"
-        "export -f wait\n",
-        encoding="utf-8",
-    )
-    script, rundir = _w1_build_runner(
-        mod, tmp_path,
-        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, missing_setup_fd=missing_fd,
-        missing_setup_pid=missing_pid,
-    )
-    env = dict(os.environ)
-    env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
-    env["BASH_ENV"] = str(bash_env)
-    env["W1_WAIT_LOG"] = str(wait_log)
-    result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("partial_coproc_setup_settles_every_acquired_owner/run"))
-    assert not marker.exists()
-    pid_path = (rundir / "injected-gate.pid" if missing_pid is not None
-                else rundir / "pytest.pid")
-    gate_pid = int(pid_path.read_text().strip())
-    waits = (wait_log.read_text(encoding="utf-8").splitlines()
-             if wait_log.exists() else [])
-    evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-
-    assert "SETUP-OWNER role=gate" in evidence
-    assert "SETUP-OWNER role=relay" in evidence
-    both_accepted = (
-        "SETUP-OWNER role=gate accepted=1" in evidence
-        and "SETUP-OWNER role=relay accepted=1" in evidence
-    )
-    if expected is None:
-        expected = 94 if both_accepted else 92
-    if missing_pid == "gate":
-        assert "SETUP-OWNER role=gate" in evidence and "pid=MISSING" in evidence
-    else:
-        assert any(str(gate_pid) in line.split() for line in waits), waits
-    if expected == 94:
-        assert "SETUP-OWNER role=gate" in evidence and "gate accepted=1" in evidence
-        assert "SETUP-OWNER role=relay" in evidence and "relay accepted=1" in evidence
-        assert not _w1_live_in_group(gate_pid)
-    else:
-        assert "accepted=0" in evidence or "pid=MISSING" in evidence
-    assert result.returncode == expected
-    assert (rundir / "exitcode").read_text().strip() == str(expected)
 
 
 def test_malformed_owner_ready_reaps_its_term_resistant_group(tmp_path):
@@ -6715,7 +6127,7 @@ def test_malformed_owner_ready_reaps_its_term_resistant_group(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
 
     result = subprocess.run(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("malformed_owner_ready_reaps_its_term_resistant_group/run"))
 
     assert claim.exists() and descendant.exists(), (
@@ -6796,7 +6208,7 @@ def test_withheld_owner_ready_reaps_post_setsid_term_resistant_group(tmp_path):
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
     proc = subprocess.Popen(
-        ["bash", str(script)], env=env, text=True,
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     parent_receipt = child_receipt = None
 
@@ -6877,7 +6289,7 @@ def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
 
-    proc = subprocess.Popen(["bash", str(script)], env=env, text=True,
+    proc = subprocess.Popen(["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             start_new_session=True)
     try:
@@ -6914,84 +6326,126 @@ def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
         "epoch_end is missing on the success path; the sample has no duration")
 
 
-def test_a_slow_settlement_never_downgrades_a_decided_cancellation(tmp_path):
-    """ROW 231, PART C. A SIGINT that was received is 130, not 92.
-
-    THE DEFECT, as v3.66.1226 recorded it and left open. `W1_GATE_SECONDS` was
-    ONE constant doing TWO jobs: bounding the FORWARD gate protocol, which a
-    test may legitimately drive small because its expiry is the subject, and
-    bounding every SETTLEMENT path, which must not expire on correct work.
-    `reap_seconds=3` therefore gave settlement three seconds as a SIDE EFFECT,
-    and `registration_settle_cancel` reaches `registration_finish
-    "$W1_CANCEL_STATUS"` only when the terminal reached EOF, the relay was
-    waited for, and the gate wait succeeded. Miss the deadline and the runner
-    reports 92 -- RETAINED UNCERTAINTY -- for a cancellation it classified
-    exactly. One key describing two costs is the v3.66.1222 defect; this is
-    that defect in the product rather than in a test budget.
-
-    RED ON THE PARENT, WITHOUT A STOPWATCH IN THE ASSERTION. The planted gate
-    settles correctly after `_W1_SLOW_SETTLEMENT_S`, which is above the three
-    seconds the shared constant left and below the ten the split gives. At
-    2a2fc85 this returns 92; here it must return 130.
-    """
-    mod = _load()
-    settled = tmp_path / "gate-settlement-entered"
-    marker, registrar, rundir, proc = _w1_cancel_a_registrar_bound_runner(
-        tmp_path, mod,
-        gate_program=_w1_slow_settlement_gate_program(
-            settled, _W1_SLOW_SETTLEMENT_S))
-    gate_pid = -1
-    try:
-        gate_pid, _ = _w1_wait_for_gate(rundir)
-        _w1_wait_for_path(registrar)
-        assert not settled.exists(), (
-            "precondition: the gate has not begun settling before the signal")
-        started = time.monotonic()
-        os.kill(proc.pid, signal.SIGINT)
-        rc = proc.wait(timeout=_w1_budget_s(
-            "a_slow_settlement_never_downgrades_a_decided_cancellation/wait"))
-        elapsed = time.monotonic() - started
-
-        # PRECONDITIONS BEFORE THE VERDICT. A gate that never reached the
-        # delay would settle instantly and pass for the wrong reason.
-        assert settled.is_file(), (
-            "the planted gate never entered its settlement delay, so this run "
-            "says nothing about the settlement deadline")
-        assert not (rundir / "jobid").exists(), (
-            "precondition: no id was recorded, so settle_cancel and not "
-            "fail_registered is the path under test")
-        evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
-        assert "REGISTER-CANCELLED status=130" in evidence, evidence
-        assert "primary_cancel=130" in evidence, evidence
-
-        # THE DISTINCTIVE VERDICT COMES FIRST. A later precondition that fires
-        # instead would launder the very failure this test exists to report --
-        # on the parent the runner ABANDONS settlement early, so an
-        # "it did not wait long enough" assertion placed above this one would
-        # be the message the run produced. A5: assert the distinctive
-        # diagnostic, and let the remaining conditions pass afterwards.
-        assert rc == 130, (
-            "a received SIGINT was classified exactly and then downgraded to "
-            "%d after %.2fs, because settlement ran out of a deadline it "
-            "never should have shared with the forward gate protocol"
-            % (rc, elapsed))
-        assert (rundir / "exitcode").read_text().strip() == "130"
-        assert elapsed >= _W1_SLOW_SETTLEMENT_S, (
-            "the runner reported 130 in %.2fs, before the planted %.1fs "
-            "settlement could have completed, so the verdict above was not "
-            "earned by settling" % (elapsed, _W1_SLOW_SETTLEMENT_S))
-        assert not marker.exists()
-    finally:
-        _w1_kill_group(gate_pid)
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=_w1_budget_s(
-                "a_slow_settlement_never_downgrades_a_decided_cancellation/wait-2"))
-
-
 # ===========================================================================
 # ROW 230: the budgets above are a CONTRACT, and these are the gates on it.
 # ===========================================================================
+
+
+#: Every file this module's tests live in. A split moves TESTS and leaves
+#: the code that BINDS their names behind, so every population question
+#: below has to be asked of the family and not of one file -- backlog row
+#: 232 is an entire row about a census that judged its own file and called
+#: it the population.
+_W1_FAMILY_GLOB = "test_v3_66_1132_*.py"
+
+
+def _w1_family_sources():
+    """The parsed source of every file in this module's family.
+
+    Both halves are proved nonzero here: a glob that matched only this
+    file would make every population assertion downstream a statement
+    about half the tests, and it would say nothing while doing it.
+    """
+    here = pathlib.Path(__file__).resolve()
+    paths = sorted(here.parent.glob(_W1_FAMILY_GLOB))
+    assert here in paths, (
+        "the family glob %r does not match this file, so it cannot be the "
+        "population" % _W1_FAMILY_GLOB)
+    assert len(paths) >= 2, (
+        "the family glob %r matched only %d file(s); the split left no "
+        "sibling and every census below would be judging one file"
+        % (_W1_FAMILY_GLOB, len(paths)))
+    return [(path, ast.parse(path.read_text(encoding="utf-8"),
+                             filename=str(path))) for path in paths]
+
+
+def test_every_name_this_family_uses_is_bound_in_the_file_that_uses_it():
+    """THE GATE THE SPLIT ITSELF NEEDED, and it is here because it was.
+
+    Moving a test moves the names it USES and leaves the names that BIND
+    them behind. A missing import is a NameError at CALL time, so
+    `--collect-only` is green, every `-k` subset that misses the test is
+    green, and the first thing that reports it is a full run seven minutes
+    long. That is exactly what happened when this split was first built:
+    `select` and `stat` were used by two moved tests and imported only by
+    the origin, and nothing before the whole-family run said so.
+
+    A resolver, not a grep: every module-level free name loaded anywhere
+    in a family file must be bound by that file -- by an import, a def, a
+    top-level assignment, a function-local import, a parameter, or
+    builtins.
+    """
+    files = _w1_family_sources()
+    checked = 0
+    offenders = {}
+    for path, tree in files:
+        bound = set(dir(builtins)) | {"__file__", "__name__", "__doc__"}
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                 ast.ClassDef)):
+                bound.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        bound.add(target.id)
+            elif isinstance(node, ast.AnnAssign) \
+                    and isinstance(node.target, ast.Name):
+                bound.add(node.target.id)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    bound.add((alias.asname or alias.name).split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    bound.add(alias.asname or alias.name)
+        for func in tree.body:
+            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            checked += 1
+            local = set()
+            for sub in ast.walk(func):
+                if isinstance(sub, ast.arg):
+                    local.add(sub.arg)
+                elif isinstance(sub, ast.Name) \
+                        and isinstance(sub.ctx, (ast.Store, ast.Del)):
+                    local.add(sub.id)
+                elif isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                      ast.ClassDef)):
+                    local.add(sub.name)
+                elif isinstance(sub, ast.ExceptHandler) and sub.name:
+                    local.add(sub.name)
+                elif isinstance(sub, ast.Import):
+                    for alias in sub.names:
+                        local.add((alias.asname or alias.name).split(".")[0])
+                elif isinstance(sub, ast.ImportFrom):
+                    for alias in sub.names:
+                        local.add(alias.asname or alias.name)
+                elif isinstance(sub, ast.comprehension):
+                    for target in ast.walk(sub.target):
+                        if isinstance(target, ast.Name):
+                            local.add(target.id)
+                elif isinstance(sub, ast.withitem) \
+                        and sub.optional_vars is not None:
+                    for target in ast.walk(sub.optional_vars):
+                        if isinstance(target, ast.Name):
+                            local.add(target.id)
+            for sub in ast.walk(func):
+                if isinstance(sub, ast.Name) \
+                        and isinstance(sub.ctx, ast.Load) \
+                        and sub.id not in bound and sub.id not in local:
+                    offenders.setdefault(
+                        (path.name, sub.id), []).append(func.name)
+            for dec in func.decorator_list:
+                for sub in ast.walk(dec):
+                    if isinstance(sub, ast.Name) and sub.id not in bound:
+                        offenders.setdefault(
+                            (path.name, sub.id), []).append(func.name)
+    assert checked > 100, (
+        "only %d function(s) resolved across %d family file(s); this gate "
+        "has lost its population" % (checked, len(files)))
+    assert not offenders, (
+        "name(s) used in a family file that nothing in that file binds -- a "
+        "NameError waiting for a full run to find it: %r"
+        % {k: v[:2] for k, v in sorted(offenders.items())})
 
 
 def _w1_budget_census():
@@ -7008,8 +6462,6 @@ def _w1_budget_census():
     ratchet's set, and `proc.wait(timeout=W1_RUNNER_BOUND)`, whose value is a
     named constant rather than a literal. Both are counted here.
     """
-    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"),
-                     filename=__file__)
     names = {"timeout", "timeout_s", "budget_s", "watchdog"}
     derived, other = [], []
 
@@ -7027,23 +6479,27 @@ def _w1_budget_census():
             return                       # forwarded, or derived one line above
         other.append((lineno, callee, arg, ast.unparse(value)))
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            callee = ast.unparse(node.func)
-            for kw in node.keywords:
-                if kw.arg == "site" and isinstance(kw.value, ast.Constant):
-                    derived.append((callee, kw.value.value))
-                elif kw.arg in names:
-                    classify(callee, node.lineno, kw.arg, kw.value)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            a = node.args
-            pos = a.posonlyargs + a.args
-            pairs = list(zip(pos[len(pos) - len(a.defaults):], a.defaults))
-            pairs += [(x, d) for x, d in zip(a.kwonlyargs, a.kw_defaults)
-                      if d is not None]
-            for arg, d in pairs:
-                if arg.arg in names:
-                    classify("DEFAULT:" + node.name, node.lineno, arg.arg, d)
+    for _path, tree in _w1_family_sources():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                callee = ast.unparse(node.func)
+                for kw in node.keywords:
+                    if kw.arg == "site" \
+                            and isinstance(kw.value, ast.Constant):
+                        derived.append((callee, kw.value.value))
+                    elif kw.arg in names:
+                        classify(callee, node.lineno, kw.arg, kw.value)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                a = node.args
+                pos = a.posonlyargs + a.args
+                pairs = list(zip(pos[len(pos) - len(a.defaults):],
+                                 a.defaults))
+                pairs += [(x, d) for x, d in zip(a.kwonlyargs, a.kw_defaults)
+                          if d is not None]
+                for arg, d in pairs:
+                    if arg.arg in names:
+                        classify("DEFAULT:" + node.name, node.lineno,
+                                 arg.arg, d)
     return derived, other
 
 
@@ -7392,19 +6848,61 @@ _W1_RUNNER_STRETCH_FACTOR = 6.0
 #: pytest-timeout's bound is.
 _W1_RUNNER_RESERVE_S = 5.0
 
+#: ONE COMPLETE OWNER OBSERVATION, measured as the runner actually drives
+#: it: coproc `python3 <timeout_owner>`, the OWNER-READY handshake read,
+#: `timeout(1)`, the `python3 <probe> group` payload and the owner wait.
+#: test5, 24 serial repetitions under twelve procfs-walking contention
+#: generators, 1217-process table, load 8.65: median 0.3000s, max 0.3600s.
+#: An idle-er sample (n=30, 1098 processes, load 2.05) gave 0.2900s median,
+#: so contention barely moves the primitive itself -- what moved was the
+#: REMAINDER it was handed, which is the whole point of the floor.
+_W1_OBSERVATION_MEASURED_S = 0.3000
+#: The remainder caught live in `ps` on this host while the split arm was
+#: failing: `timeout --kill-after=0.100000 1.510000 python3 -c ...`. It is
+#: an OBSERVED false-UNKNOWN, so the floor has to clear it as a matter of
+#: fact and not only as a matter of arithmetic. Pinned separately from the
+#: measurement above so collapsing either term cannot hide the other.
+_W1_OBSERVATION_FALSE_UNKNOWN_REMAINDER_S = 1.51
+#: Headroom between the observation floor and the window that governs it.
+#: An observation may run its whole floor past the forward boundary, so
+#: the reserve has to cover the floor AND the settlement deadline; this is
+#: what is left over, and a cut that spends it has to move it here first.
+_W1_OBSERVATION_RESERVE_HEADROOM_S = 2.0
+
 _W1_RUNNER_DEADLINE_NAMES = (
     "W1_READY_SECONDS", "W1_GATE_SECONDS", "W1_CLEANUP_SECONDS",
     "W1_REGISTRAR_SECONDS", "W1_RECONCILE_SECONDS", "W1_TOTAL_SECONDS",
-    "W1_CLEANUP_RESERVE_SECONDS",
+    "W1_CLEANUP_RESERVE_SECONDS", "W1_OWNER_OBSERVATION_SECONDS",
 )
 
 #: The runner deadlines this file's fixture may drive, and which one of them
 #: bounds SETTLEMENT rather than a forward phase.
 _W1_RUNNER_DEADLINE_KNOBS = (
     "reap_seconds", "ready_seconds", "registrar_seconds",
-    "reconcile_seconds", "cleanup_seconds",
+    "reconcile_seconds", "cleanup_seconds", "observation_seconds",
 )
 _W1_SETTLEMENT_KNOB = "cleanup_seconds"
+_W1_OBSERVATION_KNOB = "observation_seconds"
+
+#: Every test allowed to shorten the OWNER-OBSERVATION floor, with the
+#: reason. MEASURED, not guessed: these are exactly the two nodes that
+#: failed when the floor was added and nothing else changed, and both fail
+#: for a reason that IS their subject rather than for a timing accident.
+_W1_OBSERVATION_EXPIRY_IS_THE_SUBJECT = (
+    ("test_one_second_lifecycle_cap_remains_truthfully_unknown",
+     "The ONE SECOND cap is the subject, and the node asserts the process"
+     " observer's record reads stop=SPAWN-FAILED -- that is the cap"
+     " refusing to start an observation it cannot afford. An observation"
+     " floor exempt from the cap would be a lifecycle the cap does not"
+     " actually cap. MEASURED: with the shipped floor the observer starts"
+     " and the record reads wait_ok=1."),
+    ("test_term_resistant_observer_stays_inside_gate_budget",
+     "The subject is an observation that ignores TERM being ended by its"
+     " own bound, and the node asserts the whole run finishes inside 6s."
+     " A floor that gave that observation three further seconds would"
+     " move the very number the test exists to police. MEASURED: 6.39s"
+     " against a 6.0s assertion with the shipped floor."),
+)
 
 #: Every test allowed to shorten the SETTLEMENT deadline, with the reason.
 #: MEASURED, not guessed: these are exactly the nodes that moved when the
@@ -7436,6 +6934,32 @@ _W1_SETTLEMENT_EXPIRY_IS_THE_SUBJECT = (
      "The over-sensitivity control for this cut: it exists to prove the "
      "settlement deadline still fires, so its expiry IS its subject."),
 )
+
+
+def _w1_slow_observation_owner(mod, *, suffix, delay_s, marker):
+    """A timeout owner that answers CORRECTLY but LATE, for ONE observation.
+
+    The delay is placed after `os.setsid()` and before the OWNER-READY
+    write, which is exactly the leg the spawning shell bounds with
+    `read -r -t "$W1_SPAWN_TIMEOUT"`. So the injected number is the
+    observation's cost as the runner measures it, with no clock of its own.
+    """
+    anchor = "os.setsid()\n"
+    program = mod.REGISTRATION_TIMEOUT_OWNER_PROGRAM
+    assert program.count(anchor) == 1, (
+        "the timeout owner has no unique post-fork session boundary")
+    injected = (
+        anchor
+        + "if stdout_path.endswith(%r):\n" % suffix
+        + "    import time as _w1_time\n"
+        + "    _w1_at = _w1_time.monotonic()\n"
+        + "    _w1_time.sleep(%r)\n" % float(delay_s)
+        + "    with open(%r, 'a', encoding='ascii') as _w1_stream:\n"
+        % str(marker)
+        + "        _w1_stream.write('%f\\n' % "
+          "(_w1_time.monotonic() - _w1_at))\n"
+    )
+    return program.replace(anchor, injected, 1)
 
 
 def _w1_runner_source_without_comments():
@@ -7475,31 +6999,30 @@ def _w1_runner_deadline_sites():
     identifiers, and backlog row 196 is an entire row about textual-proxy
     gates.
     """
-    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"),
-                     filename=__file__)
-    tops = sorted(
-        (node for node in tree.body
-         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))),
-        key=lambda node: node.lineno)
-
-    def owner(lineno):
-        found = "<module>"
-        for node in tops:
-            if node.lineno <= lineno <= (node.end_lineno or node.lineno):
-                found = node.name
-        return found
-
     sites = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        for keyword in node.keywords:
-            if keyword.arg not in _W1_RUNNER_DEADLINE_KNOBS:
+    for _path, tree in _w1_family_sources():
+        tops = sorted(
+            (node for node in tree.body
+             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))),
+            key=lambda node: node.lineno)
+
+        def owner(lineno, tops=tops):
+            found = "<module>"
+            for node in tops:
+                if node.lineno <= lineno <= (node.end_lineno or node.lineno):
+                    found = node.name
+            return found
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
                 continue
-            if not isinstance(keyword.value, ast.Constant):
-                continue     # forwarded from a parameter; the caller carries it
-            sites.append((owner(node.lineno), keyword.arg,
-                          keyword.value.value))
+            for keyword in node.keywords:
+                if keyword.arg not in _W1_RUNNER_DEADLINE_KNOBS:
+                    continue
+                if not isinstance(keyword.value, ast.Constant):
+                    continue   # forwarded from a parameter; the caller has it
+                sites.append((owner(node.lineno), keyword.arg,
+                              keyword.value.value))
     assert sites, (
         "no fixture-fed runner deadline found at all, so every assertion that "
         "reads this census would be vacuous")
@@ -7601,6 +7124,227 @@ def test_the_shipped_settlement_deadline_clears_both_hazards():
         "the ceiling keeps %.1fs of headroom under a %ds bound, which is less "
         "than a fifth of it -- a deadline that close to its cap is decided by "
         "the cap and not by itself" % (_W1_RUNNER_RESERVE_S, reserve))
+
+
+def _w1_runner_owner_spawn_sites():
+    """(kind, flags, role-expression) for every owner spawn in the runner.
+
+    Line continuations are folded first, because every one of these call
+    sites wraps. Comments are already gone: this cut's own prose in
+    `bd-wedge-hunt` names `--observation` several times and A7 says that
+    text is inside a text-scanning gate's denominator.
+    """
+    text = _w1_runner_source_without_comments()
+    folded = re.sub(r"\\\n\s*", " ", text)
+    sites = []
+    for match in re.finditer(r"registration_owner_(run|spawn)\b([^\n]*)",
+                             folded):
+        kind, rest = match.group(1), match.group(2)
+        if rest.startswith("()"):
+            continue                      # the definition, not a call site
+        tokens = rest.split()
+        flags = []
+        while tokens and tokens[0].startswith("--"):
+            flags.append(tokens.pop(0))
+        if not tokens:
+            continue
+        role = tokens[0]
+        if "W1_RUN_SPAWN_FLAGS" in role:
+            continue                      # the forwarding site inside run
+        sites.append((kind, tuple(flags), role))
+    assert sites, (
+        "no owner spawn site found at all, so every assertion that reads "
+        "this census would be vacuous")
+    return sites
+
+
+def _w1_site_is_an_observation(role):
+    """A spawn whose payload asks a QUESTION rather than performing a WAIT."""
+    return "observer" in role or "census" in role
+
+
+def test_no_owner_observation_is_bounded_by_the_forward_deadline():
+    """THE SPLIT ITSELF, asserted over the runner's complete spawn population.
+
+    RED on the parent: at b489289 every owner spawn -- the fd observer, the
+    process observer, the group observer and the descendant census that
+    `registration_owner_collect` runs after EVERY owned helper -- took its
+    `timeout` bound from `registration_remaining_owner_timeout`, which is
+    what remains of the ACTIVE FORWARD deadline. Expiry on a forward wait
+    is the subject; expiry on an observation is a false verdict.
+
+    BOTH HALVES ARE PROVED NONZERO. A gate that only checked "no
+    observation reads the forward remainder" would also pass on a runner
+    with no observations left, and one that only checked "the observation
+    timeout exists" would pass on a runner where nothing called it.
+    """
+    sites = _w1_runner_owner_spawn_sites()
+    observations = [site for site in sites
+                    if _w1_site_is_an_observation(site[2])]
+    waits = [site for site in sites
+             if not _w1_site_is_an_observation(site[2])]
+    assert len(observations) >= 4, (
+        "the observation population this gate judges has gone missing: %r"
+        % (sites,))
+    assert len(waits) >= 2, (
+        "the forward-wait population this gate contrasts against has gone "
+        "missing: %r" % (sites,))
+    undeclared = [site for site in observations
+                  if "--observation" not in site[1]]
+    assert not undeclared, (
+        "an owner OBSERVATION is bounded by what remains of the FORWARD "
+        "deadline again, so a caller that shortens the gate protocol also "
+        "tells a helper how long it may take to ANSWER, and the helper's "
+        "expiry becomes UNKNOWN on a run that was going to succeed: %r"
+        % (undeclared,))
+    overreach = [site for site in waits if "--observation" in site[1]]
+    assert not overreach, (
+        "a forward WAIT was given the observation floor, so a deadline "
+        "whose expiry is some test's subject can now outlive it: %r"
+        % (overreach,))
+    text = _w1_runner_source_without_comments()
+    assert text.count("registration_remaining_observation_timeout") == 2, (
+        "the observation timeout is not declared exactly once and called "
+        "exactly once, so the flags asserted above may reach nothing")
+    assert "registration_remaining_owner_timeout" in text, (
+        "the forward owner timeout is gone entirely, so the contrast this "
+        "gate draws proves nothing")
+
+
+def test_the_owner_spawn_still_describes_two_costs_with_two_keys():
+    """THE OVERCORRECTION GATE, and it exists because the mutant ESCAPED.
+
+    MEASURED, not argued: applying the observation floor to EVERY owner spawn
+    -- including the `*-deadline` timers whose expiry IS the deadline
+    mechanism, and the `*-reader` waits whose expiry is several tests'
+    subject -- leaves this whole family GREEN. 180 passed in 246.40s at
+    `-n 12 --dist loadfile` with that mutant applied. The timers' expiry moves
+    by about the floor, and every wall-clock assertion in the family has more
+    slack than that, so there is no behavioural catcher to find. This gate is
+    therefore structural on purpose, and it asks the SEAM rather than the file:
+    `registration_owner_spawn` must still route a declared observation and an
+    undeclared wait through DIFFERENT timeouts.
+
+    A7: the function body is parsed out of the FORMATTED runner, so the
+    comment block that necessarily names both identifiers is not in the
+    denominator.
+    """
+    mod = _load()
+    body = _w1_runner_function_source(mod, "registration_owner_spawn")
+    code = "\n".join(line for line in body.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert code.count("W1_SPAWN_OBSERVATION") >= 2, (
+        "the spawn no longer reads its own observation declaration, so the "
+        "flag the call sites pass reaches nothing: %r" % (code,))
+    assert code.count("registration_remaining_observation_timeout") == 1, (
+        "the observation floor is not reached from the spawn exactly once, "
+        "so a declared observation is bounded by something else: %r" % (code,))
+    assert code.count("registration_remaining_owner_timeout") == 1, (
+        "registration_owner_spawn no longer bounds an UNDECLARED spawn by the "
+        "forward remainder, so the *-deadline timers whose expiry IS the "
+        "deadline mechanism, and the *-reader waits whose expiry is several "
+        "tests' subject, now outlive the deadline they implement. One key "
+        "describing two costs is the defect this cut removed, and applying "
+        "the floor everywhere is the same defect facing the other way: %r"
+        % (code,))
+
+
+def test_the_shipped_observation_floor_clears_both_hazards():
+    """THE TWO-SIDED RULE, applied to the owner-observation floor.
+
+    CEILING. An observation may run its whole floor PAST the forward
+    boundary, so the cleanup reserve has to cover the floor and the
+    settlement deadline together. A floor that does not leave settlement
+    its declared budget buys one false UNKNOWN by creating another.
+
+    FLOOR. A bound below the measured cost of observing fires on correct
+    work, and at the assertion that is indistinguishable from the defect
+    the observation exists to report.
+
+    EACH TERM IS READ ON ITS OWN. v3.66.1226's first battery lost two
+    mutants to gates that read one combined `max(...)`, so either input
+    could hide the loss of the other.
+    """
+    constants = _w1_runner_deadline_constants()
+    value = constants["W1_OWNER_OBSERVATION_SECONDS"]
+    reserve = constants["W1_CLEANUP_RESERVE_SECONDS"]
+    cleanup = constants["W1_CLEANUP_SECONDS"]
+    total = constants["W1_TOTAL_SECONDS"]
+    assert 0 < cleanup < reserve < total, (
+        "the runner's settlement deadline and cleanup reserve are not a "
+        "proper part of its lifecycle, so neither term below has a "
+        "meaning: %r" % (constants,))
+    assert value + cleanup <= reserve, (
+        "an observation may overrun the forward boundary by its whole %ds "
+        "floor, and %ds of floor plus the %ds settlement deadline does not "
+        "fit in the %ds cleanup reserve -- so honouring the floor would "
+        "cut settlement short and trade one false %s for another"
+        % (value, value, cleanup, reserve, W1_RETAINED_FAILURE_CODE))
+    assert reserve - cleanup - value >= _W1_OBSERVATION_RESERVE_HEADROOM_S, (
+        "the floor leaves %.1fs of the cleanup reserve unspent, less than "
+        "the %.1fs this file records as its headroom; a constant that "
+        "close to its cap is decided by the cap"
+        % (reserve - cleanup - value, _W1_OBSERVATION_RESERVE_HEADROOM_S))
+    assert _W1_OBSERVATION_MEASURED_S > 0, (
+        "the observation cost is unmeasured, so the floor below is UNKNOWN "
+        "rather than satisfied")
+    assert value >= _W1_OBSERVATION_MEASURED_S * _W1_RUNNER_STRETCH_FACTOR, (
+        "the observation floor %ds does not clear its measured cost %.4fs "
+        "by the stated %.1fx contention margin, so it can expire on a "
+        "helper that was going to answer -- and an observation that "
+        "expires is UNKNOWN, which settles a correct run at %s"
+        % (value, _W1_OBSERVATION_MEASURED_S, _W1_RUNNER_STRETCH_FACTOR,
+           W1_RETAINED_FAILURE_CODE))
+    assert value > _W1_OBSERVATION_FALSE_UNKNOWN_REMAINDER_S, (
+        "the observation floor %ds does not clear the %.2fs remainder that "
+        "was OBSERVED producing a false UNKNOWN on this host, so the "
+        "arithmetic above is satisfied by a value the facts refute"
+        % (value, _W1_OBSERVATION_FALSE_UNKNOWN_REMAINDER_S))
+    assert _W1_RUNNER_STRETCH_FACTOR >= _WARN_FACTOR, (
+        "the runner contention factor %.1f is below the %.1f margin this "
+        "file already calls the minimum credible stretch"
+        % (_W1_RUNNER_STRETCH_FACTOR, _WARN_FACTOR))
+    assert _W1_OBSERVATION_RESERVE_HEADROOM_S > 0, (
+        "the headroom term went to zero, so the ceiling above accepts a "
+        "floor that exactly exhausts the reserve")
+
+
+def test_only_a_declared_subject_shortens_the_observation_floor():
+    """A test may shorten the observation floor ONLY where that is its point.
+
+    The census is over the tree, the declared set is written down here, and
+    both halves are asserted nonzero. Before v3.66.1241 no site named the
+    floor at all because there was none, and every `reap_seconds` site set
+    it by accident -- which is the defect, not the fix.
+    """
+    sites = _w1_runner_deadline_sites()
+    others = [site for site in sites if site[1] != _W1_OBSERVATION_KNOB]
+    assert len(others) > 20, (
+        "the deadline population this gate contrasts against has gone "
+        "missing: %d site(s)" % len(others))
+    declared = {name for name, _why in _W1_OBSERVATION_EXPIRY_IS_THE_SUBJECT}
+    assert len(declared) == len(_W1_OBSERVATION_EXPIRY_IS_THE_SUBJECT), (
+        "the declared observation set names a test twice")
+    shortened = {test for test, knob, _value in sites
+                 if knob == _W1_OBSERVATION_KNOB}
+    assert shortened, (
+        "no test drives the observation floor at all, so the knob is dead "
+        "and the controls proving the floor still bounds an observation "
+        "have gone with it")
+    assert shortened == declared, (
+        "the observation floor is shortened by test(s) that do not declare "
+        "why (%r), or declared by entries no site uses (%r)"
+        % (sorted(shortened - declared), sorted(declared - shortened)))
+    for _name, why in _W1_OBSERVATION_EXPIRY_IS_THE_SUBJECT:
+        assert len(why) > 40, (
+            "a declared observation site carries no real reason: %r" % why)
+    shipped = _w1_runner_deadline_constants()["W1_OWNER_OBSERVATION_SECONDS"]
+    over = [(test, value) for test, knob, value in sites
+            if knob == _W1_OBSERVATION_KNOB and value >= shipped]
+    assert not over, (
+        "a declared observation site is not actually shorter than the "
+        "shipped floor, so it declares an intent it does not have: %r"
+        % (over,))
 
 
 def test_only_a_declared_subject_shortens_the_settlement_deadline():

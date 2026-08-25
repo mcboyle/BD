@@ -211,28 +211,28 @@
     "tests/test_desandbox_tool_verifiers.py::test_mutation_snapshot_parent_close_failure_closes_unpublished_child",
     "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_already_clean_recovery_removes_cache_before_journal",
     "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_journal_unlink_is_bound_to_read_identity",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_failed_registration_never_releases_the_workload",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_failed_registration_never_releases_the_workload",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_gate_precedes_registration_and_workload_release",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_probe_binds_complete_identity_and_last_parenthesis",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_live_wrong_ready_frame_never_reaches_the_registrar",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_successful_registration_releases_exact_command_and_status",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_receipt_admission_rejects_wrong_provenance",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_receipt_admission_rejects_wrong_provenance",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_direct_owner_stop_has_positive_monotonic_grace_before_conditional_kill",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_partial_handoff_frame_does_not_restart_the_protocol_budget",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_partial_handoff_frame_does_not_restart_the_protocol_budget",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_state_machine_has_one_total_deadline_and_failure_funnel",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_real_release_sigpipe_is_contained_and_enters_registered_failure",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_real_release_sigpipe_is_contained_and_enters_registered_failure",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_release_sigpipe_handler_is_scoped_and_restored_after_write",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_release_write_error_is_resolved_only_by_gate_status",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_partial_or_duplicate_release_frame_never_execs[G]",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_handoff_eof_is_not_exec_success",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_exec_failure_is_named_registered_handoff_failure",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registrar_success_requires_one_exact_job_id_before_release",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_release_write_error_is_resolved_only_by_gate_status",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_partial_or_duplicate_release_frame_never_execs[G]",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_handoff_eof_is_not_exec_success",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_exec_failure_is_named_registered_handoff_failure",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_registrar_success_requires_one_exact_job_id_before_release",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_every_authority_helper_is_named_and_checked_waited",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_cancellation_during_delayed_ready_preserves_primary",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_signal_receipt_refuses_starttime_drift_before_pidfd_signal",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_reap_cmd_actually_kills_a_real_process_GROUP",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_withheld_owner_ready_reaps_post_setsid_term_resistant_group",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_failed_workload_wait_reconciles_registered_id",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_zero_owner_kill_grace_is_rejected_before_timeout_launch",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_timeout_owner_launch_keeps_a_positive_kill_after_escalation",
@@ -245,7 +245,7 @@
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_abort_timeout_retains_inert_gate_under_one_budget",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_handoff_timeout_retains_registered_id_under_one_budget",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_one_second_lifecycle_cap_remains_truthfully_unknown",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_monotonic_clock_rollback_fails_closed_without_extending_budget",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_pidfd_open_race_after_owned_census_is_already_absent",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_pid_reuse_after_pidfd_open_is_the_owned_identity_already_absent",
@@ -1967,7 +1967,7 @@
       "catcher": "tests/test_desandbox_tool_verifiers.py::test_mutation_snapshot_close_evidence_failures_never_interrupt_owner_drain[secondary-str]"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_failed_registration_never_releases_the_workload",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_failed_registration_never_releases_the_workload",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N217 WG1-EARLY-WORK",
@@ -1983,7 +1983,7 @@
       "old": "if [ \"$W1_READY_CHANNEL_STATE\" = EOF ] \\\n        && [ \"$W1_FRAME_CLASS\" = READY ]; then"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_receipt_admission_rejects_wrong_provenance[ppid-initial-not-direct-child]",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_receipt_admission_rejects_wrong_provenance[ppid-initial-not-direct-child]",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N219 WG3-NO-CHILD",
@@ -1991,7 +1991,7 @@
       "old": "            && [ \"$W1_INITIAL_PPID\" = \"$$\" ] \\\n            && [ \"$W1_INITIAL_PGID\" = \"$PYTEST_PID\" ] \\\n            && [ \"$W1_INITIAL_PGID\" != \"$$\" ] \\\n            && [[ \"$W1_INITIAL_STATE\" != Z && \"$W1_INITIAL_STATE\" != X ]] \\\n            && [[ \"$W1_INITIAL_START\" =~ ^[0-9]+$ ]] \\\n            && [ -z \"$W1_INITIAL_EXTRA\" ]; then\n        PYTEST_ORIGINAL_RECEIPT=\"$W1_INITIAL_RECEIPT\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_receipt_admission_rejects_wrong_provenance[pgrp-initial-not-group-leader]",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_receipt_admission_rejects_wrong_provenance[pgrp-initial-not-group-leader]",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N220 WG4-NONLEADER",
@@ -1999,7 +1999,7 @@
       "old": "            && [ \"$W1_INITIAL_PGID\" = \"$PYTEST_PID\" ] \\\n            && [ \"$W1_INITIAL_PGID\" != \"$$\" ] \\\n            && [[ \"$W1_INITIAL_STATE\" != Z && \"$W1_INITIAL_STATE\" != X ]] \\\n            && [[ \"$W1_INITIAL_START\" =~ ^[0-9]+$ ]] \\\n            && [ -z \"$W1_INITIAL_EXTRA\" ]; then\n        PYTEST_ORIGINAL_RECEIPT=\"$W1_INITIAL_RECEIPT\"\n        PYTEST_PGID=\"$W1_INITIAL_PGID\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_failed_registration_never_releases_the_workload",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_failed_registration_never_releases_the_workload",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N221 WG5-RELEASE-ON-FAIL",
@@ -2031,7 +2031,7 @@
       "old": "    if ! registration_owner_term_grace; then\n        case \"$W1_CLOCK_STATE\" in\n            ROLLBACK|UNKNOWN)\n                W1_OWNER_GRACE_US=\"UNAVAILABLE-$W1_CLOCK_STATE\"\n                ;;\n            *)\n                W1_OWNER_STOP_DISPOSITION=PROCESS-RESTORATION-UNKNOWN\n                return 1\n                ;;\n        esac\n    fi\n    registration_now_us && W1_OWNER_KILL_AT_US=\"$W1_NOW_US\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_partial_handoff_frame_does_not_restart_the_protocol_budget",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_partial_handoff_frame_does_not_restart_the_protocol_budget",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N225 WG9-RESET-BUDGET",
@@ -2039,7 +2039,7 @@
       "old": "registration_cancel_checkpoint \"post-release-write\"\nregistration_read_terminal"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_real_release_sigpipe_is_contained_and_enters_registered_failure",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_real_release_sigpipe_is_contained_and_enters_registered_failure",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N226 RELEASE-SIGPIPE-HANDLER-OMISSION",
@@ -2047,7 +2047,7 @@
       "old": "trap 'W1_RELEASE_SIGPIPE=1' PIPE\nprintf '%s\\n' \"$W1_GATE_RELEASE_TOKEN\" >&\"$W1_GATE_WRITE_FD\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_release_write_error_is_resolved_only_by_gate_status[True]",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_release_write_error_is_resolved_only_by_gate_status[True]",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N227 WG11-WRITE-MEANS-DELIVERED",
@@ -2055,7 +2055,7 @@
       "old": "W1_RELEASE_WRITE_STATUS=$?\ntrap - PIPE\nregistration_close_release"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_partial_or_duplicate_release_frame_never_execs[G]",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_partial_or_duplicate_release_frame_never_execs[G]",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N228 WG12-PARTIAL-GO",
@@ -2063,7 +2063,7 @@
       "old": "if bytes(release) != b\"GO v1\\n\":"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_handoff_eof_is_not_exec_success",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_handoff_eof_is_not_exec_success",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N229 WG13-EOF-EXEC-OK",
@@ -2071,7 +2071,7 @@
       "old": "    *)\n        # EOF, timeout, malformed status, and a withheld record do not prove\n        # delivery. The registered id remains the reconciliation handle.\n        registration_close_status\n        registration_fail_registered \"terminal-invalid-or-timeout\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_exec_failure_is_named_registered_handoff_failure",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_exec_failure_is_named_registered_handoff_failure",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N230 WG14-HIDE-EXEC-FAIL",
@@ -2079,7 +2079,7 @@
       "old": "    classification = \"EXEC_FAIL\"\n"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registrar_success_requires_one_exact_job_id_before_release[-False]",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_registrar_success_requires_one_exact_job_id_before_release[-False]",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N231 WG15-BAD-ID-RELEASE",
@@ -2087,7 +2087,7 @@
       "old": "    fi\n    return 1\n}}\n\nregistration_reconcile_known_id() {{"
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_exec_failure_is_named_registered_handoff_failure",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_exec_failure_is_named_registered_handoff_failure",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N232 WG16-DROP-ID",
@@ -2143,7 +2143,7 @@
       "old": "        eval \"exec $W1_SPAWN_READY_FD<&-\"\n        registration_promote_spawn_group_receipt || :\n        registration_owner_stop \"$W1_SPAWN_PID\" \\\n            \"$W1_ACTIVE_OWNER_GROUP_READY\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N239 DIRECT-INVALID-EXEC-OK-EXIT",
@@ -2251,8 +2251,8 @@
       "direction": "regression",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
       "label": "R12-N252 SHORT-CAP-FIXTURE-EXTENSION",
-      "new": "        reap_seconds=3, cleanup_seconds=3,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))",
-      "old": "        reap_seconds=1, cleanup_seconds=1,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))"
+      "new": "        reap_seconds=3, cleanup_seconds=3, observation_seconds=3,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))",
+      "old": "        reap_seconds=1, cleanup_seconds=1, observation_seconds=0,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))"
     },
     {
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_delayed_extra_ready_frame_never_reaches_the_registrar",
@@ -2263,7 +2263,7 @@
       "old": "    classification = \"READY\" if raw == expected else \"INVALID\""
     },
     {
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd",
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N254 NO-PATHNAME-CONTROL-ENDPOINT",
@@ -2295,7 +2295,7 @@
       "old": "        wait -p W1_WORKLOAD_WAITED_PID \"$PYTEST_GATE_PID\" \\\n            2> \"$RUNDIR/registration-workload-wait.err\"\n        rc=$?",
       "preserves": [
         "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_probe_binds_complete_identity_and_last_parenthesis",
-        "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_failed_registration_never_releases_the_workload",
+        "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_failed_registration_never_releases_the_workload",
         "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_every_abandon_path_reaps"
       ]
     },
