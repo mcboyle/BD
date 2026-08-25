@@ -98,7 +98,9 @@
     "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_returns_after_successful_authority_spending_reap",
     "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_uses_nonblocking_probe_before_live_cleanup",
     "tests/test_v3_66_1040_remote_job_registry.py::test_guarded_reaper_signals_only_a_proven_live_child",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_run_takes_a_script_file_rather_than_a_quoted_shell_program",
     "tests/test_v3_66_1040_remote_job_registry.py::test_remote_script_stem_is_allowlisted_before_scp",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_ssh_and_scp_have_one_owned_popen_transport_funnel",
     "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy",
     "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_unknown_parent_without_signalling",
     "tests/test_v3_66_1040_remote_job_registry.py::test_terminate_owned_scp_group_refuses_foreign_parent_without_signalling",
@@ -1067,26 +1069,42 @@
     {
       "label": "N93 remove the scp transfer deadline",
       "file": "toolchain/bin/bd-jobs",
-      "old": "        stdout, stderr = process.communicate(\n            timeout=_SCP_TRANSFER_TIMEOUT_S)",
-      "new": "        stdout, stderr = process.communicate(\n            timeout=None)  # mutant: unbounded scp transfer",
+      "old": "        stdout, stderr = process.communicate(timeout=budget)",
+      "new": "        stdout, stderr = process.communicate(timeout=None)  # mutant: unbounded transport",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
     },
     {
+      "label": "ROW235 make scp spend the shared SSH deadline",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            scp_destination], None, phase=\"scp\", retained=scp_destination,\n            fixed_timeout=_SCP_TRANSFER_TIMEOUT_S)",
+      "new": "            scp_destination], remote_deadline, phase=\"scp\",\n            retained=scp_destination)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_takes_a_script_file_rather_than_a_quoted_shell_program"
+    },
+    {
       "label": "N94 let scp timeout escape structured handling",
       "file": "toolchain/bin/bd-jobs",
-      "old": "            timeout=_SCP_TRANSFER_TIMEOUT_S)\n    except BaseException as primary:\n        primary_text = str(primary)",
-      "new": "            timeout=_SCP_TRANSFER_TIMEOUT_S)\n    except (OSError, KeyboardInterrupt) as primary:  # mutant: TimeoutExpired escapes\n        primary_text = str(primary)",
+      "old": "        stdout, stderr = process.communicate(timeout=budget)\n    except BaseException as primary:\n        primary_text = str(primary)",
+      "new": "        stdout, stderr = process.communicate(timeout=budget)\n    except (OSError, KeyboardInterrupt) as primary:  # mutant: TimeoutExpired escapes\n        primary_text = str(primary)",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy"
     },
     {
       "label": "N95 start scp inside the launcher process group",
       "file": "toolchain/bin/bd-jobs",
-      "old": "            start_new_session=True)\n    except OSError as exc:\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start scp: %s\" % exc),",
-      "new": "            start_new_session=False)  # mutant: scp shares launcher group\n    except OSError as exc:\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start scp: %s\" % exc),",
+      "old": "        process = subprocess.Popen(\n            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,\n            start_new_session=True)",
+      "new": "        process = subprocess.Popen(\n            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,\n            start_new_session=False)  # mutant: transport shares launcher group",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
+    },
+    {
+      "label": "ROW235 reintroduce a second owned-Popen transport funnel",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "\n\ndef cmd_run(args):\n    \"\"\"Launch a command on a host and register it THERE, before returning.",
+      "new": "\n\ndef _reintroduced_scp_owner(argv):\n    process = subprocess.Popen(\n        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,\n        start_new_session=True)\n    return process.communicate(timeout=_SCP_TRANSFER_TIMEOUT_S)\n\n\ndef cmd_run(args):\n    \"\"\"Launch a command on a host and register it THERE, before returning.",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_ssh_and_scp_have_one_owned_popen_transport_funnel"
     },
     {
       "label": "N96 trust an unknown or foreign scp parent",
@@ -1155,7 +1173,7 @@
     {
       "label": "N104 skip process-group cleanup after scp failure",
       "file": "toolchain/bin/bd-jobs",
-      "old": "            cleanup_complete, cleanup_note = (\n                _terminate_owned_popen_group(process))",
+      "old": "            cleanup_complete, cleanup_note = _terminate_owned_popen_group(process)",
       "new": "            cleanup_complete, cleanup_note = (True, \"\")  # mutant: skip group cleanup",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
@@ -1163,55 +1181,55 @@
     {
       "label": "N105 stop capturing normal scp stdout",
       "file": "toolchain/bin/bd-jobs",
-      "old": "def _run_scp(argv):\n    \"\"\"Run SCP in an owned group, returning cleanup proof with its result.\"\"\"\n    try:\n        process = subprocess.Popen(\n            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,",
-      "new": "def _run_scp(argv):\n    \"\"\"Run SCP in an owned group, returning cleanup proof with its result.\"\"\"\n    try:\n        process = subprocess.Popen(\n            argv, stdout=None, stderr=subprocess.PIPE, text=True,",
+      "old": "            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,",
+      "new": "            argv, stdout=None, stderr=subprocess.PIPE, text=True,",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
     },
     {
       "label": "N106 stop capturing normal scp stderr",
       "file": "toolchain/bin/bd-jobs",
-      "old": "def _run_scp(argv):\n    \"\"\"Run SCP in an owned group, returning cleanup proof with its result.\"\"\"\n    try:\n        process = subprocess.Popen(\n            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,\n            start_new_session=True)",
-      "new": "def _run_scp(argv):\n    \"\"\"Run SCP in an owned group, returning cleanup proof with its result.\"\"\"\n    try:\n        process = subprocess.Popen(\n            argv, stdout=subprocess.PIPE, stderr=None, text=True,\n            start_new_session=True)",
+      "old": "            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,\n            start_new_session=True)",
+      "new": "            argv, stdout=subprocess.PIPE, stderr=None, text=True,\n            start_new_session=True)",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
     },
     {
       "label": "N107 corrupt the normal scp result mapping",
       "file": "toolchain/bin/bd-jobs",
-      "old": "            error = \"scp communication failed: %s\" % primary_text\n            returncode = 125\n\n        return (subprocess.CompletedProcess(\n            argv, returncode, \"\", error),\n            cleanup_complete, cleanup_note)\n\n    return (subprocess.CompletedProcess(\n        argv, process.returncode, stdout, stderr), True, \"\")",
-      "new": "            error = \"scp communication failed: %s\" % primary_text\n            returncode = 125\n\n        return (subprocess.CompletedProcess(\n            argv, returncode, \"\", error),\n            cleanup_complete, cleanup_note)\n\n    return (subprocess.CompletedProcess(\n        argv, 0, \"\", \"\"), True, \"\")",
+      "old": "    return (subprocess.CompletedProcess(\n        argv, process.returncode, stdout, stderr), True, \"\")",
+      "new": "    return (subprocess.CompletedProcess(\n        argv, 0, \"\", \"\"), True, \"\")",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_run_scp_preserves_a_normal_failure_result_and_captures_output"
     },
     {
       "label": "N108 catch only Exception so cancellation skips cleanup",
       "file": "toolchain/bin/bd-jobs",
-      "old": "            timeout=_SCP_TRANSFER_TIMEOUT_S)\n    except BaseException as primary:\n        primary_text = str(primary)",
-      "new": "            timeout=_SCP_TRANSFER_TIMEOUT_S)\n    except Exception as primary:  # mutant: cancellation skips cleanup\n        primary_text = str(primary)",
+      "old": "        stdout, stderr = process.communicate(timeout=budget)\n    except BaseException as primary:\n        primary_text = str(primary)",
+      "new": "        stdout, stderr = process.communicate(timeout=budget)\n    except Exception as primary:  # mutant: cancellation skips cleanup\n        primary_text = str(primary)",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
     },
     {
       "label": "N109 swallow cancellation after cleanup",
       "file": "toolchain/bin/bd-jobs",
-      "old": "                    primary, \"scp process-group cleanup is UNKNOWN\",\n                    RuntimeError(cleanup_note))\n            raise\n\n        if isinstance(primary, subprocess.TimeoutExpired):",
-      "new": "                    primary, \"scp process-group cleanup is UNKNOWN\",\n                    RuntimeError(cleanup_note))\n            return (subprocess.CompletedProcess(\n                argv, 125, \"\", \"scp cancellation was swallowed\"),\n                cleanup_complete, cleanup_note)\n\n        if isinstance(primary, subprocess.TimeoutExpired):",
+      "old": "            raise\n\n        if isinstance(primary, subprocess.TimeoutExpired):",
+      "new": "            return (subprocess.CompletedProcess(\n                argv, 125, \"\", \"scp cancellation was swallowed\"),\n                cleanup_complete, cleanup_note)\n\n        if isinstance(primary, subprocess.TimeoutExpired):",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
     },
     {
       "label": "N110 hide cancellation cleanup uncertainty",
       "file": "toolchain/bin/bd-jobs",
-      "old": "            if not cleanup_complete:\n                _note_secondary_failure(\n                    primary, \"scp process-group cleanup is UNKNOWN\",\n                    RuntimeError(cleanup_note))",
-      "new": "            if False:  # mutant: hide cancellation cleanup uncertainty\n                _note_secondary_failure(\n                    primary, \"scp process-group cleanup is UNKNOWN\",\n                    RuntimeError(cleanup_note))",
+      "old": "            if not cleanup_complete:\n                _note_secondary_failure(\n                    primary, \"%s process-group cleanup is UNKNOWN\" % phase,\n                    RuntimeError(cleanup_note))",
+      "new": "            if False:  # mutant: hide cancellation cleanup uncertainty\n                _note_secondary_failure(\n                    primary, \"%s process-group cleanup is UNKNOWN\" % phase,\n                    RuntimeError(cleanup_note))",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_attempts_cleanup_and_preserves_the_primary"
     },
     {
       "label": "N111 let ordinary scp communication errors escape",
       "file": "toolchain/bin/bd-jobs",
-      "old": "        else:\n            error = \"scp communication failed: %s\" % primary_text\n            returncode = 125",
+      "old": "        else:\n            error = (\"scp communication failed: %s\" % primary_text\n                     if phase == \"scp\"\n                     else \"%s transport failed: %s\" % (phase, primary_text))\n            returncode = 125",
       "new": "        else:\n            raise primary  # mutant: ordinary communication errors escape",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_communication_oserror_is_structured_after_cleanup"
@@ -1219,8 +1237,8 @@
     {
       "label": "N112 let scp constructor failure escape",
       "file": "toolchain/bin/bd-jobs",
-      "old": "    except OSError as exc:\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start scp: %s\" % exc),\n            True, \"no scp process was acquired\")",
-      "new": "    except ProcessLookupError as exc:  # mutant: constructor failure escapes\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start scp: %s\" % exc),\n            True, \"no scp process was acquired\")",
+      "old": "    except OSError as exc:\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start %s: %s\" % (phase, exc)),\n            True, (\"no scp process was acquired\" if phase == \"scp\"\n                   else \"no process was acquired\"))",
+      "new": "    except ProcessLookupError as exc:  # mutant: constructor failure escapes\n        return (subprocess.CompletedProcess(\n            argv, 125, \"\", \"could not start %s: %s\" % (phase, exc)),\n            True, (\"no scp process was acquired\" if phase == \"scp\"\n                   else \"no process was acquired\"))",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_constructor_failure_is_a_refusal_with_no_cleanup_signal"
     },
@@ -1283,7 +1301,7 @@
     {
       "label": "N120 let cleanup failure replace primary cancellation",
       "file": "toolchain/bin/bd-jobs",
-      "old": "        except BaseException as cleanup_exc:\n            cleanup_complete = False\n            cleanup_note = (\n                \"pid %s / process group UNKNOWN cleanup raised: %s\"\n                % (process.pid, cleanup_exc))",
+      "old": "        except BaseException as cleanup_exc:\n            cleanup_complete = False\n            cleanup_note = (\"pid %s / process group UNKNOWN cleanup raised: %s\"\n                            % (process.pid, cleanup_exc))",
       "new": "        except BaseException as cleanup_exc:\n            raise cleanup_exc  # mutant: cleanup failure replaces primary",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_scp_interrupt_preserves_primary_when_cleanup_itself_raises"
@@ -1291,24 +1309,24 @@
     {
       "label": "N121 cancellation omits the exact retained remote destination",
       "file": "toolchain/bin/bd-jobs",
-      "old": "                    % destination))",
-      "new": "                    % \"UNNAMED\"))  # mutant: omit exact retained destination",
+      "old": "                            \"scp\" % retained))",
+      "new": "                            \"scp\" % \"UNNAMED\"))  # mutant: omit exact retained destination",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup"
     },
     {
       "label": "N122 cancellation downgrades retained UNKNOWN partial evidence",
       "file": "toolchain/bin/bd-jobs",
-      "old": "                primary, \"scp remote destination is RETAINED UNKNOWN\",\n                RuntimeError(\n                    \"%s may be partial and was not deleted because pathname \"",
-      "new": "                primary, \"scp remote destination copy was interrupted\",\n                RuntimeError(\n                    \"%s was not deleted because pathname \"",
+      "old": "                        \"scp remote destination is RETAINED UNKNOWN\",\n                        RuntimeError(\n                            \"%s may be partial and was not deleted because \"",
+      "new": "                        \"scp remote destination copy was interrupted\",\n                        RuntimeError(\n                            \"%s was not deleted because \"",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup"
     },
     {
       "label": "N123 cancellation attempts identity-unproven remote pathname deletion",
       "file": "toolchain/bin/bd-jobs",
-      "old": "                    % destination))\n            if not cleanup_complete:",
-      "new": "                    % destination))\n            unsafe_target, unsafe_path = destination.split(\":\", 1)\n            subprocess.run(\n                _ssh_argv(\n                    unsafe_target,\n                    \"rm -f %s\" % shlex.quote(unsafe_path)),\n                capture_output=True, text=True)\n            if not cleanup_complete:",
+      "old": "                            \"scp\" % retained))\n                else:",
+      "new": "                            \"scp\" % retained))\n                    unsafe_target, unsafe_path = retained.split(\":\", 1)\n                    subprocess.run(\n                        _ssh_argv(\n                            unsafe_target,\n                            \"rm -f %s\" % shlex.quote(unsafe_path)),\n                        capture_output=True, text=True)\n                else:",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_cmd_run_scp_interrupt_names_retained_destination_after_complete_cleanup"
     },
