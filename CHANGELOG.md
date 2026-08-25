@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1250 - fleet and runtime state is measured rather than assumed
+
+- Removed test6 `/mnt/bdtmpfs` after proving:
+- Exact root-owned inode `dev=fc00 inode=7344125`, mode 755.
+- Zero children, mounts, fstab entries, systemd references, or process consum
+- Final readback at 17:59:59Z: absent, stat rc 1, basename count 0.
+- Updated [IMPROVEMENT_BACKLOG.md](/home/mboyle/bd-codex-wt/row174/project-kn
+- Closed row 174 with all four owners.
+- Added structural and negative-control tests in [test_v3_66_1171_backlog_tru
+- Added the seven-mutant [row174_operator_rulings.json](/home/mboyle/bd-codex
+- Raw host evidence: [row174.txt](/home/mboyle/fleet-run-artifacts/2026-08-25
+- Focused final: `2 passed in 0.76s`.
+- Backlog/schema/CI gates: `43 passed`.
+- Complete derived 23-file band: `176 passed, 7 warnings`.
+- `bd-precut --gate`: 20 pytest checks and 12 footgun detectors passed.
+
 ## v3.66.1249 - derive_login_flow emits a plan that reproduces the capture
 
 - Excluded post-login player/download picks from the login-step and origin de

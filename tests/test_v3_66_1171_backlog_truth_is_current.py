@@ -66,6 +66,52 @@ def _rows(text: str | None = None) -> dict[int, tuple[str, str]]:
     return found
 
 
+_ROW174_TRANSFER_IDS = frozenset({174, 243, 244, 245})
+
+
+def _row174_transfer_errors(
+    rows: dict[int, tuple[str, str]],
+) -> list[str]:
+    """Validate the complete operator-ruling and side-finding transfer."""
+    errors: list[str] = []
+    present = _ROW174_TRANSFER_IDS.intersection(rows)
+    if present != _ROW174_TRANSFER_IDS:
+        errors.append(
+            "row 174 transfer identities missing: "
+            + ", ".join(str(row_id) for row_id in sorted(_ROW174_TRANSFER_IDS - present))
+        )
+        return errors
+
+    status_174, text_174 = rows[174]
+    if not status_174.startswith("CLOSED @"):
+        errors.append(f"row 174 is not terminal: {status_174}")
+    for required in (
+        "row 245 owns",
+        "bd-wedge-hunt owner",
+        "row-13 security-evidence owner",
+        "historical wedge-evidence owner",
+        "REMOVED test6 `/mnt/bdtmpfs`",
+        "READBACK_EXISTS=no",
+    ):
+        if required not in text_174:
+            errors.append(f"row 174 does not record {required!r}")
+
+    expected_open = {
+        244: ("DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY", "2 matching lines / 1 unique line"),
+        245: ("POST-1191-MARKERLESS-TEST-ROOTS", "14 UNKNOWN roots"),
+        243: ("UNREGISTERED-PYTEST-PROCESSES", "accepted census=3"),
+    }
+    for row_id, (title, evidence) in expected_open.items():
+        status, text = rows[row_id]
+        if status != "OPEN":
+            errors.append(f"row {row_id} is not OPEN: {status}")
+        if title not in text:
+            errors.append(f"row {row_id} does not name {title}")
+        if evidence not in text:
+            errors.append(f"row {row_id} does not record {evidence}")
+    return errors
+
+
 def _tracked() -> set[str]:
     result = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True
@@ -125,6 +171,28 @@ def test_cut_a_rows_have_exact_terminal_statuses_and_atomic_remainder() -> None:
     assert "singleton systemd unit" in text
     assert "remainder -> backlog 175" in rows[5][1]
     assert rows[175][0] == "OPEN"
+
+
+def test_row_174_rulings_are_owned_and_side_findings_are_transferred() -> None:
+    rows = _rows()
+    assert len(rows) >= 235, "backlog parser did not reach the known base population"
+    assert len(_ROW174_TRANSFER_IDS) == 4, "row 174 gate has an empty or partial denominator"
+    assert not _row174_transfer_errors(rows)
+
+
+def test_row_174_transfer_control_rejects_a_missing_side_finding() -> None:
+    rows = {
+        174: (
+            "CLOSED @control",
+            "row 245 owns; bd-wedge-hunt owner; row-13 security-evidence owner; "
+            "historical wedge-evidence owner; REMOVED test6 `/mnt/bdtmpfs`; "
+            "READBACK_EXISTS=no",
+        ),
+        244: ("OPEN", "DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY; 2 matching lines / 1 unique line"),
+        245: ("OPEN", "POST-1191-MARKERLESS-TEST-ROOTS; 14 UNKNOWN roots"),
+    }
+    errors = _row174_transfer_errors(rows)
+    assert errors == ["row 174 transfer identities missing: 243"]
 
 
 def test_status_parser_cannot_be_satisfied_by_prose_or_duplicates() -> None:

@@ -3732,22 +3732,28 @@ class _RemoteDeadline:
         return usable if usable > 0 else None
 
 
-def _run_remote(argv, deadline, *, phase, retained=""):
-    """Run one remote stage in an owned process group under a shared deadline.
+def _run_remote(argv, deadline, *, phase, retained="", fixed_timeout=None):
+    """Run one ssh/scp stage through the sole owned-process transport funnel.
 
-    Generalises `_run_scp`, which already had the shape this needs: an owned
-    Popen in its own session, bounded settlement on any BaseException,
-    cancellation identity preserved, and cleanup uncertainty attached to the
-    primary rather than swallowed. What is added is the SHARED deadline and the
-    PHASE, because a timeout does not mean the same thing at every stage --
-    before anything is copied or launched it may refuse, and after it may only
-    report UNKNOWN.
+    SSH stages share ``deadline``.  SCP deliberately passes ``deadline=None``
+    and ``fixed_timeout=_SCP_TRANSFER_TIMEOUT_S``: its existing 60-second copy
+    allowance remains independent of the SSH operation's total budget.  This
+    preserves the measured pre-unification contract instead of silently making
+    a copy's allowance depend on how long earlier probes took.
+
+    Both budget forms use the same owned Popen, BaseException settlement,
+    cancellation preservation, cleanup-proof retention, and 124/125 result
+    vocabulary.  ``phase`` keeps the stage-specific operator diagnostics that
+    existed before the funnels were unified.
 
     Returns (CompletedProcess, cleanup_complete, cleanup_note). Exit 124 is a
-    bounded-out stage and 125 a transport failure, matching `_run_scp` so the
-    callers keep one vocabulary.
+    bounded-out stage and 125 a transport failure in either budget mode.
     """
-    budget = deadline.slice_for_stage()
+    if (deadline is None) == (fixed_timeout is None):
+        raise ValueError(
+            "remote transport requires exactly one deadline or fixed timeout")
+    budget = (fixed_timeout if fixed_timeout is not None
+              else deadline.slice_for_stage())
     if budget is None:
         return (subprocess.CompletedProcess(
             argv, 124, "",
@@ -3763,7 +3769,8 @@ def _run_remote(argv, deadline, *, phase, retained=""):
     except OSError as exc:
         return (subprocess.CompletedProcess(
             argv, 125, "", "could not start %s: %s" % (phase, exc)),
-            True, "no process was acquired")
+            True, ("no scp process was acquired" if phase == "scp"
+                   else "no process was acquired"))
 
     try:
         stdout, stderr = process.communicate(timeout=budget)
@@ -3778,11 +3785,20 @@ def _run_remote(argv, deadline, *, phase, retained=""):
 
         if not isinstance(primary, Exception):
             if retained:
-                _note_secondary_failure(
-                    primary, "%s left RETAINED UNKNOWN state" % phase,
-                    RuntimeError(
-                        "%s is retained because ownership is not proven after "
-                        "an interrupted %s" % (retained, phase)))
+                if phase == "scp":
+                    _note_secondary_failure(
+                        primary,
+                        "scp remote destination is RETAINED UNKNOWN",
+                        RuntimeError(
+                            "%s may be partial and was not deleted because "
+                            "pathname ownership is not proven after interrupted "
+                            "scp" % retained))
+                else:
+                    _note_secondary_failure(
+                        primary, "%s left RETAINED UNKNOWN state" % phase,
+                        RuntimeError(
+                            "%s is retained because ownership is not proven "
+                            "after an interrupted %s" % (retained, phase)))
             if not cleanup_complete:
                 _note_secondary_failure(
                     primary, "%s process-group cleanup is UNKNOWN" % phase,
@@ -3790,73 +3806,23 @@ def _run_remote(argv, deadline, *, phase, retained=""):
             raise
 
         if isinstance(primary, subprocess.TimeoutExpired):
-            error = ("%s reached %s but did not answer within its %.0fs slice "
-                     "of the %.0fs total remote budget"
-                     % (phase, argv[-2] if len(argv) > 1 else "the target",
-                        budget, deadline.total))
+            if phase == "scp":
+                error = "scp timed out after %s seconds" % primary.timeout
+            else:
+                error = ("%s reached %s but did not answer within its %.0fs "
+                         "slice of the %.0fs total remote budget"
+                         % (phase,
+                            argv[-2] if len(argv) > 1 else "the target",
+                            budget, deadline.total))
             returncode = 124
         else:
-            error = "%s transport failed: %s" % (phase, primary_text)
+            error = ("scp communication failed: %s" % primary_text
+                     if phase == "scp"
+                     else "%s transport failed: %s" % (phase, primary_text))
             returncode = 125
 
         return (subprocess.CompletedProcess(argv, returncode, "", error),
                 cleanup_complete, cleanup_note)
-
-    return (subprocess.CompletedProcess(
-        argv, process.returncode, stdout, stderr), True, "")
-
-
-def _run_scp(argv):
-    """Run SCP in an owned group, returning cleanup proof with its result."""
-    try:
-        process = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            start_new_session=True)
-    except OSError as exc:
-        return (subprocess.CompletedProcess(
-            argv, 125, "", "could not start scp: %s" % exc),
-            True, "no scp process was acquired")
-
-    try:
-        stdout, stderr = process.communicate(
-            timeout=_SCP_TRANSFER_TIMEOUT_S)
-    except BaseException as primary:
-        primary_text = str(primary)
-        try:
-            cleanup_complete, cleanup_note = (
-                _terminate_owned_popen_group(process))
-        except BaseException as cleanup_exc:
-            cleanup_complete = False
-            cleanup_note = (
-                "pid %s / process group UNKNOWN cleanup raised: %s"
-                % (process.pid, cleanup_exc))
-
-        # Cancellation retains its identity, but only after attempting bounded
-        # cleanup and attaching any cleanup uncertainty to the primary.
-        if not isinstance(primary, Exception):
-            destination = argv[-1] if argv else "UNKNOWN"
-            _note_secondary_failure(
-                primary, "scp remote destination is RETAINED UNKNOWN",
-                RuntimeError(
-                    "%s may be partial and was not deleted because pathname "
-                    "ownership is not proven after interrupted scp"
-                    % destination))
-            if not cleanup_complete:
-                _note_secondary_failure(
-                    primary, "scp process-group cleanup is UNKNOWN",
-                    RuntimeError(cleanup_note))
-            raise
-
-        if isinstance(primary, subprocess.TimeoutExpired):
-            error = "scp timed out after %s seconds" % primary.timeout
-            returncode = 124
-        else:
-            error = "scp communication failed: %s" % primary_text
-            returncode = 125
-
-        return (subprocess.CompletedProcess(
-            argv, returncode, "", error),
-            cleanup_complete, cleanup_note)
 
     return (subprocess.CompletedProcess(
         argv, process.returncode, stdout, stderr), True, "")
@@ -4147,10 +4113,12 @@ def cmd_run(args):
                      or "ssh exited %d" % prepare.returncode),
                   file=sys.stderr)
             return 2
-        scp, copy_cleanup_complete, copy_cleanup_note = _run_scp([
+        scp_destination = "%s:%s" % (target, remote_script)
+        scp, copy_cleanup_complete, copy_cleanup_note = _run_remote([
             "scp", "-q", "-o", "BatchMode=yes", "-o",
             _REMOTE_CONNECT_TIMEOUT_OPTION, "--", str(script),
-            "%s:%s" % (target, remote_script)])
+            scp_destination], None, phase="scp", retained=scp_destination,
+            fixed_timeout=_SCP_TRANSFER_TIMEOUT_S)
         if scp.returncode != 0:
             result = "REFUSED" if copy_cleanup_complete else "UNKNOWN"
             cleanup = (("; %s" % copy_cleanup_note)

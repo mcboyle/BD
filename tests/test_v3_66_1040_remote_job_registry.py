@@ -452,6 +452,7 @@ def test_run_takes_a_script_file_rather_than_a_quoted_shell_program(jobs,
     script = tmp_path / "sweep.sh"
     script.write_text("for N in 8 16; do echo $N; done\n")
     calls = []
+    transport_calls = []
 
     def fake_run(cmd, **kw):
         calls.append(cmd)
@@ -467,21 +468,21 @@ def test_run_takes_a_script_file_rather_than_a_quoted_shell_program(jobs,
                 jobs, cmd[-1], 0, disposition="ADOPTED")
         return subprocess.CompletedProcess(cmd, 0, "", err)
 
+    def fake_remote(argv, deadline, **options):
+        transport_calls.append((list(argv), deadline, dict(options)))
+        return fake_run(argv), True, ""
+
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
-        jobs, "_run_remote",
-        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
-    monkeypatch.setattr(
-        jobs, "_run_scp",
-        lambda argv: (calls.append(list(argv)) or (
-            subprocess.CompletedProcess(argv, 0, "", ""), True, "")))
+        jobs, "_run_remote", fake_remote)
     rc = jobs.cmd_run(type("A", (), {
         "host": "somewhere", "purpose": "sweep", "script": str(script),
         "command": []})())
     assert rc == 0, calls
 
     scp = [c for c in calls if c[0] == "scp"]
-    assert scp, "the script was never copied: %s" % calls
+    assert len(scp) == 1, "the script copy seam fired %d times: %s" % (
+        len(scp), calls)
     assert str(script) in scp[0], scp[0]
     assert calls.index(scp[0]) < len(calls) - 1, (
         "the copy was not done before the launch -- a script that did not "
@@ -503,6 +504,28 @@ def test_run_takes_a_script_file_rather_than_a_quoted_shell_program(jobs,
             "the script's own shell syntax reached the remote command line "
             "(%r) -- the whole point is that it does not" % shell_meta)
 
+    # ROW 235 BUDGET DECISION, measured at the production call seam. The four
+    # SSH stages share one deadline object, while SCP keeps the exact independent
+    # 60-second allowance it had before the two owners were folded together.
+    copy_transport = [item for item in transport_calls if item[0][0] == "scp"]
+    ssh_transports = [item for item in transport_calls if item[0][0] == "ssh"]
+    assert len(copy_transport) == 1 and ssh_transports, transport_calls
+    _, copy_deadline, copy_options = copy_transport[0]
+    assert copy_deadline is None, (
+        "scp silently joined the shared SSH deadline: %r" % copy_deadline)
+    assert copy_options == {
+        "phase": "scp",
+        "retained": scp[0][-1],
+        "fixed_timeout": jobs._SCP_TRANSFER_TIMEOUT_S,
+    }, copy_options
+    assert jobs._SCP_TRANSFER_TIMEOUT_S == 60.0
+    shared_deadline = ssh_transports[0][1]
+    assert shared_deadline is not None
+    assert all(item[1] is shared_deadline for item in ssh_transports), (
+        "SSH stages did not share one deadline: %r" % (ssh_transports,))
+    assert all(item[2].get("fixed_timeout") is None
+               for item in ssh_transports), ssh_transports
+
 
 def _no_network(jobs, monkeypatch, scp_rc=0):
     """Nothing here may touch a real host.
@@ -522,20 +545,17 @@ def _no_network(jobs, monkeypatch, scp_rc=0):
         return (subprocess.CompletedProcess(
             argv, scp_rc, "", "copy failed"), True, "")
 
-    def fake_remote(argv, deadline, *, phase, retained=""):
-        # v3.66.1223 routed every remote STAGE through jobs._run_remote, which
-        # owns a real process group and therefore uses Popen -- and the Popen
-        # ban below exists to prove the remote path never launches anything
-        # LOCALLY. _run_remote is a legitimate remote transport exactly as
-        # _run_scp is, so it is stubbed here rather than exempted from the ban:
-        # the ban stays live and still catches a genuine stray launch.
+    def fake_remote(argv, deadline, *, phase, retained="", fixed_timeout=None):
+        # The sole remote funnel owns a real process group and therefore uses
+        # Popen. Stub it here so the Popen ban below stays live and still
+        # catches a genuine stray LOCAL launch.
         #
-        # It DELEGATES to fake_run, so every existing test keeps its own
-        # subprocess.run fake and its assertions over `calls` unchanged.
-        return (fake_run(argv), True, "")
+        # SCP keeps its separately selected outcome; SSH delegates to fake_run
+        # so the existing assertions over `calls` remain unchanged.
+        return (fake_scp(argv) if argv and argv[0] == "scp"
+                else (fake_run(argv), True, ""))
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
-    monkeypatch.setattr(jobs, "_run_scp", fake_scp)
     monkeypatch.setattr(jobs, "_run_remote", fake_remote)
     monkeypatch.setattr(jobs.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("nothing should launch"))
@@ -688,6 +708,122 @@ def test_terminate_owned_scp_group_refuses_a_nonleader_without_signalling(
     assert "does not lead" in note, note
 
 
+def _owned_popen_transport_funnels(source):
+    """Return the complete Popen denominator and its owned transport subset.
+
+    The subset is structural: a function both acquires a new-session Popen and
+    communicates with a child.  That distinguishes an ssh/scp transport owner
+    from the local release-gate spawn without depending on helper names,
+    comments, error text, or which executable happens to occupy ``argv[0]``.
+    """
+    tree = ast.parse(source)
+    popen_sites = []
+    funnels = []
+
+    class DirectCalls(ast.NodeVisitor):
+        """Visit one owner without charging nested owners twice."""
+
+        def __init__(self, owner):
+            self.owner = owner
+            self.calls = []
+
+        def visit_FunctionDef(self, node):
+            if node is self.owner:
+                self.generic_visit(node)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node):
+            return
+
+        def visit_Call(self, node):
+            self.calls.append(node)
+            self.generic_visit(node)
+
+    for owner in (node for node in ast.walk(tree)
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        visitor = DirectCalls(owner)
+        visitor.visit(owner)
+        calls = visitor.calls
+        popens = [
+            call for call in calls
+            if (isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "subprocess"
+                and call.func.attr == "Popen")
+        ]
+        popen_sites.extend((owner.name, call.lineno) for call in popens)
+        starts_owned_group = any(
+            any(keyword.arg == "start_new_session"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+                for keyword in call.keywords)
+            for call in popens)
+        communicates = any(
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "communicate"
+            for call in calls)
+        if starts_owned_group and communicates:
+            funnels.append((owner.name, tuple(call.lineno for call in popens)))
+    return tuple(sorted(popen_sites)), tuple(sorted(funnels))
+
+
+def test_ssh_and_scp_have_one_owned_popen_transport_funnel():
+    """A second owner can silently diverge acquisition and settlement again."""
+    source = _TOOL.read_text(encoding="utf-8")
+    popen_sites, funnels = _owned_popen_transport_funnels(source)
+
+    assert popen_sites, "bd-jobs has no Popen denominator; the gate saw nothing"
+    assert funnels, (
+        "bd-jobs has no owned transport funnel; the classifier saw %r"
+        % (popen_sites,))
+    assert all(lines for _, lines in funnels), funnels
+
+    # NEGATIVE CONTROL: add a differently named second owner in memory.  The
+    # parser must count one extra Popen and identify that function as a funnel;
+    # otherwise the final one-funnel verdict could be a classifier no-op.
+    negative = source + """
+def _synthetic_second_transport(command):
+    child = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        start_new_session=True)
+    return child.communicate(timeout=1.0)
+"""
+    negative_sites, negative_funnels = _owned_popen_transport_funnels(negative)
+    assert len(negative_sites) == len(popen_sites) + 1, (
+        popen_sites, negative_sites)
+    assert [name for name, _ in negative_funnels] == sorted(
+        [name for name, _ in funnels] + ["_synthetic_second_transport"]), (
+            negative_funnels)
+
+    assert [name for name, _ in funnels] == ["_run_remote"], (
+        "owned ssh/scp transport funnels must be exactly _run_remote; found %r"
+        % (funnels,))
+
+
+def test_transport_transform_control_imports_without_judging_behaviour():
+    """Mutation control: valid source is importable, with no transport verdict."""
+    imported = _load(name="bd_jobs_transport_transform_control")
+    assert imported.__name__ == "bd_jobs_transport_transform_control"
+
+
+def _run_scp_through_remote_funnel(jobs, argv):
+    return jobs._run_remote(
+        argv, None, phase="scp", retained=argv[-1] if argv else "UNKNOWN",
+        fixed_timeout=jobs._SCP_TRANSFER_TIMEOUT_S)
+
+
+def _stub_ssh_but_run_real_scp(jobs, fake_ssh):
+    real_run_remote = jobs._run_remote
+
+    def run(argv, deadline, **kwargs):
+        if argv and argv[0] == "scp":
+            return real_run_remote(argv, deadline, **kwargs)
+        return fake_ssh(argv), True, ""
+
+    return run
+
+
 def test_run_scp_preserves_a_normal_failure_result_and_captures_output(
         jobs, monkeypatch):
     argv = ["scp", "--", "source", "host:destination"]
@@ -708,7 +844,8 @@ def test_run_scp_preserves_a_normal_failure_result_and_captures_output(
 
     monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
 
-    result, cleanup_complete, cleanup_note = jobs._run_scp(argv)
+    result, cleanup_complete, cleanup_note = _run_scp_through_remote_funnel(
+        jobs, argv)
 
     assert seen["argv"] == argv
     assert seen["kwargs"].get("stdout") == subprocess.PIPE
@@ -762,8 +899,7 @@ def test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy(
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
-        jobs, "_run_remote",
-        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
+        jobs, "_run_remote", _stub_ssh_but_run_real_scp(jobs, fake_run))
     monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "launcher-host")
     monkeypatch.setattr(jobs, "_proc_ppid", lambda pid: os.getpid())
@@ -828,8 +964,7 @@ def test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership(
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
-        jobs, "_run_remote",
-        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
+        jobs, "_run_remote", _stub_ssh_but_run_real_scp(jobs, fake_run))
     monkeypatch.setattr(
         jobs.subprocess, "Popen", lambda cmd, **kwargs: TimedOutCopy())
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "launcher-host")
@@ -878,7 +1013,8 @@ def test_scp_interrupt_attempts_cleanup_and_preserves_the_primary(
     monkeypatch.setattr(jobs, "_terminate_owned_popen_group", fake_cleanup)
 
     with pytest.raises(KeyboardInterrupt) as excinfo:
-        jobs._run_scp(["scp", "source", "target:/partial"])
+        _run_scp_through_remote_funnel(
+            jobs, ["scp", "source", "target:/partial"])
 
     assert events == [("communicate", 60.0), ("cleanup", 616161)]
     assert excinfo.value.args == ("operator cancelled copy",)
@@ -917,8 +1053,7 @@ def _cmd_run_through_interrupted_scp(
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
-        jobs, "_run_remote",
-        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
+        jobs, "_run_remote", _stub_ssh_but_run_real_scp(jobs, fake_run))
     monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(jobs, "_terminate_owned_popen_group", fake_cleanup)
     monkeypatch.setattr(
@@ -1007,8 +1142,8 @@ def test_scp_communication_oserror_is_structured_after_cleanup(
         return False, "pid 626262 / process group 626262 cleanup UNKNOWN"
 
     monkeypatch.setattr(jobs, "_terminate_owned_popen_group", fake_cleanup)
-    result, cleanup_complete, cleanup_note = jobs._run_scp(
-        ["scp", "source", "target:/partial"])
+    result, cleanup_complete, cleanup_note = _run_scp_through_remote_funnel(
+        jobs, ["scp", "source", "target:/partial"])
 
     assert events == [("communicate", 60.0), ("cleanup", 626262)]
     assert result.returncode == 125
@@ -1035,7 +1170,8 @@ def test_scp_interrupt_preserves_primary_when_cleanup_itself_raises(
     monkeypatch.setattr(jobs, "_terminate_owned_popen_group", broken_cleanup)
 
     with pytest.raises(KeyboardInterrupt) as excinfo:
-        jobs._run_scp(["scp", "source", "target:/partial"])
+        _run_scp_through_remote_funnel(
+            jobs, ["scp", "source", "target:/partial"])
 
     assert excinfo.value.args == ("primary cancellation",)
     notes = "\n".join(getattr(excinfo.value, "__notes__", []))
@@ -1058,8 +1194,8 @@ def test_scp_constructor_failure_is_a_refusal_with_no_cleanup_signal(
         jobs.os, "killpg",
         lambda *args: pytest.fail("spawn failure signalled a process group"))
 
-    result, cleanup_complete, cleanup_note = jobs._run_scp(
-        ["scp", "source", "target:/never-created"])
+    result, cleanup_complete, cleanup_note = _run_scp_through_remote_funnel(
+        jobs, ["scp", "source", "target:/never-created"])
 
     assert result.returncode == 125
     assert "could not start scp" in result.stderr
@@ -1353,10 +1489,6 @@ def test_the_resolved_address_is_what_ssh_and_scp_actually_receive(jobs, tmp_pat
     monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
         jobs, "_run_remote",
         lambda argv, deadline, **kw: (fake_run(argv), True, ""))
-    monkeypatch.setattr(
-        jobs, "_run_scp",
-        lambda argv: (seen.append(list(argv)) or (
-            subprocess.CompletedProcess(argv, 0, "", ""), True, "")))
     rc = jobs.cmd_run(type("A", (), {
         "host": "test6", "purpose": "p", "script": str(script), "command": []})())
     assert rc == 0
@@ -8248,16 +8380,13 @@ def _fake_transport(jobs, monkeypatch, outcome=None):
         rc, out, err = (outcome or well_behaved)(list(argv))
         return subprocess.CompletedProcess(argv, rc, out, err), True, ""
 
-    def fake_remote(argv, deadline, *, phase, retained=""):
-        # v3.66.1223: _run_remote is the owned-process-group transport for
-        # every remote STAGE, as legitimate as _run_scp. Stubbed rather than
-        # exempted, so the Popen ban below stays live and still catches a
-        # genuine stray LOCAL launch. Delegates to fake_run so this test's
-        # own fake and its assertions over `calls` are unchanged.
-        return (fake_run(argv), True, "")
+    def fake_remote(argv, deadline, *, phase, retained="", fixed_timeout=None):
+        # Stub the sole owned-process-group transport rather than exempting it,
+        # so the Popen ban below stays live and catches a stray LOCAL launch.
+        return (fake_scp(argv) if argv and argv[0] == "scp"
+                else (fake_run(argv), True, ""))
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
-    monkeypatch.setattr(jobs, "_run_scp", fake_scp)
     monkeypatch.setattr(jobs, "_run_remote", fake_remote)
     monkeypatch.setattr(jobs.subprocess, "Popen", lambda *a, **k: pytest.fail(
         "the remote path launched something locally"))
@@ -9895,10 +10024,6 @@ def test_valid_target_identity_preserves_all_unrelated_probe_evidence(
     monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
         jobs, "_run_remote",
         lambda argv, deadline, **kw: (fake_run(argv), True, ""))
-    monkeypatch.setattr(
-        jobs, "_run_scp",
-        lambda argv: (subprocess.CompletedProcess(argv, 0, "", ""),
-                      True, ""))
     rc = jobs.cmd_run(_remote_args(
         script=str(script), request_id="identity-evidence"))
     out, err = capsys.readouterr()
@@ -10485,9 +10610,6 @@ def test_authenticated_2_and_3_cleanup_preserves_replacement_inodes(
                 mp.setattr(  # v3.66.1223: same seam via the funnel
                     jobs, "_run_remote",
                     lambda argv, deadline, **kw: (fake_run(argv), True, ""))
-                mp.setattr(
-                    jobs, "_run_scp",
-                    lambda argv: (fake_run(argv), True, ""))
                 mp.setattr(jobs.subprocess, "Popen", lambda *a, **k: pytest.fail(
                     "remote cleanup race launched locally"))
                 mp.setattr(jobs.socket, "gethostname", lambda: "launcher-host")
