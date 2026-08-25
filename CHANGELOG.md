@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1234 - CI is proved to RUN the guard lane, not to mention it
+
+- ONE `in` TEST STOOD FOR A WHOLE SAFETY LANE. The gate asserted
+  `"toolchain/bin/bd-guardcheck --tree" in ci` over `.github/workflows/ci.yml`'s
+  raw bytes. Adding `if: false` after the step name leaves that substring
+  BYTE-IDENTICAL, so the guard lane could be switched off and the gate that
+  exists to notice would report clean (row 186). Nineteen further evasions were
+  built and all nineteen survive the substring.
+- IT IS NOW PROVED IN TWO HALVES. SCHEDULING is decided from the PARSED
+  workflow (`tests/ci_workflow_model.py`): trigger narrowing, job and step `if`,
+  `continue-on-error`, `needs` on a conditional job, a non-default shell, a
+  missing preceding checkout, and -- the part a smarter substring still cannot
+  do -- whether any line shlex-TOKENISES the tool as a standalone token, which
+  is what disposes of echoes, comments and `--selftest`. EXECUTION is decided by
+  extracting the lane's own `run` script and running it under `bash -e` against
+  8 fresh fixture trees: the clean tree must exit 0 AND report every guard ok,
+  and each of 7 tampers must exit nonzero with exactly one DRIFT line NAMING
+  that file.
+- RED PROVENANCE IS A REAL BASE REPLAY, and it is clean because the fix lives in
+  `test_v3_66_1167` while the RED test lives in a new file: run the new file
+  against the UNMODIFIED 1167 and it is `1 failed, 31 passed`, with
+  `Failed: DID NOT RAISE AssertionError`. Verified independently by the
+  integrator. The distinctive diagnostic is matched on rather than a bare
+  AssertionError -- 1167 is loaded by importlib with no assertion rewriting, so
+  its bare asserts raise `AssertionError('')` and cannot launder the match.
+- A 6-OF-6 FIRST BATTERY WAS TREATED AS SUSPICIOUS RATHER THAN REASSURING, and
+  that is the finding worth keeping. Three rules of the battery itself that no
+  test NAMED were probed adversarially, and ALL THREE ESCAPED: exit code 0 alone
+  satisfied the clean control (bd-guardcheck's own history includes a run that
+  printed "0 ok, 0 drifted, 7 missing" and exited 0); a nonzero exit could not
+  distinguish "detected drift in THIS file" from "failed for an unrelated
+  reason"; and the frozen 7-guard tuple could diverge from `guards.json`
+  silently. Three catchers were added. Final: 9 caught, 0 escaped.
+- THE PLAN THIS CUT WAS BUILT FROM WAS WRONG IN FOUR PLACES, each measured
+  rather than argued: `;` is NOT a masking operator (`false; true` exits 1 under
+  `bash -e`), so it ships as an over-sensitivity control instead of a
+  disqualifier; requiring `--tree` textually is brittle and unnecessary because
+  a mutant catches the wrong-tree lane behaviourally; the echo and comment
+  evasions are judged by tokenisation rather than a cleverer substring; and the
+  claimed `tests/ -> ci_workflow_model` import edge is NOT owed a re-freeze --
+  `edge_count` is 3881 before and after, because that graph has 1033 `tests/`
+  sources but only `bulk_downloader/*` TARGETS. `bd-band-derive` prints the same
+  advisory, and it is a heuristic, not a measurement.
+- STATED UNKNOWN, NOT PASS: branch protection and Actions enablement are
+  GitHub-side and invisible to any tree gate; runner fidelity is `bash -e` plus
+  a python shim on test5, not ubuntu-latest, and a lane using `${{ }}` is
+  REFUSED with an UNKNOWN diagnostic rather than guessed; and at-least-one-lane
+  means a second broken lane would go unreported.
+- LEFT DELIBERATELY: the pin-leak scan at 1167 is textual BY NATURE -- a pin in
+  a comment IS the defect -- so it is not a proxy and is not converted.
+
 ## v3.66.1233 - the deploy gate proves where the SPA is served from
 
 - ONE SUBSTRING STOOD IN FOR A RUNTIME PROPERTY. The gate asserted
