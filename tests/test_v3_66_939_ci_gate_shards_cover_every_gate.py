@@ -383,6 +383,14 @@ _DECLARED = {
     # the workflow is not in any diff-derived band, so nothing else would pull
     # it in on the pull request that disabled the step.
     "tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py",
+    # @1242, row 228. It sources scripts/provision_test_host.sh under
+    # instrumentation and reads what the shell DID -- whether both optional
+    # capabilities were really dispatched, once each, graded optional, with the
+    # shared library really loaded. The provisioner is not application code and
+    # sits in no diff-derived band, so a pull request that moves the dispatch
+    # below the verdict or into a branch nothing takes would otherwise reach
+    # main with every text arm still green.
+    "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",

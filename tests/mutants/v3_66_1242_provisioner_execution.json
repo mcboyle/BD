@@ -1,0 +1,72 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1242 row-228 battery. The gate it replaces asks whether the two optional-capability function names appear in COMMAND POSITION in the provisioner's text; the replacement SOURCES the shipped script into an instrumented bash shell and reads what the running shell did. M1-M3 attack the SUBJECT -- delete the dispatch, regrade it core, stop sourcing the library -- and each must be seen by the behavioural half rather than by a scan. M4-M6 attack three rules of the battery ITSELF that would otherwise be unnamed: that a call reached from OUTSIDE any run_step is not graded, that two capabilities may not share one run_step row, and that a run which dispatches and then exits before the verdict has told the operator nothing. O1 is the anti-brittleness control, and it pins a defect this cut actually shipped and then fixed: the first implementation required the run_step COMMAND WORD to be the function name, which is a spelling and not a behaviour -- the dispatched-through-a-wrapper fixture caught it on the first run, and a variable, a wrapper and an eval are all correct provisioners it would have rejected. RECORDED RATHER THAN GLOSSED: the over-sensitivity control found that defect before the mutation battery did, and the three battery rules M4-M6 pin were added afterwards precisely because nothing in the file named them.",
+  "subject": "v3.66.1242 -- the provisioner's optional capabilities are judged by what the shell dispatched, not by where their names sit in the text",
+  "band": [
+    "tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py",
+    "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the mod3 capability is never dispatched: the graded step runs nothing while the name still stands in command position elsewhere in the file",
+      "file": "scripts/provision_test_host.sh",
+      "old": "    bd_mod3_pg_provision || true",
+      "new": "    true bd_mod3_pg_provision || true",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_the_shipped_provisioner_really_dispatches_both_capabilities"
+    },
+    {
+      "label": "M2 the dev-inspect capability is graded core, so a host that cannot install an OPTIONAL seam fails provisioning instead of warning",
+      "file": "scripts/provision_test_host.sh",
+      "old": "optional \\\n    bd_dev_inspect_provision || true",
+      "new": "core \\\n    bd_dev_inspect_provision || true",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_the_shipped_provisioner_really_dispatches_both_capabilities"
+    },
+    {
+      "label": "M3 the shared library is mentioned but never sourced, so on a real host both capability names resolve to nothing while every text arm stays green",
+      "file": "scripts/provision_test_host.sh",
+      "old": "    . \"$REPO/scripts/lib/dev_capabilities.sh\"",
+      "new": "    true \"$REPO/scripts/lib/dev_capabilities.sh\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_the_shipped_provisioner_really_dispatches_both_capabilities"
+    },
+    {
+      "label": "M4 a capability reached from outside any run_step counts as dispatched, so its outcome is never graded, logged or reported and the gate says nothing",
+      "file": "tests/provisioner_probe.py",
+      "old": "        if not call.graded:",
+      "new": "        if False and not call.graded:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_miswired_dispatch_is_rejected[dispatched-outside-any-run-step]"
+    },
+    {
+      "label": "M5 two capabilities may share one run_step, so one WARN row covers both and a host missing exactly one cannot be told from a host missing neither",
+      "file": "tests/provisioner_probe.py",
+      "old": "        if call.slug in graded:",
+      "new": "        if False and call.slug in graded:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_miswired_dispatch_is_rejected[both-under-one-run-step]"
+    },
+    {
+      "label": "M6 a run that dispatches and then exits before the verdict passes, so a missing capability is provisioned-around in silence -- backlog row 96's original state",
+      "file": "tests/provisioner_probe.py",
+      "old": "    if not probe.reached_the_verdict():",
+      "new": "    if False and not probe.reached_the_verdict():",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_provisioner_that_never_dispatches_is_rejected[exits-before-the-verdict]"
+    },
+    {
+      "label": "O1 the dispatch must be spelled with the function name as the run_step command word, so a wrapper, a variable or an eval is rejected -- the spelling rule this cut shipped first and the wrapper fixture caught",
+      "file": "tests/provisioner_probe.py",
+      "old": "        if not call.graded:",
+      "new": "        if not call.graded or not probe.steps_for(name):",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_correct_provisioner_spelled_differently_is_accepted[dispatched-through-a-wrapper]",
+      "preserves": [
+        "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_run_step_really_executes_the_command_it_is_given",
+        "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_core_step_that_fails_blocks_the_verdict",
+        "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_the_harness_denominator_matches_the_library"
+      ]
+    }
+  ]
+}
