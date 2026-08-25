@@ -2550,6 +2550,22 @@ _EXEC_UNKNOWN = "EXEC_UNKNOWN"
 _TERMINATE_TIMEOUT_S = 10.0      # cleanup must return even if waitpid never does
 _REMOTE_CONNECT_TIMEOUT_OPTION = "ConnectTimeout=15"
 _SCP_TRANSFER_TIMEOUT_S = 60.0
+
+# ONE TOTAL BUDGET for a whole bd-jobs remote operation, not one per stage.
+#
+# Every synchronous remote stage already passes ConnectTimeout=15, so "the host
+# never answered" is bounded today. What was NOT bounded is a session that
+# CONNECTS and then goes silent -- backlog row 217: "an established SSH session
+# can wedge the caller indefinitely". Five stages with their own 60s timeouts
+# would be a 300s worst case nobody declared; a single monotonic deadline is a
+# number an operator can reason about, and adding a sixth stage later cannot
+# quietly extend it.
+_REMOTE_TOTAL_DEADLINE_S = 180.0
+
+# Held back from the total so the LAST stage can still reap what it started. A
+# deadline that leaves nothing for settlement produces exactly the orphan it was
+# added to prevent.
+_REMOTE_SETTLEMENT_RESERVE_S = 20.0
 _ORPHAN_PS_TIMEOUT_S = 10.0
 _EXIT_GATE_ABANDONED = 75        # the wrapper's exit when it is never released
 _EXIT_REGISTRATION_FAILED = 3    # nothing was published; refusals stay 2
@@ -3672,6 +3688,124 @@ def _terminate_owned_popen_group(process, timeout=None):
         time.sleep(min(0.05, remaining))
 
 
+class _RemoteDeadline:
+    """One monotonic budget shared by every stage of a remote operation.
+
+    CREATED ONCE at the entry point that owns the operation and threaded
+    through. A deadline created per stage is the "budget reset" this row names
+    as a mutant: it would look like a fix while restoring the unbounded total.
+    """
+
+    def __init__(self, total=_REMOTE_TOTAL_DEADLINE_S,
+                 reserve=_REMOTE_SETTLEMENT_RESERVE_S):
+        self.total = total
+        self.reserve = reserve
+        self._end = None
+
+    def _start_if_needed(self):
+        """Begin the budget at the FIRST REMOTE STAGE, not at construction.
+
+        Two reasons, and the second is the one that matters. First, the budget
+        is for remote work, so local setup before the first ssh should not eat
+        it. Second, reading the clock in __init__ consumes a tick, and this
+        tool's tests drive it with tuned fake clocks -- `iter([0.0, 0.0, 11.0])`
+        in test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership
+        -- so an extra reading silently shifts every later measurement and
+        changes what those tests observe. An instrument that perturbs what it
+        measures is the defect this tool spends its time catching elsewhere.
+        """
+        if self._end is None:
+            self._end = time.monotonic() + self.total
+
+    def remaining(self):
+        self._start_if_needed()
+        return self._end - time.monotonic()
+
+    def slice_for_stage(self):
+        """What a stage may wait, keeping the settlement reserve intact.
+
+        None when only the reserve is left: a stage that cannot run inside its
+        budget must not be STARTED, because starting it and bounding it out
+        immediately produces a side effect nobody can describe.
+        """
+        usable = self.remaining() - self.reserve
+        return usable if usable > 0 else None
+
+
+def _run_remote(argv, deadline, *, phase, retained=""):
+    """Run one remote stage in an owned process group under a shared deadline.
+
+    Generalises `_run_scp`, which already had the shape this needs: an owned
+    Popen in its own session, bounded settlement on any BaseException,
+    cancellation identity preserved, and cleanup uncertainty attached to the
+    primary rather than swallowed. What is added is the SHARED deadline and the
+    PHASE, because a timeout does not mean the same thing at every stage --
+    before anything is copied or launched it may refuse, and after it may only
+    report UNKNOWN.
+
+    Returns (CompletedProcess, cleanup_complete, cleanup_note). Exit 124 is a
+    bounded-out stage and 125 a transport failure, matching `_run_scp` so the
+    callers keep one vocabulary.
+    """
+    budget = deadline.slice_for_stage()
+    if budget is None:
+        return (subprocess.CompletedProcess(
+            argv, 124, "",
+            "%s was not started: the %.0fs total remote budget is spent, with "
+            "only the %.0fs settlement reserve left"
+            % (phase, deadline.total, deadline.reserve)),
+            True, "no process was acquired, so nothing needs reaping")
+
+    try:
+        process = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True)
+    except OSError as exc:
+        return (subprocess.CompletedProcess(
+            argv, 125, "", "could not start %s: %s" % (phase, exc)),
+            True, "no process was acquired")
+
+    try:
+        stdout, stderr = process.communicate(timeout=budget)
+    except BaseException as primary:
+        primary_text = str(primary)
+        try:
+            cleanup_complete, cleanup_note = _terminate_owned_popen_group(process)
+        except BaseException as cleanup_exc:
+            cleanup_complete = False
+            cleanup_note = ("pid %s / process group UNKNOWN cleanup raised: %s"
+                            % (process.pid, cleanup_exc))
+
+        if not isinstance(primary, Exception):
+            if retained:
+                _note_secondary_failure(
+                    primary, "%s left RETAINED UNKNOWN state" % phase,
+                    RuntimeError(
+                        "%s is retained because ownership is not proven after "
+                        "an interrupted %s" % (retained, phase)))
+            if not cleanup_complete:
+                _note_secondary_failure(
+                    primary, "%s process-group cleanup is UNKNOWN" % phase,
+                    RuntimeError(cleanup_note))
+            raise
+
+        if isinstance(primary, subprocess.TimeoutExpired):
+            error = ("%s reached %s but did not answer within its %.0fs slice "
+                     "of the %.0fs total remote budget"
+                     % (phase, argv[-2] if len(argv) > 1 else "the target",
+                        budget, deadline.total))
+            returncode = 124
+        else:
+            error = "%s transport failed: %s" % (phase, primary_text)
+            returncode = 125
+
+        return (subprocess.CompletedProcess(argv, returncode, "", error),
+                cleanup_complete, cleanup_note)
+
+    return (subprocess.CompletedProcess(
+        argv, process.returncode, stdout, stderr), True, "")
+
+
 def _run_scp(argv):
     """Run SCP in an owned group, returning cleanup proof with its result."""
     try:
@@ -3954,9 +4088,23 @@ def cmd_run(args):
     # PROBE BEFORE ACQUIRING A REMOTE SCRIPT. The identity and cleanup helpers
     # live in the very tool this checks for; calling either before this probe
     # makes the known "deploy it" refusal unreachable and strands a copy.
-    probe = subprocess.run(
+    # ONE budget for every remote stage of this run, created HERE because
+    # cmd_run owns the whole operation. Creating one per stage would restore the
+    # unbounded total while looking like a bound (backlog row 217).
+    remote_deadline = _RemoteDeadline()
+
+    probe, _, _ = _run_remote(
         _ssh_argv(target, "test -f %s" % shlex.quote(self_path)),
-        capture_output=True, text=True)
+        remote_deadline, phase="the installed-tool probe")
+    if probe.returncode == 124:
+        # PRE-EFFECT, so this MAY refuse: nothing has been copied and nothing
+        # launched at this point, and that is provable rather than assumed. It
+        # is a DIFFERENT fact from 255 below -- reached, then silent -- so it
+        # gets its own sentence.
+        print("REFUSED: %s answered the connection and then went silent: %s. "
+              "Nothing was copied and nothing was launched."
+              % (args.host, probe.stderr.strip()), file=sys.stderr)
+        return 2
     if probe.returncode == 255:
         print("REFUSED: could not reach %s%s: %s"
               % (args.host,
@@ -3987,11 +4135,11 @@ def cmd_run(args):
         remote_script = str(JOBS_DIR / ("%s%s-%s.sh" % (
             _REMOTE_SCRIPT_PREFIX, _safe_remote_script_stem(script),
             attempt_token)))
-        prepare = subprocess.run(
+        prepare, _, _ = _run_remote(
             _ssh_argv(
                 target, "%s %s" % (
                     shlex.quote(self_path), _PREPARE_REGISTRY_FLAG)),
-            capture_output=True, text=True)
+            remote_deadline, phase="registry preparation")
         if prepare.returncode != 0:
             print("REFUSED: could not prepare %s on %s: %s"
                   % (JOBS_DIR, args.host,
@@ -4017,7 +4165,7 @@ def cmd_run(args):
         try:
             captured_identity, identity_note = _capture_remote_copy_identity(
                 target, self_path, remote_script, request_id, status_nonce,
-                attempt_token)
+                attempt_token, remote_deadline)
         except Exception as exc:
             captured_identity = None
             identity_note = (
@@ -4045,7 +4193,14 @@ def cmd_run(args):
                                     request_id, status_nonce, parts,
                                     attempt_token=attempt_token,
                                     adopt=remote_script)
-    r = subprocess.run(_ssh_argv(target, remote), capture_output=True, text=True)
+    # POST-EFFECT. A timeout here is NOT a refusal: nobody measured whether the
+    # job launched, which is exactly the case the `status is None` branch below
+    # already describes ("MAY HAVE LAUNCHED and MAY be running unattended").
+    # A 124 is routed INTO that branch rather than given a second name, because
+    # one fact with two vocabularies reads as two different situations.
+    r, _, _ = _run_remote(_ssh_argv(target, remote), remote_deadline,
+                          phase="the authenticated launch",
+                          retained=remote_script or "")
     status, stderr_text = _parse_target_status(r.stderr, request_id,
                                                status_nonce)
 
@@ -4120,7 +4275,8 @@ def cmd_run(args):
         try:
             removed, cleanup_note = _remove_remote_copy(
                 target, self_path, remote_script, captured_identity,
-                request_id, status_nonce, attempt_token)
+                request_id, status_nonce, attempt_token,
+                remote_deadline)
         except Exception as exc:
             removed = False
             cleanup_note = (
@@ -4478,13 +4634,14 @@ def _parse_target_status(text, expected_request_id, expected_nonce):
 
 
 def _capture_remote_copy_identity(target, self_path, remote_script, request_id,
-                                  nonce, attempt_token):
+                                  nonce, attempt_token, deadline):
     command = shlex.join([
         self_path, _ATTEMPT_IDENTITY_FLAG, request_id, nonce, attempt_token,
         remote_script])
     try:
-        r = subprocess.run(
-            _ssh_argv(target, command), capture_output=True, text=True)
+        r, _, _ = _run_remote(
+            _ssh_argv(target, command), deadline,
+            phase="identity capture", retained=remote_script)
         observed, remaining = _parse_target_identity(
             r.stdout, request_id, nonce, attempt_token)
     except Exception as exc:
@@ -4498,7 +4655,7 @@ def _capture_remote_copy_identity(target, self_path, remote_script, request_id,
 
 
 def _remove_remote_copy(target, self_path, remote_script, observed, request_id,
-                        nonce, attempt_token):
+                        nonce, attempt_token, deadline):
     """Ask the target to compare and quarantine; never issue bare pathname rm."""
     if observed is None or observed[0] != "present":
         return False, "RETAINED %s: no captured target identity" % remote_script
@@ -4506,8 +4663,9 @@ def _remove_remote_copy(target, self_path, remote_script, observed, request_id,
         self_path, _ATTEMPT_CLEANUP_FLAG, request_id, nonce, attempt_token,
         remote_script, str(observed[1]), str(observed[2]), str(observed[3])])
     try:
-        r = subprocess.run(
-            _ssh_argv(target, command), capture_output=True, text=True)
+        r, _, _ = _run_remote(
+            _ssh_argv(target, command), deadline,
+            phase="identity-bound cleanup", retained=remote_script)
         value, remaining = _parse_bound_terminal(
             r.stdout, _REMOTE_CLEANUP_SENTINEL, request_id, nonce, attempt_token,
             {"REMOVED", "RETAINED"})

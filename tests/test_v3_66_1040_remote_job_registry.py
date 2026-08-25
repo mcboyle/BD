@@ -353,6 +353,9 @@ def test_run_refuses_a_host_that_cannot_register(jobs, monkeypatch, capsys):
         return subprocess.CompletedProcess(cmd, rc, "", "")
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     rc = jobs.cmd_run(type("A", (), {
         "host": "somewhere", "purpose": "p", "command": ["sleep", "1"]})())
 
@@ -465,6 +468,9 @@ def test_run_takes_a_script_file_rather_than_a_quoted_shell_program(jobs,
         return subprocess.CompletedProcess(cmd, 0, "", err)
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(
         jobs, "_run_scp",
         lambda argv: (calls.append(list(argv)) or (
@@ -516,8 +522,21 @@ def _no_network(jobs, monkeypatch, scp_rc=0):
         return (subprocess.CompletedProcess(
             argv, scp_rc, "", "copy failed"), True, "")
 
+    def fake_remote(argv, deadline, *, phase, retained=""):
+        # v3.66.1223 routed every remote STAGE through jobs._run_remote, which
+        # owns a real process group and therefore uses Popen -- and the Popen
+        # ban below exists to prove the remote path never launches anything
+        # LOCALLY. _run_remote is a legitimate remote transport exactly as
+        # _run_scp is, so it is stubbed here rather than exempted from the ban:
+        # the ban stays live and still catches a genuine stray launch.
+        #
+        # It DELEGATES to fake_run, so every existing test keeps its own
+        # subprocess.run fake and its assertions over `calls` unchanged.
+        return (fake_run(argv), True, "")
+
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(jobs, "_run_scp", fake_scp)
+    monkeypatch.setattr(jobs, "_run_remote", fake_remote)
     monkeypatch.setattr(jobs.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("nothing should launch"))
     return calls
@@ -742,6 +761,9 @@ def test_scp_timeout_is_bounded_and_names_the_maybe_partial_copy(
             raise ProcessLookupError(pgid)
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "launcher-host")
     monkeypatch.setattr(jobs, "_proc_ppid", lambda pid: os.getpid())
@@ -805,6 +827,9 @@ def test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership(
         events.append(("killpg", pgid, signal))
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(
         jobs.subprocess, "Popen", lambda cmd, **kwargs: TimedOutCopy())
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "launcher-host")
@@ -891,6 +916,9 @@ def _cmd_run_through_interrupted_scp(
         return cleanup_result
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(jobs, "_terminate_owned_popen_group", fake_cleanup)
     monkeypatch.setattr(
@@ -1240,6 +1268,8 @@ def test_an_unreachable_host_is_not_reported_as_a_missing_tool(jobs, monkeypatch
     # value that collides with ambient state is not a fixture.
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "somewhere-else")
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(jobs, "_run_remote",
+                        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(jobs.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("nothing may launch"))
     rc = jobs.cmd_run(type("A", (), {
@@ -1268,6 +1298,8 @@ def test_a_reachable_host_missing_the_tool_still_says_deploy_it(jobs, monkeypatc
         return subprocess.CompletedProcess(cmd, rc, "", "")
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(jobs, "_run_remote",
+                        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(jobs.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("nothing may launch"))
     rc = jobs.cmd_run(type("A", (), {
@@ -1318,6 +1350,9 @@ def test_the_resolved_address_is_what_ssh_and_scp_actually_receive(jobs, tmp_pat
     # value that collides with ambient state is not a fixture.
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "somewhere-else")
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(
         jobs, "_run_scp",
         lambda argv: (seen.append(list(argv)) or (
@@ -6045,6 +6080,9 @@ def test_orphans_process_table_failure_is_unknown_not_a_fabricated_zero(
             argv, 2, "", "ps: injected nonzero failure")
 
     monkeypatch.setattr(jobs.subprocess, "run", fail)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fail(argv), True, ""))
 
     rc = jobs.cmd_orphans(type("A", (), {})())
     out, err = capsys.readouterr()
@@ -6071,6 +6109,9 @@ def test_orphans_healthy_empty_process_table_remains_exact_success(
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     monkeypatch.setattr(jobs.subprocess, "run", empty)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (empty(argv), True, ""))
 
     rc = jobs.cmd_orphans(type("A", (), {})())
     out, err = capsys.readouterr()
@@ -8207,8 +8248,17 @@ def _fake_transport(jobs, monkeypatch, outcome=None):
         rc, out, err = (outcome or well_behaved)(list(argv))
         return subprocess.CompletedProcess(argv, rc, out, err), True, ""
 
+    def fake_remote(argv, deadline, *, phase, retained=""):
+        # v3.66.1223: _run_remote is the owned-process-group transport for
+        # every remote STAGE, as legitimate as _run_scp. Stubbed rather than
+        # exempted, so the Popen ban below stays live and still catches a
+        # genuine stray LOCAL launch. Delegates to fake_run so this test's
+        # own fake and its assertions over `calls` are unchanged.
+        return (fake_run(argv), True, "")
+
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(jobs, "_run_scp", fake_scp)
+    monkeypatch.setattr(jobs, "_run_remote", fake_remote)
     monkeypatch.setattr(jobs.subprocess, "Popen", lambda *a, **k: pytest.fail(
         "the remote path launched something locally"))
     monkeypatch.setattr(jobs.socket, "gethostname", lambda: "launcher-host")
@@ -9739,6 +9789,9 @@ def test_remote_copy_helpers_totalize_faults_as_retained_unknown(
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(jobs.subprocess, "run", transport)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (transport(argv), True, ""))
 
     rc = jobs.cmd_run(_remote_args(
         script=str(script), request_id=request_id))
@@ -9839,6 +9892,9 @@ def test_valid_target_identity_preserves_all_unrelated_probe_evidence(
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(  # v3.66.1223: same seam, now via the deadline funnel
+        jobs, "_run_remote",
+        lambda argv, deadline, **kw: (fake_run(argv), True, ""))
     monkeypatch.setattr(
         jobs, "_run_scp",
         lambda argv: (subprocess.CompletedProcess(argv, 0, "", ""),
@@ -10426,6 +10482,9 @@ def test_authenticated_2_and_3_cleanup_preserves_replacement_inodes(
         try:
             with pytest.MonkeyPatch.context() as mp:
                 mp.setattr(jobs.subprocess, "run", fake_run)
+                mp.setattr(  # v3.66.1223: same seam via the funnel
+                    jobs, "_run_remote",
+                    lambda argv, deadline, **kw: (fake_run(argv), True, ""))
                 mp.setattr(
                     jobs, "_run_scp",
                     lambda argv: (fake_run(argv), True, ""))

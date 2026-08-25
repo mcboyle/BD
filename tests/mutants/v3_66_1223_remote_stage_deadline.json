@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1223 row-217 battery. Row 217 NAMES its five mutants -- deadline removal, budget reset, skipped settlement, exception replacement, and UNKNOWN-to-refusal laundering -- so this spec is a transcription of the acceptance criteria rather than a guess at them. Two of the catchers did not exist when the row was first satisfied: checking only the FIRST slice cannot distinguish one shared total from five independent timeouts, and nothing asserted that a post-effect bound reports RETAINED/UNKNOWN instead of a removal. The battery is why they exist.",
+  "subject": "v3.66.1223 -- every bd-jobs remote stage waits under one shared bound",
+  "band": [
+    "tests/test_v3_66_1223_remote_stages_have_a_deadline.py"
+  ],
+  "mutants": [
+    {
+      "label": "the deadline is removed: the stage waits forever again",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        stdout, stderr = process.communicate(timeout=budget)",
+      "new": "        stdout, stderr = process.communicate()",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_remote_stages_have_a_deadline.py::test_an_established_session_that_goes_silent_is_bounded"
+    },
+    {
+      "label": "the budget resets per stage: five timeouts wearing one name",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if self._end is None:\n            self._end = time.monotonic() + self.total",
+      "new": "        if True:\n            self._end = time.monotonic() + self.total",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_remote_stages_have_a_deadline.py::test_the_budget_is_one_total_not_one_per_stage"
+    },
+    {
+      "label": "settlement is skipped: the wedge is traded for an orphan",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            cleanup_complete, cleanup_note = _terminate_owned_popen_group(process)",
+      "new": "            cleanup_complete, cleanup_note = True, \"settlement skipped\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_remote_stages_have_a_deadline.py::test_the_bounded_stage_leaves_no_orphan"
+    },
+    {
+      "label": "the cancellation is replaced, so an operator looks like a broken transport",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "                    primary, \"%s process-group cleanup is UNKNOWN\" % phase,\n                    RuntimeError(cleanup_note))\n            raise",
+      "new": "                    primary, \"%s process-group cleanup is UNKNOWN\" % phase,\n                    RuntimeError(cleanup_note))\n            raise RuntimeError(\"remote stage cancelled: %s\" % primary_text)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_remote_stages_have_a_deadline.py::test_cancellation_identity_survives_a_bounded_stage"
+    },
+    {
+      "label": "an unmeasured cleanup is laundered into a reported removal",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if r.returncode == 0 and value == \"REMOVED\":",
+      "new": "    if True:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_remote_stages_have_a_deadline.py::test_a_bounded_cleanup_retains_and_reports_unknown_not_removal"
+    }
+  ]
+}
