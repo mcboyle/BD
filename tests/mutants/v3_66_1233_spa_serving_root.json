@@ -1,0 +1,86 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 211 SPA-serving-root battery. bd-mutate refuses a work tree inside its own repository, so re-run from a DETACHED clone. The overcorrection mutant's `preserves` needs a BUILT frontend/dist, and frontend/dist is gitignored, so a fresh clone never has one -- copy it in from a checkout where `npm run build` has actually run: git clone <candidate> /tmp/row211-clone && cp -a <A-BUILT-CHECKOUT>/frontend/dist /tmp/row211-clone/frontend/dist && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1232_spa_serving_root.json --work /tmp/row211-clone Renumbered to v3.66.1233 by the integrator; 1232 went to the registrable-domain census cut. O1's PRESERVED SET was corrected by the integrator at v3.66.1233. It had named test_the_spa_is_actually_served_from_that_directory, which shares the mutated code path, so bd-mutate scored the mutant INDISCRIMINATE rather than caught -- correctly: a preserved test that the mutant also breaks proves nothing about the mutant being narrow. The preserved set is now two tests that do not touch the serving-root resolution at all. Note the blast radius here is itself the argument: O1 demands the serving root EXIST, so it reddens exactly the unbuilt trees CI runs on -- frontend/dist is gitignored, so a fresh clone has none.",
+  "subject": "Row 211 -- test_git_deploy_gaps_are_documented judges WHERE the app serves the SPA from by serving it, not by finding the substring 'frontend/dist' in app.py prose",
+  "band": [
+    "tests/test_git_deploy_gaps_are_documented.py::test_frontend_dist_is_not_delivered_by_a_git_deploy",
+    "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory",
+    "tests/test_git_deploy_gaps_are_documented.py::test_the_gate_does_not_require_a_built_bundle",
+    "tests/test_git_deploy_gaps_are_documented.py::test_a_prose_mention_of_frontend_dist_cannot_satisfy_this_gate",
+    "tests/test_git_deploy_gaps_are_documented.py::test_canonical_runbook_documents_the_gap[bytecode caches are not cleared]",
+    "tests/test_git_deploy_gaps_are_documented.py::test_canonical_runbook_documents_the_gap[gitignored generated artifacts are not refreshed]",
+    "tests/test_git_deploy_gaps_are_documented.py::test_canonical_runbook_documents_the_gap[the service is not restarted]",
+    "tests/test_git_deploy_gaps_are_documented.py::test_canonical_runbook_documents_the_gap[the SPA bundle is not rebuilt]",
+    "tests/test_git_deploy_gaps_are_documented.py::test_the_gap_list_has_not_silently_shrunk"
+  ],
+  "mutants": [
+    {
+      "label": "M1 ARM 1 -- the serving root's leaf is renamed to frontend/build. This is the row's own proved evasion: the old text scan stayed GREEN on it because app.py's comments still said 'frontend/dist'.",
+      "file": "bulk_downloader/app.py",
+      "old": "_M2_DIST_ROOT = Path(__file__).parent.parent / \"frontend\" / \"dist\"",
+      "new": "_M2_DIST_ROOT = Path(__file__).parent.parent / \"frontend\" / \"build\"",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory"
+    },
+    {
+      "label": "M2 ARM 1 -- wrong parent depth: the root becomes bulk_downloader/frontend/dist. Sharper than M1 because the SOURCE still contains 'frontend' and 'dist' in the same expression, so a comment-stripped scan, an assembled-literal folder and an AST-over-unparse scan all stay green. Only a runtime comparison sees it.",
+      "file": "bulk_downloader/app.py",
+      "old": "_M2_DIST_ROOT = Path(__file__).parent.parent / \"frontend\" / \"dist\"",
+      "new": "_M2_DIST_ROOT = Path(__file__).parent / \"frontend\" / \"dist\"",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory"
+    },
+    {
+      "label": "M3 ARM 2 status -- the built/not-built test is inverted, so a perfectly good bundle answers the installer 503 on every request and a missing one is served.",
+      "file": "bulk_downloader/app.py",
+      "old": "    if not index_path.is_file():",
+      "new": "    if index_path.is_file():",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory"
+    },
+    {
+      "label": "M4 ARM 2 index bytes -- index.html is served from the dist root's PARENT. In production that directory holds the raw un-built Vite template, so this answers 200 with a page whose script tag points at /src/main.tsx: a blank app for every visitor, silently. Caught only because the probe plants a DIFFERING decoy index in the parent.",
+      "file": "bulk_downloader/app.py",
+      "old": "    resp = send_from_directory(str(_M2_DIST_ROOT), \"index.html\")",
+      "new": "    resp = send_from_directory(str(_M2_DIST_ROOT.parent), \"index.html\")",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory"
+    },
+    {
+      "label": "M5 ARM 2 asset bytes -- every real asset request is answered with index.html instead of the asset. 200 for a .js URL whose body is HTML: the classic SPA-fallback-swallows-the-bundle failure, invisible to any status-only check.",
+      "file": "bulk_downloader/app.py",
+      "old": "            return send_from_directory(str(_M2_DIST_ROOT), subpath)",
+      "new": "            return send_from_directory(str(_M2_DIST_ROOT), \"index.html\")",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory"
+    },
+    {
+      "label": "M6 ARM 2 negative control -- the asset-looking 404 rule is inverted, so a MISSING hashed bundle gets SPA HTML with a 200 and real client routes 404. This is what makes the exact-byte asset comparison mean something: without the 404 arm, anything under the root would 'match'.",
+      "file": "bulk_downloader/app.py",
+      "old": "        if _SPA_ASSET_EXT_RE.search(subpath):",
+      "new": "        if not _SPA_ASSET_EXT_RE.search(subpath):",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_the_spa_is_actually_served_from_that_directory"
+    },
+    {
+      "label": "M7 THE DEFECT'S OWN SHAPE, REBUILT IN THE FIX (CLAUDE.md A7) -- the gate is degraded back into a tautology by comparing the live serving root with itself. ARM 2 still runs, the main test still passes, and only the shipped evasion fixture notices. This is what proves that fixture is load-bearing rather than decorative.",
+      "file": "tests/test_git_deploy_gaps_are_documented.py",
+      "old": "    _assert_spa_served_from(REPO_ROOT / \"frontend\" / \"dist\")",
+      "new": "    import bulk_downloader.app as _bd_tautology\n    _assert_spa_served_from(_bd_tautology._M2_DIST_ROOT)",
+      "direction": "regression",
+      "catcher": "tests/test_git_deploy_gaps_are_documented.py::test_a_prose_mention_of_frontend_dist_cannot_satisfy_this_gate"
+    },
+    {
+      "label": "O1 OVERCORRECTION -- ARM 1 additionally demands the serving root EXIST. This is the exact over-correction that would have reddened every CI run (no shard builds frontend/dist) and then got the gate switched off. The unbuilt-checkout control must catch it.",
+      "file": "tests/test_git_deploy_gaps_are_documented.py",
+      "old": "    assert live_root.resolve() == expected_root.resolve(), (",
+      "new": "    assert live_root.is_dir() and live_root.resolve() == expected_root.resolve(), (",
+      "direction": "overcorrection",
+      "control": "tests/test_git_deploy_gaps_are_documented.py::test_the_gate_does_not_require_a_built_bundle",
+      "preserves": [
+        "tests/test_git_deploy_gaps_are_documented.py::test_frontend_dist_is_not_delivered_by_a_git_deploy",
+        "tests/test_git_deploy_gaps_are_documented.py::test_the_gap_list_has_not_silently_shrunk"
+      ]
+    }
+  ]
+}
