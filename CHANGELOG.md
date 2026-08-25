@@ -4,6 +4,51 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1238 - saving a settings page stops erasing what you never retyped
+
+- SAVING TELEGRAM SETTINGS ERASED THE CHAT-ID ALLOWLIST. `Notifications.tsx:60`
+  declared `tgAllowlist` as `useState("")` and never seeded it from GET, while
+  `:104` put it into the saveTg patch UNCONDITIONALLY. The line immediately
+  below guarded the far more sensitive TOKEN with `if (tgToken.trim())`, so the
+  asymmetry was an oversight rather than a decision. An operator who opened the
+  page and toggled `tg_bot_enabled` without retyping therefore PATCHed an empty
+  string, `app_tg.py:107` wrote it through on mere key presence, and the list
+  was gone (row 238).
+- SEVERITY, MEASURED RATHER THAN ASSUMED: `tg_bot.py:625` fails CLOSED on an
+  empty allowlist and logs "not starting - empty allowlist". So this is silent
+  DATA LOSS and a self-inflicted OUTAGE -- the bot goes dark -- and NOT an
+  authorization widening. It is filed and fixed as the former.
+- IT WAS THREE FIELDS ON THAT PAGE, NOT ONE. A census over 45 routes, 104
+  components and 50 hooks found SIX unseeded-but-sent fields in exactly two
+  files: `appriseEnabled`, `tgEnabled` and `tgAllowlist` here, all three fixed,
+  and three more in `Settings.tsx` which are NOT fixed here and are filed as row
+  240 instead. The fix is shaped for three because the defect was three.
+- THE DESIGN IS A NULL SENTINEL, and the reason is the control rather than the
+  fix: `tgAllowlistEdit ?? tgSettings.data?.settings?.tg_bot_allowlist ?? ""`
+  behind `useState<string|null>(null)`. `null` means never touched, so the
+  server value shows; ANY non-null edit wins, INCLUDING `""` and an explicit
+  `false`. "Cleared on purpose" and "never typed" stay distinguishable BY
+  CONSTRUCTION rather than by a dirty flag someone can forget to set.
+- TWO OBVIOUS ALTERNATIVES WERE REJECTED WITH REASONS, and both are shipped as
+  mutants so the reasoning is enforced rather than remembered. `useState(server)`
+  runs its initializer on the FIRST RENDER ONLY, observing `undefined` before
+  the fetch resolves. `useEffect(setX)` clobbers an in-progress edit on every
+  30-second refetch. Omit-the-key would have fixed the transport and left the
+  DISPLAY lying -- a checkbox unchecked while the bot runs, an allowlist box
+  empty while three chat ids are stored -- and would have broken v3.66.1236's
+  own `toHaveProperty` assertions, trading one contract for another.
+- RED PROVENANCE IS A REAL REPLAY, re-verified by the integrator rather than
+  taken on trust: 5 failures on the unfixed parent b489289, including the defect
+  quoted literally -- `expected '' to be '424242,-1001337,90210'` -- plus
+  `expected false to be true` twice for the two enable flags. The TWO CONTROLS
+  PASS on the defective tree by design and are labelled as controls, not REDs:
+  the deliberate-clear case and the in-progress-edit case.
+- MUTATION: 6 caught, 0 escaped. The worker also ran the TRANSFORM CONTROL that
+  v3.66.1237 exists to make unnecessary -- re-pointing a real mutant at a spec
+  that renders the module WITHOUT asserting the behaviour, which correctly
+  ESCAPED, proving the six CAUGHTs are behavioural rather than compile breaks.
+  It found that loophole independently, which is the second worker to do so.
+
 ## v3.66.1237 - bd-mutate refuses a mutant it cannot parse
 
 - A FAIL-OPEN IN THE INSTRUMENT THAT VALIDATES EVERY OTHER CUT.
