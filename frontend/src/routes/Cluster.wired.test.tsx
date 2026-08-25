@@ -199,16 +199,22 @@ describe("T8 Cluster runtime contract", () => {
     expect(controls().length).toBe(INVENTORY.length);
   });
 
-  it("dispatches no gated write from a click on ANY element, not merely any tagged control", async () => {
-    // WHY THIS EXISTS, MEASURED RATHER THAN ARGUED. The typed sweep above is
-    // driven by a SELECTOR, and a selector is a denominator choice that a
-    // respelling can sit outside. In the first battery against this spec, a
-    // mutant dispatching one-click /api/edge_deploy/all from a
-    // <div role="button" tabIndex={0}> ESCAPED: it was neither in the tag query
-    // nor -- therefore -- in the inventory pin, so both tests consented. The
-    // selector is now role-aware, which closes that exact mutant; this test
-    // closes the CLASS, by asking every element in Cluster's subtree. A node
-    // carrying no handler does nothing when clicked, so the only cost is time.
+  it("dispatches no gated write from ANY stimulus at ANY element, not merely a click at a tagged control", async () => {
+    // WHY THIS EXISTS, MEASURED RATHER THAN ARGUED, THREE TIMES OVER. The typed
+    // sweep above is driven by a SELECTOR, and both a selector and an event name
+    // are denominator choices a respelling can sit outside. Three mutants
+    // ESCAPED successive drafts of this spec, each invisible to the draft before
+    // it, and each is now a tracked mutant in the battery:
+    //   * one-click /api/edge_deploy/all on a <div role="button" tabIndex={0}>
+    //     -- outside a TAG-only control query, so the inventory pin could not
+    //     even report it missing. Closed by making the pin role/tabindex-aware.
+    //   * the same write on a PLAIN <div onMouseDown> -- outside any structural
+    //     selector at all, and fireEvent.click dispatches no mousedown.
+    //   * the same write on a PLAIN <div onKeyDown> -- no pointer event reaches
+    //     it at all.
+    // So the denominator here is EVERY element under Cluster's root, crossed
+    // with a repertoire of stimuli rather than one event name. A node carrying
+    // no handler does nothing, so the only cost of asking is time.
     renderCluster();
     await ready();
     await screen.findByText("example.com");
@@ -232,16 +238,29 @@ describe("T8 Cluster runtime contract", () => {
     apiGetMock.mockClear();
     apiPostMock.mockClear();
 
+    let stimuli = 0;
     for (let i = 0; i < total; i++) {
       const el = elements()[i];
       if (!el) continue; // re-queried each turn; the stable-count assert below
-      // proves nothing was silently dropped from the sweep
-      await act(async () => { fireEvent.click(el); });
+      await act(async () => {   // proves nothing was silently dropped
+        fireEvent.pointerDown(el);
+        fireEvent.mouseDown(el);
+        fireEvent.click(el);
+        fireEvent.mouseUp(el);
+        fireEvent.pointerUp(el);
+        fireEvent.keyDown(el, { key: "Enter", code: "Enter" });
+        fireEvent.keyDown(el, { key: " ", code: "Space" });
+        fireEvent.keyUp(el, { key: "Enter", code: "Enter" });
+        stimuli += 8;
+      });
       expect(
         gatedCalls(),
-        `a click on <${el.tagName.toLowerCase()}> #${i} dispatched a gated write`,
+        `a pointer/keyboard stimulus at <${el.tagName.toLowerCase()}> #${i} dispatched a gated write`,
       ).toEqual([]);
     }
+    // The repertoire really was applied to the whole denominator, rather than
+    // short-circuiting on the first element.
+    expect(stimuli).toBe(total * 8);
     // LIVENESS. Without this the sweep passes just as happily over a subtree of
     // inert nodes: a real one-click write (excluded from the gated set, but a
     // dispatch all the same) must have been observed.
