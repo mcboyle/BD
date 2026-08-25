@@ -51,6 +51,12 @@ describe("api-client CSRF contract", () => {
     const { apiPost } = await import("@/lib/api-client");
     await apiPost("/api/sites/42/auto_submit_decision", { decision: "approve" });
 
+    const csrfCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === "/api/csrf",
+    );
+    expect(csrfCalls, "the wrapper did not source its token from exactly /api/csrf")
+      .toHaveLength(1);
+
     const write = fetchMock.mock.calls.find(
       ([url]) => String(url) === "/api/sites/42/auto_submit_decision",
     );

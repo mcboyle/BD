@@ -9,11 +9,11 @@ CONTROL manufactured a CI failure on a correct cut. Same glob, same
 over-inclusion, opposite consequence -- and reshaping the control to dodge the
 second one would have been evading the gate rather than fixing it.
 
-Row 232 filed the remainder as a CLASSIFICATION task, not a blanket patch, and
-the counter-example lives eleven lines above the 1218 fix:
-``test_csrf_token_sourced_from_api_csrf`` scans for the dead /api/auth_surface
-route and is deliberately left REPO-WIDE, because a spec naming a nonexistent
-route is also a defect. The right population depends on the question.
+Row 232 filed the remainder as a CLASSIFICATION task, not a blanket patch. Row
+184 later retired all three t5/t6 Python scan sites: endpoint and CSRF claims
+are executed through Vitest, while the unavoidable global raw-fetch absence
+floor parses TypeScript/TSX structurally. The right population still depends
+on the question; the census below now measures the remaining Python sites.
 
 WHAT THIS GATE ASSERTS.
 
@@ -147,9 +147,8 @@ _CLASSIFIED: dict[tuple[str, str], tuple[str, str]] = {
         ALL_SOURCE,
         "A raw \\uXXXX in JSX TEXT renders as eight literal characters "
         "wherever React renders it -- in the browser and in a spec's jsdom "
-        "alike. Both are defects, so the population stays wide, for the same "
-        "reason test_t5_t6_wired.py leaves the /api/auth_surface scan "
-        "repo-wide. Its real defect was the SILENT RETURN on a missing tree, "
+        "alike. Both are defects, so the population stays wide. Its real "
+        "defect was the SILENT RETURN on a missing tree, "
         "which is fixed here: an unmeasurable claim is UNKNOWN, not a pass."),
 
     # ── already guarded by their own cut; deliberately not re-touched ──
@@ -163,20 +162,6 @@ _CLASSIFIED: dict[tuple[str, str], tuple[str, str]] = {
     ("tools/gui_parity_inventory.py", "spa_wiring_unresolved"): (
         GUARDED_ELSEWHERE, "The second scan site in the same file, behind the same _is_spa_source "
         "guard and inside the same v3.66.1217 text pin."),
-    ("tests/test_t5_t6_wired.py", "_scan_raw_mutating_fetch"): (
-        GUARDED_ELSEWHERE,
-        "v3.66.1218's _SPEC_FILE_RE, with both halves already proven nonzero "
-        "and a planted-offender control in the same file."),
-    ("tests/test_t5_t6_wired.py", "test_no_product_module_imports_a_spec_module"): (
-        GUARDED_ELSEWHERE,
-        "The fail-closed complement to that narrowing -- it forbids a product "
-        "module importing a spec module -- and is already spec-aware."),
-    ("tests/test_t5_t6_wired.py", "test_csrf_token_sourced_from_api_csrf"): (
-        ALL_SOURCE,
-        "THE COUNTER-EXAMPLE row 232 names. /api/auth_surface does not exist; "
-        "a SPEC naming a nonexistent route is also a defect, so this one is "
-        "deliberately repo-wide and must stay that way."),
-
     # ── outside row 232's measured population; frozen, not fixed ──
     ("tools/body_contract.py", "fe_calls"): (
         OUT_OF_ROW,
@@ -252,8 +237,10 @@ _HELPER_NAMES = frozenset(SP.__all__) | {"spa_population", "SP"}
 #: docstring and a ``source.count`` argument rather than calls; the AST sees
 #: only real calls, and additionally finds tools/body_contract.py::fe_calls
 #: (glob.glob, which the row's rg could not match), the fixed sites in their
-#: helper-call form, and this file's own controls: 28 after the cut.
-_MIN_SITES = 28
+#: helper-call form, and this file's own controls: 28 after the cut. Row 184
+#: retired three t5/t6 Python text scans in favor of executed/TypeScript-AST
+#: gates; re-derived from _scan_sites() in that cut: 25 remaining sites.
+_MIN_SITES = 25
 
 
 def _tracked_python() -> list[Path]:
@@ -452,9 +439,10 @@ def test_the_population_predicate_classifies_all_three_kinds():
 
 def test_the_shared_rule_matches_the_parity_inventory():
     """v3.66.1217 wrote the spec rule for tools/gui_parity_inventory.py and
-    v3.66.1218 copied it into tests/test_t5_t6_wired.py. This is the third
-    consumer; if the inventory's rule changes, this one must change with it or
-    the gates begin disagreeing about what the SPA actually IS.
+    spa_population is its shared consumer. If the inventory's rule changes,
+    this one must change with it or the gates begin disagreeing about what the
+    SPA actually IS. Row 184's TypeScript-AST gate separately proves the same
+    product/spec halves nonzero and forbids product imports of spec modules.
 
     Read by AST rather than imported: gui_parity_inventory mutates sys.path at
     import time. Absent or unparseable is a FAILURE -- an unmeasurable rule is

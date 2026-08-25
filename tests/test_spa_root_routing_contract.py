@@ -1,10 +1,17 @@
 """Current SPA root, namespace, asset, redirect, and method contract."""
 from __future__ import annotations
 
+import importlib
 import os
 import re
+import shutil
+import subprocess
 import tempfile
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+import pytest
 
 BD_GATE_SCOPE = "repo-wide"
 
@@ -19,6 +26,136 @@ _DIST = _REPO_ROOT / "frontend" / "dist" / "index.html"
 def _fresh_client():
     from bulk_downloader.app import app as flask_app
     return flask_app.test_client()
+
+
+class _BuiltAssetRefParser(HTMLParser):
+    """Collect every local executable/style asset reference in built HTML."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.references: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        reference = None
+        if tag == "script":
+            reference = attributes.get("src")
+        elif tag == "link":
+            rel = set((attributes.get("rel") or "").casefold().split())
+            if rel & {"modulepreload", "preload", "stylesheet"}:
+                reference = attributes.get("href")
+        if not reference or reference.startswith("//"):
+            return
+        parsed = urlsplit(reference)
+        if not parsed.scheme and not parsed.netloc:
+            self.references.append(reference)
+
+
+def _copy_frontend_for_build(source: Path, destination: Path) -> Path:
+    """Copy build inputs while sharing only the installed dependency tree."""
+    assert source.is_dir(), f"frontend source unavailable: {source}"
+    node_modules = source / "node_modules"
+    assert node_modules.is_dir(), (
+        f"frontend build dependencies unavailable at {node_modules}; "
+        "effective Vite base is UNKNOWN"
+    )
+    required = [source / "package.json", source / "vite.config.ts", source / "src"]
+    assert all(path.exists() for path in required), (
+        f"frontend build-input denominator is incomplete: {required}"
+    )
+    assert sum(1 for path in (source / "src").rglob("*") if path.is_file()) > 0
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns("dist", "node_modules"),
+    )
+    os.symlink(node_modules, destination / "node_modules", target_is_directory=True)
+    assert (destination / "vite.config.ts").read_bytes() == (
+        source / "vite.config.ts"
+    ).read_bytes()
+    return destination
+
+
+def _build_spa_fresh(
+    frontend: Path,
+    output: Path,
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> Path:
+    """Run the shipped build script into an output owned by this attempt."""
+    assert not output.exists(), f"fresh-build output already exists: {output}"
+    npm = shutil.which("npm")
+    assert npm is not None, "npm unavailable; effective Vite base is UNKNOWN"
+    for tool in ("tsc", "vite"):
+        candidate = frontend / "node_modules" / ".bin" / tool
+        assert candidate.is_file(), (
+            f"frontend build tool unavailable: {candidate}; effective Vite base "
+            "is UNKNOWN"
+        )
+    build_env = dict(os.environ)
+    build_env.pop("BD_ROW229_BASE", None)
+    if extra_env:
+        build_env.update(extra_env)
+    try:
+        build = subprocess.run(
+            [
+                npm,
+                "run",
+                "build",
+                "--",
+                "--outDir",
+                str(output),
+                "--emptyOutDir",
+            ],
+            cwd=frontend,
+            env=build_env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(
+            "fresh SPA build is UNKNOWN: npm run build exceeded 180 seconds",
+            pytrace=False,
+        )
+    assert build.returncode == 0, (
+        f"fresh SPA build failed ({build.returncode})\n"
+        f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
+    )
+    indexes = list(output.glob("index.html"))
+    assert indexes == [output / "index.html"], (
+        f"fresh build emitted {len(indexes)} root index files, expected exactly 1"
+    )
+    return output
+
+
+def _built_asset_references(dist: Path) -> list[str]:
+    parser = _BuiltAssetRefParser()
+    parser.feed((dist / "index.html").read_text(encoding="utf-8"))
+    references = parser.references
+    assert references, (
+        "fresh Vite build emitted zero local executable/style asset references; "
+        "effective base is UNKNOWN"
+    )
+    return references
+
+
+def _assert_built_assets_are_rooted(dist: Path, references: list[str]) -> None:
+    assert references, "asset-reference denominator is zero"
+    off_mount = [ref for ref in references if not ref.startswith("/assets/")]
+    assert off_mount == [], (
+        "fresh Vite build emitted asset references off the Flask root mount: "
+        f"{off_mount}"
+    )
+    resolved = []
+    for reference in references:
+        url_path = unquote(urlsplit(reference).path)
+        artifact = dist / url_path.lstrip("/")
+        assert artifact.is_file(), (
+            f"fresh Vite asset reference has no emitted file: {reference}"
+        )
+        resolved.append(artifact)
+    assert len(resolved) == len(references) > 0
 
 
 def test_root_serves_spa():
@@ -82,17 +219,119 @@ def test_missing_asset_is_404_not_spa_html():
         assert r.status_code == 404
 
 
-def test_real_asset_served_from_root():
-    """The built bundle's own asset URLs (emitted root-relative by
-    vite base "/") resolve through the catch-all."""
-    if not _DIST.is_file():
-        return
-    idx = _DIST.read_text(encoding="utf-8", errors="replace")
-    m = re.search(r'(?:src|href)="(/assets/[^"]+)"', idx)
-    assert m, "built index.html has no root-relative asset refs (vite base wrong?)"
+def test_real_asset_served_from_root(tmp_path, monkeypatch):
+    """Build now, then prove every emitted bundle ref uses Flask's root mount."""
+    frontend = _copy_frontend_for_build(
+        _REPO_ROOT / "frontend", tmp_path / "frontend"
+    )
+    dist = _build_spa_fresh(frontend, tmp_path / "fresh-dist")
+    references = _built_asset_references(dist)
+    _assert_built_assets_are_rooted(dist, references)
+
+    import bulk_downloader.app as app_module
+
+    monkeypatch.setattr(app_module, "_M2_DIST_ROOT", dist)
     c = _fresh_client()
-    r = c.get(m.group(1))
-    assert r.status_code == 200, f"asset {m.group(1)} not served from root"
+    served = 0
+    for reference in references:
+        response = c.get(reference)
+        assert response.status_code == 200, (
+            f"fresh asset {reference} not served from the Flask root mount"
+        )
+        artifact = dist / unquote(urlsplit(reference).path).lstrip("/")
+        assert response.data == artifact.read_bytes(), (
+            f"Flask returned bytes other than fresh asset {reference}"
+        )
+        served += 1
+    assert served == len(references) > 0
+
+    missing = c.get("/assets/row229-definitely-missing.js")
+    assert missing.status_code == 404, (
+        "negative control did not reach Flask's missing-asset refusal"
+    )
+
+
+def test_real_asset_gate_invokes_one_fresh_build(tmp_path, monkeypatch):
+    """The behavioral gate cannot silently regress to reading shipped dist."""
+    fired = {"copy": 0, "build": 0, "references": 0, "root_check": 0}
+    fixture_frontend = tmp_path / "frontend-fixture"
+    fixture_dist = tmp_path / "fresh-dist"
+
+    def fake_copy(source, destination):
+        fired["copy"] += 1
+        assert source == _REPO_ROOT / "frontend"
+        assert destination == tmp_path / "frontend"
+        return fixture_frontend
+
+    def fake_build(frontend, output):
+        fired["build"] += 1
+        assert fired == {
+            "copy": 1,
+            "build": 1,
+            "references": 0,
+            "root_check": 0,
+        }
+        assert frontend == fixture_frontend
+        assert output == fixture_dist
+        (fixture_dist / "assets").mkdir(parents=True)
+        (fixture_dist / "assets" / "fresh.js").write_bytes(b"fresh bytes\n")
+        (fixture_dist / "index.html").write_text(
+            '<div id="root"></div><script src="/assets/fresh.js"></script>\n',
+            encoding="utf-8",
+        )
+        return fixture_dist
+
+    def fake_references(dist):
+        fired["references"] += 1
+        assert fired == {
+            "copy": 1,
+            "build": 1,
+            "references": 1,
+            "root_check": 0,
+        }
+        assert dist == fixture_dist
+        return ["/assets/fresh.js"]
+
+    def fake_root_check(dist, references):
+        fired["root_check"] += 1
+        assert fired == {
+            "copy": 1,
+            "build": 1,
+            "references": 1,
+            "root_check": 1,
+        }
+        assert dist == fixture_dist
+        assert references == ["/assets/fresh.js"]
+
+    monkeypatch.setitem(
+        test_real_asset_served_from_root.__globals__,
+        "_copy_frontend_for_build",
+        fake_copy,
+    )
+    monkeypatch.setitem(
+        test_real_asset_served_from_root.__globals__,
+        "_build_spa_fresh",
+        fake_build,
+    )
+    monkeypatch.setitem(
+        test_real_asset_served_from_root.__globals__,
+        "_built_asset_references",
+        fake_references,
+    )
+    monkeypatch.setitem(
+        test_real_asset_served_from_root.__globals__,
+        "_assert_built_assets_are_rooted",
+        fake_root_check,
+    )
+
+    test_real_asset_served_from_root(tmp_path, monkeypatch)
+    assert fired == {"copy": 1, "build": 1, "references": 1, "root_check": 1}
+
+
+def test_transform_control_imports_gate_without_judging_effective_base():
+    """Mutation transform control: importing this module does not build Vite."""
+    imported = importlib.import_module(__name__)
+    assert imported.__file__ == __file__
 
 
 def test_legacy_route_removed():
@@ -141,10 +380,11 @@ def _strip_ts_comments(text: str) -> str:
 
     Measured 2026-08-24: `base: "/app/",  // was base: "/"` re-roots the SPA
     while the old `re.search(r'base:\s*["\']/["\']', vite_cfg)` matched the
-    COMMENT and stayed green. The behavioural sibling below reads the already
-    BUILT frontend/dist/index.html, so it does not re-derive from the changed
-    config and does not backstop it either. Strings are left intact; the
-    subject here is an assignment, and stripping quotes would destroy it."""
+    COMMENT and stayed green. At row 202 the behavioural sibling still read an
+    already-built frontend/dist/index.html, so it did not re-derive from the
+    changed config. Row 229 adds that fresh-build proof independently. Strings
+    are left intact; the subject here is an assignment, and stripping quotes
+    would destroy it."""
     out, i, n_, in_s = [], 0, len(text), None
     while i < n_:
         c = text[i]
@@ -174,11 +414,10 @@ def test_frontend_re_rooted_in_source():
     """vite base and router basename are both "/" -- the single coupling
     between build output and Flask mount.
 
-    DECLARED EVASION SURFACE: this remains a source scan, because the effective
-    base can only be proved by building. It is now comment-stripped, and it
-    asserts the assignment is UNIQUE so a second live `base:` cannot shadow it.
-    A computed or env-driven base would still evade it; that is the residual,
-    and `test_real_asset_served_from_root` is the runtime half."""
+    This cheap source floor remains comment-stripped and requires one literal
+    assignment for a direct diagnostic. The effective value is independently
+    re-derived by the fresh build in `test_real_asset_served_from_root`; the
+    source-evasive computed override has its own executable negative control."""
     vite_cfg = _strip_ts_comments(
         (_REPO_ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8"))
     live = re.findall(r'\bbase\s*:\s*(["\'][^"\']*["\'])', vite_cfg)
@@ -204,6 +443,79 @@ def test_a_commented_out_vite_base_does_not_satisfy_the_scan():
     assert live == ['"/app/"'], live
     assert not re.fullmatch(r'["\']/["\']', live[0]), (
         "a commented-out base still reads as \"/\" after stripping")
+
+
+def test_a_source_evasive_effective_base_is_rejected(tmp_path):
+    """A fresh build must beat both the literal scan and stale dist evidence."""
+    source_frontend = _REPO_ROOT / "frontend"
+    fixture_frontend = tmp_path / "frontend"
+    shutil.copytree(
+        source_frontend,
+        fixture_frontend,
+        ignore=shutil.ignore_patterns("dist", "node_modules"),
+    )
+    os.symlink(
+        source_frontend / "node_modules",
+        fixture_frontend / "node_modules",
+        target_is_directory=True,
+    )
+
+    config = fixture_frontend / "vite.config.ts"
+    original = config.read_text(encoding="utf-8")
+    anchor = '  base: "/",\n'
+    assert original.count(anchor) == 1, "fixture mutation anchor must be unique"
+    export_anchor = "export default defineConfig({\n"
+    assert original.count(export_anchor) == 1
+    assert original.endswith("});\n")
+    config.write_text(
+        original.replace(export_anchor, "const config = {\n", 1)[:-4]
+        + "};\n"
+        + "if (process.env.BD_ROW229_BASE) {\n"
+        + "  config.base = process.env.BD_ROW229_BASE;\n"
+        + "}\n"
+        + "export default defineConfig(config);\n",
+        encoding="utf-8",
+    )
+    live_literals = re.findall(
+        r'\bbase\s*:\s*(["\'][^"\']*["\'])',
+        _strip_ts_comments(config.read_text(encoding="utf-8")),
+    )
+    assert live_literals == ['"/"'], (
+        "fixture must preserve the exact literal evidence accepted by the old scan"
+    )
+
+    stale_dist = fixture_frontend / "dist"
+    (stale_dist / "assets").mkdir(parents=True)
+    (stale_dist / "assets" / "stale.js").write_text(
+        "export const stale = true;\n", encoding="utf-8"
+    )
+    (stale_dist / "index.html").write_text(
+        '<div id="root"></div><script src="/assets/stale.js"></script>\n',
+        encoding="utf-8",
+    )
+    stale_refs = re.findall(
+        r'(?:src|href)="(/assets/[^"]+)"',
+        (stale_dist / "index.html").read_text(encoding="utf-8"),
+    )
+    assert stale_refs == ["/assets/stale.js"]
+    assert (stale_dist / stale_refs[0].lstrip("/")).is_file()
+
+    fresh_dist = tmp_path / "fresh-dist"
+    _build_spa_fresh(
+        fixture_frontend,
+        fresh_dist,
+        extra_env={"BD_ROW229_BASE": "/app/"},
+    )
+    fresh_refs = _built_asset_references(fresh_dist)
+    assert all(ref.startswith("/app/assets/") for ref in fresh_refs), fresh_refs
+    assert (stale_dist / stale_refs[0].lstrip("/")).is_file(), (
+        "fresh fixture build must not erase the stale conforming control"
+    )
+    with pytest.raises(
+        AssertionError,
+        match="fresh Vite build emitted asset references off the Flask root mount",
+    ):
+        _assert_built_assets_are_rooted(fresh_dist, fresh_refs)
 
 
 def test_bootstrap_hook_covers_spa_root():

@@ -30,6 +30,7 @@ import {
   useRetentionApply,
   useRetentionAudit,
   useRetentionPreview,
+  useRightsAudit,
   useRightsBlocklist,
   useRightsRemove,
   useSchedExportAdd,
@@ -478,6 +479,7 @@ export function Maintenance() {
   const rtAudit = useRetentionAudit(50);
   const rtApply = useRetentionApply();
   const rightsList = useRightsBlocklist();
+  const rightsAudit = useRightsAudit(100);
   const rightsRemove = useRightsRemove();
   const schedList = useSchedExports();
   const schedAdd = useSchedExportAdd();
@@ -1423,6 +1425,18 @@ export function Maintenance() {
             </tbody>
           </table>
         )}
+        <div className="mt-3 border-t border-border pt-3" aria-label="Recent rights audit">
+          <h3 className="text-xs font-semibold uppercase text-ink-3">Recent rights audit</h3>
+          {rightsAudit.isLoading ? (
+            <Skeleton className="mt-2 h-12 w-full" />
+          ) : (rightsAudit.data?.entries ?? []).length === 0 ? (
+            <p className="mt-1 text-sm text-ink-3">No rights events yet.</p>
+          ) : (
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs text-ink-3">
+              {JSON.stringify((rightsAudit.data?.entries ?? []).slice(0, 20), null, 2)}
+            </pre>
+          )}
+        </div>
       </DangerZone>
 
       {/* ── T5 — Scheduled exports ── */}

@@ -32,6 +32,7 @@ import {
   useRegenNfos,
   useSceneScoreBottom,
   useTagAdd,
+  useTagsForMany,
   useTagRemove,
   useTagRename,
   useTagRows,
@@ -204,6 +205,7 @@ export function Library() {
   const setWatched = useLibrarySetWatched();
   const addTag = useLibraryAddTag();
   const regenNfos = useRegenNfos();
+  const tagsForMany = useTagsForMany();
   const tagAdd = useTagAdd();
   const tagRemove = useTagRemove();
   const tagRename = useTagRename();
@@ -237,6 +239,7 @@ export function Library() {
     scanCancel.isPending ||
     streamTokenMut.isPending ||
     rotateStreamMut.isPending ||
+    tagsForMany.isPending ||
     tagAdd.isPending ||
     tagRemove.isPending ||
     tagRename.isPending ||
@@ -577,6 +580,13 @@ export function Library() {
             onChange={(e) => setBulkIds(e.target.value)}
             className="max-w-xs"
           />
+          <Button
+            variant="outline"
+            disabled={busy || parseIds(bulkIds).length === 0}
+            onClick={() => tagsForMany.mutate({ history_ids: parseIds(bulkIds) })}
+          >
+            Load row tags
+          </Button>
           <Input
             placeholder="Tag"
             value={bulkTag}
@@ -607,6 +617,11 @@ export function Library() {
             Remove from rows
           </Button>
         </div>
+        {tagsForMany.data?.tags && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            loaded tags for {Object.keys(tagsForMany.data.tags).length} rows
+          </p>
+        )}
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
           <Input
             placeholder="Rename: old tag"
