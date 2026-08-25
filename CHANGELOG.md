@@ -4,6 +4,52 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1237 - bd-mutate refuses a mutant it cannot parse
+
+- A FAIL-OPEN IN THE INSTRUMENT THAT VALIDATES EVERY OTHER CUT.
+  `_validate()` ran `ast.parse` for `.py` and `bash -n` for `.sh`, then fell
+  through to an unconditional `return True` for everything else. A `.tsx` mutant
+  that did not parse was therefore recorded VALID; its catcher then failed --
+  because the whole spec file could no longer be TRANSFORMED, not because any
+  assertion fired -- and `_grade_mutant` scored it CAUGHT on `named catcher
+  failed`. The battery reported proof it did not have, and every frontend
+  battery in this repository inherited it (row 239).
+- THE COMMENT AT THAT FALL-THROUGH WAS HONEST: "unknown type: not our place to
+  guess". Declining to guess is right. Recording the refusal to judge AS a
+  passing judgement is the bug, and that distinction is the whole cut.
+- FOUND BY THE v3.66.1236 WORKER, which is worth saying: it scored 6/6 on its
+  first battery, treated that as a reason to look harder rather than to stop,
+  and demonstrated the loophole by re-pointing five catchers at specs that
+  import the mutated module WITHOUT asserting its behaviour. Those correctly
+  ESCAPED -- which is what proved the tracked CAUGHTs were real assertion
+  failures rather than compile errors.
+- THE PARSER WAS ALREADY IN THE TREE. esbuild 0.25.12 ships in
+  `frontend/node_modules` for vitest. Reading from STDIN with an explicit
+  `--loader` accepts a valid `.tsx` and refuses a broken one; passing a FILE
+  with `--loader` is refused outright ("loader without extension only applies
+  when reading from stdin"), which is why the validator pipes. It is located by
+  walking up from the MUTATED FILE first, so a detached scratch copy -- the
+  sanctioned way to run a battery -- is judged by its own toolchain.
+- THE WHOLE FAMILY IS JUDGED, not just the extension that bit us: `.ts`, `.tsx`,
+  `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`. A validator that special-cased
+  `.tsx` would have left the identical hole sitting beside it.
+- AND A MISSING PARSER IS UNKNOWN, NOT VALID. `_validate` now has three answers,
+  and the caller turns the third into an UNKNOWN verdict rather than running the
+  mutant and believing whatever came back. A provisioning gap must not be
+  reported as a clean bill of health.
+- RED VERIFIED BY REPLAY: 5 of the 10 new tests fail on the unfixed parent
+  2c019b8, and the 4 that pass are the controls that should -- the over-
+  sensitivity check, the markdown case, and the python/shell regression guards.
+- MUTATION: the first battery scored 4 caught / 1 ESCAPED, and the escape was
+  real. esbuild IS installed here, so nothing drove the branch handling its
+  ABSENCE -- an untested refusal reads as working precisely because the
+  condition it guards never occurs on this host. That is the same shape
+  v3.66.1230 hit with its empty-population refusal, two cuts apart. Re-run:
+  5 caught, 0 escaped.
+- ONE ANCHOR WAS WIDENED before shipping: `if r.returncode != 0:` occurs TWICE
+  in this file, because the shell branch does the same thing for a different
+  language. A bare condition is not a unique anchor when two branches share it.
+
 ## v3.66.1236 - the notifications gate drives the route instead of reading it
 
 - FOUR OF SIX TESTS WERE SUBSTRING SEARCHES. `"/api/tg/status" in hook`,

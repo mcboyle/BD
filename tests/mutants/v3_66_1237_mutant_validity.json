@@ -1,0 +1,59 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1237 row-239 battery. The subject is bd-mutate's own validator, so this battery is the tool judging itself -- which is exactly why the mutants target the parts that decide VALIDITY rather than the parts that decide a verdict. M4 is the over-correction: a validator that refuses every .tsx would satisfy every refusal assertion and make all frontend batteries unrunnable. M3's first anchor `if r.returncode != 0:` occurred TWICE -- the shell branch carries the same line -- so it was widened to include the esbuild call above it. A bare condition is not a unique anchor when two branches do the same thing for different languages. FIRST RUN: 4 caught, M5 ESCAPED. esbuild is installed on this host, so nothing drove the branch handling its ABSENCE -- an untested refusal reads as working precisely because the condition it guards never occurs. The same shape v3.66.1230 hit with its empty-population refusal.",
+  "subject": "v3.66.1237 -- bd-mutate refuses a mutant it cannot parse",
+  "band": [
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_an_unparseable_tsx_mutant_is_refused_rather_than_called_valid",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_a_valid_tsx_mutant_is_still_accepted",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_the_whole_typescript_family_is_judged_not_just_tsx[a.ts]",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_an_unjudgeable_type_is_UNKNOWN_and_not_valid",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_the_python_and_shell_validators_still_work",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_a_missing_parser_is_UNKNOWN_rather_than_valid"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the TypeScript family falls through to the unconditional True again",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    loader = _TS_LOADERS.get(suffix)\n    if loader:",
+      "new": "    loader = _TS_LOADERS.get(suffix)\n    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_an_unparseable_tsx_mutant_is_refused_rather_than_called_valid"
+    },
+    {
+      "label": "M2 only .tsx is judged, so the same hole sits beside it at .ts",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    _TS_LOADERS = {\".ts\": \"ts\", \".tsx\": \"tsx\", \".mts\": \"ts\", \".cts\": \"ts\",\n                   \".js\": \"js\", \".jsx\": \"jsx\", \".mjs\": \"js\", \".cjs\": \"js\"}",
+      "new": "    _TS_LOADERS = {\".tsx\": \"tsx\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_the_whole_typescript_family_is_judged_not_just_tsx[a.ts]"
+    },
+    {
+      "label": "M3 esbuild's refusal is ignored, so a broken mutant is accepted anyway",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "            input=text, capture_output=True, text=True, timeout=60)\n        if r.returncode != 0:",
+      "new": "            input=text, capture_output=True, text=True, timeout=60)\n        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_an_unparseable_tsx_mutant_is_refused_rather_than_called_valid"
+    },
+    {
+      "label": "M4 OVER-CORRECTION: every TypeScript mutant is refused, valid or not",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        return True, \"\"\n\n    return True, \"\"            # unknown type: not our place to guess",
+      "new": "        return False, \"tsx is not validated\"\n\n    return True, \"\"            # unknown type: not our place to guess",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_a_valid_tsx_mutant_is_still_accepted",
+      "preserves": [
+        "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_the_python_and_shell_validators_still_work",
+        "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_an_unjudgeable_type_is_UNKNOWN_and_not_valid"
+      ]
+    },
+    {
+      "label": "M5 a missing parser is recorded as valid, which is the fail-open itself",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        if esbuild is None:",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_a_missing_parser_is_UNKNOWN_rather_than_valid"
+    }
+  ]
+}

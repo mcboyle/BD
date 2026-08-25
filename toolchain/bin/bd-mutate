@@ -866,7 +866,7 @@ def _child_env() -> dict:
     return env
 
 
-def _validate(path: Path, text: str) -> tuple[bool, str]:
+def _validate(path: Path, text: str) -> tuple[bool | None, str]:
     """Can this mutant even run? Invalid is its own outcome, never 'caught'."""
     suffix = path.suffix
     if suffix == ".py" or (not suffix and text.startswith("#!") and "python" in text.splitlines()[0]):
@@ -886,6 +886,47 @@ def _validate(path: Path, text: str) -> tuple[bool, str]:
         finally:
             os.unlink(tmp)
         return True, ""
+
+    # TYPESCRIPT AND JSX, PARSED BY THE TOOLCHAIN ALREADY IN THE TREE.
+    #
+    # This branch exists because its absence was a FAIL-OPEN in the instrument
+    # that validates every other cut (backlog row 239). A `.tsx` mutant that did
+    # not parse fell through to the unconditional `return True` below, so it was
+    # recorded VALID; its catcher then failed -- because the whole spec file
+    # could no longer be transformed, not because any assertion fired -- and
+    # `_grade_mutant` scored it CAUGHT on `named catcher failed`. The battery
+    # reported proof it did not have.
+    #
+    # MEASURED at v3.66.1237: esbuild 0.25.12 ships in frontend/node_modules for
+    # vitest, and reading from STDIN with an explicit --loader accepts a valid
+    # .tsx and refuses a broken one. (Passing a FILE with --loader is refused
+    # outright -- "loader without extension only applies when reading from
+    # stdin" -- which is why this pipes.)
+    _TS_LOADERS = {".ts": "ts", ".tsx": "tsx", ".mts": "ts", ".cts": "ts",
+                   ".js": "js", ".jsx": "jsx", ".mjs": "js", ".cjs": "js"}
+    loader = _TS_LOADERS.get(suffix)
+    if loader:
+        esbuild = None
+        for base in list(path.resolve().parents) + [_INVOKED_REPOSITORY]:
+            candidate = base / "frontend" / "node_modules" / ".bin" / "esbuild"
+            if candidate.is_file():
+                esbuild = candidate
+                break
+        if esbuild is None:
+            # NOT VALID, AND NOT A GUESS EITHER. Declining to judge must not be
+            # recorded as passing judgement -- that is the whole defect above.
+            return None, (
+                "cannot validate %s: no frontend/node_modules/.bin/esbuild above "
+                "%s. Run `npm ci` in frontend/, or this mutant's validity is "
+                "UNKNOWN -- which is not the same as valid (row 239)." % (suffix, path))
+        r = subprocess.run(
+            [str(esbuild), "--loader=%s" % loader, "--log-level=silent"],
+            input=text, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return False, "esbuild --loader=%s: %s" % (
+                loader, (r.stderr.strip() or "refused the mutated source")[:200])
+        return True, ""
+
     return True, ""            # unknown type: not our place to guess
 
 
@@ -2186,6 +2227,15 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                 print("BD-MUTATE-UNRUNNABLE: %s; no mutant was run" % row["why"],
                       file=sys.stderr)
                 return 2, out
+            if ok is None:
+                # DECLINING TO JUDGE IS NOT PASSING JUDGEMENT (row 239). A type
+                # this tool cannot parse used to be recorded VALID, and a mutant
+                # that merely broke the transform then scored CAUGHT because its
+                # catcher failed for a reason no assertion produced.
+                row["verdict"] = UNKNOWN
+                row["why"] = why
+                out.append(row)
+                continue
             if not ok:
                 row["verdict"] = INVALID
                 row["why"] = why
