@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1233 - the deploy gate proves where the SPA is served from
+
+- ONE SUBSTRING STOOD IN FOR A RUNTIME PROPERTY. The gate asserted
+  `"frontend/dist" in app` over `bulk_downloader/app.py`'s TEXT to certify that
+  the app really serves the SPA from that directory. `app.py:1214` builds the
+  path as `Path(__file__).parent.parent / "frontend" / "dist"` -- three separate
+  string constants, so THAT LINE CONTAINS NO SUCH SUBSTRING. The five
+  occurrences actually satisfying the assertion were comments, docstrings and a
+  503 error message (row 211).
+- MEASURED, NOT ARGUED: in the RED run the old gate reported PASSED while the
+  app under test was serving from `<tmp>/frontend/build`.
+- IT IS NOW PROVED IN TWO HALVES. ARM 1 compares the RESOLVED live
+  `_M2_DIST_ROOT` to `REPO_ROOT/frontend/dist` -- path identity only, so an
+  unbuilt checkout still passes. ARM 2 proves that global actually GOVERNS
+  serving: it plants a probe `frontend/dist` with unforgeable bytes, repoints
+  the global, drives the real Flask client, and demands `GET /` return 200 with
+  the exact index bytes, `GET /assets/<probe>.js` the exact asset bytes, and a
+  missing asset a 404. `app.py` is untouched.
+- THE DECOY IS WHAT MAKES THE BYTE COMPARISON LOAD-BEARING: the probe's PARENT
+  gets a DIFFERENT `index.html`, because production's `frontend/index.html` is
+  the raw Vite template. Without it, serving the wrong file would still return
+  something that looks like an index.
+- RED PROVENANCE IS A REAL PARTIAL REPLAY, and it was re-verified by the
+  integrator rather than taken on trust: grafting ONLY the new evasion fixture
+  onto the UNMODIFIED base gate gives `Failed: DID NOT RAISE AssertionError`,
+  1 failed / 7 passed, with the old gate PASSING in the same run. Copying the
+  whole fixed file to the parent cannot be RED -- fix and test travel together --
+  and that distinction is recorded rather than blurred.
+- THE OVER-SENSITIVITY CASE IS THE ONE THAT MATTERS HERE. Demanding the serving
+  root EXIST would redden every CI run, because no shard builds `frontend/dist`
+  and it is gitignored, so a fresh clone has none. That is shipped as an
+  explicit OVERCORRECTION mutant.
+- MUTATION: 8 caught, 0 escaped. Nothing escaped the first battery either -- and
+  the eighth mutant was added by AUDIT rather than by an escape, because the
+  shipped evasion fixture was itself an asserted-but-unconstrained behaviour: it
+  degrades the gate back into a tautology comparing the live root with itself,
+  which the main test does not notice and only the fixture does.
+- ONE CORRECTION THE INTEGRATOR MADE: the overcorrection's PRESERVED set named a
+  test that shares the mutated code path, so bd-mutate scored it INDISCRIMINATE
+  rather than caught -- correctly, since a preserved test the mutant also breaks
+  proves nothing about the mutant being narrow. The preserved set is now two
+  tests that never touch serving-root resolution.
+- ONE IMPORT EDGE IS DECLARED: `edge_count` 3882 -> 3883 for the gate's lazy
+  in-function import of the Flask app. The import is deliberately NOT hoisted --
+  this makes `tree-gates-4` import the app for the first time, and doing it at
+  module scope would change what that shard costs on every run.
+
 ## v3.66.1232 - the registrable-domain census judges the answer, not the spelling
 
 - THE PREDICATE WAS TWO SUBSTRINGS. `("split('.')" in code or 'split(".")' in

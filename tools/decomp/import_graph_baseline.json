@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3882,
+  "edge_count": 3883,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2880,6 +2880,9 @@
     ],
     "tests/test_fuzz_harness_frontend.py": [
       "tools/fuzz_harness.py"
+    ],
+    "tests/test_git_deploy_gaps_are_documented.py": [
+      "bulk_downloader/app.py"
     ],
     "tests/test_global_config_defaults.py": [
       "bulk_downloader/app.py"
