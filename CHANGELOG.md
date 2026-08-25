@@ -4,6 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1236 - the notifications gate drives the route instead of reading it
+
+- FOUR OF SIX TESTS WERE SUBSTRING SEARCHES. `"/api/tg/status" in hook`,
+  `path="/notifications"` in App.tsx, `useState("")` in the route, and a regex
+  over `onClick={...}` stood in for four runtime claims (row 188). MEASURED:
+  `grep -c 'useState("")'` on that route returns 3, so two decoys survive any
+  single-site edit -- the scan could not tell which field it was talking about.
+- IT NOW DRIVES THE ROUTE. The page is mounted and exercised, and the paths the
+  TRANSPORT WAS HANDED are reconciled to the seven endpoint families by SET
+  EQUALITY rather than by presence. `/notifications` is resolved through the
+  REAL `<Routes>` table with a negative control at another path, and the command
+  palette item is SELECTED with the resulting pathname asserted.
+- THE WRITE-ONLY CLAIM IS NOW ADVERSARIAL. The query cache is POISONED with a
+  GET payload carrying both secrets BEFORE render, and the inputs' values are
+  asserted empty afterwards. That is the difference between "the code says it
+  does not seed" and "we handed it the secret and it refused to show it".
+- ALL FOUR GATED WRITES ARE CLICKED and the transport is asked whether anything
+  was sent BEFORE Confirm -- the one-click question answered by observation.
+- RED PROVENANCE, verified by the integrator rather than taken on trust. The
+  mutants target PRODUCT SOURCE (Notifications.tsx, useNotificationsData.ts,
+  App.tsx), not test files. Applying M4 -- which repaths the `/notifications`
+  route so the page 404s -- to the PARENT tree and running the OLD gate gives
+  **6 passed**. A gate that cannot notice its own route disappearing was not
+  testing wiring.
+- MUTATION: 6 caught, 0 escaped, no first-run escapes. Because a clean battery
+  is a reason to look harder, the worker ran a SECOND probe battery on five
+  rules the tracked spec does not name -- palette destination, a dropped alerts
+  family, cancel-dispatches-anyway, apprise seeded, apprise retained -- and
+  those were 5/5 caught too. It then found a real scoring loophole:
+  `bd-mutate` marks a regression CAUGHT on "named catcher failed" alone and
+  waves `.tsx` through unvalidated, so a mutant that merely breaks the
+  TRANSFORM would read as CAUGHT. A third control battery re-pointed the five
+  catchers at specs that import the mutated module without asserting the
+  behaviour: **5/5 ESCAPED, which is the intended positive result** -- the files
+  compile, so the tracked CAUGHTs are assertion failures rather than syntax
+  errors.
+- MY OWN BRIEFING TO THE WORKER WAS WRONG and it said so: `test_t5_t6_wired.py`
+  was NEVER converted to Vitest -- it is a population-hardened text scan from
+  v3.66.1218. Only t1/t9a/t9b/t10/t11 delegate. With t7 that makes six.
+- THE PLAN WAS WRONG TOO, measurably: its claim that React sets an input value
+  as a property so a seeded field leaves innerHTML clean is FALSE -- the first
+  negative control failed with `value="GET-TG-SECRET-8Q"` in the markup. And its
+  expected-test counts were 3/5/5/2; the measured counts are 3/6/5/3.
+- COST, DISCLOSED: this gate goes 3s -> 89.6s, so the `parity-graph` shard gains
+  about 87s against its 30-minute budget.
+- A PRODUCT DEFECT WAS FOUND ON THE WAY AND FILED AS ROW 238 RATHER THAN FIXED
+  HERE. `Notifications.tsx:60` never seeds `tgAllowlist` from GET while `:104`
+  sends it unconditionally -- the line below guards the far more sensitive token
+  with `if (tgToken.trim())`, so the asymmetry is an oversight. Saving Telegram
+  settings without retyping therefore ERASES the server-side chat-id allowlist.
+  Severity measured rather than assumed: `tg_bot.py:625` fails CLOSED on an
+  empty allowlist, so this is silent data loss and an outage, NOT an
+  authorization widening. Row 188 is a gate conversion and this is product, so
+  A3 says it gets its own row. This cut's gate exercises that path and
+  deliberately does not assert it.
+
 ## v3.66.1235 - the retired-sandbox census asks the parser, not the bytes
 
 - TWENTY-FIVE BYTES STOOD IN FOR A RUNTIME DEFAULT. The gate asked whether a

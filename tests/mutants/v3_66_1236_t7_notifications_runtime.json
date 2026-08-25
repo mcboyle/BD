@@ -1,0 +1,64 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 188 / v3.66.1236. bd-mutate refuses a work tree inside its own repository, so re-run from a DETACHED clone -- and that clone needs frontend/node_modules or the fail-closed Vitest bridge makes every baseline red and the battery exits 2 (no verdict, which must never read as success): git clone <candidate> /tmp/row188-clone && cp -al frontend/node_modules /tmp/row188-clone/frontend/node_modules && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1236_t7_notifications_runtime.json --work /tmp/row188-clone --timeout 600. THE SAME SIX EVASIONS SCORED 0 CAUGHT / 6 ESCAPED against the four SOURCE-TEXT scans this cut deleted, at base 51bb41d.",
+  "subject": "v3.66.1236 -- the T7 notifications gate proves endpoint consumption, the (R) write-only rule, confirmation gating and route reachability by RENDERING AND CLICKING the real components, so an evasion that preserves the source substrings no longer passes",
+  "band": [
+    "tests/test_t7_notifications_wired.py::test_t7_endpoint_families_are_consumed_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_secrets_are_write_only_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_writes_are_confirmation_gated_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_route_is_reachable_at_runtime"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the Telegram bot token is seeded straight out of the GET payload and rendered into the DOM -- row 188's own named evasion, invisible to the old scan because two other useState(\"\") sites survive as decoys",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "  const [tgToken, setTgToken] = useState(\"\");",
+      "new": "  const [tgToken, setTgToken] = useState((tgSettings.data?.settings as { tg_bot_token?: string })?.tg_bot_token ?? \"\");",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_secrets_are_write_only_at_runtime"
+    },
+    {
+      "label": "M2 the token is RETAINED in state after save; the clear survives only as a trailing comment, so the old scan's setTgToken(\"\") substring is still present",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "            setTgToken(\"\");",
+      "new": "            setTgToken(tgToken); // was setTgToken(\"\");",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_secrets_are_write_only_at_runtime"
+    },
+    {
+      "label": "M3 /api/tg/status is never fetched; the literal survives only in a comment, so a path NAMED passes a scan for a path CALLED",
+      "file": "frontend/src/hooks/useNotificationsData.ts",
+      "old": "    queryFn: ({ signal }) => apiGet<TgStatusResponse>(\"/api/tg/status\", signal),",
+      "new": "    queryFn: () => Promise.resolve({ available: false } as TgStatusResponse), // was apiGet(\"/api/tg/status\")",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_endpoint_families_are_consumed_at_runtime"
+    },
+    {
+      "label": "M4 /notifications 404s: the <Route> is repathed and the old path is restored in a JSX comment -- caught only by resolving the REAL App route table, never by placing the component by hand",
+      "file": "frontend/src/App.tsx",
+      "old": "        <Route path=\"/notifications\" element={<Notifications />} />",
+      "new": "        <Route path=\"/notifications-v2\" element={<Notifications />} />{/* path=\"/notifications\" */}",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_route_is_reachable_at_runtime"
+    },
+    {
+      "label": "M5 Save telegram becomes a genuine one-click write through an indirection the onClick regex cannot see -- the text saveTg.mutate never appears",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "          <Button disabled={busy} onClick={() => setPending({ kind: \"saveTg\" })}>",
+      "new": "          <Button disabled={busy} onClick={() => void [saveTg].map((m) => m.mutate({ tg_bot_enabled: tgEnabled, tg_bot_allowlist: tgAllowlist }))}>",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_writes_are_confirmation_gated_at_runtime"
+    },
+    {
+      "label": "M6 OVER-CORRECTION: write-only becomes always-write, so a save with a blank token field WIPES the stored Telegram token. A gate that only ever tightened would consent to this; the named control is the blank-save case, and the preserved nodeid does not execute confirmRun at all",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "        if (tgToken.trim()) patch.tg_bot_token = tgToken;",
+      "new": "        patch.tg_bot_token = tgToken;",
+      "direction": "overcorrection",
+      "control": "tests/test_t7_notifications_wired.py::test_t7_secrets_are_write_only_at_runtime",
+      "preserves": [
+        "tests/test_t7_notifications_wired.py::test_t7_route_is_reachable_at_runtime"
+      ]
+    }
+  ]
+}
