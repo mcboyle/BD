@@ -75,4 +75,4 @@ def test_t8_route_is_lazy_and_nav_linked():
 
 def test_t8_cluster_runtime_contract():
     """The behavioural half: render the route, drive it, judge what it DOES."""
-    run_vitest("src/routes/Cluster.wired.test.tsx", expected_tests=8)
+    run_vitest("src/routes/Cluster.wired.test.tsx", expected_tests=9)

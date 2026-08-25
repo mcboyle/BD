@@ -11,7 +11,7 @@
 //                              one-click. Also a separate row.
 // The sweep exercises both anyway; it just does not fail on them.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -47,6 +47,15 @@ const GATED = [
   "/api/pair/redeem",
 ];
 const EXCLUDED = ["/api/fed/set_trust", "/api/fed/pending_review"];
+
+// The EXACT interactive inventory the typed sweep is measured over, sorted.
+// Shared by tests 2 and 3 so the sweep's denominator and its pin can never
+// drift apart -- a magic literal in one of them would let the other shrink.
+const INVENTORY = [
+  "<select:unlabelled>", "Approve", "Build all artifacts…", "Compose only",
+  "Generate pairing code", "Pull now", "Redeem", "Register peer…", "Reject",
+  "container image", "pairing token", "peer base url", "peer instance id",
+];
 
 function allCalls(): string[] {
   return [...apiGetMock.mock.calls, ...apiPostMock.mock.calls].map((c) => String(c[0]));
@@ -108,8 +117,29 @@ function clusterRoot(): HTMLElement {
   expect(root, "Cluster's own content root not found").toBeTruthy();
   return root as HTMLElement;
 }
+// TAG ALONE IS AN EVADABLE DENOMINATOR, and this is measured rather than
+// argued. The first draft of this spec queried "button, select, input,
+// textarea"; a mutant binding a one-click /api/edge_deploy/all to a
+// <div role="button" tabIndex={0}> ESCAPED the whole battery, because that
+// element is neither a tag in the list nor -- therefore -- in the inventory
+// pin, so BOTH test 2 and test 3 consented to it. So the typed inventory is
+// now ROLE- and TABINDEX-aware as well, and test 3 additionally clicks every
+// element in the subtree (see there), which no structural selector can dodge.
+const INTERACTIVE = [
+  "button", "select", "input", "textarea", "a[href]",
+  '[role="button"]', '[role="link"]', '[role="switch"]', '[role="checkbox"]',
+  '[role="radio"]', '[role="menuitem"]', '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]', '[role="option"]', '[role="tab"]',
+  '[role="combobox"]', '[role="slider"]', '[role="spinbutton"]',
+  '[role="textbox"]', "[tabindex]",
+].join(", ");
+
 function controls(): HTMLElement[] {
-  return Array.from(clusterRoot().querySelectorAll<HTMLElement>("button, select, input, textarea"));
+  return Array.from(clusterRoot().querySelectorAll<HTMLElement>(INTERACTIVE));
+}
+/** Every element under Cluster's root, in document order. */
+function elements(): HTMLElement[] {
+  return Array.from(clusterRoot().querySelectorAll<HTMLElement>("*"));
 }
 function nameOf(el: HTMLElement): string {
   // The peer-row <select> carries no accessible label today, so its textContent
@@ -136,11 +166,7 @@ describe("T8 Cluster runtime contract", () => {
     const names = controls().map(nameOf).sort();
     // If this fails, a control was added/renamed/removed: re-derive the sweep
     // instead of editing this list, or the sweep silently stops covering it.
-    expect(names).toEqual([
-      "<select:unlabelled>", "Approve", "Build all artifacts…", "Compose only",
-      "Generate pairing code", "Pull now", "Redeem", "Register peer…", "Reject",
-      "container image", "pairing token", "peer base url", "peer instance id",
-    ]);
+    expect(names).toEqual(INVENTORY);
   });
 
   it("dispatches no gated write from any single interaction with any control", async () => {
@@ -149,7 +175,7 @@ describe("T8 Cluster runtime contract", () => {
     await ready();
     await screen.findByText("example.com");
     const inventory = controls().map(nameOf);
-    expect(inventory.length).toBe(13);
+    expect([...inventory].sort()).toEqual(INVENTORY);
 
     for (let i = 0; i < inventory.length; i++) {
       const el = controls()[i];
@@ -170,7 +196,60 @@ describe("T8 Cluster runtime contract", () => {
     // live controls and not a dead subtree.
     expect(allCalls().some((p) => EXCLUDED.some((e) => isPath(p, e)))).toBe(true);
     // and the iteration never silently shrank underneath the loop
-    expect(controls().length).toBe(13);
+    expect(controls().length).toBe(INVENTORY.length);
+  });
+
+  it("dispatches no gated write from a click on ANY element, not merely any tagged control", async () => {
+    // WHY THIS EXISTS, MEASURED RATHER THAN ARGUED. The typed sweep above is
+    // driven by a SELECTOR, and a selector is a denominator choice that a
+    // respelling can sit outside. In the first battery against this spec, a
+    // mutant dispatching one-click /api/edge_deploy/all from a
+    // <div role="button" tabIndex={0}> ESCAPED: it was neither in the tag query
+    // nor -- therefore -- in the inventory pin, so both tests consented. The
+    // selector is now role-aware, which closes that exact mutant; this test
+    // closes the CLASS, by asking every element in Cluster's subtree. A node
+    // carrying no handler does nothing when clicked, so the only cost is time.
+    renderCluster();
+    await ready();
+    await screen.findByText("example.com");
+    const total = elements().length;
+    expect(total).toBeGreaterThan(INVENTORY.length);
+
+    // PRECONDITION ON THE INSTRUMENT ITSELF, and it caught a real bug in this
+    // very test. A click on a known one-click control must be OBSERVABLE.
+    // react-query's mutate() reaches its mutationFn on a microtask, so the
+    // first draft of this sweep -- a synchronous loop with no await -- never
+    // flushed one and asserted "no gated write" against a queue that had not
+    // run yet. It was vacuous, and green. Every click below is therefore
+    // awaited inside act(), and this precondition proves the stimulus lands.
+    const reject = within(clusterRoot()).getByRole("button", { name: "Reject" });
+    await act(async () => { fireEvent.click(reject); });
+    await waitFor(() =>
+      expect(
+        allCalls().some((p) => isPath(p, "/api/fed/pending_review")),
+        `fireEvent.click did not reach a React handler; saw ${JSON.stringify(allCalls())}`,
+      ).toBe(true));
+    apiGetMock.mockClear();
+    apiPostMock.mockClear();
+
+    for (let i = 0; i < total; i++) {
+      const el = elements()[i];
+      if (!el) continue; // re-queried each turn; the stable-count assert below
+      // proves nothing was silently dropped from the sweep
+      await act(async () => { fireEvent.click(el); });
+      expect(
+        gatedCalls(),
+        `a click on <${el.tagName.toLowerCase()}> #${i} dispatched a gated write`,
+      ).toEqual([]);
+    }
+    // LIVENESS. Without this the sweep passes just as happily over a subtree of
+    // inert nodes: a real one-click write (excluded from the gated set, but a
+    // dispatch all the same) must have been observed.
+    expect(
+      allCalls().some((p) => EXCLUDED.some((e) => isPath(p, e))),
+      `the exhaustive sweep reached no live one-click write; it saw ${JSON.stringify(allCalls())}`,
+    ).toBe(true);
+    expect(elements().length).toBe(total);
   });
 
   it("gates manual_register A-tier: amber payload, No-default focus, only Yes dispatches", async () => {

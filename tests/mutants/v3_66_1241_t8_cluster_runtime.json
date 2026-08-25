@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "backlog row 185. Re-run from a DETACHED clone with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/<this file> --work /tmp/<clone> -- and note the clone needs `npm ci` in frontend/, because every catcher delegates to Vitest. VALIDITY CAVEAT: bd-mutate ast.parse-validates only .py and shellchecks .sh; a .tsx/.ts mutant falls through UNVALIDATED, so a malformed anchor would present as CAUGHT via an esbuild transform error rather than a real catch. Each mutant below was hand-replayed on a scratch copy of cef6eb4 and failed on a SEMANTIC assertion message, never a transform error -- that is the validity evidence. All six share one pytest nodeid because the gate delegates to Vitest, so the catching VITEST test is named inside each label. MEASURED AGAINST THE RETIRED TEXT SCAN: M1, M2 and M5 left the old six-assertion scan fully green; M3, M4 and M6 it caught textually.",
+  "_comment": "backlog row 185. Re-run from a DETACHED clone -- bd-mutate refuses a work tree inside its own repository -- and that clone needs frontend/node_modules, because every catcher shells out to Vitest through the fail-closed bridge; a clone without it returns UNKNOWN for every mutant by construction, which must never read as a pass: git clone <candidate> /tmp/row185-clone && cp -al frontend/node_modules /tmp/row185-clone/frontend/node_modules && rm -rf /tmp/row185-clone/frontend/node_modules/.vite && venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1241_t8_cluster_runtime.json --work /tmp/row185-clone --timeout 300. MEASURED AGAINST THE RETIRED TEXT SCAN at base b489289: M1, M2 and M5 left the old six-assertion scan FULLY GREEN over live violations; M3, M4 and M6 it caught textually. M7 IS THE HOLE THIS CUT FOUND IN ITS OWN GATE AND CLOSED: on the first battery the new spec scored 6/6, so its UNNAMED rules were probed with nine further mutants, and M7 -- a one-click fleet-wide write bound to a <div role=button> -- ESCAPED, invisible to a TAG-driven control query. The fix made the typed inventory role- and tabindex-aware AND added an exhaustive per-element click sweep; writing that sweep then exposed a second defect, a synchronous loop that never flushed the microtask react-query dispatches its mutationFn on, so it asserted over a queue that had not run. M8 is the only OVER-CORRECTION direction: clearing the pairing token unconditionally satisfies a naive reading of the (R) write-only rule while destroying the operator's token on a transient failure, and its named control is the spec's failed-redeem retention assertion. Its preserves target reads useCluster.ts only, so it does not share the mutated Cluster.tsx path. VALIDITY CAVEAT: bd-mutate ast.parse-validates only .py and shellchecks .sh, so a .tsx/.ts mutant falls through UNVALIDATED and a malformed anchor would present as CAUGHT via an esbuild transform error rather than a real catch. Every mutant here was confirmed to fail on a SEMANTIC assertion message, never a transform error -- that is the validity evidence. All catchers share one pytest nodeid because the gate delegates to Vitest, so the catching VITEST test is named in each label.",
   "subject": "the /cluster route's runtime write-gating contract: no gated write fires from a single interaction, sync_pull cannot auto-fire on mount/focus/interval, the two A-tier writes are No-default confirmed, and the pairing token is a write-only secret cleared only on success",
   "band": [
     "tests/test_t8_cluster_wired.py",
@@ -55,6 +55,25 @@
       "new": "apiPost<EdgeComposeResult>(\"/api/edge_deploy/compose_v2\", body)",
       "direction": "regression",
       "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M7 a ONE-CLICK fleet-wide /api/edge_deploy/all bound to a <div role=\"button\"> instead of a <button>. THIS ESCAPED THE FIRST DRAFT OF THIS GATE: a tag-driven control query could see neither the control nor its absence, so the inventory pin AND the sweep both consented. Kept as the standing regression for that vacuity -- caught by vitest 'dispatches no gated write from a click on ANY element, not merely any tagged control'",
+      "file": "frontend/src/routes/Cluster.tsx",
+      "old": "              <Button\n                className=\"mt-2\"\n                variant=\"outline\"\n                onClick={armRedeem}\n                disabled={redeem.isPending}\n              >\n                Redeem\n              </Button>",
+      "new": "              <Button\n                className=\"mt-2\"\n                variant=\"outline\"\n                onClick={armRedeem}\n                disabled={redeem.isPending}\n              >\n                Redeem\n              </Button>\n              <div\n                role=\"button\"\n                tabIndex={0}\n                onClick={() => edgeAll.mutate({ image: \"bulkdownloader:latest\" })}\n              >\n                Quick fleet build\n              </div>",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M8 OVER-CORRECTION: the pairing token is cleared UNCONDITIONALLY rather than only on a successful redeem. This satisfies a naive reading of the (R) write-only rule -- and of the retired scan's setRedeemToken(\"\") substring -- while destroying the operator's one-shot token on any transient failure. The named control is the spec's failed-redeem retention assertion in vitest 'treats the pairing token as a write-only secret'; if that control were decorative this mutant would score ESCAPED.",
+      "file": "frontend/src/routes/Cluster.tsx",
+      "old": "                toast.success(\"Paired — session established\");\n                setRedeemToken(\"\"); // clear the write-only secret\n              } else {\n                toast.error(r.error || \"redeem failed\");\n              }",
+      "new": "                toast.success(\"Paired — session established\");\n              } else {\n                toast.error(r.error || \"redeem failed\");\n              }\n              setRedeemToken(\"\"); // cleared unconditionally",
+      "direction": "overcorrection",
+      "control": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract",
+      "preserves": [
+        "tests/test_t8_cluster_wired.py::test_t8_full_literals_present_in_hook"
+      ]
     }
   ]
 }
