@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1224 - a zombie is not residue
+
+- A CORRECT CAPTURE COULD REPORT FAILURE, AND THE PROBE IS WHY. After the traced
+  root exits 0, `bd-writerec` asked `killpg(pgid, 0)` whether anything was left
+  in the group. `killpg` SUCCEEDS FOR A ZOMBIE -- a zombie is an exit status
+  nobody has collected yet, still holding a slot in the process table, not a
+  process that can open a file, write a byte, or outlive its reaper. One reading
+  that happened to land on a short-lived orphan sent SIGTERM, latched
+  `residual_terminated`, and the caller reported complete=False / exit 125.
+  MEASURED with the row's exact fork/exit command: 45 false refusals in 300
+  trials on test6, with the residue visible for roughly 80-460 MICROSECONDS
+  (backlog row 214).
+- END TO END, 200 TRIALS PER ARM: base 3/200 exit-125, fixed 0/200.
+- THE FIX IS A BOUNDED SETTLE WINDOW PLUS A STATE CENSUS, not a longer probe.
+  `SETTLE_SECONDS = 0.05` is two orders of magnitude below the 10s overall
+  timeout and about 100x the measured transient. The window is entered AT MOST
+  ONCE, signals nothing while it runs -- signalling is the thing being deferred
+  -- and a member that is genuinely alive when it ends is still TERMed, still
+  escalated, and still reported.
+- THE CENSUS RUNS ONCE PER REAP, NOT ONCE PER POLL, AND THAT WAS MEASURED. One
+  `/proc` walk costs 39.3 ms median (856 pids, n=25) against 0.003 ms for a
+  `killpg` probe. The first draft of this fix censused on every 1 ms poll, which
+  would have made the window's duration a function of the box's process table --
+  the exact shape of open row 231 -- and would have paid a full walk on every
+  capture with any residue, including the transient the fix exists for. Two
+  tests pin the call COUNT rather than describing it in prose, because the
+  zombie case alone cannot prove it: a census that answers True ends the wait on
+  its first call, so a second test drives a live member and asserts exactly one.
+- UNKNOWN IS NOT INNOCENCE. An unlistable `/proc`, an unreadable stat file, a
+  truncated or unparseable line, or a group with no visible members all return
+  "there is residue". The draft skipped those entries, which fails open on
+  precisely the process worth catching. On a `hidepid` mount this degrades to
+  the old conservative behaviour rather than to a false clean.
+- A GROUP THAT DRAINS BETWEEN THE PROBE AND THE CENSUS is re-probed, without
+  which the fix would reintroduce its own defect one window later.
+- MUTATION: 5 CAUGHT, 0 escaped, 0 invalid. M5 is an OVERCORRECTION mutant that
+  moves the census back onto the polling path -- the draft's own shape -- and it
+  is caught only by the cost-structure test. `SETTLE_SECONDS -> 0.0` was
+  deliberately EXCLUDED as near-equivalent, because the census still rescues it;
+  that reasoning is recorded in the spec rather than left as a silent omission.
+- RED PROVENANCE VERIFIED BY REPLAY, NOT ASSERTED: 8 of the 9 new tests fail on
+  the unfixed parent a9b3503 and all 9 pass on the fix. The ninth is the
+  over-sensitivity control, which asserts behaviour that was already correct and
+  therefore passes on BOTH trees -- that is what makes it a control.
+- THE TEST CONSTRUCTS THE ZOMBIE DETERMINISTICALLY instead of hunting a
+  200-microsecond window: `fork()`, the child `setpgid(0,0)` then `_exit(0)`, and
+  the parent never reaps it. Preconditions are asserted before any verdict --
+  state is `Z`, `killpg` does not raise, and `_group_gone` returns False.
+- ROW 214'S ACCEPTANCE CRITERIA NAMED A `BD_EXIT_TRACE_LOG` KNOB THAT DOES NOT
+  EXIST. Measured tree-wide: it appears in exactly one place, the backlog row
+  itself. It was not invented to satisfy the row; the row is closed on the
+  defect it actually describes, and this note is the record.
+
 ## v3.66.1223 - every bd-jobs remote stage now waits under a bound
 
 - ALL FIVE SYNCHRONOUS OpenSSH STAGES COULD WEDGE THE CALLER FOREVER. The
