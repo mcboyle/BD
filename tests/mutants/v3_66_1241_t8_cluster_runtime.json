@@ -1,0 +1,60 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "backlog row 185. Re-run from a DETACHED clone with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/<this file> --work /tmp/<clone> -- and note the clone needs `npm ci` in frontend/, because every catcher delegates to Vitest. VALIDITY CAVEAT: bd-mutate ast.parse-validates only .py and shellchecks .sh; a .tsx/.ts mutant falls through UNVALIDATED, so a malformed anchor would present as CAUGHT via an esbuild transform error rather than a real catch. Each mutant below was hand-replayed on a scratch copy of cef6eb4 and failed on a SEMANTIC assertion message, never a transform error -- that is the validity evidence. All six share one pytest nodeid because the gate delegates to Vitest, so the catching VITEST test is named inside each label. MEASURED AGAINST THE RETIRED TEXT SCAN: M1, M2 and M5 left the old six-assertion scan fully green; M3, M4 and M6 it caught textually.",
+  "subject": "the /cluster route's runtime write-gating contract: no gated write fires from a single interaction, sync_pull cannot auto-fire on mount/focus/interval, the two A-tier writes are No-default confirmed, and the pairing token is a write-only secret cleared only on success",
+  "band": [
+    "tests/test_t8_cluster_wired.py",
+    "tests/test_v3_66_1218_vitest_delegating_shards_have_node.py",
+    "tests/test_v3_66_1168_tests_are_current_contracts.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 fleet-wide edge_deploy/all fires on one click while still arming the A-tier dialog (the row's exact evasion; the RETIRED text scan stays 6/6 green) -- caught by vitest 'dispatches no gated write from any single interaction with any control'",
+      "file": "frontend/src/routes/Cluster.tsx",
+      "old": "  const armEdgeAll = () =>\n    setPending({\n      tier: \"A\",\n      title: \"Build all edge deploy artifacts\",\n      body: \"Generate the full deploy artifact set (compose + systemd + k8s) for fleet rollout. Proceed?\",\n      amberLabel: \"BUILD FLEET ARTIFACTS\",\n      run: () =>\n        edgeAll.mutate(\n          { image: edImage.trim() || \"bulkdownloader:latest\" },\n          {\n            onSuccess: () => toast.success(\"Artifacts generated\"),\n            onError: (e) => toast.error(errText(e)),\n          },\n        ),\n    });",
+      "new": "  const armEdgeAll = () => {\n    edgeAll.mutate({ image: edImage.trim() || \"bulkdownloader:latest\" });\n    setPending({\n      tier: \"A\",\n      title: \"Build all edge deploy artifacts\",\n      body: \"Generate the full deploy artifact set (compose + systemd + k8s) for fleet rollout. Proceed?\",\n      amberLabel: \"BUILD FLEET ARTIFACTS\",\n      run: () =>\n        edgeAll.mutate(\n          { image: edImage.trim() || \"bulkdownloader:latest\" },\n          {\n            onSuccess: () => toast.success(\"Artifacts generated\"),\n            onError: (e) => toast.error(errText(e)),\n          },\n        ),\n    });\n  };",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M2 armRegister dispatches the federation TRUST write before arming (retired scan stays green) -- caught by vitest 'dispatches no gated write from any single interaction with any control'",
+      "file": "frontend/src/routes/Cluster.tsx",
+      "old": "  const armRegister = () => {\n    if (!riid.trim() || !rurl.trim()) {",
+      "new": "  const armRegister = () => {\n    register.mutate({ instance_id: riid.trim(), base_url: rurl.trim() });\n    if (!riid.trim() || !rurl.trim()) {",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M3 sync_pull auto-fires on mount and on a 30s interval via a useQuery inside its own hook -- caught by vitest 'never auto-fires sync_pull on mount or window focus, and fires it exactly once when confirmed' (the retired scan also caught this one, textually)",
+      "file": "frontend/src/hooks/useCluster.ts",
+      "old": "export function useFedSyncPull() {\n  const qc = useQueryClient();",
+      "new": "export function useFedSyncPull() {\n  const qc = useQueryClient();\n  useQuery<FedSyncPullResult, Error>({\n    queryKey: [\"fed\", \"sync_pull_auto\"],\n    refetchInterval: 30_000,\n    queryFn: () => apiGet<FedSyncPullResult>(\"/api/fed/sync_pull?since_id=0&limit=500\"),\n  });",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M4 the A-tier confirm defaults to the DESTRUCTIVE button (autoFocus moved from 'No, cancel' to 'Yes, proceed') -- caught by vitest 'gates manual_register A-tier' and 'gates edge_deploy/all A-tier' via document.activeElement (the retired scan also caught this one, textually)",
+      "file": "frontend/src/routes/Cluster.tsx",
+      "old": "                <Button autoFocus variant=\"default\" onClick={() => setPending(null)}>\n                  No, cancel\n                </Button>\n                <Button variant=\"destructive\" onClick={confirmRun}>\n                  Yes, proceed\n                </Button>",
+      "new": "                <Button variant=\"default\" onClick={() => setPending(null)}>\n                  No, cancel\n                </Button>\n                <Button autoFocus variant=\"destructive\" onClick={confirmRun}>\n                  Yes, proceed\n                </Button>",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M5 the write-only pairing token is cleared on FAILURE instead of on success (retired scan stays green: the setRedeemToken(\"\") literal survives) -- caught by vitest 'treats the pairing token as a write-only secret'",
+      "file": "frontend/src/routes/Cluster.tsx",
+      "old": "                toast.success(\"Paired — session established\");\n                setRedeemToken(\"\"); // clear the write-only secret\n              } else {\n                toast.error(r.error || \"redeem failed\");\n              }",
+      "new": "                toast.success(\"Paired — session established\");\n              } else {\n                toast.error(r.error || \"redeem failed\");\n                setRedeemToken(\"\"); // clear the write-only secret\n              }",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    },
+    {
+      "label": "M6 the compose endpoint is renamed, which would make the gated-write sweep vacuous -- caught by vitest 'keeps every gated endpoint reachable, so the sweep can never go vacuous'",
+      "file": "frontend/src/hooks/useCluster.ts",
+      "old": "apiPost<EdgeComposeResult>(\"/api/edge_deploy/compose\", body)",
+      "new": "apiPost<EdgeComposeResult>(\"/api/edge_deploy/compose_v2\", body)",
+      "direction": "regression",
+      "catcher": "tests/test_t8_cluster_wired.py::test_t8_cluster_runtime_contract"
+    }
+  ]
+}
