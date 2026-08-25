@@ -1,0 +1,62 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 232 / v3.66.1223 SPA-scanner population battery. bd-mutate refuses a work tree inside its own repository, so re-run from a DETACHED clone: git clone <candidate> /tmp/row232-clone && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1223_spa_scanner_populations.json --work /tmp/row232-clone",
+  "subject": "v3.66.1223 -- tools/spa_population.py is the single population rule for every frontend/src text scanner, and the narrowing is guarded in both directions",
+  "band": [
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_population_predicate_classifies_all_three_kinds",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_shared_rule_matches_the_parity_inventory",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_real_tree_has_every_half_nonzero",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_select_neither_widens_nor_narrows_the_underlying_glob",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_an_empty_population_is_unknown_not_a_pass",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_an_absent_tree_does_not_raise_but_reports_nothing",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_product_only_sites_route_through_the_shared_rule",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_every_scan_site_is_classified_with_a_reason",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_all_source_site_fails_closed_on_a_missing_tree",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_a_spec_cannot_decide_a_product_question[test_f2_3_needs_review_wired--test_no_raw_mutating_fetch_to_action_paths]",
+    "tests/test_v3_66_1223_spa_scanner_populations.py::test_a_spec_cannot_decide_a_product_question[test_v3_66_310_site_editor_parity--test_spa_site_editor_wires_endpoints]",
+    "tests/test_v3_66_292_dom_analyzer_link.py::test_spa_src_present",
+    "tests/test_v3_66_312_parity_abc.py::test_b_spa_wires_widgets_store"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the shared rule stops recognising *.spec.ts(x) -- half the v3.66.1218 population walks back in",
+      "file": "tools/spa_population.py",
+      "old": "SPEC_FILE_RE = re.compile(r\"\\.(test|spec)\\.tsx?$\")",
+      "new": "SPEC_FILE_RE = re.compile(r\"\\.(test)\\.tsx?$\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_shared_rule_matches_the_parity_inventory"
+    },
+    {
+      "label": "M2 frontend/src/test/ harness code is classified as shipped product again -- row 232's third class disappears",
+      "file": "tools/spa_population.py",
+      "old": "    parts = rel.split(\"/\")\n    if len(parts) > 1 and parts[0] in HARNESS_DIRS:\n        return HARNESS\n    return PRODUCT",
+      "new": "    return PRODUCT",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_real_tree_has_every_half_nonzero"
+    },
+    {
+      "label": "M3 select() returns the EXCLUDED half as selected -- both halves stay nonzero, so only a behavioural control can see it",
+      "file": "tools/spa_population.py",
+      "old": "            if classify(rel) in include:\n                selected.append(rel)\n            else:\n                excluded.append(rel)",
+      "new": "            if classify(rel) not in include:\n                selected.append(rel)\n            else:\n                excluded.append(rel)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_spa_scanner_populations.py::test_a_spec_cannot_decide_a_product_question[test_f2_3_needs_review_wired--test_no_raw_mutating_fetch_to_action_paths]"
+    },
+    {
+      "label": "M4 require_nonzero accepts an empty population -- the exact fail-open CLAUDE.md A7 names, restored",
+      "file": "tools/spa_population.py",
+      "old": "    assert selected, (\n        \"%s: the selected SPA population is EMPTY. A scan over nothing \"\n        \"reports no offenders and proves nothing -- this is UNKNOWN, not a \"\n        \"pass. Check that frontend/src is present and that the population \"\n        \"rule has not widened to exclude every file.\" % (where,)\n    )\n    return len(selected)",
+      "new": "    return len(selected)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_spa_scanner_populations.py::test_an_empty_population_is_unknown_not_a_pass"
+    },
+    {
+      "label": "M5 the all-source JSX lint returns silently on a missing tree again -- a gate that cannot see its subject reporting OK",
+      "file": "tests/test_no_raw_unicode_escape_in_jsx.py",
+      "old": "    assert _SRC.is_dir(), (\n        \"the SPA source tree is missing at %s, so this gate scanned NOTHING. \"\n        \"A lint over an empty population reports no offenders and proves \"\n        \"nothing -- that is UNKNOWN, not a pass.\" % (_SRC,))",
+      "new": "    if not _SRC.is_dir():\n        return",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1223_spa_scanner_populations.py::test_the_all_source_site_fails_closed_on_a_missing_tree"
+    }
+  ]
+}

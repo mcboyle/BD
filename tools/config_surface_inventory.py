@@ -26,6 +26,8 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent
 sys.path.insert(0, str(_HERE))
+import spa_population  # noqa: E402  (needs the sys.path insert above)
+
 try:
     import report_core as _RC  # type: ignore
 except Exception:  # noqa: BLE001
@@ -457,15 +459,14 @@ def _global_config_note(root=None):
     except Exception:  # noqa: BLE001
         return []
 
+    # POPULATION: PRODUCT-ONLY. `exposed` is DERIVED from "does a control
+    # reference this key", so anything inside this scan can vouch for a GUI
+    # control existing. A Vitest spec naming a key is not a control -- that is
+    # the laundering v3.66.1217 closed in tools/gui_parity_inventory.py, and
+    # this is the same defect in a second inventory. See tools/spa_population.py.
     fe = ""
     if root:
-        fedir = Path(root) / "frontend" / "src"
-        if fedir.is_dir():
-            for q in fedir.rglob("*.ts*"):
-                try:
-                    fe += open(q, encoding="utf-8", errors="replace").read()
-                except OSError:
-                    continue
+        fe = spa_population.product_text(Path(root) / "frontend" / "src")
 
     items = []
     # v3.66.720: global_config keys that are DEPLOY/BOOT-time, not runtime-tunable. A GUI

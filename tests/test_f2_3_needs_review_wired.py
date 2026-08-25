@@ -57,6 +57,10 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+if str(REPO / "tools") not in sys.path:
+    sys.path.insert(0, str(REPO / "tools"))
+
+import spa_population  # noqa: E402  (needs the sys.path insert above)
 
 pytestmark = pytest.mark.bd_module_wipe
 
@@ -163,19 +167,34 @@ def test_needsreview_route_registered():
 
 # ── GREEN guardrails ─────────────────────────────────────────────────
 
+_ACTION_FETCH_RE = re.compile(
+    r"fetch\([^;]{0,400}?(bulk_approve|retry_one|jobs/mark)"
+    r"[^;]{0,400}?method:\s*[\"'](POST|PUT|PATCH|DELETE)[\"']",
+    re.S,
+)
+
+
 def test_no_raw_mutating_fetch_to_action_paths():
     """The three action POSTs must ride apiPost (which injects
     X-CSRF-Token), never a raw fetch() — a raw mutating fetch to these paths
-    would 403 on a real cookie session and route around the wrapper. Scans
-    all of frontend/src for a mutating fetch() naming any action path."""
-    pat = re.compile(
-        r"fetch\([^;]{0,400}?(bulk_approve|retry_one|jobs/mark)"
-        r"[^;]{0,400}?method:\s*[\"'](POST|PUT|PATCH|DELETE)[\"']",
-        re.S,
-    )
+    would 403 on a real cookie session and route around the wrapper.
+
+    POPULATION: PRODUCT-ONLY (row 232). This asks about DEPLOYED behaviour --
+    what ships to a browser -- and a Vitest spec never ships: it stubs global
+    fetch and asserts against the stub, so a raw mutating fetch inside one is a
+    NEGATIVE CONTROL, not a vulnerability. That exact shape broke CI on a
+    correct cut at v3.66.1218 for the sibling scanner in test_t5_t6_wired.py;
+    this file carried the identical defect, unfixed, until row 232.
+    require_both_halves keeps the narrowing honest -- an empty product half
+    would report no offenders and pass over anything at all."""
+    src_dir = SPA
+    selected, excluded = spa_population.select(src_dir)
+    spa_population.require_both_halves(
+        selected, excluded, "test_no_raw_mutating_fetch_to_action_paths")
     offenders = []
-    for f in SPA.rglob("*.ts*"):
-        if pat.search(f.read_text(encoding="utf-8", errors="replace")):
+    for rel in selected:
+        f = src_dir / rel
+        if _ACTION_FETCH_RE.search(f.read_text(encoding="utf-8", errors="replace")):
             offenders.append(str(f.relative_to(REPO)))
     assert not offenders, (
         "raw state-changing fetch() to an action path (must use apiPost): "

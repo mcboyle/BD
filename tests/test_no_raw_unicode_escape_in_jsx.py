@@ -35,10 +35,26 @@ def _strip_strings(line: str) -> str:
 
 
 def test_no_raw_unicode_escape_in_jsx_text():
-    if not _SRC.is_dir():
-        return  # frontend tree not present in this checkout
+    # POPULATION: ALL-SOURCE, deliberately (row 232). React renders a raw
+    # \uXXXX in a JSX TEXT node as eight literal characters wherever it renders
+    # it -- in the browser and inside a spec's jsdom alike -- so BOTH are
+    # defects and neither is a fixture vouching for the other. This is the same
+    # judgement that leaves test_t5_t6_wired.py's /api/auth_surface scan
+    # repo-wide: a spec naming a dead route is also a defect.
+    #
+    # THE DEFECT ROW 232 FIXES HERE IS THE OTHER ONE. `if not _SRC.is_dir():
+    # return` was a SILENT PASS -- a gate that cannot see its subject reported
+    # OK. CLAUDE.md A7: unavailable measurement is UNKNOWN, never OK.
+    assert _SRC.is_dir(), (
+        "the SPA source tree is missing at %s, so this gate scanned NOTHING. "
+        "A lint over an empty population reports no offenders and proves "
+        "nothing -- that is UNKNOWN, not a pass." % (_SRC,))
+    files = sorted(_SRC.rglob("*.tsx"))
+    assert files, (
+        "no .tsx files under %s; the population is empty and this gate's "
+        "verdict is vacuous" % (_SRC,))
     offenders = []
-    for fp in sorted(_SRC.rglob("*.tsx")):
+    for fp in files:
         for n, line in enumerate(fp.read_text(encoding="utf-8").splitlines(), 1):
             outside = _strip_strings(line)
             if _BACKSLASH_U_RE.search(outside):
