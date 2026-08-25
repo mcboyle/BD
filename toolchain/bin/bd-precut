@@ -214,6 +214,58 @@ def main(argv=None):
         unknown.append("core tool integrity (bd-coretest not found)")
 
     print()
+    # N. THE GATES bd-band-derive DOES NOT DERIVE.
+    #
+    # WHY THIS CHECK EXISTS, and it is not four checks but one. Between
+    # v3.66.1223 and v3.66.1238 the same integrator shipped four separate
+    # defects that a gate ALREADY IN THIS TREE would have caught -- a mutation
+    # anchor that resolved zero or two times (four times over), a subprocess
+    # budget of 600s inside a 240s bound, and a subprocess inheriting the
+    # ambient LC_ALL. None was a missing gate. Every one was a gate that exists
+    # and did not RUN, because `bd-band-derive` derives an affected band from
+    # CHANGED PATHS and these four judge the TREE, so no diff ever reaches them.
+    # Two were caught by GitHub CI after a push, each costing a re-run and a
+    # force-push; the other two were caught by a battery that only ran because
+    # someone remembered.
+    #
+    # A floor is not a ceiling (CLAUDE.md A5). This is the part of the ceiling
+    # that is mechanical, so it belongs in a tool rather than in a habit.
+    _UNDERIVED_GATES = [
+        ("tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+         "every tracked mutant anchor occurs exactly once"),
+        ("tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
+         "no inner budget is at or above the bound governing its item"),
+        ("tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
+         "an env-inheriting subprocess pins LC_ALL"),
+        ("tests/test_import_graph_no_new_edges.py",
+         "no undeclared import edge"),
+    ]
+    present = [(rel, why) for rel, why in _UNDERIVED_GATES
+               if os.path.isfile(os.path.join(root, rel))]
+    if not present:
+        unknown.append("underived gates (none of the four are present in this tree)")
+    else:
+        # ASSERT THE POPULATION BEFORE THE VERDICT. A list that silently shrank
+        # to one would still print a green line, which is the shape these gates
+        # exist to refuse.
+        if len(present) < len(_UNDERIVED_GATES):
+            missing = [rel for rel, _ in _UNDERIVED_GATES
+                       if not os.path.isfile(os.path.join(root, rel))]
+            unknown.append("underived gates: %d of %d absent (%s)"
+                           % (len(missing), len(_UNDERIVED_GATES), ", ".join(missing)))
+        env = dict(os.environ)
+        env.pop("BD_INSTALL_DIR", None)          # A5: pop, do not merely omit
+        env["BD_DISABLE_KEEPALIVE"] = "1"
+        rc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-p", "no:randomly",
+             "--timeout=240", "--timeout-method=signal"] + [r for r, _ in present],
+            cwd=root, env=env, timeout=1800).returncode
+        if rc != 0:
+            blocking.append(
+                "underived gate(s) FAILED -- these judge the whole tree, so "
+                "bd-band-derive never selects them and a green band says "
+                "nothing about them: " + "; ".join(w for _, w in present))
+
     if blocking:
         print("RESULT: NOT CUT-READY -- " + "; ".join(blocking))
         return 3 if a.gate else 0   # only BLOCK (non-zero) in --gate mode
