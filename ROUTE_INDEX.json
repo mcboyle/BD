@@ -5,7 +5,7 @@
   "note": "DO NOT EDIT BY HAND — tests/test_route_index_in_sync.py fails the build. Regenerate: python tools/build_route_index.py. `line` is informational (not equality-gated).",
   "counts": {
     "total": 1013,
-    "spa_wired": 442,
+    "spa_wired": 443,
     "api": 981,
     "page": 32,
     "csrf": 401,
@@ -10043,7 +10043,7 @@
       "file": "bulk_downloader/app_supervisor.py",
       "line": 32,
       "csrf": false,
-      "spa_wired": false,
+      "spa_wired": true,
       "operator_facing": true,
       "kind": "api",
       "in_parity": true

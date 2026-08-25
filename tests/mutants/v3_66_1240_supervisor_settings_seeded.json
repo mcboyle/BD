@@ -1,0 +1,102 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 240 / v3.66.1240. bd-mutate refuses a work tree inside its own repository, so re-run from a DETACHED clone -- and that clone needs frontend/node_modules or the fail-closed Vitest bridge makes every baseline red and the battery exits 2 (no verdict, which must never read as success). The node_modules must be hard-linked FROM THE REAL FRONTEND, not through a worktree's symlink, or the clone gets a copy of the symlink: git clone --no-local <candidate> /tmp/row240-clone && cp -al /home/mboyle/BulkDownloader/frontend/node_modules /tmp/row240-clone/frontend/node_modules && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1240_supervisor_settings_seeded.json --work /tmp/row240-clone --timeout 900. KNOWN TOOL DEFECT this battery works around: bd-mutate's _validate has no handler for .tsx ('unknown type: not our place to guess'), and a regression scores CAUGHT on 'named catcher failed' alone -- so a mutant that merely broke the TRANSFORM would read CAUGHT. Every regression below was therefore confirmed to fail on an expect() ASSERTION in the Vitest output, and a TRANSFORM CONTROL was run: M1 re-pointed at test_1240_supervisor_section_still_mounts_and_is_confirm_gated -- a spec that renders and drives the same mutated module without asserting this behaviour -- must ESCAPE, which proves the catchers discriminate on behaviour and not on compilability.",
+  "subject": "v3.66.1240 -- the Settings supervisor throttle form SEEDS enabled / global_bps / per_site_bps from GET /api/supervisor/status (a consumer that did not exist anywhere in the SPA before this cut) so an untouched Apply can no longer POST the component's own defaults over every live byte-rate limit; and a DELIBERATELY cleared field still sends 0 and {}, so 'cleared on purpose' stays distinguishable from 'never typed'",
+  "band": [
+    "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_every_pinned_spec_exists_and_the_pin_is_nonzero",
+    "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply",
+    "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_fields_are_seeded_from_get",
+    "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_section_still_mounts_and_is_confirm_gated"
+  ],
+  "mutants": [
+    {
+      "label": "M1 THE DEFECT ITSELF, restored on the global cap: global_bps stops being seeded, so an operator who opens Settings for another reason and presses Apply POSTs global_bps:0 and uncaps the whole downloader. The server lookup survives as a trailing comment, so any scan for the property path still passes",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "    supGlobalBpsEdit ?? String(supServerConfig?.global_bps ?? 0);",
+      "new": "    supGlobalBpsEdit ?? \"0\"; // String(supServerConfig?.global_bps ?? 0)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply"
+    },
+    {
+      "label": "M2 THE EVASION A PRELOADED CACHE CANNOT SEE: the seed becomes a useState INITIALIZER, which runs on the first render only. Every preloaded-cache assertion still passes; in the real app the fetch resolves AFTER mount, the initializer observes undefined, and the operator's cap is reset exactly as before. Caught only by the async-arrival case",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "  const supGlobalBps =\n    supGlobalBpsEdit ?? String(supServerConfig?.global_bps ?? 0);",
+      "new": "  const [supGlobalBpsSeed] = useState(\n    String(supServerConfig?.global_bps ?? 0));\n  const supGlobalBps = supGlobalBpsEdit ?? supGlobalBpsSeed;",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_fields_are_seeded_from_get"
+    },
+    {
+      "label": "M3 the ENABLED flag stops being seeded, so an operator who adjusts only the caps silently switches the whole throttle OFF. The same erasure on the master switch rather than on a number",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "  const supEnabled = supEnabledEdit ?? supStatus.data?.stats?.enabled ?? false;",
+      "new": "  const supEnabled = supEnabledEdit ?? false; // supStatus.data?.stats?.enabled",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply"
+    },
+    {
+      "label": "M4 the PER-SITE map stops being seeded, so every per-site override is dropped on the next Apply. The third field of the same shape; a fix aimed only at the two scalars would leave it live",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "  const supPerSiteJson = supPerSiteJsonEdit ?? supPerSiteServerJson;",
+      "new": "  const supPerSiteJson = supPerSiteJsonEdit ?? \"\"; // supPerSiteServerJson",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply"
+    },
+    {
+      "label": "M5 THE WIRING ITSELF IS FAKED: the query is still declared, still cached, still typed -- but its queryFn stops touching the endpoint and resolves the unavailable payload instead. Every source scan for the /api/supervisor/status literal still matches, because the literal is still in the queryKey comment; only a runtime observation of the transport can see it. This is the shape the row's own complication warns about, since the endpoint had no consumer at all before this cut",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "    queryFn: ({ signal }) =>\n      apiGet<SupervisorStatus>(\"/api/supervisor/status\", signal),",
+      "new": "    queryFn: async () => ({ ok: false }) as SupervisorStatus,\n    // apiGet<SupervisorStatus>(\"/api/supervisor/status\", signal),",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply"
+    },
+    {
+      "label": "M6 the post-apply INVALIDATION is dropped, so the cached status keeps a snapshot that predates the operator's own write and the next mount seeds from it. A stale seed is the same defect one refetch later",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "        qc.invalidateQueries({ queryKey: [\"supervisor\", \"status\"] });",
+      "new": "        void qc; // qc.invalidateQueries({ queryKey: [\"supervisor\", \"status\"] });",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply"
+    },
+    {
+      "label": "M7 the EMPTY-MAP special case is dropped, so a server with no per-site overrides seeds the textarea with the literal {} instead of leaving it blank. Harmless-looking, and it is how a seeding rule starts writing values the operator never saw; the unavailable payload is where it shows",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "  const supPerSiteServerJson =\n    supServerConfig?.per_site_bps &&\n    Object.keys(supServerConfig.per_site_bps).length > 0\n      ? JSON.stringify(supServerConfig.per_site_bps)\n      : \"\";",
+      "new": "  const supPerSiteServerJson = JSON.stringify(\n    supServerConfig?.per_site_bps ?? {});",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_fields_are_seeded_from_get"
+    },
+    {
+      "label": "M8 OVER-CORRECTION: inclusion is guarded the way a write-only SECRET is guarded, so an emptied field is omitted from the patch and the operator can never REMOVE a cap from the UI. Every preservation test above still passes -- a battery that only ever tightened would consent to this. The named control is the deliberate-clear case; the preserved nodeid never reads or writes these three values",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "        enabled: supEnabled,\n        global_bps: Math.max(0, parseInt(supGlobalBps, 10) || 0),\n        per_site_bps: supPerSiteParsed,",
+      "new": "        enabled: supEnabled,\n        ...(Math.max(0, parseInt(supGlobalBps, 10) || 0) > 0\n          ? { global_bps: Math.max(0, parseInt(supGlobalBps, 10) || 0) }\n          : {}),\n        ...(Object.keys(supPerSiteParsed).length > 0\n          ? { per_site_bps: supPerSiteParsed }\n          : {}),",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply",
+      "preserves": [
+        "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_section_still_mounts_and_is_confirm_gated"
+      ]
+    },
+    {
+      "label": "M9 OVER-CORRECTION IN THE OTHER DIRECTION, on the per-site map: the seed WINS over the operator's edit, so the textarea is effectively read-only -- typing and clearing both do nothing and the stored overrides can never be changed. This is the shape a useEffect re-seed degenerates into on every background refetch. The preserved nodeid does not read this value",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "  const supPerSiteJson = supPerSiteJsonEdit ?? supPerSiteServerJson;",
+      "new": "  const supPerSiteJson = supPerSiteServerJson ?? supPerSiteJsonEdit;",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply",
+      "preserves": [
+        "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_section_still_mounts_and_is_confirm_gated"
+      ]
+    },
+    {
+      "label": "M10 OVER-CORRECTION on the ENABLED flag: the server value wins over the operator's toggle, so the master switch cannot be moved at all -- the throttle can be neither armed nor disarmed from the UI. Same degeneration as M9 on the control where it matters most",
+      "file": "frontend/src/routes/Settings.tsx",
+      "old": "  const supEnabled = supEnabledEdit ?? supStatus.data?.stats?.enabled ?? false;",
+      "new": "  const supEnabled = supStatus.data?.stats?.enabled ?? supEnabledEdit ?? false;",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_limits_survive_an_untouched_apply",
+      "preserves": [
+        "tests/test_v3_66_1240_supervisor_settings_seeded.py::test_1240_supervisor_section_still_mounts_and_is_confirm_gated"
+      ]
+    }
+  ]
+}

@@ -83,6 +83,27 @@ interface GlobalConfigOrigins {
   fields: Record<string, OriginDesc>;
 }
 
+// GET /api/supervisor/status, shape READ FROM THE SERVER rather than assumed:
+// bulk_downloader/app_supervisor.py:32-39 returns {ok:false, error} with NO
+// stats key when the supervisor is unavailable, and otherwise {ok:true, stats}
+// where stats is download_supervisor._SupervisorState.stats() --
+// {enabled, global:{...}, per_site:{...}, config:{global_bps, per_site_bps}}.
+// The live LIMITS the form owns are the two under `config`; the sibling
+// `global`/`per_site` keys are token-bucket counters and are not settings, so
+// they are deliberately not modelled here. Every level is optional because the
+// unavailable payload really does omit them.
+interface SupervisorStatus {
+  ok: boolean;
+  error?: string;
+  stats?: {
+    enabled?: boolean;
+    config?: {
+      global_bps?: number;
+      per_site_bps?: Record<string, number>;
+    };
+  };
+}
+
 const SETTINGS_SECTIONS: { label: string; id: string }[] = [
   { label: "Downloads", id: "downloads" },
   { label: "AI assist", id: "ai-assist" },
@@ -363,9 +384,47 @@ export function Settings() {
   // global_config rate caps above (request concurrency / per-second) — this is
   // the byte/sec throttle. It mutates live throttle state, so it is gated with
   // a typed confirm rather than the page's one-click Save.
-  const [supEnabled, setSupEnabled] = useState(false);
-  const [supGlobalBps, setSupGlobalBps] = useState("0");
-  const [supPerSiteJson, setSupPerSiteJson] = useState("");
+  //
+  // v3.66.1240 / backlog row 240: THE FORM SHOWS WHAT IT IS ABOUT TO SEND.
+  // These three fields ride the configure POST UNCONDITIONALLY -- the .trim()
+  // guard below gates PARSING, not inclusion -- so while they sat in
+  // useState(<constant>) with no GET behind them at all, an operator who opened
+  // the page and pressed Apply without touching anything POSTed
+  // {enabled:false, global_bps:0, per_site_bps:{}} and silently reset every
+  // live limit. The SPA had no consumer of GET /api/supervisor/status
+  // whatsoever, so there was nothing to seed from; this query is that consumer.
+  //
+  // NULL SENTINEL, deliberately NOT useState(server) and NOT useEffect(setX).
+  // useState's initializer runs on the FIRST render only -- before the fetch
+  // resolves -- so it would observe undefined and keep the constant in the real
+  // app. A useEffect seed would clobber an in-progress edit on every refetch.
+  // `edit ?? server ?? default` needs neither: null means "the operator has not
+  // touched this field", and any NON-null edit wins -- including "" and an
+  // explicit false -- so "cleared on purpose" stays distinguishable from "never
+  // typed" BY CONSTRUCTION rather than by a dirty flag someone can forget.
+  const supStatus = useQuery<SupervisorStatus>({
+    queryKey: ["supervisor", "status"],
+    queryFn: ({ signal }) =>
+      apiGet<SupervisorStatus>("/api/supervisor/status", signal),
+    refetchOnWindowFocus: false,
+  });
+  const supServerConfig = supStatus.data?.stats?.config;
+  const [supEnabledEdit, setSupEnabledEdit] = useState<boolean | null>(null);
+  const [supGlobalBpsEdit, setSupGlobalBpsEdit] = useState<string | null>(null);
+  const [supPerSiteJsonEdit, setSupPerSiteJsonEdit] = useState<string | null>(
+    null,
+  );
+  const supEnabled = supEnabledEdit ?? supStatus.data?.stats?.enabled ?? false;
+  const supGlobalBps =
+    supGlobalBpsEdit ?? String(supServerConfig?.global_bps ?? 0);
+  // An EMPTY server map seeds "" rather than "{}" so the textarea keeps its
+  // placeholder; both spellings parse to the same {} through the guard below.
+  const supPerSiteServerJson =
+    supServerConfig?.per_site_bps &&
+    Object.keys(supServerConfig.per_site_bps).length > 0
+      ? JSON.stringify(supServerConfig.per_site_bps)
+      : "";
+  const supPerSiteJson = supPerSiteJsonEdit ?? supPerSiteServerJson;
   const [supConfirm, setSupConfirm] = useState(false);
   // v3.66.711 (A-GUI Cut 3): the kill switch is ARM-CONFIRMED. It dominates every
   // other autonomy toggle, so it must not be flippable by a stray click. Two steps:
@@ -406,8 +465,13 @@ export function Settings() {
         per_site_bps: supPerSiteParsed,
       }),
     onSuccess: (res) => {
-      if (res.ok) toast.success("Supervisor limits applied");
-      else toast.error(res.error ?? "Apply failed");
+      if (res.ok) {
+        toast.success("Supervisor limits applied");
+        // The cached status is now stale by construction -- the POST is what
+        // changed the live limits. Without this the next mount of this page
+        // seeds from a payload that predates the operator's own apply.
+        qc.invalidateQueries({ queryKey: ["supervisor", "status"] });
+      } else toast.error(res.error ?? "Apply failed");
     },
     onError: (err) => toast.error(`Apply failed: ${err.message}`),
   });
@@ -1238,7 +1302,7 @@ export function Settings() {
               control={
                 <Switch
                   checked={supEnabled}
-                  onChange={setSupEnabled}
+                  onChange={setSupEnabledEdit}
                   ariaLabel="Supervisor throttle enabled"
                 />
               }
@@ -1251,7 +1315,7 @@ export function Settings() {
                   type="number"
                   min={0}
                   value={supGlobalBps}
-                  onChange={(e) => setSupGlobalBps(e.target.value)}
+                  onChange={(e) => setSupGlobalBpsEdit(e.target.value)}
                   className="w-32 text-right tabular"
                 />
               }
@@ -1265,7 +1329,7 @@ export function Settings() {
                   <textarea
                     className="h-20 w-full rounded border border-input bg-background p-2 font-mono text-xs"
                     value={supPerSiteJson}
-                    onChange={(e) => setSupPerSiteJson(e.target.value)}
+                    onChange={(e) => setSupPerSiteJsonEdit(e.target.value)}
                     placeholder='{"example": 500000}'
                     aria-label="Per-site bytes per second JSON"
                   />
