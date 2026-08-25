@@ -4,6 +4,89 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1223 - every bd-jobs remote stage now waits under a bound
+
+- ALL FIVE SYNCHRONOUS OpenSSH STAGES COULD WEDGE THE CALLER FOREVER. The
+  installed-tool probe, registry preparation, authenticated launch, copied-script
+  identity capture, and identity-bound cleanup all passed `ConnectTimeout=15` and
+  NO post-connect deadline. ConnectTimeout bounds "the host never answered"; it
+  says nothing about a session that CONNECTS and then goes silent. That is the
+  same shape as the xdist drain livelock this repository spent 2026-08-24
+  dissecting, and the fifth appearance of the unbounded wait in three days
+  (backlog row 217).
+- ONE TOTAL BUDGET, NOT FIVE. `_RemoteDeadline` is created once in `cmd_run` and
+  threaded through every stage. Five independent 60s stage timeouts would have
+  been a 300s worst case nobody declared, and a sixth stage added later would
+  have silently extended it. 180s total with a 20s settlement reserve held back
+  so the last stage can still reap what it started -- a deadline that leaves
+  nothing for cleanup produces exactly the orphan it was added to prevent.
+- THE DEADLINE READS NO CLOCK UNTIL A STAGE RUNS. Reading `time.monotonic()` in
+  `__init__` consumed a tick, and this tool's own tests drive tuned fake clocks
+  (`iter([0.0, 0.0, 11.0])` in
+  `test_scp_timeout_with_a_surviving_group_is_unknown_and_names_ownership`), so
+  the extra reading shifted every later measurement and changed what those tests
+  observed. An instrument that perturbs what it measures is the defect this tool
+  spends its time catching elsewhere; it cost one debugging cycle here and is now
+  pinned by a test.
+- A SPENT BUDGET REFUSES TO START A STAGE rather than starting it and bounding it
+  out immediately, which would produce a side effect nobody can describe.
+- TIMEOUT DOES NOT MEAN THE SAME THING AT EVERY STAGE. `_run_remote` carries a
+  PHASE. Before anything is copied or launched, a bound may refuse (exit 124).
+  After the copy, after a possible launch, and during identity capture and
+  cleanup it is UNKNOWN: the request id, status nonce, attempt token, remote
+  script, and captured identity survive, and no pathname is deleted. A launch
+  timeout is routed INTO the existing `status is None` branch rather than given a
+  second vocabulary, because one fact with two names reads as two situations.
+- CANCELLATION IDENTITY IS PRESERVED. The exact first `BaseException` propagates;
+  retained state and unproven process-group cleanup ride on it as notes.
+- THE FAKE ssh CONNECTS BEFORE IT STALLS, and every arm asserts the connection
+  marker exists. A fake that merely hung would have been caught by the EXISTING
+  ConnectTimeout and proved nothing about the new bound. It stalls for 30s rather
+  than 600s so that a mutant DELETING the deadline fails this module's own
+  assertion instead of being killed by the 240s item timeout -- a different
+  instrument reporting a different fact.
+- THE ORPHAN CENSUS MATCHES AN ABSOLUTE PATH, not the words "ssh" and "sleep". A
+  substring match caught the test's OWN pytest and shell command lines. That is
+  the third self-matching instrument in two days, after a `pkill -f` that killed
+  its own monitor; an instrument that cannot tell its subject from itself is the
+  same defect class as everything else in this stretch.
+- THE TEST SEAM MOVED, AND THE Popen BANS DID NOT. 14 sites in
+  `tests/test_v3_66_1040_remote_job_registry.py` now stub `_run_remote` instead
+  of reaching past it. The bans on raw `Popen` stay live, so a stage that reverts
+  to an unbounded call is still refused. 364 tests pass there.
+- A STRUCTURAL FLOOR pins that no `_ssh_argv` call reaches `subprocess.run`, and
+  that the funnel has its definition plus five call sites. It is scoped to the
+  ssh argv builder so the tool's bounded LOCAL subprocess calls are not swept up
+  by a ban they were never part of.
+- Row 217 CLOSES. It was the successor to row 212's explicitly declared Live
+  OpenSSH blind spot; row 212 is not reopened.
+- ADDING THE FUNNEL BROKE A TRACKED BATTERY, AND THAT IS THE USEFUL PART.
+  `_run_remote` is shaped like the existing `_run_scp`, so seven anchors in
+  `tests/mutants/v3_66_1207_jobs_registration.json` went from occurring ONCE to
+  occurring TWICE and an eighth went to ZERO. bd-mutate's exactly-once contract
+  refused the battery rather than silently scoring the wrong function -- which is
+  what that contract is for. All eight were re-anchored on scp-specific context
+  and re-proved: 8 caught, 0 escaped, over a band narrowed to their four
+  catchers. The battery was not shrunk to fit.
+- WHAT THAT LEAVES OPEN IS FILED, NOT FIXED HERE. bd-jobs now has TWO owned
+  transport funnels. Re-anchoring restored the gate but not the property: the
+  next edit to either function can diverge them, and the widened anchors now
+  depend on scp-only error strings. Folding `_run_scp` into `_run_remote` is not
+  a pure refactor -- it uses a fixed per-call budget rather than the shared
+  deadline, and its operator-facing strings are asserted verbatim across
+  `tests/test_v3_66_1040_remote_job_registry.py` -- so it is NEW BACKLOG ROW 235
+  with its acceptance criteria written down, rather than a second feature folded
+  into this cut (CLAUDE.md A3).
+- MEASURED DURING THIS CUT, NOT CAUSED BY IT: the affected band failed 5 of 1664
+  in `tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py`, four with
+  `TimeoutExpired ... after 7 seconds`. A matched-environment experiment --
+  the same nodeids, serially, alternating candidate and pre-cut base d6d8fa8,
+  two interleaved rounds -- fails IDENTICALLY on the base (1 failed in both
+  rounds) and passed clean on the candidate in round 2. That is backlog row 230
+  reproducing, at load 2.4 on a 48-core box. A SEVEN-SECOND budget is not merely
+  near the 240s bound; it is tight enough to fire on correct work. Row 230's
+  remainder therefore has to clear two hazards, not one.
+
 ## v3.66.1222 - every budget in tests/ is subordinate to the bound governing it
 
 - THE SECOND FAILURE OF THE 2026-08-24 WEDGE IS FIXED, AND IT WAS NEVER A HANG.
