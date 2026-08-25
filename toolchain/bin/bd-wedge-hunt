@@ -1609,6 +1609,37 @@ PYTEST_PID=""
 # registration_begin_cleanup_deadline is the discriminator: every one of its
 # call sites is a settlement path, and every forward phase still reads
 # W1_GATE_SECONDS.
+#
+# W1_OWNER_OBSERVATION_SECONDS is the SAME defect one level down, and
+# v3.66.1241 is where it was measured rather than argued. Every owner
+# OBSERVATION -- the fd observer, the process observer, the group observer
+# and the descendant census owner_collect runs after every owned helper --
+# was spawned under `timeout` with WHAT REMAINS of the active forward
+# deadline. That is one key describing two costs again: the forward
+# deadline answers "how long to wait for a gate that never comes", where
+# expiry is the SUBJECT, and the same number was answering "how long may a
+# helper take to ANSWER A QUESTION", where expiry is a FALSE VERDICT --
+# UNKNOWN, and then a correct run settles into retained uncertainty. The
+# trailing census is the worst case because it runs at the END of a phase,
+# so its share of the remainder is whatever the phase did not spend, and a
+# caller driving the forward deadline to 3s left observers about 1.5s --
+# caught live as `timeout --kill-after=0.100000 1.510000 python3 -c ...`.
+# THE FLOOR IS DERIVED, NOT CHOSEN. One complete observation spawn --
+# coproc python3 timeout-owner, OWNER-READY handshake, timeout(1), the
+# python3 group probe and the owner wait -- measured 0.2900s median (max
+# 0.3400s, n=30) on an idle-ish test5 at 1098 processes and 0.3000s median
+# (max 0.3600s, n=24) under twelve procfs-walking contention generators at
+# 1217 processes and load 8.65. Two-sided:
+#   floor    3 >= 0.3000 x 6.0 = 1.80   (the 6.0 contention stretch
+#            v3.66.1226 measured for this module), and 3 > the 1.51s
+#            remainder that demonstrably produced a false UNKNOWN;
+#   ceiling  3 <= W1_CLEANUP_RESERVE_SECONDS(20) - W1_CLEANUP_SECONDS(15),
+#            so an observation that runs its full floor past the forward
+#            boundary still leaves settlement its whole declared budget.
+# The LIFECYCLE cap stays absolute: registration_remaining_observation
+# _timeout never returns a deadline beyond W1_LIFECYCLE_DEADLINE_US, so a
+# short total cap still caps observations. The floor is what a caller
+# drives when the observation's expiry really is its subject.
 W1_READY_SECONDS=10
 W1_GATE_SECONDS=10
 W1_CLEANUP_SECONDS=15
@@ -1618,6 +1649,7 @@ W1_TOTAL_SECONDS=70
 W1_CLEANUP_RESERVE_SECONDS=20
 W1_OWNER_KILL_GRACE_US=100000
 W1_OWNER_CENSUS_RESERVE_US=1000000
+W1_OWNER_OBSERVATION_SECONDS=3
 W1_CANCEL_STATUS=0
 W1_RELEASE_CLOSED=0
 W1_STATUS_CLOSED=0
@@ -1729,7 +1761,8 @@ registration_authority_fd_observation() {{
     local W1_FD_OUT="$RUNDIR/registration-$W1_FD_ROLE-fd-observer.out"
     local W1_FD_ERR="$RUNDIR/registration-$W1_FD_ROLE-fd-observer.err"
     local -a W1_FD_ROWS=()
-    registration_owner_run "$W1_FD_ROLE-fd-observer" "$W1_FD_OUT" \
+    registration_owner_run --observation \
+        "$W1_FD_ROLE-fd-observer" "$W1_FD_OUT" \
         "$W1_FD_ERR" python3 -c {registration_probe} fds \
         "$W1_FD_PID" "$W1_FD_EXPECTED" || return 1
     [ "$W1_OWNER_STATUS" -eq 0 ] || return 1
@@ -1745,7 +1778,7 @@ registration_process_observation() {{
     local W1_OBSERVER_ERR="$RUNDIR/registration-process-observer.err"
     local W1_OBSERVER_ROWS=()
     W1_PROCESS_OBSERVATION=UNKNOWN
-    registration_owner_run process-observer "$W1_OBSERVER_OUT" \
+    registration_owner_run --observation process-observer "$W1_OBSERVER_OUT" \
         "$W1_OBSERVER_ERR" bash -c 'python3 "$@"' _ \
         -c {registration_probe} process "$PYTEST_PID" \
         "/proc/$PYTEST_PID/stat" || return 1
@@ -1763,7 +1796,7 @@ registration_group_observation() {{
     local W1_OBSERVER_ERR="$RUNDIR/registration-group-observer.err"
     local W1_OBSERVER_ROWS=()
     W1_GROUP_OBSERVATION=UNKNOWN
-    registration_owner_run group-observer "$W1_OBSERVER_OUT" \
+    registration_owner_run --observation group-observer "$W1_OBSERVER_OUT" \
         "$W1_OBSERVER_ERR" bash -c 'python3 "$@"' _ \
         -c {registration_probe} group "$PYTEST_PGID" /proc || return 1
     [ "$W1_OWNER_STATUS" -eq 0 ] || return 1
@@ -1860,6 +1893,36 @@ registration_remaining_owner_timeout() {{
         - W1_ADDITIONAL_RESERVE_US))
     printf -v W1_OWNER_TIMEOUT '%d.%06d' \
         $((W1_OWNER_US / 1000000)) $((W1_OWNER_US % 1000000))
+    printf -v W1_OWNER_KILL_AFTER '%d.%06d' \
+        $((W1_OWNER_KILL_GRACE_US / 1000000)) \
+        $((W1_OWNER_KILL_GRACE_US % 1000000))
+}}
+
+registration_remaining_observation_timeout() {{
+    # An OBSERVATION is a question, not a wait. Its bound must not be
+    # whatever the forward phase happened to leave behind.
+    local W1_OBSERVATION_RESERVE_US="${{1:-0}}"
+    local W1_OBSERVATION_FLOOR_US W1_OBSERVATION_LIMIT_US W1_OBSERVATION_US
+    [[ "$W1_OWNER_OBSERVATION_SECONDS" =~ ^[0-9]+$ ]] || return 1
+    [[ "$W1_OWNER_KILL_GRACE_US" =~ ^[0-9]+$ ]] || return 1
+    [ "$W1_OWNER_KILL_GRACE_US" -gt 0 ] || return 1
+    [[ "$W1_OBSERVATION_RESERVE_US" =~ ^[0-9]+$ ]] || return 1
+    [ "$W1_LIFECYCLE_INITIALIZED" -eq 1 ] || return 1
+    registration_now_us || return 1
+    W1_OBSERVATION_FLOOR_US=$((W1_OWNER_OBSERVATION_SECONDS * 1000000))
+    W1_OBSERVATION_US=$((W1_ACTIVE_DEADLINE_US - W1_NOW_US \
+        - W1_OWNER_KILL_GRACE_US - W1_OBSERVATION_RESERVE_US))
+    if [ "$W1_OBSERVATION_US" -lt "$W1_OBSERVATION_FLOOR_US" ]; then
+        W1_OBSERVATION_US="$W1_OBSERVATION_FLOOR_US"
+    fi
+    W1_OBSERVATION_LIMIT_US=$((W1_LIFECYCLE_DEADLINE_US - W1_NOW_US \
+        - W1_OWNER_KILL_GRACE_US))
+    if [ "$W1_OBSERVATION_US" -gt "$W1_OBSERVATION_LIMIT_US" ]; then
+        W1_OBSERVATION_US="$W1_OBSERVATION_LIMIT_US"
+    fi
+    [ "$W1_OBSERVATION_US" -gt 0 ] || return 1
+    printf -v W1_OWNER_TIMEOUT '%d.%06d' \
+        $((W1_OBSERVATION_US / 1000000)) $((W1_OBSERVATION_US % 1000000))
     printf -v W1_OWNER_KILL_AFTER '%d.%06d' \
         $((W1_OWNER_KILL_GRACE_US / 1000000)) \
         $((W1_OWNER_KILL_GRACE_US % 1000000))
@@ -2061,6 +2124,11 @@ registration_promote_spawn_group_receipt() {{
 }}
 
 registration_owner_spawn() {{
+    local W1_SPAWN_OBSERVATION=0
+    while [ "${{1:-}}" = --observation ]; do
+        W1_SPAWN_OBSERVATION=1
+        shift
+    done
     local W1_SPAWN_ROLE="$1" W1_SPAWN_OUT="$2" W1_SPAWN_ERR="$3"
     shift 3
     local W1_SPAWN_READY_LINE="" W1_SPAWN_EXTRA="" W1_SPAWN_EOF_RC
@@ -2080,8 +2148,13 @@ registration_owner_spawn() {{
     [[ "$W1_SPAWN_ROLE" == *-census ]] \
         && W1_SPAWN_SETTLEMENT_RESERVE=0
     registration_cancel_checkpoint "before-$W1_SPAWN_ROLE-owner" || return 1
-    registration_remaining_owner_timeout \
-        "$W1_SPAWN_SETTLEMENT_RESERVE" || return 1
+    if [ "$W1_SPAWN_OBSERVATION" -eq 1 ]; then
+        registration_remaining_observation_timeout \
+            "$W1_SPAWN_SETTLEMENT_RESERVE" || return 1
+    else
+        registration_remaining_owner_timeout \
+            "$W1_SPAWN_SETTLEMENT_RESERVE" || return 1
+    fi
     W1_SPAWN_TIMEOUT="$W1_OWNER_TIMEOUT"
     W1_SPAWN_KILL_AFTER="$W1_OWNER_KILL_AFTER"
     W1_SPAWN_PARENT_PID="$BASHPID"
@@ -2145,7 +2218,7 @@ registration_owned_group_census() {{
     local -a W1_CENSUS_ROWS=()
     W1_OWNED_GROUP_STATUS=UNKNOWN
     [[ "$W1_CENSUS_PGID" =~ ^[0-9]+$ ]] || return 1
-    if ! registration_owner_run --no-census \
+    if ! registration_owner_run --no-census --observation \
             "$W1_CENSUS_ROLE-census" "$W1_CENSUS_OUT" "$W1_CENSUS_ERR" \
             python3 -c {registration_probe} group \
             "$W1_CENSUS_PGID" /proc; then
@@ -2251,13 +2324,26 @@ registration_owner_collect() {{
 
 registration_owner_run() {{
     local W1_RUN_CENSUS_POLICY=REQUIRED
-    if [ "${{1:-}}" = --no-census ]; then
-        W1_RUN_CENSUS_POLICY=NOT-APPLICABLE
-        shift
-    fi
+    local -a W1_RUN_SPAWN_FLAGS=()
+    while :; do
+        case "${{1:-}}" in
+            --no-census)
+                W1_RUN_CENSUS_POLICY=NOT-APPLICABLE
+                shift
+                ;;
+            --observation)
+                W1_RUN_SPAWN_FLAGS+=(--observation)
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
     local W1_RUN_ROLE="$1" W1_RUN_OUT="$2" W1_RUN_ERR="$3"
     shift 3
-    if ! registration_owner_spawn "$W1_RUN_ROLE" "$W1_RUN_OUT" \
+    if ! registration_owner_spawn "${{W1_RUN_SPAWN_FLAGS[@]}}" \
+            "$W1_RUN_ROLE" "$W1_RUN_OUT" \
             "$W1_RUN_ERR" "$@"; then
         local W1_RUN_PID="${{W1_SPAWN_PID:-MISSING}}"
         if [[ "$W1_RUN_PID" =~ ^[0-9]+$ ]]; then

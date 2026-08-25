@@ -14,7 +14,7 @@
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_no_budget_in_this_file_is_at_or_above_the_bound",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_each_knob_is_constrained_independently_of_the_other",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_handout_assertion_is_live_and_not_decoration",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_receipt_drift_before_go_refuses_release[pgrp]"
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_registration_receipt_drift_before_go_refuses_release[pgrp]"
   ],
   "mutants": [
     {
@@ -39,7 +39,7 @@
       "old": "\"registration_receipt_drift_before_go_refuses_release/wait\":                 (6.8905, 7),",
       "new": "\"registration_receipt_drift_before_go_refuses_release/wait\":                 (0.5, 7),",
       "direction": "regression",
-      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_receipt_drift_before_go_refuses_release[pgrp]"
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_registration_receipt_drift_before_go_refuses_release[pgrp]"
     },
     {
       "label": "M4 the absolute floor is removed, so a 1.5s-cost site keeps a tight budget",

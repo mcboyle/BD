@@ -74,6 +74,10 @@ _INDEPENDENT_LONG_POLES = {
     "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
     "tests/test_v3_66_1040_remote_job_registry.py",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+    # @1241 row 237. The split half is a long pole in its own right:
+    # it carries the slowest registration-lifecycle nodes of the
+    # module it came out of.
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
 }
 
 # Its subject is which gates CI runs, which is a property of the tree.
@@ -316,6 +320,10 @@ _DECLARED = {
     # owns the preflight UNKNOWN grade for an unreadable jobs registry.
     # A pull request that never runs them cannot prove any of those contracts.
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+    # @1241 row 237. Half of 1132's registration-failure contracts
+    # moved here when the module was split; a pull request that runs
+    # one file and not the other proves half of what it used to.
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
     "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py",
     # @1206 provider-facade. Retained implementation modules and re-imported
     # public facades form a process-wide generation boundary, so the direct

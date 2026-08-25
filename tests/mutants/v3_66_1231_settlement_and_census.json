@@ -12,7 +12,7 @@
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_an_absence_claim_is_immune_to_a_live_neighbour_group",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_group_census_never_forks_and_so_cannot_count_itself",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_runner_cancellation_closes_gate_and_does_not_start_workload",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_a_slow_settlement_never_downgrades_a_decided_cancellation",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_a_slow_settlement_never_downgrades_a_decided_cancellation",
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_settlement_deadline_still_bounds_a_gate_that_will_not_settle"
   ],
   "mutants": [
