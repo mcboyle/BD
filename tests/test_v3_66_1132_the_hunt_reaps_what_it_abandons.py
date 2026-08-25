@@ -57,6 +57,7 @@ import errno
 import importlib.machinery
 import importlib.util
 import json
+import math
 import os
 import pathlib
 import re
@@ -75,6 +76,396 @@ import pytest
 BD_GATE_SCOPE = "module"
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+
+# ---------------------------------------------------------------------------
+# EVERY WALL-CLOCK BUDGET IN THIS FILE IS DERIVED FROM A MEASUREMENT.
+# Backlog row 230, the half that v3.66.1222 left open.
+#
+# A BUDGET HAS TO CLEAR TWO HAZARDS AND THEY PULL IN OPPOSITE DIRECTIONS.
+#   CEILING. A budget at or above the pytest-timeout bound governing its item
+#     can never fire, so its own `except subprocess.TimeoutExpired` is dead
+#     code and what runs instead is pytest-timeout killing the process. That
+#     is what v3.66.1219 and v3.66.1222 fixed elsewhere. MEASURED HERE, on this
+#     file, at this commit: of 127 constant budget sites, ZERO are at or above
+#     240. This file never had that hazard, and saying so is part of the fix.
+#   FLOOR. A budget below the real cost of the work fires on CORRECT work, and
+#     at the assertion that is indistinguishable from the defect it exists to
+#     catch. That hazard is LIVE here and it is the one row 230 recorded.
+#     MEASURED on test5, one test per process, load 2.8-4.1:
+#     test_partial_or_duplicate_release_frame_never_execs waits 6.993s against
+#     a SEVEN SECOND budget -- a ratio of 1.00x. 39 of the 83 sites a passing
+#     run reaches sat under 3x. The 2026-08-24 band saw four of them fire.
+#
+# SO THE RULE IS TWO-SIDED, and both sides are measured rather than assumed:
+#
+#     budget = max(prior_constant, _MIN_BUDGET_S,
+#                  ceil(measured * _CONTENTION_FACTOR))
+#     assert budget <= _GOVERNING_BOUND_S - _ITEM_RESERVE_S
+#
+# THE FLOOR IS ABSOLUTE AND THE FACTOR IS MULTIPLICATIVE, AND THAT IS NOT
+# BELT-AND-BRACES -- the two failures measured on 2026-08-25 need different
+# arithmetic. A wait dominated by REAL WORK stretches roughly in proportion to
+# oversubscription, which is what the 4.13x above measures and what a factor
+# describes. A wait dominated by SCHEDULING does not: the same afternoon,
+# tests/test_v3_66_1209's `test_capture_reexecs_itself_when_handed_ignored_stop
+# _signals` measured 1.26-1.80s across four matched runs and then consumed a
+# NINETY SECOND budget under `-n 24` at load 10-17. That is 88 seconds of
+# ABSOLUTE delay on 1.5 seconds of work, and no multiplier small enough to be
+# useful describes it: 1.5s x 6 is 9s, while the budget it actually blew was
+# already 60x its own cost. A cheap site is protected by an absolute floor or
+# by nothing. (Stated plainly because it bounds the claim: this rule would
+# have prevented every failure in THIS file -- 6.993s derives to 42s and the
+# largest stretch anyone has measured is 4.13x -- and would NOT have prevented
+# 1209's, whose budget was already 60x. A budget cannot tell slow from stuck;
+# that one needs a diagnosis, not a number.)
+#
+# _CONTENTION_FACTOR IS MEASURED, NOT CHOSEN. Row 230's own reproduction shape
+# -- three concurrent copies of this module, which is how the 2026-08-24
+# failure was first seen -- was re-run at this commit. Per call site, the
+# largest stretch from the idle-ish baseline to the contended run was 4.13x
+# (median 1.00x, p90 1.16x, n=63). That maximum is RIGHT-CENSORED: a site that
+# crossed its budget under contention recorded the budget, not its true cost,
+# so the tail is longer than 4.13x, not shorter. 6.0 leaves ~1.5x over the
+# largest stretch anyone has actually seen and clears the 3x floor the failing
+# sites did not.
+#
+# THE PRIOR CONSTANT IS A FLOOR, NEVER A CEILING. A derivation may only ADD
+# headroom. It never takes away headroom a previous author chose, because a
+# baseline taken from n=1 observations is not strong enough to justify
+# shrinking a bound that guards a real production contract.
+#
+# RAISING THESE COSTS NOTHING ON A PASSING RUN. `proc.wait(timeout=B)` returns
+# the moment the child exits; B is a ceiling, not a sleep. Every site in this
+# file converts expiry into a failure -- there is no site that expects to
+# expire -- so a larger B changes only how long a genuinely stuck run burns
+# before it fails, and every item's total stays far under the governing bound.
+#
+# THE TABLE IS KEYED PER CALL SITE. v3.66.1222 found its baseline wrong by 8x
+# because `_MEASURED_S` was keyed by TOOL when the cost is a property of the
+# INVOCATION: one `bd-mutation-test` key described a 2s selftest and a 201s
+# row. The same shape is here -- `subprocess.run` costs 0.13s at one site and
+# 6.99s at another, and `_w1_await_fifo` spans 0.000s to 4.398s across its call
+# sites -- so a per-callee key would be the same mistake. Keys are
+# (function, callee, ordinal) and deliberately NOT line numbers, so an
+# unrelated edit does not churn the table.
+#
+# WHERE A SHARED DEFAULT SURVIVED, THE SPREAD WAS MEASURED FIRST.
+# `_w1_wait_for_gate` runs 0.304-0.792s across 24 call sites and
+# `_w1_release_fifo` is under a millisecond at all 8, so one key describes them
+# honestly. `_w1_await_fifo` (0.000-4.398s) and `_w1_wait_for_exit`
+# (0.712-7.123s, and 7.123s against its 20s watchdog is 2.8x) are NOT narrow,
+# so their shared default is retired and every call site names its own.
+#
+# THE CLEANUP REAP IS THE ONE THING A PASSING RUN CANNOT MEASURE. Every
+# `finally` here ends with `if proc.poll() is None: proc.kill(); proc.wait(...)`
+# and on a passing run the body already collected the child, so the branch is
+# never taken. Its cost is therefore measured DIRECTLY rather than guessed:
+# 200 SIGKILL-and-reap cycles on a 5-process group at load 5.7-6.6 gave a
+# maximum of 1.5ms, and the one such site the contended run did reach recorded
+# 3.5ms. `_CLEANUP_REAP_S` is that measurement.
+#
+# AND THE BASELINE POLICES ITSELF, because nothing but the run knows how long
+# the run takes and 1222's table was wrong by 8x precisely because nobody
+# re-measured it. `_w1_police` asserts every completed wait against its own
+# recorded cost, so a site that outgrows its baseline says so while there is
+# still headroom instead of by crossing its budget under load. v3.66.1219's
+# first over-sensitivity control was VACUOUS -- it compared baselines only to
+# each other, so restating 168s as 7s stayed green. This one compares a
+# baseline to the clock.
+# ---------------------------------------------------------------------------
+
+_GOVERNING_BOUND_S = 240.0
+_ITEM_RESERVE_S = 30.0
+_CONTENTION_FACTOR = 6.0
+_MIN_BUDGET_S = 30.0
+_WARN_FACTOR = 3.0
+_WARN_FLOOR_S = 30.0
+#: Above this many seconds, a wait is long enough that scheduling noise cannot
+#: explain it, so the recorded baseline is compared WITHOUT the warning floor.
+#: 5s sits above every sub-second site in the table and below the 6.8s-6.9s
+#: cluster that made this file's budgets a knife edge.
+_POLICE_ABSOLUTE_S = 5.0
+_CLEANUP_REAP_S = 0.0035
+
+# key -> (measured seconds, prior constant this replaced)
+_MEASURED_S = {
+    "_capture_outer_receipt/run":                                                (0.1318, 10),
+    "_w1_readlink_when_installed/default":                                       (0.0054, 5.0),
+    "_w1_release_fifo/default":                                                  (0.0002, 10.0),
+    "_w1_run_registration_probe/run":                                            (0.1093, 5),
+    "_w1_wait_for_exit/communicate":                                             (0.0314, 5),
+    "_w1_wait_for_gate/default":                                                 (0.7916, 5.0),
+    "_w1_wait_for_path/default":                                                 (3.1513, 5.0),
+    "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink":  (0.0054, 10.0),
+    "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink-2":(0.0003, 10.0),
+    "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait":      (0.0033, 5),
+    "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait-2":    (0.0638, 5),
+    "a_registrar_that_succeeds_still_gets_waited_for_and_recorded/wait":         (2.8743, 40.0),
+    "a_registrar_that_succeeds_still_gets_waited_for_and_recorded/wait-2":       (0.0035, 10),
+    "abort_timeout_retains_inert_gate_under_one_budget/exit":                    (5.4935, 20.0),
+    "abort_timeout_retains_inert_gate_under_one_budget/wait":                    (0.0035, 5),
+    "cancellation_after_relay_before_gate_settles_the_acquired_owner/fifo":      (0.2102, 5),
+    "cancellation_after_relay_before_gate_settles_the_acquired_owner/wait":      (1.2187, 15),
+    "cancellation_during_delayed_ready_preserves_primary/wait":                  (2.3226, 6),
+    "cancellation_during_delayed_ready_preserves_primary/wait-2":                (0.0035, 5),
+    "cancellation_during_gate_settlement_wait_preserves_primary/exit":           (0.7124, 20.0),
+    "cancellation_during_gate_settlement_wait_preserves_primary/fifo":           (4.6094, 10),
+    "cancellation_during_gate_settlement_wait_preserves_primary/wait":           (0.0035, 5),
+    "cancellation_during_group_observer_forbids_registration/fifo":              (1.8703, 5.0),
+    "cancellation_during_group_observer_forbids_registration/wait":              (2.3724, 8),
+    "cancellation_during_group_observer_forbids_registration/wait-2":            (0.0035, 5),
+    "cancellation_during_pre_register_observation_never_registers/wait":         (2.3225, 6),
+    "cancellation_during_pre_register_observation_never_registers/wait-2":       (0.0035, 5),
+    "cancellation_during_reconciliation_retains_primary_and_reaps_owner/fifo":   (5.5805, 10),
+    "cancellation_during_reconciliation_retains_primary_and_reaps_owner/wait":   (1.3186, 12),
+    "cancellation_during_reconciliation_retains_primary_and_reaps_owner/wait-2": (0.0035, 5),
+    "cancellation_during_terminal_reader_reconciles_exact_id_once/fifo":         (4.1464, 10),
+    "cancellation_during_terminal_reader_reconciles_exact_id_once/wait":         (2.8746, 10),
+    "cancellation_during_terminal_reader_reconciles_exact_id_once/wait-2":       (0.0035, 5),
+    "cancellation_during_terminal_relay_wait_reconciles_once/fifo":              (4.4142, 10),
+    "cancellation_during_terminal_relay_wait_reconciles_once/wait":              (1.9212, 10),
+    "cancellation_during_terminal_relay_wait_reconciles_once/wait-2":            (0.0035, 5),
+    "completed_owner_forged_ready_receipt_never_grants_census_authority/fifo":   (4.0418, 5.0),
+    "completed_owner_forged_ready_receipt_never_grants_census_authority/wait":   (0.0642, 8),
+    "completed_owner_forged_ready_receipt_never_grants_census_authority/wait-2": (0.0035, 5),
+    "completed_owner_ready_receipt_censuses_live_descendant/fifo":               (4.3981, 5.0),
+    "completed_owner_ready_receipt_censuses_live_descendant/fifo-2":             (0.1033, 5.0),
+    "completed_owner_ready_receipt_censuses_live_descendant/wait":               (0.4154, 8),
+    "completed_owner_ready_receipt_censuses_live_descendant/wait-2":             (0.0035, 5),
+    "completed_owner_ready_receipt_remains_census_authority/fifo":               (3.8111, 5.0),
+    "completed_owner_ready_receipt_remains_census_authority/wait":               (1.9217, 8),
+    "completed_owner_ready_receipt_remains_census_authority/wait-2":             (0.0035, 5),
+    "cooperative_registered_cancellation_returns_primary_status/run":            (7.1382, 10),
+    "delayed_extra_ready_frame_never_reaches_the_registrar/fifo":                (0.0329, 5.0),
+    "delayed_extra_ready_frame_never_reaches_the_registrar/wait":                (2.3722, 6),
+    "delayed_extra_ready_frame_never_reaches_the_registrar/wait-2":              (0.0035, 5),
+    "descendant_census_is_itself_a_named_checked_owner/run":                     (5.6979, 8),
+    "every_authority_helper_is_named_and_checked_waited/run":                    (5.7907, 8),
+    "exit_guard_settles_a_post_setsid_owner_after_nounset/communicate":          (1.9372, 15),
+    "exit_guard_settles_a_post_setsid_owner_after_nounset/fifo":                 (0.3418, 5.0),
+    "exit_guard_settles_a_post_setsid_owner_after_nounset/wait":                 (0.0035, 5),
+    "failed_registration_never_releases_the_workload/wait":                      (3.7783, 8),
+    "failed_registration_never_releases_the_workload/wait-2":                    (0.0035, 5),
+    "failed_workload_wait_reconciles_registered_id/run":                         (6.1023, 7),
+    "gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/fifo":     (3.3633, 5.0),
+    "gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait":     (3.5269, 6),
+    "gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait-2":   (0.0035, 5),
+    "gate_exec_failure_is_named_registered_handoff_failure/run":                 (6.825, 7),
+    "gate_ready_is_exact_terminal_admission/communicate":                        (0.0035, 5),
+    "gate_ready_is_exact_terminal_admission/exit":                               (2.6868, 20.0),
+    "gate_ready_is_exact_terminal_admission/fifo":                               (0.0042, 30.0),
+    "gate_ready_is_exact_terminal_admission/fifo-2":                             (0.0011, 30.0),
+    "gate_ready_is_exact_terminal_admission/marker":                             (0.2352, 15.0),
+    "gate_receipt_admission_rejects_wrong_provenance/run":                       (4.4416, 6),
+    "handoff_eof_is_not_exec_success/communicate":                               (0.0035, 5),
+    "handoff_eof_is_not_exec_success/exit":                                      (6.9759, 20.0),
+    "handoff_timeout_retains_registered_id_under_one_budget/exit":               (6.329, 20.0),
+    "handoff_timeout_retains_registered_id_under_one_budget/wait":               (0.0035, 5),
+    "invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait":  (6.238, 8),
+    "invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait-2":(0.0035, 5),
+    "live_duplicate_ready_frame_never_reaches_the_registrar/run":                (2.9017, 6),
+    "live_wrong_ready_frame_never_reaches_the_registrar/run":                    (0.9896, 15),
+    "malformed_owner_ready_reaps_its_term_resistant_group/run":                  (2.7919, 8),
+    "monotonic_clock_rollback_fails_closed_without_extending_budget/fifo":       (0.2184, 5.0),
+    "monotonic_clock_rollback_fails_closed_without_extending_budget/wait":       (0.0641, 5),
+    "monotonic_clock_rollback_fails_closed_without_extending_budget/wait-2":     (0.0035, 5),
+    "nul_bearing_ready_frame_never_reaches_the_registrar/run":                   (2.824, 6),
+    "nul_bearing_terminal_frame_is_not_exec_success/communicate":                (0.0035, 5),
+    "nul_bearing_terminal_frame_is_not_exec_success/exit":                       (6.6857, 20.0),
+    "one_second_lifecycle_cap_remains_truthfully_unknown/run":                   (1.791, 7),
+    "partial_coproc_setup_settles_every_acquired_owner/run":                     (2.1835, 8),
+    "partial_handoff_frame_does_not_restart_the_protocol_budget/exit":           (2.2217, 20.0),
+    "partial_handoff_frame_does_not_restart_the_protocol_budget/fifo":           (4.0875, 10),
+    "partial_handoff_frame_does_not_restart_the_protocol_budget/wait":           (0.0035, 5),
+    "partial_handoff_frame_does_not_restart_the_protocol_budget/wait-2":         (0.0035, 5),
+    "partial_or_duplicate_release_frame_never_execs/run":                        (6.993, 7),
+    "post_ready_protocol_budget_is_positive_and_reaches_terminal_frame/run":     (6.9112, 10),
+    "pre_observation_cancellation_settles_only_in_the_top_shell/run":            (4.6779, 8),
+    "pre_ready_descendant_refuses_registration/wait":                            (4.3299, 6),
+    "pre_ready_descendant_refuses_registration/wait-2":                          (0.0035, 5),
+    "pytest_pid_publish_failure_is_settled_without_partial_target/run":          (2.0661, 8),
+    "real_release_sigpipe_is_contained_and_enters_registered_failure/fifo":      (3.9774, 5.0),
+    "real_release_sigpipe_is_contained_and_enters_registered_failure/wait":      (4.1293, 8),
+    "real_release_sigpipe_is_contained_and_enters_registered_failure/wait-2":    (0.0035, 5),
+    "reap_cmd_actually_kills_a_real_process_GROUP/run":                          (0.4965, 60),
+    "reap_cmd_actually_kills_a_real_process_GROUP/wait":                         (0.0001, 10),
+    "reap_cmd_can_still_report_a_survivor/run":                                  (0.1412, 60),
+    "reconciliation_term_resistance_stays_inside_total_budget/fifo":             (5.7632, 10),
+    "reconciliation_term_resistance_stays_inside_total_budget/wait":             (2.1214, 7),
+    "reconciliation_term_resistance_stays_inside_total_budget/wait-2":           (0.0035, 5),
+    "registrar_success_requires_one_exact_job_id_before_release/run":            (6.0278, 7),
+    "registration_cleanup_timeout_is_internal_and_names_retained_group/run":     (5.2738, 7),
+    "registration_failure_never_signals_after_original_child_disappears/fifo":   (0.0001, 5.0),
+    "registration_failure_never_signals_after_original_child_disappears/wait":   (3.4765, 6),
+    "registration_failure_never_signals_after_original_child_disappears/wait-2": (0.0035, 5),
+    "registration_failure_never_signals_changed_process_identity/wait":          (4.329, 6),
+    "registration_failure_never_signals_changed_process_identity/wait-2":        (0.0013, 5),
+    "registration_failure_never_signals_changed_process_identity/wait-3":        (0.0035, 5),
+    "registration_receipt_drift_before_go_refuses_release/wait":                 (6.8905, 7),
+    "registration_receipt_drift_before_go_refuses_release/wait-2":               (0.0035, 5),
+    "registration_release_failure_is_bounded_and_classified/wait":               (6.4874, 8),
+    "registration_release_failure_is_bounded_and_classified/wait-2":             (0.0035, 5),
+    "release_sigpipe_handler_is_scoped_and_restored_after_write/run":            (5.7169, 8),
+    "release_write_error_is_resolved_only_by_gate_status/communicate":           (0.0035, 5),
+    "release_write_error_is_resolved_only_by_gate_status/exit":                  (7.1227, 20.0),
+    "runner_cancellation_closes_gate_and_does_not_start_workload/wait":          (2.3726, 7),
+    "runner_cancellation_closes_gate_and_does_not_start_workload/wait-2":        (0.0035, 5),
+    "signal_receipt_refuses_starttime_drift_before_pidfd_signal/fifo":           (0.0897, 5.0),
+    "signal_receipt_refuses_starttime_drift_before_pidfd_signal/run":            (0.1335, 10),
+    "signal_receipt_refuses_starttime_drift_before_pidfd_signal/wait":           (0.0074, 5),
+    "successful_registration_releases_exact_command_and_status/wait":            (1.6197, 8),
+    "successful_registration_releases_exact_command_and_status/wait-2":          (0.0035, 5),
+    "term_resistant_observer_stays_inside_gate_budget/fifo":                     (1.6607, 10),
+    "term_resistant_observer_stays_inside_gate_budget/wait":                     (2.5733, 7),
+    "term_resistant_observer_stays_inside_gate_budget/wait-2":                   (0.0035, 5),
+    "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/exit":      (6.2437, 20.0),
+    "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait":      (0.0035, 5),
+    "terminal_relay_wait_failure_reconciles_registered_id/run":                  (2.3323, 7),
+    "the_cheap_presence_probe_agrees_with_the_complete_census/wait":             (0.0155, 5),
+    "the_group_census_never_forks_and_so_cannot_count_itself/wait":              (0.0154, 5),
+    "unreadable_group_absence_probe_never_grants_status_91/run":                 (4.7896, 6),
+    "vanished_gate_leader_with_live_descendant_is_retained_unknown/fifo":        (1.6766, 5.0),
+    "vanished_gate_leader_with_live_descendant_is_retained_unknown/wait":        (1.0181, 6),
+    "vanished_gate_leader_with_live_descendant_is_retained_unknown/wait-2":      (0.0035, 5),
+    "wedge_hunt_does_not_wait_on_a_job_it_could_not_register/wait":              (1.7706, 6),
+    "wedge_hunt_does_not_wait_on_a_job_it_could_not_register/wait-2":            (0.0035, 5),
+    "withheld_owner_ready_reaps_post_setsid_term_resistant_group/fifo":          (0.2936, 5),
+    "withheld_owner_ready_reaps_post_setsid_term_resistant_group/wait":          (3.1245, 8),
+    "withheld_owner_ready_reaps_post_setsid_term_resistant_group/wait-2":        (0.0035, 5),
+    "zero_owner_kill_grace_is_rejected_before_timeout_launch/run":               (0.3019, 7),
+}
+
+
+class _Budget(float):
+    """A budget that remembers which call site it was derived for.
+
+    It is a float everywhere it is used -- `subprocess` does arithmetic on it,
+    `select.select` takes it -- and it carries its site so the instrumented
+    boundary below can police the elapsed time without every one of 148 call
+    sites having to be restructured into a wrapper.
+    """
+
+    __slots__ = ("site",)
+
+    def __new__(cls, value, site):
+        self = float.__new__(cls, value)
+        self.site = site
+        return self
+
+
+def _w1_budget_s(site):
+    """The wall-clock budget for ONE call site, derived from its measurement."""
+    measured, prior = _MEASURED_S[site]
+    derived = math.ceil(measured * _CONTENTION_FACTOR)
+    # THE FLOOR IS ABSOLUTE AND THE FACTOR IS MULTIPLICATIVE, because the two
+    # failure shapes measured on 2026-08-25 need different arithmetic. See the
+    # note above _MEASURED_S.
+    value = float(max(prior, _MIN_BUDGET_S, derived))
+    # THE CEILING, ASSERTED RATHER THAN ASSUMED. Row 230 asks for a budget
+    # "provably below the governing pytest timeout"; this is where it is proved,
+    # per budget, at the moment it is handed out.
+    assert value <= _GOVERNING_BOUND_S - _ITEM_RESERVE_S, (
+        "budget %.0fs for site %r is not subordinate to the %.0fs bound "
+        "governing its item (reserve %.0fs). A budget that cannot fire before "
+        "the bound has a dead except clause and pytest-timeout kills the "
+        "worker instead." % (value, site, _GOVERNING_BOUND_S, _ITEM_RESERVE_S))
+    return _Budget(value, site)
+
+
+def _w1_warn_s(site):
+    measured, _prior = _MEASURED_S[site]
+    return max(_WARN_FLOOR_S, measured * _WARN_FACTOR)
+
+
+_W1_POLICED: list = []
+
+
+def _w1_police(timeout, elapsed):
+    """Assert a COMPLETED wait stayed inside its recorded cost.
+
+    Only the success path reaches here. On expiry the TimeoutExpired must
+    propagate untouched -- policing there would replace the real failure with
+    this one and mask exactly what the budget exists to report.
+    """
+    site = getattr(timeout, "site", None)
+    if site is None:
+        return
+    # A control that never runs is decoration. The counter is what the
+    # precondition test below reads to prove the instrument is live.
+    _W1_POLICED.append(site)
+    limit = _w1_warn_s(site)
+    measured, _prior = _MEASURED_S[site]
+    # THE WARNING MUST NOT INHERIT THE BUDGET'S SCHEDULING FLOOR.
+    #
+    # `_w1_warn_s` is max(30s, measured x 3). The 30s term is there so a
+    # sub-second site does not warn every time the box hiccups -- correct for
+    # NOISE, and blinding for the case this assertion exists to catch. Measured
+    # at v3.66.1226: restating a site's baseline from 6.8905s to 0.5s -- a 14x
+    # understatement, the v3.66.1219 vacuity shape -- left this gate GREEN,
+    # because 6.89s is under 30s no matter what the table claims. The mutant
+    # ESCAPED.
+    #
+    # So a second, unfloored comparison runs whenever the elapsed time is large
+    # in ABSOLUTE terms. Below _POLICE_ABSOLUTE_S the floor still suppresses
+    # noise; above it, a wait that exceeds its recorded baseline by the stated
+    # margin is a stale table entry and says so. A restated 0.5s baseline now
+    # gives 1.5s against a real 6.89s and fails.
+    if elapsed > _POLICE_ABSOLUTE_S and measured > 0:
+        assert elapsed <= measured * _WARN_FACTOR, (
+            "site %r took %.2fs against a recorded baseline of %.4fs -- %.1fx, "
+            "past the %.1fx margin, on a wait long enough (>%.0fs) that "
+            "scheduling noise does not explain it. The TABLE is stale or wrong; "
+            "re-measure the site. This check deliberately ignores the %.0fs "
+            "warning floor, which exists to silence sub-second noise and "
+            "otherwise hides exactly this."
+            % (site, elapsed, measured, elapsed / measured, _WARN_FACTOR,
+               _POLICE_ABSOLUTE_S, _WARN_FLOOR_S))
+    assert elapsed <= limit, (
+        "site %r took %.2fs against a recorded baseline of %.4fs (limit "
+        "%.2fs = max(%.1fs, %.1fx)). Re-measure it on an idle host and update "
+        "_MEASURED_S; do not widen _CONTENTION_FACTOR to hide it."
+        % (site, elapsed, measured, limit, _WARN_FLOOR_S, _WARN_FACTOR))
+
+
+@pytest.fixture(autouse=True)
+def _w1_budget_boundary(monkeypatch):
+    """Instrument the wait boundary for the life of one item.
+
+    CLAUDE.md A7: to ask what a resource costs, instrument the resource
+    boundary. `subprocess.run` delegates to `Popen.communicate`, so wrapping
+    `run`, `wait` and `communicate` with a re-entrancy guard records exactly
+    one elapsed time per source call site.
+    """
+    depth = {"n": 0}
+    real_run = subprocess.run
+    real_wait = subprocess.Popen.wait
+    real_communicate = subprocess.Popen.communicate
+
+    def timed(orig, get_timeout):
+        def wrapper(*args, **kwargs):
+            if depth["n"]:
+                return orig(*args, **kwargs)
+            depth["n"] = 1
+            started = time.monotonic()
+            try:
+                result = orig(*args, **kwargs)
+            finally:
+                depth["n"] = 0
+            _w1_police(get_timeout(args, kwargs), time.monotonic() - started)
+            return result
+        return wrapper
+
+    monkeypatch.setattr(subprocess, "run",
+                        timed(real_run, lambda a, k: k.get("timeout")))
+    monkeypatch.setattr(subprocess.Popen, "wait",
+                        timed(real_wait,
+                              lambda a, k: k.get("timeout",
+                                                 a[1] if len(a) > 1 else None)))
+    monkeypatch.setattr(subprocess.Popen, "communicate",
+                        timed(real_communicate,
+                              lambda a, k: k.get("timeout",
+                                                 a[2] if len(a) > 2 else None)))
+    yield
 HUNT = REPO / "toolchain" / "bin" / "bd-wedge-hunt"
 
 
@@ -154,7 +545,7 @@ def _capture_outer_receipt(mod, proc, root: pathlib.Path, run_id: str):
         [os.environ.get("PYTHON", "python3"), "-c",
          mod.PROCESS_GUARD_PROGRAM, "capture", str(proc.pid), str(receipt),
          run_id, str(root), str(os.getpid())],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=_w1_budget_s("_capture_outer_receipt/run"),
     )
     assert captured.returncode == 0, (captured.stdout, captured.stderr)
     assert "RECEIPT-OK" in captured.stdout and receipt.is_file()
@@ -203,7 +594,7 @@ def test_reap_cmd_actually_kills_a_real_process_GROUP(tmp_path):
             f"{len(before)}); this test would otherwise pass vacuously")
 
         out = subprocess.run(["bash", "-c", mod.reap_cmd(str(receipt), term_grace=0.05)],
-                             capture_output=True, text=True, timeout=60)
+                             capture_output=True, text=True, timeout=_w1_budget_s("reap_cmd_actually_kills_a_real_process_GROUP/run"))
         after = live_in_group()
 
         assert not after, (
@@ -222,7 +613,7 @@ def test_reap_cmd_actually_kills_a_real_process_GROUP(tmp_path):
         except (ProcessLookupError, PermissionError):
             pass
         try:
-            proc.wait(timeout=10)
+            proc.wait(timeout=_w1_budget_s("reap_cmd_actually_kills_a_real_process_GROUP/wait"))
         except subprocess.TimeoutExpired:
             pass
 
@@ -242,7 +633,7 @@ def test_reap_cmd_can_still_report_a_survivor(tmp_path):
         row["starttime"] += 1
         receipt.write_text(json.dumps(row), encoding="ascii")
         out = subprocess.run(["bash", "-c", mod.reap_cmd(str(receipt), term_grace=0.05)],
-                             capture_output=True, text=True, timeout=60)
+                             capture_output=True, text=True, timeout=_w1_budget_s("reap_cmd_can_still_report_a_survivor/run"))
         assert out.returncode != 0 and "REAP-UNKNOWN" in out.stdout
         assert live.poll() is None, (
             "receipt drift signalled the unrelated/recycled identity")
@@ -284,7 +675,7 @@ def test_signal_receipt_refuses_starttime_drift_before_pidfd_signal(tmp_path):
         start_new_session=True,
     )
     try:
-        assert _w1_await_fifo(entered_fd) == "handler-ready\n"
+        assert _w1_await_fifo(entered_fd, site="signal_receipt_refuses_starttime_drift_before_pidfd_signal/fifo") == "handler-ready\n"
         raw = pathlib.Path("/proc", str(proc.pid), "stat").read_text(
             encoding="ascii")
         head, tail_text = raw.rsplit(") ", 1)
@@ -298,7 +689,7 @@ def test_signal_receipt_refuses_starttime_drift_before_pidfd_signal(tmp_path):
         out = subprocess.run(
             ["bash", "-c", mod.signal_receipt_cmd(
                 ":".join(map(str, drifted)), "HUP")],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=_w1_budget_s("signal_receipt_refuses_starttime_drift_before_pidfd_signal/run"),
         )
 
         assert (out.returncode != 0 and "SIGNAL-UNKNOWN" in out.stdout
@@ -309,7 +700,7 @@ def test_signal_receipt_refuses_starttime_drift_before_pidfd_signal(tmp_path):
         os.close(entered_fd)
         if proc.poll() is None:
             _w1_kill_group(os.getpgid(proc.pid))
-        proc.wait(timeout=5)
+        proc.wait(timeout=_w1_budget_s("signal_receipt_refuses_starttime_drift_before_pidfd_signal/wait"))
 
 
 def test_pidfd_open_race_after_owned_census_is_already_absent(monkeypatch):
@@ -2068,7 +2459,7 @@ def _w1_stat_row(pid: int, *, ppid: int, pgrp: int, starttime: int,
     return "%d (%s) %s\n" % (pid, comm, " ".join(tail))
 
 
-def _w1_readlink_when_installed(pid: int, fd: int, *, timeout=5.0) -> str:
+def _w1_readlink_when_installed(pid: int, fd: int, *, timeout=_w1_budget_s("_w1_readlink_when_installed/default")) -> str:
     """Read /proc/<pid>/fd/<fd> only once the gate has actually installed it.
 
     ROW 222'S SHAPE, ONE LEVEL UP. `_w1_wait_for_gate` proves a PARSEABLE PID
@@ -2104,7 +2495,7 @@ def _w1_readlink_when_installed(pid: int, fd: int, *, timeout=5.0) -> str:
             time.sleep(0.005)
 
 
-def _w1_wait_for_gate(rundir, *, minimum_live=1, timeout=5.0):
+def _w1_wait_for_gate(rundir, *, minimum_live=1, timeout=_w1_budget_s("_w1_wait_for_gate/default")):
     """Return the real launched gate pid after proving its group is live."""
     deadline = time.time() + timeout
     pid = -1
@@ -2128,35 +2519,45 @@ def _w1_wait_for_gate(rundir, *, minimum_live=1, timeout=5.0):
         f"pid={pid}, live={live!r}")
 
 
-def _w1_wait_for_exit(proc, rundir, *, watchdog=20.0, forbidden=None):
+def _w1_wait_for_exit(proc, rundir, *, site, forbidden=None):
     """Collect the runner from durable state, with wall time only as a guard.
 
     Receipt checks and owned-process censuses make elapsed time host- and
     scheduler-dependent.  The runner's durable ``exitcode`` is the semantic
     completion signal; a fixed short ``wait`` is not.
+
+    THE EMERGENCY WATCHDOG IS NOW PER CALL SITE. The 20.0s shared default this
+    replaced covered call sites measuring 0.712s to 7.123s, and 7.123s against
+    20s is 2.83x -- inside the band that fired on correct work on 2026-08-24.
+    It is a monotonic deadline rather than a subprocess timeout, so the
+    instrumented boundary cannot see it and this polices itself.
     """
-    deadline = time.monotonic() + float(watchdog)
+    watchdog = _w1_budget_s(site)
+    started = time.monotonic()
+    deadline = started + float(watchdog)
     exitcode = rundir / "exitcode"
     while time.monotonic() < deadline:
         if forbidden is not None and forbidden.exists():
             raise AssertionError(
                 "terminal bytes without authority entered checked child wait")
         if exitcode.is_file() or proc.poll() is not None:
-            proc.communicate(timeout=5)
+            proc.communicate(timeout=_w1_budget_s("_w1_wait_for_exit/communicate"))
+            _w1_police(watchdog, time.monotonic() - started)
             return proc.returncode
         time.sleep(0.01)
     raise AssertionError(
         "runner produced neither a durable exit record nor the forbidden "
-        "checked-wait transition before the emergency watchdog")
+        "checked-wait transition before the emergency watchdog of %.1fs at "
+        "site %r" % (float(watchdog), site))
 
 
 def _w1_wait_for_exit_or_forbidden_checked_wait(
-        proc, rundir, checked_wait_probe, *, watchdog=20.0):
+        proc, rundir, checked_wait_probe, *, site):
     """Reject a forbidden checked wait while awaiting durable completion."""
     assert not checked_wait_probe.exists(), (
         "forbidden checked wait occurred before the oracle started")
     return _w1_wait_for_exit(
-        proc, rundir, watchdog=watchdog, forbidden=checked_wait_probe)
+        proc, rundir, site=site, forbidden=checked_wait_probe)
 
 
 def _w1_signal_probe(tmp_path, *, result=0, passthrough=False,
@@ -2333,11 +2734,11 @@ def _w1_run_registration_probe(mod, mode: str, *args: object):
     return subprocess.run(
         [os.environ.get("PYTHON", "python3"), "-c",
          mod.REGISTRATION_PROBE_PROGRAM, mode, *map(str, args)],
-        text=True, capture_output=True, timeout=5, check=False,
+        text=True, capture_output=True, timeout=_w1_budget_s("_w1_run_registration_probe/run"), check=False,
     )
 
 
-def _w1_wait_for_path(path: pathlib.Path, *, timeout=5.0) -> None:
+def _w1_wait_for_path(path: pathlib.Path, *, timeout=_w1_budget_s("_w1_wait_for_path/default")) -> None:
     deadline = time.monotonic() + timeout
     while not path.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -2438,7 +2839,7 @@ def _w1_fifo_barrier(tmp_path, name: str):
 
 
 def _w1_release_fifo(path, payload: str = "go\n", *,
-                     timeout: float = 10.0) -> None:
+                     timeout: float = _w1_budget_s("_w1_release_fifo/default")) -> None:
     """Release a runner blocked on `read < path`, WITHOUT risking a hang.
 
     A plain open-for-write on a fifo blocks until a reader arrives, so a runner
@@ -2465,9 +2866,22 @@ def _w1_release_fifo(path, payload: str = "go\n", *,
         os.close(fd)
 
 
-def _w1_await_fifo(fd: int, *, timeout: float = 5.0) -> str:
-    readable, _, _ = select.select([fd], [], [], timeout)
-    assert readable, "timed out waiting for deterministic fixture barrier"
+def _w1_await_fifo(fd: int, *, site: str) -> str:
+    """Wait for one fixture barrier frame under a PER-CALL-SITE budget.
+
+    The 5.0s shared default this replaced was one key over 24 call sites whose
+    measured cost spans 0.000s to 4.398s -- the same shape v3.66.1222 found
+    wrong by 8x in its own table -- so every caller names its own site. The
+    deadline is a select() timeout rather than a subprocess one, so the
+    instrumented boundary cannot see it and this polices itself.
+    """
+    budget = _w1_budget_s(site)
+    started = time.monotonic()
+    readable, _, _ = select.select([fd], [], [], budget)
+    assert readable, (
+        "timed out waiting for deterministic fixture barrier at site %r after "
+        "%.1fs" % (site, float(budget)))
+    _w1_police(budget, time.monotonic() - started)
     payload = os.read(fd, 4096).decode("utf-8")
     assert payload, "fixture barrier reached EOF without an entered record"
     return payload
@@ -2717,7 +3131,7 @@ def test_zero_owner_kill_grace_is_rejected_before_timeout_launch(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("zero_owner_kill_grace_is_rejected_before_timeout_launch/run"),
     )
 
     assert not timeout_log.exists(), (
@@ -2814,7 +3228,7 @@ def test_completed_owner_ready_receipt_remains_census_authority(tmp_path):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     try:
-        assert _w1_await_fifo(entered_fd) == "owner-ready-read\n"
+        assert _w1_await_fifo(entered_fd, site="completed_owner_ready_receipt_remains_census_authority/fifo") == "owner-ready-read\n"
         owner_pid = int(owner_pid_path.read_text(encoding="ascii"))
         deadline = time.monotonic() + 5
         owner_state = "UNKNOWN"
@@ -2830,7 +3244,7 @@ def test_completed_owner_ready_receipt_remains_census_authority(tmp_path):
             "fixture did not force the post-READY completion race", owner_state)
         with release.open("w", encoding="ascii") as stream:
             stream.write("release\n")
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("completed_owner_ready_receipt_remains_census_authority/wait"))
 
         records = [record for record in _w1_owner_records(rundir)
                    if record["role"] == "terminal-reader"]
@@ -2845,7 +3259,7 @@ def test_completed_owner_ready_receipt_remains_census_authority(tmp_path):
         os.close(entered_fd)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("completed_owner_ready_receipt_remains_census_authority/wait-2"))
 
 
 def test_completed_owner_forged_ready_receipt_never_grants_census_authority(
@@ -2872,7 +3286,7 @@ def test_completed_owner_forged_ready_receipt_never_grants_census_authority(
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
     try:
-        assert _w1_await_fifo(entered_fd) == "owner-ready-read\n"
+        assert _w1_await_fifo(entered_fd, site="completed_owner_forged_ready_receipt_never_grants_census_authority/fifo") == "owner-ready-read\n"
         owner_pid = int(owner_pid_path.read_text(encoding="ascii"))
         deadline = time.monotonic() + 5
         owner_state = "UNKNOWN"
@@ -2887,7 +3301,7 @@ def test_completed_owner_forged_ready_receipt_never_grants_census_authority(
         assert owner_state in {"Z", "X", "ABSENT"}, owner_state
         with release.open("w", encoding="ascii") as stream:
             stream.write("release\n")
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("completed_owner_forged_ready_receipt_never_grants_census_authority/wait"))
 
         records = [record for record in _w1_owner_records(rundir)
                    if record["role"] == "terminal-reader"]
@@ -2900,7 +3314,7 @@ def test_completed_owner_forged_ready_receipt_never_grants_census_authority(
         os.close(entered_fd)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("completed_owner_forged_ready_receipt_never_grants_census_authority/wait-2"))
 
 
 def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
@@ -2953,9 +3367,9 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
         start_new_session=True)
     owner_pid = descendant_pid = -1
     try:
-        assert _w1_await_fifo(entered_fd) == "owner-ready-read\n"
+        assert _w1_await_fifo(entered_fd, site="completed_owner_ready_receipt_censuses_live_descendant/fifo") == "owner-ready-read\n"
         owner_pid = int(owner_pid_path.read_text(encoding="ascii"))
-        assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
+        assert _w1_await_fifo(payload_entered_fd, site="completed_owner_ready_receipt_censuses_live_descendant/fifo-2") == "payload-write-opened\n"
         try:
             assert not descendant_pid_path.exists(), (
                 "descendant pid became visible before its payload was complete")
@@ -2980,7 +3394,7 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
             owner_state)
         with release.open("w", encoding="ascii") as stream:
             stream.write("release\n")
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("completed_owner_ready_receipt_censuses_live_descendant/wait"))
 
         records = [record for record in _w1_owner_records(rundir)
                    if record["role"] == "terminal-reader"]
@@ -2997,7 +3411,7 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
             _w1_kill_group(owner_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("completed_owner_ready_receipt_censuses_live_descendant/wait-2"))
 
 
 def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
@@ -3017,7 +3431,7 @@ def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("one_second_lifecycle_cap_remains_truthfully_unknown/run"))
 
     assert not registrar.exists() and not marker.exists(), (
         "N58B-SHORT-CAP-CROSSED-LATE-AUTHORITY")
@@ -3046,7 +3460,7 @@ def test_every_authority_helper_is_named_and_checked_waited(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("every_authority_helper_is_named_and_checked_waited/run"))
 
     assert result.returncode == 0, (
         "OWNER-BOOTSTRAP-RETAINED-UNDECLARED-FD: "
@@ -3110,7 +3524,7 @@ def test_descendant_census_is_itself_a_named_checked_owner(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("descendant_census_is_itself_a_named_checked_owner/run"))
 
     assert result.returncode == 0
     records = _w1_owner_records(rundir)
@@ -3165,7 +3579,7 @@ def test_failed_registration_never_releases_the_workload(tmp_path):
         # mutation assertion can unwind pytest.  The early-work mutant is
         # still observed by its durable marker, but cannot strand a registrar
         # by killing the runner at the assertion boundary.
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("failed_registration_never_releases_the_workload/wait"))
         err = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "release_writes=0" in err, (
             "REGISTRAR-REFUSAL-WROTE-GO", err)
@@ -3181,7 +3595,7 @@ def test_failed_registration_never_releases_the_workload(tmp_path):
         if proc.poll() is None:
             _w1_kill_group(os.getpgid(proc.pid))
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("failed_registration_never_releases_the_workload/wait-2"))
 
 
 def test_successful_registration_releases_exact_command_and_status(tmp_path):
@@ -3215,7 +3629,7 @@ def test_successful_registration_releases_exact_command_and_status(tmp_path):
         assert before[:3] == (pgid, proc.pid, pgid)
         assert len(live) == 1 and not workload_marker.exists(), (
             "the command ran while registration was still undecided")
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("successful_registration_releases_exact_command_and_status/wait"))
         assert workload_marker.exists() and workload_receipt.is_file()
         after = _w1_proc_observation(
             pgid, workload_receipt.read_text(encoding="utf-8"))
@@ -3229,7 +3643,7 @@ def test_successful_registration_releases_exact_command_and_status(tmp_path):
         _w1_kill_group(pgid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("successful_registration_releases_exact_command_and_status/wait-2"))
 
 
 def test_registration_release_failure_is_bounded_and_classified(tmp_path):
@@ -3265,7 +3679,7 @@ def test_registration_release_failure_is_bounded_and_classified(tmp_path):
     pgid = -1
     try:
         pgid, _ = _w1_wait_for_gate(rundir)
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("registration_release_failure_is_bounded_and_classified/wait"))
         assert time.monotonic() - started < 8
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert not workload_marker.exists(), (
@@ -3281,7 +3695,7 @@ def test_registration_release_failure_is_bounded_and_classified(tmp_path):
         _w1_kill_group(pgid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("registration_release_failure_is_bounded_and_classified/wait-2"))
 
 
 def test_registration_failure_never_signals_after_original_child_disappears(
@@ -3324,12 +3738,12 @@ def test_registration_failure_never_signals_after_original_child_disappears(
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(disappeared_fd) == (
+        assert _w1_await_fifo(disappeared_fd, site="registration_failure_never_signals_after_original_child_disappears/fifo") == (
             "gate-ready-to-disappear\n")
         _w1_wait_for_path(registrar_marker)
         with release_disappearance.open("w", encoding="ascii") as stream:
             stream.write("disappear\n")
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_after_original_child_disappears/wait"))
         assert rc == int(W1_RETAINED_FAILURE_CODE)
         assert not workload_marker.exists()
         assert not signal_log.exists(), (
@@ -3344,7 +3758,7 @@ def test_registration_failure_never_signals_after_original_child_disappears(
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_after_original_child_disappears/wait-2"))
 
 
 def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path):
@@ -3404,13 +3818,13 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
+        assert _w1_await_fifo(payload_entered_fd, site="vanished_gate_leader_with_live_descendant_is_retained_unknown/fifo") == "payload-write-opened\n"
         try:
             assert not child_marker.exists(), (
                 "gate-child pid became visible before its payload was complete")
         finally:
             _w1_release_fifo(payload_release)
-        assert proc.wait(timeout=6) == int(W1_RETAINED_FAILURE_CODE)
+        assert proc.wait(timeout=_w1_budget_s("vanished_gate_leader_with_live_descendant_is_retained_unknown/wait")) == int(W1_RETAINED_FAILURE_CODE)
         _w1_wait_for_path(child_marker)
         child_pid = int(child_marker.read_text().strip())
         assert child_pid in {int(pid) for pid in _w1_live_in_group(gate_pid)}
@@ -3423,7 +3837,7 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("vanished_gate_leader_with_live_descendant_is_retained_unknown/wait-2"))
 
 
 def test_unreadable_group_absence_probe_never_grants_status_91(tmp_path):
@@ -3452,7 +3866,7 @@ def test_unreadable_group_absence_probe_never_grants_status_91(tmp_path):
     env["BASH_ENV"] = str(bash_env)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("unreadable_group_absence_probe_never_grants_status_91/run"))
     assert result.returncode == int(W1_RETAINED_FAILURE_CODE)
     assert not marker.exists()
     err = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -3484,7 +3898,7 @@ def test_registration_failure_never_signals_changed_process_identity(tmp_path):
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_changed_process_identity/wait"))
         assert rc == int(W1_RETAINED_FAILURE_CODE)
         assert foreign.poll() is None and os.getpgid(foreign.pid) == foreign.pid
         assert not registrar_marker.exists(), (
@@ -3495,10 +3909,10 @@ def test_registration_failure_never_signals_changed_process_identity(tmp_path):
         assert "release_writes=0" in err
     finally:
         _w1_kill_group(foreign.pid)
-        foreign.wait(timeout=5)
+        foreign.wait(timeout=_w1_budget_s("registration_failure_never_signals_changed_process_identity/wait-2"))
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("registration_failure_never_signals_changed_process_identity/wait-3"))
 
 
 @pytest.mark.parametrize("field,reason", [
@@ -3524,7 +3938,7 @@ def test_gate_receipt_admission_rejects_wrong_provenance(
     env["BASH_ENV"] = str(bash_env)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("gate_receipt_admission_rejects_wrong_provenance/run"))
     assert not registrar_marker.exists() and not workload_marker.exists(), (
         "N219-N220-FORBIDDEN-REGISTRAR-CROSSING")
     assert counter.read_text().strip() == "1"
@@ -3556,7 +3970,7 @@ def test_registration_receipt_drift_before_go_refuses_release(tmp_path, field):
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        rc = proc.wait(timeout=7)
+        rc = proc.wait(timeout=_w1_budget_s("registration_receipt_drift_before_go_refuses_release/wait"))
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert counter.read_text().strip() == "3"
         assert not marker.exists()
@@ -3567,7 +3981,7 @@ def test_registration_receipt_drift_before_go_refuses_release(tmp_path, field):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("registration_receipt_drift_before_go_refuses_release/wait-2"))
 
 
 def test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register(tmp_path):
@@ -3599,7 +4013,7 @@ def test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register(tmp_path):
         _w1_wait_for_path(registrar)
         assert gate_pid > 0 and os.getpgid(gate_pid) == gate_pid
         assert live == [str(gate_pid)] and not marker.exists()
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("wedge_hunt_does_not_wait_on_a_job_it_could_not_register/wait"))
         assert not marker.exists() and not signal_log.exists()
         syscalls = syscall_log.read_text(encoding="utf-8")
         assert not re.search(
@@ -3615,7 +4029,7 @@ def test_wedge_hunt_does_not_wait_on_a_job_it_could_not_register(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("wedge_hunt_does_not_wait_on_a_job_it_could_not_register/wait-2"))
 
 
 # The explicit dynamic catcher name is retained alongside the legacy node id.
@@ -3725,7 +4139,7 @@ def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
         start_new_session=True)
     gate_pid = -1
     try:
-        _w1_wait_for_path(gate_pidfile, timeout=15.0)
+        _w1_wait_for_path(gate_pidfile, timeout=_w1_budget_s("gate_ready_is_exact_terminal_admission/marker"))
         gate_pid = int(gate_pidfile.read_text().strip())
         assert gate_pid > 0, gate_pid
 
@@ -3755,7 +4169,7 @@ def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
             # true positive about this exact gap, not an artefact.
             _w1_release_fifo(recheck)
             assert "gate-receipt-recheck-done" in _w1_await_fifo(
-                probed_fd, timeout=30.0), (
+                probed_fd, site="gate_ready_is_exact_terminal_admission/fifo"), (
                 "the runner never reported completing its gate receipt "
                 "recheck, so the ABSENT precondition was not forced")
             _w1_release_fifo(hold)
@@ -3797,11 +4211,11 @@ def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
                 "receipt probe would still be racing: state=%r" % (state,))
             _w1_release_fifo(recheck)
             assert "gate-receipt-recheck-done" in _w1_await_fifo(
-                probed_fd, timeout=30.0), (
+                probed_fd, site="gate_ready_is_exact_terminal_admission/fifo-2"), (
                 "the runner never reported completing its gate receipt "
                 "recheck, so the UNKNOWN precondition was not forced")
 
-        observed = _w1_wait_for_exit(proc, rundir)
+        observed = _w1_wait_for_exit(proc, rundir, site="gate_ready_is_exact_terminal_admission/exit")
         if observed != int(expected_code):
             # Say WHICH failure this is. A starved host cannot spawn the census
             # or deadline owners the runner needs, records
@@ -3831,7 +4245,7 @@ def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
             _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.communicate(timeout=5)
+            proc.communicate(timeout=_w1_budget_s("gate_ready_is_exact_terminal_admission/communicate"))
 
     # The half of the contract that was always right: no inadmissible frame
     # reaches the registrar or the workload, under either settlement.
@@ -3880,7 +4294,7 @@ def test_live_wrong_ready_frame_never_reaches_the_registrar(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("live_wrong_ready_frame_never_reaches_the_registrar/run"))
     assert not registrar.exists() and not marker.exists(), (
         "WRONG-READY-REACHED-REGISTRAR", registrar.exists(), marker.exists(),
         result.returncode, result.stdout, result.stderr)
@@ -3906,7 +4320,7 @@ def test_live_duplicate_ready_frame_never_reaches_the_registrar(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("live_duplicate_ready_frame_never_reaches_the_registrar/run"))
     assert not registrar.exists() and not marker.exists()
     err = (rundir / "jobid.err").read_text(encoding="utf-8")
     assert "phase=ready" in err and "release_writes=0" in err
@@ -3958,7 +4372,7 @@ def test_delayed_extra_ready_frame_never_reaches_the_registrar(tmp_path):
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(reader_entered_fd) == "ready-consumed\n"
+        assert _w1_await_fifo(reader_entered_fd, site="delayed_extra_ready_frame_never_reaches_the_registrar/fifo") == "ready-consumed\n"
         _w1_wait_for_path(ready_written)
         assert not registrar.exists(), (
             "exact READY bytes without admission EOF reached the registrar")
@@ -3966,7 +4380,7 @@ def test_delayed_extra_ready_frame_never_reaches_the_registrar(tmp_path):
             stream.write("release\n")
         with release_extra.open("w", encoding="utf-8") as stream:
             stream.write("release\n")
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("delayed_extra_ready_frame_never_reaches_the_registrar/wait"))
         assert not registrar.exists() and not marker.exists(), (
             "exact READY bytes without admission EOF reached the registrar")
         assert (rundir / "exitcode").read_text().strip() == "94"
@@ -3976,7 +4390,7 @@ def test_delayed_extra_ready_frame_never_reaches_the_registrar(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("delayed_extra_ready_frame_never_reaches_the_registrar/wait-2"))
 
 
 def test_nul_bearing_ready_frame_never_reaches_the_registrar(tmp_path):
@@ -3997,7 +4411,7 @@ def test_nul_bearing_ready_frame_never_reaches_the_registrar(tmp_path):
     env["W1_REGISTRAR_MARKER"] = str(registrar)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("nul_bearing_ready_frame_never_reaches_the_registrar/run"))
     assert not registrar.exists() and not marker.exists()
     evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
     assert "frame_hex=" in evidence and "00" in evidence
@@ -4024,7 +4438,7 @@ def test_pre_ready_descendant_refuses_registration(tmp_path):
     try:
         gate_pid, live = _w1_wait_for_gate(rundir, minimum_live=2)
         assert len(live) >= 2
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("pre_ready_descendant_refuses_registration/wait"))
         assert not registrar.exists() and not marker.exists()
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "initial-group-not-sole" in evidence
@@ -4035,7 +4449,7 @@ def test_pre_ready_descendant_refuses_registration(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("pre_ready_descendant_refuses_registration/wait-2"))
 
 
 @pytest.mark.parametrize("stdout,valid", [
@@ -4058,7 +4472,7 @@ def test_registrar_success_requires_one_exact_job_id_before_release(
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout=stdout))
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("registrar_success_requires_one_exact_job_id_before_release/run"))
     if valid:
         assert marker.exists()
         assert (rundir / "exitcode").read_text().strip() == str(W1_WORKLOAD_CODE)
@@ -4104,7 +4518,7 @@ def test_release_write_error_is_resolved_only_by_gate_status(
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
-        rc = _w1_wait_for_exit(proc, rundir)
+        rc = _w1_wait_for_exit(proc, rundir, site="release_write_error_is_resolved_only_by_gate_status/exit")
         protocol = (rundir / "registration-gate.protocol").read_text()
         assert "write_status=1 writes=1" in protocol
         if effect_then_error:
@@ -4118,7 +4532,7 @@ def test_release_write_error_is_resolved_only_by_gate_status(
     finally:
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate(timeout=5)
+            proc.communicate(timeout=_w1_budget_s("release_write_error_is_resolved_only_by_gate_status/communicate"))
 
 
 def test_real_release_sigpipe_is_contained_and_enters_registered_failure(
@@ -4151,7 +4565,7 @@ def test_real_release_sigpipe_is_contained_and_enters_registered_failure(
     gate_pidfd = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd) == "release-write-entered\n"
+        assert _w1_await_fifo(entered_fd, site="real_release_sigpipe_is_contained_and_enters_registered_failure/fifo") == "release-write-entered\n"
         gate_pidfd = os.pidfd_open(gate_pid)
         os.kill(gate_pid, signal.SIGKILL)
         readable, _, _ = select.select([gate_pidfd], [], [], 5)
@@ -4160,7 +4574,7 @@ def test_real_release_sigpipe_is_contained_and_enters_registered_failure(
         with release.open("w", encoding="ascii") as stream:
             stream.write("release\n")
 
-        returncode = proc.wait(timeout=8)
+        returncode = proc.wait(timeout=_w1_budget_s("real_release_sigpipe_is_contained_and_enters_registered_failure/wait"))
         protocol = (rundir / "registration-gate.protocol").read_text(
             encoding="utf-8")
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -4186,7 +4600,7 @@ def test_real_release_sigpipe_is_contained_and_enters_registered_failure(
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("real_release_sigpipe_is_contained_and_enters_registered_failure/wait-2"))
 
 
 def test_release_sigpipe_handler_is_scoped_and_restored_after_write(tmp_path):
@@ -4204,7 +4618,7 @@ def test_release_sigpipe_handler_is_scoped_and_restored_after_write(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("release_sigpipe_handler_is_scoped_and_restored_after_write/run"))
 
     assert result.returncode == 0
     assert (rundir / "exitcode").read_text().strip() == str(W1_WORKLOAD_CODE)
@@ -4239,7 +4653,7 @@ def test_partial_or_duplicate_release_frame_never_execs(tmp_path, frame):
     env["BASH_ENV"] = str(bash_env)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("partial_or_duplicate_release_frame_never_execs/run"))
     assert not marker.exists()
     assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
     protocol = (rundir / "registration-gate.protocol").read_text()
@@ -4262,7 +4676,7 @@ def test_gate_exec_failure_is_named_registered_handoff_failure(tmp_path):
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("gate_exec_failure_is_named_registered_handoff_failure/run"))
     assert not marker.exists()
     assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
     protocol = (rundir / "registration-gate.protocol").read_text()
@@ -4297,7 +4711,7 @@ def test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group(
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        rc = proc.wait(timeout=8)
+        rc = proc.wait(timeout=_w1_budget_s("invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait"))
         assert _w1_live_in_group(gate_pid), (
             "the fixture did not retain the hostile registered gate")
         calls = argv_log.read_text(encoding="utf-8").splitlines()
@@ -4311,7 +4725,7 @@ def test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group(
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait-2"))
 
 
 def test_terminal_relay_wait_failure_reconciles_registered_id(tmp_path):
@@ -4343,7 +4757,7 @@ def test_terminal_relay_wait_failure_reconciles_registered_id(tmp_path):
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("terminal_relay_wait_failure_reconciles_registered_id/run"))
     calls = argv_log.read_text(encoding="utf-8").splitlines()
     assert len(calls) == 2 and calls[1] == "reap --id stubhost-4242"
     evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -4382,7 +4796,7 @@ def test_failed_workload_wait_reconciles_registered_id(tmp_path):
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("failed_workload_wait_reconciles_registered_id/run"))
     wait_evidence = (
         rundir / "registration-workload-wait.err").read_text(encoding="utf-8")
     assert "synthetic workload wait failure" in wait_evidence
@@ -4422,12 +4836,12 @@ def test_reconciliation_term_resistance_stays_inside_total_budget(tmp_path):
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
-        assert _w1_await_fifo(entered_fd, timeout=10) == "reap-entered\n"
+        assert _w1_await_fifo(entered_fd, site="reconciliation_term_resistance_stays_inside_total_budget/fifo") == "reap-entered\n"
         reap_pid = int(reap_pid_path.read_text().strip())
         reap_child_pid = int(reap_child_path.read_text().strip())
         assert _w1_pid_is_live(reap_pid) and _w1_pid_is_live(reap_child_pid)
         try:
-            rc = proc.wait(timeout=7)
+            rc = proc.wait(timeout=_w1_budget_s("reconciliation_term_resistance_stays_inside_total_budget/wait"))
         except subprocess.TimeoutExpired as exc:
             raise AssertionError(
                 "TERM-resistant reconciliation escaped its owner") from exc
@@ -4448,7 +4862,7 @@ def test_reconciliation_term_resistance_stays_inside_total_budget(tmp_path):
         if proc.poll() is None:
             _w1_kill_group(os.getpgid(proc.pid))
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("reconciliation_term_resistance_stays_inside_total_budget/wait-2"))
 
 
 @pytest.mark.parametrize("terminal,status", [
@@ -4480,7 +4894,7 @@ def test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait(
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         rc = _w1_wait_for_exit_or_forbidden_checked_wait(
-            proc, rundir, checked_wait_log)
+            proc, rundir, checked_wait_log, site="terminal_frame_without_eof_never_enters_an_unbounded_child_wait/exit")
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
@@ -4498,7 +4912,7 @@ def test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait(
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait"))
 
 
 def test_cancellation_during_reconciliation_retains_primary_and_reaps_owner(
@@ -4529,12 +4943,12 @@ def test_cancellation_during_reconciliation_retains_primary_and_reaps_owner(
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, timeout=10) == "reap-entered\n"
+        assert _w1_await_fifo(entered_fd, site="cancellation_during_reconciliation_retains_primary_and_reaps_owner/fifo") == "reap-entered\n"
         reap_pid = int(reap_pid_path.read_text().strip())
         reap_child_pid = int(reap_child_path.read_text().strip())
         assert _w1_pid_is_live(reap_pid) and _w1_pid_is_live(reap_child_pid)
         os.kill(proc.pid, signal.SIGINT)
-        assert proc.wait(timeout=12) == int(W1_RELEASE_FAILURE_CODE)
+        assert proc.wait(timeout=_w1_budget_s("cancellation_during_reconciliation_retains_primary_and_reaps_owner/wait")) == int(W1_RELEASE_FAILURE_CODE)
         assert not marker.exists()
         assert not _w1_pid_is_live(reap_pid)
         assert not _w1_pid_is_live(reap_child_pid)
@@ -4550,7 +4964,7 @@ def test_cancellation_during_reconciliation_retains_primary_and_reaps_owner(
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_reconciliation_retains_primary_and_reaps_owner/wait-2"))
 
 
 def test_cooperative_registered_cancellation_returns_primary_status(tmp_path):
@@ -4572,7 +4986,7 @@ def test_cooperative_registered_cancellation_returns_primary_status(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("cooperative_registered_cancellation_returns_primary_status/run"))
 
     assert not marker.exists()
     calls = argv_log.read_text(encoding="utf-8").splitlines()
@@ -4605,7 +5019,7 @@ def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         rc = _w1_wait_for_exit_or_forbidden_checked_wait(
-            proc, rundir, checked_wait_log)
+            proc, rundir, checked_wait_log, site="handoff_timeout_retains_registered_id_under_one_budget/exit")
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
@@ -4622,7 +5036,7 @@ def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("handoff_timeout_retains_registered_id_under_one_budget/wait"))
 
 
 def test_post_ready_protocol_budget_is_positive_and_reaches_terminal_frame(
@@ -4642,7 +5056,7 @@ def test_post_ready_protocol_budget_is_positive_and_reaches_terminal_frame(
         tmp_path, code=0, stdout="stubhost-4242\n"))
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("post_ready_protocol_budget_is_positive_and_reaches_terminal_frame/run"))
     assert not marker.exists()
     protocol = (rundir / "registration-gate.protocol").read_text()
     assert "writes=1" in protocol
@@ -4677,7 +5091,7 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, timeout=10) == (
+        assert _w1_await_fifo(entered_fd, site="partial_handoff_frame_does_not_restart_the_protocol_budget/fifo") == (
             "partial-terminal-written\n")
         deadline_rows = deadline_probe.read_text(encoding="ascii").splitlines()
         assert len(deadline_rows) == 2, deadline_rows
@@ -4687,7 +5101,7 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
             "N225-PARTIAL-FRAME-RESTARTED-TOTAL-BUDGET",
             pre_deadline, post_deadline)
         rc = _w1_wait_for_exit_or_forbidden_checked_wait(
-            proc, rundir, checked_wait_log)
+            proc, rundir, checked_wait_log, site="partial_handoff_frame_does_not_restart_the_protocol_budget/exit")
         assert not marker.exists()
         protocol = (rundir / "registration-gate.protocol").read_text()
         assert "writes=1" in protocol and "frame_hex=4558" in protocol
@@ -4709,10 +5123,10 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
         if proc.poll() is None:
             proc.send_signal(signal.SIGINT)
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=_w1_budget_s("partial_handoff_frame_does_not_restart_the_protocol_budget/wait"))
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=5)
+                proc.wait(timeout=_w1_budget_s("partial_handoff_frame_does_not_restart_the_protocol_budget/wait-2"))
 
 
 def test_handoff_eof_is_not_exec_success(tmp_path):
@@ -4732,7 +5146,7 @@ def test_handoff_eof_is_not_exec_success(tmp_path):
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
-        rc = _w1_wait_for_exit(proc, rundir)
+        rc = _w1_wait_for_exit(proc, rundir, site="handoff_eof_is_not_exec_success/exit")
         assert not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
         protocol = (rundir / "registration-gate.protocol").read_text()
@@ -4743,7 +5157,7 @@ def test_handoff_eof_is_not_exec_success(tmp_path):
     finally:
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate(timeout=5)
+            proc.communicate(timeout=_w1_budget_s("handoff_eof_is_not_exec_success/communicate"))
 
 
 def test_nul_bearing_terminal_frame_is_not_exec_success(tmp_path):
@@ -4766,7 +5180,7 @@ def test_nul_bearing_terminal_frame_is_not_exec_success(tmp_path):
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
-        rc = _w1_wait_for_exit(proc, rundir)
+        rc = _w1_wait_for_exit(proc, rundir, site="nul_bearing_terminal_frame_is_not_exec_success/exit")
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
@@ -4780,7 +5194,7 @@ def test_nul_bearing_terminal_frame_is_not_exec_success(tmp_path):
     finally:
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate(timeout=5)
+            proc.communicate(timeout=_w1_budget_s("nul_bearing_terminal_frame_is_not_exec_success/communicate"))
 
 
 def test_abort_timeout_retains_inert_gate_under_one_budget(tmp_path):
@@ -4807,7 +5221,7 @@ def test_abort_timeout_retains_inert_gate_under_one_budget(tmp_path):
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         rc = _w1_wait_for_exit_or_forbidden_checked_wait(
-            proc, rundir, checked_wait_log)
+            proc, rundir, checked_wait_log, site="abort_timeout_retains_inert_gate_under_one_budget/exit")
         assert not marker.exists() and not signal_log.exists()
         err = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "context=registrar-refused" in err
@@ -4829,7 +5243,7 @@ def test_abort_timeout_retains_inert_gate_under_one_budget(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("abort_timeout_retains_inert_gate_under_one_budget/wait"))
 
 
 def test_registration_cleanup_timeout_is_internal_and_names_retained_group(
@@ -4860,7 +5274,7 @@ def test_registration_cleanup_timeout_is_internal_and_names_retained_group(
     env["BASH_ENV"] = str(bash_env)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("registration_cleanup_timeout_is_internal_and_names_retained_group/run"))
     assert not marker.exists()
     assert "synthetic not-a-child" in (
         rundir / "registration-wait.err").read_text(encoding="utf-8")
@@ -4896,12 +5310,12 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
         ["bash", str(script)], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
-        assert _w1_await_fifo(entered_fd, timeout=10) == "observer-entered\n"
+        assert _w1_await_fifo(entered_fd, site="term_resistant_observer_stays_inside_gate_budget/fifo") == "observer-entered\n"
         helper_pid = int(helper_pid_path.read_text().strip())
         child_pid = int(child_pid_path.read_text().strip())
         assert _w1_pid_is_live(helper_pid) and _w1_pid_is_live(child_pid)
         try:
-            rc = proc.wait(timeout=7)
+            rc = proc.wait(timeout=_w1_budget_s("term_resistant_observer_stays_inside_gate_budget/wait"))
         except subprocess.TimeoutExpired as exc:
             raise AssertionError(
                 "TERM-resistant observation escaped its owner") from exc
@@ -4921,7 +5335,7 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
         if proc.poll() is None:
             _w1_kill_group(os.getpgid(proc.pid))
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("term_resistant_observer_stays_inside_gate_budget/wait-2"))
 
 
 def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path):
@@ -4953,7 +5367,7 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
         # scheduler-delayed test process can observe it live.  Its durable PID
         # is the non-racy proof that the real gate existed; post-exit absence
         # proves the rollback path did not abandon the owned group.
-        assert _w1_await_fifo(publish_entered_fd) == (
+        assert _w1_await_fifo(publish_entered_fd, site="monotonic_clock_rollback_fails_closed_without_extending_budget/fifo") == (
             "publish-boundary-entered\n")
         try:
             assert not pytest_pid_path.exists(), (
@@ -4962,7 +5376,7 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
             _w1_release_fifo(publish_release)
         _w1_wait_for_path(pytest_pid_path)
         gate_pid = int(pytest_pid_path.read_text().strip())
-        rc = proc.wait(timeout=5)
+        rc = proc.wait(timeout=_w1_budget_s("monotonic_clock_rollback_fails_closed_without_extending_budget/wait"))
         assert not marker.exists()
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "clock=ROLLBACK" in evidence
@@ -4975,7 +5389,7 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("monotonic_clock_rollback_fails_closed_without_extending_budget/wait-2"))
 
 
 def test_cancellation_after_relay_before_gate_settles_the_acquired_owner(
@@ -5000,7 +5414,7 @@ def test_cancellation_after_relay_before_gate_settles_the_acquired_owner(
         start_new_session=True)
     relay_receipt = None
     try:
-        assert _w1_await_fifo(entered_fd, timeout=5) == "relay-acquired\n"
+        assert _w1_await_fifo(entered_fd, site="cancellation_after_relay_before_gate_settles_the_acquired_owner/fifo") == "relay-acquired\n"
         relay_receipt_path = rundir / "injected-relay.receipt"
         relay_receipt = tuple(int(value) for value in
                               relay_receipt_path.read_text().split(":"))
@@ -5011,7 +5425,7 @@ def test_cancellation_after_relay_before_gate_settles_the_acquired_owner(
         os.kill(proc.pid, signal.SIGINT)
         with open(release, "w", encoding="ascii") as stream:
             stream.write("continue\n")
-        assert proc.wait(timeout=15) == int(W1_RETAINED_FAILURE_CODE)
+        assert proc.wait(timeout=_w1_budget_s("cancellation_after_relay_before_gate_settles_the_acquired_owner/wait")) == int(W1_RETAINED_FAILURE_CODE)
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "primary_cancel=130" in evidence
         records = [record for record in _w1_owner_records(rundir)
@@ -5092,7 +5506,7 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         start_new_session=True,
     )
     try:
-        assert _w1_await_fifo(owner_entered_fd) == "owner-receipt-stable\n"
+        assert _w1_await_fifo(owner_entered_fd, site="exit_guard_settles_a_post_setsid_owner_after_nounset/fifo") == "owner-receipt-stable\n"
         saved = tuple(int(value) for value in owner_receipt_path.read_text(
             encoding="ascii").split(":"))
         assert len(saved) == 5 and saved[0] == saved[2] == saved[3]
@@ -5108,7 +5522,7 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         with open(owner_release, "w", encoding="ascii") as stream:
             stream.write("trigger-nounset\n")
         try:
-            _stdout, _stderr = proc.communicate(timeout=15)
+            _stdout, _stderr = proc.communicate(timeout=_w1_budget_s("exit_guard_settles_a_post_setsid_owner_after_nounset/communicate"))
         except subprocess.TimeoutExpired as exc:
             raise AssertionError(
                 "EXIT-GUARD-DID-NOT-SETTLE-ACTIVE-OWNER") from exc
@@ -5133,7 +5547,7 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         if proc.poll() is None:
             _w1_kill_group(os.getpgid(proc.pid))
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("exit_guard_settles_a_post_setsid_owner_after_nounset/wait"))
         # The pidfd was acquired while the complete five-field receipt was
         # still stable.  It remains an exact failure-safe capability after the
         # shell exits and Linux reparents an intentionally abandoned owner.
@@ -5174,7 +5588,7 @@ def test_cancellation_during_delayed_ready_preserves_primary(tmp_path):
         os.kill(proc.pid, signal.SIGINT)
         with release_ready.open("w", encoding="utf-8") as stream:
             stream.write("release\n")
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("cancellation_during_delayed_ready_preserves_primary/wait"))
         assert not registrar.exists() and not marker.exists(), (
             "N234-CANCEL-TRAP-CROSSED-LATE-AUTHORITY")
         assert (rundir / "exitcode").read_text().strip() == "130"
@@ -5185,7 +5599,7 @@ def test_cancellation_during_delayed_ready_preserves_primary(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_delayed_ready_preserves_primary/wait-2"))
 
 
 def test_cancellation_during_pre_register_observation_never_registers(tmp_path):
@@ -5213,7 +5627,7 @@ def test_cancellation_during_pre_register_observation_never_registers(tmp_path):
         os.kill(proc.pid, signal.SIGINT)
         with observer_release.open("w", encoding="utf-8") as stream:
             stream.write("continue\n")
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("cancellation_during_pre_register_observation_never_registers/wait"))
         assert not registrar.exists() and not marker.exists(), (
             "N244-CANCELLED-OBSERVER-CROSSED-REGISTRAR")
         assert (rundir / "exitcode").read_text().strip() == "130"
@@ -5222,7 +5636,7 @@ def test_cancellation_during_pre_register_observation_never_registers(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_pre_register_observation_never_registers/wait-2"))
 
 
 def test_cancellation_during_group_observer_forbids_registration(tmp_path):
@@ -5247,14 +5661,14 @@ def test_cancellation_during_group_observer_forbids_registration(tmp_path):
     gate_pid = -1
     try:
         gate_pid, live = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd) == "group-observer-entered\n"
+        assert _w1_await_fifo(entered_fd, site="cancellation_during_group_observer_forbids_registration/fifo") == "group-observer-entered\n"
         assert live == [str(gate_pid)]
         assert not registrar.exists() and not marker.exists()
         os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
             stream.write("continue\n")
         assert not registrar.exists() and not marker.exists()
-        assert proc.wait(timeout=8) == 130
+        assert proc.wait(timeout=_w1_budget_s("cancellation_during_group_observer_forbids_registration/wait")) == 130
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "primary_cancel=130" in evidence
     finally:
@@ -5262,7 +5676,7 @@ def test_cancellation_during_group_observer_forbids_registration(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_group_observer_forbids_registration/wait-2"))
 
 
 def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
@@ -5290,7 +5704,7 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, timeout=10) == (
+        assert _w1_await_fifo(entered_fd, site="cancellation_during_terminal_reader_reconciles_exact_id_once/fifo") == (
             "terminal-reader-entered\n")
         assert registrar.exists() and not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
@@ -5298,7 +5712,7 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
         with release.open("w", encoding="utf-8") as stream:
             stream.write("continue\n")
         assert not marker.exists()
-        rc = proc.wait(timeout=10)
+        rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait"))
         calls = argv_log.read_text(encoding="utf-8").splitlines()
         assert calls.count("reap --id stubhost-4242") == 1, calls
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -5309,7 +5723,7 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait-2"))
 
 
 def test_cancellation_during_terminal_relay_wait_reconciles_once(tmp_path):
@@ -5338,14 +5752,14 @@ def test_cancellation_during_terminal_relay_wait_reconciles_once(tmp_path):
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, timeout=10) == (
+        assert _w1_await_fifo(entered_fd, site="cancellation_during_terminal_relay_wait_reconciles_once/fifo") == (
             "terminal-relay-wait-entered\n")
         assert registrar.exists() and not marker.exists()
         os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
             stream.write("continue\n")
         assert not marker.exists()
-        rc = proc.wait(timeout=10)
+        rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_relay_wait_reconciles_once/wait"))
         calls = argv_log.read_text(encoding="utf-8").splitlines()
         assert calls.count("reap --id stubhost-4242") == 1, calls
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -5356,7 +5770,7 @@ def test_cancellation_during_terminal_relay_wait_reconciles_once(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_relay_wait_reconciles_once/wait-2"))
 
 
 def test_pre_observation_cancellation_settles_only_in_the_top_shell(tmp_path):
@@ -5376,7 +5790,7 @@ def test_pre_observation_cancellation_settles_only_in_the_top_shell(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("pre_observation_cancellation_settles_only_in_the_top_shell/run"))
 
     assert not registrar.exists() and not marker.exists()
     assert result.returncode == 130
@@ -5415,12 +5829,12 @@ def test_cancellation_during_gate_settlement_wait_preserves_primary(tmp_path):
     gate_pid = -1
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        assert _w1_await_fifo(entered_fd, timeout=10) == "gate-wait-entered\n"
+        assert _w1_await_fifo(entered_fd, site="cancellation_during_gate_settlement_wait_preserves_primary/fifo") == "gate-wait-entered\n"
         assert registrar.exists() and not marker.exists()
         os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
             stream.write("continue\n")
-        assert _w1_wait_for_exit(proc, rundir) == 130
+        assert _w1_wait_for_exit(proc, rundir, site="cancellation_during_gate_settlement_wait_preserves_primary/exit") == 130
         assert not marker.exists() and not _w1_live_in_group(gate_pid)
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
         assert "primary_cancel=130" in evidence
@@ -5432,7 +5846,7 @@ def test_cancellation_during_gate_settlement_wait_preserves_primary(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("cancellation_during_gate_settlement_wait_preserves_primary/wait"))
 
 
 def test_runner_cancellation_closes_gate_and_does_not_start_workload(tmp_path):
@@ -5458,7 +5872,7 @@ def test_runner_cancellation_closes_gate_and_does_not_start_workload(tmp_path):
         gate_pid, _ = _w1_wait_for_gate(rundir)
         _w1_wait_for_path(registrar)
         os.kill(proc.pid, signal.SIGINT)
-        rc = proc.wait(timeout=7)
+        rc = proc.wait(timeout=_w1_budget_s("runner_cancellation_closes_gate_and_does_not_start_workload/wait"))
         assert rc == 130
         assert not marker.exists() and not signal_log.exists()
         assert (rundir / "exitcode").read_text().strip() == "130"
@@ -5470,7 +5884,7 @@ def test_runner_cancellation_closes_gate_and_does_not_start_workload(tmp_path):
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("runner_cancellation_closes_gate_and_does_not_start_workload/wait-2"))
 
 
 def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
@@ -5499,7 +5913,7 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         status_pipe = _w1_readlink_when_installed(gate_pid, 3)
         assert release_pipe.startswith("pipe:[")
         assert status_pipe.startswith("pipe:[")
-        assert _w1_await_fifo(payload_entered_fd) == "payload-write-opened\n"
+        assert _w1_await_fifo(payload_entered_fd, site="gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/fifo") == "payload-write-opened\n"
         try:
             assert not fd_report.exists(), (
                 "registrar fd report became visible before its payload was complete")
@@ -5508,7 +5922,7 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         _w1_wait_for_path(fd_report)
         inherited = fd_report.read_text(encoding="utf-8")
         assert release_pipe not in inherited and status_pipe not in inherited
-        rc = proc.wait(timeout=6)
+        rc = proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait"))
         assert not marker.exists()
         assert not [path for path in rundir.iterdir()
                     if stat.S_ISFIFO(path.stat().st_mode)], (
@@ -5519,7 +5933,7 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait-2"))
 
 
 def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
@@ -5559,7 +5973,7 @@ def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
             "the census must see a real live member of the group")
     finally:
         probe.stdin.close()
-        probe.wait(timeout=5)
+        probe.wait(timeout=_w1_budget_s("the_group_census_never_forks_and_so_cannot_count_itself/wait"))
 
     # A reaped child is a zombie or gone; either way it is not live.
     assert str(probe.pid) not in _w1_live_in_group(own_group)
@@ -5605,7 +6019,7 @@ def test_the_cheap_presence_probe_agrees_with_the_complete_census(tmp_path):
         assert _w1_group_has_at_least(pgid, 0) is True
     finally:
         child.stdin.close()
-        child.wait(timeout=5)
+        child.wait(timeout=_w1_budget_s("the_cheap_presence_probe_agrees_with_the_complete_census/wait"))
 
     # Group gone: the COMPLETE census is what proves absence, and the probe
     # must agree here even though it is not the instrument for that question.
@@ -5650,21 +6064,21 @@ def test_a_descriptor_wait_is_required_because_a_live_pid_proves_nothing(tmp_pat
 
         child.stdin.write("go\n")
         child.stdin.flush()
-        link = _w1_readlink_when_installed(child.pid, 3, timeout=10.0)
+        link = _w1_readlink_when_installed(child.pid, 3, timeout=_w1_budget_s("a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink"))
         assert link.startswith("pipe:["), link
         assert child.stdout.readline() == "installed\n"
     finally:
         if child.poll() is None:
             child.kill()
-        child.wait(timeout=5)
+        child.wait(timeout=_w1_budget_s("a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait"))
 
     # NEGATIVE CONTROL: a dead gate must fail fast with its distinctive reason,
     # not burn the whole timeout and not report a descriptor it never had.
     dead = subprocess.Popen([sys.executable, "-c", "raise SystemExit(0)"])
-    dead.wait(timeout=5)
+    dead.wait(timeout=_w1_budget_s("a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait-2"))
     started = time.monotonic()
     with pytest.raises(AssertionError, match="exited before installing fd"):
-        _w1_readlink_when_installed(dead.pid, 3, timeout=10.0)
+        _w1_readlink_when_installed(dead.pid, 3, timeout=_w1_budget_s("a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink-2"))
     assert time.monotonic() - started < 5.0, (
         "the wait burned its timeout on a process that was already gone")
 
@@ -5687,7 +6101,7 @@ def test_pytest_pid_publish_failure_is_settled_without_partial_target(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("pytest_pid_publish_failure_is_settled_without_partial_target/run"))
 
     evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
     assert "REGISTER-GATE-SETUP-FAILED phase=pytest-pid-publish" in evidence
@@ -5735,7 +6149,7 @@ def test_partial_coproc_setup_settles_every_acquired_owner(
     env["W1_WAIT_LOG"] = str(wait_log)
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("partial_coproc_setup_settles_every_acquired_owner/run"))
     assert not marker.exists()
     pid_path = (rundir / "injected-gate.pid" if missing_pid is not None
                 else rundir / "pytest.pid")
@@ -5823,7 +6237,7 @@ def test_malformed_owner_ready_reaps_its_term_resistant_group(tmp_path):
 
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("malformed_owner_ready_reaps_its_term_resistant_group/run"))
 
     assert claim.exists() and descendant.exists(), (
         "the malformed post-setsid owner schedule never reached its descendant")
@@ -5914,7 +6328,7 @@ def test_withheld_owner_ready_reaps_post_setsid_term_resistant_group(tmp_path):
         return values
 
     try:
-        assert _w1_await_fifo(entered_fd, timeout=5) == "owner-and-child-live\n"
+        assert _w1_await_fifo(entered_fd, site="withheld_owner_ready_reaps_post_setsid_term_resistant_group/fifo") == "owner-and-child-live\n"
         parent_receipt = read_receipt(parent_receipt_path)
         child_receipt = read_receipt(child_receipt_path)
         parent_pid, _parent_ppid, parent_pgid, parent_sid, _parent_start = (
@@ -5927,7 +6341,7 @@ def test_withheld_owner_ready_reaps_post_setsid_term_resistant_group(tmp_path):
         with open(release, "w", encoding="ascii") as stream:
             stream.write("release\n")
         try:
-            rc = proc.wait(timeout=8)
+            rc = proc.wait(timeout=_w1_budget_s("withheld_owner_ready_reaps_post_setsid_term_resistant_group/wait"))
         except subprocess.TimeoutExpired as exc:
             raise AssertionError(
                 "NO-READY-GROUP-AUTHORITY-DOWNGRADED-TO-BARE-PID") from exc
@@ -5959,7 +6373,7 @@ def test_withheld_owner_ready_reaps_post_setsid_term_resistant_group(tmp_path):
         if proc.poll() is None:
             _w1_kill_group(os.getpgid(proc.pid))
             proc.kill()
-            proc.wait(timeout=5)
+            proc.wait(timeout=_w1_budget_s("withheld_owner_ready_reaps_post_setsid_term_resistant_group/wait-2"))
 
 
 def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
@@ -5988,11 +6402,11 @@ def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             start_new_session=True)
     try:
-        rc = proc.wait(timeout=W1_RUNNER_BOUND)
+        rc = proc.wait(timeout=_w1_budget_s("a_registrar_that_succeeds_still_gets_waited_for_and_recorded/wait"))
     except subprocess.TimeoutExpired:
         _w1_kill_group(os.getpgid(proc.pid))
         proc.kill()
-        proc.wait(timeout=10)
+        proc.wait(timeout=_w1_budget_s("a_registrar_that_succeeds_still_gets_waited_for_and_recorded/wait-2"))
         raise AssertionError(
             "the runner never finished a SUCCESSFUL run within "
             f"{W1_RUNNER_BOUND:.0f}s")
@@ -6019,3 +6433,363 @@ def test_a_registrar_that_succeeds_still_gets_waited_for_and_recorded(tmp_path):
         "wedge denominator entirely.")
     assert (rundir / "epoch_end").is_file(), (
         "epoch_end is missing on the success path; the sample has no duration")
+
+
+# ===========================================================================
+# ROW 230: the budgets above are a CONTRACT, and these are the gates on it.
+# ===========================================================================
+
+def _w1_budget_census():
+    """Every wall-clock budget declared anywhere in THIS file.
+
+    An AST census, never a grep: backlog row 196 is an entire row about
+    textual-proxy gates, and this file is full of prose that names the very
+    identifiers it asserts on. Parsing sees keyword arguments and parameter
+    defaults and nothing else.
+
+    The denominator is WIDER than the v3.66.1222 ratchet's, deliberately. That
+    gate sees CONSTANT budgets and says so; measuring this file found two real
+    budgets it cannot see -- `watchdog=20.0`, whose name was outside the
+    ratchet's set, and `proc.wait(timeout=W1_RUNNER_BOUND)`, whose value is a
+    named constant rather than a literal. Both are counted here.
+    """
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"),
+                     filename=__file__)
+    names = {"timeout", "timeout_s", "budget_s", "watchdog"}
+    derived, other = [], []
+
+    def classify(callee, lineno, arg, value):
+        """derived / forwarded / not-a-budget, for one budget expression."""
+        if isinstance(value, ast.Call) \
+                and ast.unparse(value.func) == "_w1_budget_s":
+            target = value.args[0]
+            if isinstance(target, ast.Constant):
+                derived.append((callee, target.value))
+            # else: derived from a `site` PARAMETER, so the literal key lives
+            # at the caller and is counted there. Not a straggler.
+            return
+        if isinstance(value, ast.Name) and value.id in (arg, "budget", "watchdog"):
+            return                       # forwarded, or derived one line above
+        other.append((lineno, callee, arg, ast.unparse(value)))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            callee = ast.unparse(node.func)
+            for kw in node.keywords:
+                if kw.arg == "site" and isinstance(kw.value, ast.Constant):
+                    derived.append((callee, kw.value.value))
+                elif kw.arg in names:
+                    classify(callee, node.lineno, kw.arg, kw.value)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            a = node.args
+            pos = a.posonlyargs + a.args
+            pairs = list(zip(pos[len(pos) - len(a.defaults):], a.defaults))
+            pairs += [(x, d) for x, d in zip(a.kwonlyargs, a.kw_defaults)
+                      if d is not None]
+            for arg, d in pairs:
+                if arg.arg in names:
+                    classify("DEFAULT:" + node.name, node.lineno, arg.arg, d)
+    return derived, other
+
+
+# The sites this file deliberately does NOT derive, recorded rather than
+# filtered, because a classifier that is wrong once is worse than an honest
+# list. `settle_ambiguous_launch(timeout_s=...)` is the PRODUCT's own deadline
+# parameter under test with a monkeypatched transport -- 0.01s is chosen to
+# force the deadline branch, so deriving it from a measurement would delete
+# the test. Same class as the ratchet's "the product must clamp this" entries.
+_W1_NOT_A_BUDGET = {
+    ("mod.settle_ambiguous_launch", "timeout_s", "1.0"),
+    ("mod.settle_ambiguous_launch", "timeout_s", "0.01"),
+}
+
+
+def test_every_wall_clock_budget_in_this_file_is_derived():
+    """THE DENOMINATOR. A gate must see the subject it claims to judge.
+
+    RED on the parent: at v3.66.1222 this file declared 127 constant budgets
+    and derived none of them.
+    """
+    derived, other = _w1_budget_census()
+    assert len(derived) > 100, (
+        "only %d derived budget sites found; the census stopped seeing them "
+        "and every assertion below would be vacuous" % len(derived))
+    stragglers = [o for o in other
+                  if (o[1], o[2], o[3]) not in _W1_NOT_A_BUDGET]
+    assert not stragglers, (
+        "wall-clock budget(s) in this file are still written down instead of "
+        "derived from a measurement. Add the call site to _MEASURED_S with a "
+        "measured baseline and call _w1_budget_s(...):\n  %r" % (stragglers,))
+    assert len(other) == 3, (
+        "the recorded not-a-budget population changed: %r" % (other,))
+
+
+def test_the_table_and_the_call_sites_are_the_same_population():
+    """No key without a site, no site without a key.
+
+    An entry nothing uses is a number nobody re-measures; a site whose key is
+    absent is a KeyError at run time in whichever branch happens to reach it,
+    which is a failure with no diagnosis.
+    """
+    derived, _other = _w1_budget_census()
+    used = {key for _callee, key in derived}
+    assert used, "no call site resolves through _w1_budget_s"
+    missing = sorted(used - set(_MEASURED_S))
+    assert not missing, "call sites name keys absent from _MEASURED_S: %r" % missing
+    unused = sorted(set(_MEASURED_S) - used)
+    assert not unused, "_MEASURED_S carries keys no call site uses: %r" % unused
+
+
+def test_no_budget_can_outlive_the_bound_that_governs_its_item():
+    """THE CEILING, over the whole file rather than one budget at a time.
+
+    `_w1_budget_s` asserts its own value at every hand-out; this proves the
+    stronger claim the row asks for -- that an ITEM cannot reach the bound
+    even if every budget it declares expires in turn. The per-function sum is
+    a deliberate over-estimate: only one failure path can raise, so the real
+    worst case is smaller.
+    """
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"),
+                     filename=__file__)
+    per_function = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        total = 0.0
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Call) \
+                    and ast.unparse(inner.func) == "_w1_budget_s" \
+                    and inner.args and isinstance(inner.args[0], ast.Constant):
+                total += float(_w1_budget_s(inner.args[0].value))
+        if total:
+            per_function[node.name] = total
+    assert len(per_function) > 40, (
+        "only %d functions carry a derived budget; the walk collapsed"
+        % len(per_function))
+    ceiling = _GOVERNING_BOUND_S - _ITEM_RESERVE_S
+    over = {f: t for f, t in per_function.items() if t > ceiling}
+    assert not over, (
+        "function(s) whose declared budgets could sum past the %.0fs ceiling "
+        "(%.0fs bound less %.0fs reserve): %r"
+        % (ceiling, _GOVERNING_BOUND_S, _ITEM_RESERVE_S, over))
+
+
+def test_every_budget_clears_its_measured_cost_by_the_stated_margin():
+    """THE FLOOR. The hazard this cut exists to remove.
+
+    MEASURED at the parent commit: 39 of the 83 sites a passing run reaches
+    carried a budget under 3x their own cost, and three sat at 1.0x --
+    test_partial_or_duplicate_release_frame_never_execs waited 6.993s against
+    a 7 second budget. A budget that close fires on CORRECT work under load,
+    and at the assertion that is indistinguishable from the defect it exists
+    to catch.
+    """
+    assert _MEASURED_S, "the table is empty, so this gate constrains nothing"
+    tight = {}
+    for site, (measured, _prior) in _MEASURED_S.items():
+        if measured <= 0:
+            continue
+        ratio = float(_w1_budget_s(site)) / measured
+        if ratio < _WARN_FACTOR:
+            tight[site] = round(ratio, 2)
+    assert not tight, (
+        "budget(s) within %.1fx of their own measured cost, which is where "
+        "the 2026-08-24 failures were: %r" % (_WARN_FACTOR, tight))
+    # ... and the margin is not manufactured by an empty numerator.
+    real = [s for s, (m, _p) in _MEASURED_S.items() if m >= 1.0]
+    assert len(real) > 30, (
+        "only %d sites carry a baseline of a second or more; the table has "
+        "lost the expensive sites this row is about" % len(real))
+
+
+def test_the_warning_fires_before_the_budget_on_every_expensive_site():
+    """A control that can never fire first is a monument -- but a control that
+    fires too early IS THE DEFECT THIS ROW IS ABOUT, so the two are balanced
+    deliberately rather than by picking a comfortable number.
+
+    `_WARN_FLOOR_S` equals `_MIN_BUDGET_S`, so on a site whose budget is the
+    floor the warning cannot precede the timeout: the budget IS the control
+    there, and no NEW failure mode is introduced for a wait that costs
+    milliseconds. Where the warning must work is the expensive sites -- the
+    6-7 second waits that fired on correct work on 2026-08-24 -- and there it
+    is strictly earlier, by construction (3x vs 6x) and by assertion here.
+    """
+    expensive = [s for s, (m, _p) in _MEASURED_S.items() if m >= 5.0]
+    assert len(expensive) >= 8, (
+        "only %d sites carry a baseline of 5s or more, so this gate has lost "
+        "the population row 230 is about" % len(expensive))
+    late = {s: (_w1_warn_s(s), float(_w1_budget_s(s)))
+            for s in expensive if _w1_warn_s(s) >= float(_w1_budget_s(s))}
+    assert not late, (
+        "expensive site(s) whose warning cannot precede their own timeout, so "
+        "drift there would be announced by a crossed budget under load rather "
+        "than by this assertion: %r" % late)
+
+
+def test_the_boundary_instrument_is_actually_installed(tmp_path):
+    """PRECONDITION for every claim _w1_police makes.
+
+    Asked of the RESOURCE BOUNDARY rather than of the source: run a real
+    subprocess through a real budget and assert the instrument saw it.
+    """
+    before = len(_W1_POLICED)
+    proc = subprocess.Popen(["bash", "-c", "sleep 0.05"])
+    assert proc.wait(timeout=_w1_budget_s("_w1_wait_for_gate/default")) == 0
+    assert len(_W1_POLICED) == before + 1, (
+        "the wait boundary is not instrumented, so every self-policing "
+        "assertion in this module is decoration (%d -> %d)"
+        % (before, len(_W1_POLICED)))
+    assert _W1_POLICED[-1] == "_w1_wait_for_gate/default"
+
+
+def test_a_site_that_outgrows_its_baseline_says_so(monkeypatch, tmp_path):
+    """THE OVER-SENSITIVITY CONTROL, and it compares a baseline to the CLOCK.
+
+    v3.66.1219's first attempt at this compared baselines only to each other,
+    so restating 168s as 7s stayed green -- vacuous. This one runs a real
+    subprocess that really takes about 0.3s and asserts the policing fires,
+    BY ITS DISTINCTIVE MESSAGE, when the recorded baseline says it should
+    have taken a millisecond. The negative arm restores the true baseline and
+    asserts the same wait passes, so the RED cannot come from anything else.
+    """
+    site = "_w1_wait_for_gate/default"
+    real = _MEASURED_S[site]
+
+    def run_one():
+        proc = subprocess.Popen(["bash", "-c", "sleep 0.3"])
+        return proc.wait(timeout=_w1_budget_s(site))
+
+    # THE FLOOR IS LOWERED FOR BOTH ARMS, so the RECORDED BASELINE is the only
+    # thing that differs between them. `_WARN_FLOOR_S` exists to stop a
+    # millisecond baseline turning scheduler noise into a failure, and at 5s it
+    # would swallow a 0.3s subject whatever the baseline said -- which would
+    # make this control prove nothing rather than prove the floor works.
+    monkeypatch.setattr(sys.modules[__name__], "_WARN_FLOOR_S", 0.0)
+
+    # NEGATIVE ARM FIRST, so a green positive arm cannot be an accident of a
+    # broken fixture: with the real baseline the same wait is fine.
+    assert _w1_warn_s(site) > 0.3, "the negative arm has no headroom to lose"
+    assert run_one() == 0
+
+    monkeypatch.setitem(_MEASURED_S, site, (0.001, real[1]))
+    with pytest.raises(AssertionError) as caught:
+        run_one()
+    assert "against a recorded baseline of" in str(caught.value), (
+        "the wait failed for some other reason, so this proves nothing: %s"
+        % caught.value)
+    assert site in str(caught.value)
+
+    monkeypatch.undo()
+    assert _MEASURED_S[site] == real
+    assert run_one() == 0, (
+        "the policing did not restore, so it would now fail unrelated tests")
+
+
+def test_each_knob_is_constrained_independently_of_the_other():
+    """THE TWO KNOBS MASK EACH OTHER, AND A MUTATION BATTERY IS HOW WE KNOW.
+
+    At v3.66.1226 a battery ran five mutants against the gates in this file and
+    FOUR ESCAPED. Two of them were the knobs themselves:
+
+      * dropping the contention factor from six to one stayed GREEN, because
+        the thirty-second floor rescued every ratio.
+      * dropping the absolute floor to zero stayed GREEN, because the factor
+        rescued every ratio instead.
+
+    Neither knob was actually pinned by anything. The cause is structural: every
+    other gate here reads `_w1_budget_s`, which returns `max(prior, floor,
+    derived)` -- a COMBINED value in which either input can hide the loss of the
+    other. Deriving the expectation from the artifact under test is the exact
+    shape CLAUDE.md A7 forbids, and this file's whole subject is instruments that
+    cannot see their own subject. This gate reads the two terms SEPARATELY.
+    """
+    assert _MEASURED_S, "the table is empty, so this gate constrains nothing"
+
+    # THE MULTIPLICATIVE TERM ALONE must clear the margin, with no help from the
+    # floor. That is what makes it a contention factor rather than decoration.
+    assert _CONTENTION_FACTOR >= _WARN_FACTOR, (
+        "the contention factor %.1f is below the %.1f margin the warning uses, "
+        "so a site whose prior constant happens to be small would ship a budget "
+        "this file already calls too tight"
+        % (_CONTENTION_FACTOR, _WARN_FACTOR))
+    thin = {
+        site: (measured, math.ceil(measured * _CONTENTION_FACTOR))
+        for site, (measured, _prior) in _MEASURED_S.items()
+        if measured > 0
+        and math.ceil(measured * _CONTENTION_FACTOR) < measured * _WARN_FACTOR
+    }
+    assert not thin, (
+        "the DERIVED term alone fails the margin at %d site(s) -- the floor is "
+        "carrying them, and a floor is not a contention model: %r"
+        % (len(thin), sorted(thin)[:5]))
+
+    # THE FLOOR ALONE must cover a measured SCHEDULING stall, with no help from
+    # the factor. v3.66.1223's full suite measured
+    # test_v3_66_1209 ... reexecs_itself_when_handed_ignored_stop_signals
+    # consuming a 90s budget for work that costs 1.26-1.80s serially. No
+    # multiplier expresses 88 seconds of delay on 1.5 seconds of work; that is
+    # why an absolute floor exists, and why it is not free to move.
+    assert _MIN_BUDGET_S >= 30.0, (
+        "the absolute floor is %.1fs. It exists because a 1.5s test was measured "
+        "consuming 90s of wall clock under load on 2026-08-25, which a "
+        "multiplicative factor cannot describe. Lowering it re-opens the shape "
+        "row 230 was filed for." % _MIN_BUDGET_S)
+
+
+def test_the_handout_assertion_is_live_and_not_decoration():
+    """NEGATIVE CONTROL for the per-budget ceiling.
+
+    `_w1_budget_s` asserts every value it hands out is subordinate to the bound.
+    Nothing proved that assertion could still FIRE: no site in the table is
+    anywhere near the ceiling, so deleting the assert changed no observable
+    behaviour and a mutation that removed it ESCAPED at v3.66.1226.
+
+    An assertion that cannot be shown to fire is indistinguishable from a
+    comment. This drives one through it.
+    """
+    site = "__handout_control__"
+    over = _GOVERNING_BOUND_S  # any value above the ceiling will do
+    _MEASURED_S[site] = (over, over)
+    try:
+        with pytest.raises(AssertionError) as excinfo:
+            _w1_budget_s(site)
+    finally:
+        del _MEASURED_S[site]
+    assert "subordinate" in str(excinfo.value), str(excinfo.value)
+
+    # And the same call must SUCCEED for an ordinary site, so the raise above is
+    # about the ceiling rather than about the helper being broken.
+    ordinary = sorted(_MEASURED_S)[0]
+    assert float(_w1_budget_s(ordinary)) <= _GOVERNING_BOUND_S - _ITEM_RESERVE_S
+
+
+def test_the_governing_bound_agrees_with_the_frozen_one():
+    """One declared source, not two numbers that drift apart.
+
+    v3.66.1222 froze the bound in project-knowledge/BUDGET_RATCHET.json. This
+    file states it locally so no test pays a JSON read per budget; the two
+    must not disagree, and this is where that is proved rather than assumed.
+    """
+    ratchet = REPO / "project-knowledge" / "BUDGET_RATCHET.json"
+    assert ratchet.is_file(), "the frozen bound is missing at %s" % ratchet
+    frozen = json.loads(ratchet.read_text(encoding="utf-8"))["governing_bound_s"]
+    assert float(frozen) == _GOVERNING_BOUND_S, (
+        "this file derives its budgets from a %.0fs bound while the frozen "
+        "population uses %.0fs" % (_GOVERNING_BOUND_S, float(frozen)))
+
+
+def test_no_budget_in_this_file_is_at_or_above_the_bound():
+    """The hazard v3.66.1222 fixed elsewhere, asserted here rather than assumed.
+
+    MEASURED at the parent: zero of this file's 127 constant budgets were at
+    or above 240, so the dead-`except` half of row 230 was already absent
+    here. Deriving the budgets UPWARD is exactly the move that could
+    reintroduce it, so it is checked at every hand-out and again in bulk.
+    """
+    ceiling = _GOVERNING_BOUND_S - _ITEM_RESERVE_S
+    over = {s: float(_w1_budget_s(s)) for s in _MEASURED_S
+            if float(_w1_budget_s(s)) >= _GOVERNING_BOUND_S}
+    assert not over, "budget(s) at or above the governing bound: %r" % over
+    near = {s: float(_w1_budget_s(s)) for s in _MEASURED_S
+            if float(_w1_budget_s(s)) > ceiling}
+    assert not near, "budget(s) past the reserve line %.0fs: %r" % (ceiling, near)
