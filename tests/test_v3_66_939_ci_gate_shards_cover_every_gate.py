@@ -150,6 +150,11 @@ _DECLARED = {
     "tests/test_t3_t4_wired.py",
     "tests/test_t5_t6_wired.py",
     "tests/test_t7_notifications_wired.py",
+    # @1239, backlog row 240. The supervisor throttle form had no GET consumer
+    # at all, so an untouched Apply POSTed the component's own defaults over
+    # every live byte-rate limit. Delegates to three Vitest specs; it belongs
+    # in the parity-graph shard because that is where node is installed.
+    "tests/test_v3_66_1239_supervisor_settings_seeded.py",
     "tests/test_t8_cluster_wired.py",
     "tests/test_t9a_live_stream_wired.py",
     "tests/test_t9b_push_wired.py",

@@ -326,6 +326,7 @@ jobs:
               tests/test_t3_t4_wired.py
               tests/test_t5_t6_wired.py
               tests/test_t7_notifications_wired.py
+              tests/test_v3_66_1239_supervisor_settings_seeded.py
               tests/test_t8_cluster_wired.py
               tests/test_t9a_live_stream_wired.py
               tests/test_t9b_push_wired.py
