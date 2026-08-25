@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1230 row-197 battery. This gate's fix and its tests live in the SAME file, so replaying the tests on the parent tree cannot be RED -- the widened denominator travels with them. The battery IS the provenance: each mutant removes one part of the population contract and a named catcher must fail. Recorded rather than glossed. FIRST RUN: 2 caught, 3 ESCAPED, and all three escapes were real holes. Nothing drove the single-string spawn form, nothing forced an empty population (the real repository is never empty, so the refusal could not fire), and nothing made a declared exemption go stale. Three catchers were added for them.",
+  "subject": "v3.66.1230 -- the parity gate judges installers, not file extensions",
+  "band": [
+    "tests/test_playwright_engines_single_source.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 classification is extension-only again, so toolchain/bin is invisible",
+      "file": "tests/test_playwright_engines_single_source.py",
+      "old": "    if first.startswith(b\"#!\"):\n        if _SHEBANG_PYTHON_RE.search(first):",
+      "new": "    if False:\n        if _SHEBANG_PYTHON_RE.search(first):",
+      "direction": "regression",
+      "catcher": "tests/test_playwright_engines_single_source.py::test_the_python_program_denominator_is_nonzero_and_sees_extensionless_tools"
+    },
+    {
+      "label": "M2 the python arm loses list literals, so an argv variable evades it",
+      "file": "tests/test_playwright_engines_single_source.py",
+      "old": "        if isinstance(node, (ast.List, ast.Tuple)):",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_playwright_engines_single_source.py::test_a_non_sh_provisioning_path_cannot_evade_the_parity_gate[python-argv-literal]"
+    },
+    {
+      "label": "M3 the python arm loses spawn calls, so the shell=True form evades it",
+      "file": "tests/test_playwright_engines_single_source.py",
+      "old": "        if isinstance(node, ast.Call):\n            func = node.func",
+      "new": "        if False:\n            func = node.func",
+      "direction": "regression",
+      "catcher": "tests/test_playwright_engines_single_source.py::test_the_python_arm_sees_the_single_string_spawn_form"
+    },
+    {
+      "label": "M4 the denominator may be empty on one side and still report clean",
+      "file": "tests/test_playwright_engines_single_source.py",
+      "old": "    assert groups[\"shell\"] and groups[\"python\"], (",
+      "new": "    assert True or groups[\"shell\"] and groups[\"python\"], (",
+      "direction": "regression",
+      "catcher": "tests/test_playwright_engines_single_source.py::test_an_empty_program_population_refuses_rather_than_reporting_clean"
+    },
+    {
+      "label": "M5 a declared exemption is never re-checked, so it rots into permission",
+      "file": "tests/test_playwright_engines_single_source.py",
+      "old": "        assert sites, (\n            \"%s is declared here but installs nothing any more -- the \"",
+      "new": "        assert True, (\n            \"%s is declared here but installs nothing any more -- the \"",
+      "direction": "regression",
+      "catcher": "tests/test_playwright_engines_single_source.py::test_a_stale_exemption_is_refused_rather_than_inherited"
+    }
+  ]
+}
