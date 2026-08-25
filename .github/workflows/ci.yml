@@ -452,6 +452,7 @@ jobs:
               tests/test_v3_66_972_library_missing_stays_retired.py
               tests/test_v3_66_1197_ambient_locale_into_subprocess.py
               tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py
+              tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py
           - name: tree-gates-3
             suites: >-
               tests/test_v3_66_820_share_tools_saw_no_session_keys.py

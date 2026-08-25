@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1251 - the provisioner gate proves dispatch instead of structure
+
+- PROVISIONER-INVOCATION-IS-STRUCTURAL-NOT-BEHAVIORAL. The gate asserted over
+- The replacement drives the provisioner and asserts the capabilities it was
+- A probe module carries the behavioural harness so the assertion exercises t
+- The cut is tests, mutants and the CI shard declaration only; there is no
+- Built earlier in this session and held; its mutant spec was authored as
+
 ## v3.66.1250 - fleet and runtime state is measured rather than assumed
 
 - Removed test6 `/mnt/bdtmpfs` after proving:
