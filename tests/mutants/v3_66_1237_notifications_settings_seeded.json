@@ -1,0 +1,69 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 238 / v3.66.1237. bd-mutate refuses a work tree inside its own repository, so re-run from a DETACHED clone -- and that clone needs frontend/node_modules or the fail-closed Vitest bridge makes every baseline red and the battery exits 2 (no verdict, which must never read as success): git clone <candidate> /tmp/row238-clone && cp -al frontend/node_modules /tmp/row238-clone/frontend/node_modules && /home/mboyle/BulkDownloader/venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1237_notifications_settings_seeded.json --work /tmp/row238-clone --timeout 900. KNOWN TOOL DEFECT this battery works around: bd-mutate's _parse_check has no handler for .tsx ('unknown type: not our place to guess'), and a regression scores CAUGHT on 'named catcher failed' alone -- so a mutant that merely breaks the TRANSFORM would read CAUGHT. Every regression below was therefore confirmed to fail on an expect() ASSERTION in the Vitest output, and a TRANSFORM CONTROL was run: M1 re-pointed at test_t7_route_is_reachable_at_runtime -- a spec that imports and renders the same mutated module without asserting this behaviour -- ESCAPED, proving the catchers are discriminating on behaviour and not on compilability. The band deliberately omits test_t7_route_is_a_lazy_dynamic_entry: it runs tsc -b plus a full vite build (~36s) once per mutant and answers a build question no mutant here touches.",
+  "subject": "v3.66.1237 -- the Notifications route SEEDS its non-secret settings fields (tg chat-id allowlist, both enable flags) from the GET payload before any save can read them, so a save can no longer write a default the operator never saw; and a DELIBERATELY emptied field still sends an empty string, so 'cleared on purpose' stays distinguishable from 'never typed'",
+  "band": [
+    "tests/test_t7_notifications_wired.py::test_t7_endpoint_families_are_consumed_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_secrets_are_write_only_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_writes_are_confirmation_gated_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_route_is_reachable_at_runtime",
+    "tests/test_t7_notifications_wired.py::test_t7_saves_preserve_settings_the_operator_never_retyped",
+    "tests/test_t7_notifications_wired.py::test_t7_non_secret_settings_fields_are_seeded_from_get"
+  ],
+  "mutants": [
+    {
+      "label": "M1 THE DEFECT ITSELF, restored: the allowlist stops being seeded from GET, so an operator who toggles the bot PATCHes tg_bot_allowlist:\"\" and the bot goes dark. The server lookup survives as a trailing comment, so any scan for the property path still passes",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "    tgAllowlistEdit ?? tgSettings.data?.settings?.tg_bot_allowlist ?? \"\";",
+      "new": "    tgAllowlistEdit ?? \"\"; // tgSettings.data?.settings?.tg_bot_allowlist",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_saves_preserve_settings_the_operator_never_retyped"
+    },
+    {
+      "label": "M2 THE EVASION A POISONED CACHE CANNOT SEE: the seed becomes a useState INITIALIZER, which runs on the first render only. Every preloaded-cache assertion still passes; in the real app the fetch resolves AFTER mount, the initializer observes undefined, and the operator's allowlist is erased exactly as before. Caught only by the async-arrival case",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "  const tgAllowlist =\n    tgAllowlistEdit ?? tgSettings.data?.settings?.tg_bot_allowlist ?? \"\";",
+      "new": "  const [tgAllowlistSeed] = useState(\n    tgSettings.data?.settings?.tg_bot_allowlist ?? \"\");\n  const tgAllowlist = tgAllowlistEdit ?? tgAllowlistSeed;",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_non_secret_settings_fields_are_seeded_from_get"
+    },
+    {
+      "label": "M3 tg_bot_enabled stops being seeded, so editing only the allowlist silently DISABLES a running bot -- the same erasure on the flag rather than on the list",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "    tgEnabledEdit ?? tgSettings.data?.settings?.tg_bot_enabled ?? false;",
+      "new": "    tgEnabledEdit ?? false; // tgSettings.data?.settings?.tg_bot_enabled",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_saves_preserve_settings_the_operator_never_retyped"
+    },
+    {
+      "label": "M4 notify_apprise_enabled stops being seeded, so pasting a replacement apprise URL silently turns apprise notifications OFF. The third instance of the same shape on this page; a fix aimed only at Telegram would leave it live",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "    appriseEnabledEdit ?? apprise.data?.settings?.notify_apprise_enabled ?? false;",
+      "new": "    appriseEnabledEdit ?? false; // apprise.data?.settings?.notify_apprise_enabled",
+      "direction": "regression",
+      "catcher": "tests/test_t7_notifications_wired.py::test_t7_saves_preserve_settings_the_operator_never_retyped"
+    },
+    {
+      "label": "M5 OVER-CORRECTION: the allowlist is guarded exactly the way the write-only token is, so a DELIBERATELY emptied field is omitted from the patch and the operator can never revoke a chat id from the UI. Every preservation test above still passes -- a battery that only ever tightened would consent to this. The named control is the deliberate-clear case; the preserved nodeid saves a NON-empty allowlist, which the guard lets through",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "          tg_bot_allowlist: tgAllowlist,\n        };\n        if (tgToken.trim()) patch.tg_bot_token = tgToken;",
+      "new": "        };\n        if (tgAllowlist.trim()) patch.tg_bot_allowlist = tgAllowlist;\n        if (tgToken.trim()) patch.tg_bot_token = tgToken;",
+      "direction": "overcorrection",
+      "control": "tests/test_t7_notifications_wired.py::test_t7_saves_preserve_settings_the_operator_never_retyped",
+      "preserves": [
+        "tests/test_t7_notifications_wired.py::test_t7_non_secret_settings_fields_are_seeded_from_get"
+      ]
+    },
+    {
+      "label": "M6 OVER-CORRECTION IN THE OTHER DIRECTION: the seed WINS over the operator's edit, so the field is effectively read-only -- typing and clearing both do nothing and the stored list can never be changed. This is the shape a useEffect re-seed degenerates into on every background refetch. The named control is the in-progress-edit case; the preserved nodeid never types into this field",
+      "file": "frontend/src/routes/Notifications.tsx",
+      "old": "    tgAllowlistEdit ?? tgSettings.data?.settings?.tg_bot_allowlist ?? \"\";",
+      "new": "    tgSettings.data?.settings?.tg_bot_allowlist ?? tgAllowlistEdit ?? \"\";",
+      "direction": "overcorrection",
+      "control": "tests/test_t7_notifications_wired.py::test_t7_non_secret_settings_fields_are_seeded_from_get",
+      "preserves": [
+        "tests/test_t7_notifications_wired.py::test_t7_route_is_reachable_at_runtime"
+      ]
+    }
+  ]
+}

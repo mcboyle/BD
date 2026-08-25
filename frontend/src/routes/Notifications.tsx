@@ -34,6 +34,11 @@ import {
 // non-empty. Writes are never one-click — each arms a single-tap (Tier
 // B) confirm. Capture-body redaction for these secrets lands in the
 // same cut (capture_redact.py).
+//
+// v3.66.1237 / row 238: WRITE-ONLY IS THE EXCEPTION, NOT THE HOUSE STYLE. The
+// non-secret fields the GET does return (both enable flags and the tg chat-id
+// allowlist) are SEEDED from it, because they are sent unconditionally and an
+// unseeded field that is sent unconditionally erases the stored value.
 
 type Pending =
   | { kind: "saveApprise" }
@@ -52,12 +57,40 @@ export default function Notifications() {
   const testTg = useTgTest();
   const alerts = useActiveAlerts();
 
-  // write-only secret fields (never seeded from GET)
+  // (R) WRITE-ONLY SECRETS -- these two, and ONLY these two, start empty and are
+  // never seeded from GET. The GET does not echo them, and a blank field means
+  // KEEP THE STORED SECRET, so each is added to its patch only when non-empty.
   const [appriseUrls, setAppriseUrls] = useState("");
-  const [appriseEnabled, setAppriseEnabled] = useState(false);
   const [tgToken, setTgToken] = useState("");
-  const [tgEnabled, setTgEnabled] = useState(false);
-  const [tgAllowlist, setTgAllowlist] = useState("");
+
+  // NON-SECRET SETTINGS (backlog row 238). The GET DOES return these three, and
+  // all three are sent unconditionally, so leaving them unseeded made a save
+  // overwrite the stored value with this component's default: opening the page
+  // and toggling the bot PATCHed tg_bot_allowlist:"" -- app_tg.py writes it
+  // through on mere key presence, app.py re-parses it into an empty set, and
+  // tg_bot.py then refuses to start ("not starting - empty allowlist"). Silent
+  // data loss and a self-inflicted outage. The neighbouring token guard is what
+  // made the omission look deliberate; it was not.
+  //
+  // NULL SENTINEL, deliberately NOT useState(server) and NOT useEffect(setX).
+  // useState's initializer runs on the FIRST render only -- before the fetch
+  // resolves -- so it would observe undefined and keep the default in the real
+  // app. A useEffect seed would clobber an in-progress edit on every background
+  // refetch (useAppriseSettings polls every 30s). `edit ?? server ?? default`
+  // needs neither: null means "the operator has not touched this field", and any
+  // NON-null edit wins -- including "" and an explicit false -- so "cleared on
+  // purpose" stays distinguishable from "never typed".
+  const [appriseEnabledEdit, setAppriseEnabledEdit] =
+    useState<boolean | null>(null);
+  const [tgEnabledEdit, setTgEnabledEdit] = useState<boolean | null>(null);
+  const [tgAllowlistEdit, setTgAllowlistEdit] = useState<string | null>(null);
+
+  const appriseEnabled =
+    appriseEnabledEdit ?? apprise.data?.settings?.notify_apprise_enabled ?? false;
+  const tgEnabled =
+    tgEnabledEdit ?? tgSettings.data?.settings?.tg_bot_enabled ?? false;
+  const tgAllowlist =
+    tgAllowlistEdit ?? tgSettings.data?.settings?.tg_bot_allowlist ?? "";
 
   const [pending, setPending] = useState<Pending | null>(null);
   const busy =
@@ -136,7 +169,7 @@ export default function Notifications() {
           <input
             type="checkbox"
             checked={appriseEnabled}
-            onChange={(e) => setAppriseEnabled(e.target.checked)}
+            onChange={(e) => setAppriseEnabledEdit(e.target.checked)}
           />
           Enable apprise notifications
         </label>
@@ -192,7 +225,7 @@ export default function Notifications() {
           <input
             type="checkbox"
             checked={tgEnabled}
-            onChange={(e) => setTgEnabled(e.target.checked)}
+            onChange={(e) => setTgEnabledEdit(e.target.checked)}
           />
           Enable bot
         </label>
@@ -207,7 +240,7 @@ export default function Notifications() {
           className="mb-2"
           placeholder="chat-id allowlist (comma-separated)"
           value={tgAllowlist}
-          onChange={(e) => setTgAllowlist(e.target.value)}
+          onChange={(e) => setTgAllowlistEdit(e.target.value)}
         />
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy} onClick={() => setPending({ kind: "saveTg" })}>
