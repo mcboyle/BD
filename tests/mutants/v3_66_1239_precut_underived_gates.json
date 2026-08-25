@@ -13,7 +13,7 @@
       "label": "M1 the anchor-uniqueness gate is dropped from the list",
       "file": "toolchain/bin/bd-precut",
       "old": "        (\"tests/test_v3_66_1184_mutation_specs_are_tracked.py\",\n         \"every tracked mutant anchor occurs exactly once\"),\n",
-      "new": "",
+      "new": "        # DROPPED: (\"tests/test_v3_66_1184_mutation_specs_are_tracked.py\",\n        # DROPPED: \"every tracked mutant anchor occurs exactly once\"),\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_every_underived_gate_is_named_by_the_tool"
     },
@@ -21,7 +21,7 @@
       "label": "M2 the budget gate is dropped from the list",
       "file": "toolchain/bin/bd-precut",
       "old": "        (\"tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py\",\n         \"no inner budget is at or above the bound governing its item\"),\n",
-      "new": "",
+      "new": "        # DROPPED: (\"tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py\",\n        # DROPPED: \"no inner budget is at or above the bound governing its item\"),\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_every_underived_gate_is_named_by_the_tool"
     },
