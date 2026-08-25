@@ -196,9 +196,17 @@ _probe_exit={json.dumps(str(probe_dir / "defined.txt"))}
 run_step() {{
     local slug="$1" label="$2" kind="$3"; shift 3
     local executed=0
-    case "${1:-}" in
+    # `{{1:-}}`, doubled, because this bash lives inside an f-string: a single
+    # `{1:-}` is a FORMAT FIELD -- format(1, "-") -- and renders as the digit 1,
+    # which silently deletes the guard. Measured on this file: it did, and the
+    # generated shell read `case "$1" in`, which aborts under the script's own
+    # `set -u` the first time run_step is handed no command at all.
+    local first="${{1:-}}"
+    case "$first" in
         eval|command|builtin) executed=1 ;;
-        *) if declare -F "$1" >/dev/null 2>&1; then executed=1; fi ;;
+        *) if [ -n "$first" ] && declare -F "$first" >/dev/null 2>&1; then
+               executed=1
+           fi ;;
     esac
     _probe_emit "$slug" "$label" "$kind" "$executed" "$@"
     if [ "$executed" = 1 ]; then
@@ -246,6 +254,17 @@ _probe_report_definitions() {{
             printf '%s=1\\n' "$name" >> "$_probe_exit"
         else
             printf '%s=0\\n' "$name" >> "$_probe_exit"
+        fi
+    done
+    # Did `readonly -f` actually hold? If the library's own body had replaced a
+    # recorder, this run would be provisioning PostgreSQL from inside the test
+    # suite. The bodies are compared to the recorder's own marker rather than
+    # trusted, because that protection is a bash behaviour and not an axiom.
+    for name in {' '.join(CAPABILITIES)}; do
+        if declare -f "$name" 2>/dev/null | grep -q _probe_calls; then
+            printf '%s#recorder=1\\n' "$name" >> "$_probe_exit"
+        else
+            printf '%s#recorder=0\\n' "$name" >> "$_probe_exit"
         fi
     done
 }}

@@ -453,6 +453,75 @@ def test_the_probe_leaves_the_real_provisioning_log_directory_alone(tmp_path):
     assert logs.is_dir(), "the fixture log directory was never created"
 
 
+def test_the_recorder_and_not_the_real_body_is_what_ran(tmp_path):
+    """The harness's own safety precondition, measured rather than assumed.
+
+    `readonly -f` is what stops the library's real bd_mod3_pg_provision from
+    replacing the recorder -- and that body talks to a live PostgreSQL and
+    writes a DSN into the invoking user's home. If the protection ever stopped
+    holding, every run of this file would quietly start provisioning the host it
+    is measuring, and every assertion above would still be green.
+
+    Checked twice, once from each side: the shell reports which body is bound to
+    the name at exit, and the isolated HOME is inspected for the artefact only
+    the REAL body writes. A self-report alone would be the fail-open shape this
+    row is about.
+    """
+    tree = build_tree(tmp_path)
+    result = probe_module.run(tree, tmp_path / "scratch")
+    assert result.reached_the_verdict(), result.describe()
+    for name in CAPABILITIES:
+        assert result.defined_at_exit.get(f"{name}#recorder"), (
+            f"{name} is not bound to the harness recorder at exit, so the "
+            f"library's real body ran: {result.defined_at_exit}"
+        )
+    home = tmp_path / "scratch" / "home"
+    assert home.is_dir(), "the fixture HOME was never created, so the check below is empty"
+    persisted = home / ".config" / "bd" / "mod3.env"
+    assert not persisted.exists(), (
+        "the real bd_mod3_pg_provision ran: it persisted a DSN into the "
+        f"harness HOME at {persisted}. The recorder was replaced despite "
+        "`readonly -f`, and this suite is provisioning the host it measures."
+    )
+
+
+def test_the_probe_survives_a_run_step_that_is_handed_no_command(tmp_path):
+    """The instrumentation must be at least as `set -u`-safe as the script.
+
+    THIS TEST EXISTS BECAUSE A DEFECT SHIPPED INTO THIS CUT. The stub's guard is
+    written inside a Python f-string, where a single-braced `${1:-}` is a format
+    field rather than shell text: it rendered as the digit 1 and the generated
+    bash read `case "$1" in`. The provisioner runs under `set -u`, so the first
+    run_step handed no command at all would have aborted the whole run -- and
+    the abort would have looked exactly like the evasions this file rejects,
+    turning a harness bug into a confident verdict about the subject.
+    """
+    prelude = probe_module._prelude(tmp_path / "probe", tmp_path / "logs", False)
+    assert 'local first="${1:-}"' in prelude, (
+        "the generated shell does not carry the unset-argument guard: "
+        + repr([l for l in prelude.splitlines() if "case " in l or "first=" in l])
+    )
+    (tmp_path / "probe").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+    script = tmp_path / "unset.sh"
+    script.write_text(
+        prelude + '\nset -uo pipefail\nrun_step slug label optional\necho SURVIVED\n',
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["bash", str(script)],
+        cwd=str(tmp_path),
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "LC_ALL": "C",
+             "TMPDIR": str(tmp_path), "_probe_python": sys.executable},
+        capture_output=True, text=True, timeout=UNIT_BUDGET_S,
+    )
+    assert "SURVIVED" in completed.stdout, (
+        "run_step with no command aborted the instrumented shell: "
+        f"rc={completed.returncode} {completed.stderr.strip()[-300:]}"
+    )
+    assert "unbound variable" not in completed.stderr, completed.stderr[-300:]
+
+
 # --------------------------------------------------------------------------
 # evasions of the text gate
 # --------------------------------------------------------------------------

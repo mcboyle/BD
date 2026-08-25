@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1242 row-228 battery. The gate it replaces asks whether the two optional-capability function names appear in COMMAND POSITION in the provisioner's text; the replacement SOURCES the shipped script into an instrumented bash shell and reads what the running shell did. M1-M3 attack the SUBJECT -- delete the dispatch, regrade it core, stop sourcing the library -- and each must be seen by the behavioural half rather than by a scan. M4-M6 attack three rules of the battery ITSELF that would otherwise be unnamed: that a call reached from OUTSIDE any run_step is not graded, that two capabilities may not share one run_step row, and that a run which dispatches and then exits before the verdict has told the operator nothing. O1 is the anti-brittleness control, and it pins a defect this cut actually shipped and then fixed: the first implementation required the run_step COMMAND WORD to be the function name, which is a spelling and not a behaviour -- the dispatched-through-a-wrapper fixture caught it on the first run, and a variable, a wrapper and an eval are all correct provisioners it would have rejected. RECORDED RATHER THAN GLOSSED: the over-sensitivity control found that defect before the mutation battery did, and the three battery rules M4-M6 pin were added afterwards precisely because nothing in the file named them.",
+  "_comment": "v3.66.1242 row-228 battery. The gate it replaces asks whether the two optional-capability function names appear in COMMAND POSITION in the provisioner's text; the replacement SOURCES the shipped script into an instrumented bash shell and reads what the running shell did. M1-M3 attack the SUBJECT -- delete the dispatch, regrade it core, stop sourcing the library -- and each must be seen by the behavioural half rather than by a scan. M4-M6 attack three rules of the battery ITSELF that would otherwise be unnamed: that a call reached from OUTSIDE any run_step is not graded, that two capabilities may not share one run_step row, and that a run which dispatches and then exits before the verdict has told the operator nothing. O1 is the anti-brittleness control, and it pins a defect this cut actually shipped and then fixed: the first implementation required the run_step COMMAND WORD to be the function name, which is a spelling and not a behaviour -- the dispatched-through-a-wrapper fixture caught it on the first run, and a variable, a wrapper and an eval are all correct provisioners it would have rejected. RECORDED RATHER THAN GLOSSED: the over-sensitivity control found that defect before the mutation battery did, and the three battery rules M4-M6 pin were added afterwards precisely because nothing in the file named them.  SECOND PASS, recorded because a clean first battery is a reason to look harder: M1-M6 and O1 were 7 caught 0 escaped on the first run, and probing three rules of the harness ITSELF that no test named then found a real defect in this cut's own code. The instrumented run_step's unset-argument guard is written inside a Python f-string, where `${1:-}` is a FORMAT FIELD rather than shell text -- it rendered as the digit 1, the generated bash read `case \"$1\" in`, and under the provisioner's own `set -u` a run_step handed no command would have aborted the entire instrumented run, which is indistinguishable from the evasions this file rejects. M9 is that rule, now named and caught; the test written for it immediately found a SECOND unguarded `$1` on the next line. M7 and M8 are the other two unnamed rules: that the harness really EXECUTES what it records, and that its reading of the existing text gate is not fail-open (a vacuous [] would make every evasion claim in the file meaningless). DELIBERATELY NOT MUTATED, and named rather than omitted silently: the `readonly -f` protection over the two capability recorders. Removing it makes the run execute the library's REAL bodies, which talk to a live PostgreSQL and write into the invoking user's home -- a mutation battery must not provision the host it runs on. That rule is asserted directly instead, from both sides, by test_the_recorder_and_not_the_real_body_is_what_ran, and its refusal was proved able to FIRE on this host with a harmless stub library standing in for the real one.",
   "subject": "v3.66.1242 -- the provisioner's optional capabilities are judged by what the shell dispatched, not by where their names sit in the text",
   "band": [
     "tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py",
@@ -54,6 +54,30 @@
       "new": "    if False and not probe.reached_the_verdict():",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_provisioner_that_never_dispatches_is_rejected[exits-before-the-verdict]"
+    },
+    {
+      "label": "M7 the instrumented run_step records commands but executes none of them, so 'the dispatch reached the function' is never actually measured",
+      "file": "tests/provisioner_probe.py",
+      "old": "        *) if [ -n \"$first\" ] && declare -F \"$first\" >/dev/null 2>&1; then",
+      "new": "        *) if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_the_shipped_provisioner_really_dispatches_both_capabilities"
+    },
+    {
+      "label": "M8 the reading of the existing text gate goes fail-open, so every 'this fixture evades the scan' claim in the file becomes vacuous",
+      "file": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py",
+      "old": "    return complaints",
+      "new": "    return []",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_a_correct_provisioner_spelled_differently_is_accepted[one-line-invocation]"
+    },
+    {
+      "label": "M9 the instrumentation drops its unset-argument guard, so a run_step handed no command aborts the whole instrumented run and the abort reads as an evasion of the subject",
+      "file": "tests/provisioner_probe.py",
+      "old": "    local first=\"${{1:-}}\"",
+      "new": "    local first=\"$1\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py::test_the_probe_survives_a_run_step_that_is_handed_no_command"
     },
     {
       "label": "O1 the dispatch must be spelled with the function name as the run_step command word, so a wrapper, a variable or an eval is rejected -- the spelling rule this cut shipped first and the wrapper fixture caught",
