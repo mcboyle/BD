@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1257 - the socket recorder keeps the measurements it takes
+
+- Recorder sink now uses an import-time system-temp anchor shared across xdis
+- Lost rows now produce `UNKNOWN`, never a clean zero: [conftest.py](/home/mb
+- Registered the gate in CI and its independent declared denominator.
+- Added durable mutation and transform-control specs.
+- Before: `0 non-loopback attempts recorded (1 connects observed...)`.
+- After: `1 non-loopback attempt(s) from 1 test(s)`, naming `8.8.8.8:53 (SOCK
+- Xdist: exactly 4 rows from 4 tests across exactly 2 worker PID files.
+- Anchor reversion: `CAUGHT`.
+- Identical import-only transform control: `ESCAPED` as expected.
+- Focused recorder suite: 36 passed.
+- CI shard gate: 16 passed.
+- Backlog authority: 14 passed.
+- Durable-spec population validation: 2 passed.
+
 ## v3.66.1256 - every in-prose backlog id reference resolves to a row that exists
 
 - New repo-wide gate: [test_v3_66_1255_backlog_references_resolve.py](/home/m

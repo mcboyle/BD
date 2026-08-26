@@ -169,6 +169,17 @@ def __getattr__(name):
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
 
+DIR_NAME = "bd-socket-record"
+
+# ANCHORED AT IMPORT, ON PURPOSE. conftest imports this module before
+# `_tmproot.install()` redirects the process-global `tempfile.tempdir` to a
+# per-process root. Resolving the sink later puts serial records in a directory
+# `_tmproot.finish_session()` removes before the terminal summary reads them;
+# under xdist it also gives the master and every worker different roots. The
+# real system temp captured here outlives session cleanup and is identical in
+# every process, matching the run-context recorder's ownership model.
+_TMP_AT_IMPORT = pathlib.Path(tempfile.gettempdir())   # see tests/_tmproot.py
+
 _state = threading.local()
 _lock = threading.Lock()
 
@@ -201,7 +212,7 @@ def sink_dir() -> pathlib.Path:
     The per-run subdirectory is chosen by the caller and reaches xdist workers
     through `workerinput`; see `_socket_record_run_dir` in conftest.
     """
-    return pathlib.Path(tempfile.gettempdir()) / "bd-socket-record"
+    return _TMP_AT_IMPORT / DIR_NAME
 
 
 def is_local(address) -> bool:

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for the v3.66.1256 socket-recorder anchor battery. This spec must ESCAPE: its only test imports the recorder and checks loopback classification without crossing pytest temp-root cleanup or a worker/master boundary. The same transform is CAUGHT by v3_66_1256_socket_recorder_temp_anchor.json.",
+  "subject": "transform-only control proving the valid call-time tempfile mutant imports without exercising sink lifecycle",
+  "band": [
+    "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py::test_transform_control_imports_the_recorder_without_exercising_temp_lifecycle"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the sink follows mutable tempfile state while an import-only recorder test stays green",
+      "file": "tests/_socket_record.py",
+      "old": "    return _TMP_AT_IMPORT / DIR_NAME",
+      "new": "    return pathlib.Path(tempfile.gettempdir()) / DIR_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py::test_transform_control_imports_the_recorder_without_exercising_temp_lifecycle"
+    }
+  ]
+}

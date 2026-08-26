@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1256. Re-run from a detached standalone scratch tree: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1256_socket_recorder_temp_anchor.json --work SCRATCH --timeout 180. The mutant restores the exact call-time tempfile lookup that split serial cleanup from terminal summary and gave every xdist process a different sink. The catcher runs four real worker connects under -n 2, then requires the master to report exactly four rows held in exactly two per-pid JSONL files. The separate transform-control spec applies the identical valid Python transform to an import-only test and must ESCAPE, proving this catch is lifecycle behavior rather than a syntax or import failure.",
+  "subject": "the socket recorder sink is anchored before per-process pytest temp roots and remains shared through master summary",
+  "band": [
+    "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py::test_xdist_rows_from_more_than_one_worker_reach_the_master_summary"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the sink follows mutable tempfile state at call time, splitting every xdist worker from the master and deleting serial evidence before summary",
+      "file": "tests/_socket_record.py",
+      "old": "    return _TMP_AT_IMPORT / DIR_NAME",
+      "new": "    return pathlib.Path(tempfile.gettempdir()) / DIR_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py::test_xdist_rows_from_more_than_one_worker_reach_the_master_summary"
+    }
+  ]
+}

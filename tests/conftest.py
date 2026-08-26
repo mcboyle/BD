@@ -1173,6 +1173,21 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     total = sum(len(v) for v in by_test.values())
     write = terminalreporter.write_line
 
+    # Fail closed when the hook says more connects reached this process than
+    # the sink can account for. `observed` includes loopback connects, so this
+    # does not claim the missing rows were non-loopback; it says the
+    # non-loopback result is UNKNOWN because the two displayed measurements no
+    # longer reconcile. The previous branch rendered that state as a clean
+    # zero, which launders a lost measurement into evidence of no egress.
+    if seen > total:
+        write("socket recorder [stage 1]: UNKNOWN non-loopback attempt count "
+              "(%d row(s) readable, %d connects observed in this process). "
+              "The recorder measurements do not reconcile; a clean zero is "
+              "not available. Cannot see: %s."
+              % (total, seen, "; ".join(_socket_recorder.BLIND_SPOTS)))
+        _write_run_context(terminalreporter, config)
+        return
+
     if not by_test:
         write("socket recorder [stage 1]: 0 non-loopback attempts recorded "
               "(%d connects observed in this process). Cannot see: %s."
