@@ -5680,58 +5680,87 @@ def test_the_settlement_deadline_still_bounds_a_gate_that_will_not_settle(
 
 
 def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
-    """ROW 231 RED, both arms, forced rather than timed.
+    """ROW 231/249, both arms forced rather than timed.
 
-    ARM 1 -- SELF-OBSERVATION. The forking census ran `ps` as a child of the
-    caller, so it landed in the CALLER'S process group and the census reported
-    it as a member. Censusing our own group is therefore the exact case that
-    exposes it: the forking form returns a pid that is already gone, the /proc
-    form does not.
+    ARM 1 -- SNAPSHOT VOLATILITY. A real peer is live when /proc is listed and
+    gone before the result is re-statted. That is a valid snapshot, not proof
+    that the census forked an instrument into its own denominator.
 
-    ARM 2 -- NO FORK AT ALL. Any subprocess launch inside the census is banned
-    outright by making the launchers raise. A census that shells out fails here
-    for its own distinctive reason, so a rewrite back to `ps` goes RED without
-    depending on any timing measurement.
+    ARM 2 -- NO FORK AT ALL. Every subprocess launcher records then raises. The
+    real census fires zero launchers; the former `ps` implementation is replayed
+    as a negative control and fires exactly one. Thus a rewrite back to `ps`
+    still goes RED without treating an unrelated process exit as the defect.
     """
     own_group = os.getpgid(0)
 
-    # ARM 1: the census must report only processes that are STILL THERE.
-    reported = _w1_live_in_group(own_group)
-    assert str(os.getpid()) in reported, (
-        "precondition: this process is in its own group and must be reported")
-    vanished = [pid for pid in reported
-                if _w1_stat_pgid_and_state(pid) is None]
-    assert not vanished, (
-        "the census reported pids that no longer exist, which is what counting "
-        "its own forked instrument looks like: %r" % vanished)
-
-    # The defect made concrete: a fork DOES join this group and WOULD be counted.
+    # ARM 1: plant a real group member, take the census, then make that exact
+    # member vanish before the test re-stats the snapshot.
     probe = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.readline()"],
                              stdin=subprocess.PIPE, text=True)
     try:
         assert _w1_stat_pgid_and_state(probe.pid)[0] == str(own_group), (
             "precondition: an ordinary child shares the caller's process group, "
             "which is why a census that forks counts its own instrument")
-        assert str(probe.pid) in _w1_live_in_group(own_group), (
+        reported = _w1_live_in_group(own_group)
+        assert str(os.getpid()) in reported, (
+            "precondition: this process is in its own group and must be reported")
+        assert str(probe.pid) in reported, (
             "the census must see a real live member of the group")
-    finally:
         probe.stdin.close()
-        probe.wait(timeout=_w1_budget_s("the_group_census_never_forks_and_so_cannot_count_itself/wait"))
+        probe.wait(timeout=_w1_budget_s(
+            "the_group_census_never_forks_and_so_cannot_count_itself/wait"))
+        assert _w1_stat_pgid_and_state(probe.pid) is None, (
+            "precondition: the planted group member did not vanish after the "
+            "census snapshot")
+        assert str(probe.pid) in reported, (
+            "the valid snapshot lost the exact member that was live when read")
+    finally:
+        if probe.poll() is None:
+            probe.kill()
+            probe.wait(timeout=_w1_budget_s(
+                "the_group_census_never_forks_and_so_cannot_count_itself/wait"))
 
     # A reaped child is a zombie or gone; either way it is not live.
     assert str(probe.pid) not in _w1_live_in_group(own_group)
 
-    # ARM 2: no subprocess launch of any kind.
+    # ARM 2: no subprocess launch of any kind. This is the exact former
+    # implementation, retained locally as the negative control for the defect.
+    def _forking_census(pgid):
+        result = subprocess.run(["ps", "-eo", "pgid=,pid=,stat="],
+                                capture_output=True, text=True)
+        rows = [line.split() for line in result.stdout.splitlines()
+                if line.split()]
+        return [row[1] for row in rows
+                if row[0] == str(pgid) and not row[2].startswith("Z")]
+
     import unittest.mock as _mock
-    def _banned(*args, **kwargs):
-        raise AssertionError(
-            "the group census launched a subprocess; its cost then scales with "
-            "the whole host and it counts its own instrument (row 231)")
-    with _mock.patch.object(subprocess, "run", _banned), \
-            _mock.patch.object(subprocess, "Popen", _banned), \
-            _mock.patch.object(os, "popen", _banned):
+    fired = []
+
+    def _banned(launcher):
+        def _fail(*args, **kwargs):
+            fired.append(launcher)
+            raise AssertionError(
+                "the group census launched a subprocess; its cost then scales "
+                "with the whole host and it counts its own instrument (row 231)")
+        return _fail
+
+    with _mock.patch.object(subprocess, "run", _banned("subprocess.run")), \
+            _mock.patch.object(subprocess, "Popen", _banned("subprocess.Popen")), \
+            _mock.patch.object(os, "popen", _banned("os.popen")):
         assert str(os.getpid()) in _w1_live_in_group(own_group)
         assert _w1_group_has_at_least(own_group, 1)
+        assert fired == [], (
+            "the shipped census fired a subprocess launcher: %r" % fired)
+        with pytest.raises(AssertionError, match="counts its own instrument"):
+            _forking_census(own_group)
+        assert fired == ["subprocess.run"], (
+            "the known-bad forking census did not fire the tripwire exactly once: "
+            "%r" % fired)
+
+
+def test_group_census_transform_control_imports_without_asserting_no_fork():
+    """Mutation control: collection/import alone is not a census verdict."""
+    importlib.import_module(__name__)
 
 
 #: A group leader that grows a CHILD and a GRANDCHILD on demand. Descent has

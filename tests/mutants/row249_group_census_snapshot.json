@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 249. Run from a detached standalone scratch copy with toolchain/bin/bd-mutate. M1 restores the exact forking ps census: the named catcher must fail at the zero-launch tripwire. M2 restores the invalid cross-time verdict: the fixture deterministically reaps a group member after proving it was in the snapshot, so the named catcher must fail on that exact pid. The separate row249_group_census_transform_control.json applies M1 while running only an import control and must ESCAPE, proving M1 is caught by the behavioral assertions rather than by parsing, collection, or import failure.",
+  "subject": "row 249 -- a valid process-group snapshot survives a peer exit without admitting a self-counted census fork",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_group_census_never_forks_and_so_cannot_count_itself"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the census forks ps into the caller's group and counts its own instrument again",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "    target = str(pgid)\n    live: list[str] = []\n    for entry in os.listdir(\"/proc\"):\n        if not entry.isdigit():\n            continue\n        observed = _w1_stat_pgid_and_state(entry)\n        if observed is None:\n            continue\n        if observed[0] == target and observed[1] != \"Z\":\n            live.append(entry)\n    return live\n",
+      "new": "    result = subprocess.run([\"ps\", \"-eo\", \"pgid=,pid=,stat=\"],\n                            capture_output=True, text=True)\n    rows = [line.split() for line in result.stdout.splitlines()\n            if line.split()]\n    return [row[1] for row in rows\n            if row[0] == str(pgid) and not row[2].startswith(\"Z\")]\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_group_census_never_forks_and_so_cannot_count_itself"
+    },
+    {
+      "label": "M2 a snapshot is rejected when its proven-live member exits before a later stat",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "        assert str(probe.pid) in reported, (\n            \"the valid snapshot lost the exact member that was live when read\")\n",
+      "new": "        vanished = [pid for pid in reported\n                    if _w1_stat_pgid_and_state(pid) is None]\n        assert not vanished, (\n            \"the census reported pids that no longer exist: %r\" % vanished)\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_group_census_never_forks_and_so_cannot_count_itself"
+    }
+  ]
+}
