@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 85,
+    "total": 87,
     "version": 1,
-    "count_dict": 84,
+    "count_dict": 86,
     "test_files_scanned": 1437,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -37,6 +37,7 @@
       "tests/test_spa_root_routing_contract.py": 4,
       "tests/test_toolchain_534.py": 1,
       "tests/test_u49_workers_total_honest.py": 1,
+      "tests/test_v3_43_42_storage_tier.py": 2,
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
@@ -242,7 +243,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1272",
+      "value": "3.66.1273",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -319,6 +320,36 @@
         "sites_total": 2
       },
       "gates_what": "test_worker_counts_follow_real_runner_shape_and_running_jobs — A production-shaped runner must not collapse to 0/unknown simply"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_42_storage_tier.py",
+      "line": 332,
+      "value": {
+        "move_entries": 1,
+        "forced_claim_drops": 0,
+        "claim_present_entries": 1,
+        "competitor_publications": 0,
+        "delegated_moves": 1,
+        "rename_attempts": 1,
+        "forced_cross_device_errors": 1
+      },
+      "gates_what": "test_migrate_file_holds_claim_through_cross_device_copy — The EXDEV fallback writes through the claim instead of dropping it."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_42_storage_tier.py",
+      "line": 353,
+      "value": {
+        "move_entries": 1,
+        "forced_claim_drops": 1,
+        "claim_present_entries": 0,
+        "competitor_publications": 1,
+        "delegated_moves": 1,
+        "rename_attempts": 1,
+        "forced_cross_device_errors": 0
+      },
+      "gates_what": "test_migrate_file_claim_probe_detects_a_dropped_claim — Negative control: one forced claim drop exposes exactly one lost writer."
     },
     {
       "form": "count_dict",

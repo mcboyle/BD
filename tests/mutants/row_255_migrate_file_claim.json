@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 255. Re-run from a detached standalone scratch tree with toolchain/bin/bd-mutate and this spec. The mutant restores the exact placeholder removal that reopened the absent-path interval. The catcher requires exactly one claimed move entry and zero competitor publications. The forced-drop negative control records exactly one competitor publication, and the separate transform-control spec applies identical valid Python bytes to an import-only test and must ESCAPE.",
+  "subject": "migrate_file retains its exclusive destination pathname claim until shutil.move replaces or writes through it",
+  "band": [
+    "tests/test_v3_43_42_storage_tier.py::test_migrate_file_holds_exclusive_destination_claim_through_move",
+    "tests/test_v3_43_42_storage_tier.py::test_migrate_file_holds_claim_through_cross_device_copy",
+    "tests/test_v3_43_42_storage_tier.py::test_migrate_file_claim_probe_detects_a_dropped_claim",
+    "tests/test_v3_43_42_storage_tier.py::test_migrate_file_claim_transform_control_imports_subject"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the exclusive placeholder before moving so one competing publisher is silently overwritten",
+      "file": "bulk_downloader/storage_tier.py",
+      "old": "    try:\n        shutil.move(source_path, dest_path)\n",
+      "new": "    try:\n        try:\n            os.remove(dest_path)\n        except OSError:\n            pass\n        shutil.move(source_path, dest_path)\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_42_storage_tier.py::test_migrate_file_holds_exclusive_destination_claim_through_move"
+    }
+  ]
+}

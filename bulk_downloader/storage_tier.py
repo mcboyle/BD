@@ -200,9 +200,8 @@ def migrate_file(source_path: str, dest_path: str,
     # below there's a small TOCTOU window where another process could
     # create dest_path; shutil.move would then silently overwrite.
     # Mitigation: pre-create dest_path as an exclusive lockfile via
-    # O_EXCL, then `os.replace` over it (atomic on POSIX, atomic on
-    # Windows when same volume; shutil.move falls back to copy+remove
-    # for cross-volume which is the original behavior).
+    # O_EXCL, then retain that directory entry until shutil.move replaces
+    # it or writes through it during a cross-volume copy fallback.
     # The exclusive open is the audit defense: if another process
     # races us, the open() raises FileExistsError and we abort.
     try:
@@ -220,17 +219,11 @@ def migrate_file(source_path: str, dest_path: str,
         return {"ok": False,
                 "error": f"dest pre-create failed: {e}",
                 "dest_path": dest_path}
-    # Perform the move. shutil.move handles cross-filesystem
-    # automatically (uses copy2 + remove when devices differ).
-    # Note: with our lockfile in place, shutil.move will overwrite
-    # it (that's the desired behavior — replacing our placeholder
-    # with the real file).
+    # Perform the move while the exclusive placeholder still owns the
+    # destination pathname. shutil.move replaces it on a same-filesystem
+    # rename and writes through it on its cross-filesystem copy fallback.
+    # Removing it first would reopen the TOCTOU window guarded above.
     try:
-        # Remove the placeholder so move can use rename on same-volume
-        try:
-            os.remove(dest_path)
-        except OSError:
-            pass  # move will handle/replace it
         shutil.move(source_path, dest_path)
     except (OSError, shutil.Error) as e:
         # Best-effort cleanup of placeholder if move failed

@@ -16,11 +16,14 @@ Coverage:
 """
 from __future__ import annotations
 
+import errno
 import os
 # [SAST 3:13pm 13 may] removed unused: import sqlite3
 import time
 from pathlib import Path
 # [SAST 3:13pm 13 may] removed unused: from unittest import mock
+
+import pytest
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -242,6 +245,132 @@ def test_migrate_file_refuses_overwrite():
             os.unlink(src)
         if os.path.exists(dst):
             os.unlink(dst)
+
+
+def _exercise_migrate_file_claim_handoff(tmp_path, monkeypatch,
+                                          *, force_claim_drop=False,
+                                          force_cross_device=False):
+    """Publish competitor bytes iff the destination claim is absent at move."""
+    from bulk_downloader import storage_tier
+
+    source = tmp_path / "migrator-a.mp4"
+    destination = tmp_path / "claimed.mp4"
+    source.write_bytes(b"migrator-A")
+    real_move = storage_tier.shutil.move
+    real_rename = storage_tier.shutil.os.rename
+    counts = {
+        "move_entries": 0,
+        "forced_claim_drops": 0,
+        "claim_present_entries": 0,
+        "competitor_publications": 0,
+        "delegated_moves": 0,
+        "rename_attempts": 0,
+        "forced_cross_device_errors": 0,
+    }
+
+    def observed_rename(source_path, dest_path):
+        counts["rename_attempts"] += 1
+        if force_cross_device:
+            counts["forced_cross_device_errors"] += 1
+            raise OSError(errno.EXDEV, "forced cross-device move")
+        return real_rename(source_path, dest_path)
+
+    def observed_move(source_path, dest_path):
+        counts["move_entries"] += 1
+        if force_claim_drop:
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            counts["forced_claim_drops"] += 1
+        if os.path.exists(dest_path):
+            counts["claim_present_entries"] += 1
+        else:
+            Path(dest_path).write_bytes(b"writer-B")
+            counts["competitor_publications"] += 1
+        counts["delegated_moves"] += 1
+        return real_move(source_path, dest_path)
+
+    monkeypatch.setattr(storage_tier.shutil.os, "rename", observed_rename)
+    monkeypatch.setattr(storage_tier.shutil, "move", observed_move)
+    result = storage_tier.migrate_file(str(source), str(destination), mode="move")
+    return result, destination, counts
+
+
+def _assert_exclusive_claim_reaches_move(counts):
+    assert counts["move_entries"] == 1
+    assert counts["claim_present_entries"] == 1, (
+        "exclusive destination claim absent at the single move entry"
+    )
+    assert counts["forced_claim_drops"] == 0
+    assert counts["competitor_publications"] == 0
+    assert counts["delegated_moves"] == 1
+    assert counts["rename_attempts"] == 1
+    assert counts["forced_cross_device_errors"] == 0
+
+
+def test_migrate_file_holds_exclusive_destination_claim_through_move(
+        tmp_path, monkeypatch):
+    """No absent-path interval may let a competing publisher be overwritten."""
+    result, destination, counts = _exercise_migrate_file_claim_handoff(
+        tmp_path, monkeypatch,
+    )
+
+    assert result["ok"] is True
+    assert result["action"] == "moved"
+    _assert_exclusive_claim_reaches_move(counts)
+    assert destination.read_bytes() == b"migrator-A"
+
+
+def test_migrate_file_holds_claim_through_cross_device_copy(
+        tmp_path, monkeypatch):
+    """The EXDEV fallback writes through the claim instead of dropping it."""
+    result, destination, counts = _exercise_migrate_file_claim_handoff(
+        tmp_path, monkeypatch, force_cross_device=True,
+    )
+
+    assert result["ok"] is True
+    assert result["action"] == "moved"
+    assert counts == {
+        "move_entries": 1,
+        "forced_claim_drops": 0,
+        "claim_present_entries": 1,
+        "competitor_publications": 0,
+        "delegated_moves": 1,
+        "rename_attempts": 1,
+        "forced_cross_device_errors": 1,
+    }
+    assert destination.read_bytes() == b"migrator-A"
+
+
+def test_migrate_file_claim_probe_detects_a_dropped_claim(
+        tmp_path, monkeypatch):
+    """Negative control: one forced claim drop exposes exactly one lost writer."""
+    result, destination, counts = _exercise_migrate_file_claim_handoff(
+        tmp_path, monkeypatch, force_claim_drop=True,
+    )
+
+    assert result["ok"] is True
+    assert result["action"] == "moved"
+    assert counts == {
+        "move_entries": 1,
+        "forced_claim_drops": 1,
+        "claim_present_entries": 0,
+        "competitor_publications": 1,
+        "delegated_moves": 1,
+        "rename_attempts": 1,
+        "forced_cross_device_errors": 0,
+    }
+    assert destination.read_bytes() == b"migrator-A"
+    with pytest.raises(
+            AssertionError,
+            match="exclusive destination claim absent at the single move entry"):
+        _assert_exclusive_claim_reaches_move(counts)
+
+
+def test_migrate_file_claim_transform_control_imports_subject():
+    """The reversion mutant imports without exercising destination ownership."""
+    from bulk_downloader import storage_tier
+
+    assert callable(storage_tier.migrate_file)
 
 
 def test_migrate_file_symlink_mode():
