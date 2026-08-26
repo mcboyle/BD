@@ -478,6 +478,7 @@ jobs:
               tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py
               tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py
               tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py
+              tests/test_row_286_laundered_failures_hold.py
           - name: tree-gates-3
             suites: >-
               tests/test_v3_66_820_share_tools_saw_no_session_keys.py

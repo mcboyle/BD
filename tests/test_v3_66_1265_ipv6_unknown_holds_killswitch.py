@@ -2,8 +2,8 @@
 
 F35's four formerly passing branches are driven through an in-process HTTP
 substitute.  UNKNOWN is neither a confirmed leak nor evidence that may clear an
-armed kill switch; a positive IPv4 fallback remains the v4-only negative
-control and may clear it.
+armed kill switch; a separately constructed fully measured result remains the
+negative control and may clear it.
 """
 
 from types import SimpleNamespace
@@ -59,8 +59,8 @@ def test_all_four_ipv6_branches_have_explicit_states_and_no_network(monkeypatch)
     cases = (
         ("no_ip_measured", no_ip, leak.ProbeState.UNKNOWN.value, None,
          "could_not_measure"),
-        ("v4_fallback", v4_fallback, leak.ProbeState.PASS.value, True,
-         "proven_absent"),
+        ("v4_fallback", v4_fallback, leak.ProbeState.UNKNOWN.value, None,
+         "could_not_measure"),
         ("v6_reachable_unverified", reachable_unverified_v6,
          leak.ProbeState.UNKNOWN.value, None, "could_not_measure"),
         ("exception", endpoint_error, leak.ProbeState.UNKNOWN.value, None,
@@ -85,10 +85,9 @@ def test_all_four_ipv6_branches_have_explicit_states_and_no_network(monkeypatch)
 def test_aggregate_distinguishes_measured_zero_from_unknown_zero(monkeypatch):
     from bulk_downloader import vpn_leak_tests as leak
 
-    monkeypatch.setattr(
-        leak, "_http_get_json_field", lambda *_args, **_kwargs: "198.51.100.42"
+    measured = _aggregate_with(
+        _measured_pass(leak.ProbeId.IPV6.value, leak.Severity.CRITICAL.value)
     )
-    measured = _aggregate_with(leak._probe_ipv6(19002))
 
     monkeypatch.setattr(leak, "_http_get_json_field", lambda *_args, **_kwargs: None)
     unmeasured = _aggregate_with(leak._probe_ipv6(19002))
@@ -133,10 +132,9 @@ def test_unmeasurable_does_not_advance_or_report_a_confirmed_leak(monkeypatch):
     kill_switch.register_kill_callback(lambda tunnel_id, state: events.append((tunnel_id, state)))
     kill_switch.kill_tunnel("unknown-v6", reason="pre-existing confirmed leak")
 
-    monkeypatch.setattr(
-        leak, "_http_get_json_field", lambda *_args, **_kwargs: "198.51.100.45"
+    measured = _aggregate_with(
+        _measured_pass(leak.ProbeId.IPV6.value, leak.Severity.CRITICAL.value)
     )
-    measured = _aggregate_with(leak._probe_ipv6(19003))
     kill_switch.notify_leak_test_result("unknown-v6", measured)
     assert kill_switch.get_kill_state("unknown-v6")["auto_cleared_streak"] == 1
 
@@ -152,27 +150,29 @@ def test_unmeasurable_does_not_advance_or_report_a_confirmed_leak(monkeypatch):
     kill_switch._reset_for_tests()
 
 
-def test_proven_absent_v6_still_allows_v4_only_auto_clear(monkeypatch):
+def test_fully_measured_v6_still_allows_auto_clear():
     from bulk_downloader import vpn_kill_switch as kill_switch
     from bulk_downloader import vpn_leak_tests as leak
 
     kill_switch._reset_for_tests()
     kill_switch.set_auto_recover(False)
-    monkeypatch.setattr(
-        leak, "_http_get_json_field", lambda *_args, **_kwargs: "198.51.100.43"
+    measured_ipv6 = leak.ProbeResult(
+        probe_id=leak.ProbeId.IPV6.value,
+        passed=True,
+        severity=leak.Severity.CRITICAL.value,
+        details={"measurement": "provider-verified tunnel address"},
     )
-    ipv6 = leak._probe_ipv6(19004)
-    assert ipv6.state == leak.ProbeState.PASS.value
-    assert ipv6.details["classification"] == "proven_absent"
-    aggregate = _aggregate_with(ipv6)
+    assert measured_ipv6.state == leak.ProbeState.PASS.value
+    assert measured_ipv6.details["measurement"] == "provider-verified tunnel address"
+    aggregate = _aggregate_with(measured_ipv6)
     assert aggregate.critical_unknowns == aggregate.critical_failures == 0
 
-    kill_switch.kill_tunnel("v4-only", reason="old confirmed leak")
+    kill_switch.kill_tunnel("measured-v6", reason="old confirmed leak")
     for _ in range(kill_switch.AUTO_CLEAR_THRESHOLD):
-        kill_switch.notify_leak_test_result("v4-only", aggregate)
+        kill_switch.notify_leak_test_result("measured-v6", aggregate)
 
-    assert kill_switch.is_killed("v4-only") is False
-    assert kill_switch.get_kill_state("v4-only")["state"] == "cleared"
+    assert kill_switch.is_killed("measured-v6") is False
+    assert kill_switch.get_kill_state("measured-v6")["state"] == "cleared"
     kill_switch._reset_for_tests()
 
 
@@ -194,9 +194,13 @@ def test_real_critical_leak_still_fails_and_kills(monkeypatch):
     assert real_leak.passed is False
     assert real_leak.state == leak.ProbeState.FAIL.value
 
-    proven_absent = leak._probe_ipv6(19005)
-    assert proven_absent.details["classification"] == "proven_absent"
-    aggregate = _aggregate_with(proven_absent, ipv4_result=real_leak)
+    measured_ipv6 = leak.ProbeResult(
+        probe_id=leak.ProbeId.IPV6.value,
+        passed=True,
+        severity=leak.Severity.CRITICAL.value,
+        details={"measurement": "provider-verified tunnel address"},
+    )
+    aggregate = _aggregate_with(measured_ipv6, ipv4_result=real_leak)
     assert aggregate.critical_failures == 1
     assert aggregate.critical_unknowns == 0
     assert aggregate.summary.startswith("CRITICAL:")
