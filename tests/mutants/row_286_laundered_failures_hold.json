@@ -1,0 +1,57 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 286. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row_286_laundered_failures_hold.json --work DETACHED_SCRATCH. Five exact-once regressions restore F35 through F38 permission laundering at their reached result funnels. Each named catcher proves its failure seam and downstream refusal; the band also retains one healthy control per finding. The separate transform-control spec applies the identical F35 transform to an import-only test and must ESCAPE.",
+  "subject": "F35 through F38 keep indeterminate application safety measurements distinct from permission",
+  "band": [
+    "tests/test_row_286_laundered_failures_hold.py::test_f35_every_indeterminate_ipv6_outcome_holds_an_armed_switch",
+    "tests/test_row_286_laundered_failures_hold.py::test_f35_fully_measured_critical_passes_still_clear_the_switch",
+    "tests/test_row_286_laundered_failures_hold.py::test_f36_unreadable_url_policy_fires_twice_and_refuses_enqueue",
+    "tests/test_app_measurements_fail_closed.py::test_f36_measured_no_match_still_enqueues",
+    "tests/test_row_286_laundered_failures_hold.py::test_f37_hash_file_io_error_is_quarantined_not_verified",
+    "tests/test_app_measurements_fail_closed.py::test_f37_matching_digest_still_passes",
+    "tests/test_row_286_laundered_failures_hold.py::test_f38_both_unreadable_counters_hold_configured_caps",
+    "tests/test_app_measurements_fail_closed.py::test_f38_measured_under_cap_still_admits"
+  ],
+  "mutants": [
+    {
+      "label": "M1 treat an IPv4 answer from the dual-stack endpoint as a measured IPv6 pass",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        if \":\" not in ip:\n            return _unknown_ipv6_result(\n                \"dual-stack endpoint used IPv4; IPv6 exposure was not measured\"\n            )",
+      "new": "        if \":\" not in ip:\n            return ProbeResult(\n                probe_id=ProbeId.IPV6.value, passed=True,\n                severity=Severity.CRITICAL.value,\n                state=ProbeState.PASS.value,\n                details={\"classification\": \"proven_absent\", \"ip\": ip},\n            )",
+      "direction": "regression",
+      "catcher": "tests/test_row_286_laundered_failures_hold.py::test_f35_every_indeterminate_ipv6_outcome_holds_an_armed_switch"
+    },
+    {
+      "label": "M2 collapse an unreadable URL policy store into measured no-match",
+      "file": "bulk_downloader/content_rights.py",
+      "old": "    except Exception as e:\n        return {\n            \"blocked\": None,\n            \"unknown\": True,\n            \"error\": f\"content-rights blocklist unreadable: {e}\"[:200],\n        }\n\n\ndef hash_is_blocked",
+      "new": "    except Exception as e:\n        return None\n\n\ndef hash_is_blocked",
+      "direction": "regression",
+      "catcher": "tests/test_row_286_laundered_failures_hold.py::test_f36_unreadable_url_policy_fires_twice_and_refuses_enqueue"
+    },
+    {
+      "label": "M3 report a hash I/O or algorithm exception as verified",
+      "file": "bulk_downloader/runner_integrity.py",
+      "old": "            sys.stderr.write(f\"  hash verify unavailable: {detail}\\n\")\n            return False\n    def _verify_integrity_or_quarantine",
+      "new": "            sys.stderr.write(f\"  hash verify unavailable: {detail}\\n\")\n            return True\n    def _verify_integrity_or_quarantine",
+      "direction": "regression",
+      "catcher": "tests/test_row_286_laundered_failures_hold.py::test_f37_hash_file_io_error_is_quarantined_not_verified"
+    },
+    {
+      "label": "M4 collapse an unreadable site daily-byte counter into zero use",
+      "file": "bulk_downloader/daily_budget.py",
+      "old": "    except Exception:\n        return None\n\n\ndef _budget_report",
+      "new": "    except Exception:\n        return 0\n\n\ndef _budget_report",
+      "direction": "regression",
+      "catcher": "tests/test_row_286_laundered_failures_hold.py::test_f38_both_unreadable_counters_hold_configured_caps"
+    },
+    {
+      "label": "M5 collapse an unreadable global daily-byte counter into zero use",
+      "file": "bulk_downloader/daily_budget.py",
+      "old": "    except Exception:\n        return None\n\n\ndef is_over_global_budget",
+      "new": "    except Exception:\n        return 0\n\n\ndef is_over_global_budget",
+      "direction": "regression",
+      "catcher": "tests/test_row_286_laundered_failures_hold.py::test_f38_both_unreadable_counters_hold_configured_caps"
+    }
+  ]
+}

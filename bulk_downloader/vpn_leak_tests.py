@@ -4,7 +4,7 @@ Six probes verify a tunnel isn't leaking the user's real identity:
 
   1. DNS leak       - resolver ASN matches VPN provider's ASN     [CRITICAL]
   2. IPv4 leak      - public v4 IP through tunnel = expected exit [CRITICAL]
-  3. IPv6 leak      - v4-only route proven; unverified v6 UNKNOWN [CRITICAL]
+  3. IPv6 leak      - current probe outcomes remain UNKNOWN       [CRITICAL]
   4. WebRTC leak    - RTCPeerConnection doesn't reveal real IP    [CRITICAL]
   5. Geolocation    - IP-geo country matches expected             [WARNING]
   6. Timezone/locale- browser TZ/Accept-Language matches exit     [WARNING]
@@ -102,9 +102,10 @@ IPV4_ENDPOINTS = (
     "https://ifconfig.me/all.json",
 )
 
-# IPv6 probe through a dual-stack endpoint. A completed v4 response is positive
-# evidence for the v4-only route. No response, transport failure, or v6 without
-# a provider-supplied expected address is UNKNOWN rather than pass or leak.
+# IPv6 probe through a dual-stack endpoint. A completed v4 response describes
+# only that request; it does not establish that IPv6 is absent or safely routed.
+# No response, transport failure, v4 fallback, or v6 without a provider-supplied
+# expected address is UNKNOWN rather than pass or leak.
 IPV6_ENDPOINT = "https://api64.ipify.org?format=json"  # returns whichever family responds
 IPV6_ONLY_ENDPOINT = "https://ipv6.google.com/"
 
@@ -379,11 +380,10 @@ def _probe_ipv4(socks_port: int, expected_exit_ip: Optional[str] = None, **_) ->
 def _probe_ipv6(socks_port: int, **_) -> ProbeResult:
     """Classify the four observable outcomes without laundering uncertainty.
 
-    A positive IPv4 response from the dual-stack endpoint proves this routed
-    client used the tunnel's v4-only surface.  An empty response, an exception,
-    or a v6 address that cannot be compared with a provider-supplied expected
-    address leaves the privacy claim UNKNOWN.  UNKNOWN is not a leak, but it is
-    also not evidence that may clear an armed kill switch.
+    An empty response, an exception, a dual-stack request that happened to use
+    IPv4, or a v6 address that cannot be compared with a provider-supplied
+    expected address leaves the privacy claim UNKNOWN.  UNKNOWN is not a leak,
+    but it is also not evidence that may clear an armed kill switch.
     """
     proxy_url = f"socks5://127.0.0.1:{socks_port}"
     try:
@@ -392,18 +392,9 @@ def _probe_ipv6(socks_port: int, **_) -> ProbeResult:
             return _unknown_ipv6_result(
                 "IPv6 endpoint returned no address; reachability was not measured"
             )
-        # A completed dual-stack request that reports v4 is positive evidence
-        # for the legitimate v4-only tunnel case, not an endpoint timeout.
         if ":" not in ip:
-            return ProbeResult(
-                probe_id=ProbeId.IPV6.value, passed=True,
-                severity=Severity.CRITICAL.value,
-                state=ProbeState.PASS.value,
-                details={
-                    "classification": "proven_absent",
-                    "note": "dual-stack endpoint completed over IPv4",
-                    "ip": ip,
-                },
+            return _unknown_ipv6_result(
+                "dual-stack endpoint used IPv4; IPv6 exposure was not measured"
             )
         return _unknown_ipv6_result(
             "IPv6 is reachable but no provider-supplied expected address is available",

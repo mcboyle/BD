@@ -497,6 +497,11 @@ _DECLARED = {
     # four HTTP outcomes in process and is safety-bearing regardless of which
     # application path a future change touches.
     "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py",
+    # Row 286 independently re-verifies F35 through F38 at their permission
+    # consumers. In particular, it covers the dual-stack IPv4 outcome that
+    # the first F35 repair still called a measured pass, so this safety gate
+    # must run regardless of which of the four application paths changes.
+    "tests/test_row_286_laundered_failures_hold.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
@@ -553,7 +558,7 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 173
+_EXPECTED_DECLARED_GATE_COUNT = 174
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
