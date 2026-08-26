@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1255 - the suite's own build is filed as a defect
+
+Rows 247, 248 and 249, filed from the v3.66.1254 sanctioned full suite. This cut
+adds three OPEN rows to the canonical register and changes no runtime code.
+
+Row 247. `tests/frontend_vitest.py` `build_manifest()` builds into the REAL
+`frontend/dist` rather than a directory it owns, and Vite empties that directory
+first, so for the length of the build the tree has no SPA and a concurrently
+scheduled test reading it receives a 503. That is how
+`test_share_target_action_serves_spa` failed at -n 24 and passed serially on the
+same tree.
+
+Row 248. The same build deletes `frontend/dist/.bd-built-from`, the marker
+`scripts/deploy.sh` writes to record which commit the bundle came from, so after
+any full suite the running bundle's provenance is UNKNOWN. It self-heals on the
+next deploy, which is why it went unnoticed.
+
+Row 249. A third concurrency leg of the W1 census family, recorded as its own
+row rather than folded into row 241, which is CLOSED and whose acceptance
+evidence must not be widened after the fact.
+
+No gate could have caught 247 or 248: CI never runs `npm run build`, so
+`frontend/dist` is absent in every shard and the subject does not exist there.
+
 ## v3.66.1254 - capture gains an explicit parallel mode with per-run routing
 
 - CAPTURE GETS AN EXPLICIT PARALLEL MODE. `--parallel --app-port --fixture-port`
