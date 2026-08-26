@@ -72,8 +72,11 @@ def _copy_frontend_for_build(source: Path, destination: Path) -> Path:
     return destination
 
 
-def run_vitest(spec: str, *, expected_tests: int) -> None:
-    """Run exactly one tracked spec and reconcile its executed denominator."""
+def run_vitest(spec: str, *, expected_tests: int) -> dict[str, int | str]:
+    """Run one tracked spec and return its reconciled execution receipt."""
+    assert expected_tests > 0, (
+        f"Vitest expected-test denominator must be nonzero for {spec}"
+    )
     path = FRONTEND / spec
     assert path.is_file(), f"Vitest subject missing: {path}"
     assert VITEST.is_file(), (
@@ -93,6 +96,13 @@ def run_vitest(spec: str, *, expected_tests: int) -> None:
         f"expected={expected_tests}, passed={passed}, collected={collected}\n"
         f"{proc.stdout}"
     )
+    return {
+        "spec": spec,
+        "files_passed": 1,
+        "files_collected": 1,
+        "tests_passed": passed,
+        "tests_collected": collected,
+    }
 
 
 @contextmanager

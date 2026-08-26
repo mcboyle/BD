@@ -6,4 +6,16 @@ BD_GATE_SCOPE = "repo-wide"
 
 
 def test_t9b_push_runtime_contract():
-    run_vitest("src/routes/Push.wired.test.tsx", expected_tests=6)
+    spec = "src/routes/Push.wired.test.tsx"
+    receipt = run_vitest(spec, expected_tests=6)
+    expected = {
+        "spec": spec,
+        "files_passed": 1,
+        "files_collected": 1,
+        "tests_passed": 6,
+        "tests_collected": 6,
+    }
+    assert receipt == expected, (
+        "Vitest delegation evidence missing or mismatched for Push: "
+        f"expected={expected!r}, observed={receipt!r}"
+    )

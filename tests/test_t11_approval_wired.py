@@ -25,7 +25,19 @@ _BOT_FORM = (
 )
 
 def test_approval_caller_runtime_contract():
-    run_vitest("src/routes/ApprovalGate.wired.test.tsx", expected_tests=3)
+    spec = "src/routes/ApprovalGate.wired.test.tsx"
+    receipt = run_vitest(spec, expected_tests=3)
+    expected = {
+        "spec": spec,
+        "files_passed": 1,
+        "files_collected": 1,
+        "tests_passed": 3,
+        "tests_collected": 3,
+    }
+    assert receipt == expected, (
+        "Vitest delegation evidence missing or mismatched for ApprovalGate: "
+        f"expected={expected!r}, observed={receipt!r}"
+    )
 
 
 # ── GREEN regression pins: the SPA-surfaced path still interposes ────
