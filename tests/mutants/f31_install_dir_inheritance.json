@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "F31. Re-run with toolchain/bin/bd-mutate against a detached scratch copy. The mutant removes bd-band's environment pop, restoring the service/operator install directory at pytest collection time. The named catcher launches a real nested bd-band, records the child's initial environment, initializes SQLite only inside a sacrificial temporary install root, and requires that root to remain byte-for-byte unchanged. The separate transform-control spec applies the exact same replacement under the explicit test-owned negative control and must ESCAPE.",
+  "subject": "every child-test launcher pops an inherited BD_INSTALL_DIR before collection",
+  "band": [
+    "tests/test_child_test_install_dir_isolation.py::test_bd_band_child_drops_inherited_install_dir_before_database_use"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bd-band forwards the operator install directory into nested pytest",
+      "file": "toolchain/bin/bd-band",
+      "old": "    env.pop(\"BD_INSTALL_DIR\", None)\n",
+      "new": "    # mutant: retain the inherited install directory\n",
+      "direction": "regression",
+      "catcher": "tests/test_child_test_install_dir_isolation.py::test_bd_band_child_drops_inherited_install_dir_before_database_use"
+    }
+  ]
+}

@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1278 - child test launches cannot inherit a live install dir
+- CI gate-count pin re-derived 170 -> 171: this cut declares one new gate,
+  tests/test_child_test_install_dir_isolation.py. The declared SET was already
+  correct (missing from CI: [], extra in CI: []); only the pinned count was stale.
+
+-            stdout=subprocess.PIPE, text=True, env=os.environ), lf.name))
+- Measured 22 vulnerable child-test paths across 20 entry points; before the 
+- Every owned launcher now pops inheritance. The central autouse fixture also
+- Added the repo-wide gate in [test_child_test_install_dir_isolation.py](/hom
+- Nested real pytest confirms the inherited value is absent inside the test p
+- Negative control confirms an explicitly test-owned install directory still 
+- `bd-mutate`: representative inheritance restoration was CAUGHT; the identic
+- Final focused gates: 42 passed. Additional launcher/tool coverage: 30 passe
+- `bd-freshcheck`, guard hashes, source parsing, shell syntax, register parse
+- Register parser: 255 rows, 4 OPEN, max ID 268, header digest recomputed.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    test_child_test_install_dir_isolation.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1277 - the shipped-surface secret gate refuses a zero real-file denominator
 
 -    `site.api_token`, `value={secret}`)."""

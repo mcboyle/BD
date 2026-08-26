@@ -221,6 +221,7 @@ def _gate_files(root, version):
 
 def _run_one(root, relpath, timeout):
     env = os.environ.copy()
+    env.pop("BD_INSTALL_DIR", None)
     env["BD_HOME"] = tempfile.mkdtemp(prefix="vr_")  # fresh per file — never shared
     env["BD_DISABLE_KEEPALIVE"] = "1"
     try:

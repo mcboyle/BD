@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3909,
+  "edge_count": 3910,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2424,6 +2424,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/library_final.py",
       "tools/census_file_size_drift.py"
+    ],
+    "tests/test_child_test_install_dir_isolation.py": [
+      "bulk_downloader/db.py"
     ],
     "tests/test_cloak_persistent_context_fallback.py": [
       "bulk_downloader/cloak.py"

@@ -265,6 +265,7 @@ REM run_tests.bat - runs the unit test suite (dev convenience)
     echo title Bulk Downloader Tests
     echo cd /d "%INSTALL_DIR%"
     echo set BD_DISABLE_KEEPALIVE=1
+    echo set "BD_INSTALL_DIR="
     echo "%VENV_DIR%\Scripts\python.exe" run_tests.py %%*
     echo pause
 ) > "%INSTALL_DIR%\run_tests.bat"

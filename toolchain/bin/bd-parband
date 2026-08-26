@@ -103,6 +103,7 @@ def _bd_env():
 
 def run_one(work, suite, timeout):
     env = _bd_env()
+    env.pop("BD_INSTALL_DIR", None)
     env.update(BD_HOME=tempfile.mkdtemp(prefix="bdpb_"), BD_DISABLE_KEEPALIVE="1")
     t0 = time.time()
     try:

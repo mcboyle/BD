@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "F31 transform control. This intentionally is not a passing mutation battery: it applies the exact valid bd-band inheritance regression while running only the explicit test-owned install-directory control, which does not invoke bd-band. It must ESCAPE, proving the main CAUGHT verdict comes from the inherited child boundary rather than a malformed transform, collection failure, or incidental bandmate.",
+  "subject": "transform control for restoring bd-band install-directory inheritance",
+  "band": [
+    "tests/test_child_test_install_dir_isolation.py::test_test_owned_install_dir_still_supports_a_nested_real_pytest"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL bd-band retains inheritance while the explicit owned-path control stays green",
+      "file": "toolchain/bin/bd-band",
+      "old": "    env.pop(\"BD_INSTALL_DIR\", None)\n",
+      "new": "    # mutant: retain the inherited install directory\n",
+      "direction": "regression",
+      "catcher": "tests/test_child_test_install_dir_isolation.py::test_test_owned_install_dir_still_supports_a_nested_real_pytest"
+    }
+  ]
+}

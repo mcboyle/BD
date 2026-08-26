@@ -40,7 +40,7 @@ else
     echo "         set BD_PYTHON to the service venv python, or use --from <json>."
   fi
   echo "Running the full suite with per-test timing under: $PY"
-  "$PY" run_tests.py tests/ --json="$OUT" "$@"
+  env -u BD_INSTALL_DIR "$PY" run_tests.py tests/ --json="$OUT" "$@"
   echo
 fi
 

@@ -11,6 +11,6 @@
     "bulk_downloader/dom_recorder.py": "1657d0a0e39917ae26ba7aa1629ff3d2672efea84e9a881ec090c292f1cddce5",
     "bulk_downloader/capture_bodies.py": "6c7f5c9a87510ccaa79e8babfd57ccbb9cadd92186ef0dd266341c3963d3048a",
     "tools/capture_session.py": "27be68b9656893175d5c99e02f83cb101af94b35b97dbbe8597b4fe319941b15",
-    "tools/build_release.py": "be25241eb867b85aaebeb3c84a2ebf390e4cb51d4feccb6ae439dc09035492b5"
+    "tools/build_release.py": "79bf462779333dc4c2d0bcd564aa9375a5e4e384e8e5d9706654d4cf5bd1706c"
   }
 }

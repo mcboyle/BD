@@ -151,7 +151,7 @@ def _canonicalize_package_children(package_name, modules=None):
 # Design notes carried over from the prior most-defensive variants:
 #   * Saves the UNION of env vars any variant touched
 #     (BD_HOME, BD_DISABLE_KEEPALIVE, BD_DEV_MODE, BD_DEV_MODE_DISABLE,
-#     BD_AUTH_TOKEN, BD_COCKPIT_TASKS).
+#     BD_AUTH_TOKEN, BD_COCKPIT_TASKS, BD_INSTALL_DIR).
 #   * Wipes tmp_path children at fixture start (from
 #     test_v3_50_phase3.py). The Anthropic-sandbox custom test runner
 #     reuses the same tmp_path across tests in one file; SQLite DBs
@@ -365,6 +365,7 @@ def isolated_bd_home(request, tmp_path):
         "BD_DEV_MODE_DISABLE",
         "BD_AUTH_TOKEN",
         "BD_COCKPIT_TASKS",
+        "BD_INSTALL_DIR",
     )
     saved_env = {k: os.environ.get(k) for k in _ENV_KEYS}
     saved_cwd = os.getcwd()
@@ -388,6 +389,12 @@ def isolated_bd_home(request, tmp_path):
     os.environ["BD_DISABLE_KEEPALIVE"] = "1"
     os.environ.pop("BD_DEV_MODE_DISABLE", None)
     os.environ.pop("BD_COCKPIT_TASKS", None)
+    # An operator/service value points db._resolve_db_path() at the live
+    # database even after this fixture changes BD_HOME and cwd.  Snapshot it so
+    # teardown remains honest, but pop it before any test body runs.  Tests that
+    # need the install-dir seam set a test-owned path explicitly afterwards via
+    # clean_workdir.
+    os.environ.pop("BD_INSTALL_DIR", None)
     os.chdir(str(tmp_path))
 
     # Opt-in: drop bulk_downloader.* from sys.modules so a fresh import
@@ -406,6 +413,17 @@ def isolated_bd_home(request, tmp_path):
     try:
         yield tmp_path
     finally:
+        # Inspect before restoring. BD_INSTALL_DIR joined this canonical
+        # snapshot/pop fixture for inherited-value safety, but restoring it
+        # before inspection would erase a relative value leaked by the test and
+        # blind the existing leak guard. The value presented to test code is
+        # always absent; clean_workdir's monkeypatch unwinds before this point.
+        install_dir_after = os.environ.get("BD_INSTALL_DIR")
+        install_dir_leaked = (
+            install_dir_leak_verdict(
+                saved_env["BD_INSTALL_DIR"], install_dir_after
+            ) == "leaked"
+        )
         os.chdir(saved_cwd)
         for k, v in saved_env.items():
             if v is None:
@@ -421,6 +439,10 @@ def isolated_bd_home(request, tmp_path):
         # This is required even for unmarked tests: a test can directly pop a
         # child from sys.modules and otherwise poison the next test.
         _canonicalize_package_children("bulk_downloader")
+        if install_dir_leaked:
+            _fail_install_dir_leak(
+                saved_env["BD_INSTALL_DIR"], install_dir_after
+            )
 
 
 @pytest.fixture
@@ -599,6 +621,20 @@ def install_dir_leak_verdict(before, after):
     return "inherited" if before == after else "leaked"
 
 
+def _fail_install_dir_leak(before, after):
+    pytest.fail(
+        f"this test left BD_INSTALL_DIR={after!r} in the environment -- a "
+        f"RELATIVE value, and it was {before!r} when the test started, so the "
+        f"test changed it. _resolve_db_path() joins it with a relative DB_PATH "
+        f"and sqlite3 resolves the result against the CWD, so the next test to "
+        f"touch the database opens a path whose parent does not exist and fails "
+        f"with `unable to open database file`, four files away and under a name "
+        f"that describes none of this (register item 34). If the code under "
+        f"test writes os.environ directly, monkeypatch cannot undo it: pop the "
+        f"keys yourself in the fixture's teardown."
+    )
+
+
 _INHERITED_INSTALL_DIR_REPORTED = []
 
 
@@ -647,16 +683,7 @@ def _install_dir_never_leaks_relative():
         os.environ.pop("BD_INSTALL_DIR", None)
     else:
         os.environ["BD_INSTALL_DIR"] = before
-    pytest.fail(
-        f"this test left BD_INSTALL_DIR={after!r} in the environment -- a "
-        f"RELATIVE value, and it was {before!r} when the test started, so the "
-        f"test changed it. _resolve_db_path() joins it with a relative DB_PATH "
-        f"and sqlite3 resolves the result against the CWD, so the next test to "
-        f"touch the database opens a path whose parent does not exist and fails "
-        f"with `unable to open database file`, four files away and under a name "
-        f"that describes none of this (register item 34). If the code under "
-        f"test writes os.environ directly, monkeypatch cannot undo it: pop the "
-        f"keys yourself in the fixture's teardown.")
+    _fail_install_dir_leak(before, after)
 
 
 @pytest.fixture

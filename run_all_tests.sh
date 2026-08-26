@@ -37,7 +37,7 @@ echo "  Running run_tests.py ..."
 echo " ================================================================"
 echo
 
-BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py "$@"
+env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py "$@"
 RC=$?
 echo
 echo " ================================================================"

@@ -213,6 +213,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                 return
 
             env = os.environ.copy()
+            env.pop("BD_INSTALL_DIR", None)
             env["BD_DISABLE_KEEPALIVE"] = "1"
             env["PYTHONUNBUFFERED"] = "1"
 

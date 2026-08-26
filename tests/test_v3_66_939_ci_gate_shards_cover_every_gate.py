@@ -212,6 +212,12 @@ _DECLARED = {
     # and drives both the refusal and owned-cleanup branches. A diff-derived
     # band cannot protect callers who export BD_COCKPIT_TASKS before any test.
     "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py",
+    # F31. This gate measures every child-test launch that used to forward an
+    # operator BD_INSTALL_DIR, drives a real nested bd-band against a
+    # sacrificial database root, and proves the central autouse pop plus the
+    # explicit test-owned negative control. It is tree-wide because another
+    # launcher can appear anywhere in the measured production/tool population.
+    "tests/test_child_test_install_dir_isolation.py",
     "tests/test_toolchain_534.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly
@@ -534,7 +540,12 @@ _DECLARED = {
 # 'missing from CI: []; extra in CI: []' -- the SET was already correct and
 # only this pinned count was stale. Do not raise this number to silence a
 # failure whose set is NOT empty; that would be hiding a real gap.
-_EXPECTED_DECLARED_GATE_COUNT = 170
+# 170 -> 171 at row 268 (2026-08-26). This cut declares exactly one new gate,
+# tests/test_child_test_install_dir_isolation.py, so the population grew by one.
+# The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
+# was correct and only the count was stale, which is the case this pin exists to
+# allow. Verified: the cut adds exactly ONE entry to the declared list.
+_EXPECTED_DECLARED_GATE_COUNT = 171
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

@@ -37,7 +37,7 @@ printf "%-6s %-42s %5s %5s %5s %5s  %s\n" PHASE SUITE TOT PASS FAIL SKIP STATUS
 printf -- "--------------------------------------------------------------------------------------\n"
 for line in $SUITES; do
   ph="${line%%:*}"; t="${line#*:}"
-  out=$(timeout 110 env BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
+  out=$(timeout 110 env -u BD_INSTALL_DIR BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
         PYTHONPATH=$PB PLAYWRIGHT_BROWSERS_PATH=$PWP python3 run_tests.py "tests/$t" 2>&1)
   rc=$?
   sm=$(echo "$out" | grep -oE 'Total: [0-9]+ \| Passed: [0-9]+ \| Failed: [0-9]+ \| Skipped: [0-9]+' | tail -1)

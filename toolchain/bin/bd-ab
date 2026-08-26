@@ -51,6 +51,7 @@ def strip_ansi(text):
 def plain_env(base=None):
     """A child environment that will not colourise."""
     env = dict(base if base is not None else os.environ)
+    env.pop("BD_INSTALL_DIR", None)
     env.pop("FORCE_COLOR", None)
     env.pop("PY_COLORS", None)
     env["NO_COLOR"] = "1"

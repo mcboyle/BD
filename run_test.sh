@@ -30,5 +30,5 @@ if [ -z "${1:-}" ]; then
     exit 0
 fi
 
-BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py "$@"
+env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py "$@"
 exit $?
