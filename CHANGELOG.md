@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1277 - the shipped-surface secret gate refuses a zero real-file denominator
+
+-    `site.api_token`, `value={secret}`)."""
+-        _ROOT / "frontend" / "dist",
+-    secret_words = ("password", "token", "api_key", "secret", "cookie_file")
+-    assert all(_is_secret(w) for w in secret_words[:-1]) and _is_secret("coo
+-    # Jinja/JS interpolation of a secret-named identifier's VALUE.
+-    pat = re.compile(
+-        r"(\{\{[^}]*\b(?:" + "|".join(secret_words) + r")\b[^}]*\}\})"
+-        r"|(\$\{[^}]*\b(?:" + "|".join(secret_words) + r")\b[^}]*\})",
+-    # Allow masked/presence-only contexts: a hit is only a finding if it isn
+-    # adjacent to a masking marker on the same line.
+-                    "has_", "_set", "is_set", "configured")
+-    # Jinja secret-interpolation), so without this a broken pattern would pa
+-    # vacuously. Assert the detector fires on known-bad synthetic lines and 
+
 ## v3.66.1276 - a clean install reports zero integrity issues, not unknown
 
 -            row = cx.execute("""SELECT MAX(last_verified_ts) AS t

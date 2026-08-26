@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 259. Run from a detached standalone scratch tree with frontend/node_modules available: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row259_frontend_gate_denominators.json --work SCRATCH --timeout 300. M1 and M2 restore the confirmed fail-open shape by reading the checkout's gitignored frontend/dist instead of building attempt-owned evidence. The separate transform-control spec applies the identical valid Python transforms to import-only nodes and must ESCAPE.",
+  "subject": "built SPA routing and secret-display gates create and examine nonzero attempt-owned shipped surfaces when the checkout has no frontend/dist",
+  "band": [
+    "tests/test_spa_root_routing_contract.py::test_root_serves_spa",
+    "tests/test_secret_display_never.py::test_no_template_or_spa_interpolates_a_secret_value"
+  ],
+  "mutants": [
+    {
+      "label": "M2 secret gate reverts to the absent checkout dist instead of its fresh scan bundle",
+      "file": "tests/test_secret_display_never.py",
+      "old": "    return _build_secret_spa_fresh(frontend, work / \"fresh-dist\")",
+      "new": "    return _ROOT / \"frontend\" / \"dist\"",
+      "direction": "regression",
+      "catcher": "tests/test_secret_display_never.py::test_no_template_or_spa_interpolates_a_secret_value"
+    }
+  ]
+}

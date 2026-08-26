@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 87,
+    "total": 88,
     "version": 1,
-    "count_dict": 86,
+    "count_dict": 87,
     "test_files_scanned": 1437,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -33,6 +33,7 @@
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
+      "tests/test_secret_display_never.py": 1,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
       "tests/test_toolchain_534.py": 1,
@@ -240,10 +241,20 @@
       "gates_what": "test_golden_can_i_retire_safe_for_absent_target — A target with no routes / importers / pins reads SAFE — the SAFE-path logic."
     },
     {
+      "form": "count_dict",
+      "file": "tests/test_secret_display_never.py",
+      "line": 450,
+      "value": {
+        "copy": 1,
+        "build": 1
+      },
+      "gates_what": "test_secret_surface_build_invokes_exactly_one_fresh_build — The static gate cannot silently return to the checkout's absent dist."
+    },
+    {
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1276",
+      "value": "3.66.1277",
       "gates_what": "test_containment_routes_and_version"
     },
     {

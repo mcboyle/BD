@@ -28,10 +28,14 @@ fixtures/recon_corpus set (no endpoint serves those).
 """
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
+
+import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
@@ -47,6 +51,18 @@ from bulk_downloader.app_settings_center import _is_secret  # single-sourced rul
 # dynamic tier; breadth across secret NAMES is covered by the static tier.
 _SENT_PW = "SECRETSENTINEL_PW_9Qk3Zr7x"
 _SENTINELS = (_SENT_PW,)
+
+_SURFACE_SUFFIXES = (".html", ".js", ".jinja", ".jinja2", ".htm")
+_SECRET_WORDS = ("password", "token", "api_key", "secret", "cookie_file")
+_SECRET_INTERPOLATION = re.compile(
+    r"(\{\{[^}]*\b(?:" + "|".join(_SECRET_WORDS) + r")\b[^}]*\}\})"
+    r"|(\$\{[^}]*\b(?:" + "|".join(_SECRET_WORDS) + r")\b[^}]*\})",
+    re.I,
+)
+_MASK_MARKERS = (
+    "•", "****", "masked", "present", "redact", "PLACEHOLDER",
+    "has_", "_set", "is_set", "configured",
+)
 
 # Endpoints we must NOT drive with a GET in the dynamic scan: streaming/SSE
 # (never returns), large/binary downloads/exports, and anything that would
@@ -203,6 +219,136 @@ class _SeqQueue:
         self.items.append(x)
 
 
+def _copy_frontend_for_secret_build(source: Path, destination: Path) -> Path:
+    """Copy exact current SPA build inputs while sharing installed tools."""
+    assert source.is_dir(), f"frontend source unavailable: {source}"
+    node_modules = source / "node_modules"
+    assert node_modules.is_dir(), (
+        f"frontend build dependencies unavailable at {node_modules}; "
+        "shipped-surface verdict is UNKNOWN"
+    )
+    input_files = tuple(sorted(
+        path.relative_to(source)
+        for path in source.rglob("*")
+        if path.is_file()
+        and not ({"dist", "node_modules"} & set(path.relative_to(source).parts))
+    ))
+    assert input_files, "frontend build-input denominator is zero: verdict is UNKNOWN"
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns("dist", "node_modules"),
+    )
+    os.symlink(node_modules, destination / "node_modules", target_is_directory=True)
+    copied_files = tuple(sorted(
+        path.relative_to(destination)
+        for path in destination.rglob("*")
+        if path.is_file()
+        and not ({"dist", "node_modules"} & set(path.relative_to(destination).parts))
+    ))
+    assert copied_files == input_files, (
+        "fresh frontend copy did not reconcile to its exact input denominator: "
+        f"expected={len(input_files)} copied={len(copied_files)}"
+    )
+    return destination
+
+
+def _build_secret_spa_fresh(frontend: Path, output: Path) -> Path:
+    """Build the secret scan's shipped surface into attempt-owned output."""
+    assert not output.exists(), f"fresh-build output already exists: {output}"
+    npm = shutil.which("npm")
+    assert npm is not None, "npm unavailable; shipped-surface verdict is UNKNOWN"
+    for tool in ("tsc", "vite"):
+        candidate = frontend / "node_modules" / ".bin" / tool
+        assert candidate.is_file(), (
+            f"frontend build tool unavailable: {candidate}; "
+            "shipped-surface verdict is UNKNOWN"
+        )
+    try:
+        build = subprocess.run(
+            [
+                npm,
+                "run",
+                "build",
+                "--",
+                "--outDir",
+                str(output),
+                "--emptyOutDir",
+            ],
+            cwd=frontend,
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(
+            "fresh SPA build is UNKNOWN: npm run build exceeded 180 seconds",
+            pytrace=False,
+        )
+    assert build.returncode == 0, (
+        f"fresh SPA build failed ({build.returncode})\n"
+        f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
+    )
+    indexes = list(output.glob("index.html"))
+    assert indexes == [output / "index.html"], (
+        f"fresh build emitted {len(indexes)} root index files, expected exactly 1"
+    )
+    return output
+
+
+def _fresh_secret_surface_dist(work: Path) -> Path:
+    frontend = _copy_frontend_for_secret_build(
+        _ROOT / "frontend", work / "frontend"
+    )
+    return _build_secret_spa_fresh(frontend, work / "fresh-dist")
+
+
+def _eligible_surface_files(roots: tuple[Path, ...]) -> tuple[Path, ...]:
+    return tuple(sorted(
+        path
+        for root in roots
+        if root.exists()
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in _SURFACE_SUFFIXES
+    ))
+
+
+def _assert_secret_surface_is_value_free(roots: tuple[Path, ...]) -> int:
+    """Scan every eligible file and reconcile collection to execution."""
+    subjects = _eligible_surface_files(roots)
+    assert subjects, "shipped-surface denominator is zero: verdict is UNKNOWN"
+    hits = []
+    scanned = 0
+    for path in subjects:
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError as exc:
+            raise AssertionError(
+                f"shipped surface unreadable: {path}: verdict is UNKNOWN"
+            ) from exc
+        scanned += 1
+        for line in text.splitlines():
+            if (
+                _SECRET_INTERPOLATION.search(line)
+                and not any(marker in line for marker in _MASK_MARKERS)
+            ):
+                try:
+                    label = path.relative_to(_ROOT)
+                except ValueError:
+                    label = path
+                hits.append(f"{label}: {line.strip()[:90]}")
+    assert scanned == len(subjects) > 0, (
+        "shipped-surface execution denominator mismatch: "
+        f"expected={len(subjects)} scanned={scanned}"
+    )
+    assert not hits, (
+        "secret-named value appears interpolated unmasked in a shipped surface:\n"
+        + "\n".join(hits[:15])
+    )
+    return scanned
+
+
 def test_no_endpoint_echoes_a_stored_secret_value():
     """The core gate: with a secret-bearing site seeded, no scanned
     operator-facing GET endpoint returns the sentinel value in its body."""
@@ -232,54 +378,105 @@ def test_secrets_status_is_value_free():
             assert _SENT_PW not in (eff.get_data(as_text=True) or "")
 
 
-def test_no_template_or_spa_interpolates_a_secret_value():
+def test_no_template_or_spa_interpolates_a_secret_value(tmp_path):
     """Static scan: no shipped cockpit template or built SPA bundle directly
     interpolates a secret-NAMED field's value (e.g. `{{ password }}`,
-    `site.api_token`, `value={secret}`)."""
-    roots = [
+    `site.api_token`, `value={secret}`). The SPA bundle is built by this
+    attempt, never assumed."""
+    dist = _fresh_secret_surface_dist(tmp_path)
+    roots = (
         _ROOT / "bulk_downloader" / "templates",
         _ROOT / "templates",
-        _ROOT / "frontend" / "dist",
-    ]
+        dist,
+    )
     # Secret-named tokens to look for in an interpolation context. Driven off
     # the same classifier vocabulary so the two stay in lockstep.
-    secret_words = ("password", "token", "api_key", "secret", "cookie_file")
-    assert all(_is_secret(w) for w in secret_words[:-1]) and _is_secret("cookie_file")
-    # Jinja/JS interpolation of a secret-named identifier's VALUE.
-    pat = re.compile(
-        r"(\{\{[^}]*\b(?:" + "|".join(secret_words) + r")\b[^}]*\}\})"
-        r"|(\$\{[^}]*\b(?:" + "|".join(secret_words) + r")\b[^}]*\})",
-        re.I,
+    assert all(_is_secret(word) for word in _SECRET_WORDS)
+    # Detector controls are additional to, not substitutes for, the nonzero
+    # fresh artifact denominator reconciled by _assert_secret_surface_is_value_free.
+    assert _SECRET_INTERPOLATION.search('value="{{ site.password }}"'), (
+        "pattern fails to flag {{ secret }}"
     )
-    # Allow masked/presence-only contexts: a hit is only a finding if it isn't
-    # adjacent to a masking marker on the same line.
-    mask_markers = ("•", "****", "masked", "present", "redact", "PLACEHOLDER",
-                    "has_", "_set", "is_set", "configured")
-    # Positive control — the scan currently finds 0 real hits (built React, no
-    # Jinja secret-interpolation), so without this a broken pattern would pass
-    # vacuously. Assert the detector fires on known-bad synthetic lines and the
-    # mask allowlist suppresses a masked one but NOT an unmasked one.
-    assert pat.search('value="{{ site.password }}"'), "pattern fails to flag {{ secret }}"
-    assert pat.search("token: ${apiKey}") or pat.search("x=${api_key}"), "pattern fails to flag ${secret}"
+    assert _SECRET_INTERPOLATION.search("x=${api_key}"), (
+        "pattern fails to flag ${secret}"
+    )
     _bad = "value={{ site.password }}"
     _masked = "value={{ password_is_set }}"
-    assert pat.search(_bad) and not any(m in _bad for m in mask_markers), "unmasked control mis-suppressed"
-    assert any(m in _masked for m in mask_markers), "mask allowlist control broken"
-    hits = []
-    for root in roots:
-        if not root.exists():
-            continue
-        for f in root.rglob("*"):
-            if not f.is_file() or f.suffix.lower() not in (".html", ".js", ".jinja", ".jinja2", ".htm"):
-                continue
-            try:
-                text = f.read_text(errors="ignore")
-            except Exception:
-                continue
-            for ln in text.splitlines():
-                if pat.search(ln) and not any(m in ln for m in mask_markers):
-                    hits.append(f"{f.relative_to(_ROOT)}: {ln.strip()[:90]}")
-    assert not hits, (
-        "secret-named value appears interpolated unmasked in a shipped surface:\n"
-        + "\n".join(hits[:15])
+    assert (
+        _SECRET_INTERPOLATION.search(_bad)
+        and not any(marker in _bad for marker in _MASK_MARKERS)
+    ), "unmasked control mis-suppressed"
+    assert any(marker in _masked for marker in _MASK_MARKERS), (
+        "mask allowlist control broken"
     )
+    expected = len(_eligible_surface_files(roots))
+    scanned = _assert_secret_surface_is_value_free(roots)
+    assert scanned == expected
+    assert expected > 0
+
+
+def test_secret_surface_build_invokes_exactly_one_fresh_build(
+    tmp_path, monkeypatch
+):
+    """The static gate cannot silently return to the checkout's absent dist."""
+    fired = {"copy": 0, "build": 0}
+    copied = tmp_path / "copied-frontend"
+    emitted = tmp_path / "emitted-dist"
+
+    def fake_copy(source, destination):
+        fired["copy"] += 1
+        assert source == _ROOT / "frontend"
+        assert destination == tmp_path / "frontend"
+        return copied
+
+    def fake_build(frontend, output):
+        fired["build"] += 1
+        assert frontend == copied
+        assert output == tmp_path / "fresh-dist"
+        return emitted
+
+    monkeypatch.setitem(
+        _fresh_secret_surface_dist.__globals__,
+        "_copy_frontend_for_secret_build",
+        fake_copy,
+    )
+    monkeypatch.setitem(
+        _fresh_secret_surface_dist.__globals__,
+        "_build_secret_spa_fresh",
+        fake_build,
+    )
+
+    assert _fresh_secret_surface_dist(tmp_path) == emitted
+    assert fired == {"copy": 1, "build": 1}
+
+
+def test_secret_surface_zero_denominator_is_unknown(tmp_path):
+    """Negative control: absent/JSON-only roots reach the UNKNOWN refusal."""
+    json_only = tmp_path / "templates"
+    json_only.mkdir()
+    (json_only / "only.json").write_text("{}\n", encoding="ascii")
+    roots = (tmp_path / "absent", json_only)
+    assert _eligible_surface_files(roots) == ()
+    with pytest.raises(AssertionError, match="denominator is zero.*UNKNOWN"):
+        _assert_secret_surface_is_value_free(roots)
+
+
+def test_secret_surface_leak_failure_path_is_reachable(tmp_path):
+    """Negative control: one eligible unmasked interpolation is rejected."""
+    surface = tmp_path / "dist"
+    surface.mkdir()
+    bad = surface / "bundle.js"
+    bad.write_text("const shown = `${api_key}`;\n", encoding="ascii")
+    roots = (surface,)
+    assert _eligible_surface_files(roots) == (bad,)
+    with pytest.raises(
+        AssertionError,
+        match="secret-named value appears interpolated unmasked",
+    ):
+        _assert_secret_surface_is_value_free(roots)
+
+
+def test_transform_control_imports_secret_gate_without_building_spa():
+    """Transform control: importing the gate does not measure a surface."""
+    imported = __import__(__name__, fromlist=["*"])
+    assert imported.__file__ == __file__
