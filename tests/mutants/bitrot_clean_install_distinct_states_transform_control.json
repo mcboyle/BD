@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for backlog row 269. This spec is expected to exit 1 with exactly one ESCAPED valid mutant. Its endpoint-level test injects a locked inventory, which must remain UNKNOWN whether missing-table recognition is present or removed. Escape proves the primary catch is behavioral rather than an invalid transform or import failure.",
+  "subject": "transform-only control for the valid missing-table recognition mutant",
+  "band": [
+    "tests/test_v3_57_phase9.py::test_integrity_endpoint_unreadable_inventory_stays_unknown"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL remove missing-table recognition for an unreadable inventory",
+      "file": "bulk_downloader/bitrot.py",
+      "old": "    return str(error).casefold() == f\"no such table: {table}\".casefold()",
+      "new": "    return False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_57_phase9.py::test_integrity_endpoint_unreadable_inventory_stays_unknown"
+    }
+  ]
+}

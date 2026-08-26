@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3906,
+  "edge_count": 3909,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4300,7 +4300,10 @@
       "bulk_downloader/app.py"
     ],
     "tests/test_v3_57_phase9.py": [
-      "bulk_downloader/app.py"
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_library.py",
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/db.py"
     ],
     "tests/test_v3_58_phase10.py": [
       "bulk_downloader/app.py",

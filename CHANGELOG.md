@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1276 - a clean install reports zero integrity issues, not unknown
+
+-            row = cx.execute("""SELECT MAX(last_verified_ts) AS t
+-                                 FROM provenance""").fetchone()
+-    assert body["stats"]["open_issues"] == 0
+- Fresh missing `integrity_issues`/`provenance` tables now report measured ze
+- Locked or otherwise unreadable inventories remain `UNKNOWN` with `open_issu
+- Added endpoint-level clean and unreadable controls.
+- Before: named acceptance test failed with `None == 0`.
+- After: focused final suite passed, `15 passed`.
+- Mutation: regression `CAUGHT`; identical transform control `ESCAPED` as exp
+- Register header recomputed and parser-validated: 260 rows, 4 open.
+- `git diff --check` passes.
+- All prohibited files remain untouched.
+-            row = cx.execute("""SELECT MAX(last_verified_ts) AS t
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1275 - every declared gate is reachable by a CI shard
 
 - All five gates now declare `BD_GATE_SCOPE = "repo-wide"`, are removed from 

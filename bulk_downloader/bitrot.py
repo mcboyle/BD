@@ -100,6 +100,11 @@ class InventoryUnavailable(RuntimeError):
     """The integrity inventory could not be measured."""
 
 
+def _table_is_absent(error: sqlite3.OperationalError, table: str) -> bool:
+    """Return whether SQLite reported one exact, expected schema absence."""
+    return str(error).casefold() == f"no such table: {table}".casefold()
+
+
 def _candidates(
     *,
     min_age_days: int,
@@ -421,9 +426,32 @@ def stats() -> dict:
             row = cx.execute("""SELECT COUNT(*) AS n FROM integrity_issues
                                  WHERE repaired = 1""").fetchone()
             out["repaired"] = int(row[0]) if row else 0
-            row = cx.execute("""SELECT MAX(last_verified_ts) AS t
-                                 FROM provenance""").fetchone()
+            try:
+                row = cx.execute("""SELECT MAX(last_verified_ts) AS t
+                                     FROM provenance""").fetchone()
+            except sqlite3.OperationalError as e:
+                if not _table_is_absent(e, "provenance"):
+                    raise
+                row = None
             out["last_scan_ts"] = float(row[0] or 0) if row else 0.0
+    except sqlite3.OperationalError as e:
+        # A fresh install has no inventory table until the first scan.  That
+        # absence is a measured empty inventory, not a failed measurement.
+        # Keep every other SQLite operational failure on the fail-closed path
+        # below: locked, read-only, and otherwise unreadable stores are not
+        # evidence of zero open issues.
+        if _table_is_absent(e, "integrity_issues"):
+            return out
+        return {
+            "ok": False,
+            "available": False,
+            "inventory_status": "unknown",
+            "error": f"integrity issue inventory unreadable: {e}"[:200],
+            "open_issues": None,
+            "by_kind": None,
+            "repaired": None,
+            "last_scan_ts": None,
+        }
     except Exception as e:
         return {
             "ok": False,
