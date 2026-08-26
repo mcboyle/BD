@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 250 / v3.66.1255. The regression restores the exact laundering defect: a failed git status is published as dirty=clean. The real probe fixture makes every earlier Git step succeed, forces status to exit 19 exactly once, and asserts dirty=unknown. Run from a detached scratch copy with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1255_bd_fleet_distinct_states.json --work DETACHED_SCRATCH. The companion v3_66_1255_bd_fleet_distinct_states_transform_control.json applies the same bytes to a test that reaches the failed-status branch without judging its dirty value; it must ESCAPE, proving this CAUGHT verdict is behavioral rather than a broken shell transform.",
+  "subject": "v3.66.1255 -- bd-fleet never launders failed cleanliness measurement into clean",
+  "band": [
+    "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py::test_git_status_failure_reaches_dirty_unknown_not_clean"
+  ],
+  "mutants": [
+    {
+      "label": "M1 failed git status is laundered back into dirty=clean",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "  if [ \"$bd_fleet_status_rc\" -ne 0 ]; then\n    echo \"dirty=unknown\"",
+      "new": "  if [ \"$bd_fleet_status_rc\" -ne 0 ]; then\n    echo \"dirty=clean\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py::test_git_status_failure_reaches_dirty_unknown_not_clean"
+    }
+  ]
+}

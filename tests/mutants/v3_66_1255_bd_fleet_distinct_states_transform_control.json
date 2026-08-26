@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 250. This battery is expected to exit 1 with one valid ESCAPED mutant. Its only test reaches the same failed-status branch but deliberately does not judge dirty, so CAUGHT here would mean the transform or probe execution broke and would invalidate the primary battery's evidence.",
+  "subject": "transform control -- failed-status mutant executes without a dirty-state assertion",
+  "band": [
+    "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py::test_transform_control_runs_the_mutated_probe_without_judging_dirty_state"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL failed git status may read clean when no behavioral assertion judges it",
+      "file": "toolchain/bin/bd-fleet",
+      "old": "  if [ \"$bd_fleet_status_rc\" -ne 0 ]; then\n    echo \"dirty=unknown\"",
+      "new": "  if [ \"$bd_fleet_status_rc\" -ne 0 ]; then\n    echo \"dirty=clean\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py::test_transform_control_runs_the_mutated_probe_without_judging_dirty_state"
+    }
+  ]
+}

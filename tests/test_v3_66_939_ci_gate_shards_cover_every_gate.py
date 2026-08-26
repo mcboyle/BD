@@ -222,6 +222,10 @@ _DECLARED = {
     # fixture, which no diff-derived band would necessarily catch.
     "tests/test_v3_66_1142_fleet_run_is_hermetic.py",
     "tests/test_v3_66_1158_fleet_provenance_fails_closed.py",
+    # @1255 row 250 applies 1158's fail-closed provenance contract to the
+    # sibling fleet census. Its failure seam needs a real probe environment,
+    # so a source-only check cannot substitute for executing this module.
+    "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
