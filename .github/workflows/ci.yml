@@ -496,6 +496,16 @@ jobs:
               tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
               tests/test_generated_artifact_workflow.py
               tests/test_git_deploy_gaps_are_documented.py
+          # Row 259. These five gates derive safety populations from live_tests,
+          # tools and product source. They were all frozen-baseline legacy and
+          # therefore absent from every PR shard even though each gate worked.
+          - name: safety-censuses
+            suites: >-
+              tests/test_capture_csrf_diag_redacts_cookies.py
+              tests/test_home_config_stores_are_guarded.py
+              tests/test_v3_66_1009_live_results_are_bundled.py
+              tests/test_v3_66_285_cloak_parity.py
+              tests/test_v3_66_795_mod3_seam.py
           - name: toolchain-verifiers
             suites: >-
               tests/test_desandbox_tool_verifiers.py

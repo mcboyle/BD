@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1275 - every declared gate is reachable by a CI shard
+
+- All five gates now declare `BD_GATE_SCOPE = "repo-wide"`, are removed from 
+- Coverage is pinned at exactly 161 declared, 161 scheduled, and 161 unique g
+- Negative control proves a newly declared but unscheduled gate fails with it
+- RED: the unfixed tree failed naming all five missing gates. GREEN: identica
+- `bd-mutate` revert mutant: CAUGHT. Identical parser-only transform control:
+- Filed backlog row 259 as OPEN with no version tag. Header now reports 246 r
+- Verification: 73 focused tests passed; affected 53-file floor passed with 1
+- Final independent review: no Critical, Important, or Minor issues; Ready Ye
+- Protected release files are unchanged. No full suite, deployment, live serv
+- name: toolchain-verifiers
+-    assert len(entries) == 1258, (
+-        "gates, and the three v3.66.1205 capture-posture gates; "
+- All five gates now declare `BD_GATE_SCOPE = "repo-wide"`, are removed from 
+
 ## v3.66.1274 - the process-tree gate proves it can fail
 
 -        "    Path('descendant.pid').write_text(str(child.pid))\n\n"

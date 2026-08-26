@@ -40,6 +40,8 @@ from pathlib import Path
 
 import pytest
 
+BD_GATE_SCOPE = "repo-wide"
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CAPTURE_SH = REPO_ROOT / "capture.sh"
 

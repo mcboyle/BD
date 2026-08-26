@@ -17,6 +17,8 @@ from pathlib import Path
 
 from bulk_downloader import cloak
 
+BD_GATE_SCOPE = "repo-wide"
+
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PKG = _ROOT / "bulk_downloader"

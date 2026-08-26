@@ -86,7 +86,8 @@ BD_GATE_SCOPE = "repo-wide"
 # The gates that must run on every PR. Pinned HERE rather than derived from
 # ci.yml, because deriving the expectation from the thing under test is how a
 # dropped file passes: the union would simply shrink to match. Adding a
-# repo-wide gate to CI is meant to be a two-file change.
+# repo-wide gate to CI is a three-part change: its scope marker, this independent
+# declaration, and one workflow shard entry all land together.
 _DECLARED = {
     # Backlog row 267. Seven application measurements had each collapsed an
     # unavailable result into the same value as measured permission. This
@@ -508,8 +509,38 @@ _DECLARED = {
     "tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py",
     "tests/test_generated_artifact_workflow.py",
     "tests/test_git_deploy_gaps_are_documented.py",
+    # Row 259. These five source-derived safety censuses already rejected
+    # credential disclosure, operator-state writes, migration-seam bypasses,
+    # and uncontained browser launches, but all five remained legacy-baselined
+    # and therefore ran in no PR shard. They form one scheduling contract: a
+    # gate CI does not execute does not exist.
+    "tests/test_capture_csrf_diag_redacts_cookies.py",
+    "tests/test_home_config_stores_are_guarded.py",
+    "tests/test_v3_66_1009_live_results_are_bundled.py",
+    "tests/test_v3_66_285_cloak_parity.py",
+    "tests/test_v3_66_795_mod3_seam.py",
     # toolchain-verifiers
     "tests/test_desandbox_tool_verifiers.py",
+}
+
+# Row 259 closes the equal-but-incomplete denominator that left five real
+# safety gates out of both lists.  This is intentionally exact: adding a gate
+# is a three-part change (scope, declaration, shard), and the count makes a
+# same-size substitution visible instead of accepting whatever population the
+# two mutable collections happen to share.
+# 161 -> 170 at row 262 (2026-08-26). This cut's whole subject is that every
+# declared gate is REACHABLE by a shard, so it registers the gates that were
+# declared but unrun. The refusal that caught this reported
+# 'missing from CI: []; extra in CI: []' -- the SET was already correct and
+# only this pinned count was stale. Do not raise this number to silence a
+# failure whose set is NOT empty; that would be hiding a real gap.
+_EXPECTED_DECLARED_GATE_COUNT = 170
+_CONFIRMED_SAFETY_GATES = {
+    "tests/test_capture_csrf_diag_redacts_cookies.py",
+    "tests/test_home_config_stores_are_guarded.py",
+    "tests/test_v3_66_285_cloak_parity.py",
+    "tests/test_v3_66_795_mod3_seam.py",
+    "tests/test_v3_66_1009_live_results_are_bundled.py",
 }
 
 # ── the declaration policy, @1072 ────────────────────────────────────────────
@@ -704,6 +735,50 @@ def _coverage_delta(declared: set[str], got: set[str]) -> tuple[list[str], list[
     and the reason it is worth extracting on sight rather than after a battery.
     """
     return sorted(declared - got), sorted(got - declared)
+
+
+def _assert_exact_gate_coverage(
+        declared: set[str], shards: dict[str, list[str]], expected_count: int
+) -> None:
+    """Assert an exact, nonzero one-to-one declaration/execution population."""
+    executed = [suite for suites in shards.values() for suite in suites]
+    missing, extra = _coverage_delta(declared, set(executed))
+    duplicate_count = len(executed) - len(set(executed))
+
+    assert expected_count > 0, "the expected gate denominator must be nonzero"
+    assert len(declared) == expected_count, (
+        f"declared {len(declared)} gates, expected exactly {expected_count}; "
+        f"missing from CI: {missing}; extra in CI: {extra}")
+    assert len(executed) == expected_count, (
+        f"CI would execute {len(executed)} gate paths, expected exactly "
+        f"{expected_count}; missing from CI: {missing}; extra in CI: {extra}; "
+        f"duplicate entries: {duplicate_count}")
+    assert duplicate_count == 0, (
+        f"CI repeats {duplicate_count} gate path(s), so its {len(executed)} "
+        "executions do not cover that many distinct declarations")
+    assert not missing, f"declared gate(s) missing from CI: {missing}"
+    assert not extra, f"undeclared gate(s) present in CI: {extra}"
+
+
+def test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check():
+    """Negative control: the live assertion's intended failure is reachable."""
+    declared = {"tests/test_existing_gate.py", "tests/test_newly_added_gate.py"}
+    shards = {"only-shard": ["tests/test_existing_gate.py"]}
+
+    with pytest.raises(AssertionError, match=(
+            r"CI would execute 1 gate paths, expected exactly 2; "
+            r"missing from CI: \['tests/test_newly_added_gate.py'\]")):
+        _assert_exact_gate_coverage(declared, shards, expected_count=2)
+
+
+def test_declared_and_ci_executed_gate_denominators_are_exact():
+    """The five confirmed safety gates belong to the exact live population."""
+    missing_required = sorted(_CONFIRMED_SAFETY_GATES - _DECLARED)
+    assert not missing_required, (
+        "confirmed safety gate(s) remain undeclared and therefore unreachable "
+        f"from every CI shard: {missing_required}")
+    _assert_exact_gate_coverage(
+        _DECLARED, _shard_lists(), _EXPECTED_DECLARED_GATE_COUNT)
 
 
 def test_the_coverage_comparison_actually_compares():

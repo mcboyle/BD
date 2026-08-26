@@ -44,6 +44,8 @@ import sys
 
 import pytest
 
+BD_GATE_SCOPE = "repo-wide"
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 CAPTURE = REPO / "capture.sh"
 LIVE = REPO / "live_tests"
