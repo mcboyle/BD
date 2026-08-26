@@ -12,7 +12,7 @@
     {
       "label": "M1 count pathnames again instead of asking the validated reader",
       "file": "toolchain/bin/bd-fleet",
-      "old": "jobs_out=$(toolchain/bin/bd-jobs list 2>/dev/null)",
+      "old": "jobs_out=$(\"$bd_fleet_repo_input/toolchain/bin/bd-jobs\" list 2>/dev/null)",
       "new": "jobs_out=\"$(ls /tmp/bd-jobs/*.json 2>/dev/null | wc -l) live, 0 stale on x\"",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_fleet_uses_validated_counts_and_preserves_malformed_evidence"

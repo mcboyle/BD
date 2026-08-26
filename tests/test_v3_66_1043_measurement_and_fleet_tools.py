@@ -542,10 +542,10 @@ def test_bd_fleet_reports_an_unreachable_host_rather_than_omitting_it():
 
 def test_bd_fleet_flags_the_states_that_actually_bit_us():
     mod = _load("bd-fleet")
-    rows = [("a", "1", {"head": "aaa", "version": "1", "dirty": "0",
+    rows = [("a", "1", {"head": "aaa", "version": "1", "dirty": "clean",
                         "service": "active", "pytest": "0", "jobs": "0",
                         "tmp_bd": "5"}, None),
-            ("b", "2", {"head": "bbb", "version": "2", "dirty": "3",
+            ("b", "2", {"head": "bbb", "version": "2", "dirty": "dirty",
                         "service": "failed", "pytest": "4", "jobs": "0",
                         "tmp_bd": "9479"}, None)]
     notes = " ".join(mod.divergences(rows))
@@ -994,6 +994,15 @@ def test_the_probe_reads_the_running_version_not_only_the_tree(tmp_path):
         "9.9.9-running\nstarted: whenever\n", encoding="utf-8")
     (tree / "bulk_downloader" / "__init__.py").write_text(
         '__version__ = "9.9.9-tree"\n', encoding="utf-8")
+    sp.run(["git", "-C", str(tree), "init", "-q"], check=True)
+    sp.run(["git", "-C", str(tree), "config", "user.name", "fleet test"],
+           check=True)
+    sp.run(["git", "-C", str(tree), "config", "user.email",
+            "fleet@example.invalid"], check=True)
+    sp.run(["git", "-C", str(tree), "add", "tools/deployed_version.txt",
+            "bulk_downloader/__init__.py"], check=True)
+    sp.run(["git", "-C", str(tree), "commit", "-q", "-m", "fixture"],
+           check=True)
 
     out = sp.run(["bash", "-c", mod.PROBE], capture_output=True, text=True,
                  env={**os.environ, "HOME": str(home)}, timeout=60).stdout

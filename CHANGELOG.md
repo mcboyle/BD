@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1265 - bd-fleet reports unknown instead of laundering a failed measurement as clean
+
+-        if d.get("tree") == "ABSENT":
+-            lines.append("%-10s %-15s NO TREE at ~/BulkDownloader" % (label,
+-            continue
+-        dirty = d.get("dirty", "?")
+-        tree = "clean" if dirty == "0" else ("%s dirty" % dirty)
+-                     % (label, addr, d.get("head", "?"), d.get("version", "?
+-                        d.get("serving") or "UNKNOWN",
+-                        tree, d.get("service", "?"), d.get("load", "?"),
+-                        d.get("jobs", "?"), d.get("pytest", "?"),
+-                        d.get("tmp_bd", "?")))
+-    live = [(l, d) for l, _a, d, e in rows if d and d.get("tree") != "ABSENT
+-        vals = {d.get(key, "?") for _l, d in live}
+-                                            for l, d in live)))
+
 ## v3.66.1264 - a failed deploy attempts recovery however it terminates
 
 -    printf 'active\n' > "$state"

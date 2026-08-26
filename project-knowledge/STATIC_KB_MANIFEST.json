@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-26T08:04:20+00:00",
- "version_context": "v3.66.1264",
+ "generated": "2026-08-26T08:25:20+00:00",
+ "version_context": "v3.66.1265",
  "file_count": 89,
  "files": {
   "0_INDEX.md": {
@@ -153,8 +153,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "06ce495414cdfa65ff0677a0e8aaf559aac9259b9b19fd09fed5e96ce3d34a81",
-   "bytes": 268937
+   "sha256": "3763be16e408d337ab75f79c4f4c13a0f6998009a6c7c281469e555c3a105603",
+   "bytes": 270809
   },
   "IMPROVEMENT_BACKLOG.md.parked-control.parked-control": {
    "sha256": "fba3c3bc36bbe5ddbf65e48572d82fbf8900e39bf8db55eebb8f9a1b195f83b1",
@@ -281,8 +281,8 @@
    "bytes": 4365
   },
   "TOUCHED_FILE_TO_TEST.md": {
-   "sha256": "194f69164483996390b6f275711460247de353745ff74667eca15b5a6d660a90",
-   "bytes": 5674
+   "sha256": "0a9a9f13067642d1ee8db1d3a154f7457d4a4a404d17f2af457c33a721e00e96",
+   "bytes": 5804
   },
   "TRIAGE_RULES.json": {
    "sha256": "448030d6866d105c00116cc53b89cdf296cd5c32cbf70a28b42248b0d7b54d72",
