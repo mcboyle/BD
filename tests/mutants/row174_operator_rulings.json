@@ -10,7 +10,7 @@
     {
       "label": "M1 row 174 is reopened even though every residue now has an owner or removal proof",
       "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
-      "old": "| 174 | CLOSED @operator-ruling-2026-08-25T17:30Z | FLEET-RESIDUE-OWNERS --",
+      "old": "| 174 | CLOSED @1250 | FLEET-RESIDUE-OWNERS --",
       "new": "| 174 | OPEN | FLEET-RESIDUE-OWNERS --",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1171_backlog_truth_is_current.py::test_row_174_rulings_are_owned_and_side_findings_are_transferred"
