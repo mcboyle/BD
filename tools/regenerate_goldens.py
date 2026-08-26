@@ -96,13 +96,12 @@ def goldens_dir(repo_root=None):
 
 def git_dirty_paths(repo_root, subdir):
     """Return the list of paths under `subdir` (relative to
-    repo_root) that have uncommitted changes. Empty list if clean
-    OR if git is unavailable / repo_root is not a git checkout.
+    repo_root) that have uncommitted changes. Empty list means clean;
+    None means Git could not measure the working tree.
 
-    Best-effort: if `git status` fails for any reason we return
-    an empty list and the caller decides whether to refuse on its
-    own grounds. We do NOT raise — a non-git deployment must still
-    be able to regenerate.
+    We do not raise because dry-runs and explicit --force operation do not
+    need this measurement. An ordinary --apply must distinguish None from
+    the successful empty-list result and refuse it.
     """
     try:
         cp = subprocess.run(
@@ -111,9 +110,9 @@ def git_dirty_paths(repo_root, subdir):
             capture_output=True, text=True, timeout=30,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return []
+        return None
     if cp.returncode != 0:
-        return []
+        return None
     dirty = []
     for line in cp.stdout.splitlines():
         # Porcelain format: "XY path" where X and Y are status codes.
@@ -320,6 +319,11 @@ def main(argv=None):
         except ValueError:
             subdir_rel = gdir
         dirty = git_dirty_paths(repo_root, subdir_rel)
+        if dirty is None:
+            print("REFUSED: git status could not measure changes inside the "
+                  "goldens directory. Re-run after Git is available, OR pass "
+                  "--force if you really mean it.", file=sys.stderr)
+            return 2
         if dirty:
             print("REFUSED: uncommitted changes inside the goldens "
                   "directory:", file=sys.stderr)

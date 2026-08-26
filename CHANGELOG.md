@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1268 - a failed toolchain measurement no longer reads as success
+
+-    'bandit>=1.7' 'semgrep>=1.50' 'pip-audit>=2.6' 'ruff>=0.4' \
+-    'detect-secrets>=1.4' 2>&1 \
+-    | grep -v 'DEPRECATION\|already satisfied' || true
+-    echo "  bandit findings: $n"; FINDINGS=$((FINDINGS+n))
+-    --json --output "$OUT/semgrep.json" \
+-    --config p/security-audit \
+-    --config p/python \
+-    --config p/javascript \
+-    --severity ERROR --severity WARNING \
+-    --quiet --exclude tests --exclude __pycache__ \
+-    bulk_downloader > "$OUT/semgrep.txt" 2>&1 || true
+-    --format json --output "$OUT/pip-audit.json" 2>/dev/null || true
+-    echo "  pip-audit: vulnerabilities reported"
+
 ## v3.66.1267 - an unavailable application measurement no longer grants permission
 
 - F36: unreadable rights blocklist returns UNKNOWN; enqueue refuses and exten

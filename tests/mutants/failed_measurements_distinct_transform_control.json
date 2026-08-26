@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for failed_measurements_distinct.json. This spec must ESCAPE: it applies the identical valid M1 transform while running only the clean Git measurement control, which does not enter the failed-status branch. The main battery must classify the same transform as CAUGHT.",
+  "subject": "transform-only control proving the failed-Git regression remains valid Python on the clean branch",
+  "band": [
+    "tests/test_failed_measurements_have_distinct_states.py::test_clean_git_measurement_still_allows_golden_apply_once"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 failed Git status is laundered while the clean measurement control stays green",
+      "file": "tools/regenerate_goldens.py",
+      "old": "        if dirty is None:\n            print(\"REFUSED: git status could not measure changes inside the \"\n                  \"goldens directory. Re-run after Git is available, OR pass \"\n                  \"--force if you really mean it.\", file=sys.stderr)\n            return 2",
+      "new": "        if dirty is None:\n            dirty = []",
+      "direction": "regression",
+      "catcher": "tests/test_failed_measurements_have_distinct_states.py::test_clean_git_measurement_still_allows_golden_apply_once"
+    }
+  ]
+}
