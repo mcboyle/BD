@@ -236,6 +236,10 @@ _DECLARED = {
     "tests/test_v3_66_1161_context_census_is_retired.py",
     "tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py",
     "tests/test_v3_66_1164_one_task_authority.py",
+    # Row 263. The register's evidence tags and the changelog's release
+    # headings are both tree-wide authorities. A worker can edit any row, so a
+    # diff-derived module band cannot provide this reconciliation.
+    "tests/test_register_closed_versions_exist.py",
     "tests/test_v3_66_1165_one_agent_contract.py",
     "tests/test_v3_66_1166_historical_docs_are_adjudicated.py",
     "tests/test_v3_66_1167_safety_authorities_are_single_source.py",

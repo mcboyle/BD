@@ -291,6 +291,7 @@ jobs:
               tests/test_v3_66_1161_context_census_is_retired.py
               tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py
               tests/test_v3_66_1164_one_task_authority.py
+              tests/test_register_closed_versions_exist.py
               tests/test_v3_66_1165_one_agent_contract.py
               tests/test_v3_66_1166_historical_docs_are_adjudicated.py
               tests/test_v3_66_1167_safety_authorities_are_single_source.py
