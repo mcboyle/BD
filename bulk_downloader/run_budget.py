@@ -13,7 +13,8 @@ daily_budget seam: on breach it requeues + pauses the site rather than crashing)
 Everything is DEFAULT-OFF: a zero/unset limit is uncapped, so an operator who
 sets nothing sees byte-identical behavior. Config is read from the site cfg dict
 (like daily_byte_budget) with an env fallback -- no GLOBAL_CONFIG_SCHEMA key, so
-no ratchet / SPA surface. All helpers fail open (never raise into the hot loop).
+no ratchet / SPA surface. An active memory gate reports sampler failure as
+UNKNOWN so the runner can hold admission without treating missing RSS as zero.
 """
 from __future__ import annotations
 
@@ -64,28 +65,32 @@ def from_config(cfg: Optional[dict]) -> RunBudget:
     return RunBudget(wall_s=wall, mem_mb=mem, net_bytes=net)
 
 
-def current_rss_mb() -> float:
-    """Current process RSS in MB. Returns 0.0 if psutil is unavailable or errors
-    (fail-open: a missing sampler must never trip an admission gate)."""
+def current_rss_mb() -> Optional[float]:
+    """Current process RSS in MB, or ``None`` when it cannot be sampled."""
     try:
         import psutil
         return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
     except Exception:
-        return 0.0
+        return None
 
 
 def is_over_mem_budget(cfg: Optional[dict], *, rss_mb: Optional[float] = None) -> dict:
     """Admission-gate check: is the process over its configured memory budget?
 
-    Returns {over, rss_mb, budget_mb}. over=False when no budget is set or when
-    sampling fails (fail-open). Used by the runner before taking a new URL, the
-    same shape/contract as daily_budget.is_over_budget.
+    Returns {over, rss_mb, budget_mb, available, unknown}. A disabled gate is a
+    measured over=False. With an active gate, sampler failure is over=None and
+    unknown=True, which the runner treats as a visible admission hold.
     """
     b = from_config(cfg)
-    out = {"over": False, "rss_mb": 0.0, "budget_mb": b.mem_mb}
+    out = {"over": False, "rss_mb": 0.0, "budget_mb": b.mem_mb,
+           "available": True, "unknown": False, "error": ""}
     if b.mem_mb <= 0:
         return out
     r = current_rss_mb() if rss_mb is None else float(rss_mb)
+    if r is None:
+        return {"over": None, "rss_mb": None, "budget_mb": b.mem_mb,
+                "available": False, "unknown": True,
+                "error": "RSS measurement unavailable"}
     out["rss_mb"] = round(r, 2)
     out["over"] = r >= b.mem_mb
     return out

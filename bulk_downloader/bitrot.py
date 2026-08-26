@@ -96,6 +96,10 @@ def _ensure_integrity_table():
         sys.stderr.write(f"[bitrot] schema init failed: {e}\n")
 
 
+class InventoryUnavailable(RuntimeError):
+    """The integrity inventory could not be measured."""
+
+
 def _candidates(
     *,
     min_age_days: int,
@@ -124,7 +128,7 @@ def _candidates(
     except Exception as e:
         import sys
         sys.stderr.write(f"[bitrot] candidate query failed: {e}\n")
-        return []
+        raise InventoryUnavailable(f"candidate inventory unreadable: {e}") from e
 
 
 def _mark_verified(prov_id: int):
@@ -298,6 +302,25 @@ def run_scan(*,
     The index is built ONCE per scan rather than per row: a library is a few
     thousand files and a per-row rglob would make the nightly job quadratic.
     """
+    def unavailable(error: Exception, *, total_library=None) -> dict:
+        import sys
+        sys.stderr.write(f"[bitrot] inventory unavailable: {error}\n")
+        return {
+            "ok": False,
+            "available": False,
+            "inventory_status": "unknown",
+            "error": str(error)[:200],
+            "checked": None,
+            "intact": None,
+            "missing": None,
+            "modified": None,
+            "truncated": None,
+            "errors": None,
+            "ambiguous": None,
+            "unknown": None,
+            "total_library": total_library,
+        }
+
     _ensure_integrity_table()
     # Determine total candidate pool size to compute the fraction
     try:
@@ -306,23 +329,31 @@ def run_scan(*,
             row = cx.execute("""SELECT COUNT(*) AS n FROM provenance
                                  WHERE sha256 != ''""").fetchone()
         total = int(row[0] if not hasattr(row, "keys") else row["n"])
-    except Exception:
-        total = 0
+    except Exception as e:
+        return unavailable(
+            InventoryUnavailable(f"provenance inventory unreadable: {e}"))
     if total == 0:
-        return {"checked": 0, "intact": 0, "missing": 0, "modified": 0,
+        return {"ok": True, "available": True,
+                "inventory_status": "measured",
+                "checked": 0, "intact": 0, "missing": 0, "modified": 0,
                 "truncated": 0, "errors": 0, "ambiguous": 0, "unknown": 0,
                 "total_library": 0}
     target = max(1, int(total * scan_fraction))
     target = min(target, max_files)
-    candidates = _candidates(min_age_days=min_age_days, limit=target,
-                            reverify_after_days=reverify_after_days)
+    try:
+        candidates = _candidates(min_age_days=min_age_days, limit=target,
+                                reverify_after_days=reverify_after_days)
+    except InventoryUnavailable as e:
+        return unavailable(e, total_library=total)
     # Additive keys, verified rather than assumed: no test references this
     # module, `/api/bitrot/scan` hands the dict straight to jsonify
     # (app_bitrot.py:28), and frontend/src/lib/api-types.ts declares no bitrot
     # scan type -- so `ambiguous` and `unknown` cost zero TS edits. They are
     # _resolve_recorded's own state strings verbatim, matching the v3.66.916
     # precedent, so a reader maps counter to state with no translation step.
-    summary = {"checked": 0, "intact": 0, "missing": 0, "modified": 0,
+    summary = {"ok": True, "available": True,
+               "inventory_status": "measured",
+               "checked": 0, "intact": 0, "missing": 0, "modified": 0,
                "truncated": 0, "errors": 0, "ambiguous": 0, "unknown": 0,
                "total_library": total}
     from . import library_final as _lf
@@ -375,7 +406,8 @@ def list_issues(*, kind: Optional[str] = None, repaired: Optional[bool] = None,
 def stats() -> dict:
     """Aggregate counters for the bit-rot dashboard."""
     _ensure_integrity_table()
-    out = {"open_issues": 0, "by_kind": {}, "repaired": 0,
+    out = {"ok": True, "available": True, "inventory_status": "measured",
+           "error": "", "open_issues": 0, "by_kind": {}, "repaired": 0,
            "last_scan_ts": 0}
     try:
         from . import db as _db
@@ -392,8 +424,17 @@ def stats() -> dict:
             row = cx.execute("""SELECT MAX(last_verified_ts) AS t
                                  FROM provenance""").fetchone()
             out["last_scan_ts"] = float(row[0] or 0) if row else 0.0
-    except Exception:
-        pass
+    except Exception as e:
+        return {
+            "ok": False,
+            "available": False,
+            "inventory_status": "unknown",
+            "error": f"integrity issue inventory unreadable: {e}"[:200],
+            "open_issues": None,
+            "by_kind": None,
+            "repaired": None,
+            "last_scan_ts": None,
+        }
     return out
 
 

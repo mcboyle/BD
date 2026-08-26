@@ -88,6 +88,11 @@ BD_GATE_SCOPE = "repo-wide"
 # dropped file passes: the union would simply shrink to match. Adding a
 # repo-wide gate to CI is meant to be a two-file change.
 _DECLARED = {
+    # Backlog row 267. Seven application measurements had each collapsed an
+    # unavailable result into the same value as measured permission. This
+    # module drives the real enqueue/start/admission and integrity seams, so it
+    # is pinned into the application-safety shard on every PR.
+    "tests/test_app_measurements_fail_closed.py",
     # Backlog row 176. Verdict pins cannot detect a fixture whose recognizer
     # result is correct for the wrong site's bytes, so this gate independently
     # declares every recognizer fixture's page host and checks the payload.

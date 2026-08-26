@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3892,
+  "edge_count": 3906,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2144,6 +2144,22 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_auth.py",
       "bulk_downloader/user_accounts.py"
+    ],
+    "tests/test_app_measurements_fail_closed.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app_bitrot.py",
+      "bulk_downloader/app_extension.py",
+      "bulk_downloader/automation_controller.py",
+      "bulk_downloader/automation_pipeline.py",
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/content_rights.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/run_budget.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_integrity.py",
+      "bulk_downloader/runner_queue.py"
     ],
     "tests/test_app_semantic_search.py": [
       "bulk_downloader/app_semantic_search.py"

@@ -981,6 +981,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             try:
                 quota_bytes = int(float(quota_gb) * 1024**3)
                 used = self._compute_site_usage(dl_dir)
+                if used is None:
+                    self._state = "quota_usage_unknown"
+                    self.log_event(
+                        "quota_unknown",
+                        "Site quota usage unavailable; refusing to start workers",
+                        extra={"download_dir": dl_dir,
+                               "quota_gb": float(quota_gb)},
+                    )
+                    return
                 if used >= quota_bytes:
                     self._state = "low_disk"
                     self.log_event("quota_hit",
@@ -1560,9 +1569,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         a large library with tens of thousands of files this is the
         slowest part of start(), so we cache for 60s.
 
-        Returns bytes. Returns 0 on any error (missing dir, permission
-        denied, etc.) — failing open keeps the worker running rather
-        than silently stalling on a perm error."""
+        Returns bytes after a complete walk, or ``None`` if any subtree or
+        file size could not be measured.  A partial total is not quota
+        evidence; start() publishes quota_usage_unknown and holds workers."""
         cache_attr = "_site_usage_cache"
         if not hasattr(self, cache_attr):
             setattr(self, cache_attr, (0.0, 0))
@@ -1570,13 +1579,22 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         if time.time() - ts < 60 and cached > 0:
             return cached
         total = 0
+        errors = []
+
+        def walk_error(error):
+            errors.append(error)
+
         try:
-            for root, dirs, files in os.walk(dl_dir):
+            for root, dirs, files in os.walk(dl_dir, onerror=walk_error):
                 for name in files:
-                    try: total += os.path.getsize(os.path.join(root, name))
-                    except (OSError, PermissionError): pass
-        except (OSError, PermissionError):
-            return 0
+                    try:
+                        total += os.path.getsize(os.path.join(root, name))
+                    except OSError as e:
+                        errors.append(e)
+        except OSError:
+            return None
+        if errors:
+            return None
         setattr(self, cache_attr, (time.time(), total))
         return total
 
@@ -2525,6 +2543,88 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     self._worker_current_urls.pop(worker_idx, None)
                     self._worker_url_generations.pop(worker_idx, None)
 
+    def _resource_admission_hold(self):
+        """Return a visible hold when a configured resource gate is not safe.
+
+        A return value means the dequeued URL must be requeued.  ``None`` is
+        earned only by disabled gates or measured-under-budget results.
+        """
+        def hold(state, wait_s, reason, report):
+            # Publish immediately at the decision seam. The worker loop also
+            # emits the event after requeueing, but readers must not need that
+            # later side effect to observe why admission was refused.
+            self._state = state
+            return {"state": state, "wait_s": wait_s, "reason": reason,
+                    "report": report}
+
+        try:
+            from . import daily_budget as _db_budget
+            site_report = _db_budget.is_over_budget(
+                self.site_id, site_cfg=self.config)
+        except Exception as e:
+            configured_site = int(max(0.0, _finite_config_float(
+                (self.config or {}).get("daily_byte_budget"), 0.0)))
+            if configured_site > 0:
+                site_report = {
+                    "over": None, "unknown": True, "available": False,
+                    "budget_bytes": configured_site,
+                    "error": f"site daily-byte gate unavailable: {e}"[:200],
+                }
+            else:
+                site_report = None
+        if site_report and site_report.get("budget_bytes", 0) > 0:
+            if site_report.get("unknown") or site_report.get("over") is None:
+                return hold(
+                    "daily_budget_unknown", 60,
+                    site_report.get("error") or
+                    "site daily-byte counter unavailable", site_report)
+            if site_report.get("over"):
+                return hold("daily_budget_exhausted", 60,
+                            "site daily-byte budget exhausted", site_report)
+
+        try:
+            from . import daily_budget as _db_budget_global
+            global_report = _db_budget_global.is_over_global_budget()
+        except Exception as e:
+            global_report = {
+                "over": None, "unknown": True, "available": False,
+                # An exception here also prevents proving the global gate is
+                # disabled, so do not manufacture budget_bytes=0 permission.
+                "budget_bytes": None,
+                "error": f"global daily-byte gate unavailable: {e}"[:200],
+            }
+        if global_report.get("unknown") or global_report.get("over") is None:
+            if global_report.get("budget_bytes") != 0:
+                return hold(
+                    "global_daily_budget_unknown", 60,
+                    global_report.get("error") or
+                    "global daily-byte counter unavailable", global_report)
+        elif global_report.get("over"):
+            return hold("daily_budget_exhausted", 60,
+                        "global daily-byte budget exhausted", global_report)
+
+        try:
+            from . import run_budget as _run_budget
+            mem_report = _run_budget.is_over_mem_budget(self.config)
+        except Exception as e:
+            configured_mem = int(max(0.0, _finite_config_float(
+                (self.config or {}).get("run_mem_budget_mb"), 0.0)))
+            mem_report = {
+                "over": None, "unknown": True, "available": False,
+                "budget_mb": configured_mem,
+                "error": f"RSS admission gate unavailable: {e}"[:200],
+            }
+        if mem_report.get("budget_mb", 0) > 0:
+            if mem_report.get("unknown") or mem_report.get("over") is None:
+                return hold(
+                    "mem_budget_unknown", 30,
+                    mem_report.get("error") or "RSS measurement unavailable",
+                    mem_report)
+            if mem_report.get("over"):
+                return hold("mem_budget_exhausted", 30,
+                            "memory budget exhausted", mem_report)
+        return None
+
     def _worker_loop(self, worker_idx=0, run_generation=None):
         """One persistent worker thread. Owns its own playwright + browser
         for the entire lifetime; pulls URLs from self._url_queue and
@@ -2768,67 +2868,23 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             continue
                 except Exception:
                     pass
-                # Phase 196: per-site daily byte budget. If the operator
-                # set `daily_byte_budget` and we've hit it, requeue with
-                # a longer wait (queue check happens every second, but
-                # nothing's going to change until midnight). Fail-open:
-                # any error means we take the URL rather than block forever.
-                try:
-                    from . import daily_budget as _db_budget
-                    bs = _db_budget.is_over_budget(
-                        self.site_id, site_cfg=self.config)
-                    if bs.get("over"):
-                        # Annotate state so the UI shows why we're paused
-                        try:
-                            self.state = "daily_budget_exhausted"
-                        except Exception:
-                            pass
-                        self._url_queue.put_nowait(queue_item)
-                        self._url_queue.task_done()
-                        # Wait 60s before retrying — gives midnight rollover
-                        # plenty of time to land if it's almost here, and
-                        # avoids a tight requeue loop if we're way over.
-                        self._stop.wait(60)
-                        continue
-                except Exception:
-                    pass
-                # Cut 8: global (cross-site) daily byte budget. Same pause
-                # behavior as the per-site cap above, evaluated against the
-                # combined usage. Fail-open: any error takes the URL.
-                try:
-                    from . import daily_budget as _db_budget_g
-                    gbs = _db_budget_g.is_over_global_budget()
-                    if gbs.get("over"):
-                        try:
-                            self.state = "daily_budget_exhausted"
-                        except Exception:
-                            pass
-                        self._url_queue.put_nowait(queue_item)
-                        self._url_queue.task_done()
-                        self._stop.wait(60)
-                        continue
-                except Exception:
-                    pass
-                # RUN-3: memory admission gate (the previously-missing mem leg of
-                # the unified per-run budget). If the operator set run_mem_budget_mb
-                # and the process RSS is over it, requeue + pause rather than take on
-                # more work while memory-pressured -- same breach->pause pattern as
-                # the byte budgets above. DEFAULT-OFF (0/unset) -> byte-identical;
-                # fail-open on any error.
-                try:
-                    from . import run_budget as _run_budget
-                    mbs = _run_budget.is_over_mem_budget(self.config)
-                    if mbs.get("over"):
-                        try:
-                            self.state = "mem_budget_exhausted"
-                        except Exception:
-                            pass
-                        self._url_queue.put_nowait(queue_item)
-                        self._url_queue.task_done()
-                        self._stop.wait(30)
-                        continue
-                except Exception:
-                    pass
+                # The three resource measurements share one tri-state seam.
+                # A configured gate that cannot measure holds this URL just
+                # like a measured breach, but publishes a distinct state so
+                # operators can fix the instrument rather than wait for a cap.
+                resource_hold = self._resource_admission_hold()
+                if resource_hold is not None:
+                    self._state = resource_hold["state"]
+                    self.log_event(
+                        "resource_admission_hold",
+                        resource_hold["reason"],
+                        url=url,
+                        extra={"report": resource_hold["report"]},
+                    )
+                    self._url_queue.put_nowait(queue_item)
+                    self._url_queue.task_done()
+                    self._stop.wait(resource_hold["wait_s"])
+                    continue
                 # Phase 6.4: acquire global semaphore (if active) before
                 # processing. Released in finally. If no cap, this is a no-op.
                 acquired_global=False

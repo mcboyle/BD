@@ -270,17 +270,37 @@ class QueueMixin:
                     continue
             # v3.45.0 Phase 194: content-rights checks may touch persistence,
             # so they deliberately remain outside the lifecycle transaction.
+            from . import content_rights as _cr
             try:
-                from . import content_rights as _cr
                 block = _cr.url_is_blocked(u)
-                if block:
-                    _cr.record_refusal(u,
+            except Exception as e:
+                # The policy reader itself is a measurement boundary.  An
+                # escaped exception is UNKNOWN, never a no-match.
+                block = {
+                    "blocked": None,
+                    "unknown": True,
+                    "error": f"content-rights check unavailable: {e}"[:200],
+                }
+            if block:
+                if block.get("unknown"):
+                    reason = block.get("error") or "blocklist unavailable"
+                    self.log_event(
+                        "content_rights_unknown",
+                        f"Refused enqueue: {reason}",
+                        url=u,
+                    )
+                else:
+                    reason = (
                         f"blocklist id {block.get('id')}: "
-                        f"{block.get('reason','')[:100]}")
-                    dupes += 1
-                    continue
-            except Exception:
-                pass
+                        f"{block.get('reason', '')[:100]}"
+                    )
+                try:
+                    _cr.record_refusal(u,
+                                       reason)
+                except Exception as e:
+                    self.log.error("content-rights refusal audit failed: %s", e)
+                dupes += 1
+                continue
             pre_done=False
             if folder_scan and existing_files:
                 try:

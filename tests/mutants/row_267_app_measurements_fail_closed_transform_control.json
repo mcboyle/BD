@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 267. This deliberately exits with one ESCAPED valid mutant: the identical UNKNOWN-to-zero replacement runs only the measured-under-cap test, whose sampler returns 128 MB and never enters the transformed branch. An ESCAPE proves the primary CAUGHT verdict comes from the unavailable-measurement assertions rather than syntax, import, or collection failure.",
+  "subject": "transform control for the valid unavailable-RSS collapse",
+  "band": [
+    "tests/test_app_measurements_fail_closed.py::test_f41_measured_rss_below_cap_still_admits"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL collapse unavailable RSS while measured RSS remains healthy",
+      "file": "bulk_downloader/run_budget.py",
+      "old": "    if r is None:\n        return {\"over\": None, \"rss_mb\": None, \"budget_mb\": b.mem_mb,\n                \"available\": False, \"unknown\": True,\n                \"error\": \"RSS measurement unavailable\"}\n",
+      "new": "    if r is None:\n        r = 0.0\n",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f41_measured_rss_below_cap_still_admits"
+    }
+  ]
+}

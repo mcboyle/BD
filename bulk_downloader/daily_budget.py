@@ -88,8 +88,8 @@ def record_site_bytes(site_id: str, n_bytes: int):
         pass  # fail-silent
 
 
-def bytes_today(site_id: str) -> int:
-    """How many bytes has this site downloaded today (operator-local)."""
+def bytes_today(site_id: str) -> Optional[int]:
+    """How many bytes this site downloaded today, or ``None`` if unreadable."""
     if not site_id:
         return 0
     _ensure_table()
@@ -101,7 +101,43 @@ def bytes_today(site_id: str) -> int:
             """, (site_id, _today_ymd())).fetchone()
         return int(row["bytes"]) if row else 0
     except Exception:
-        return 0
+        return None
+
+
+def _budget_report(*, budget: int, used: Optional[int], source: str) -> dict:
+    """Build a budget verdict without equating unreadable with zero usage."""
+    if used is None:
+        return {
+            "over": None,
+            "available": False,
+            "unknown": True,
+            "error": f"{source} daily-byte counter unavailable",
+            "used_bytes": None,
+            "budget_bytes": budget,
+            "remaining_bytes": None,
+            "pct_used": None,
+        }
+    if budget <= 0:
+        return {
+            "over": False,
+            "available": True,
+            "unknown": False,
+            "error": "",
+            "used_bytes": used,
+            "budget_bytes": 0,
+            "remaining_bytes": 0,
+            "pct_used": 0.0,
+        }
+    return {
+        "over": used >= budget,
+        "available": True,
+        "unknown": False,
+        "error": "",
+        "used_bytes": used,
+        "budget_bytes": budget,
+        "remaining_bytes": budget - used,
+        "pct_used": min(100.0, round(used * 100.0 / budget, 1)),
+    }
 
 
 def is_over_budget(site_id: str, *, site_cfg: dict) -> dict:
@@ -116,19 +152,11 @@ def is_over_budget(site_id: str, *, site_cfg: dict) -> dict:
         }
 
     If the site has no `daily_byte_budget` configured (0 or absent),
-    returns over=False. Fail-open: DB error returns over=False too."""
+    returns over=False. An unreadable counter returns over=None and
+    unknown=True; admission callers hold only when a cap is configured."""
     budget = int((site_cfg or {}).get("daily_byte_budget") or 0)
     used = bytes_today(site_id)
-    if budget <= 0:
-        return {"over": False, "used_bytes": used, "budget_bytes": 0,
-                "remaining_bytes": 0, "pct_used": 0.0}
-    return {
-        "over": used >= budget,
-        "used_bytes": used,
-        "budget_bytes": budget,
-        "remaining_bytes": budget - used,
-        "pct_used": min(100.0, round(used * 100.0 / budget, 1)),
-    }
+    return _budget_report(budget=budget, used=used, source="site")
 
 
 # ── Cut 8: global (cross-site) daily byte budget ──────────────────────
@@ -151,8 +179,8 @@ def get_global_budget() -> int:
     return _GLOBAL_BUDGET
 
 
-def bytes_today_all() -> int:
-    """Total bytes downloaded across ALL sites today (operator-local)."""
+def bytes_today_all() -> Optional[int]:
+    """Total bytes today, or ``None`` when the counter cannot be read."""
     _ensure_table()
     try:
         with _db.db_conn() as cx:
@@ -161,26 +189,17 @@ def bytes_today_all() -> int:
                 "WHERE ymd = ?", (_today_ymd(),)).fetchone()
         return int(row["t"]) if row else 0
     except Exception:
-        return 0
+        return None
 
 
 def is_over_global_budget(*, global_budget: Optional[int] = None) -> dict:
     """Whether the combined cross-site usage has hit the global cap. Same
     shape as is_over_budget. `global_budget` defaults to the module state
-    set via set_global_budget. Fail-open: 0/unset cap or DB error -> over
-    False."""
+    set via set_global_budget. An unreadable counter is UNKNOWN rather than
+    the same over=False result as measured usage below the cap."""
     budget = int(_GLOBAL_BUDGET if global_budget is None else global_budget)
     used = bytes_today_all()
-    if budget <= 0:
-        return {"over": False, "used_bytes": used, "budget_bytes": 0,
-                "remaining_bytes": 0, "pct_used": 0.0}
-    return {
-        "over": used >= budget,
-        "used_bytes": used,
-        "budget_bytes": budget,
-        "remaining_bytes": budget - used,
-        "pct_used": min(100.0, round(used * 100.0 / budget, 1)),
-    }
+    return _budget_report(budget=budget, used=used, source="global")
 
 
 def status_all(s_cfg: dict) -> list:
@@ -194,7 +213,7 @@ def status_all(s_cfg: dict) -> list:
             "site_name": (cfg or {}).get("name") or sid,
             **is_over_budget(sid, site_cfg=cfg),
         })
-    out.sort(key=lambda r: -r.get("pct_used", 0))
+    out.sort(key=lambda r: -(r.get("pct_used") or 0))
     return out
 
 
