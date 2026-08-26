@@ -57,6 +57,8 @@ inert unless `git config core.hooksPath .githooks` is set. See that file.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 import re
@@ -78,6 +80,24 @@ def claims_dir(repo: Path) -> Path:
     d = repo / ".git" / "bd-claims"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+@contextmanager
+def _claims_lock(repo: Path):
+    """Exclude every process that reads or mutates the claim registry.
+
+    The CLI is a separate process on every invocation, so this is an OS-backed
+    lock, not a thread lock.  Keep one acquisition at the public-operation
+    boundary: flock is per open file description and trying to reacquire this
+    lock through a new descriptor from the same process would block itself.
+    """
+    lock_path = claims_dir(repo) / ".registry.lock"
+    with lock_path.open("a+b") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _alive(pid: int) -> bool:
@@ -192,14 +212,8 @@ def _is_dead(c: dict, now: float | None = None) -> str | None:
     return None
 
 
-def live_claims(repo: Path, reaped: list | None = None) -> list[dict]:
-    """Every live claim, with dead ones reaped. Raises on an unreadable dir --
-    the caller must treat that as UNKNOWN, never as 'no claims'.
-
-    `reaped` collects (name, reason) so a caller can SAY what it destroyed. A
-    read that silently deletes evidence is its own trap: the operator sees "no
-    live claims" and cannot tell that from "your claim just expired".
-    """
+def _live_claims_locked(repo: Path, reaped: list | None = None) -> list[dict]:
+    """Locked implementation for one claim-registry transaction."""
     out = []
     d = claims_dir(repo)
     for f in sorted(d.glob("*.json")):
@@ -218,6 +232,20 @@ def live_claims(repo: Path, reaped: list | None = None) -> list[dict]:
             continue
         out.append(c)
     return out
+
+
+def live_claims(repo: Path, reaped: list | None = None) -> list[dict]:
+    """Every live claim, with dead ones reaped. Raises on an unreadable dir --
+    the caller must treat that as UNKNOWN, never as 'no claims'.
+
+    `reaped` collects (name, reason) so a caller can SAY what it destroyed. A
+    read that silently deletes evidence is its own trap: the operator sees "no
+    live claims" and cannot tell that from "your claim just expired".  Reading
+    and reaping are one transaction so a reader cannot delete a concurrent
+    writer's temporarily truncated file.
+    """
+    with _claims_lock(repo):
+        return _live_claims_locked(repo, reaped=reaped)
 
 
 def resolve_owner(explicit: str | None,
@@ -261,34 +289,46 @@ def add(repo: Path, paths: list[str], label: str, owner: str | None = None,
 
     was_derived = (owner is None and not os.environ.get("BD_CLAIM_OWNER")
                    and pid_flag is None)
-    if was_derived:
-        # RISK-1 ENFORCEMENT, not documentation. Two agents under one harness
-        # share their durable ancestor, so a DERIVED owner can be identical for
-        # both -- and then the hook's self-exclusion matches agent B against
-        # agent A's claim and this guard goes silently inert for exactly the
-        # case it exists for. Refuse, and name the fix.
-        for c in live_claims(repo):
-            if c.get("owner") == tok and (c.get("label") or "") != (label or ""):
-                print(f"bd-claim: BD-CLAIM UNEVALUABLE -- the derived owner "
-                      f"{tok!r} is ALREADY held under label "
-                      f"{c.get('label') or 'no label'!r}. A shared ancestor means "
-                      f"both agents would exclude each other and nothing would be "
-                      f"guarded. Set BD_CLAIM_OWNER to something distinct per "
-                      f"agent.", file=sys.stderr)
-                return 2
+    with _claims_lock(repo):
+        current_claims = _live_claims_locked(repo)
+        if was_derived:
+            # RISK-1 ENFORCEMENT, not documentation. Two agents under one harness
+            # share their durable ancestor, so a DERIVED owner can be identical for
+            # both -- and then the hook's self-exclusion matches agent B against
+            # agent A's claim and this guard goes silently inert for exactly the
+            # case it exists for. Refuse, and name the fix.
+            for c in current_claims:
+                if (c.get("owner") == tok
+                        and (c.get("label") or "") != (label or "")):
+                    print(f"bd-claim: BD-CLAIM UNEVALUABLE -- the derived owner "
+                          f"{tok!r} is ALREADY held under label "
+                          f"{c.get('label') or 'no label'!r}. A shared ancestor means "
+                          f"both agents would exclude each other and nothing would be "
+                          f"guarded. Set BD_CLAIM_OWNER to something distinct per "
+                          f"agent.", file=sys.stderr)
+                    return 2
 
-    expires_at = time.time() + ttl if ttl > 0 else None
-    rec = {"owner": tok,
-           "owner_pid": owner_pid,
-           "owner_start": proc_start(owner_pid) if owner_pid is not None else None,
-           "expires_at": expires_at,
-           "label": label,
-           "paths": sorted(set(paths)),
-           # diagnostics only -- NOT the key. Keeping them makes a stale claim
-           # traceable without tempting anyone to match on them again.
-           "pid": os.getpid(), "ppid": os.getppid()}
-    (claims_dir(repo) / f"{tok}.json").write_text(
-        json.dumps(rec, indent=1), encoding="utf-8")
+        # ``add`` is additive for one durable owner.  Reading the current path
+        # set and publishing its union under the same lock prevents two CLI
+        # processes from both deriving from stale state and replacing each
+        # other's paths.
+        merged_paths = set(paths)
+        for current in current_claims:
+            if current.get("owner") == tok:
+                merged_paths.update(current.get("paths", []))
+
+        expires_at = time.time() + ttl if ttl > 0 else None
+        rec = {"owner": tok,
+               "owner_pid": owner_pid,
+               "owner_start": proc_start(owner_pid) if owner_pid is not None else None,
+               "expires_at": expires_at,
+               "label": label,
+               "paths": sorted(merged_paths),
+               # diagnostics only -- NOT the key. Keeping them makes a stale claim
+               # traceable without tempting anyone to match on them again.
+               "pid": os.getpid(), "ppid": os.getppid()}
+        (claims_dir(repo) / f"{tok}.json").write_text(
+            json.dumps(rec, indent=1), encoding="utf-8")
     when = ("never" if expires_at is None
             else time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(expires_at)))
     print(f"claimed {len(rec['paths'])} path(s) as owner {tok}"
@@ -305,10 +345,11 @@ def release(repo: Path, owner: str | None = None,
               f"Pass --owner <token>.", file=sys.stderr)
         return 2
     f = claims_dir(repo) / f"{tok}.json"
-    if f.is_file():
-        f.unlink(missing_ok=True)
-        print(f"released {tok}")
-        return 0
+    with _claims_lock(repo):
+        if f.is_file():
+            f.unlink(missing_ok=True)
+            print(f"released {tok}")
+            return 0
     print(f"nothing to release for owner {tok}")
     return 0
 

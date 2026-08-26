@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for Row 283. This applies the exact M1 lock-removal transform while the only named test imports bd-claim and checks callability without asserting any transaction behavior. It must ESCAPE, proving the main battery's CAUGHT verdict comes from the real-process ordering/content assertions rather than invalid Python or an import failure.",
+  "subject": "removing the claim transaction lock leaves bd-claim importable when no behavior is asserted",
+  "band": [
+    "tests/test_v3_66_283_bd_claim_transactions.py::test_transform_control_imports_bd_claim_without_judging_transactions"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 lock removal remains importable without a transaction assertion",
+      "file": "toolchain/bin/bd-claim",
+      "old": "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n        try:\n            yield",
+      "new": "        try:\n            yield",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_283_bd_claim_transactions.py::test_transform_control_imports_bd_claim_without_judging_transactions"
+    }
+  ]
+}

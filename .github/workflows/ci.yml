@@ -375,6 +375,7 @@ jobs:
               tests/test_v3_66_1068_modwatch_measures_per_file.py
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
+              tests/test_v3_66_283_bd_claim_transactions.py
           # Backlog row 267. These application admission and integrity seams
           # are a safety boundary, so their direct unavailable-measurement
           # probes run on every PR instead of depending only on diff routing.

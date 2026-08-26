@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1280 - bd-claim survives concurrent readers and adders
+
+-    """Every live claim, with dead ones reaped. Raises on an unreadable dir 
+-    the caller must treat that as UNKNOWN, never as 'no claims'.
+-    `reaped` collects (name, reason) so a caller can SAY what it destroyed. A
+-    read that silently deletes evidence is its own trap: the operator sees "
+-    live claims" and cannot tell that from "your claim just expired".
+-        # RISK-1 ENFORCEMENT, not documentation. Two agents under one harness
+-        # share their durable ancestor, so a DERIVED owner can be identical 
+-        # both -- and then the hook's self-exclusion matches agent B against
+-        # agent A's claim and this guard goes silently inert for exactly the
+-        # case it exists for. Refuse, and name the fix.
+-        for c in live_claims(repo):
+-            if c.get("owner") == tok and (c.get("label") or "") != (label or
+-                print(f"bd-claim: BD-CLAIM UNEVALUABLE -- the derived owner "
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 172 -> 173.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1279 - the UI wrapper gates judge delegation, not shape
 
 -    run_vitest("src/routes/DevTools.wired.test.tsx", expected_tests=7)

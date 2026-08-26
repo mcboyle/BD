@@ -268,6 +268,10 @@ _DECLARED = {
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
+    # Row 283. bd-claim coordinates separate writer processes in a shared
+    # checkout, so its real-process transaction gate runs on every PR rather
+    # than depending on a diff router to infer this operational-tool coupling.
+    "tests/test_v3_66_283_bd_claim_transactions.py",
     # @1256, backlog row 250. bd-regen-order is run on every cut, and its
     # selftest is the only precondition for treating the complete CHAIN as the
     # current generator denominator. A dropped member changes no application
@@ -549,7 +553,7 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 172
+_EXPECTED_DECLARED_GATE_COUNT = 173
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
