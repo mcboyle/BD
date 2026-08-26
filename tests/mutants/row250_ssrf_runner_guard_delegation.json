@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 250. Run from a detached scratch clone: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row250_ssrf_runner_guard_delegation.json --work SCRATCH. The separate transform-control battery applies the exact same bypass while judging only the still-valid rejection path and must ESCAPE.",
+  "subject": "the listing scraper invokes the canonical SSRF host guard at runtime",
+  "band": [
+    "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_runner_scrape_listing_delegates_to_canonical_guard"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass the canonical guard call while preserving the surrounding rejection path",
+      "file": "bulk_downloader/runner.py",
+      "old": "            ok, reason = _is_safe_public_host(host)",
+      "new": "            ok, reason = False, \"mutant bypassed canonical guard\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_runner_scrape_listing_delegates_to_canonical_guard"
+    }
+  ]
+}
