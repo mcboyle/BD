@@ -1,0 +1,43 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 247/248. The band executes a real tsc/Vite build against a nonzero deployed-dist byte manifest whose .bd-built-from marker matches HEAD. M1/M2 move one command back to the repository frontend and are caught by the exact two-call ownership evidence. M3 copies deploy output into the supposedly fresh input and is caught by the copy-shape gate. M4 is deliberately last because it reproduces the filed defect exactly: Vite empties the real frontend/dist, the marker disappears, and the byte-manifest assertion fails with removed=['.bd-built-from']; keeping it last prevents that intended external effect from contaminating another mutant. The matching transform-only spec points M4 at an import-only nodeid and must ESCAPE.",
+  "subject": "Rows 247/248 -- build_manifest owns its copied frontend and output, preserving every real frontend/dist byte and its provenance marker",
+  "band": [
+    "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_build_manifest_preserves_real_dist_bytes_and_provenance",
+    "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_isolated_frontend_copy_excludes_dist_and_links_only_dependencies"
+  ],
+  "mutants": [
+    {
+      "label": "M1 tsc runs in the real repository frontend instead of the owned copy",
+      "file": "tests/frontend_vitest.py",
+      "old": "        _run(\n            [str(tsc), \"-b\", \"--pretty\", \"false\"],\n            cwd=frontend,",
+      "new": "        _run(\n            [str(tsc), \"-b\", \"--pretty\", \"false\"],\n            cwd=FRONTEND,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_build_manifest_preserves_real_dist_bytes_and_provenance"
+    },
+    {
+      "label": "M2 Vite runs in the real repository frontend instead of the owned copy",
+      "file": "tests/frontend_vitest.py",
+      "old": "        _run(\n            [\n                str(vite),\n                \"build\",\n                \"--manifest\",\n                \"--outDir\",\n                str(dist),\n                \"--emptyOutDir\",\n            ],\n            cwd=frontend,",
+      "new": "        _run(\n            [\n                str(vite),\n                \"build\",\n                \"--manifest\",\n                \"--outDir\",\n                str(dist),\n                \"--emptyOutDir\",\n            ],\n            cwd=FRONTEND,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_build_manifest_preserves_real_dist_bytes_and_provenance"
+    },
+    {
+      "label": "M3 frontend/dist is copied into the build input instead of excluded",
+      "file": "tests/frontend_vitest.py",
+      "old": "        ignore=shutil.ignore_patterns(\"dist\", \"node_modules\"),",
+      "new": "        ignore=shutil.ignore_patterns(\"node_modules\"),",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_isolated_frontend_copy_excludes_dist_and_links_only_dependencies"
+    },
+    {
+      "label": "M4 FILED DEFECT Vite empties the real frontend/dist and deletes .bd-built-from",
+      "file": "tests/frontend_vitest.py",
+      "old": "        dist = workspace / \"dist\"\n        assert not dist.exists(), f\"owned build output already exists: {dist}\"",
+      "new": "        dist = FRONTEND / \"dist\"\n        assert dist.exists(), f\"real build output is missing: {dist}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_build_manifest_preserves_real_dist_bytes_and_provenance"
+    }
+  ]
+}

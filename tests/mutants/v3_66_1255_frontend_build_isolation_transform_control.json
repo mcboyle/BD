@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for rows 247/248. This spec is EXPECTED to exit 1 with one valid ESCAPED mutant: it applies the exact M4 transform that the primary battery catches, but its only catcher imports tests.frontend_vitest without calling build_manifest or asserting build isolation. The escape proves the primary CAUGHT is behavioural assertion evidence rather than a parse or import failure.",
+  "subject": "transform control -- importing frontend_vitest does not constrain build output ownership",
+  "band": [
+    "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_transform_control_imports_bridge_without_asserting_build_isolation"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 filed-defect output transform escapes an import-only test",
+      "file": "tests/frontend_vitest.py",
+      "old": "        dist = workspace / \"dist\"\n        assert not dist.exists(), f\"owned build output already exists: {dist}\"",
+      "new": "        dist = FRONTEND / \"dist\"\n        assert dist.exists(), f\"real build output is missing: {dist}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_transform_control_imports_bridge_without_asserting_build_isolation"
+    }
+  ]
+}

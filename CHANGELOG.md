@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1259 - the suite's frontend build owns its output instead of the deployed tree
+
+-    """Typecheck and build the real SPA, returning Vite's fresh manifest."""
+-    _run([str(TSC), "-b", "--pretty", "false"], timeout=180)
+-    _run([str(VITE), "build", "--manifest"], timeout=180)
+-    manifest_path = FRONTEND / "dist" / ".vite" / "manifest.json"
+-    assert manifest_path.is_file(), "Vite build did not produce dist/.vite/m
+-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+-    assert manifest, "Vite manifest is empty"
+- [frontend_vitest.py](/home/mboyle/bd-codex-wt/rowA-247-248/tests/frontend_v
+- Added the byte/provenance invariant gate and negative controls in [test_v3_
+- Registered the repo-wide gate in CI and `_DECLARED`.
+- Added primary and transform-control mutation specs.
+- Focused gate: `4 passed in 38.71s`.
+- Both real callers: `2 passed in 72.42s`.
+
 ## v3.66.1258 - the census reads a snapshot instead of racing its siblings
 
 -    """ROW 231 RED, both arms, forced rather than timed.
