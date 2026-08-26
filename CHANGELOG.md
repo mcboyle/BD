@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1261 - test cleanup can no longer delete a caller's data through an inherited path
+
+-    g = tasks_root() / "governance"
+-        shutil.rmtree(g)
+-    g = tasks_root() / "governance"
+-        shutil.rmtree(g)
+-    g = tasks_root() / "governance"
+-        shutil.rmtree(g)
+-    g = tasks_root() / "governance"
+-        shutil.rmtree(g)
+-    g = tasks_root() / "governance"
+-        shutil.rmtree(g)
+-    g = tasks_root() / "governance"
+-        shutil.rmtree(g)
+-    g = tasks_root() / "governance"
+
 ## v3.66.1260 - the listing-scrape SSRF gate exercises the guard instead of grepping for it
 
 -    # the fix: _scrape_listing_urls uses the shared predicate ...

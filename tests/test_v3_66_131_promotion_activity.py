@@ -18,9 +18,9 @@ POSTURE GREPS ban apply/promotion constructs, corpus/policy/credential mutation,
 network/browser/capture. (The module's own append-log write and atomic snapshot write are
 intentional and allowed; bare words in honesty docstrings are not constructs.)
 """
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_promotion as apr
 from tools import autonomy_trust as atr
 from tools.cockpit_core import tasks_root
@@ -30,9 +30,7 @@ _SITES = ["sitea"]
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 class TestRecordTransition:

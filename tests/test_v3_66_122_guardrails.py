@@ -7,9 +7,9 @@ backlog + blast-radius caps; FAIL-CLOSED review-window sweep; self-throttle demo
 lower-only; guardrail-failure freezes; posture; read-only wiring (+3 GET = 107, no POST).
 """
 import json
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_guardrails as gr
 from tools.cockpit_core import tasks_root
@@ -20,9 +20,7 @@ _CONSOLE = Path((Path(gr.__file__).parent / "cockpit_console.py")).read_text(enc
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 class TestClassCStillImpossible:

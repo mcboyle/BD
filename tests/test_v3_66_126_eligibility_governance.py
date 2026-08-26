@@ -22,9 +22,9 @@ reconstruction", "trust only ever decreases") does not trip them. (Session lesso
 WORD grep catches your own prose; a CONSTRUCT grep catches real behavior.)
 """
 import datetime as _dt
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_oracle as ao
 from tools import autonomy_eligibility as el
@@ -41,9 +41,7 @@ _HO1 = _HO2[:1]
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 def _now():

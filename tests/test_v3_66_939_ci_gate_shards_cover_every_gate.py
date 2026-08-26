@@ -201,6 +201,11 @@ _DECLARED = {
     "tests/test_v3_66_1183_inv_tags_generated.py",
     "tests/test_v3_66_1183_safe_temp_janitors.py",
     "tests/test_v3_66_1183_source_window_content.py",
+    # Backlog row 252. This gate inventories every destructive cockpit-task
+    # cleanup in tests/, proves the autouse environment pop in a nested pytest,
+    # and drives both the refusal and owned-cleanup branches. A diff-derived
+    # band cannot protect callers who export BD_COCKPIT_TASKS before any test.
+    "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py",
     "tests/test_toolchain_534.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly

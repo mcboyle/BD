@@ -9,6 +9,7 @@ import os
 import shutil
 import tempfile
 
+from _cockpit_tasks import remove_test_governance
 from tools.cockpit_core import tasks_root
 from tools import autonomy_live as L
 from tools import autonomy_grant as G
@@ -38,9 +39,7 @@ BID = _site_id(BYSTANDER)
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 @contextlib.contextmanager

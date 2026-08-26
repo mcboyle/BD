@@ -9,9 +9,9 @@ primitive is False for every class in Phase A; module posture (atomic writes, ut
 no live-fetch/replay/apply, no autonomous execution); wiring (+4 GET = 101, no POST).
 """
 import json
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools.cockpit_core import tasks_root
 
@@ -20,9 +20,7 @@ _CONSOLE = Path((Path(ap.__file__).parent / "cockpit_console.py")).read_text(enc
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 class TestModelAndDefaults:

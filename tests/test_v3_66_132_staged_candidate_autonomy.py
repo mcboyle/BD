@@ -17,10 +17,10 @@ Proves the boundaries are real, not promised:
 import datetime as _dt
 import json
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_staging as stg
 from tools import autonomy_guardrails as agr
 from tools import autonomy_eligibility as el
@@ -34,9 +34,7 @@ _HERE = Path(stg.__file__).parent
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 def _force(site, live):

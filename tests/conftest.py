@@ -151,7 +151,7 @@ def _canonicalize_package_children(package_name, modules=None):
 # Design notes carried over from the prior most-defensive variants:
 #   * Saves the UNION of env vars any variant touched
 #     (BD_HOME, BD_DISABLE_KEEPALIVE, BD_DEV_MODE, BD_DEV_MODE_DISABLE,
-#     BD_AUTH_TOKEN).
+#     BD_AUTH_TOKEN, BD_COCKPIT_TASKS).
 #   * Wipes tmp_path children at fixture start (from
 #     test_v3_50_phase3.py). The Anthropic-sandbox custom test runner
 #     reuses the same tmp_path across tests in one file; SQLite DBs
@@ -364,6 +364,7 @@ def isolated_bd_home(request, tmp_path):
         "BD_DEV_MODE",
         "BD_DEV_MODE_DISABLE",
         "BD_AUTH_TOKEN",
+        "BD_COCKPIT_TASKS",
     )
     saved_env = {k: os.environ.get(k) for k in _ENV_KEYS}
     saved_cwd = os.getcwd()
@@ -386,6 +387,7 @@ def isolated_bd_home(request, tmp_path):
     os.environ["BD_HOME"] = str(tmp_path)
     os.environ["BD_DISABLE_KEEPALIVE"] = "1"
     os.environ.pop("BD_DEV_MODE_DISABLE", None)
+    os.environ.pop("BD_COCKPIT_TASKS", None)
     os.chdir(str(tmp_path))
 
     # Opt-in: drop bulk_downloader.* from sys.modules so a fresh import
