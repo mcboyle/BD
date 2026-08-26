@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1271 - bd-fullsuite
+
+-            r2 = run_one(a.work, r["file"], max(a.timeout, 300))
+- RED before fix: exit 0, exactly 2 passes, 1 load flake, 0 timeouts.
+- Negative control: failed from the intended one-second timeout.
+- GREEN after fix: exit 1, exactly 1 pass, 1 timeout, 0 load flakes; slow fil
+- Scoped related tests: 8 passed.
+- Reversion mutant: CAUGHT.
+- Identical compile-only transform control: ESCAPED, proving the mutant was v
+- `git diff --check`: clean.
+- Full suite was not run.
+- Regression and transform-control tests in `tests/test_toolchain_534.py`.
+- Two mutation specs under `tests/mutants/`.
+- Backlog row 255 as OPEN, without a version tag.
+- Register metadata: `rows=246 open=7`, digest `6011f5ac24ba47c8cce12e3be3ac6
+
 ## v3.66.1270 - a gate that cannot see its subject reports unknown instead of passing
 
 -    Regenerating needs node; ENFORCING does not. When node is present we re-

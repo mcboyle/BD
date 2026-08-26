@@ -1656,6 +1656,99 @@ def _fullsuite(td, extra, state):
                           timeout=300, env=env)
 
 
+def _fullsuite_timeout_tree(td):
+    """A passing fast file and a passing file that exceeds a one-second cap."""
+    os.makedirs(os.path.join(td, "tests"), exist_ok=True)
+    for name in ("test_fast.py", "test_slow.py"):
+        with open(os.path.join(td, "tests", name), "w") as fh:
+            fh.write("# timeout fixture\n")
+    with open(os.path.join(td, "run_tests.py"), "w") as fh:
+        fh.write(
+            "import os, sys, time\n"
+            "root = os.path.dirname(os.path.abspath(__file__))\n"
+            "target = sys.argv[1]\n"
+            "with open(os.path.join(root, 'launches.log'), 'a') as log:\n"
+            "    log.write(target + '\\n')\n"
+            "    log.flush()\n"
+            "    os.fsync(log.fileno())\n"
+            "if target.endswith('test_slow.py'):\n"
+            "    time.sleep(1.25)\n"
+            "print('  PASS  test_ok')\n"
+            "print('Total: 1 | Passed: 1 | Failed: 0 | Skipped: 0')\n")
+    return td
+
+
+def test_fullsuite_confirmation_preserves_the_callers_per_file_timeout():
+    """A serial confirmation is another file run under the caller's bound.
+
+    The slow fixture is healthy when allowed to finish, but it cannot finish
+    under the requested one-second cap.  The fast sibling contributes one real
+    pass, keeping the aggregate evaluable, so exit 1 can only be the retained
+    timeout rather than the zero-pass guard.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td, \
+         tempfile.TemporaryDirectory() as state:
+        _fullsuite_timeout_tree(td)
+        slow = os.path.join(td, "run_tests.py")
+
+        # Negative control: the fixture itself exceeds exactly the same bound
+        # passed to bd-fullsuite.  If this unexpectedly completes, the product
+        # assertion below could be green without exercising a timeout at all.
+        try:
+            subprocess.run(
+                [sys.executable, slow, "tests/test_slow.py"], cwd=td,
+                capture_output=True, text=True, timeout=1, check=False)
+        except subprocess.TimeoutExpired as exc:
+            assert exc.timeout == 1, exc.timeout
+        else:
+            raise AssertionError(
+                "negative control did not fail from the intended one-second timeout")
+        launches = Path(td, "launches.log")
+        assert launches.read_text().splitlines() == ["tests/test_slow.py"]
+        launches.unlink()
+
+        result = _fullsuite(td, ["--timeout", "1", "--json"], state)
+        combined = result.stdout + result.stderr
+        summary = json.loads(Path(state, "results.json").read_text())
+        by_file = {row["file"]: row for row in summary["results"]}
+
+        assert result.returncode == 1, (
+            "the requested per-file timeout was reclassified as a passing "
+            "load flake during serial confirmation\n%s" % combined[-1200:])
+        assert {
+            "files": summary["files"],
+            "passed": summary["passed"],
+            "real_failed": summary["real_failed"],
+            "skipped": summary["skipped"],
+            "env_failures": summary["env_failures"],
+            "load_flakes": summary["load_flakes"],
+            "timeouts": summary["timeouts"],
+        } == {
+            "files": 2,
+            "passed": 1,
+            "real_failed": 0,
+            "skipped": 0,
+            "env_failures": 0,
+            "load_flakes": 0,
+            "timeouts": 1,
+        }, summary
+        assert by_file["tests/test_fast.py"]["status"] == "pass", by_file
+        assert by_file["tests/test_slow.py"]["status"] == "timeout", by_file
+        assert by_file["tests/test_slow.py"]["tail"] == "timed out >1s", by_file
+        assert launches.read_text().splitlines() == [
+            "tests/test_fast.py", "tests/test_slow.py", "tests/test_slow.py"
+        ]
+
+
+def test_fullsuite_timeout_transform_control_loads_the_tool():
+    """Transform control: compiling the tool does not exercise its bound."""
+    source = _read("toolchain/bin/bd-fullsuite")
+    assert source
+    compile(source, "toolchain/bin/bd-fullsuite", "exec")
+
+
 def test_an_env_signal_does_not_excuse_a_real_failure_in_the_same_file():
     """@871 RED -- classify() regexes the WHOLE file output, first-match-wins.
 
