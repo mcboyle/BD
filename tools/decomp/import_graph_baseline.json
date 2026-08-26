@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3888,
+  "edge_count": 3889,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5533,7 +5533,8 @@
       "bulk_downloader/watch_folder.py"
     ],
     "tests/test_v3_66_540_ssrf_classifier_consolidation.py": [
-      "bulk_downloader/app.py"
+      "bulk_downloader/app.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_v3_66_541_jsonapi_probe_ssrf.py": [
       "bulk_downloader/app.py",

@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1260 - the listing-scrape SSRF gate exercises the guard instead of grepping for it
+
+-    # the fix: _scrape_listing_urls uses the shared predicate ...
+-    assert "_is_safe_public_host" in src, \
+-        "runner.py must route the listing-scrape SSRF check through _is_safe
+-    # ... and no longer hand-rolls the stale 6-predicate denylist inline.
+-    # the fix: _scrape_listing_urls uses the shared predicate ...
+-    assert "_is_safe_public_host" in src, \
+-        "runner.py must route the listing-scrape SSRF check through _is_safe
+-    # ... and no longer hand-rolls the stale 6-predicate denylist inline.
+- Replaced the textual proxy with runtime instrumentation asserting one canon
+- Preserved the stale-denylist regex assertion.
+- Added primary [mutation spec](/home/mboyle/BulkDownloader/tests/mutants/row
+- Filed [row 250](/home/mboyle/BulkDownloader/project-knowledge/IMPROVEMENT_B
+- Guard-bypass mutant: `CAUGHT`
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _ssrf_classifier_consolidation.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1259 - the suite's frontend build owns its output instead of the deployed tree
 
 -    """Typecheck and build the real SPA, returning Vite's fresh manifest."""

@@ -20,7 +20,11 @@ import io
 import os
 import re
 
+import pytest
+
 import bulk_downloader.app as a
+import bulk_downloader.runner as runner
+from bulk_downloader.provider_resolve_impl import _common as common
 
 _RUNNER = os.path.join(os.path.dirname(a.__file__), "runner.py")
 
@@ -54,12 +58,36 @@ def test_app_is_url_public_agrees_with_canonical_guard_on_cgnat():
 # ---- F-RUN01-01: runner.py routes the listing scrape through the canonical guard ----
 
 def test_runner_scrape_listing_delegates_to_canonical_guard():
+    calls = []
+    original_guard = common._is_safe_public_host
+
+    def observed_guard(host):
+        calls.append(host)
+        return original_guard(host)
+
+    common._is_safe_public_host = observed_guard
+    try:
+        with pytest.raises(RuntimeError, match="refusing to scrape non-public address"):
+            runner.SiteRunner._scrape_listing_urls(
+                object(), "http://100.64.0.1/list"
+            )
+    finally:
+        common._is_safe_public_host = original_guard
+
+    assert calls == ["100.64.0.1"], \
+        "listing-scrape validation must call the canonical guard exactly once"
+
+    # Separate structural floor: the old CGNAT-missing denylist must stay gone.
     src = io.open(_RUNNER, "r", encoding="utf-8").read()
-    # the fix: _scrape_listing_urls uses the shared predicate ...
-    assert "_is_safe_public_host" in src, \
-        "runner.py must route the listing-scrape SSRF check through _is_safe_public_host"
-    # ... and no longer hand-rolls the stale 6-predicate denylist inline.
     stale = re.search(r"is_private\s+or\s+ip_obj\.is_loopback"
                       r"[\s\S]{0,160}?is_unspecified", src)
     assert stale is None, \
         "runner.py still hand-rolls the inline IP denylist (the stale CGNAT-missing copy)"
+
+
+def test_runner_guard_transform_control_rejects_without_judging_delegation():
+    """The delegation mutant remains executable and preserves rejection."""
+    with pytest.raises(RuntimeError, match="refusing to scrape non-public address"):
+        runner.SiteRunner._scrape_listing_urls(
+            object(), "http://100.64.0.1/list"
+        )

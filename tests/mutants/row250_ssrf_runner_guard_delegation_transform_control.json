@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 250. This battery must exit 1 with one ESCAPED valid mutant: the same guard-call bypass still imports, executes, and rejects CGNAT when the test deliberately does not assert delegation. A catch here would mean transform or execution failure was masquerading as behavioural evidence.",
+  "subject": "transform control for the valid listing-scraper guard bypass",
+  "band": [
+    "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_runner_guard_transform_control_rejects_without_judging_delegation"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the valid guard bypass remains executable when delegation is not judged",
+      "file": "bulk_downloader/runner.py",
+      "old": "            ok, reason = _is_safe_public_host(host)",
+      "new": "            ok, reason = False, \"mutant bypassed canonical guard\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_runner_guard_transform_control_rejects_without_judging_delegation"
+    }
+  ]
+}
