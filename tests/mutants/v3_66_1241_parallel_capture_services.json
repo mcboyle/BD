@@ -1,0 +1,140 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 175 / v3.66.1241. The band is the complete parallel-capture behavior population plus the two prior gates whose contracts changed. Re-run from a detached scratch copy: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1241_parallel_capture_services.json --work <scratch>. A separate transform control mutates M11 while running only test_transform_control_imports_live_seed_without_asserting_fixture_routing; that test ESCAPES, proving M11's CAUGHT verdict comes from the routing assertion rather than an import failure.",
+  "subject": "v3.66.1241 -- simultaneous captures bind service, ports, state, readiness, seeding, teardown, and verdicts to their run instance",
+  "band": [
+    "tests/test_parallel_capture_services.py",
+    "tests/test_v3_66_1099_capture_dirs_are_keyed_by_run.py::test_two_runs_do_not_collide",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_empty_singleton_lock_export_creates_and_validates_its_default_parent"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the no-flag mode silently becomes parallel",
+      "file": "scripts/lib/capture_instance.sh",
+      "old": "  printf 'serial'\n}",
+      "new": "  printf 'parallel'\n}",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_parallel_is_opt_in_and_the_default_stays_serial"
+    },
+    {
+      "label": "M2 the port claim stops taking its descriptor lock",
+      "file": "scripts/lib/capture_instance.sh",
+      "old": "  if [ \"$after\" != \"$before\" ] || ! flock -n \"$fd\"; then",
+      "new": "  if [ \"$after\" != \"$before\" ]; then",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_two_port_pairs_are_live_concurrently_and_a_shared_pair_refuses"
+    },
+    {
+      "label": "M3 a lock is accepted without proving its TCP ports bindable",
+      "file": "scripts/lib/capture_instance.sh",
+      "old": "  if ! bd_capture_port_is_free \"$app_port\" || \\\n     ! bd_capture_port_is_free \"$fixture_port\"; then",
+      "new": "  if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_an_occupied_port_and_a_same_port_pair_fail_for_distinct_reasons"
+    },
+    {
+      "label": "M4 an explicit app and fixture pair is no longer required to be distinct",
+      "file": "scripts/lib/capture_instance.sh",
+      "old": "       [ \"$requested_app\" = \"$requested_fixture\" ]; then",
+      "new": "       [ \"$requested_app\" != \"$requested_fixture\" ]; then",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_an_occupied_port_and_a_same_port_pair_fail_for_distinct_reasons"
+    },
+    {
+      "label": "M5 the template reads one shared environment instead of percent-i",
+      "file": "scripts/install_capture_service.sh",
+      "old": "EnvironmentFile=${RUNTIME_DIR}/%i.env",
+      "new": "EnvironmentFile=${RUNTIME_DIR}/capture.env",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+    },
+    {
+      "label": "M6 start and stop route to a non-instance capture unit",
+      "file": "scripts/install_capture_service.sh",
+      "old": "SERVICE_INSTANCE=\"bulkdownloader-capture@${INSTANCE}.service\"",
+      "new": "SERVICE_INSTANCE=\"bulkdownloader-capture.service\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+    },
+    {
+      "label": "M7 teardown removes every capture instance environment",
+      "file": "scripts/install_capture_service.sh",
+      "old": "  sudo rm -f -- \"$ENV_PATH\" || stop_exit=$?",
+      "new": "  sudo rm -f -- \"$RUNTIME_DIR\"/*.env || stop_exit=$?",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+    },
+    {
+      "label": "M8 an instance is pointed back at the checkout state directory",
+      "file": "scripts/install_capture_service.sh",
+      "old": "  printf 'BD_INSTALL_DIR=%s\\n' \"$INSTALL_DIR\"",
+      "new": "  printf 'BD_INSTALL_DIR=%s\\n' \"$APP_DIR\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+    },
+    {
+      "label": "M9 capture readiness is routed to fixed port 5555",
+      "file": "capture.sh",
+      "old": "CAPTURE_READY_URL=\"${CAPTURE_APP_ORIGIN}/api/health\"",
+      "new": "CAPTURE_READY_URL=\"http://127.0.0.1:5555/api/health\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_capture_routes_seeding_live_artifacts_and_verdicts_by_instance"
+    },
+    {
+      "label": "M10 application state uses child self instead of the owning descriptor path",
+      "file": "capture.sh",
+      "old": "  CAPTURE_INSTALL_DIR=\"/proc/$$/fd/$CAPTURE_VAULT_DIR_FD/state\"",
+      "new": "  CAPTURE_INSTALL_DIR=\"/proc/self/fd/$CAPTURE_VAULT_DIR_FD/state\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_capture_routes_seeding_live_artifacts_and_verdicts_by_instance"
+    },
+    {
+      "label": "M11 seeded queue URLs ignore the requested fixture origin",
+      "file": "tools/live_seed.py",
+      "old": "    return (f\"{fixture_origin.rstrip('/')}{_SEED_PATHS[index % len(_SEED_PATHS)]}\"",
+      "new": "    return (f\"{FIXTURE_ORIGIN.rstrip('/')}{_SEED_PATHS[index % len(_SEED_PATHS)]}\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_seeder_builds_every_url_from_the_requested_fixture_origin"
+    },
+    {
+      "label": "M12 the live runner discards the instance result directory",
+      "file": "live_tests/run.py",
+      "old": "                           results_dir=args.results_dir,",
+      "new": "                           results_dir=None,",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_live_runner_forwards_instance_db_and_results_paths"
+    },
+    {
+      "label": "M13 the live context ignores the instance database",
+      "file": "live_tests/harness.py",
+      "old": "        self.db_path = (Path(db_path) if db_path is not None\n                        else self.bd_home / \"downloader_history.db\")",
+      "new": "        self.db_path = self.bd_home / \"downloader_history.db\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_live_context_reads_the_explicit_instance_database"
+    },
+    {
+      "label": "M14 detached heartbeat children retain the application port lock",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_APP_PORT_LOCK_FD:-}\" \"capture app-port lock\"",
+      "new": "  : \"${CAPTURE_APP_PORT_LOCK_FD:-}\"  # mutant retains capture app-port lock",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_detached_children_close_both_port_claim_descriptors"
+    },
+    {
+      "label": "M15 run ids lose their per-process collision boundary",
+      "file": "scripts/lib/capture_run_dir.sh",
+      "old": "  id=\"${stamp}-${sha}-$$\"",
+      "new": "  id=\"${stamp}-${sha}\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1099_capture_dirs_are_keyed_by_run.py::test_two_runs_do_not_collide"
+    },
+    {
+      "label": "M16 capture verdicts stop carrying the instance teardown result",
+      "file": "capture.sh",
+      "old": "  --stage-exit \"capture-instance-teardown=$CAPTURE_INSTANCE_TEARDOWN_EXIT\" \\",
+      "new": "  --stage-exit \"capture-instance-teardown=0\" \\",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_capture_routes_seeding_live_artifacts_and_verdicts_by_instance"
+    }
+  ]
+}

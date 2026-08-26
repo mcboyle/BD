@@ -82,8 +82,8 @@
     {
       "label": "fixture launch bypasses the shared descriptor-closing child path",
       "file": "capture.sh",
-      "old": "  _start_capture_detached \"$OUT/05a_fixture_site.log\" \\\n    venv/bin/python tools/fixture_site.py --port 8899\n  FIXTURE_PID=\"$CAPTURE_DETACHED_PID\"",
-      "new": "  setsid venv/bin/python tools/fixture_site.py --port 8899 \\\n    > \"$OUT/05a_fixture_site.log\" 2>&1 &\n  FIXTURE_PID=$!",
+      "old": "  _start_capture_detached \"$OUT/05a_fixture_site.log\" \\\n    venv/bin/python tools/fixture_site.py --port \"$CAPTURE_FIXTURE_PORT\"\n  FIXTURE_PID=\"$CAPTURE_DETACHED_PID\"",
+      "new": "  setsid venv/bin/python tools/fixture_site.py --port \"$CAPTURE_FIXTURE_PORT\" \\\n    > \"$OUT/05a_fixture_site.log\" 2>&1 &\n  FIXTURE_PID=$!",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_enabled_fixture_child_closes_all_vault_descriptors_and_releases_locks"
     },

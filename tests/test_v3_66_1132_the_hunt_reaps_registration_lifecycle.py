@@ -970,11 +970,27 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
     mod = _load()
     marker = tmp_path / "workload-started"
     fd_report = tmp_path / "registrar-fds"
+    authority_fd_report = tmp_path / "runner-authority-fds"
+    fixed_fd_control = tmp_path / "host-held-fd3"
+    fixed_fd_control.mkdir()
+    gate_entered, gate_release, gate_entered_fd = _w1_fifo_barrier(
+        tmp_path, "gate-fixed-fd")
+    gate_prelude = (
+        "exec 3<%s\n"
+        "builtin printf 'fixed-fd-installed\\n' > %s\n"
+        "IFS= read -r W1_TEST_GATE_FD_RELEASE < %s\n" % (
+            shlex.quote(str(fixed_fd_control)),
+            shlex.quote(str(gate_entered)),
+            shlex.quote(str(gate_release)),
+        )
+    )
     write_shim, payload_entered_fd, payload_release = _w1_delay_path_write(
         tmp_path, fd_report)
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
+        gate_prelude=gate_prelude,
+        authority_fd_report=authority_fd_report,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -985,12 +1001,43 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     gate_pid = -1
+    gate_released = False
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
-        release_pipe = _w1_readlink_when_installed(gate_pid, 0)
-        status_pipe = _w1_readlink_when_installed(gate_pid, 3)
-        assert release_pipe.startswith("pipe:[")
-        assert status_pipe.startswith("pipe:[")
+        assert _w1_await_fifo(
+            gate_entered_fd,
+            site="gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/fifo",
+        ) == "fixed-fd-installed\n"
+        fixed_gate_fd = _w1_readlink_when_installed(gate_pid, 3)
+        assert fixed_gate_fd == str(fixed_fd_control)
+        assert not fixed_gate_fd.startswith("pipe:["), (
+            "negative control failed: fd 3 accidentally names a pipe, so the "
+            "old fixed-number assertion would not be disproved")
+
+        _w1_release_fifo(gate_release)
+        gate_released = True
+        _w1_wait_for_path(authority_fd_report)
+        authority_rows = authority_fd_report.read_text(
+            encoding="ascii").splitlines()
+        assert len(authority_rows) == 2, (
+            "the runner did not record exactly both authority descriptors: %r"
+            % (authority_rows,))
+        parsed_rows = [row.split("=", 1) for row in authority_rows]
+        assert all(len(row) == 2 and row[1].isdigit() for row in parsed_rows), (
+            "the recorded authority descriptors are malformed: %r"
+            % (authority_rows,))
+        authority_fds = {name: int(fd) for name, fd in parsed_rows}
+        assert set(authority_fds) == {"release", "status"}
+        assert len(set(authority_fds.values())) == 2
+        assert all(fd >= 0 for fd in authority_fds.values())
+
+        release_pipe = _w1_readlink_when_installed(
+            proc.pid, authority_fds["release"])
+        status_pipe = _w1_readlink_when_installed(
+            proc.pid, authority_fds["status"])
+        assert release_pipe.startswith("pipe:["), release_pipe
+        assert status_pipe.startswith("pipe:["), status_pipe
+        assert release_pipe != status_pipe
         assert _w1_await_fifo(payload_entered_fd, site="gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/fifo") == "payload-write-opened\n"
         try:
             assert not fd_report.exists(), (
@@ -1000,6 +1047,7 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
         _w1_wait_for_path(fd_report)
         inherited = fd_report.read_text(encoding="utf-8")
         assert release_pipe not in inherited and status_pipe not in inherited
+        assert str(fixed_fd_control) not in inherited
         rc = proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait"))
         assert not marker.exists()
         assert not [path for path in rundir.iterdir()
@@ -1007,11 +1055,21 @@ def test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd(
             "production created a pathname control endpoint")
         assert rc == int(W1_RUNNER_FAILURE_CODE)
     finally:
+        if not gate_released:
+            _w1_release_fifo(gate_release)
+        os.close(gate_entered_fd)
         os.close(payload_entered_fd)
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=_w1_budget_s("gate_control_is_anonymous_and_registrar_inherits_no_authority_fd/wait-2"))
+
+
+def test_host_fd_transform_control_imports_without_judging_authority_fds():
+    """A valid helper transform must escape this non-behavioural control."""
+    assert callable(_w1_build_runner)
+
+
 @pytest.mark.parametrize(("missing_fd", "missing_pid", "expected"), [
     ("gate_read", None, None),
     ("gate_write", None, None),

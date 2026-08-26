@@ -518,7 +518,7 @@ def _expand(text: str, code: str) -> str:
 
 def _polls_the_app(text: str) -> bool:
     return bool(
-        "5555" in text
+        ("CAPTURE_READY_URL" in text or "CAPTURE_APP_ORIGIN" in text)
         and "curl" in text
         and re.search(r"\b(while|until)\b", text)
     )
@@ -708,18 +708,17 @@ def test_the_teardown_waits_for_the_app_to_serve_before_steps_7_to_9():
 def test_the_readiness_probe_uses_the_origin_the_guarded_steps_use():
     """Probing a different origin certifies a socket the steps never reach.
 
-    Step [7] talks to localhost:5555. A wait that polled 127.0.0.1 would go
-    green on a box whose localhost resolves to ::1 first, while every probe it
-    was supposed to protect still failed -- a gate whose denominator is not its
-    subject.
+    Every instance has a distinct origin. A wait that retained the old fixed
+    origin would certify a peer while the guarded probes failed against this
+    run -- a gate whose denominator is not its subject.
     """
     body = _capture_body()
-    match = re.search(r"https?://([A-Za-z0-9_.\-]+:\d+)/api/dev/", body)
-    assert match, "capture.sh no longer probes /api/dev/* -- anchor stale"
-    origin = match.group(1)
+    assert '"$CAPTURE_APP_ORIGIN/api/dev/$route"' in body, (
+        "capture.sh no longer routes /api/dev/* through its selected origin"
+    )
     _name, text = _readiness_wait(body)
-    assert origin in text, (
-        f"steps [7]/[9] probe {origin} but the readiness wait does not; it "
+    assert "CAPTURE_APP_ORIGIN" in text or "CAPTURE_READY_URL" in text, (
+        "steps [7]/[9] use CAPTURE_APP_ORIGIN but the readiness wait does not; it "
         f"would certify an origin those steps never use.\n{text}"
     )
 

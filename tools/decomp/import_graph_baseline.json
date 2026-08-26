@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3887,
+  "edge_count": 3888,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3182,6 +3182,9 @@
       "tools/capture_analytics.py",
       "tools/document_schemas.py",
       "tools/template_analytics.py"
+    ],
+    "tests/test_parallel_capture_services.py": [
+      "tools/live_seed.py"
     ],
     "tests/test_parity_method_aware.py": [
       "tools/gui_parity_inventory.py"

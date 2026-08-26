@@ -2189,8 +2189,8 @@
       "direction": "regression",
       "file": "toolchain/bin/bd-wedge-hunt",
       "label": "R12-N242 TIMEOUT-KILL-AFTER-OMISSION",
-      "new": "                timeout \"$W1_SPAWN_TIMEOUT\" \"$@\"",
-      "old": "                timeout --kill-after=\"$W1_SPAWN_KILL_AFTER\" \\\n                \"$W1_SPAWN_TIMEOUT\" \"$@\""
+      "new": "            timeout \"$W1_SPAWN_TIMEOUT\" \"$@\"",
+      "old": "            timeout --kill-after=\"$W1_SPAWN_KILL_AFTER\" \\\n            \"$W1_SPAWN_TIMEOUT\" \"$@\""
     },
     {
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_owner_group_promotion_requires_full_launch_identity",

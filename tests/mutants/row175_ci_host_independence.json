@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 175 CI host-independence battery. M1 proves the instance template accepts the explicit running interpreter even when the scratch checkout has no venv. M2 proves the authority test consumes the descriptors recorded from Bash's allocations instead of fixed host positions. The separate transform-control spec applies M2 while running only an import/callability control and must ESCAPE.",
+  "subject": "Row 175 tests derive the service interpreter and gate authority descriptors from their creation rather than the host layout",
+  "band": [
+    "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance",
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the service installer ignores its explicit interpreter and falls back to a checkout-local venv",
+      "file": "scripts/install_capture_service.sh",
+      "old": "PYEXE=\"${CAPTURE_SERVICE_PYTHON:-$APP_DIR/venv/bin/python}\"",
+      "new": "PYEXE=\"$APP_DIR/venv/bin/python\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+    },
+    {
+      "label": "M2 the authority fixture records fixed fd 0 and fd 3 instead of the shell-assigned endpoints",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "            '\"$W1_GATE_WRITE_FD\" \"$W1_GATE_READ_FD\" > %s \\\\\\n'",
+      "new": "            '\"0\" \"3\" > %s \\\\\\n'",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_gate_control_is_anonymous_and_registrar_inherits_no_authority_fd"
+    }
+  ]
+}

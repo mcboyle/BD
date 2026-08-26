@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for the row-175 battery. This spec must ESCAPE: its only named catcher imports tools.live_seed but makes no assertion about fixture-origin routing. The same transform is CAUGHT by M11 in v3_66_1241_parallel_capture_services.json.",
+  "subject": "transform control -- importing the seeder does not constrain fixture-origin routing",
+  "band": [
+    "tests/test_parallel_capture_services.py::test_transform_control_imports_live_seed_without_asserting_fixture_routing"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 fixture routing changes while an import-only spec stays green",
+      "file": "tools/live_seed.py",
+      "old": "    return (f\"{fixture_origin.rstrip('/')}{_SEED_PATHS[index % len(_SEED_PATHS)]}\"",
+      "new": "    return (f\"{FIXTURE_ORIGIN.rstrip('/')}{_SEED_PATHS[index % len(_SEED_PATHS)]}\"",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_transform_control_imports_live_seed_without_asserting_fixture_routing"
+    }
+  ]
+}
