@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Re-run with toolchain/bin/bd-mutate --spec tests/mutants/failed_measurements_distinct.json. Each regression restores one failed-measurement path to a successful value. The separate transform-control spec applies M1 to the clean Git control and must ESCAPE, proving the transform is valid and that CAUGHT is behavioral rather than an import or syntax failure.",
+  "subject": "failed safety measurements remain distinct from clean or passing measurements at all five in-scope sites",
+  "band": [
+    "tests/test_failed_measurements_have_distinct_states.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 failed Git status is restored to the clean empty-path list",
+      "file": "tools/regenerate_goldens.py",
+      "old": "        if dirty is None:\n            print(\"REFUSED: git status could not measure changes inside the \"\n                  \"goldens directory. Re-run after Git is available, OR pass \"\n                  \"--force if you really mean it.\", file=sys.stderr)\n            return 2",
+      "new": "        if dirty is None:\n            dirty = []",
+      "direction": "regression",
+      "catcher": "tests/test_failed_measurements_have_distinct_states.py::test_failed_git_measurement_refuses_golden_apply_once"
+    },
+    {
+      "label": "M2 strict source reads silently drop an unreadable validated file",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old": "                        fail_unreadable=True, label=label)",
+      "new": "                        fail_unreadable=False, label=label)",
+      "direction": "regression",
+      "catcher": "tests/test_failed_measurements_have_distinct_states.py::test_strict_python_scan_exits_on_exactly_one_unreadable_validated_file"
+    },
+    {
+      "label": "M3 SAST scanner errors can fall through to the clean summary",
+      "file": "tools/sast.sh",
+      "old": "if [ \"$ERRORS\" -gt 0 ]; then",
+      "new": "if [ \"$ERRORS\" -lt 0 ]; then",
+      "direction": "regression",
+      "catcher": "tests/test_failed_measurements_have_distinct_states.py::test_sast_scanner_failure_has_setup_exit_and_exact_invocation_count"
+    },
+    {
+      "label": "M4 governance discards its measurement errors before minting compliance",
+      "file": "tools/operator_layer.py",
+      "old": "    measurement_status = \"CANNOT_EVALUATE\" if measurement_errors else \"COMPLETE\"",
+      "new": "    measurement_errors = []\n    measurement_status = \"CANNOT_EVALUATE\" if measurement_errors else \"COMPLETE\"",
+      "direction": "regression",
+      "catcher": "tests/test_failed_measurements_have_distinct_states.py::test_governance_missing_root_is_cannot_evaluate"
+    },
+    {
+      "label": "M5 an unreadable F2a response is recorded as PASS again",
+      "file": "scripts/bd-opv-run.sh",
+      "old": "else\n  led \"F2a\" \"FAIL\" \"site_health response is not readable JSON\"\nfi",
+      "new": "else\n  led \"F2a\" \"PASS\" \"site_health coherent (clusters/sites present)\"\nfi",
+      "direction": "regression",
+      "catcher": "tests/test_failed_measurements_have_distinct_states.py::test_opv_malformed_site_health_is_fail_after_one_parse"
+    }
+  ]
+}

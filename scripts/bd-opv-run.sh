@@ -50,12 +50,26 @@ grep -q "^OK" "$OUT/guide_lint.log" && led "guide-lint" "PASS" "routes+refs reso
 # ---- Tier 1: SAFE items, run autonomously, envelope-wrapped --------------------
 hdr "Tier 1  safe / self-reverting items (autonomous)"
 
-# F2a -- read-only
-D="$(GET /api/data/site_health)"; echo "$D" > "$OUT/f2a.json"
-NC="$("$PY" -c "import sys,json;d=json.loads(open('$OUT/f2a.json').read()).get('data',{});print(len(d.get('clusters',[])), len(d.get('sites',[])))" 2>/dev/null)"
-if [ "$(code /api/data/site_health)" = "200" ]; then
+# F2a -- read-only. Body and status come from one request: two requests can
+# disagree, and a parser failure is a failed measurement rather than count 0.
+F2A_CODE="$(curl -sS -b "$JAR" -o "$OUT/f2a.json" -w '%{http_code}' \
+  "$BASE/api/data/site_health" 2>"$OUT/f2a-curl.err")"; F2A_CURL=$?
+if [ "$F2A_CURL" -ne 0 ]; then
+  led "F2a" "FAIL" "site_health request failed (curl exit $F2A_CURL)"
+elif [ "$F2A_CODE" != "200" ]; then
+  led "F2a" "FAIL" "site_health route not 200 (got ${F2A_CODE:-no status})"
+elif NC="$("$PY" -c 'import json,sys
+p=json.load(open(sys.argv[1]))
+if not isinstance(p,dict) or p.get("ok") is not True: raise ValueError("invalid site_health envelope")
+d=p.get("data")
+if not isinstance(d,dict): raise ValueError("invalid site_health object")
+c=d["clusters"]; s=d["sites"]
+if not isinstance(c,list) or not isinstance(s,list): raise ValueError("invalid site_health counts")
+print(len(c),len(s))' "$OUT/f2a.json" 2>/dev/null)"; then
   [ "${NC% *}" != "0" ] && led "F2a" "PASS" "site_health coherent (clusters/sites present)" || led "F2a" "NEEDS-SETUP" "0 clusters -- drive sanctioned failures first"
-else led "F2a" "FAIL" "site_health route not 200"; fi
+else
+  led "F2a" "FAIL" "site_health response is not readable JSON"
+fi
 
 # F2.6 -- load->test->pin review-only draft, then delete ONLY the draft we create.
 # SNAPSHOT-DIFF, not "newest": deleting the newest draft (an earlier version did)

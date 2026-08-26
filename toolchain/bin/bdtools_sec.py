@@ -19,6 +19,7 @@ import json
 import os
 import pathlib
 import re
+import stat
 import subprocess
 import sys
 import zipfile
@@ -767,12 +768,15 @@ def require_corpus(path, min_files=1, label="--tree", patterns=None):
         sys.exit(EXIT_CANNOT_EVALUATE)
     files = []
     try:
-        for dirpath, dirs, names in os.walk(root):
+        def raise_walk_error(exc):
+            raise exc
+
+        for dirpath, dirs, names in os.walk(root, onerror=raise_walk_error):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
             for name in names:
                 if patterns is None or any(fnmatch.fnmatch(name, p) for p in patterns):
                     fp = os.path.join(dirpath, name)
-                    if os.path.isfile(fp):
+                    if stat.S_ISREG(os.stat(fp).st_mode):
                         files.append(fp)
     except OSError as exc:
         sys.stderr.write("CANNOT-EVALUATE %s %s: reason=%s (%s)\n"
@@ -786,16 +790,28 @@ def require_corpus(path, min_files=1, label="--tree", patterns=None):
     return files
 
 
-def _iter_py(work, subdir, include_tests):
-    for f in glob.glob(os.path.join(work, subdir, "**", "*.py"), recursive=True):
+def _iter_py(work, subdir, include_tests, files=None, fail_unreadable=False,
+             label="--work"):
+    validated_files = files is not None
+    candidates = (files if files is not None else
+                  glob.glob(os.path.join(work, subdir, "**", "*.py"),
+                            recursive=True))
+    for f in sorted(candidates):
         norm = f.replace("\\", "/")
-        if any(s in norm for s in SKIP_DIRS):
-            continue
-        if not include_tests and any(m in norm for m in TEST_MARKERS):
-            continue
+        if not validated_files:
+            if any(s in norm for s in SKIP_DIRS):
+                continue
+            if not include_tests and any(m in norm for m in TEST_MARKERS):
+                continue
         try:
             txt = open(f, errors="ignore").read()
-        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except OSError as exc:
+            if fail_unreadable:
+                sys.stderr.write(
+                    "CANNOT-EVALUATE %s %s: reason=%s (%s)\n"
+                    % (label, f, REASON_UNREADABLE, exc)
+                )
+                sys.exit(EXIT_CANNOT_EVALUATE)
             continue
         yield f, os.path.relpath(f, work), txt
 
@@ -815,8 +831,21 @@ def iter_py(work=DEFAULT_WORK, subdir="bulk_downloader", include_tests=False,
     that builds the iterator but never advances it still cannot slip past.
     """
     if strict:
-        require_corpus(os.path.join(work, subdir), min_files=1, label=label,
-                       patterns=("*.py",))
+        work = os.path.realpath(work)
+        files = require_corpus(os.path.join(work, subdir), min_files=1,
+                               label=label, patterns=("*.py",))
+        if not include_tests:
+            files = [f for f in files
+                     if not any(m in f.replace("\\", "/")
+                                for m in TEST_MARKERS)]
+        if not files:
+            sys.stderr.write(
+                "CANNOT-EVALUATE %s %s: reason=%s (0 effective Python files)\n"
+                % (label, os.path.join(work, subdir), REASON_EMPTY)
+            )
+            sys.exit(EXIT_CANNOT_EVALUATE)
+        return _iter_py(work, subdir, include_tests, files=files,
+                        fail_unreadable=True, label=label)
     return _iter_py(work, subdir, include_tests)
 
 

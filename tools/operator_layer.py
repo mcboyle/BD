@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -302,15 +304,51 @@ def cmd_governance(args) -> int:
     import re
     root = Path(args.artifacts_root)
     findings = []
+    measurement_errors = []
     scanned = 0
-    for p in root.rglob("*"):
-        if not p.is_file() or p.suffix not in (".json", ".md"):
-            continue
-        scanned += 1
+    candidates = []
+    if not root.is_dir():
+        measurement_errors.append({
+            "path": str(root),
+            "reason": "ABSENT",
+            "detail": "artifact root is not a readable directory",
+        })
+    else:
+        def walk_error(exc):
+            failed_path = getattr(exc, "filename", None) or str(root)
+            measurement_errors.append({
+                "path": str(failed_path),
+                "reason": "UNREADABLE",
+                "detail": str(exc),
+            })
+        for dirpath, _, names in os.walk(root, onerror=walk_error):
+            for name in names:
+                p = Path(dirpath, name)
+                if p.suffix not in (".json", ".md"):
+                    continue
+                try:
+                    info = p.stat()
+                except OSError as exc:
+                    measurement_errors.append({
+                        "path": str(p.relative_to(root)),
+                        "reason": "UNREADABLE",
+                        "detail": str(exc),
+                    })
+                    continue
+                if stat.S_ISREG(info.st_mode):
+                    candidates.append(p)
+        candidates.sort()
+    for p in candidates:
         try:
             text = p.read_text(encoding="utf-8")
-        except Exception:
+        except (OSError, UnicodeError) as exc:
+            measurement_errors.append({
+                "path": str(p.relative_to(root)),
+                "reason": "UNREADABLE",
+                "detail": str(exc),
+            })
             continue
+        scanned += 1
         leaks = posture_scan(text)
         if leaks:
             findings.append({"file": str(p.relative_to(root)), "issue": "signing_value",
@@ -326,6 +364,13 @@ def cmd_governance(args) -> int:
             findings.append({"file": str(p.relative_to(root)),
                              "issue": "possible_auto_action_language"})
 
+    if root.is_dir() and not candidates and not measurement_errors:
+        measurement_errors.append({
+            "path": str(root),
+            "reason": "EMPTY",
+            "detail": "no JSON or Markdown artifacts found",
+        })
+
     invariants = {
         "recognition_only_no_signing_values": not any(
             f["issue"] == "signing_value" for f in findings),
@@ -336,9 +381,13 @@ def cmd_governance(args) -> int:
         "corpus_read_only": True,   # no tool in this suite writes the corpus
         "debt_read_only": True,
     }
+    measurement_status = "CANNOT_EVALUATE" if measurement_errors else "COMPLETE"
     obj = {"artifacts_scanned": scanned, "findings": findings,
+           "measurement_status": measurement_status,
+           "measurement_errors": measurement_errors,
            "invariants": invariants,
-           "compliant": all(invariants.values()) and not findings,
+           "compliant": (not measurement_errors and
+                         all(invariants.values()) and not findings),
            "_status": "Read-only governance scan. 'Are we still operating inside the rules?'"}
     if (leaks := _posture_ok({"invariants": invariants, "n_findings": len(findings)})):
         return _fail(leaks)
@@ -349,7 +398,11 @@ def cmd_governance(args) -> int:
          "## Invariants"]
     for k, v in invariants.items():
         L.append(f"- {k}: {'✓ holds' if v else '✗ VIOLATED'}")
-    if findings:
+    if measurement_errors:
+        L.append("\n## Measurement errors")
+        for error in measurement_errors:
+            L.append(f"- {error['path']}: {error['reason']} {error['detail']}")
+    elif findings:
         L.append("\n## Findings")
         for f in findings[:30]:
             L.append(f"- {f['file']}: {f['issue']} {f.get('detail','')}")
@@ -359,7 +412,7 @@ def cmd_governance(args) -> int:
     _write_text(out / "governance_compliance_report.md", "\n".join(L))
     print(f"Phase 28 governance: scanned {scanned}, compliant={obj['compliant']}, "
           f"findings={len(findings)}")
-    return 0
+    return 2 if measurement_errors else 0
 
 
 # ── Phase 29: institutional knowledge layer ─────────────────────────

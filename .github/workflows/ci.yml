@@ -318,6 +318,7 @@ jobs:
               tests/test_v3_66_1153_deletion_is_bound_to_the_object.py
               tests/test_v3_66_1154_the_object_not_the_name.py
               tests/test_v3_66_1157_build_output_is_from_this_attempt.py
+              tests/test_failed_measurements_have_distinct_states.py
           - name: parity-graph
             suites: >-
               tests/test_v3_66_1218_vitest_delegating_shards_have_node.py

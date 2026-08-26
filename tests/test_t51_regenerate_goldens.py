@@ -231,7 +231,8 @@ def test_cli_apply_with_reason_writes_and_logs(tmp_path):
     gdir = _make_fake_repo(tmp_path)
     _write_golden_pair(gdir, "feature_x", b"old", b"NEW")
     cp = _run_cli(tmp_path,
-                  "--apply", "--reason", "schema bump 2026-05-21")
+                  "--apply", "--reason", "schema bump 2026-05-21",
+                  "--force")
     assert cp.returncode == 0, (cp.stdout, cp.stderr)
     assert (gdir / "feature_x.golden").read_bytes() == b"NEW"
     log = (tmp_path / "tools" / "regenerate_goldens.log"
@@ -245,7 +246,7 @@ def test_cli_only_restricts_scope(tmp_path):
     _write_golden_pair(gdir, "a", b"old_a", b"new_a")
     _write_golden_pair(gdir, "b", b"old_b", b"new_b")
     cp = _run_cli(tmp_path, "--apply", "--reason", "test",
-                  "--only", "a")
+                  "--only", "a", "--force")
     assert cp.returncode == 0
     assert (gdir / "a.golden").read_bytes() == b"new_a"
     # b must be untouched.

@@ -44,11 +44,11 @@ Exit code `0` = clean; `1` = findings; `2` = setup error.
 | **ESLint + security plugin** | XSS sinks, regex DoS, eval-like, unsafe object access in `app.js`. | yes (needs Node.js) |
 | **`preflight.py`** | The project's own cross-cutting validation (malformed JSON, CSRF, rate limit, path traversal storage). | (bundled) |
 
-### Skipping individual tools
+### Scanner availability
 
-The scripts use `findstr`/`grep` to detect tool presence and skip
-unavailable ones. To force-skip even an installed tool, comment out its
-section in `sast.sh` / `sast.bat`.
+`sast.sh` returns setup-error exit `2` when a scanner is unavailable, fails,
+or does not produce a complete report; it never treats that state as clean.
+The Windows batch pipeline retains its own availability handling.
 
 ---
 
