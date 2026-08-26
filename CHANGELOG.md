@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1252 - the runner reports fork starvation instead of degrading
+
+-    coproc W1_AUX_OWNER {{
+-        exec python3 -c {registration_timeout_owner} "$W1_SPAWN_PARENT_PID" \
+-            "$W1_SPAWN_CLOSE_FDS" "$W1_SPAWN_OUT" "$W1_SPAWN_ERR" \
+-            timeout --kill-after="$W1_SPAWN_KILL_AFTER" \
+-            "$W1_SPAWN_TIMEOUT" "$@"
+-        "registration_artifacts": {
+-            "jobid": "%s/jobid" % rundir,
+-            "error": "%s/jobid.err" % rundir,
+-            "owners": "%s/registration-owners.log" % rundir,
+-            "runner_receipt": "%s/runner.receipt" % rundir,
+-            "gate_receipt": "%s/gate.receipt" % rundir,
+-            "authority_fds": "%s/registration-authority-fds.log" % rundir,
+- Rebuilt the retained source/test changes and re-anchored the injection in [
+
 ## v3.66.1251 - the provisioner gate proves dispatch instead of structure
 
 - PROVISIONER-INVOCATION-IS-STRUCTURAL-NOT-BEHAVIORAL. The gate asserted over

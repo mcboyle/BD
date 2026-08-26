@@ -285,6 +285,8 @@ _MEASURED_S = {
     "nul_bearing_terminal_frame_is_not_exec_success/communicate":                (0.0035, 5),
     "nul_bearing_terminal_frame_is_not_exec_success/exit":                       (6.6857, 20.0),
     "one_second_lifecycle_cap_remains_truthfully_unknown/run":                   (1.791, 7),
+    "owner_spawn_failure_is_distinct_from_ordinary_unknown/run-starved":         (1.46, 30),
+    "owner_spawn_failure_is_distinct_from_ordinary_unknown/run-unknown":         (1.46, 30),
     "partial_coproc_setup_settles_every_acquired_owner/run":                     (2.1835, 8),
     "partial_handoff_frame_does_not_restart_the_protocol_budget/exit":           (2.2217, 20.0),
     "partial_handoff_frame_does_not_restart_the_protocol_budget/fifo":           (4.0875, 10),
@@ -1607,6 +1609,7 @@ def test_an_abandoned_run_is_not_recorded_as_COMPLETED():
     (92, "REGISTRATION_UNKNOWN"),
     (93, "REGISTERED_FAILURE"),
     (94, "REGISTRATION_SETUP_FAILURE"),
+    (95, "MEASUREMENT_REFUSED"),
 ])
 def test_registration_runner_exit_is_classified_before_completed_default(
         status, state):
@@ -1620,7 +1623,7 @@ def test_registration_runner_exit_is_classified_before_completed_default(
     assert row["state"] == state, (
         f"runner status {status} was laundered into the COMPLETED default")
     assert row["state"] != "COMPLETED"
-    assert row["registration_artifacts"] == {
+    expected_artifacts = {
         "jobid": "/remote/run/private-root/jobid",
         "error": "/remote/run/private-root/jobid.err",
         "owners": "/remote/run/private-root/registration-owners.log",
@@ -1629,6 +1632,10 @@ def test_registration_runner_exit_is_classified_before_completed_default(
         "authority_fds": (
             "/remote/run/private-root/registration-authority-fds.log"),
     }
+    if status == 95:
+        expected_artifacts["measurement_refusal"] = (
+            "/remote/run/private-root/measurement-refusal")
+    assert row["registration_artifacts"] == expected_artifacts
 
 
 @pytest.mark.parametrize("status", [0, 1, 75, 90])
@@ -1748,6 +1755,8 @@ W1_SETUP_FAILURE_CODE = "94"     # setup owners settled UNSUCCESSFULLY,
                                  # which is a PROVED settlement, not an
                                  # unknown one -- see the gate-ready
                                  # admission controls below
+W1_MEASUREMENT_REFUSAL_CODE = "95"  # the host could not fork the runner's
+                                     # own measurement owner
 W1_RELEASE_FAILURE_CODE = "93"   # registration landed but gate release failed
 W1_WORKLOAD_CODE = 7             # the success control's workload exit
 W1_STUB_MARKER = "STUB-REGISTRAR-REACHED"
@@ -2059,7 +2068,8 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      after_release_pipe_probe=None,
                      owned_group_census_override=None,
                      before_group_receipt_recheck_fifo=None,
-                     after_group_receipt_recheck_fifo=None):
+                     after_group_receipt_recheck_fifo=None,
+                     owner_nproc_limit=None):
     """Format the PRODUCTION template around a workload we can watch."""
     rundir = tmp_path / "rundir"
     workload = tmp_path / "workload.sh"
@@ -2269,6 +2279,38 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
             shlex.quote(str(before_group_receipt_recheck_fifo)),
             1,
         )
+    if owner_nproc_limit is not None:
+        # Apply the kernel's real per-user process limit only after the two
+        # primary registration owners exist.  The next production
+        # `registration_owner_spawn` therefore reaches its actual `coproc`
+        # fork boundary under RLIMIT_NPROC instead of replacing that boundary
+        # with a mocked shell function.  The marker proves the acquired/live
+        # precondition and the exact effective limit before any verdict is
+        # read.
+        anchor = "    if ! registration_owner_fork_preflight; then\n"
+        assert body.count(anchor) == 1, (
+            "the production runner has no unique measurement-owner fork edge")
+        injection = (
+            '    if [ ! -e "$RUNDIR/test-rlimit-nproc-armed" ]; then\n'
+            '        W1_TEST_NPROC_BEFORE=$(ulimit -u)\n'
+            '        W1_TEST_GATE_LIVE=0\n'
+            '        W1_TEST_RELAY_LIVE=0\n'
+            '        builtin kill -0 -- "$PYTEST_GATE_PID" 2>/dev/null '
+            '&& W1_TEST_GATE_LIVE=1\n'
+            '        builtin kill -0 -- "$W1_TERMINAL_RELAY_PID" 2>/dev/null '
+            '&& W1_TEST_RELAY_LIVE=1\n'
+            '        ulimit -u %d || return 1\n'
+            '        ulimit -u > "$RUNDIR/test-rlimit-nproc-effective"\n'
+            "        builtin printf 'role=%%s before=%%s "
+            "gate_acquired=%%s relay_acquired=%%s gate_live=%%s "
+            "relay_live=%%s\\n' \"$W1_SPAWN_ROLE\" "
+            '"$W1_TEST_NPROC_BEFORE" "$W1_GATE_ACQUIRED" '
+            '"$W1_RELAY_ACQUIRED" '
+            '"$W1_TEST_GATE_LIVE" "$W1_TEST_RELAY_LIVE" '
+            '> "$RUNDIR/test-rlimit-nproc-armed"\n'
+            '    fi\n' % int(owner_nproc_limit)
+        )
+        body = body.replace(anchor, injection + anchor, 1)
     if cancel_before_observation:
         anchor = "registration_observation_matches_original() {\n"
         assert body.count(anchor) == 1, (
@@ -3650,6 +3692,115 @@ def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
     assert records[0]["descendants"] == "UNKNOWN"
     assert records[0]["stop"] == "SPAWN-FAILED"
     assert result.returncode == int(W1_RETAINED_FAILURE_CODE)
+
+
+def test_owner_spawn_failure_is_distinct_from_ordinary_unknown(tmp_path):
+    """A host that cannot fork its measurement owner refuses distinctly.
+
+    The positive arm uses RLIMIT_NPROC at the real production ``coproc`` fork
+    boundary.  It is armed only after the gate and terminal relay are acquired,
+    so a missing owner cannot be manufactured by an empty setup fixture.  The
+    negative arm lets owners fork and forces their group census to UNKNOWN;
+    that is an ordinary unproved settlement and must remain status 92.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("Linux does not enforce RLIMIT_NPROC for uid 0")
+
+    mod = _load()
+
+    starved_root = tmp_path / "fork-starved"
+    starved_root.mkdir()
+    starved_marker = starved_root / "workload-started"
+    starved_registrar = starved_root / "registrar-started"
+    starved_script, starved_rundir = _w1_build_runner(
+        mod, starved_root,
+        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(starved_marker)),
+        owner_nproc_limit=1,
+    )
+    starved_env = dict(os.environ)
+    starved_env["HOME"] = str(_w1_fake_home(
+        starved_root, code=0, stdout="stubhost-starved\n"))
+    starved_env["W1_REGISTRAR_MARKER"] = str(starved_registrar)
+    starved = subprocess.run(
+        ["bash", str(starved_script)], env=starved_env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=_w1_budget_s(
+            "owner_spawn_failure_is_distinct_from_ordinary_unknown/run-starved"),
+    )
+
+    limit_rows = (starved_rundir / "test-rlimit-nproc-armed").read_text(
+        encoding="ascii").splitlines()
+    assert len(limit_rows) == 1, limit_rows
+    limit_fields = dict(
+        field.split("=", 1) for field in limit_rows[0].split())
+    assert limit_fields == {
+        "role": "ready-reader",
+        "before": limit_fields["before"],
+        "gate_acquired": "1",
+        "relay_acquired": "1",
+        "gate_live": "1",
+        "relay_live": "1",
+    }, limit_fields
+    assert limit_fields["before"].isdigit() \
+        and int(limit_fields["before"]) > 1, limit_fields
+    assert (starved_rundir / "test-rlimit-nproc-effective").read_text(
+        encoding="ascii").strip() == "1"
+    assert not starved_registrar.exists() and not starved_marker.exists(), (
+        "fork-starved measurement crossed the registrar/workload boundary")
+
+    unknown_root = tmp_path / "ordinary-unknown"
+    unknown_root.mkdir()
+    unknown_marker = unknown_root / "workload-started"
+    unknown_registrar = unknown_root / "registrar-started"
+    unknown_gate = _w1_adversarial_gate_program(
+        ready="WRONG v1", terminal="ABORTED v1 reason=bad-ready")
+    unknown_script, unknown_rundir = _w1_build_runner(
+        mod, unknown_root,
+        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(unknown_marker)),
+        gate_program=unknown_gate,
+        owned_group_census_override="UNKNOWN",
+    )
+    unknown_env = dict(os.environ)
+    unknown_env["HOME"] = str(_w1_fake_home(
+        unknown_root, code=0, stdout="stubhost-unknown\n"))
+    unknown_env["W1_REGISTRAR_MARKER"] = str(unknown_registrar)
+    unknown = subprocess.run(
+        ["bash", str(unknown_script)], env=unknown_env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=_w1_budget_s(
+            "owner_spawn_failure_is_distinct_from_ordinary_unknown/run-unknown"),
+    )
+    unknown_ready = [record for record in _w1_owner_records(unknown_rundir)
+                     if record["role"] == "ready-reader"]
+    assert len(unknown_ready) == 1, unknown_ready
+    assert unknown_ready[0]["owner_pid"].isdigit(), unknown_ready
+    assert unknown_ready[0]["waited_pid"] == unknown_ready[0]["owner_pid"]
+    assert unknown_ready[0]["wait_ok"] == "1", unknown_ready
+    assert unknown_ready[0]["descendants"] == "UNKNOWN", unknown_ready
+    assert unknown.returncode == int(W1_RETAINED_FAILURE_CODE), (
+        "the ordinary measured-but-unproved settlement changed classification")
+    assert not (unknown_rundir / "measurement-refusal").exists()
+    assert not unknown_registrar.exists() and not unknown_marker.exists()
+
+    assert starved.returncode == int(W1_MEASUREMENT_REFUSAL_CODE), (
+        "fork-starved measurement was conflated with ordinary unproved "
+        "settlement: status=%s stderr=%r"
+        % (starved.returncode, starved.stderr))
+    refusal_rows = (starved_rundir / "measurement-refusal").read_text(
+        encoding="ascii").splitlines()
+    assert refusal_rows == [
+        "MEASUREMENT-REFUSED reason=OWNER-SPAWN-FAILED role=ready-reader "
+        "capacity=EXHAUSTED"
+    ], refusal_rows
+    assert (starved_rundir / "exitcode").read_text(
+        encoding="ascii").strip() == W1_MEASUREMENT_REFUSAL_CODE
+    starved_ready = [record for record in _w1_owner_records(starved_rundir)
+                     if record["role"] == "ready-reader"]
+    assert len(starved_ready) == 1, starved_ready
+    assert starved_ready[0]["owner_pid"] == "MISSING", starved_ready
+    assert starved_ready[0]["waited_pid"] == "MISSING", starved_ready
+    assert starved_ready[0]["wait_ok"] == "0", starved_ready
+    assert starved_ready[0]["stop"] == "SPAWN-FAILED", starved_ready
 
 
 def test_every_authority_helper_is_named_and_checked_waited(tmp_path):

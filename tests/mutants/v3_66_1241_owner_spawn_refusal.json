@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 221 / v3.66.1241. Re-run from a detached clone because bd-mutate correctly refuses to rewrite the repository that contains its own runner: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1241_owner_spawn_refusal.json --work /tmp/row221-mutate --timeout 120'. Transform control: point M1 at tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_it_imports_without_side_effects alone; it must ESCAPE because that node imports the same transformed module but does not assert owner-fork behavior. The durable battery points M1 at the behavioral catcher and must be CAUGHT, demonstrating an assertion verdict rather than a parse/import failure.",
+  "subject": "ROW212-RUNNER-DEGRADES-UNDER-FORK-STARVATION -- a kernel-enforced RLIMIT_NPROC refusal at the runner's real coproc boundary is recorded as a durable measurement refusal and exits 95, while a successfully spawned owner whose census is unavailable remains ordinary UNKNOWN status 92",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_owner_spawn_failure_is_distinct_from_ordinary_unknown",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_runner_exit_is_classified_before_completed_default[95-MEASUREMENT_REFUSED]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 THE DEFECT ITSELF: the preflight reports the already-exhausted one-process RLIMIT_NPROC ceiling as available and crosses the real coproc fork edge; Bash then exits raw 254 without the refusal marker or exit record",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    if [ \"$W1_NPROC_LIMIT\" -le 1 ]; then\n        W1_OWNER_FORK_CAPACITY=EXHAUSTED\n        return 1\n    fi",
+      "new": "    if [ \"$W1_NPROC_LIMIT\" -le 1 ]; then\n        W1_OWNER_FORK_CAPACITY=AVAILABLE\n        return 0\n    fi",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_owner_spawn_failure_is_distinct_from_ordinary_unknown"
+    },
+    {
+      "label": "M2 the durable marker lies that exhausted capacity was available; the exit code alone can no longer prove why measurement was refused",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "            OWNER-SPAWN-FAILED \"$W1_OWNER_FORK_CAPACITY\"",
+      "new": "            OWNER-SPAWN-FAILED AVAILABLE",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_owner_spawn_failure_is_distinct_from_ordinary_unknown"
+    },
+    {
+      "label": "M3 the builtin-only refusal finish writes the ordinary UNKNOWN code into its durable exit record even though the process returns the distinctive refusal status",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "        builtin printf '%s\\n' \"$W1_FINAL_STATUS\" > \"$RUNDIR/exitcode\"",
+      "new": "        builtin printf '%s\\n' 92 > \"$RUNDIR/exitcode\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_owner_spawn_failure_is_distinct_from_ordinary_unknown"
+    },
+    {
+      "label": "M4 the outer runner launders status 95 back into ordinary REGISTRATION_UNKNOWN",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    \"95\": (\"MEASUREMENT_REFUSED\", \"runner could not spawn its measurement owner\"),",
+      "new": "    \"95\": (\"REGISTRATION_UNKNOWN\", \"registry or owner settlement is unknown\"),",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_runner_exit_is_classified_before_completed_default[95-MEASUREMENT_REFUSED]"
+    },
+    {
+      "label": "M5 the outer record classifies refusal but omits the dedicated durable artifact from the evidence bundle",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    if raw_status == \"95\":",
+      "new": "    if raw_status == \"94\":",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_runner_exit_is_classified_before_completed_default[95-MEASUREMENT_REFUSED]"
+    }
+  ]
+}

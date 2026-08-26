@@ -1670,6 +1670,8 @@ W1_ACTIVE_OWNER_PID=""
 W1_ACTIVE_OWNER_GROUP_READY=0
 W1_ACTIVE_OWNER_RECEIPT="UNKNOWN"
 W1_OWNER_SETTLING=0
+W1_MEASUREMENT_REFUSAL_COUNT=0
+W1_MEASUREMENT_REFUSAL_ROLE=""
 declare -A W1_OWNER_RECEIPT_BY_PID=()
 declare -A W1_OWNER_FDS_BY_PID=()
 W1_GATE_ACQUIRED=0
@@ -1716,6 +1718,108 @@ registration_handover_terminal_reader() {{
     W1_GATE_READ_FD="${{W1_TERMINAL_READ_FD:-}}"
 }}
 
+registration_measurement_refusal() {{
+    local W1_REFUSAL_ROLE="$1" W1_REFUSAL_REASON="$2"
+    local W1_REFUSAL_CAPACITY="$3"
+    W1_MEASUREMENT_REFUSAL_COUNT=$((W1_MEASUREMENT_REFUSAL_COUNT + 1))
+    if [ "$W1_MEASUREMENT_REFUSAL_COUNT" -eq 1 ]; then
+        W1_MEASUREMENT_REFUSAL_ROLE="$W1_REFUSAL_ROLE"
+        builtin printf \
+            'MEASUREMENT-REFUSED reason=%s role=%s capacity=%s\n' \
+            "$W1_REFUSAL_REASON" "$W1_REFUSAL_ROLE" \
+            "$W1_REFUSAL_CAPACITY" \
+            > "$RUNDIR/measurement-refusal"
+    fi
+}}
+
+registration_owner_fork_preflight() {{
+    local W1_NPROC_LIMIT="" W1_NPROC_LABEL="" W1_NPROC_VALUE=""
+    local W1_NPROC_CAPEFF="" W1_NPROC_PATH="" W1_NPROC_TOTAL=0
+    local W1_NPROC_OWNED=0 W1_NPROC_RUN_QUEUE=""
+    local W1_NPROC_LOAD1="" W1_NPROC_LOAD5="" W1_NPROC_LOAD15=""
+    local W1_NPROC_LAST_PID=""
+    local -a W1_NPROC_OWNED_TASKS=()
+    W1_OWNER_FORK_CAPACITY=UNKNOWN
+
+    # Bash exits 254 when a `coproc` fork gets EAGAIN; even `if ! coproc` cannot
+    # catch it.  Read the kernel-enforced per-real-uid task ceiling entirely
+    # with Bash builtins before crossing that irreversible edge.  On the
+    # ordinary fleet limit, the cheap all-host task count is far below the
+    # ceiling and no per-task status scan runs.
+    ulimit -u > "$RUNDIR/registration-owner-nproc.limit" || return 1
+    IFS= read -r W1_NPROC_LIMIT \
+        < "$RUNDIR/registration-owner-nproc.limit" || return 1
+    case "$W1_NPROC_LIMIT" in
+        unlimited)
+            W1_OWNER_FORK_CAPACITY=AVAILABLE
+            return 0
+            ;;
+        ''|*[!0-9]*)
+            return 1
+            ;;
+    esac
+    # Linux exempts real uid 0 and tasks with CAP_SYS_ADMIN or
+    # CAP_SYS_RESOURCE from RLIMIT_NPROC enforcement.
+    [ "$UID" -eq 0 ] && {{ W1_OWNER_FORK_CAPACITY=AVAILABLE; return 0; }}
+    while IFS=$' \t' read -r W1_NPROC_LABEL W1_NPROC_VALUE _; do
+        if [ "$W1_NPROC_LABEL" = CapEff: ]; then
+            W1_NPROC_CAPEFF="$W1_NPROC_VALUE"
+            break
+        fi
+    done < /proc/self/status
+    if [[ "$W1_NPROC_CAPEFF" =~ ^[0-9A-Fa-f]+$ ]] \
+            && [ $((16#$W1_NPROC_CAPEFF \
+                & ((1 << 21) | (1 << 24)))) -ne 0 ]; then
+        W1_OWNER_FORK_CAPACITY=AVAILABLE
+        return 0
+    fi
+    # The runner itself is one task owned by this real uid.  This lower bound
+    # decides the deterministic RLIMIT_NPROC=1 control without walking /proc.
+    if [ "$W1_NPROC_LIMIT" -le 1 ]; then
+        W1_OWNER_FORK_CAPACITY=EXHAUSTED
+        return 1
+    fi
+
+    # /proc/loadavg's fourth field is RUNNABLE/TOTAL scheduling entities.
+    # TOTAL is an O(1), kernel-produced upper bound on this uid's task count;
+    # expanding /proc/[pid]/task/[tid] here made every ordinary owner launch
+    # walk the whole host and consumed the runner's own protocol deadlines.
+    IFS=' ' read -r W1_NPROC_LOAD1 W1_NPROC_LOAD5 W1_NPROC_LOAD15 \
+        W1_NPROC_RUN_QUEUE W1_NPROC_LAST_PID < /proc/loadavg || return 1
+    case "$W1_NPROC_RUN_QUEUE" in
+        */*) ;;
+        *) return 1 ;;
+    esac
+    W1_NPROC_TOTAL="${{W1_NPROC_RUN_QUEUE#*/}}"
+    case "$W1_NPROC_TOTAL" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    if [ "$W1_NPROC_TOTAL" -lt "$W1_NPROC_LIMIT" ]; then
+        W1_OWNER_FORK_CAPACITY=AVAILABLE
+        return 0
+    fi
+
+    # The host-wide count crossed the per-user ceiling, so derive the exact
+    # effective-uid denominator using Bash's ownership predicate and task-dir
+    # globs.  The remote runner is not setuid; if real and effective identity
+    # ever differ, capacity is UNKNOWN and refusal is safer than raw exit 254.
+    [ "$UID" -eq "$EUID" ] || return 1
+    for W1_NPROC_PATH in /proc/[0-9]*; do
+        [ -d "$W1_NPROC_PATH" ] && [ -O "$W1_NPROC_PATH" ] || continue
+        W1_NPROC_OWNED_TASKS=("$W1_NPROC_PATH"/task/[0-9]*)
+        for W1_NPROC_PATH in "${{W1_NPROC_OWNED_TASKS[@]}}"; do
+            [ -d "$W1_NPROC_PATH" ] \
+                && W1_NPROC_OWNED=$((W1_NPROC_OWNED + 1))
+        done
+    done
+    if [ "$W1_NPROC_OWNED" -lt "$W1_NPROC_LIMIT" ]; then
+        W1_OWNER_FORK_CAPACITY=AVAILABLE
+        return 0
+    fi
+    W1_OWNER_FORK_CAPACITY=EXHAUSTED
+    return 1
+}}
+
 registration_finish() {{
     [ "$BASHPID" = "$$" ] || return 1
     local W1_FINAL_STATUS="$1"
@@ -1736,6 +1840,19 @@ registration_finish() {{
     registration_close_release
     registration_close_terminal_parent_writer
     registration_close_status
+    # Status 95 is a REFUSAL TO MEASURE, not another settlement verdict.  The
+    # host has just refused the runner's own fork, so calling date/cat/git here
+    # would require more forks and can replace this classification with Bash's
+    # raw 254 (the deterministic RLIMIT_NPROC reproduction).  Preserve the
+    # durable refusal and exit code using builtins only.  Closing every
+    # authority descriptor above prevents the unreleased workload from
+    # crossing the gate; no claim that the owners settled is made.
+    if [ "$W1_FINAL_STATUS" -eq 95 ]; then
+        builtin printf '%s\n' "$W1_FINAL_STATUS" > "$RUNDIR/exitcode"
+        W1_FINISHING=1
+        trap - EXIT
+        exit "$W1_FINAL_STATUS"
+    fi
     date +%s > "$RUNDIR/epoch_end"
     cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
     git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
@@ -2160,12 +2277,37 @@ registration_owner_spawn() {{
     W1_SPAWN_PARENT_PID="$BASHPID"
     W1_SPAWN_CLOSE_FDS="${{W1_GATE_READ_FD:-}},${{W1_GATE_WRITE_FD:-}},${{W1_TERMINAL_READ_FD:-}},${{W1_TERMINAL_PARENT_WRITE_FD:-}}"
     unset W1_AUX_OWNER W1_AUX_OWNER_PID 2>/dev/null || :
-    coproc W1_AUX_OWNER {{
-        exec python3 -c {registration_timeout_owner} "$W1_SPAWN_PARENT_PID" \
-            "$W1_SPAWN_CLOSE_FDS" "$W1_SPAWN_OUT" "$W1_SPAWN_ERR" \
-            timeout --kill-after="$W1_SPAWN_KILL_AFTER" \
-            "$W1_SPAWN_TIMEOUT" "$@"
-    }}
+    if ! registration_owner_fork_preflight; then
+        registration_measurement_refusal "$W1_SPAWN_ROLE" \
+            OWNER-SPAWN-FAILED "$W1_OWNER_FORK_CAPACITY"
+        if [ -z "${{W1_JOB_ID:-}}" ]; then
+            registration_owner_record "$W1_SPAWN_ROLE" MISSING MISSING \
+                UNKNOWN 0 UNKNOWN SPAWN-FAILED 0
+            registration_finish 95
+        fi
+        return 1
+    fi
+    if ! coproc W1_AUX_OWNER {{
+            exec python3 -c {registration_timeout_owner} \
+                "$W1_SPAWN_PARENT_PID" "$W1_SPAWN_CLOSE_FDS" \
+                "$W1_SPAWN_OUT" "$W1_SPAWN_ERR" \
+                timeout --kill-after="$W1_SPAWN_KILL_AFTER" \
+                "$W1_SPAWN_TIMEOUT" "$@"
+        }}; then
+        registration_measurement_refusal \
+            "$W1_SPAWN_ROLE" OWNER-SPAWN-FAILED RACE
+        # Before registration there is no workload or durable job to
+        # reconcile.  Refuse immediately: attempting the ordinary UNKNOWN
+        # settlement would need the same owner fork that the host just denied.
+        # The exact missing owner stays in the normal owner ledger, so this is
+        # a proved fork-refusal precondition rather than a magic status.
+        if [ -z "${{W1_JOB_ID:-}}" ]; then
+            registration_owner_record "$W1_SPAWN_ROLE" MISSING MISSING \
+                UNKNOWN 0 UNKNOWN SPAWN-FAILED 0
+            registration_finish 95
+        fi
+        return 1
+    fi
     W1_SPAWN_PID=${{W1_AUX_OWNER_PID:-}}
     W1_SPAWN_READY_FD=${{W1_AUX_OWNER[0]:-}}
     W1_SPAWN_INPUT_FD=${{W1_AUX_OWNER[1]:-}}
@@ -3493,6 +3635,7 @@ RUNNER_REGISTRATION_OUTCOMES = {
     "92": ("REGISTRATION_UNKNOWN", "registry or owner settlement is unknown"),
     "93": ("REGISTERED_FAILURE", "registered workload handoff failed and reconciled"),
     "94": ("REGISTRATION_SETUP_FAILURE", "registration setup owners settled unsuccessfully"),
+    "95": ("MEASUREMENT_REFUSED", "runner could not spawn its measurement owner"),
 }
 
 
@@ -3503,17 +3646,20 @@ def record_runner_exit(row: dict, raw_status: str, rundir: str) -> None:
     if outcome is None:
         return
     state, why = outcome
+    artifacts = {
+        "jobid": "%s/jobid" % rundir,
+        "error": "%s/jobid.err" % rundir,
+        "owners": "%s/registration-owners.log" % rundir,
+        "runner_receipt": "%s/runner.receipt" % rundir,
+        "gate_receipt": "%s/gate.receipt" % rundir,
+        "authority_fds": "%s/registration-authority-fds.log" % rundir,
+    }
+    if raw_status == "95":
+        artifacts["measurement_refusal"] = "%s/measurement-refusal" % rundir
     row.update({
         "state": state,
         "why": why,
-        "registration_artifacts": {
-            "jobid": "%s/jobid" % rundir,
-            "error": "%s/jobid.err" % rundir,
-            "owners": "%s/registration-owners.log" % rundir,
-            "runner_receipt": "%s/runner.receipt" % rundir,
-            "gate_receipt": "%s/gate.receipt" % rundir,
-            "authority_fds": "%s/registration-authority-fds.log" % rundir,
-        },
+        "registration_artifacts": artifacts,
     })
 
 
