@@ -780,7 +780,7 @@ def main():
                   "timing flakes; unconfirmed != real)%s"
                   % (BOLD, len(suspects), RST, DIM, RST))
         for r in suspects:
-            r2 = run_one(a.work, r["file"], max(a.timeout, 300))
+            r2 = run_one(a.work, r["file"], a.timeout)
             if r2["status"] == "pass":
                 r.update(status="flake", kind="FLAKE_LOAD", passed=r2["passed"],
                          failed=0, skipped=r2["skipped"])

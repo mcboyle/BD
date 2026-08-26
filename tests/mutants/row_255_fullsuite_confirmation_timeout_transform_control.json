@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 255 transform control. This deliberately must ESCAPE: it applies the identical valid Python reversion but names only a compile control that never runs confirmation. An ESCAPED verdict distinguishes a valid behavior mutant from a syntax, import, or collection failure.",
+  "subject": "transform control for the bd-fullsuite confirmation-timeout reversion",
+  "band": [
+    "tests/test_toolchain_534.py::test_fullsuite_timeout_transform_control_loads_the_tool"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL confirmation restores the hidden floor while the tool still compiles",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "            r2 = run_one(a.work, r[\"file\"], a.timeout)",
+      "new": "            r2 = run_one(a.work, r[\"file\"], max(a.timeout, 300))",
+      "direction": "regression",
+      "catcher": "tests/test_toolchain_534.py::test_fullsuite_timeout_transform_control_loads_the_tool"
+    }
+  ]
+}

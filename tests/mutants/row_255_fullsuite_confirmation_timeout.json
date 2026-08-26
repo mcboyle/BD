@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 255. Re-run from a detached standalone scratch tree: toolchain/bin/bd-mutate --spec tests/mutants/row_255_fullsuite_confirmation_timeout.json --work SCRATCH --timeout 60. The mutant restores the confirmed defect by replacing the caller's per-file confirmation bound with a 300-second floor. The catcher first proves its slow fixture times out at exactly one second, then requires the two-file run to retain exactly one timeout and zero load flakes.",
+  "subject": "bd-fullsuite preserves the caller's per-file timeout during serial confirmation",
+  "band": [
+    "tests/test_toolchain_534.py::test_fullsuite_confirmation_preserves_the_callers_per_file_timeout"
+  ],
+  "mutants": [
+    {
+      "label": "M1 confirmation restores the hidden 300-second timeout floor",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "            r2 = run_one(a.work, r[\"file\"], a.timeout)",
+      "new": "            r2 = run_one(a.work, r[\"file\"], max(a.timeout, 300))",
+      "direction": "regression",
+      "catcher": "tests/test_toolchain_534.py::test_fullsuite_confirmation_preserves_the_callers_per_file_timeout"
+    }
+  ]
+}
