@@ -56,7 +56,9 @@ def _tree(tmp_path: Path, phase: str) -> Path:
         "        [sys.executable, '-c', code],\n"
         "        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
         "    )\n"
-        "    Path('descendant.pid').write_text(str(child.pid))\n\n"
+        "    Path('descendant.pid').write_text(str(child.pid))\n"
+        "    with Path('spawned_pids.txt').open('a', encoding='utf-8') as stream:\n"
+        "        stream.write(f'{child.pid}\\n')\n\n"
         + collection_escape
         + "def test_behavior():\n"
         + execution_escape
@@ -112,6 +114,11 @@ def test_timeout_kills_descendants_before_restoring_subject(tmp_path, phase):
     try:
         run = _run(work, phase)
         pid = int((work / "descendant.pid").read_text(encoding="utf-8"))
+        spawned_pids = [
+            int(raw)
+            for raw in (work / "spawned_pids.txt").read_text(
+                encoding="utf-8").splitlines()
+        ]
         alive_after_return = _alive(pid)
         time.sleep(3.25)
         post_restore_activity = (work / "post_restore.txt").exists()
@@ -124,6 +131,14 @@ def test_timeout_kills_descendants_before_restoring_subject(tmp_path, phase):
     row = payload["rows"][0]
     assert row["verdict"] == "UNKNOWN", row
     assert f"{phase} exceeded 1s" in row["why"], row
+    assert spawned_pids == [pid], (
+        f"expected exactly one descendant in {phase}, observed {spawned_pids}")
     assert not alive_after_return, f"descendant {pid} survived tool return"
     assert not post_restore_activity, "descendant ran after the subject was restored"
     assert f"{anchor} = False" in (work / "m.py").read_text(encoding="utf-8")
+
+
+def test_transform_control_only_observes_the_runner_identity():
+    """The cleanup mutant loads while this non-behavioural control stays green."""
+    assert _TOOL.is_file()
+    assert _TOOL.name == "bd-mutate"

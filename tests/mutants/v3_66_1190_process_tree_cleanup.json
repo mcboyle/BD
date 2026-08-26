@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 255. Re-run from a detached standalone scratch tree: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1190_process_tree_cleanup.json --work SCRATCH --timeout 60. The baseline is exactly two collected phase cases and the battery contains exactly one mutant. Replacing process-group signals with direct-child signals leaves the SIGTERM-ignoring descendant alive when bd-mutate restores its subject; the named collection catcher must fail. The separate transform-control spec applies the identical valid Python replacement to one non-behavioural test and must ESCAPE, distinguishing a real cleanup catch from a broken transform.",
+  "subject": "timed-out mutation bands terminate their complete owned process group before restoring the subject",
+  "band": [
+    "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py::test_timeout_kills_descendants_before_restoring_subject[collection]",
+    "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py::test_timeout_kills_descendants_before_restoring_subject[execution]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 signal only the pytest leader and leave its SIGTERM-ignoring descendant alive",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        os.killpg(pgid, sig)\n",
+      "new": "        os.kill(pgid, sig)  # mutant: signal only the direct child\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py::test_timeout_kills_descendants_before_restoring_subject[collection]"
+    }
+  ]
+}

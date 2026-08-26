@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1274 - the process-tree gate proves it can fail
+
+-        "    Path('descendant.pid').write_text(str(child.pid))\n\n"
+-        "    Path('descendant.pid').write_text(str(child.pid))\n\n"
+- Strengthened the process-tree gate to assert exactly one descendant per pha
+- Added a tracked direct-child-only cleanup mutant: **1 CAUGHT**.
+- Added the identical transform control: **1 ESCAPED**, proving the mutant is
+- RED: failed because the descendant survived tool return.
+- GREEN: target gate **3 passed**.
+- Register/backlog gates: **23 passed**.
+- CI shard checks: **3 passed**.
+- Header recomputed: `rows=246 open=7` with parser-derived digest.
+- No neighboring defects observed. No full suite or live-service commands run
+-        "    Path('descendant.pid').write_text(str(child.pid))\n\n"
+-        "    Path('descendant.pid').write_text(str(child.pid))\n\n"
+
 ## v3.66.1273 - migrate_file keeps its exclusive destination claim
 
 - The `O_EXCL` placeholder now remains until `shutil.move` replaces or writes
