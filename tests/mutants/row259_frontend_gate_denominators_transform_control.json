@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 259. Both mutants are identical to the primary battery and must ESCAPE their import-only catchers. An INVALID, ERROR, or UNKNOWN result is not an escape and supplies no transform control.",
+  "subject": "valid transform-only controls for the frontend gate denominator mutants",
+  "band": [
+    "tests/test_spa_root_routing_contract.py::test_transform_control_imports_gate_without_judging_effective_base",
+    "tests/test_secret_display_never.py::test_transform_control_imports_secret_gate_without_building_spa"
+  ],
+  "mutants": [
+    {
+      "label": "TC2 secret gate uses checkout dist while import-only control remains green",
+      "file": "tests/test_secret_display_never.py",
+      "old": "    return _build_secret_spa_fresh(frontend, work / \"fresh-dist\")",
+      "new": "    return _ROOT / \"frontend\" / \"dist\"",
+      "direction": "regression",
+      "catcher": "tests/test_secret_display_never.py::test_transform_control_imports_secret_gate_without_building_spa"
+    }
+  ]
+}
