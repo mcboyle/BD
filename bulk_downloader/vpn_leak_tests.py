@@ -4,7 +4,7 @@ Six probes verify a tunnel isn't leaking the user's real identity:
 
   1. DNS leak       - resolver ASN matches VPN provider's ASN     [CRITICAL]
   2. IPv4 leak      - public v4 IP through tunnel = expected exit [CRITICAL]
-  3. IPv6 leak      - v6 tunneled OR unreachable (no bypass)      [CRITICAL]
+  3. IPv6 leak      - v4-only route proven; unverified v6 UNKNOWN [CRITICAL]
   4. WebRTC leak    - RTCPeerConnection doesn't reveal real IP    [CRITICAL]
   5. Geolocation    - IP-geo country matches expected             [WARNING]
   6. Timezone/locale- browser TZ/Accept-Language matches exit     [WARNING]
@@ -67,6 +67,12 @@ class Severity(str, Enum):
     INFO = "info"
 
 
+class ProbeState(str, Enum):
+    PASS = "pass"
+    FAIL = "fail"
+    UNKNOWN = "unknown"
+
+
 class ProbeId(str, Enum):
     DNS = "dns_leak"
     IPV4 = "ipv4_leak"
@@ -96,9 +102,9 @@ IPV4_ENDPOINTS = (
     "https://ifconfig.me/all.json",
 )
 
-# IPv6 probe — v6-only domain. If it resolves AND returns an address that
-# isn't the tunnel's expected v6, that's a leak. If it doesn't resolve /
-# times out, that's actually fine for a v4-only tunnel.
+# IPv6 probe through a dual-stack endpoint. A completed v4 response is positive
+# evidence for the v4-only route. No response, transport failure, or v6 without
+# a provider-supplied expected address is UNKNOWN rather than pass or leak.
 IPV6_ENDPOINT = "https://api64.ipify.org?format=json"  # returns whichever family responds
 IPV6_ONLY_ENDPOINT = "https://ipv6.google.com/"
 
@@ -119,12 +125,26 @@ TZ_ENDPOINT = "https://worldtimeapi.org/api/ip"
 @dataclass
 class ProbeResult:
     probe_id: str
-    passed: bool
+    passed: Optional[bool]
     severity: str
+    state: str = ""
     details: dict = field(default_factory=dict)
     error: Optional[str] = None
     timestamp: float = 0.0
     duration_ms: int = 0
+
+    def __post_init__(self) -> None:
+        expected = (
+            ProbeState.UNKNOWN.value if self.passed is None
+            else ProbeState.PASS.value if self.passed is True
+            else ProbeState.FAIL.value
+        )
+        if not self.state:
+            self.state = expected
+        elif self.state != expected:
+            raise ValueError(
+                f"probe state {self.state!r} contradicts passed={self.passed!r}"
+            )
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -136,6 +156,8 @@ class AggregateResult:
     timestamp: float
     probes: list[ProbeResult] = field(default_factory=list)
     critical_failures: int = 0
+    critical_unknowns: int = 0
+    all_critical_measured: bool = True
     warning_failures: int = 0
     passed: bool = True
     summary: str = ""
@@ -146,6 +168,8 @@ class AggregateResult:
             "timestamp": self.timestamp,
             "probes": [p.to_dict() for p in self.probes],
             "critical_failures": self.critical_failures,
+            "critical_unknowns": self.critical_unknowns,
+            "all_critical_measured": self.all_critical_measured,
             "warning_failures": self.warning_failures,
             "passed": self.passed,
             "summary": self.summary,
@@ -229,17 +253,7 @@ def run_all_probes(tunnel_id: str, expected_country: Optional[str] = None) -> Ag
             kwargs["expected_exit_ip"] = None  # exit_ip is filled from leak-test result itself
         probes.append(run_probe(probe_id, socks_port, **kwargs))
 
-    crit = sum(1 for p in probes if p.severity == Severity.CRITICAL.value and not p.passed)
-    warn = sum(1 for p in probes if p.severity == Severity.WARNING.value and not p.passed)
-    agg = AggregateResult(
-        tunnel_id=tunnel_id,
-        timestamp=time.time(),
-        probes=probes,
-        critical_failures=crit,
-        warning_failures=warn,
-        passed=(crit == 0),
-        summary=_summarize(probes, crit, warn),
-    )
+    agg = _aggregate_probe_results(tunnel_id, probes)
 
     _push_history(tunnel_id, agg)
 
@@ -363,41 +377,62 @@ def _probe_ipv4(socks_port: int, expected_exit_ip: Optional[str] = None, **_) ->
 
 
 def _probe_ipv6(socks_port: int, **_) -> ProbeResult:
-    """Two acceptable outcomes:
-       (a) IPv6 unreachable through tunnel — fine, no leak
-       (b) IPv6 reachable, returns a v6 address from the tunnel — fine
-    Leak: IPv6 reachable, returns a v6 address NOT from the tunnel.
-    For now we treat (a) as pass since most VPNs are v4-only."""
+    """Classify the four observable outcomes without laundering uncertainty.
+
+    A positive IPv4 response from the dual-stack endpoint proves this routed
+    client used the tunnel's v4-only surface.  An empty response, an exception,
+    or a v6 address that cannot be compared with a provider-supplied expected
+    address leaves the privacy claim UNKNOWN.  UNKNOWN is not a leak, but it is
+    also not evidence that may clear an armed kill switch.
+    """
     proxy_url = f"socks5://127.0.0.1:{socks_port}"
     try:
         ip = _http_get_json_field(IPV6_ENDPOINT, proxy_url, ("ip",))
         if not ip:
-            return ProbeResult(
-                probe_id=ProbeId.IPV6.value, passed=True,
-                severity=Severity.CRITICAL.value,
-                details={"note": "IPv6 unreachable through tunnel — no leak surface"},
+            return _unknown_ipv6_result(
+                "IPv6 endpoint returned no address; reachability was not measured"
             )
-        # If we got a v4 back, that's fine.
+        # A completed dual-stack request that reports v4 is positive evidence
+        # for the legitimate v4-only tunnel case, not an endpoint timeout.
         if ":" not in ip:
             return ProbeResult(
                 probe_id=ProbeId.IPV6.value, passed=True,
                 severity=Severity.CRITICAL.value,
-                details={"note": "got v4 response (api64.ipify falls back to v4)", "ip": ip},
+                state=ProbeState.PASS.value,
+                details={
+                    "classification": "proven_absent",
+                    "note": "dual-stack endpoint completed over IPv4",
+                    "ip": ip,
+                },
             )
-        # Got a real v6. Compare to a reasonable tunnel range — without
-        # provider-supplied expected v6 we can't be definitive; pass with note.
-        return ProbeResult(
-            probe_id=ProbeId.IPV6.value, passed=True,
-            severity=Severity.CRITICAL.value,
-            details={"observed_v6": ip, "note": "v6 reachable; provider must verify tunneling"},
+        return _unknown_ipv6_result(
+            "IPv6 is reachable but no provider-supplied expected address is available",
+            observed_v6=ip,
         )
     except Exception as e:
-        return ProbeResult(
-            probe_id=ProbeId.IPV6.value, passed=True,
-            severity=Severity.CRITICAL.value,
-            details={"note": "v6 endpoint unreachable — acceptable for v4-only tunnels"},
-            error=str(e),
+        return _unknown_ipv6_result(
+            "IPv6 endpoint raised before reachability could be measured",
+            error=f"{type(e).__name__}: {e}",
         )
+
+
+def _unknown_ipv6_result(
+    note: str,
+    *,
+    observed_v6: Optional[str] = None,
+    error: Optional[str] = None,
+) -> ProbeResult:
+    details = {"classification": "could_not_measure", "note": note}
+    if observed_v6 is not None:
+        details["observed_v6"] = observed_v6
+    return ProbeResult(
+        probe_id=ProbeId.IPV6.value,
+        passed=None,
+        severity=Severity.CRITICAL.value,
+        state=ProbeState.UNKNOWN.value,
+        details=details,
+        error=error,
+    )
 
 
 def _probe_dns(socks_port: int, **_) -> ProbeResult:
@@ -635,14 +670,57 @@ def _push_history(tunnel_id: str, agg: AggregateResult) -> None:
             del ring[: len(ring) - HISTORY_SIZE]
 
 
-def _summarize(probes: list[ProbeResult], crit: int, warn: int) -> str:
+def _aggregate_probe_results(
+    tunnel_id: str,
+    probes: list[ProbeResult],
+    *,
+    timestamp: Optional[float] = None,
+) -> AggregateResult:
+    crit = sum(
+        1 for p in probes
+        if p.severity == Severity.CRITICAL.value and p.state == ProbeState.FAIL.value
+    )
+    unknown = sum(
+        1 for p in probes
+        if p.severity == Severity.CRITICAL.value and p.state == ProbeState.UNKNOWN.value
+    )
+    warn = sum(
+        1 for p in probes
+        if p.severity == Severity.WARNING.value and p.state == ProbeState.FAIL.value
+    )
+    return AggregateResult(
+        tunnel_id=tunnel_id,
+        timestamp=time.time() if timestamp is None else timestamp,
+        probes=probes,
+        critical_failures=crit,
+        critical_unknowns=unknown,
+        all_critical_measured=(unknown == 0),
+        warning_failures=warn,
+        passed=(crit == 0 and unknown == 0),
+        summary=_summarize(probes, crit, warn, unknown),
+    )
+
+
+def _summarize(
+    probes: list[ProbeResult], crit: int, warn: int, unknown: int = 0
+) -> str:
     if crit:
         failed_ids = [p.probe_id for p in probes
-                      if not p.passed and p.severity == Severity.CRITICAL.value]
+                      if p.state == ProbeState.FAIL.value
+                      and p.severity == Severity.CRITICAL.value]
         return f"CRITICAL: {crit} probe(s) failed: {', '.join(failed_ids)}"
+    if unknown:
+        unknown_ids = [p.probe_id for p in probes
+                       if p.state == ProbeState.UNKNOWN.value
+                       and p.severity == Severity.CRITICAL.value]
+        return (
+            f"UNKNOWN: {unknown} critical probe(s) could not be measured: "
+            f"{', '.join(unknown_ids)}"
+        )
     if warn:
         failed_ids = [p.probe_id for p in probes
-                      if not p.passed and p.severity == Severity.WARNING.value]
+                      if p.state == ProbeState.FAIL.value
+                      and p.severity == Severity.WARNING.value]
         return f"WARNING: {warn} non-critical probe(s) failed: {', '.join(failed_ids)}"
     return "all probes passed"
 
@@ -784,7 +862,7 @@ def _reset_for_tests() -> None:
 
 
 __all__ = [
-    "Severity", "ProbeId", "ProbeResult", "AggregateResult",
+    "Severity", "ProbeState", "ProbeId", "ProbeResult", "AggregateResult",
     "ALL_PROBES", "CRITICAL_PROBES",
     "run_probe", "run_all_probes",
     "record_external_probe_result",

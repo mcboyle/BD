@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1266 - an unmeasurable IPv6 probe no longer disarms the VPN kill switch
+
+-                      if not p.passed and p.severity == Severity.CRITICAL.va
+-                      if not p.passed and p.severity == Severity.WARNING.val
+-    "Severity", "ProbeId", "ProbeResult", "AggregateResult",
+- IPv6 results now support PASS, FAIL, and UNKNOWN in [vpn_leak_tests.py](/ho
+- Only the positive IPv4 fallback is `proven_absent`; missing data, unverifie
+- Aggregates expose `critical_unknowns` and `all_critical_measured`.
+- [vpn_kill_switch.py](/home/mboyle/bd-codex-wt/rowa-0-ipv6-probe-disarms-kil
+- The [new gate](/home/mboyle/bd-codex-wt/rowa-0-ipv6-probe-disarms-killswitc
+- Mutation result: UNKNOWN-to-pass regression CAUGHT; identical transform con
+- Registered in `tree-gates-2` and the CI declaration set.
+- [Backlog row 266](/home/mboyle/bd-codex-wt/rowa-0-ipv6-probe-disarms-killsw
+- Runtime/VPN floor: 247 passed.
+- Governance/generated floor: 74 passed.
+
 ## v3.66.1265 - bd-fleet reports unknown instead of laundering a failed measurement as clean
 
 -        if d.get("tree") == "ABSENT":

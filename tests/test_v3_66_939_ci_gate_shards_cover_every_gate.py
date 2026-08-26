@@ -462,6 +462,11 @@ _DECLARED = {
     # below the verdict or into a branch nothing takes would otherwise reach
     # main with every text arm still green.
     "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py",
+    # F35, backlog row 266. An unavailable critical IPv6 measurement must hold
+    # an armed kill switch without being called a leak. The gate drives all
+    # four HTTP outcomes in process and is safety-bearing regardless of which
+    # application path a future change touches.
+    "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",

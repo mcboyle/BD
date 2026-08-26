@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for the F35 UNKNOWN-to-pass mutant. This spec must ESCAPE: its test imports the changed module and constructs only an ordinary measured pass, so it proves the identical source transform parses and imports without relying on an unknown branch or kill-switch behavior.",
+  "subject": "transform-only control for the valid IPv6 UNKNOWN-to-pass mutant",
+  "band": [
+    "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py::test_unknown_to_pass_transform_control_does_not_exercise_unknown_path"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 collapse unmeasurable IPv6 into pass while a measured-pass import control stays green",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        passed=None,\n        severity=Severity.CRITICAL.value,\n        state=ProbeState.UNKNOWN.value,",
+      "new": "        passed=True,\n        severity=Severity.CRITICAL.value,\n        state=ProbeState.PASS.value,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py::test_unknown_to_pass_transform_control_does_not_exercise_unknown_path"
+    }
+  ]
+}

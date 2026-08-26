@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "F35. The mutant restores the privacy defect at the single funnel shared by no-address, unverified-v6, and endpoint-exception outcomes: UNKNOWN becomes a passing critical result. The named catcher drives the no-address branch through an in-process HTTP substitute, proves zero confirmed failures, and then proves the armed kill switch remains held with a zero auto-clear streak. The separate transform-control spec applies the identical valid Python transform without entering an unknown branch and must ESCAPE.",
+  "subject": "an unmeasurable critical IPv6 probe is UNKNOWN and cannot advance kill-switch auto-clear",
+  "band": [
+    "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py::test_unmeasurable_does_not_advance_or_report_a_confirmed_leak"
+  ],
+  "mutants": [
+    {
+      "label": "M1 collapse every unmeasurable IPv6 outcome back into a critical pass",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        passed=None,\n        severity=Severity.CRITICAL.value,\n        state=ProbeState.UNKNOWN.value,",
+      "new": "        passed=True,\n        severity=Severity.CRITICAL.value,\n        state=ProbeState.PASS.value,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py::test_unmeasurable_does_not_advance_or_report_a_confirmed_leak"
+    }
+  ]
+}
