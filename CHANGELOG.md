@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1269 - the register records the version a row actually shipped in
+
+- Added the repo-wide changelog gate and registered it in the toolchain CI sh
+- Corrected row 250 to `CLOSED @1257`, verified against the v3.66.1257 socket
+- Filed row 263 as `OPEN` with no version tag.
+- Header now reports `rows=247 open=4` with digest `fa5d3d6da48475601ebbe2c41
+- No forbidden release/generated files were touched or staged.
+- RED before fix: 1 failed; `CLOSED @1111` survived the supplied `3.66.4321`.
+- GREEN after fix: 44 focused tests passed.
+- Real gate: 229 of 229 CLOSED rows checked, zero missing versions.
+- Invalid `CLOSED @9999`: failed with the expected absent-version assertion.
+- Existing-version negative control: passed.
+- Mutation removing the restamp: 1 CAUGHT, zero other outcomes.
+- Identical help-only transform control: ESCAPED as required.
+- Durable mutation-spec validation: 10 passed.
+
 ## v3.66.1268 - a failed toolchain measurement no longer reads as success
 
 -    'bandit>=1.7' 'semgrep>=1.50' 'pip-audit>=2.6' 'ruff>=0.4' \

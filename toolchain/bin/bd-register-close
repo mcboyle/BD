@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Stamp one canonical register row with the integrator's release version.
+
+This command is the repository-owned close step for ``bd-integrate-row.sh``.
+It runs after the release trio is written and after worker rows are merged.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+from pathlib import Path
+import re
+
+
+_HEADER = re.compile(
+    r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
+    r"ids-sha256=[0-9a-f]{64} -->"
+)
+_VERSION = re.compile(r"v?\d+\.\d+\.(\d+)")
+_CLOSED_STATUS = re.compile(r"^CLOSED\b(?:\s+@\S+)?")
+
+
+def _derive_backlog(repo: Path, text: str) -> tuple[int, int, str, list[str]]:
+    source = repo / "project-knowledge" / "build_current_overlay.py"
+    spec = importlib.util.spec_from_file_location("_bd_current_overlay", source)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load canonical register parser from {source}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result = module.derive_backlog(text)
+    if result is None:
+        raise ValueError("canonical register parser examined zero rows")
+    return result
+
+
+def close_row(repo: Path, row: int, version: str) -> tuple[int, int, str]:
+    version_match = _VERSION.fullmatch(version)
+    if version_match is None:
+        raise ValueError(f"version must have three numeric components: {version!r}")
+    release = version_match.group(1)
+
+    path = repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+    text = path.read_text(encoding="ascii")
+    row_pattern = re.compile(
+        rf"^(?P<prefix>\|\s*{row}\s*\|\s*)(?P<status>[^|]+)(?P<suffix>\|)",
+        re.MULTILINE,
+    )
+    matches = list(row_pattern.finditer(text))
+    if len(matches) != 1:
+        raise ValueError(f"row {row} occurs {len(matches)} times in the register")
+
+    match = matches[0]
+    status = match.group("status").strip()
+    if _CLOSED_STATUS.match(status):
+        replacement = _CLOSED_STATUS.sub(f"CLOSED @{release}", status, count=1)
+    elif status == "OPEN":
+        replacement = f"CLOSED @{release}"
+    else:
+        raise ValueError(f"row {row} is {status!r}, not OPEN or CLOSED")
+
+    text = (
+        text[: match.start("status")]
+        + f"{replacement} "
+        + text[match.end("status") :]
+    )
+    rows, opened, digest, _ = _derive_backlog(repo, text)
+    marker = (
+        f"<!-- canonical-task-register schema=1 rows={rows} open={opened} "
+        f"ids-sha256={digest} -->"
+    )
+    header_count = len(_HEADER.findall(text))
+    if header_count != 1:
+        raise ValueError("canonical register header occurs other than once")
+    text = _HEADER.sub(marker, text, count=1)
+
+    verify_rows, verify_opened, verify_digest, _ = _derive_backlog(repo, text)
+    if (rows, opened, digest) != (verify_rows, verify_opened, verify_digest):
+        raise ValueError("register header does not survive canonical re-derivation")
+    path.write_text(text, encoding="ascii")
+    return rows, opened, digest
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("--row", type=int, required=True)
+    parser.add_argument("--version", required=True)
+    args = parser.parse_args()
+    rows, opened, _ = close_row(args.repo, args.row, args.version)
+    print(
+        f"row {args.row} closed at @{args.version.split('.')[-1]}; "
+        f"rows={rows} open={opened}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

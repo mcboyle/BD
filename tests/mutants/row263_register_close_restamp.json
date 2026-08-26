@@ -1,0 +1,20 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 263. Re-run from a detached standalone scratch tree: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row263_register_close_restamp.json --work SCRATCH. The mutant removes the authoritative restamp for a row already carrying a worker-supplied CLOSED tag. The named catcher builds a one-row register, runs the real close command with a different serialized-cut version, and requires the old tag to disappear. The separate transform-control spec applies the identical valid transform under a help-only test and must ESCAPE.",
+  "subject": "an integrator close always restamps an already CLOSED worker row with the actual release version",
+  "band": [
+    "tests/test_register_closed_versions_exist.py::test_an_already_closed_worker_row_is_restamped_with_the_integrators_version",
+    "tests/test_register_closed_versions_exist.py::test_an_open_row_is_closed_with_the_integrators_version",
+    "tests/test_register_closed_versions_exist.py::test_restamping_preserves_a_closed_rows_status_annotation"
+  ],
+  "mutants": [
+    {
+      "label": "M1 an existing CLOSED tag is trusted instead of being restamped by the integrator",
+      "file": "toolchain/bin/bd-register-close",
+      "old": "        replacement = _CLOSED_STATUS.sub(f\"CLOSED @{release}\", status, count=1)\n",
+      "new": "        replacement = status\n",
+      "direction": "regression",
+      "catcher": "tests/test_register_closed_versions_exist.py::test_an_already_closed_worker_row_is_restamped_with_the_integrators_version"
+    }
+  ]
+}

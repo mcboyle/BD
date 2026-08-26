@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 263 transform control. This deliberately must ESCAPE: it removes the same authoritative CLOSED-tag restamp, but its only test executes the close command's help path and asserts no register behavior. That proves the main battery's CAUGHT verdict is caused by the wrong surviving tag rather than by an invalid transform, import failure, or collection failure.",
+  "subject": "transform-only control for removal of the authoritative register restamp",
+  "band": [
+    "tests/test_register_closed_versions_exist.py::test_transform_control_only_exercises_the_close_commands_help"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 an existing CLOSED tag is trusted while the help-only control stays green",
+      "file": "toolchain/bin/bd-register-close",
+      "old": "        replacement = _CLOSED_STATUS.sub(f\"CLOSED @{release}\", status, count=1)\n",
+      "new": "        replacement = status\n",
+      "direction": "regression",
+      "catcher": "tests/test_register_closed_versions_exist.py::test_transform_control_only_exercises_the_close_commands_help"
+    }
+  ]
+}
