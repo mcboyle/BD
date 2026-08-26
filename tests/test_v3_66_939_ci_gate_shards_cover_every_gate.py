@@ -351,6 +351,11 @@ _DECLARED = {
     "tests/test_v3_66_1040_remote_job_registry.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1031_socket_recorder_stages.py",
+    # @1256. This drives real serial and -n 2 subprocess sessions because its
+    # subject is the ordering between pytest cleanup/summary hooks and the
+    # worker/master filesystem boundary. No application-module diff can derive
+    # that population, and a missing run is the same silent clean zero it pins.
+    "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",
     "tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py",
     # @1085. The isolation shard. Its subject is the test SESSION's module
