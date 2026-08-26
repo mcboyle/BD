@@ -94,7 +94,6 @@ ALLOWLIST: Mapping[str, str] = {
     "tests/test_element_pick_bridge.py": ADVERSARIAL_FIXTURE,
     "tests/test_element_pick_selector.py": ADVERSARIAL_FIXTURE,
     "tests/test_env_parity_sees_the_real_browser_pool.py": ADVERSARIAL_FIXTURE,
-    "tests/test_fixture_recognizer_loop.py": ADVERSARIAL_FIXTURE,
     "tests/test_fresh_install_gui_smoke.py": ADVERSARIAL_FIXTURE,
     "tests/test_generated_artifact_workflow.py": ADVERSARIAL_FIXTURE,
     "tests/test_guardcheck_fails_closed.py": ADVERSARIAL_FIXTURE,
@@ -176,7 +175,6 @@ FIXTURE_JUDGMENTS: Mapping[str, str] = {
     "tests/test_element_pick_bridge.py": "runtime_fixture",
     "tests/test_element_pick_selector.py": "runtime_fixture",
     "tests/test_env_parity_sees_the_real_browser_pool.py": "retired_path_detector",
-    "tests/test_fixture_recognizer_loop.py": "runtime_fixture",
     "tests/test_fresh_install_gui_smoke.py": "runtime_fixture",
     "tests/test_generated_artifact_workflow.py": "retired_path_detector",
     "tests/test_guardcheck_fails_closed.py": "retired_path_detector",
@@ -199,7 +197,6 @@ FIXTURE_OCCURRENCE_COUNTS: Mapping[str, int] = {
     "tests/test_element_pick_bridge.py": 1,
     "tests/test_element_pick_selector.py": 1,
     "tests/test_env_parity_sees_the_real_browser_pool.py": 6,
-    "tests/test_fixture_recognizer_loop.py": 2,
     "tests/test_fresh_install_gui_smoke.py": 1,
     "tests/test_generated_artifact_workflow.py": 1,
     "tests/test_guardcheck_fails_closed.py": 3,
@@ -224,7 +221,6 @@ FIXTURE_ANCHORS: Mapping[str, str] = {
     "tests/test_element_pick_bridge.py": "/.cache/ms-playwright/chromium-1223",
     "tests/test_element_pick_selector.py": "/.cache/ms-playwright/chromium-1223",
     "tests/test_env_parity_sees_the_real_browser_pool.py": "",
-    "tests/test_fixture_recognizer_loop.py": "/.cache/ms-playwright",
     "tests/test_fresh_install_gui_smoke.py": "/.cache/ms-playwright/chromium-1223",
     "tests/test_generated_artifact_workflow.py": "/bin/bd-regen-order",
     "tests/test_guardcheck_fails_closed.py": "/nextsess/STATE.json",
@@ -365,14 +361,15 @@ def test_no_new_sandbox_home_carriers():
     )
 
 
-def test_current_release_census_matches_the_executable_whole_tree_denominator():
+def test_tree_census_shrinks_while_the_release_record_stays_historical():
     carriers = _tracked_carriers()
     occurrences = _tracked_occurrences()
-    assert len(carriers) == 71
-    assert occurrences == 260
+    assert len(carriers) == 70
+    assert occurrences == 258
 
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     current = changelog.split("## v3.66.1192", 1)[1].split("## v3.66.1191", 1)[0]
+    # This is evidence for the v3.66.1192 tree, not a mutable current-tree count.
     assert "71 carrier files and 260" in current
     assert "71 carrier files and 259" not in current
 
@@ -486,7 +483,6 @@ def test_fixture_occurrences_and_semantic_anchors_are_exact():
         "tests/test_element_pick_bridge.py": 1,
         "tests/test_element_pick_selector.py": 1,
         "tests/test_env_parity_sees_the_real_browser_pool.py": 6,
-        "tests/test_fixture_recognizer_loop.py": 2,
         "tests/test_fresh_install_gui_smoke.py": 1,
         "tests/test_generated_artifact_workflow.py": 1,
         "tests/test_guardcheck_fails_closed.py": 3,
@@ -502,7 +498,7 @@ def test_fixture_occurrences_and_semantic_anchors_are_exact():
         "tests/test_v3_66_799_audit_tool_selftests.py": 1,
     }
     assert globals().get("FIXTURE_OCCURRENCE_COUNTS") == expected_counts
-    assert sum(FIXTURE_OCCURRENCE_COUNTS.values()) == 50
+    assert sum(FIXTURE_OCCURRENCE_COUNTS.values()) == 48
     assert set(FIXTURE_ANCHORS) == set(expected_counts)
 
     errors = _fixture_preservation_errors(

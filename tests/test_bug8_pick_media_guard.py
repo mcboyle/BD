@@ -49,8 +49,9 @@ def test_click_handler_still_present():
 
 def test_injected_js_is_syntactically_valid():
     node = shutil.which("node")
-    if not node:
-        return  # node not available in this env; the string-content tests still guard
+    assert node is not None, (
+        "UNKNOWN: Node is unavailable, so ACTIVE_PICK_JS syntax was not checked"
+    )
     with tempfile.TemporaryDirectory() as td:
         f = Path(td) / "pick.js"
         # minimal shims so top-level references resolve during a syntax check
@@ -60,6 +61,23 @@ def test_injected_js_is_syntactically_valid():
         r = subprocess.run([node, "--check", str(f)],
                            capture_output=True, text=True, timeout=30)
         assert r.returncode == 0, f"injected pick JS is not valid JS:\n{r.stderr}"
+
+
+def test_syntax_gate_distinguishes_missing_node_from_valid_javascript():
+    """A missing parser cannot return normally like a successful parse."""
+    real_which = shutil.which
+    shutil.which = lambda _name: None
+    try:
+        raised = None
+        try:
+            test_injected_js_is_syntactically_valid()
+        except AssertionError as exc:
+            raised = str(exc)
+        assert raised is not None and "UNKNOWN" in raised, (
+            "the JavaScript syntax gate returned OK without a parser"
+        )
+    finally:
+        shutil.which = real_which
 
 
 if __name__ == "__main__":

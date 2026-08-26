@@ -29,6 +29,7 @@ tests below compare the two byte for byte rather than spot-checking fields.
 """
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -69,10 +70,10 @@ def _corpus(root, sites=4, per_site=3):
     return root
 
 
-def _run(root, *extra, expect_rc=(0, 1)):
+def _run(root, *extra, expect_rc=(0, 1), env=None):
     r = subprocess.run([sys.executable, str(TOOL), "--root", str(root),
                         "--templates", "--json", *extra],
-                       capture_output=True, text=True, timeout=1800)
+                       capture_output=True, text=True, timeout=1800, env=env)
     assert r.returncode in expect_rc, (
         "rc=%d\nstdout=%s\nstderr=%s" % (r.returncode, r.stdout[-800:], r.stderr[-1500:]))
     return r
@@ -92,6 +93,31 @@ def _answer(r):
     m = _mode(r)
     m.pop("jobs", None)
     return m
+
+
+def _cpu_count_environment(root: pathlib.Path, advertised: int) -> dict[str, str]:
+    """Make a child interpreter report an exact synthetic core count."""
+    shim = root / "cpu-shim"
+    shim.mkdir(parents=True)
+    (shim / "sitecustomize.py").write_text(
+        "import os\nos.cpu_count = lambda: %d\n" % advertised,
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    inherited = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(shim) + (os.pathsep + inherited if inherited else "")
+    probe = subprocess.run(
+        [sys.executable, "-c", "import os; print(os.cpu_count())"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert probe.returncode == 0 and probe.stdout.strip() == str(advertised), (
+        "the synthetic core-count precondition was not established: "
+        f"rc={probe.returncode}, stdout={probe.stdout!r}, stderr={probe.stderr!r}"
+    )
+    return env
 
 
 def test_PARALLEL_output_is_IDENTICAL_to_serial(tmp_path):
@@ -156,13 +182,23 @@ def test_JOBS_defaults_to_SERIAL_so_an_existing_call_is_unchanged(tmp_path):
 def test_JOBS_ZERO_means_AUTO_and_the_run_REPORTS_what_it_used(tmp_path):
     """A run whose parallelism is invisible cannot be compared against another
     run's wall time, which is the only reason anyone reaches for --jobs."""
-    _corpus(tmp_path, sites=2, per_site=2)
-    auto = _mode(_run(tmp_path, "--jobs", "0"))
-    import os
-    assert auto["jobs"] == max(1, os.cpu_count() or 1), (
-        "--jobs 0 did not resolve to one worker per core: %r" % auto["jobs"])
-    assert _answer(_run(tmp_path)) == {k: v for k, v in auto.items() if k != "jobs"}, (
-        "auto-parallel disagreed with serial")
+    corpus = _corpus(tmp_path / "corpus", sites=2, per_site=2)
+    serial = _answer(_run(corpus))
+    measured = set()
+    for advertised in (1, 4):
+        env = _cpu_count_environment(tmp_path / f"host-{advertised}", advertised)
+        auto = _mode(_run(corpus, "--jobs", "0", env=env))
+        assert auto["jobs"] == advertised, (
+            "--jobs 0 ignored the synthetic core count: "
+            f"advertised={advertised}, reported={auto['jobs']}"
+        )
+        measured.add(auto["jobs"])
+        assert serial == {k: v for k, v in auto.items() if k != "jobs"}, (
+            f"auto-parallel disagreed with serial at {advertised} cores"
+        )
+    assert measured == {1, 4}, (
+        f"the test did not reach both serial and multi-core auto states: {measured}"
+    )
 
 
 def test_PROGRESS_goes_to_STDERR_and_never_pollutes_the_JSON(tmp_path):

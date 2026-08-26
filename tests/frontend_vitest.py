@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -94,12 +95,17 @@ def run_vitest(spec: str, *, expected_tests: int) -> None:
     )
 
 
-def build_manifest() -> dict[str, object]:
-    """Typecheck and build an isolated SPA copy, returning its fresh manifest."""
-    assert TSC.is_file() and VITE.is_file(), "frontend build tools unavailable"
+@contextmanager
+def isolated_spa_dist(source: Path = FRONTEND):
+    """Yield a fresh Vite output owned by a temporary copied frontend."""
+    node = shutil.which("node")
+    assert node is not None, (
+        "UNKNOWN: Node is unavailable, so the frontend build subject cannot be "
+        "measured"
+    )
     with tempfile.TemporaryDirectory(prefix="bd_frontend_manifest_") as raw_tmp:
         workspace = Path(raw_tmp)
-        frontend = _copy_frontend_for_build(FRONTEND, workspace / "frontend")
+        frontend = _copy_frontend_for_build(source, workspace / "frontend")
         dist = workspace / "dist"
         assert not dist.exists(), f"owned build output already exists: {dist}"
         tsc = frontend / "node_modules" / ".bin" / "tsc"
@@ -128,6 +134,17 @@ def build_manifest() -> dict[str, object]:
         assert manifest_path.is_file(), (
             "Vite build did not produce owned dist/.vite/manifest.json"
         )
+        index_path = dist / "index.html"
+        assert index_path.is_file(), (
+            "Vite build did not produce owned dist/index.html"
+        )
+        yield dist
+
+
+def build_manifest(source: Path = FRONTEND) -> dict[str, object]:
+    """Typecheck and build an isolated SPA copy, returning its fresh manifest."""
+    with isolated_spa_dist(source) as dist:
+        manifest_path = dist / ".vite" / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert manifest, "Vite manifest is empty"
         return manifest

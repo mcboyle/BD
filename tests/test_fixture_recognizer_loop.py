@@ -9,10 +9,9 @@ server (in-process, no port race) + a direct seam-detector call on the fetched
 DOM, so it runs reliably under run_tests.py.
 
 run_tests.py conventions: zero-arg test_* functions, plain asserts, no pytest
-builtins, layout-flexible. Needs the staged chromium (skips cleanly if absent).
+builtins, layout-flexible. A missing Playwright runtime or browser is UNKNOWN.
 """
 import importlib.util
-import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -61,9 +60,14 @@ def _load_player_recognition():
     return m
 
 
-def _have_chromium():
-    import glob
-    return bool(glob.glob("/home/claude/.cache/ms-playwright/chromium*"))
+def _chromium_executable(browser_type):
+    """Resolve the executable from Playwright's configured/default pool."""
+    executable = Path(browser_type.executable_path)
+    assert executable.is_file(), (
+        "UNKNOWN: Playwright Chromium is unavailable at its resolved path "
+        f"{executable}"
+    )
+    return executable
 
 
 def test_seam_detector_on_raw_fixture_html():
@@ -76,25 +80,33 @@ def test_seam_detector_on_raw_fixture_html():
 
 def test_headless_fixture_recognizer_loop():
     """Full loop: serve the fixture, load it headless, seam detector fires on the
-    browser-rendered DOM. Skips cleanly if chromium isn't staged."""
-    if not _have_chromium():
-        print("  SKIP: chromium not staged")
-        return
+    browser-rendered DOM. Missing browser capability is a loud UNKNOWN."""
     try:
         from playwright.sync_api import sync_playwright
-    except Exception:
-        print("  SKIP: playwright not importable")
-        return
+    except Exception as exc:
+        raise AssertionError(
+            f"UNKNOWN: Playwright is not importable, so no DOM was rendered: {exc}"
+        ) from exc
     url, stop = _serve_once()
     try:
-        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH",
-                              "/home/claude/.cache/ms-playwright")
-        with sync_playwright() as p:
-            b = p.chromium.launch(headless=True)
-            pg = b.new_page()
-            pg.goto(url, timeout=20000, wait_until="domcontentloaded")
-            dom = pg.content()
-            b.close()
+        try:
+            with sync_playwright() as p:
+                executable = _chromium_executable(p.chromium)
+                assert executable.is_file()
+                b = p.chromium.launch(headless=True)
+                try:
+                    pg = b.new_page()
+                    pg.goto(url, timeout=20000, wait_until="domcontentloaded")
+                    dom = pg.content()
+                finally:
+                    b.close()
+        except AssertionError:
+            raise
+        except Exception as exc:
+            raise AssertionError(
+                "UNKNOWN: Playwright Chromium could not render the fixture: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
     finally:
         stop()
     assert ".setup(" in dom or "jwplayer(" in dom, \
@@ -103,6 +115,29 @@ def test_headless_fixture_recognizer_loop():
     res = pr.extract_config_seam(dom)
     assert isinstance(res, dict) and res.get("seam") == "jwplayer_playlist", \
         f"seam detector did not fire on the headless-rendered DOM: {res}"
+
+
+def test_chromium_resolution_distinguishes_present_from_missing():
+    """The capability resolver reaches both its healthy and UNKNOWN states."""
+    import tempfile
+    from types import SimpleNamespace
+
+    with tempfile.TemporaryDirectory(prefix="bd_chromium_resolver_") as raw:
+        present = Path(raw) / "chrome"
+        present.write_bytes(b"fixture executable identity\n")
+        assert _chromium_executable(
+            SimpleNamespace(executable_path=str(present))
+        ) == present
+
+        missing = Path(raw) / "missing-chrome"
+        raised = None
+        try:
+            _chromium_executable(SimpleNamespace(executable_path=str(missing)))
+        except AssertionError as exc:
+            raised = str(exc)
+        assert raised is not None and "UNKNOWN" in raised, (
+            "a missing browser executable was reported as healthy"
+        )
 
 
 if __name__ == "__main__":

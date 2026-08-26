@@ -7,11 +7,12 @@ version, then runs the app's own plugin lifecycle contract against a generated
 fixture plugin -- `node <file> --manifest` must print one JSON line with
 api_version/kind/name, and `node <file> <event>` must round-trip a JSON payload
 on stdin->stdout. Confirms the tree's plugin_node.probe_manifest agrees. An
-absent node runtime is a clean skip, never a crash. Read-only (uses a temp
-fixture; touches nothing in the tree).
+absent node runtime is UNKNOWN, never a successful selftest. Read-only (uses a
+temp fixture; touches nothing in the tree).
 
 Usage: bd-node-plugin-check [--work DIR] [--node BIN] [--json] [--selftest]
-Exit 0 if node present + lifecycle round-trips, else 1.
+Exit 0 if node present + lifecycle round-trips, 1 for a measured failure, and
+2 for UNKNOWN when the runtime or tree probe is unavailable.
 """
 import argparse
 import json
@@ -61,7 +62,7 @@ def probe(node_bin, work):
            "tree_probe_agrees": None, "error": None}
     path = out["path"]
     if not path:
-        out["error"] = f"node runtime not found ({node_bin!r}) -- clean skip"
+        out["error"] = f"UNKNOWN: node runtime not found ({node_bin!r})"
         return out
     out["available"] = True
     try:
@@ -124,9 +125,9 @@ def selftest():
     node = resolve_node(None, sec.DEFAULT_WORK)
     res = probe(node, sec.DEFAULT_WORK)
     if not res["available"]:
-        print(f"WARN  node runtime absent -- clean skip ({res['error']})")
-        print("SELFTEST PASS (node absent, skip is correct)")
-        return 0
+        print(f"UNKNOWN  node runtime absent ({res['error']})")
+        print("SELFTEST UNKNOWN (plugin lifecycle not executed)")
+        return 2
     print(("PASS" if res["version"] else "FAIL") + f"  node available (v={res['version']})")
     ok &= bool(res["version"])
     print(("PASS" if res["manifest_ok"] else "FAIL") + "  --manifest contract round-trips")
@@ -134,9 +135,12 @@ def selftest():
     print(("PASS" if res["event_ok"] else "FAIL") + "  event JSON payload round-trips")
     ok &= res["event_ok"]
     agree = res["tree_probe_agrees"]
-    print(("PASS" if agree else "WARN") +
+    print(("PASS" if agree else ("FAIL" if agree is False else "UNKNOWN")) +
           f"  tree plugin_node.probe_manifest agrees ({agree})")
-    ok &= (agree is not False)
+    if agree is None:
+        print("SELFTEST UNKNOWN (tree probe unavailable)")
+        return 2
+    ok &= agree
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -152,18 +156,23 @@ def main():
         return selftest()
     sec.require_source_tree(a.work)
     res = probe(resolve_node(a.node, a.work), a.work)
-    good = res["available"] and res["manifest_ok"] and res["event_ok"]
+    unknown = not res["available"] or res["tree_probe_agrees"] is None
+    good = (res["available"] and res["manifest_ok"] and res["event_ok"]
+            and res["tree_probe_agrees"] is True)
     if sec.emit(res, as_json=a.json):
-        return 0 if good else 1
+        return 2 if unknown else (0 if good else 1)
     if not res["available"]:
-        print(f"{Y}node runtime not available{RST}: {res['error']}")
-        return 1
+        print(f"{Y}UNKNOWN - node runtime not available{RST}: {res['error']}")
+        return 2
     print(f"{G}node available{RST}: {res['path']}  {DIM}{res['version']}{RST}")
     print(f"  --manifest contract: {(G+'ok'+RST) if res['manifest_ok'] else (R+'FAIL'+RST)}")
     print(f"  event round-trip:    {(G+'ok'+RST) if res['event_ok'] else (R+'FAIL'+RST)}")
     print(f"  tree probe agrees:   {res['tree_probe_agrees']}")
     if res["error"]:
         print(f"  {DIM}{res['error']}{RST}")
+    if unknown:
+        print(f"{Y}UNKNOWN - tree plugin probe unavailable{RST}")
+        return 2
     return 0 if good else 1
 
 

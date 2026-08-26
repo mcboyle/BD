@@ -12,7 +12,8 @@ A thin Python shim is registered into the SAME registries as ``.py`` plugins
 (processor / hook / extractor), so the rest of BD is runtime-agnostic. Node
 plugins honor the same full-access gate as ``.py`` (a manifest declaring a
 gated capability is skipped unless allow_full_access). ``BD_PLUGINS_NODE_BIN``
-overrides the node binary; an absent runtime is a clean skip, never a crash.
+overrides the node binary. Product discovery cleanly skips an absent runtime;
+the positive lifecycle gates report that absence as UNKNOWN and fail loudly.
 
 Runner-safe: zero-arg test fns, no pytest builtins, paths from __file__,
 tempfile.mkdtemp, module globals restored in try/finally.
@@ -20,6 +21,7 @@ tempfile.mkdtemp, module globals restored in try/finally.
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -32,6 +34,13 @@ from bulk_downloader import plugins as P  # noqa: E402
 
 _NODE = os.environ.get("BD_PLUGINS_NODE_BIN", "node")
 _HAVE_NODE = bool(shutil.which(_NODE))
+
+
+def _require_node_runtime():
+    assert _HAVE_NODE, (
+        f"UNKNOWN: Node runtime {_NODE!r} is unavailable, so the plugin "
+        "lifecycle was not executed"
+    )
 
 
 def _with_plugin_dir(tmp):
@@ -88,8 +97,7 @@ def test_node_module_importable():
 
 
 def test_node_processor_discovered_and_runs():
-    if not _HAVE_NODE:
-        return  # clean skip; on-stash + sandbox both have node
+    _require_node_runtime()
     tmp = tempfile.mkdtemp()
     orig = _with_plugin_dir(tmp)
     try:
@@ -109,9 +117,71 @@ def test_node_processor_discovered_and_runs():
         P.reset()
 
 
+def test_node_runtime_gate_is_unknown_when_node_is_absent():
+    """The positive lifecycle gate must not return normally over no runtime."""
+    global _HAVE_NODE
+    saved = _HAVE_NODE
+    try:
+        _HAVE_NODE = False
+        raised = None
+        try:
+            test_node_processor_discovered_and_runs()
+        except AssertionError as exc:
+            raised = str(exc)
+        assert raised is not None and "UNKNOWN" in raised, (
+            "the Node lifecycle gate returned OK without executing a plugin"
+        )
+    finally:
+        _HAVE_NODE = saved
+
+
+def test_node_plugin_selftest_reports_absence_as_unknown():
+    """Selftest exit 0 is reserved for a completed lifecycle round-trip."""
+    tool = _REPO / "toolchain" / "bin" / "bd-node-plugin-check"
+    env = dict(os.environ)
+    env["BD_PLUGINS_NODE_BIN"] = "/definitely-missing/node-row-host-shape"
+    proc = subprocess.run(
+        [sys.executable, str(tool), "--selftest"],
+        cwd=_REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 2 and "UNKNOWN" in (proc.stdout + proc.stderr), (
+        "the selftest reported healthy without a Node runtime: "
+        f"rc={proc.returncode}\n{proc.stdout}{proc.stderr}"
+    )
+
+
+def test_node_plugin_selftest_runs_the_healthy_lifecycle():
+    """The state opposite UNKNOWN executes every advertised selftest subject."""
+    _require_node_runtime()
+    tool = _REPO / "toolchain" / "bin" / "bd-node-plugin-check"
+    env = dict(os.environ)
+    env["BD_PLUGINS_NODE_BIN"] = str(shutil.which(_NODE))
+    proc = subprocess.run(
+        [sys.executable, str(tool), "--selftest"],
+        cwd=_REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, f"healthy Node selftest failed:\n{output}"
+    for measured in (
+        "node available",
+        "--manifest contract round-trips",
+        "event JSON payload round-trips",
+        "tree plugin_node.probe_manifest agrees",
+    ):
+        assert measured in output, f"selftest did not report {measured!r}:\n{output}"
+    assert "UNKNOWN" not in output
+
+
 def test_node_hook_discovered_and_fires():
-    if not _HAVE_NODE:
-        return
+    _require_node_runtime()
     tmp = tempfile.mkdtemp()
     orig = _with_plugin_dir(tmp)
     try:
@@ -151,8 +221,7 @@ def test_node_absent_is_clean_skip():
 
 
 def test_node_gated_capability_skipped_when_gate_off():
-    if not _HAVE_NODE:
-        return
+    _require_node_runtime()
     tmp = tempfile.mkdtemp()
     orig = _with_plugin_dir(tmp)
     try:

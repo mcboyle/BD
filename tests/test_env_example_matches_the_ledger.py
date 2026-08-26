@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 INVENTORY_TOOL = REPO_ROOT / "tools" / "config_surface_inventory.py"
 INVENTORY_JSON = REPO_ROOT / "reports" / "config_surface_inventory.json"
+PYTHON = Path(sys.executable)
 
 
 def _documented_bd_names() -> list[str]:
@@ -51,7 +53,7 @@ def _ledger_keys() -> set[str]:
     and unknown fails rather than silently passing.
     """
     proc = subprocess.run(
-        [str(REPO_ROOT / "venv" / "bin" / "python"), str(INVENTORY_TOOL)],
+        [str(PYTHON), str(INVENTORY_TOOL)],
         cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=300,
     )
     if proc.returncode != 0 or not INVENTORY_JSON.is_file():
