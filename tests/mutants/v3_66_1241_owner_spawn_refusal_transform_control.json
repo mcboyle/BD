@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 221. This battery is EXPECTED to exit 1 with exactly one ESCAPED valid mutant: its only catcher imports bd-wedge-hunt and asserts no owner-fork behavior. If this mutant is caught here, an import or transform failure is masquerading as behavioral evidence in the primary battery.",
+  "subject": "transform-only control proving the exhausted-capacity mutant remains importable without a behavioral owner-fork assertion",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_it_imports_without_side_effects"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL the valid exhausted-capacity regression must ESCAPE an import-only test",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    if [ \"$W1_NPROC_LIMIT\" -le 1 ]; then\n        W1_OWNER_FORK_CAPACITY=EXHAUSTED\n        return 1\n    fi",
+      "new": "    if [ \"$W1_NPROC_LIMIT\" -le 1 ]; then\n        W1_OWNER_FORK_CAPACITY=AVAILABLE\n        return 0\n    fi",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_it_imports_without_side_effects"
+    }
+  ]
+}
