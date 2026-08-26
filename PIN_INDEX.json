@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 88,
+    "total": 90,
     "version": 1,
-    "count_dict": 87,
-    "test_files_scanned": 1439,
+    "count_dict": 89,
+    "test_files_scanned": 1440,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -53,6 +53,7 @@
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
+      "tests/test_v3_66_283_bd_claim_transactions.py": 2,
       "tests/test_v3_66_302_gui_parity_reconcile.py": 1,
       "tests/test_v3_66_491_sink_plugins.py": 1,
       "tests/test_v3_66_497_plugin_kv.py": 1,
@@ -254,7 +255,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1279",
+      "value": "3.66.1280",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -816,6 +817,28 @@
         "jwplayer_resolved_dash": 1
       },
       "gates_what": "test_multi_entry_feed_flattens_with_indices"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_283_bd_claim_transactions.py",
+      "line": 300,
+      "value": {
+        "rc": 0,
+        "write_fires": 1
+      },
+      "gates_what": "_assert_common_preconditions"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_283_bd_claim_transactions.py",
+      "line": 311,
+      "value": {
+        "begin-A": 1,
+        "begin-B": 1,
+        "end-A": 1,
+        "end-B": 1
+      },
+      "gates_what": "_assert_common_preconditions"
     },
     {
       "form": "count_dict",

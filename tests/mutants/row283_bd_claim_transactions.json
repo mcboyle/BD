@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 283 real-process claim transaction battery. M1 removes the OS-backed exclusion that keeps a reader away from a truncated in-flight record. M2 restores last-writer-wins same-owner publication after serialized adders. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row283_bd_claim_transactions.json --work DETACHED_SCRATCH. The separate transform-control spec applies the identical M1 transform to an import-only test and must ESCAPE.",
+  "subject": "bd-claim readers cannot erase an in-flight claim and concurrent same-owner adders preserve both path sets",
+  "band": [
+    "tests/test_v3_66_283_bd_claim_transactions.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 claim registry operations no longer acquire the process lock",
+      "file": "toolchain/bin/bd-claim",
+      "old": "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n        try:\n            yield",
+      "new": "        try:\n            yield",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_283_bd_claim_transactions.py::test_concurrent_reader_cannot_erase_a_claim_mid_write"
+    },
+    {
+      "label": "M2 same-owner add replaces rather than unions the prior path set",
+      "file": "toolchain/bin/bd-claim",
+      "old": "        merged_paths = set(paths)\n        for current in current_claims:\n            if current.get(\"owner\") == tok:\n                merged_paths.update(current.get(\"paths\", []))",
+      "new": "        merged_paths = set(paths)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_283_bd_claim_transactions.py::test_concurrent_adders_preserve_both_path_sets"
+    }
+  ]
+}
