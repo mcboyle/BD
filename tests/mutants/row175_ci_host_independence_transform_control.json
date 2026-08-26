@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for Row 175. This applies the exact M2 transform while the only named test imports the helper and checks callability without exercising authority-fd reporting. It must ESCAPE, proving the main battery's M2 catch is a behavioural assertion rather than an import or parse failure.",
+  "subject": "transform control -- importing the runner helper does not constrain authority descriptor selection",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_host_fd_transform_control_imports_without_judging_authority_fds"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 fixed descriptor reporting remains importable when no behaviour is asserted",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "            '\"$W1_GATE_WRITE_FD\" \"$W1_GATE_READ_FD\" > %s \\\\\\n'",
+      "new": "            '\"0\" \"3\" > %s \\\\\\n'",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_host_fd_transform_control_imports_without_judging_authority_fds"
+    }
+  ]
+}

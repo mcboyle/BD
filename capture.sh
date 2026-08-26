@@ -185,23 +185,29 @@ fi
 
 # shellcheck source=scripts/lib/capture_run_dir.sh
 . "$(dirname "$0")/scripts/lib/capture_run_dir.sh"
+# shellcheck source=scripts/lib/capture_instance.sh
+. "$(dirname "$0")/scripts/lib/capture_instance.sh"
 CAPTURE_KEEP="${CAPTURE_KEEP:-5}"
 bd_test_root_gc "$(dirname "$0")" || true
 bd_capture_prune "$CAPTURE_KEEP" || true
 CAPTURE_RUN_ID="$(bd_capture_run_id "$(dirname "$0")")"
 OUT="/tmp/bd_capture-${CAPTURE_RUN_ID}"
 ARCHIVE="/tmp/bd_capture-${CAPTURE_RUN_ID}.tar.gz"
+CAPTURE_MODE="$(bd_capture_mode "$@")" || exit $?
 
 # ── Arg parsing ──────────────────────────────────────────────────
 # Before this edit capture.sh ignored ALL args, so `./capture.sh
 # --workers=90` silently ran the hardcoded --workers=4. Now --workers
-# is forwarded to step [2]'s pytest-xdist run. Unknown flags (e.g. a bare
-# --summary) are accepted and ignored for backward compatibility.
+# is forwarded to step [2]'s pytest-xdist run. --parallel opts into per-run
+# service and port ownership; without it, the v3.66.1191 singleton path stays
+# unchanged. Unknown flags (e.g. a bare --summary) are accepted and ignored
+# for backward compatibility.
 WORKERS=4
 while [ $# -gt 0 ]; do
   case "$1" in
     --workers=*) WORKERS="${1#*=}" ;;
     --workers)   shift; WORKERS="${1:-4}" ;;
+    --parallel)  ;;
     *)           ;;   # ignore unknown args (back-compat)
   esac
   shift
@@ -287,6 +293,11 @@ CAPTURE_VAULT_GLOBAL_DIR_FD=""
 CAPTURE_VAULT_DIR_FD=""
 CAPTURE_VAULT_DIR_LOCK_FD=""
 CAPTURE_VAULT_FD_PATH=""
+CAPTURE_INSTANCE_CLAIMED=0
+CAPTURE_INSTANCE_STARTED=0
+CAPTURE_INSTANCE_TEARDOWN_EXIT=0
+CAPTURE_INSTALL_DIR=""
+CAPTURE_LEGACY_SINGLETON=1
 # DO NOT CLOBBER AN INHERITED VALUE. This line was a bare
 # CAPTURE_VAULT_PW="" and it ran BEFORE the branch that reads the
 # variable, so `CAPTURE_VAULT_PW=x ./capture.sh` was wiped to empty and
@@ -474,11 +485,14 @@ capture_vault_dir_claim() {
   CAPTURE_VAULT_FILE="/proc/$$/fd/$CAPTURE_VAULT_DIR_FD/secrets.json"
 }
 
-# Every capture below rewrites/restarts the same unit and probes the same fixed
-# ports, even when credential-backed vault checks are skipped.  Claim the
-# singleton before deciding whether a vault is enabled, and hold it until the
-# process EXIT cleanup after every service-dependent stage has finished.
-capture_vault_claim || exit 73
+# The proven operator path stays serial by default. Only an explicit
+# --parallel selects a template instance and a distinct port pair. The
+# default expansion also keeps the executable v3.66.1191 vault seam faithful
+# when that block is driven independently of argument parsing.
+case "${CAPTURE_MODE:-serial}" in
+  parallel) CAPTURE_LEGACY_SINGLETON=0 ;;
+  serial) capture_vault_claim || exit 73 ;;
+esac
 
 # AN UNATTENDED CAPTURE MUST REACH THE SAME CHECKS AS AN ATTENDED ONE (@1064).
 #
@@ -514,6 +528,23 @@ else
   echo "  no TTY and no CAPTURE_VAULT_PW: capture vault skipped -- L6/L8 will WARN"
 fi
 
+if [ "$CAPTURE_LEGACY_SINGLETON" = "0" ]; then
+  # The descriptor-owned directory is the complete per-run application state,
+  # not only the optional credential file. Separate systemd instances that
+  # shared downloader_history.db would still delete one another's seeded rows.
+  capture_vault_dir_claim
+  CAPTURE_INSTANCE_CLAIMED=1
+  mkdir "$CAPTURE_VAULT_FD_PATH/state" || \
+    capture_vault_setup_refuse "per-run application state creation failed"
+  CAPTURE_INSTALL_DIR="/proc/$$/fd/$CAPTURE_VAULT_DIR_FD/state"
+  bd_capture_instance_init || exit $?
+else
+  CAPTURE_APP_ORIGIN="http://localhost:5555"
+  CAPTURE_FIXTURE_ORIGIN="http://127.0.0.1:8899"
+  CAPTURE_UNIT_INSTANCE="bulkdownloader.service"
+  CAPTURE_INSTALL_DIR="$BD_HOME"
+fi
+
 # `systemctl restart` returns once systemd has STARTED the unit, NOT once the
 # app is serving: waitress needs roughly three more seconds to bind :5555. A
 # boot journal shows "Started bulkdownloader.service" at 19:00:17 and
@@ -537,7 +568,7 @@ fi
 #
 # The probe uses the SAME origin steps [7] and [9] use. Polling 127.0.0.1 while
 # they use localhost would certify a socket they may never reach.
-CAPTURE_READY_URL="http://localhost:5555/api/health"
+CAPTURE_READY_URL="${CAPTURE_APP_ORIGIN}/api/health"
 CAPTURE_READY_TRIES=40
 SERVICE_READY_EXIT=0
 wait_for_service_ready() {
@@ -586,7 +617,7 @@ wait_for_service_ready() {
 # most needs to know their BD came back off the capture vault, and the wait
 # ends the moment it answers.
 cleanup_capture_vault() {
-  if [ "$CAPTURE_VAULT" = "1" ]; then
+  if [ "$CAPTURE_LEGACY_SINGLETON" = "1" ] && [ "$CAPTURE_VAULT" = "1" ]; then
     CAPTURE_VAULT=0
     CAPTURE_VAULT_PW=""
     sudo rm -f "$CAPTURE_VAULT_DROPIN" 2>/dev/null || true
@@ -611,6 +642,44 @@ cleanup_capture_vault() {
     echo "  service restarted on the operator vault"
     wait_for_service_ready || true
   fi
+}
+
+cleanup_capture_instance() {
+  local cleanup_exit=0
+  [ "$CAPTURE_LEGACY_SINGLETON" = "0" ] || return 0
+  if [ "$CAPTURE_INSTANCE_STARTED" = "1" ]; then
+    if "$BD_HOME/scripts/install_capture_service.sh" stop "$CAPTURE_RUN_ID" \
+        >> "$OUT/04_service_install.log" 2>&1; then
+      CAPTURE_INSTANCE_STARTED=0
+    else
+      cleanup_exit=$?
+      echo "  WARNING: capture instance stop failed; state and vault preserved: $CAPTURE_UNIT_INSTANCE" >&2
+      return "$cleanup_exit"
+    fi
+  fi
+  CAPTURE_VAULT_PW=""
+  if [ -n "$CAPTURE_VAULT_DIR_LOCK_FD" ]; then
+    exec {CAPTURE_VAULT_DIR_LOCK_FD}>&-
+    CAPTURE_VAULT_DIR_LOCK_FD=""
+  fi
+  if [ "$CAPTURE_INSTANCE_CLAIMED" = "1" ]; then
+    CAPTURE_INSTANCE_CLAIMED=0
+    if [ -n "$CAPTURE_VAULT_DIR_FD" ] && \
+       venv/bin/python toolchain/bin/bd-gc \
+         --finish-capture-vault "$CAPTURE_VAULT_DIR" \
+         --owned-fd "$CAPTURE_VAULT_DIR_FD"; then
+      echo "  descriptor-owned capture instance removed"
+    else
+      echo "  WARNING: capture instance removal refused; preserved for bounded forensics: $CAPTURE_VAULT_DIR" >&2
+      [ "$cleanup_exit" -ne 0 ] || cleanup_exit=74
+    fi
+  fi
+  if [ -n "$CAPTURE_VAULT_DIR_FD" ]; then
+    exec {CAPTURE_VAULT_DIR_FD}>&-
+    CAPTURE_VAULT_DIR_FD=""
+  fi
+  bd_capture_release_ports
+  return "$cleanup_exit"
 }
 
 release_capture_singleton() {
@@ -639,8 +708,10 @@ cleanup_all() {
   if declare -F cleanup_live_seed >/dev/null 2>&1; then
     cleanup_live_seed
   fi
+  cleanup_capture_instance || true
   cleanup_capture_vault
   release_capture_singleton
+  bd_capture_release_ports
 }
 trap cleanup_all EXIT
 
@@ -722,8 +793,19 @@ if [ ! -f "$BD_HOME/frontend/dist/index.html" ]; then
   exit 2
 fi
 
-rm -rf "$OUT" "$ARCHIVE"
-mkdir -p "$OUT"
+if [ "$CAPTURE_MODE" = "parallel" ]; then
+  if [ -e "$OUT" ] || ! (umask 077; mkdir "$OUT"); then
+    echo "FATAL: capture output already exists or cannot be claimed: $OUT" >&2
+    exit 73
+  fi
+  if [ -e "$ARCHIVE" ]; then
+    echo "FATAL: capture archive already exists; refusing to overwrite: $ARCHIVE" >&2
+    exit 73
+  fi
+else
+  rm -rf "$OUT" "$ARCHIVE"
+  mkdir -p "$OUT"
+fi
 
 # Clear stale bytecode BEFORE any step runs. An overlaid .py with an mtime
 # older than an existing __pycache__/*.pyc makes CPython run the STALE
@@ -741,6 +823,9 @@ echo "  BulkDownloader capture — $(date -Iseconds)"
 echo "  bd_home : $BD_HOME"
 echo "  version : $VERSION"
 echo "  workers : $WORKERS"
+echo "  instance: $CAPTURE_UNIT_INSTANCE"
+echo "  app     : $CAPTURE_APP_ORIGIN"
+echo "  fixture : $CAPTURE_FIXTURE_ORIGIN"
 echo "  output  : $OUT/  -> $ARCHIVE"
 echo "================================================================"
 
@@ -799,15 +884,25 @@ else
 fi
 
 echo "=== [2/9] Full test suite (5-15 min) ==="
-sudo systemctl stop bulkdownloader 2>/dev/null
-STOP_REQUEST_EXIT=$?
-if systemctl is-active --quiet bulkdownloader 2>/dev/null; then
-  SERVICE_STOP_EXIT=1
+if [ "$CAPTURE_LEGACY_SINGLETON" = "1" ]; then
+  sudo systemctl stop bulkdownloader 2>/dev/null
+  STOP_REQUEST_EXIT=$?
+  if systemctl is-active --quiet bulkdownloader 2>/dev/null; then
+    SERVICE_STOP_EXIT=1
+  else
+    SERVICE_STOP_EXIT=0
+  fi
+  echo "  service stop request exit=$STOP_REQUEST_EXIT; inactive=$((1 - SERVICE_STOP_EXIT))"
+  sleep 1
 else
+  # The default capture app is a transient template instance that does not
+  # exist yet. The operator's singleton is neither the subject nor a resource
+  # this run may stop; stateful imports below are redirected to this run's
+  # descriptor-owned install directory instead.
+  STOP_REQUEST_EXIT=0
   SERVICE_STOP_EXIT=0
+  echo "  operator service untouched; capture instance not started yet"
 fi
-echo "  service stop request exit=$STOP_REQUEST_EXIT; inactive=$((1 - SERVICE_STOP_EXIT))"
-sleep 1
 
 # ── [2a/9] GUI-parity inventory regen (service down) ──────────────
 #
@@ -873,7 +968,8 @@ if [ "$SERVICE_STOP_EXIT" -ne 0 ]; then
   echo "  stale-or-fresh." >&2
   PARITY_EXIT=4
 else
-  venv/bin/python tools/gui_parity_inventory.py \
+  env ${CAPTURE_INSTALL_DIR:+BD_INSTALL_DIR=$CAPTURE_INSTALL_DIR} \
+    venv/bin/python tools/gui_parity_inventory.py \
      > "$OUT/02a_gui_parity_inventory.log" 2>&1
   PARITY_EXIT=$?
   if [ "$PARITY_EXIT" -ne 0 ]; then
@@ -1078,7 +1174,8 @@ tail -5 "$OUT/02b_graph_checkhash.log" | sed 's|^|  |'
 # facts below are what step [3] genuinely carries.
 #
 echo "=== [3/9] CSRF diagnostic ==="
-BD_DISABLE_KEEPALIVE=1 venv/bin/python -c "
+env ${CAPTURE_INSTALL_DIR:+BD_INSTALL_DIR=$CAPTURE_INSTALL_DIR} \
+  BD_DISABLE_KEEPALIVE=1 venv/bin/python -c "
 from bulk_downloader.app import app
 with app.test_client() as c:
    r = c.get('/')
@@ -1115,7 +1212,7 @@ echo "  done"
 # ── [4/9] Install + start systemd service ─────────────────────────
 echo "=== [4/9] Install + start systemd service ==="
 
-# The drop-in must exist BEFORE install_service.sh, because that is what runs
+# The legacy drop-in must exist BEFORE install_service.sh, because that runs
 # daemon-reload and starts the unit. Written after, it would not reach the
 # running process and the seeder would meet the operator's locked vault
 # exactly as before -- while the capture reported it had set one up.
@@ -1126,19 +1223,31 @@ echo "=== [4/9] Install + start systemd service ==="
 # same run. The deciding factor is the failure mode -- a stale .env line is
 # invisible to the GUI editor's model, while a stale drop-in is the first
 # thing `systemctl cat bulkdownloader` shows.
-if [ "$CAPTURE_VAULT" = "1" ]; then
-  capture_vault_dir_claim
-  sudo mkdir -p "$(dirname "$CAPTURE_VAULT_DROPIN")"
-  sudo tee "$CAPTURE_VAULT_DROPIN" >/dev/null <<DROPIN
+if [ "$CAPTURE_LEGACY_SINGLETON" = "1" ]; then
+  if [ "$CAPTURE_VAULT" = "1" ]; then
+    capture_vault_dir_claim
+    sudo mkdir -p "$(dirname "$CAPTURE_VAULT_DROPIN")"
+    sudo tee "$CAPTURE_VAULT_DROPIN" >/dev/null <<DROPIN
 [Service]
 Environment=BD_SECRETS_FILE=$CAPTURE_VAULT_FILE
 Environment=BD_CAPTURE_VAULT=1
 DROPIN
-  echo "  capture-vault drop-in written -> $CAPTURE_VAULT_DROPIN"
-fi
+    echo "  capture-vault drop-in written -> $CAPTURE_VAULT_DROPIN"
+  fi
 
-./install_service.sh > "$OUT/04_service_install.log" 2>&1
-INSTALL_EXIT=$?
+  ./install_service.sh > "$OUT/04_service_install.log" 2>&1
+  INSTALL_EXIT=$?
+else
+  _capture_secret_arg=""
+  [ "$CAPTURE_VAULT" = "1" ] && _capture_secret_arg="$CAPTURE_VAULT_FILE"
+  # Mark before acting: a start command can create/start the instance and then
+  # fail while reporting it. Cleanup must still name and stop that exact unit.
+  CAPTURE_INSTANCE_STARTED=1
+  "$BD_HOME/scripts/install_capture_service.sh" start \
+    "$CAPTURE_RUN_ID" "$CAPTURE_APP_PORT" "$CAPTURE_INSTALL_DIR" \
+    "$_capture_secret_arg" > "$OUT/04_service_install.log" 2>&1
+  INSTALL_EXIT=$?
+fi
 # NOT `sleep 3`. install_service.sh polls `systemctl is-active` and reports
 # RUNNING the moment the unit goes active, but Type=simple means "the process
 # was spawned", not "waitress has bound :5555". A fixed sleep is a guess at that
@@ -1146,9 +1255,9 @@ INSTALL_EXIT=$?
 # and records HTTP 000 next to `service: active` -- two visible facts that
 # disagree, neither of them wrong. Ask the app instead.
 wait_for_service_ready || true
-systemctl status bulkdownloader --no-pager > "$OUT/04_service_status.log" 2>&1
-journalctl -u bulkdownloader -n 50 --no-pager > "$OUT/04_service_boot.log" 2>&1
-ACTIVE=$(systemctl is-active bulkdownloader 2>&1)
+systemctl status "$CAPTURE_UNIT_INSTANCE" --no-pager > "$OUT/04_service_status.log" 2>&1
+journalctl -u "$CAPTURE_UNIT_INSTANCE" -n 50 --no-pager > "$OUT/04_service_boot.log" 2>&1
+ACTIVE=$(systemctl is-active "$CAPTURE_UNIT_INSTANCE" 2>&1)
 if [ "$ACTIVE" = "active" ]; then SERVICE_EXIT=0; else SERVICE_EXIT=1; fi
 echo "  service: $ACTIVE"
 
@@ -1173,7 +1282,7 @@ if [ "$CAPTURE_VAULT" = "1" ] && [ "$ACTIVE" = "active" ] \
      && [ "$SERVICE_READY_EXIT" = "0" ]; then
   UNLOCK_CODE=$(printf '{"password":"%s"}' "$CAPTURE_VAULT_PW" \
     | curl -sS -o /dev/null -w '%{http_code}' \
-        -X POST http://127.0.0.1:5555/api/secrets/unlock \
+        -X POST "$CAPTURE_APP_ORIGIN/api/secrets/unlock" \
         -H 'Content-Type: application/json' --data-binary @- 2>/dev/null)
   echo "  capture-vault unlock: HTTP ${UNLOCK_CODE:-000}" \
     | tee -a "$OUT/04_service_status.log"
@@ -1241,7 +1350,9 @@ cleanup_live_seed() {
     #   venv/bin/python tools/live_seed.py --teardown --clear-history --dry-run
     _clear_flag=""
     [ "${BD_SEED_CLEAR_HISTORY:-0}" = "1" ] && _clear_flag="--clear-history"
-    venv/bin/python tools/live_seed.py --teardown $_clear_flag \
+    venv/bin/python tools/live_seed.py --base-url "$CAPTURE_APP_ORIGIN" \
+      --fixture-origin "$CAPTURE_FIXTURE_ORIGIN" \
+      --teardown $_clear_flag \
       >> "$OUT/05a_live_seed.log" 2>&1
     _teardown_exit=$?
     echo "live_seed: TEARDOWN-EXIT=$_teardown_exit" >> "$OUT/05a_live_seed.log"
@@ -1285,12 +1396,12 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
   # serving before anything is queued. setsid detaches it into its own
   # process group so _stop_process_group can take the whole tree down.
   _start_capture_detached "$OUT/05a_fixture_site.log" \
-    venv/bin/python tools/fixture_site.py --port 8899
+    venv/bin/python tools/fixture_site.py --port "$CAPTURE_FIXTURE_PORT"
   FIXTURE_PID="$CAPTURE_DETACHED_PID"
   _fixture_up=0
   _tries=0
   while [ "$_tries" -lt 20 ]; do
-    if curl -sSf -o /dev/null "http://127.0.0.1:8899/" 2>/dev/null; then
+    if curl -sSf -o /dev/null "$CAPTURE_FIXTURE_ORIGIN/" 2>/dev/null; then
       _fixture_up=1
       break
     fi
@@ -1298,7 +1409,7 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     _tries=$((_tries + 1))
   done
   if [ "$_fixture_up" = "1" ]; then
-    echo "  fixture site up on :8899 (pid $FIXTURE_PID)"
+    echo "  fixture site up on :$CAPTURE_FIXTURE_PORT (pid $FIXTURE_PID)"
     # --login is best-effort on top of --seed: it needs an unlocked, encrypted
     # secrets backend to store the fixture password, and refuses cleanly when
     # that precondition is absent. SEEDED is set either way so teardown always
@@ -1348,6 +1459,8 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     # the two do not interleave in source order and the reason surfaces at
     # whichever end the buffer happened to flush.
     if venv/bin/python -u tools/live_seed.py --seed --start --start-timeout 180 \
+         --base-url "$CAPTURE_APP_ORIGIN" \
+         --fixture-origin "$CAPTURE_FIXTURE_ORIGIN" \
          --login --vpn-tunnel --count 3 $_seed_force \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
@@ -1380,7 +1493,7 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
       fi
     fi
   else
-    echo "  fixture site did not come up on :8899 — skipping seed"
+    echo "  fixture site did not come up on :$CAPTURE_FIXTURE_PORT — skipping seed"
     _stop_process_group "$FIXTURE_PID"
     FIXTURE_PID=""
   fi
@@ -1479,6 +1592,10 @@ fi
 echo "  registry reports $EXPECTED_LIVE_TESTS check(s); requesting $(printf '%s\n' "$LIVE_IDS" | awk -F, '{print NF}')"
 run_with_heartbeat "live-test suite" "$OUT/06_live_tests.log" \
    env BD_DISABLE_KEEPALIVE=1 venv/bin/python -u -m live_tests.run \
+   --url "$CAPTURE_APP_ORIGIN" \
+   --bd-home "$BD_HOME" \
+   --db-path "$CAPTURE_INSTALL_DIR/downloader_history.db" \
+   --results-dir "$OUT/06_live_results_source" \
    --only "$LIVE_IDS" \
    --per-check-timeout 90
 LIVE_EXIT=$?
@@ -1514,7 +1631,7 @@ echo "  exit=$LIVE_EXIT"
 # leaves a directory on the box that no archive contains, which is
 # indistinguishable from success from inside this script.
 echo "=== [6b/9] Live-check per-check logs ==="
-LIVE_RESULTS_SRC="live_tests/results"
+LIVE_RESULTS_SRC="$OUT/06_live_results_source"
 LIVE_RESULTS_DST="$OUT/06_live_results"
 mkdir -p "$LIVE_RESULTS_DST"
 LIVE_RESULTS_N=0
@@ -1562,7 +1679,7 @@ DEV_EXIT=0
               sse_status; do
    echo "--- /api/dev/$route ---"
    response=$(curl -fsS --max-time 30 \
-       "http://localhost:5555/api/dev/$route" 2>&1)
+       "$CAPTURE_APP_ORIGIN/api/dev/$route" 2>&1)
    route_exit=$?
    printf '%s\n' "$response" | head -40
    if [ "$route_exit" -ne 0 ]; then
@@ -1588,7 +1705,8 @@ echo "  done"
 # on WARNs.
 echo "=== [7b/9] Live selftest battery ==="
 SELFTEST_EXIT=0
-curl -fsS --max-time 120 "http://localhost:5555/api/selftest" \
+: "${CAPTURE_APP_ORIGIN:=http://localhost:5555}"
+curl -fsS --max-time 120 "$CAPTURE_APP_ORIGIN/api/selftest" \
     > "$OUT/07b_selftest.json" 2> "$OUT/07b_selftest.err"
 SELFTEST_CURL_EXIT=$?
 if [ "$SELFTEST_CURL_EXIT" -ne 0 ]; then
@@ -1616,18 +1734,26 @@ SMOKE_EXIT=0
 {
  echo "--- GET / ---"
  if ! curl -fsS -o /dev/null -w "status=%{http_code}  size=%{size_download}  time=%{time_total}s\n" \
-     http://localhost:5555/; then SMOKE_EXIT=1; fi
+     "$CAPTURE_APP_ORIGIN/"; then SMOKE_EXIT=1; fi
  echo "--- GET /api/health ---"
- if ! curl -fsS --max-time 5 http://localhost:5555/api/health 2>&1; then
+ if ! curl -fsS --max-time 5 "$CAPTURE_APP_ORIGIN/api/health" 2>&1; then
    SMOKE_EXIT=1
  fi
  echo "--- GET /api/dev/routes (count) ---"
- if ! curl -fsS --max-time 30 http://localhost:5555/api/dev/routes 2>&1 \
+ if ! curl -fsS --max-time 30 "$CAPTURE_APP_ORIGIN/api/dev/routes" 2>&1 \
      | venv/bin/python -c "import sys,json; d=json.load(sys.stdin); print('routes:', len(d.get('routes', [])))" 2>&1; then
    SMOKE_EXIT=1
  fi
 } > "$OUT/09_http_smoke.log" 2>&1
 echo "  done"
+
+# The transient app is no longer needed after the final HTTP probe. Teardown is
+# part of the verdict rather than an EXIT-only best effort: an instance whose
+# unit, environment, state directory, or port claims cannot be released is an
+# UNKNOWN/failed capture, even if every functional check was green.
+if [ "$CAPTURE_LEGACY_SINGLETON" = "0" ]; then
+  cleanup_capture_instance || CAPTURE_INSTANCE_TEARDOWN_EXIT=$?
+fi
 
 # Compute the certification result before bundling, but never stop here: a
 # failed run is most useful when all diagnostics still make it into the archive.
@@ -1676,6 +1802,7 @@ venv/bin/python tools/capture_verdict.py \
   --stage-exit "selftest=$SELFTEST_EXIT" \
   --stage-exit "goldens=$T51_EXIT" \
   --stage-exit "http-smoke=$SMOKE_EXIT" \
+  --stage-exit "capture-instance-teardown=$CAPTURE_INSTANCE_TEARDOWN_EXIT" \
   > "$OUT/10_VERDICT.txt" 2>&1
 FINAL_EXIT=$?
 cat "$OUT/10_VERDICT.txt"

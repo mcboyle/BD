@@ -505,6 +505,9 @@
     "ytdlp_archive_path": "full",
     "ytdlp_concurrent_fragments": "full",
     "BD_HEARTBEAT_LAUNCH": "display-only",
-    "BD_CAPTURE_SIGNAL_REEXEC": "display-only"
+    "BD_CAPTURE_SIGNAL_REEXEC": "display-only",
+    "BD_CAPTURE_APP_DIR": "display-only",
+    "BD_CAPTURE_INSTANCE": "display-only",
+    "BD_CAPTURE_PYTHON": "display-only"
   }
 }

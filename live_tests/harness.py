@@ -94,11 +94,12 @@ class Context:
     deployment paths, accumulates a per-test log, and offers a
     read-only HTTP GET and a read-only DB connection."""
 
-    def __init__(self, base_url, bd_home, *, disruptive=False,
+    def __init__(self, base_url, bd_home, *, db_path=None, disruptive=False,
                  per_check_timeout_s=None):
         self.base_url = str(base_url).rstrip("/")
         self.bd_home = Path(bd_home)
-        self.db_path = self.bd_home / "downloader_history.db"
+        self.db_path = (Path(db_path) if db_path is not None
+                        else self.bd_home / "downloader_history.db")
         self.disruptive = disruptive
         # v3.66.819 -- THE TIMEOUT TRAVELS WITH THE CONTEXT.
         #
@@ -226,7 +227,7 @@ def _run_with_timeout(fn, ctx, timeout_s):
 
 
 def run_all(base_url, bd_home, *, include_disruptive=False,
-            only=None, results_dir=None,
+            only=None, results_dir=None, db_path=None,
             per_check_timeout_s=DEFAULT_PER_CHECK_TIMEOUT_S) -> int:
     """Run the registered live tests and write artifacts per the
     contract. `only` is an iterable of test IDs — when given, exactly
@@ -243,7 +244,7 @@ def run_all(base_url, bd_home, *, include_disruptive=False,
     elif not include_disruptive:
         tests = [t for t in tests if not t.disruptive]
 
-    version = _app_version(Context(base_url, bd_home))
+    version = _app_version(Context(base_url, bd_home, db_path=db_path))
     summary = rdir / "SUMMARY.txt"
     with summary.open("a", encoding="utf-8") as fh:
         fh.write(f"\n=== live-test run "
@@ -253,7 +254,8 @@ def run_all(base_url, bd_home, *, include_disruptive=False,
 
     counts = {PASS: 0, WARN: 0, FAIL: 0, NA: 0}
     for t in tests:
-        ctx = Context(base_url, bd_home, disruptive=include_disruptive,
+        ctx = Context(base_url, bd_home, db_path=db_path,
+                      disruptive=include_disruptive,
                       per_check_timeout_s=per_check_timeout_s)
         ctx.log(f"[{t.id}] {t.name} — start")
         # T55: hard-time-out each check. A wedged check (e.g. L3 on

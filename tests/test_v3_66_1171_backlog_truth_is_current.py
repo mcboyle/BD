@@ -170,7 +170,15 @@ def test_cut_a_rows_have_exact_terminal_statuses_and_atomic_remainder() -> None:
     assert status == "CLOSED @1191"
     assert "singleton systemd unit" in text
     assert "remainder -> backlog 175" in rows[5][1]
-    assert rows[175][0] == "OPEN"
+    # v3.66.1250 DELIVERS that remainder, so 175 is no longer OPEN. The property
+    # protected here is that row 165's remainder went to a REAL row instead of
+    # being dropped, and that holds whether 175 is open or terminal. Pinning the
+    # transient status made a gate about TRANSFER fail on the transfer being
+    # completed. What must never happen is 175 being absent or bare.
+    assert 175 in rows, "row 165's remainder points at a row that does not exist"
+    _s175, _t175 = rows[175]
+    assert _s175 == "OPEN" or _s175.startswith(("CLOSED @", "PARKED @")), _s175
+    assert _t175.strip(), "row 175 carries no evidence"
 
 
 def test_row_174_rulings_are_owned_and_side_findings_are_transferred() -> None:
@@ -234,7 +242,15 @@ def test_the_eight_bare_closed_remainders_are_terminal_or_transferred() -> None:
         ), row_id
     assert "remainder -> backlog 175" in rows[5][1]
     assert rows[165][0] == "CLOSED @1191"
-    assert rows[175][0] == "OPEN"
+    # v3.66.1250 DELIVERS that remainder, so 175 is no longer OPEN. The property
+    # protected here is that row 165's remainder went to a REAL row instead of
+    # being dropped, and that holds whether 175 is open or terminal. Pinning the
+    # transient status made a gate about TRANSFER fail on the transfer being
+    # completed. What must never happen is 175 being absent or bare.
+    assert 175 in rows, "row 165's remainder points at a row that does not exist"
+    _s175, _t175 = rows[175]
+    assert _s175 == "OPEN" or _s175.startswith(("CLOSED @", "PARKED @")), _s175
+    assert _t175.strip(), "row 175 carries no evidence"
     assert "transferred to backlog 133" in rows[99][1]
     assert rows[133][0] == "CLOSED @1173"
     assert "exact 24 pre-policy repository gates" in rows[133][1]

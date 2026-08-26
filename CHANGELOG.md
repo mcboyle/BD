@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1254 - capture gains an explicit parallel mode with per-run routing
+
+- CAPTURE GETS AN EXPLICIT PARALLEL MODE. `--parallel --app-port --fixture-port`
+  with a run-keyed systemd instance, per-run routing for readiness, seeding,
+  live tests, teardown and verdict artifacts, and collision-free run ids. THE
+  DEFAULT PATH IS UNCHANGED: without --parallel it still serialises on
+  bulkdownloader.service, port 5555 and fixture port 8899, exactly as
+  v3.66.1191 proved.
+- IT REGRESSED 14 CAPTURE TESTS AND THEY WERE FIXED, NOT WEAKENED. A pre-flight
+  on an idle fleet host caught them before the integration lane did:
+  capture_probes_selftest passed 21/21 on clean main and failed with the patch.
+  All 14 now pass unchanged.
+- THREE NEW ENV VARS ARE LEDGERED RATHER THAN HIDDEN. BD_CAPTURE_APP_DIR,
+  BD_CAPTURE_INSTANCE and BD_CAPTURE_PYTHON classify as display-only/deploy, so
+  reports/config_gui_manifest.json goes 506 -> 509. Reclassifying them to "none"
+  would have made the gate green by hiding the exposure it exists to record.
+- CI CAUGHT TWO HOST-SHAPE ASSERTIONS NO LOCAL BAND COULD. One test assumed an
+  interpreter at <repo>/venv/bin/python -- true here via a symlink, false on a
+  runner. Another read a FIXED FD NUMBER and asserted it was an anonymous pipe;
+  on the runner that descriptor is a site-packages directory. Both now resolve
+  what they mean instead of assuming where it sits. Fd numbering is not a
+  contract.
+- A GATE THAT PINNED ROW 175 AS OPEN IS RE-AIMED, NOT RELAXED. It asserted
+  `rows[175][0] == "OPEN"` to protect the claim that row 165's remainder was
+  TRANSFERRED to a real row -- so it failed the moment the transfer completed.
+  Row 175 must still exist and carry evidence; an absent or bare row still fails.
+- BAND WIDTH IS A PROPERTY OF WHAT THE BAND CONTAINS. This band is 699 files and
+  includes the Playwright e2e set, which drives a real browser: 11 failures at
+  -n 24, and 9822 passed / 0 failed at -n 12 on the same tree.
+
 ## v3.66.1253 - the register says what is true
 
 - ROW 174'S CROSS-REFERENCE POINTED AT THE WRONG ROW. Its text ended "the

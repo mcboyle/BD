@@ -352,7 +352,7 @@ _SEED_PATHS = (
 )
 
 
-def seeded_url(index: int) -> str:
+def seeded_url(index: int, fixture_origin: str = FIXTURE_ORIGIN) -> str:
     """A fixture URL the fixture actually serves.
 
     This used to return f"{FIXTURE_ORIGIN}/{SEED_MARKER}/clipN.mp4", putting
@@ -371,7 +371,7 @@ def seeded_url(index: int) -> str:
     The duplicate at index 2 must stay byte-identical to index 0, query
     included, or L14 has nothing to recognise as a repeat.
     """
-    return (f"{FIXTURE_ORIGIN}{_SEED_PATHS[index % len(_SEED_PATHS)]}"
+    return (f"{fixture_origin.rstrip('/')}{_SEED_PATHS[index % len(_SEED_PATHS)]}"
             f"?{SEED_MARKER}=1&run={_RUN_NONCE}")
 
 
@@ -522,7 +522,8 @@ def _ensure_owned_site(client, name: str, config: dict, *,
 
 
 def seed_queue(client, count: int = 3, *, site_id: str | None = None,
-               dry_run: bool = False) -> dict:
+               dry_run: bool = False,
+               fixture_origin: str = FIXTURE_ORIGIN) -> dict:
     """Enqueue `count` marked fixture URLs.
 
     This is INPUT: BD still has to accept, persist, rehydrate and report each
@@ -530,7 +531,7 @@ def seed_queue(client, count: int = 3, *, site_id: str | None = None,
     service restart -- the seeder supplies URLs to preserve, and every part of
     the preserving is BD's own work.
     """
-    urls = [seeded_url(i) for i in range(count)]
+    urls = [seeded_url(i, fixture_origin) for i in range(count)]
     planned = {"action": "seed_queue", "urls": urls, "marker": SEED_MARKER}
     if dry_run:
         planned["dry_run"] = True
@@ -844,7 +845,7 @@ FIXTURE_USERNAME = "tester"
 FIXTURE_PASSWORD = "fixturepass"
 
 
-def login_site_config() -> dict:
+def login_site_config(fixture_origin: str = FIXTURE_ORIGIN) -> dict:
     """Config for a site whose login target is the LOCAL fixture.
 
     The selectors mirror tools/fixture_site.py's /formauth/login markup. On
@@ -854,7 +855,7 @@ def login_site_config() -> dict:
     """
     return {
         "name": SEED_LOGIN_SITE_NAME,
-        "login_url": f"{FIXTURE_ORIGIN}/formauth/login",
+        "login_url": f"{fixture_origin.rstrip('/')}/formauth/login",
         "username": FIXTURE_USERNAME,
         "password": FIXTURE_PASSWORD,
         "user_field": "#login-username",
@@ -871,7 +872,7 @@ def login_site_config() -> dict:
         # submitted. The seeder already knows the selectors, so it has
         # nothing to learn; opt out and let do_login run its own chain.
         "auto_teach_first_run": False,
-        "success_url": f"{FIXTURE_ORIGIN}/formauth/members",
+        "success_url": f"{fixture_origin.rstrip('/')}/formauth/members",
         # BD writes this file during login. The seeder never touches it -- if
         # it did, L8 and L9 would be checking the fixture's output rather than
         # BD's credential persistence, which is the vacuous PASS this design
@@ -891,7 +892,8 @@ def login_site_config() -> dict:
     }
 
 
-def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> dict:
+def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False,
+               fixture_origin: str = FIXTURE_ORIGIN) -> dict:
     """Create a fixture-login site and trigger BD's REAL login against it.
 
     What is synthetic: the site config and the decision to log in now. What is
@@ -900,7 +902,7 @@ def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> 
     jar and recording auth health. The seeder supplies the trigger and nothing
     downstream of it.
     """
-    cfg = login_site_config()
+    cfg = login_site_config(fixture_origin)
     plan = {"action": "seed_login", "marker": SEED_MARKER,
             "login_url": cfg["login_url"]}
     if dry_run:
@@ -1970,6 +1972,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Seed synthetic INPUT for the live checks (marked, reversible).")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--fixture-origin", default=FIXTURE_ORIGIN,
+                        help="origin serving the synthetic pages (capture.sh "
+                             "passes its per-run fixture port)")
     parser.add_argument("--seed", action="store_true", help="enqueue marked fixture URLs")
     parser.add_argument("--login", action="store_true",
                         help="create a fixture-login site and trigger BD's real login")
@@ -2048,7 +2053,8 @@ def main(argv=None) -> int:
             try:
                 if args.seed:
                     seeded = seed_queue(client, args.count, site_id=args.site_id,
-                                        dry_run=args.dry_run)
+                                        dry_run=args.dry_run,
+                                        fixture_origin=args.fixture_origin)
                     plans.append(seeded)
                     if args.start:
                         # Same `finally` discipline as above: appended BEFORE
@@ -2110,7 +2116,9 @@ def main(argv=None) -> int:
                                       f"not be set up, so L14 will have no "
                                       f"subject: {dedup_exc}", file=sys.stderr)
                 if args.login:
-                    plans.append(seed_login(client, dry_run=args.dry_run))
+                    plans.append(seed_login(
+                        client, dry_run=args.dry_run,
+                        fixture_origin=args.fixture_origin))
                 if args.vpn_tunnel:
                     plans.append(seed_vpn_tunnel(client, dry_run=args.dry_run))
             finally:

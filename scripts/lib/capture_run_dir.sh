@@ -32,10 +32,10 @@ bd_capture_run_id() {
   local stamp sha id
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   sha="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null || printf 'nogit')"
-  id="${stamp}-${sha}"
-  if [ -e "/tmp/bd_capture-${id}" ]; then
-    id="${id}-$$"
-  fi
+  # PID is unconditional. With the old collision-only suffix, two captures
+  # could both compute the same id before either had created its output path;
+  # the later `rm -rf` then made one run delete the other's evidence.
+  id="${stamp}-${sha}-$$"
   printf '%s' "$id"
 }
 
