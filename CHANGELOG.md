@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1253 - the register says what is true
+
+- ROW 174'S CROSS-REFERENCE POINTED AT THE WRONG ROW. Its text ended "the
+  duplicate key and process findings are report-only rows 241/243", but the
+  duplicate-key row was renumbered 241 -> 244 when parallel workers collided on
+  ids. As written it sent a reader to W1-FAMILY-HAS-TWO-MORE-CONCURRENCY-LEGS.
+  This was the FOURTH surface of one renumber -- register ids, mutant anchors,
+  the row's own test, and prose -- and the first three were fixed while this one
+  survived, because the gate checks NAMED PHRASES, not every id in prose.
+- ROW 174'S TERMINAL STATUS NAMED A TIMESTAMP, NOT A RELEASE. It read
+  `CLOSED @operator-ruling-2026-08-25T17:30Z`, the only row in 240 that could
+  not be traced to a version. derive_backlog accepts any CLOSED prefix, so no
+  gate objected. It is now `CLOSED @1250`, the release it actually merged in,
+  and the operator-ruling timestamp stays in the row TEXT where it is evidence.
+- FOUR DATA-GATED ROWS ARE PARKED, NOT CLOSED (operator, 2026-08-25). 120, 122,
+  124 and 126 each have a sound code half and are blocked on data that does not
+  exist yet: a live akamai/cloudflare-fronted capture, an explicit
+  detector-cleared event, guided-capture corpus, and a live-DOM review. Each
+  records WHY it is parked so the blocker is legible without re-deriving it.
+- WHAT IS NOT DONE HERE, AND IS THE REAL FIX: nothing checks that a backlog id
+  mentioned in PROSE resolves to an existing row. Both defects above are that
+  same shape -- a reference that no longer points where it claims. That is a
+  gate worth building and is filed rather than hand-waved.
+- THIS CUT BROKE ITS OWN MUTANT ANCHOR, WHICH IS THE ARGUMENT FOR ROW 246.
+  row174_operator_rulings.json anchored on the literal status string
+  `| 174 | CLOSED @operator-ruling-2026-08-25T17:30Z |`. Normalising that status
+  to `CLOSED @1250` -- the correction this cut exists to make -- left the anchor
+  matching 0 times, and bd-precut refused. The anchor is re-pointed at the new
+  status and its mutation (flip the terminal status to OPEN) is unchanged.
+- THAT IS A FIFTH SURFACE OF THE SAME PROBLEM. A row id or status is referenced
+  from the register column, mutant anchors, a row's own test, prose, and now a
+  status string in a spec. Four of the five have a gate. Prose does not, which
+  is exactly what row 246 asks for.
+
 ## v3.66.1252 - the runner reports fork starvation instead of degrading
 
 -    coproc W1_AUX_OWNER {{
