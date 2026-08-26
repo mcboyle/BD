@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 249. This battery is expected to exit 1 with exactly one valid ESCAPED mutant. It applies the same forking-census transform as M1 in row249_group_census_snapshot.json, but its only named catcher imports the already-collected module without calling the census or asserting its behavior. A CAUGHT result here would mean a parse, collection, or import failure was masquerading as behavioral evidence in the primary battery.",
+  "subject": "transform-only control proving the forking census mutant imports without a behavioral assertion",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_census_transform_control_imports_without_asserting_no_fork"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL the forking ps census must ESCAPE an import-only spec",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "    target = str(pgid)\n    live: list[str] = []\n    for entry in os.listdir(\"/proc\"):\n        if not entry.isdigit():\n            continue\n        observed = _w1_stat_pgid_and_state(entry)\n        if observed is None:\n            continue\n        if observed[0] == target and observed[1] != \"Z\":\n            live.append(entry)\n    return live\n",
+      "new": "    result = subprocess.run([\"ps\", \"-eo\", \"pgid=,pid=,stat=\"],\n                            capture_output=True, text=True)\n    rows = [line.split() for line in result.stdout.splitlines()\n            if line.split()]\n    return [row[1] for row in rows\n            if row[0] == str(pgid) and not row[2].startswith(\"Z\")]\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_census_transform_control_imports_without_asserting_no_fork"
+    }
+  ]
+}

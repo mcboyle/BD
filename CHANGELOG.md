@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1258 - the census reads a snapshot instead of racing its siblings
+
+-    """ROW 231 RED, both arms, forced rather than timed.
+-    ARM 1 -- SELF-OBSERVATION. The forking census ran `ps` as a child of the
+-    caller, so it landed in the CALLER'S process group and the census report
+-    it as a member. Censusing our own group is therefore the exact case that
+-    exposes it: the forking form returns a pid that is already gone, the /pr
+-    ARM 2 -- NO FORK AT ALL. Any subprocess launch inside the census is bann
+-    outright by making the launchers raise. A census that shells out fails h
+-    for its own distinctive reason, so a rewrite back to `ps` goes RED witho
+-    depending on any timing measurement.
+-    # ARM 1: the census must report only processes that are STILL THERE.
+-    reported = _w1_live_in_group(own_group)
+-    assert str(os.getpid()) in reported, (
+-        "precondition: this process is in its own group and must be reported
+
 ## v3.66.1257 - the socket recorder keeps the measurements it takes
 
 - Recorder sink now uses an import-time system-temp anchor shared across xdis
