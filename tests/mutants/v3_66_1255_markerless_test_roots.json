@@ -1,0 +1,45 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 245 / v3.66.1255. Re-run from a detached scratch copy with: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1255_markerless_test_roots.json --work DETACHED_SCRATCH --timeout 300'. The fixed ten-boundary failure denominator proves every injected seam fires exactly once; the separate transform-control spec applies M2 to an import-only test and must ESCAPE, proving the primary CAUGHT verdict is a publication-order assertion rather than a parse or import failure.",
+  "subject": "test roots enter the public bd-testrun namespace only after their marker and held lock are complete, while unavailable identity remains fail-closed",
+  "band": [
+    "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 create the staging object directly in the public namespace",
+      "file": "tests/_tmproot.py",
+      "old": "    stage = tempfile.mkdtemp(prefix=_STAGING_PREFIX, dir=str(SYSTEM_TMP))",
+      "new": "    stage = tempfile.mkdtemp(prefix=_PUBLIC_PREFIX, dir=str(SYSTEM_TMP))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_every_prepublication_failure_stays_out_of_the_public_namespace[root-open]"
+    },
+    {
+      "label": "M2 publish the public directory before writing its RUNNING marker",
+      "file": "tests/_tmproot.py",
+      "old": "        _publish_run_record(_fd, \"RUNNING\")\n        if _publish_staged_root(stage, public):",
+      "new": "        published_early = _publish_staged_root(stage, public)\n        _publish_run_record(_fd, \"RUNNING\")\n        if published_early:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_every_prepublication_failure_stays_out_of_the_public_namespace[marker-write]"
+    },
+    {
+      "label": "M3 over-correction never publishes even a completely owned root",
+      "file": "tests/_tmproot.py",
+      "old": "        if _publish_staged_root(stage, public):",
+      "new": "        if False and _publish_staged_root(stage, public):",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_markerless_fixture_is_unknown_once_and_a_published_root_is_not",
+      "preserves": [
+        "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_transform_control_imports_tmproot_without_judging_publication_order"
+      ]
+    },
+    {
+      "label": "M4 unavailable creation identity authorizes pathname cleanup",
+      "file": "tests/_tmproot.py",
+      "old": "            _mark(R_NO_IDENT, \"no creation identity was recorded\")\n            ok = False",
+      "new": "            _mark(R_NO_IDENT, \"no creation identity was recorded\")\n            ok = _force_rmtree(root)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_every_prepublication_failure_stays_out_of_the_public_namespace[root-open]"
+    }
+  ]
+}

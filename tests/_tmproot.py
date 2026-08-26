@@ -79,6 +79,8 @@ _ROOT_FD_PATH: str | None = None
 # on-disk state as ABANDONED rather than LIVE.
 _MARKER_NAME = ".bd-testrun"
 _LOCK_NAME = ".bd-testrun.lock"
+_STAGING_PREFIX = ".bd-testrun-stage-"
+_PUBLIC_PREFIX = "bd-testrun-"
 DURABLE_STATES = (
     "LIVE", "KEPT_FOR_FORENSICS", "RECLAIMABLE", "ABANDONED", "UNKNOWN")
 _MARKER_LOCK_FDS: dict[tuple, int] = {}
@@ -239,6 +241,61 @@ def _where(fd):
         return "its new location could not be read"
 
 
+def _publish_staged_root(stage: str, public: str) -> bool:
+    """Atomically make a fully-owned staging root public without clobbering.
+
+    The directory creation and both ownership-object writes cannot be one
+    filesystem operation.  A rename is the publication boundary: until it
+    succeeds, a sweeper cannot observe this object in the ``bd-testrun-*``
+    namespace.  Unsupported no-clobber rename, an occupied destination, or an
+    unavailable parent leaves the staging object private and returns False.
+    """
+    global _ROOT, _ROOT_FD_PATH
+    parent = os.path.dirname(stage)
+    if parent != os.path.dirname(public):
+        _retention_degraded("public root parent does not match staging parent")
+        return False
+    parent_fd = None
+    published = False
+    try:
+        parent_fd = os.open(
+            parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        guaranteed = _rename_noclobber(
+            os.path.basename(stage), os.path.basename(public), parent_fd,
+            allow_fallback=False)
+        if not guaranteed:
+            raise OSError(errno.EOPNOTSUPP,
+                          "public root rename was not no-clobber")
+        # Record the namespace transition at the same boundary as the rename.
+        # Any control exception from the durability/reporting work below must
+        # still leave finish() pointing at the object now visible to sweepers.
+        _ROOT = public
+        _ROOT_FD_PATH = public
+        published = True
+        try:
+            os.fsync(parent_fd)
+        except Exception as exc:
+            # The namespace publication already happened and both ownership
+            # objects are present.  Report lost directory durability without
+            # pretending the root is still at its staging name.
+            _retention_degraded(
+                "public root parent sync failed (%s: %s)" %
+                (type(exc).__name__, exc))
+    except Exception as exc:
+        _retention_degraded(
+            "public root publish failed (%s: %s)" %
+            (type(exc).__name__, exc))
+    finally:
+        if parent_fd is not None:
+            try:
+                os.close(parent_fd)
+            except Exception as exc:
+                _retention_degraded(
+                    "public root parent descriptor release failed (%s: %s)" %
+                    (type(exc).__name__, exc))
+    return published
+
+
 def install() -> str | None:
     """Point `tempfile.tempdir` at a fresh per-process root. Returns its path.
 
@@ -251,7 +308,13 @@ def install() -> str | None:
     if os.environ.get("KEEP_TEST_TMPDIRS") == "1":
         return None
     global _ROOT_IDENT, _ROOT_FD, _ROOT_FD_PATH
-    _ROOT = tempfile.mkdtemp(prefix="bd-testrun-", dir=str(SYSTEM_TMP))
+    _ROOT_IDENT = None
+    _ROOT_FD = None
+    _ROOT_FD_PATH = None
+    stage = tempfile.mkdtemp(prefix=_STAGING_PREFIX, dir=str(SYSTEM_TMP))
+    suffix = os.path.basename(stage)[len(_STAGING_PREFIX):]
+    public = os.path.join(os.path.dirname(stage), _PUBLIC_PREFIX + suffix)
+    _ROOT = stage
     # THE IDENTITY OF THE OBJECT WE JUST CREATED (v3.66.1153), TAKEN FROM THE
     # DESCRIPTOR WE KEEP (v3.66.1154). Until 1153 this kept only the pathname,
     # so reclamation removed whatever directory later occupied that name.
@@ -265,12 +328,30 @@ def install() -> str | None:
     # UNBOUND recursive deletion of whatever stood at the recorded path.
     try:
         _fd = os.open(_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError:
+    except OSError as exc:
+        _retention_degraded(
+            "initial root identity unavailable (%s: %s)" %
+            (type(exc).__name__, exc))
         _LAST_FAILURE = None
         tempfile.tempdir = _ROOT
         return _ROOT
     _ROOT_FD, _ROOT_FD_PATH = _fd, _ROOT
-    _st = os.fstat(_fd)
+    try:
+        _st = os.fstat(_fd)
+    except OSError as exc:
+        try:
+            os.close(_fd)
+        except OSError as close_exc:
+            _retention_degraded(
+                "unidentified root descriptor release failed (%s: %s)" %
+                (type(close_exc).__name__, close_exc))
+        _ROOT_FD, _ROOT_FD_PATH = None, None
+        _retention_degraded(
+            "initial root identity unavailable (%s: %s)" %
+            (type(exc).__name__, exc))
+        _LAST_FAILURE = None
+        tempfile.tempdir = _ROOT
+        return _ROOT
     _ROOT_IDENT = (_st.st_dev, _st.st_ino)
     marker_lock_fd = None
     try:
@@ -290,6 +371,9 @@ def install() -> str | None:
         _RUN_RECORDS[_ROOT_IDENT].update(
             lock_dev=_lock_st.st_dev, lock_ino=_lock_st.st_ino)
         _publish_run_record(_fd, "RUNNING")
+        if _publish_staged_root(stage, public):
+            _ROOT = public
+            _ROOT_FD_PATH = public
     except Exception as exc:
         # Marker/lock accounting is retention metadata, not a prerequisite for
         # running tests.  A full tmpfs or exhausted descriptor table must not

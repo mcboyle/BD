@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1262 - every test root publishes both ownership objects before it is observable
+
+Row 245 STAYS OPEN. This cut ships the producer half -- every path that
+creates the public test root now publishes both ownership objects before the
+root is observable. The row's remaining obligation, adjudicating the 14
+existing markerless roots, is the operator's and is untouched here. Closing
+the row would also have broken the row-174 transfer gate, which asserts that
+row 174's four transferred side-findings still point at owned rows.
+
+- [tests/_tmproot.py](/home/mboyle/bd-codex-wt/row245/tests/_tmproot.py:244) 
+- [regression gate](/home/mboyle/bd-codex-wt/row245/tests/test_v3_66_1255_tes
+- Added [primary mutants](/home/mboyle/bd-codex-wt/row245/tests/mutants/v3_66
+- Focused: `12 passed in 2.41s`
+- Existing lifecycle/cleanup floor: `441 passed, 14 skipped`
+- Complete 46-file affected floor: `1429 passed, 15 skipped, 3 warnings in 42
+- Final mutation-spec gate: `10 passed`
+- Transform control: expected escape `TC1 early public publication must escap
+
 ## v3.66.1261 - test cleanup can no longer delete a caller's data through an inherited path
 
 -    g = tasks_root() / "governance"
