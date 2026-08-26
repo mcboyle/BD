@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1281 - the ambiguous-launch settlement budget honours its governing bound
+
+-    r = ssh(addr, reap_cmd(receipt_path), timeout=60)
+-        probed = ssh(addr, command, timeout=max(1, min(5, math.ceil(remainin
+-            verdict = reap(addr, receipt_path, "ambiguous launch result")
+- Fixed [bd-wedge-hunt](/home/mboyle/bd-codex-wt/row284/toolchain/bin/bd-wedg
+- Added measured wall-clock coverage and an oversized-budget negative control
+- Added [primary mutant spec](/home/mboyle/bd-codex-wt/row284/tests/mutants/r
+- Reused the existing module-scoped test file, which is already directly regi
+- Release trio is untouched.
+- Focused: `3 passed in 3.12s`
+- Complete lifecycle module: `147 passed in 250.85s`
+- Remaining 19-file derived floor: `614 passed, 2 warnings in 728.73s`
+- Total derived floor: 761 passing tests across 20 files.
+-    reaps: list[tuple[str, str, str]] = []
+
 ## v3.66.1280 - bd-claim survives concurrent readers and adders
 
 -    """Every live claim, with dead ones reaped. Raises on an unreadable dir 

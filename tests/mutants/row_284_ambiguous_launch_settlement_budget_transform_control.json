@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 284 transform control. This must report one valid ESCAPED mutant: it applies the identical independent-sixty-second-reap transform as M1, but the named control only imports bd-wedge-hunt and asserts its unrelated STOP marker. An escape proves the behavioral battery's catches are assertion failures rather than parse, collection, or import breakage.",
+  "subject": "transform control for the row-284 ambiguous-launch settlement budget",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_it_imports_without_side_effects"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL ambiguous settlement starts an independent sixty-second reap while import still works",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "            verdict = reap(\n                addr, receipt_path, \"ambiguous launch result\",\n                timeout=min(60.0, reap_budget))",
+      "new": "            verdict = reap(addr, receipt_path, \"ambiguous launch result\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_it_imports_without_side_effects"
+    }
+  ]
+}

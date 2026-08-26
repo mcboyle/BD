@@ -1027,7 +1027,7 @@ def _reap_terminal_verdict(line: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def reap(addr: str, receipt_path: str, why: str) -> str:
+def reap(addr: str, receipt_path: str, why: str, *, timeout: float = 60.0) -> str:
     """Kill an abandoned run and say what happened. Never raises.
 
     Returns one of REAP-OK / REAP-SURVIVED / REAP-UNREACHABLE. The caller
@@ -1036,7 +1036,7 @@ def reap(addr: str, receipt_path: str, why: str) -> str:
     """
     if not receipt_path:
         return "REAP-NORECEIPT"
-    r = ssh(addr, reap_cmd(receipt_path), timeout=60)
+    r = ssh(addr, reap_cmd(receipt_path), timeout=timeout)
     out = r.stdout or ""
     terminal_lines = [
         line for line in out.splitlines()
@@ -1099,7 +1099,7 @@ def settle_ambiguous_launch(addr: str, receipt_path: str, run_id: str, *,
                 "observations": observations,
                 "elapsed_ms": int((time.monotonic() - started) * 1000),
             }
-        probed = ssh(addr, command, timeout=max(1, min(5, math.ceil(remaining))))
+        probed = ssh(addr, command, timeout=min(5.0, remaining))
         out = (probed.stdout or "").strip()
         state_match = re.search(
             r"\b(RECEIPT-(?:MATCH|ABSENT|DRIFT|UNKNOWN)|"
@@ -1118,7 +1118,17 @@ def settle_ambiguous_launch(addr: str, receipt_path: str, run_id: str, *,
                     "observations": observations,
                     "elapsed_ms": int((time.monotonic() - started) * 1000),
                 }
-            verdict = reap(addr, receipt_path, "ambiguous launch result")
+            reap_budget = deadline - time.monotonic()
+            if reap_budget <= 0:
+                return {
+                    "verdict": "REAP-UNKNOWN",
+                    "terminal": "receipt-deadline",
+                    "observations": observations,
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                }
+            verdict = reap(
+                addr, receipt_path, "ambiguous launch result",
+                timeout=min(60.0, reap_budget))
             return {
                 "verdict": verdict,
                 "terminal": "receipt-observed",
