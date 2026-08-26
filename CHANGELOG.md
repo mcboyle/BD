@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1264 - a failed deploy attempts recovery however it terminates
+
+-    printf 'active\n' > "$state"
+-    exit "${START_EXIT:-0}";;
+-    fn = _extract("die")
+-    out = _run('T=$(mktemp -d); ' + stub + 'STEP=9; SERVICE_STOPPED=1\n' + f
+-               '\n( die "bytecode sweep failed" ) 2>/dev/null; cat "$T/calls
+-    assert "start bulkdownloader" in out.stdout, (
+-        "die() did not attempt a restart after the unit had been stopped:\n%
+-    """OVER-SENSITIVITY CONTROL: a precondition refusal must not start a unit
+-    the operator had deliberately left down."""
+-    fn = _extract("die")
+-        'mkdir -p "$T/bin"\n'
+-        'printf "#!/bin/sh\\necho SUDO \\$* >> $T/calls\\nexit 0\\n" > "$T/b
+-        'printf "#!/bin/sh\\necho SYSTEMCTL \\$* >> $T/calls\\nexit 0\\n" > 
+
 ## v3.66.1263 - the regen orchestrator checks its chain against an independent denominator
 
 -    # POS: the ORDER is the contract -- gui_parity must precede ROUTE_INDEX.

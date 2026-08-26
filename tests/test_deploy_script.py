@@ -252,8 +252,9 @@ case "$verb" in
     if [ "${STOP_STICKY:-0}" != "1" ]; then printf 'inactive\n' > "$state"; fi
     exit "${STOP_EXIT:-0}";;
   start|restart)
-    printf 'active\n' > "$state"
-    exit "${START_EXIT:-0}";;
+    rc="${START_EXIT:-0}"
+    if [ "$rc" = "0" ]; then printf 'active\n' > "$state"; fi
+    exit "$rc";;
   is-active)
     s="$(cat "$state" 2>/dev/null || printf 'unknown')"
     printf '%s\n' "$s"
@@ -445,6 +446,29 @@ def _deploy(fx, *args, timeout=120):
             "--timeout", "5", "--interval", "1", *args]
     return subprocess.run(argv, env=fx.env, cwd=fx.work,
                           capture_output=True, text=True, timeout=timeout)
+
+
+def _force_sweep_errexit(fx):
+    """Make step 9's real pipeline fail without routing through die()."""
+    trigger = _write(
+        os.path.join(fx.clone, "bulk_downloader", "__pycache__",
+                     "forced-errexit.pyc"),
+        "fixture-only stale bytecode\n",
+    )
+    fx.env["RM_LOG"] = os.path.join(fx.work, "log-rm")
+    _write_exec(
+        os.path.join(fx.binroot, "rm"),
+        r"""#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$RM_LOG"
+for arg in "$@"; do
+  case "$arg" in
+    *forced-errexit.pyc*) exit 91;;
+  esac
+done
+exec /usr/bin/rm "$@"
+""",
+    )
+    return trigger
 
 
 def _curl_calls(fx):
@@ -1181,6 +1205,75 @@ def test_stop_failure_blocks_mutating_window():
     assert _lines(fx.logs["inv"]) == [], (
         "the parity regen ran even though the service was never stopped"
         + _ctx(r, "inventory log: %r" % _read(fx.logs["inv"])))
+
+
+def test_errexit_inside_the_stopped_window_attempts_recovery_and_reports_it():
+    """The failure is a bare pipeline status: die() is never called for it."""
+    fx = _setup()
+    _bundle_current(fx)
+    trigger = _force_sweep_errexit(fx)
+
+    r = _deploy(fx)
+
+    svclines = _lines(fx.logs["systemctl"])
+    rmlog = _read(fx.env["RM_LOG"])
+    assert trigger.name in rmlog, (
+        "harness error, NOT a subject failure: the fake rm never rejected the "
+        "step-9 bytecode candidate" + _ctx(r, "rm log:\n" + rmlog))
+    assert "stop bulkdownloader" in svclines, (
+        "the fixture never entered the stopped window" + _ctx(
+            r, "systemctl log:\n" + "\n".join(svclines)))
+    assert _lines(fx.logs["inv"]) == [], (
+        "the bare step-9 failure did not stop execution before step 10" + _ctx(r))
+    assert r.returncode != 0, (
+        "a forced command failure inside the stopped window reported success"
+        + _ctx(r))
+    assert svclines.count("start bulkdownloader") == 1, (
+        "the EXIT path did not make exactly one recovery attempt after a bare "
+        "errexit failure" + _ctx(r, "systemctl log:\n" + "\n".join(svclines)))
+    assert "RESTARTED-PARTIAL-DEPLOY" in _out(r), (
+        "the service recovered but the required partial-deploy outcome was not "
+        "reported loudly" + _ctx(r))
+    assert "SERVICE-IS-DOWN" not in _out(r), (
+        "the successful recovery was misreported as an outage" + _ctx(r))
+
+
+def test_errexit_recovery_reports_when_the_service_is_still_down():
+    fx = _setup(START_EXIT="1")
+    _bundle_current(fx)
+    _force_sweep_errexit(fx)
+
+    r = _deploy(fx)
+
+    svclines = _lines(fx.logs["systemctl"])
+    assert r.returncode != 0, _ctx(r)
+    assert svclines.count("start bulkdownloader") == 1, (
+        "failed recovery was not attempted exactly once" + _ctx(
+            r, "systemctl log:\n" + "\n".join(svclines)))
+    assert "SERVICE-IS-DOWN" in _out(r), (
+        "a failed recovery did not report that the service remains down" + _ctx(r))
+    assert "RESTARTED-PARTIAL-DEPLOY" not in _out(r), (
+        "a failed recovery was reported as restarted" + _ctx(r))
+    assert _read(fx.env["SVC_STATE"]).strip() == "inactive", (
+        "harness error: the failed fake start did not leave an inactive unit"
+        + _ctx(r))
+
+
+def test_success_does_not_run_exit_recovery_or_print_its_failure_banner():
+    fx = _setup()
+    _bundle_current(fx)
+
+    r = _deploy(fx)
+
+    svclines = _lines(fx.logs["systemctl"])
+    assert r.returncode == 0, _ctx(r)
+    # One start is step 11 itself. A second one would be EXIT recovery firing
+    # after the deploy had already reached its success point.
+    assert svclines.count("start bulkdownloader") == 1, (
+        "a successful deploy attempted an additional recovery start" + _ctx(
+            r, "systemctl log:\n" + "\n".join(svclines)))
+    assert "RESTARTED-PARTIAL-DEPLOY" not in _out(r), _ctx(r)
+    assert "SERVICE-IS-DOWN" not in _out(r), _ctx(r)
 
 
 # ─────────────── tools/check_requirements.py -- one test per OUTCOME

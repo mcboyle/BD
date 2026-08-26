@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 250. This spec must ESCAPE: removing the EXIT guard remains valid shell, and the named control checks syntax without judging recovery behavior. The identical transform is CAUGHT by M1 in row_250_deploy_exit_recovery.json.",
+  "subject": "transform control - shell syntax alone does not constrain EXIT recovery",
+  "band": [
+    "tests/test_v3_66_1037_deploy_safety.py::test_exit_guard_transform_control_only_checks_shell_syntax"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 remove the EXIT recovery guard while the syntax-only control stays green",
+      "file": "scripts/deploy.sh",
+      "old": "trap on_exit EXIT",
+      "new": ": # mutant removes the EXIT recovery guard",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1037_deploy_safety.py::test_exit_guard_transform_control_only_checks_shell_syntax"
+    }
+  ]
+}
