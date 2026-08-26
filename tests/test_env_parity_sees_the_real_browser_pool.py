@@ -40,13 +40,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL = REPO_ROOT / "toolchain" / "bin" / "bd-env-parity"
-PYTHON = REPO_ROOT / "venv" / "bin" / "python"
+PYTHON = Path(sys.executable)
 
 
 def _run(args, env=None):

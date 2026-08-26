@@ -55,9 +55,9 @@ dynamically supplied pattern remains outside this floor. If tools acquire a
 common probe interface, this arm must become behavioural rather than growing a
 list of source spellings.
 
-UNKNOWN IS A THIRD STATE: GET /'s 200 branch is measured only when a real built
-artifact exists. A clean source checkout measures its explicit not-built 503
-branch and does not certify a fabricated Vite stand-in.
+UNKNOWN IS A THIRD STATE: GET /'s 200 branch is measured against a fresh Vite
+build in an owned temporary directory, and its not-built 503 branch is driven
+separately. Missing build capability is UNKNOWN rather than absent-only success.
 
 AN EMPTY LIST IS NOT A CLEAN BILL. Both verdicts here rest on a list being
 empty -- `not offenders` and `not graded_bug` -- and emptiness cannot tell
@@ -103,6 +103,7 @@ run_tests.py conventions: repo root from __file__; no pytest builtins.
 from __future__ import annotations
 
 import contextlib
+import functools
 import io
 import os
 import re
@@ -113,6 +114,7 @@ import tokenize
 from pathlib import Path
 
 from tools import _probe_lib
+from tests.frontend_vitest import isolated_spa_dist
 
 BD_GATE_SCOPE = "repo-wide"
 
@@ -135,7 +137,8 @@ _REGEX_WHITESPACE = re.compile(
 )
 
 
-def _root_bodies() -> dict[str, bytes]:
+@functools.lru_cache(maxsize=1)
+def _root_bodies(frontend: Path) -> dict[str, bytes]:
     """Every body GET / can return, MEASURED by driving the real app.
 
     Re-measured here rather than imported from the sibling module: this gate's
@@ -152,12 +155,18 @@ def _root_bodies() -> dict[str, bytes]:
             absent = Path(stack.enter_context(tempfile.TemporaryDirectory()))
             A._M2_DIST_ROOT = absent / "no-such-dist"
             with A.app.test_client() as c:
-                out["dist-absent-503"] = c.get("/").data
-            built = REPO / "frontend" / "dist" / "index.html"
-            if built.is_file():
-                A._M2_DIST_ROOT = built.parent
-                with A.app.test_client() as c:
-                    out["built-dist"] = c.get("/").data
+                response = c.get("/")
+                assert response.status_code == 503
+                assert response.headers.get("X-BD-M2-Status") == "not-built"
+                out["dist-absent-503"] = response.data
+            built = stack.enter_context(isolated_spa_dist(frontend))
+            A._M2_DIST_ROOT = built
+            with A.app.test_client() as c:
+                response = c.get("/")
+                assert response.status_code == 200
+                assert b'<div id="root">' in response.data
+                out["built-dist-200"] = response.data
+            assert set(out) == {"dist-absent-503", "built-dist-200"}
         return out
     finally:
         if "A" in locals() and "saved" in locals():
@@ -169,9 +178,17 @@ def _root_bodies() -> dict[str, bytes]:
 
 
 def _root_evidence_is_complete() -> tuple[bool, str]:
-    if (REPO / "frontend" / "dist" / "index.html").is_file():
-        return True, "measured the real built dist/index.html"
-    return True, "measured only the explicit frontend-not-built branch; no built artifact claimed"
+    try:
+        bodies = _root_bodies(REPO / "frontend")
+    except (AssertionError, OSError, subprocess.SubprocessError) as exc:
+        return False, f"UNKNOWN: could not build and serve both root branches: {exc}"
+    expected = {"dist-absent-503", "built-dist-200"}
+    if set(bodies) != expected:
+        return False, (
+            "UNKNOWN: root-body denominator mismatch: "
+            f"expected={sorted(expected)}, measured={sorted(bodies)}"
+        )
+    return True, "measured explicit absent 503 and fresh built 200 branches"
 
 
 def _tool_sources() -> list[Path]:
@@ -298,7 +315,7 @@ def test_no_tool_probes_a_root_contract_that_cannot_be_served():
         "walk has stopped descending and every nested probe is invisible "
         "(UNKNOWN fails)")
 
-    bodies = _root_bodies()
+    bodies = _root_bodies(REPO / "frontend")
     assert bodies, "GET / returned no measurable bodies; reachability is UNKNOWN"
 
     # Through _scan_for_retired_probes, NOT an inline copy of it. The verdict

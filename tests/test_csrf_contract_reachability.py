@@ -53,13 +53,14 @@ a hint that is entirely correct. A gate that fires on a truthful re-wording gets
 switched off, and this project treats that as a soundness bug, not a safe
 default.
 
-UNKNOWN IS A THIRD STATE. The 200 branch is measured only against the real
-`frontend/dist/index.html` when one is built. A clean source checkout measures
-only its explicit frontend-not-built 503 branch; it never fabricates a built
-artifact from Vite source inputs.
+UNKNOWN IS A THIRD STATE. The 200 branch is measured against a fresh Vite build
+in an owned temporary directory, while the 503 branch is driven separately.
+If Node or the build inputs are unavailable, the denominator is UNKNOWN rather
+than an absent-only success.
 """
 from __future__ import annotations
 
+import functools
 import io
 import os
 import re
@@ -71,6 +72,7 @@ from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 
 import pytest
+from tests.frontend_vitest import isolated_spa_dist
 
 BD_GATE_SCOPE = "repo-wide"
 
@@ -181,7 +183,8 @@ def _step3_observes_probe(program: str, probe: str) -> bool:
     return _step3_output(program, absent) != _step3_output(program, present)
 
 
-def _root_bodies() -> dict[str, bytes]:
+@functools.lru_cache(maxsize=1)
+def _root_bodies(frontend: Path) -> dict[str, bytes]:
     """Every body GET / can return, MEASURED by driving the real app."""
     previous = os.environ.get("BD_DISABLE_KEEPALIVE")
     os.environ["BD_DISABLE_KEEPALIVE"] = "1"
@@ -193,12 +196,18 @@ def _root_bodies() -> dict[str, bytes]:
             absent = Path(stack.enter_context(tempfile.TemporaryDirectory()))
             A._M2_DIST_ROOT = absent / "no-such-dist"
             with A.app.test_client() as c:
-                out["dist-absent-503"] = c.get("/").data
-            built = REPO / "frontend" / "dist" / "index.html"
-            if built.is_file():
-                A._M2_DIST_ROOT = built.parent
-                with A.app.test_client() as c:
-                    out["built-dist"] = c.get("/").data
+                response = c.get("/")
+                assert response.status_code == 503
+                assert response.headers.get("X-BD-M2-Status") == "not-built"
+                out["dist-absent-503"] = response.data
+            built = stack.enter_context(isolated_spa_dist(frontend))
+            A._M2_DIST_ROOT = built
+            with A.app.test_client() as c:
+                response = c.get("/")
+                assert response.status_code == 200
+                assert b'<div id="root">' in response.data
+                out["built-dist-200"] = response.data
+            assert set(out) == {"dist-absent-503", "built-dist-200"}
         return out
     finally:
         if "A" in locals() and "saved" in locals():
@@ -210,13 +219,35 @@ def _root_bodies() -> dict[str, bytes]:
 
 
 def _root_evidence_is_complete() -> tuple[bool, str]:
-    if (REPO / "frontend" / "dist" / "index.html").is_file():
-        return True, "measured the real built dist/index.html"
-    return True, "measured only the explicit frontend-not-built branch; no built artifact claimed"
+    try:
+        bodies = _root_bodies(REPO / "frontend")
+    except (AssertionError, OSError, subprocess.SubprocessError) as exc:
+        return False, f"UNKNOWN: could not build and serve both root branches: {exc}"
+    expected = {"dist-absent-503", "built-dist-200"}
+    if set(bodies) != expected:
+        return False, (
+            "UNKNOWN: root-body denominator mismatch: "
+            f"expected={sorted(expected)}, measured={sorted(bodies)}"
+        )
+    return True, "measured explicit absent 503 and fresh built 200 branches"
+
+
+def test_missing_built_branch_is_unknown_not_complete(monkeypatch, tmp_path):
+    """A measured 503 alone cannot certify every body GET / may serve."""
+    monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path / "missing-tree")
+    ok, why = _root_evidence_is_complete()
+    assert ok is False and "UNKNOWN" in why, (
+        "the root-body denominator called the absent-only branch complete: "
+        f"{why}"
+    )
 
 
 def _reachable(probe: str) -> list[str]:
-    return [k for k, b in _root_bodies().items() if probe.encode() in b]
+    return [
+        k
+        for k, b in _root_bodies(REPO / "frontend").items()
+        if probe.encode() in b
+    ]
 
 
 def _csrf_403_hint() -> str:

@@ -54,6 +54,7 @@ A gate that cannot fail is not a gate: test_the_fixture_gate_can_actually_fail i
 one that earns the green.
 """
 import os
+import subprocess
 import sys
 
 import pytest
@@ -277,17 +278,14 @@ def test_a_resource_complaint_is_never_reported_as_dead():
 def test_the_committed_call_artifact_is_in_sync():
     """The artifact the gate reads must still describe the frontend that exists.
 
-    Regenerating needs node; ENFORCING does not. When node is present we re-extract
-    and compare, so a new mutating control cannot land without the artifact (and
-    therefore the gate) noticing it. When node is absent this check -- and ONLY this
-    check -- is skipped; the gate itself still runs against the committed artifact.
+    Regenerating needs node; ENFORCING does not. This freshness gate re-extracts
+    and compares, so a new mutating control cannot land without the artifact (and
+    therefore the gate) noticing it. If extraction is unavailable, ``ts_calls``
+    raises UNKNOWN rather than turning yesterday's committed artifact green.
     """
     from tools import body_contract as bc
 
     fresh = bc.ts_calls(ROOT)
-    if not fresh:
-        pytest.skip("node/body_types.mjs unavailable -- cannot REGENERATE here "
-                    "(the gate itself still ran against the committed artifact)")
     committed = bc.load_calls(ROOT)
     key = lambda c: (c["file"], c["fn"], c["path"])          # noqa: E731
     assert sorted(map(key, fresh)) == sorted(map(key, committed)), (
@@ -295,6 +293,35 @@ def test_the_committed_call_artifact_is_in_sync():
         "tools/BODY_CONTRACT_CALLS.json was not regenerated -- the gate is now "
         "judging a frontend that no longer exists. Run: "
         "python3 tools/body_contract.py --regen")
+
+
+def test_call_artifact_freshness_is_unknown_without_node(monkeypatch):
+    """Extractor absence is distinct from a fresh zero-drift comparison."""
+    from tools import body_contract as bc
+
+    child_path = os.environ.get("PATH")
+    monkeypatch.setenv("PATH", "")
+    try:
+        with pytest.raises(RuntimeError, match="UNKNOWN"):
+            bc.ts_calls(ROOT)
+        proc = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "tools", "body_contract.py"),
+             "--regen"],
+            cwd=ROOT,
+            env={**os.environ, "PATH": ""},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert proc.returncode == 2 and "UNKNOWN" in (proc.stdout + proc.stderr), (
+            "the regeneration CLI did not preserve the extractor's UNKNOWN state: "
+            f"rc={proc.returncode}\n{proc.stdout}{proc.stderr}"
+        )
+    finally:
+        if child_path is None:
+            monkeypatch.delenv("PATH", raising=False)
+        else:
+            monkeypatch.setenv("PATH", child_path)
 
 
 def test_verdicts_are_order_independent_across_probe_runs(verdicts):

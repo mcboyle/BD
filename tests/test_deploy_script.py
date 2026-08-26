@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import stat
 import subprocess
 import sys
@@ -66,7 +67,7 @@ REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "deploy.sh"
 CHECK_REQ = REPO / "tools" / "check_requirements.py"
 CLOUD_SETUP = REPO / "scripts" / "cloud-setup.sh"
-VENV_PY = REPO / "venv" / "bin" / "python"
+VENV_PY = Path(sys.executable)
 BASH = "bash"
 
 TREE_VERSION = "3.66.848"
@@ -80,6 +81,33 @@ _GIT_ID = [
     "-c", "commit.gpgsign=false",
     "-c", "init.defaultBranch=main",
 ]
+
+
+def test_requirement_helper_uses_the_running_test_interpreter(monkeypatch, tmp_path):
+    """All cited child-process gates inherit pytest's measured environment."""
+    alternate = tmp_path / "interpreter-selected-by-the-test-runner"
+    bindings = {
+        "test_deploy_script.py": "VENV_PY",
+        "test_bd_doctor_probes_the_real_environment.py": "PYTHON",
+        "test_env_example_matches_the_ledger.py": "PYTHON",
+        "test_env_report_freshness.py": "PYTHON",
+        "test_env_parity_sees_the_real_browser_pool.py": "PYTHON",
+        "test_v3_66_945_envfile_seeding_does_not_escape_its_test.py": "_PY",
+        "test_v3_66_946_the_leak_guard_does_not_fire_on_inherited_state.py": "_PY",
+        "test_v3_66_950_the_band_runs_real_pytest.py": "_PY",
+    }
+    assert len(bindings) == 8
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "executable", str(alternate))
+        for filename, binding in bindings.items():
+            replayed = runpy.run_path(
+                str(REPO / "tests" / filename),
+                run_name="_interpreter_binding_" + filename.removesuffix(".py"),
+            )
+            assert replayed[binding] == alternate, (
+                f"{filename}:{binding} is pinned to this checkout's ignored "
+                "venv; a fresh worktree cannot execute the subject"
+            )
 
 
 # ──────────────────────────────────────────────────────────── helpers
@@ -1308,13 +1336,9 @@ def _require_check_req_tool():
         "scripts/cloud-setup.sh must BOTH call; three inlined copies is the "
         "denominator that drifts (CLAUDE.md section 5).")
     assert VENV_PY.is_file(), (
-        "venv/bin/python is missing at %s; this test measures the helper under "
-        "the interpreter whose site-packages it is asked about. If you are in "
-        "a git WORKTREE, this is environmental and not a subject failure: "
-        "venv/ is gitignored, so a worktree never has one. Fix the environment "
-        "(symlink the main checkout's venv in, or run from the main checkout) "
-        "rather than skipping -- two mutation batteries lost a run to this and "
-        "neither said 'worktree'." % VENV_PY)
+        "the interpreter running this test is unavailable at %s; requirements "
+        "resolution is UNKNOWN because the child cannot inspect the same "
+        "site-packages as its parent" % VENV_PY)
 
 
 def _parsed_names(body):
@@ -1330,7 +1354,7 @@ def _parsed_names(body):
 
 
 def _run_check_req(body):
-    """Run the helper under the REAL venv python over `body`.
+    """Run the helper under the interpreter executing this pytest process.
 
     `body is None` means no requirements.txt exists at all -- the unreadable
     case. Every call gets a fresh tmpdir so no run inherits another's file.

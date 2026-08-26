@@ -65,7 +65,7 @@ import textwrap
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
-_PY = _REPO / "venv" / "bin" / "python"
+_PY = Path(sys.executable)
 _LEAKY = "tests/test_v3_66_940_envfile_seeds_only_declared_keys.py"
 
 

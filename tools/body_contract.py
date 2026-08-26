@@ -47,6 +47,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 
 WORK = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -138,22 +139,56 @@ def fe_path_to_probe(path):
     return "".join(out), True
 
 
+class BodyTypeEvidenceUnknown(RuntimeError):
+    """The live TypeScript call-site denominator could not be measured."""
+
+
 def ts_calls(work):
-    """Ask the TYPE CHECKER what body each control sends. Returns [] if unavailable."""
+    """Ask the type checker what body each control sends; fail on no evidence."""
     import subprocess as sp
 
     fe = os.path.join(work, "frontend")
     script = os.path.join(fe, "scripts", "body_types.mjs")
     if not os.path.isfile(script):
-        return []
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: frontend/scripts/body_types.mjs is unavailable"
+        )
+    node = shutil.which("node")
+    if node is None:
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: Node is unavailable, so TypeScript call sites were not extracted"
+        )
     try:
-        r = sp.run(["node", "scripts/body_types.mjs", "."], cwd=fe,
+        r = sp.run([node, "scripts/body_types.mjs", "."], cwd=fe,
                    capture_output=True, text=True, timeout=600)
-        if r.returncode != 0 or not r.stdout.strip():
-            return []
-        return json.loads(r.stdout)
-    except Exception:
-        return []
+    except sp.TimeoutExpired as exc:
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: TypeScript call-site extraction exceeded 600 seconds"
+        ) from exc
+    except OSError as exc:
+        raise BodyTypeEvidenceUnknown(
+            f"UNKNOWN: TypeScript call-site extraction could not start: {exc}"
+        ) from exc
+    if r.returncode != 0:
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: TypeScript call-site extraction failed "
+            f"with exit {r.returncode}: {r.stderr[-1000:]}"
+        )
+    if not r.stdout.strip():
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: TypeScript call-site extraction emitted no evidence"
+        )
+    try:
+        calls = json.loads(r.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: TypeScript call-site extraction emitted malformed JSON"
+        ) from exc
+    if not isinstance(calls, list) or not calls:
+        raise BodyTypeEvidenceUnknown(
+            "UNKNOWN: TypeScript call-site denominator is zero"
+        )
+    return calls
 
 
 def probe_typed(work, tcalls):
@@ -658,10 +693,10 @@ def main():
     a = ap.parse_args()
 
     if a.regen:
-        calls = ts_calls(a.work)
-        if not calls:
-            print("the TS body extractor produced nothing (needs node + "
-                  "frontend/node_modules)", file=sys.stderr)
+        try:
+            calls = ts_calls(a.work)
+        except BodyTypeEvidenceUnknown as exc:
+            print(str(exc), file=sys.stderr)
             return 2
         calls = sorted(calls, key=lambda c: (c["file"], c["fn"], c["path"]))
         out = os.path.join(a.work, "tools", "BODY_CONTRACT_CALLS.json")

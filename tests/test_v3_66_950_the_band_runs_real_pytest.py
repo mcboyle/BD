@@ -62,7 +62,7 @@ from pathlib import Path
 import pytest
 
 _REPO = Path(__file__).resolve().parent.parent
-_PY = _REPO / "venv" / "bin" / "python"
+_PY = Path(sys.executable)
 _BAND = _REPO / "toolchain" / "bin" / "bd-band"
 _PARBAND = _REPO / "toolchain" / "bin" / "bd-parband"
 

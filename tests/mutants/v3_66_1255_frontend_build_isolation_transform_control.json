@@ -10,7 +10,7 @@
       "label": "TC1 filed-defect output transform escapes an import-only test",
       "file": "tests/frontend_vitest.py",
       "old": "        dist = workspace / \"dist\"\n        assert not dist.exists(), f\"owned build output already exists: {dist}\"",
-      "new": "        dist = FRONTEND / \"dist\"\n        assert dist.exists(), f\"real build output is missing: {dist}\"",
+      "new": "        dist = source / \"dist\"\n        assert dist.exists(), f\"deployed fixture output is missing: {dist}\"",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1255_frontend_build_is_isolated.py::test_transform_control_imports_bridge_without_asserting_build_isolation"
     }

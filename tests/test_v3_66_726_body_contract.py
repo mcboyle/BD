@@ -202,9 +202,6 @@ def test_type_aware_gate_finds_no_keyless_control():
     from tools import body_contract as bc
 
     tcalls = bc.ts_calls(ROOT)
-    if not tcalls:
-        import pytest
-        pytest.skip("node/typescript unavailable -- the type-aware pass cannot run here")
     res = bc.probe_typed(ROOT, tcalls)
     dead = [r for r in res if r["verdict"] == "DEAD"]
     assert not dead, (
@@ -218,9 +215,6 @@ def test_type_aware_pass_actually_resolves_bodies():
     from tools import body_contract as bc
 
     tcalls = bc.ts_calls(ROOT)
-    if not tcalls:
-        import pytest
-        pytest.skip("node/typescript unavailable")
     resolved = [t for t in tcalls if not t["unknownType"]]
     assert len(resolved) >= 60, (
         f"only {len(resolved)} of {len(tcalls)} bodies resolved -- the checker pass is not "
@@ -236,9 +230,6 @@ def test_open_dicts_are_unknown_not_empty():
     from tools import body_contract as bc
 
     tcalls = bc.ts_calls(ROOT)
-    if not tcalls:
-        import pytest
-        pytest.skip("node/typescript unavailable")
     mp = [t for t in tcalls if t["path"] == "/api/marketplace/import"]
     assert mp, "marketplace/import call site vanished"
     assert mp[0]["unknownType"] is True, (

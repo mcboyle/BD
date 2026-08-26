@@ -241,13 +241,13 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1269",
+      "value": "3.66.1270",
       "gates_what": "test_containment_routes_and_version"
     },
     {
       "form": "count_dict",
       "file": "tests/test_spa_root_routing_contract.py",
-      "line": 268,
+      "line": 286,
       "value": {
         "copy": 1,
         "build": 1,
@@ -259,7 +259,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_spa_root_routing_contract.py",
-      "line": 286,
+      "line": 304,
       "value": {
         "copy": 1,
         "build": 1,
@@ -271,7 +271,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_spa_root_routing_contract.py",
-      "line": 297,
+      "line": 315,
       "value": {
         "copy": 1,
         "build": 1,
@@ -283,7 +283,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_spa_root_routing_contract.py",
-      "line": 328,
+      "line": 346,
       "value": {
         "copy": 1,
         "build": 1,

@@ -5,8 +5,6 @@ import hashlib
 import importlib
 from pathlib import Path
 import re
-import shutil
-import subprocess
 
 import pytest
 
@@ -18,7 +16,6 @@ BD_GATE_SCOPE = "repo-wide"
 _REPO = Path(__file__).resolve().parent.parent
 _FRONTEND = _REPO / "frontend"
 _DIST = _FRONTEND / "dist"
-_MARKER = _DIST / ".bd-built-from"
 
 
 def _file_manifest(root: Path) -> dict[str, str]:
@@ -48,58 +45,23 @@ def _assert_manifest_unchanged(
     )
 
 
-def _head_commit() -> str:
-    proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=_REPO,
-        capture_output=True,
-        text=True,
-        timeout=30,
+def _optional_file_manifest(root: Path) -> dict[str, str] | None:
+    return _file_manifest(root) if root.is_dir() else None
+
+
+def test_build_manifest_preserves_real_dist_bytes_and_provenance(monkeypatch, tmp_path):
+    """A real build preserves a present deployed fixture and the real path."""
+    source = frontend_vitest._copy_frontend_for_build(
+        _FRONTEND, tmp_path / "frontend-source"
     )
-    assert proc.returncode == 0, f"cannot identify deployed commit: {proc.stderr}"
-    commit = proc.stdout.strip()
-    assert re.fullmatch(r"[0-9a-f]{40}", commit), commit
-    return commit
-
-
-def _require_measurable_deployed_bundle() -> str:
-    if not _DIST.is_dir():
-        pytest.skip(
-            f"frontend/dist is unavailable at {_DIST}; build isolation is UNKNOWN"
-        )
-    if shutil.which("npm") is None:
-        pytest.skip("npm is unavailable; build isolation is UNKNOWN")
-    unavailable = [
-        path
-        for path in (frontend_vitest.TSC, frontend_vitest.VITE)
-        if not path.is_file()
-    ]
-    if unavailable:
-        pytest.skip(
-            f"frontend build tools are unavailable ({unavailable}); "
-            "build isolation is UNKNOWN"
-        )
-    if not _MARKER.is_file():
-        pytest.skip(
-            f"deployed provenance marker is unavailable at {_MARKER}; "
-            "marker preservation is UNKNOWN"
-        )
-    marker = _MARKER.read_text(encoding="ascii").strip()
-    assert re.fullmatch(r"[0-9a-f]{40}", marker), (
-        f"deployed provenance marker is malformed: {marker!r}"
-    )
-    expected = _head_commit()
-    assert marker == expected, (
-        f"deployed provenance marker {marker} does not match HEAD {expected}"
-    )
-    return marker
-
-
-def test_build_manifest_preserves_real_dist_bytes_and_provenance(monkeypatch):
-    """The real build runs once without changing any deployed bundle byte."""
-    deployed_commit = _require_measurable_deployed_bundle()
-    before = _file_manifest(_DIST)
-    assert ".bd-built-from" in before
+    deployed = source / "dist"
+    (deployed / "assets").mkdir(parents=True)
+    marker = deployed / ".bd-built-from"
+    marker.write_text("a" * 40 + "\n", encoding="ascii")
+    (deployed / "assets" / "deployed.js").write_bytes(b"deployed bytes\n")
+    before = _file_manifest(deployed)
+    assert sorted(before) == [".bd-built-from", "assets/deployed.js"]
+    real_before = _optional_file_manifest(_DIST)
 
     calls: list[tuple[tuple[str, ...], Path | None]] = []
     real_run = frontend_vitest._run
@@ -110,15 +72,18 @@ def test_build_manifest_preserves_real_dist_bytes_and_provenance(monkeypatch):
         return real_run(argv, **kwargs)
 
     monkeypatch.setattr(frontend_vitest, "_run", recording_run)
-    built_manifest = frontend_vitest.build_manifest()
+    built_manifest = frontend_vitest.build_manifest(source)
 
     assert isinstance(built_manifest, dict) and len(built_manifest) > 0
-    after = _file_manifest(_DIST)
+    after = _file_manifest(deployed)
     _assert_manifest_unchanged(before, after)
-    assert _MARKER.is_file(), "build_manifest() deleted frontend/dist/.bd-built-from"
-    assert _MARKER.read_text(encoding="ascii").strip() == deployed_commit
+    assert marker.read_text(encoding="ascii").strip() == "a" * 40
+    assert _optional_file_manifest(_DIST) == real_before, (
+        "build_manifest() changed the checkout's real frontend/dist while "
+        "building a separately owned source fixture"
+    )
     assert len(calls) == 2, f"expected one tsc and one Vite call, got {calls}"
-    assert all(cwd is not None and cwd != _FRONTEND for _, cwd in calls), (
+    assert all(cwd is not None and cwd not in (_FRONTEND, source) for _, cwd in calls), (
         f"frontend command escaped the owned copy: {calls}"
     )
     vite_calls = [call for call in calls if "build" in call[0]]
@@ -126,7 +91,7 @@ def test_build_manifest_preserves_real_dist_bytes_and_provenance(monkeypatch):
     vite_argv, _ = vite_calls[0]
     assert vite_argv.count("--outDir") == 1
     out_dir = Path(vite_argv[vite_argv.index("--outDir") + 1])
-    assert out_dir != _DIST and "--emptyOutDir" in vite_argv, vite_argv
+    assert out_dir not in (_DIST, deployed) and "--emptyOutDir" in vite_argv, vite_argv
 
 
 def test_isolated_frontend_copy_excludes_dist_and_links_only_dependencies(tmp_path):

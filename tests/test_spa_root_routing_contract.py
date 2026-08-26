@@ -20,9 +20,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 os.environ.setdefault("BD_HOME", tempfile.mkdtemp(prefix="bd_rootflip_"))
 
-_DIST = _REPO_ROOT / "frontend" / "dist" / "index.html"
-
-
 def _fresh_client():
     from bulk_downloader.app import app as flask_app
     return flask_app.test_client()
@@ -158,19 +155,39 @@ def _assert_built_assets_are_rooted(dist: Path, references: list[str]) -> None:
     assert len(resolved) == len(references) > 0
 
 
-def test_root_serves_spa():
-    """GET / returns the built SPA index (200, html, #root div).
-    If dist is absent (pristine sandbox), the actionable 503
-    not-built surface answers instead — same contract /m2 had."""
+def _synthetic_dist(tmp_path: Path) -> Path:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text(
+        '<!doctype html><div id="root"></div>\n', encoding="utf-8"
+    )
+    return dist
+
+
+def test_root_serves_spa(tmp_path, monkeypatch):
+    """GET / returns a present SPA index (200, html, #root div)."""
+    import bulk_downloader.app as app_module
+
+    dist = _synthetic_dist(tmp_path)
+    monkeypatch.setattr(app_module, "_M2_DIST_ROOT", dist)
     c = _fresh_client()
     r = c.get("/")
-    if not _DIST.is_file():
-        assert r.status_code == 503
-        assert r.headers.get("X-BD-M2-Status") == "not-built"
-        return
     assert r.status_code == 200
     assert "html" in (r.headers.get("Content-Type") or "")
     assert b'<div id="root">' in r.data, "SPA root div missing from /"
+
+
+def test_root_reports_the_explicit_not_built_state(tmp_path, monkeypatch):
+    """The unavailable branch is measured separately and cannot impersonate 200."""
+    import bulk_downloader.app as app_module
+
+    missing = tmp_path / "no-such-dist"
+    assert not missing.exists()
+    monkeypatch.setattr(app_module, "_M2_DIST_ROOT", missing)
+    r = _fresh_client().get("/")
+    assert r.status_code == 503
+    assert r.headers.get("X-BD-M2-Status") == "not-built"
+    assert b'<div id="root">' not in r.data
 
 
 def test_root_warms_session_cookie():
@@ -184,11 +201,13 @@ def test_root_warms_session_cookie():
         "fresh GET / did not warm the session cookie"
 
 
-def test_spa_client_route_falls_back_to_index():
+def test_spa_client_route_falls_back_to_index(tmp_path, monkeypatch):
     """An unrouted non-reserved path (a React Router client route)
     returns the SPA index so the router can claim it."""
-    if not _DIST.is_file():
-        return  # 503 surface covered in test_root_serves_spa
+    import bulk_downloader.app as app_module
+
+    dist = _synthetic_dist(tmp_path)
+    monkeypatch.setattr(app_module, "_M2_DIST_ROOT", dist)
     c = _fresh_client()
     for path in ("/queue", "/settings", "/sites/3"):
         r = c.get(path)
@@ -207,16 +226,15 @@ def test_reserved_namespaces_404_not_spa_html():
         assert r.status_code == 404, f"{path}: {r.status_code}"
 
 
-def test_missing_asset_is_404_not_spa_html():
-    """An asset-looking path (file extension) not present in dist is a
-    404 when built; a clean source checkout reports the explicit 503 state."""
+def test_missing_asset_is_404_not_spa_html(tmp_path, monkeypatch):
+    """An asset-looking path absent from a present dist is a real 404."""
+    import bulk_downloader.app as app_module
+
+    dist = _synthetic_dist(tmp_path)
+    monkeypatch.setattr(app_module, "_M2_DIST_ROOT", dist)
     c = _fresh_client()
     r = c.get("/assets/definitely-not-a-real-bundle-zz.js")
-    if not _DIST.is_file():
-        assert r.status_code == 503
-        assert r.headers.get("X-BD-M2-Status") == "not-built"
-    else:
-        assert r.status_code == 404
+    assert r.status_code == 404
 
 
 def test_real_asset_served_from_root(tmp_path, monkeypatch):

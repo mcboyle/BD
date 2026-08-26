@@ -31,36 +31,43 @@ real current time).
 from __future__ import annotations
 
 import datetime as dt
+import os
 import sqlite3
 import time
+from contextlib import contextmanager
+
+import pytest
 
 
 # ── Helper ───────────────────────────────────────────────────────────
 
-def _force_tz(monkeypatch, tz_name):
-    """Set process TZ for this test only. Restore via monkeypatch's
-    automatic teardown. On platforms without tzset (Windows) this
-    becomes a no-op — the bug is still detectable on Linux/macOS,
-    which is where the deployment runs.
-    """
+@contextmanager
+def _force_tz(tz_name):
+    """Set process TZ and restore both the environment and libc timezone."""
     if not hasattr(time, "tzset"):
-        return False
-    monkeypatch.setenv("TZ", tz_name)
+        raise RuntimeError(
+            "UNKNOWN: time.tzset is unavailable, so a non-UTC timezone cannot "
+            "be forced"
+        )
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = tz_name
     time.tzset()
-    return True
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        time.tzset()
 
 
 # ── The regression ──────────────────────────────────────────────────
 
-def test_find_candidates_uses_utc_cutoff_not_localtime(
-        fresh_app, monkeypatch):
+def test_find_candidates_uses_utc_cutoff_not_localtime(fresh_app):
     """Boundary row 5h after UTC cutoff must NOT be selected,
     even when host TZ is far from UTC."""
-    if not _force_tz(monkeypatch, "Pacific/Auckland"):
-        # No tzset — can't force the bug condition; skip silently.
-        return
-
-    try:
+    with _force_tz("Pacific/Auckland"):
         from bulk_downloader.storage_tier import find_candidates
 
         # Build UTC strings around a known cutoff. age_days=30, so
@@ -102,12 +109,34 @@ def test_find_candidates_uses_utc_cutoff_not_localtime(
         assert "http://x/after" not in urls, (
             "row 5h newer than cutoff must NOT be included — "
             "this is the localtime bug if it fires")
-    finally:
-        # Restore real tzset for subsequent tests in the same
-        # process. monkeypatch.setenv handles env unset, but
-        # tzset must be called again to re-read it.
-        if hasattr(time, "tzset"):
-            time.tzset()
+
+
+def test_forced_timezone_restores_environment_and_libc_state():
+    """The worker must not remain in the forced zone after the gate returns."""
+    if not hasattr(time, "tzset"):
+        with pytest.raises(RuntimeError, match="UNKNOWN"):
+            with _force_tz("Pacific/Auckland"):
+                pass
+        return
+    before_env = os.environ.get("TZ")
+    before_state = (time.tzname, time.timezone, time.daylight)
+    zone = "Pacific/Auckland"
+    if before_env == zone:
+        zone = "America/Los_Angeles"
+    with _force_tz(zone):
+        assert os.environ.get("TZ") == zone
+        assert (time.tzname, time.timezone, time.daylight) != before_state
+    assert os.environ.get("TZ") == before_env
+    assert (time.tzname, time.timezone, time.daylight) == before_state
+
+
+def test_missing_tzset_is_an_unknown_state(monkeypatch):
+    """Capability absence is a loud third state, never a passing return."""
+    with monkeypatch.context() as patch:
+        patch.delattr(time, "tzset", raising=False)
+        with pytest.raises(RuntimeError, match="UNKNOWN"):
+            with _force_tz("Pacific/Auckland"):
+                pass
 
 
 # ── Source-level guard ──────────────────────────────────────────────

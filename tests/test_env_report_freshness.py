@@ -13,12 +13,13 @@ one written against a different tree, so it must not exit 0.
 from __future__ import annotations
 
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER = REPO_ROOT / "toolchain" / "bin" / "bd-env-report-check"
-PYTHON = REPO_ROOT / "venv" / "bin" / "python"
+PYTHON = Path(sys.executable)
 BOOTSTRAP_DOC = REPO_ROOT / "docs" / "repo" / "ENVIRONMENT_PROVISIONING.md"
 
 

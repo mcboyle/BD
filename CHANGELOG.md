@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1270 - a gate that cannot see its subject reports unknown instead of passing
+
+-    Regenerating needs node; ENFORCING does not. When node is present we re-
+-    and compare, so a new mutating control cannot land without the artifact 
+-    therefore the gate) noticing it. When node is absent this check -- and O
+-    check -- is skipped; the gate itself still runs against the committed ar
+-        pytest.skip("node/body_types.mjs unavailable -- cannot REGENERATE he
+-                    "(the gate itself still ran against the committed artifa
+-                       capture_output=True, text=True, timeout=1800)
+-    _corpus(tmp_path, sites=2, per_site=2)
+-    auto = _mode(_run(tmp_path, "--jobs", "0"))
+-    assert auto["jobs"] == max(1, os.cpu_count() or 1), (
+-        "--jobs 0 did not resolve to one worker per core: %r" % auto["jobs"])
+-    assert _answer(_run(tmp_path)) == {k: v for k, v in auto.items() if k !=
+-        "auto-parallel disagreed with serial")
+
 ## v3.66.1269 - the register records the version a row actually shipped in
 
 - Added the repo-wide changelog gate and registered it in the toolchain CI sh
