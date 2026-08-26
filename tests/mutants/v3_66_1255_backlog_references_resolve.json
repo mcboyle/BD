@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 246 / v3.66.1255. Re-run from a detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1255_backlog_references_resolve.json --work DETACHED_CLONE. The mutant removes only the existence predicate. The synthetic row-999999 fixture is the named catcher, after proving its exact two-row denominator and exact one-reference firing population. The separate transform-control spec points this replacement at an import-only test and must ESCAPE.",
+  "subject": "every lexical backlog-id reference in canonical row prose resolves to an existing backlog row",
+  "band": [
+    "tests/test_v3_66_1255_backlog_references_resolve.py::test_every_backlog_reference_resolves_over_the_exact_row_population",
+    "tests/test_v3_66_1255_backlog_references_resolve.py::test_an_absent_backlog_id_reference_fires_once_for_the_intended_reason",
+    "tests/test_v3_66_1255_backlog_references_resolve.py::test_versions_counts_ports_and_hyphenated_cut_labels_are_not_row_ids",
+    "tests/test_v3_66_1255_backlog_references_resolve.py::test_plural_lists_ranges_arrows_and_annotations_have_exact_targets"
+  ],
+  "mutants": [
+    {
+      "label": "M1 delete the existence check so an absent backlog reference is accepted",
+      "file": "tests/test_v3_66_1255_backlog_references_resolve.py",
+      "old": "        if reference.target_row not in row_ids:\n",
+      "new": "        if False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_backlog_references_resolve.py::test_an_absent_backlog_id_reference_fires_once_for_the_intended_reason"
+    }
+  ]
+}

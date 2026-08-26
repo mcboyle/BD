@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1256 - every in-prose backlog id reference resolves to a row that exists
+
+- New repo-wide gate: [test_v3_66_1255_backlog_references_resolve.py](/home/m
+- Measures exactly 241 parsed/physical rows and 144 references via two indepe
+- Covers absent IDs, versions/counts/ports, slash lists, ranges, arrows, and 
+- Registered in [ci.yml](/home/mboyle/bd-codex-wt/row246/.github/workflows/ci
+- Added the [behavioral mutant](/home/mboyle/bd-codex-wt/row246/tests/mutants
+- Focused: `5 passed in 0.91s`
+- Derived 36-file floor plus mutation-spec gate: `906 passed, 1 skipped, 3 wa
+- Skip identified: absent release parity artifact, as expected by `test_v3_66
+- Behavioral score: 1/1 CAUGHT, 100%; 0 escaped, 0 invalid, 0 unknown/error/i
+- New repo-wide gate: [test_v3_66_1255_backlog_references_resolve.py](/home/m
+- Measures exactly 241 parsed/physical rows and 144 references via two indepe
+- Covers absent IDs, versions/counts/ports, slash lists, ranges, arrows, and 
+- Registered in [ci.yml](/home/mboyle/bd-codex-wt/row246/.github/workflows/ci
+
 ## v3.66.1255 - the suite's own build is filed as a defect
 
 Rows 247, 248 and 249, filed from the v3.66.1254 sanctioned full suite. This cut

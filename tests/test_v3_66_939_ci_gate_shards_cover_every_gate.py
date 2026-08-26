@@ -223,6 +223,10 @@ _DECLARED = {
     "tests/test_v3_66_1169_openapi_has_one_producer.py",
     "tests/test_v3_66_1170_claude_is_concise_authority.py",
     "tests/test_v3_66_1171_backlog_truth_is_current.py",
+    # Row 246. Every lexical backlog-id reference in canonical row prose must
+    # resolve against the complete parsed row population. This is tree-wide:
+    # a stale reference can be introduced by editing any backlog row.
+    "tests/test_v3_66_1255_backlog_references_resolve.py",
     "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
     "tests/test_v3_66_1173_gate_scope_debt_is_paid.py",
     "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py",
