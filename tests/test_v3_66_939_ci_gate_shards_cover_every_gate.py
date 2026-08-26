@@ -244,6 +244,12 @@ _DECLARED = {
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
+    # @1256, backlog row 250. bd-regen-order is run on every cut, and its
+    # selftest is the only precondition for treating the complete CHAIN as the
+    # current generator denominator. A dropped member changes no application
+    # path from which bd-band-derive could select this gate, so CI must run it
+    # directly on every tree.
+    "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",

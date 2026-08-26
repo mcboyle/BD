@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 250 / v3.66.1256. Run with toolchain/bin/bd-mutate against a detached scratch copy. The mutant restores the historical defect by deriving required membership from CHAIN at selftest time. The named in-memory omission catcher must make it CAUGHT. The separate transform-control spec applies the identical valid transform to an unmodified-chain test and must ESCAPE, proving the catcher is behavioural rather than an import or parse failure.",
+  "subject": "bd-regen-order selftest uses an independent exact ten-member regeneration-chain denominator",
+  "band": [
+    "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py::test_chain_derived_expected_set_cannot_authorize_an_omission"
+  ],
+  "mutants": [
+    {
+      "label": "M1 derive required membership from the CHAIN artifact under test",
+      "file": "toolchain/bin/bd-regen-order",
+      "old": "    required_labels = list(REQUIRED_CHAIN_LABELS)",
+      "new": "    required_labels = [entry[0] for entry in CHAIN]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py::test_chain_derived_expected_set_cannot_authorize_an_omission"
+    }
+  ]
+}

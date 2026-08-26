@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1263 - the regen orchestrator checks its chain against an independent denominator
+
+-    # POS: the ORDER is the contract -- gui_parity must precede ROUTE_INDEX.
+-    p1 = labels.index("gui_parity") < labels.index("ROUTE_INDEX")
+- Added an independent frozen ten-label denominator to [bd-regen-order](toolc
+- Missing, unexpected, duplicate, zero, and non-ten populations now fail with
+- Preserved the existing ordering and frozen-baseline checks.
+- Added the repo-wide regression test and CI registration.
+- Filed backlog row 250. Parser-derived metadata: `rows=245`, `open=7`, diges
+- Regenerated and inspected `PIN_INDEX.json` and the static KB manifest.
+- Release trio untouched.
+- Before: deletion matrix `8 PASS / 2 FAIL`.
+- After: `0 PASS / 10 FAIL`; all ten missing labels named.
+- Bogus extra: fails and names `BOGUS_GENERATOR`.
+- Unmodified chain: passes.
+
 ## v3.66.1262 - every test root publishes both ownership objects before it is observable
 
 Row 245 STAYS OPEN. This cut ships the producer half -- every path that

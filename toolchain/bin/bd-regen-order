@@ -108,6 +108,23 @@ CHAIN = [
      "derives it from the tree, so this entry cannot go stale against a bump."),
 ]
 
+# Independent membership denominator for the operational chain above. This is
+# deliberately NOT computed from CHAIN: deleting a generator from CHAIN also
+# deletes it from the main regen loop, so a CHAIN-derived expectation would
+# certify the same omission that leaves the generated set stale.
+REQUIRED_CHAIN_LABELS = (
+    "FRONTEND_SECRET_KEYS",
+    "gui_parity",
+    "ROUTE_INDEX",
+    "ENDPOINT_CATALOG",
+    "DEPENDENCY_GRAPH",
+    "FUNCTION_INDEX",
+    "INV_TAGS",
+    "SOURCE_WINDOW_HASHES",
+    "PIN_INDEX",
+    "STATIC_KB",
+)
+
 VERIFY = [
     ("template identity", ["tools/decomp/templates_snapshot.py", "--check"],
      "GATE: verifies the reviewed frozen template identity; never auto-freezes it"),
@@ -236,9 +253,39 @@ def declare_edges(work):
 def selftest():
     ok = True
 
-    # POS: the ORDER is the contract -- gui_parity must precede ROUTE_INDEX.
     labels = [c[0] for c in CHAIN]
-    p1 = labels.index("gui_parity") < labels.index("ROUTE_INDEX")
+
+    # DENOMINATOR: frozen independently of CHAIN, nonempty, and exact today.
+    # The uniqueness clause makes a duplicated declaration fail rather than
+    # laundering one missing label behind the required count of ten.
+    d1 = (bool(REQUIRED_CHAIN_LABELS)
+          and len(REQUIRED_CHAIN_LABELS) == 10
+          and len(set(REQUIRED_CHAIN_LABELS)) == 10)
+    print(("%sPASS%s" if d1 else "%sFAIL%s") % ((G, RST) if d1 else (R, RST)) +
+          "  DENOMINATOR: exactly 10 unique required chain labels (nonzero)")
+    ok &= d1
+
+    required_labels = list(REQUIRED_CHAIN_LABELS)
+    missing = [label for label in required_labels if label not in labels]
+    unexpected = [label for label in labels if label not in required_labels]
+    duplicates = sorted({label for label in labels if labels.count(label) > 1})
+    m1 = (not missing and not unexpected and not duplicates
+          and len(labels) == len(required_labels))
+    if m1:
+        membership_detail = "exact required membership; nothing missing or unexpected"
+    else:
+        membership_detail = "missing: %s; unexpected: %s; duplicates: %s" % (
+            ", ".join(missing) or "none",
+            ", ".join(unexpected) or "none",
+            ", ".join(duplicates) or "none",
+        )
+    print(("%sPASS%s" if m1 else "%sFAIL%s") % ((G, RST) if m1 else (R, RST)) +
+          "  MEMBERSHIP: " + membership_detail)
+    ok &= m1
+
+    # POS: the ORDER is the contract -- gui_parity must precede ROUTE_INDEX.
+    p1 = ("gui_parity" in labels and "ROUTE_INDEX" in labels
+          and labels.index("gui_parity") < labels.index("ROUTE_INDEX"))
     print(("%sPASS%s" if p1 else "%sFAIL%s") % ((G, RST) if p1 else (R, RST)) +
           "  POS: gui_parity precedes ROUTE_INDEX (the @717 abort)")
     ok &= p1
