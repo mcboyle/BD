@@ -25,11 +25,12 @@ def api_bitrot_scan():
     body = request.json or {}
     try:
         from . import bitrot as _br
-        return jsonify(_br.run_scan(
+        result = _br.run_scan(
             scan_fraction=float(body.get("scan_fraction", 0.05)),
             min_age_days=int(body.get("min_age_days", 7)),
             max_files=int(body.get("max_files", 100)),
-        ))
+        )
+        return jsonify(result), (200 if result.get("available", True) else 503)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -48,7 +49,8 @@ def api_bitrot_issues():
 def api_bitrot_stats():
     try:
         from . import bitrot as _br
-        return jsonify(_br.stats())
+        result = _br.stats()
+        return jsonify(result), (200 if result.get("available", True) else 503)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -56,4 +58,3 @@ def register_routes(app) -> int:
     app.register_blueprint(bitrot_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("bitrot."))
-

@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1267 - an unavailable application measurement no longer grants permission
+
+- F36: unreadable rights blocklist returns UNKNOWN; enqueue refuses and exten
+- F37: hash errors quarantine and fail the job.
+- F38: unreadable site/global counters hold admission.
+- F39: stage `ok:false` halts before dependent stages.
+- F40: bit-rot inventory failure returns 503/UNKNOWN; health and alerts no lo
+- F41: unavailable RSS holds configured memory admission.
+- F42: incomplete site-tree traversal refuses runner startup.
+- Fixed tree: `14 passed`.
+- Focused affected tests: `160 passed`.
+- CI/register wiring checks: `19 passed`.
+- Mutation: UNKNOWN-to-zero RSS mutant CAUGHT; identical-transform control ES
+- Freshness and backlog parser passed.
+- OPEN backlog row 267 filed with header `rows=250 open=4`; no version tag.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    test_app_measurements_fail_closed.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1266 - an unmeasurable IPv6 probe no longer disarms the VPN kill switch
 
 -                      if not p.passed and p.severity == Severity.CRITICAL.va

@@ -324,9 +324,14 @@ def _check_bitrot() -> dict:
     try:
         from . import bitrot as _br
         s = _br.stats()
-    except Exception:
-        return {"severity": SEV_OK, "message": "bitrot module unavailable"}
-    n = s.get("open_issues", 0)
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"bitrot measurement unavailable: {e}"[:200]}
+    if not s.get("available", True) or s.get("open_issues") is None:
+        return {"severity": SEV_WARN,
+                "message": "bitrot measurement unavailable",
+                "details": s}
+    n = s.get("open_issues")
     if n == 0:
         return {"severity": SEV_OK, "message": "no integrity issues"}
     sev = SEV_FAIL if n >= 10 else SEV_WARN

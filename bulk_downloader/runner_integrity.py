@@ -187,9 +187,9 @@ class IntegrityMixin:
                                    final_path, filename, downloaded_size):
         """Verify the downloaded file's hash matches `expected_algo:expected_hash`.
 
-        Returns True if the file passes (caller continues), False if mismatched
-        (caller should `return` — file has been quarantined to _failed/, job
-        marked failed, db_log written).
+        Returns True only if the advertised digest was computed and matched.
+        False means mismatch or unavailable verification; in both cases the
+        caller returns, the file is quarantined, and the failed job is visible.
 
         Extracted from _do_download in v3.43.17 to reduce that function's
         complexity. Behavior is identical to the previous inline block."""
@@ -216,10 +216,26 @@ class IntegrityMixin:
             self.log_event("hash", f"verified {expected_algo} ✓", url=page_url)
             return True
         except Exception as e:
-            # Hash extension we don't support, or I/O error — log but
-            # don't fail the download. The integrity check still runs.
-            sys.stderr.write(f"  hash verify error (non-fatal): {str(e)[:80]}\n")
-            return True  # let the download stand; integrity check is the backstop
+            # Unsupported algorithms and file I/O errors mean the advertised
+            # digest was never verified.  The separate media-container probe
+            # cannot establish that these are the bytes the publisher named,
+            # so it is not an integrity backstop for this claim.
+            quarantine = final_path.parent / "_failed"
+            quarantine.mkdir(exist_ok=True)
+            try:
+                shutil.move(str(final_path), str(quarantine / final_path.name))
+            except Exception:
+                pass
+            detail = f"{type(e).__name__}: {e}"[:120]
+            msg = (f"Hash verification unavailable ({expected_algo}): {detail}; "
+                   "moved to _failed/")
+            self._update_job(page_url, "failed", msg,
+                             filename=filename, file_size=downloaded_size)
+            db_log(self.site_id, self.config.get("name", "?"), page_url,
+                   "failed", filename, downloaded_size,
+                   f"hash verification unavailable ({expected_algo}): {detail}")
+            sys.stderr.write(f"  hash verify unavailable: {detail}\n")
+            return False
     def _verify_integrity_or_quarantine(self, page_url, final_path,
                                         filename, downloaded_size):
         """Verify the downloaded media file passes ffprobe.

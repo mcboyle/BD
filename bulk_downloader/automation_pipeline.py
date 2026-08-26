@@ -115,7 +115,17 @@ def run_pipeline(host: str,
                                       f"aborted: {snap.get('error')}")
                     raise RuntimeError(state["error"])
             try:
-                return fn(h, c)
+                result = fn(h, c)
+                # Stages use conventional result dictionaries as well as
+                # exceptions.  ``ok: false`` is a completed measurement of
+                # failure, not a successful call merely because it returned.
+                if isinstance(result, dict) and result.get("ok") is False:
+                    state["failed"] = name
+                    state["error"] = str(
+                        result.get("error") or result.get("reason") or
+                        f"stage '{name}' returned ok:false"
+                    )[:200]
+                return result
             except Exception as e:
                 state["failed"] = name
                 state["error"] = str(e)[:200]

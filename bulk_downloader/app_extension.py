@@ -43,11 +43,20 @@ def api_extension_lookup_url():
     try:
         from . import content_rights as _cr
         block = _cr.url_is_blocked(url)
-        if block:
+        if block and block.get("unknown"):
+            info["blocked"] = None
+            info["blocklist_status"] = "unknown"
+            info["blocklist_error"] = block.get("error", "blocklist unavailable")
+        elif block:
             info["blocked"] = True
+            info["blocklist_status"] = "measured"
             info["block_reason"] = block.get("reason", "")
-    except Exception:
-        pass
+        else:
+            info["blocklist_status"] = "measured"
+    except Exception as e:
+        info["blocked"] = None
+        info["blocklist_status"] = "unknown"
+        info["blocklist_error"] = f"blocklist unavailable: {e}"[:200]
     try:
         with db_conn() as cx:
             row = cx.execute("""
@@ -105,4 +114,3 @@ def register_routes(app) -> int:
     app.register_blueprint(extension_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("extension."))
-

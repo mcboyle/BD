@@ -170,7 +170,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (43 entries)
+## `bulk_downloader/runner.py` (44 entries)
 
 ```
 - L0319 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
@@ -187,35 +187,36 @@ Schema version: 2
   - L0756 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
   - L0794 `SiteRunner.start`
   - L0846 `SiteRunner._start_serialized` `[private]`
-  - L1137 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1147 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1208 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L1286 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L1301 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L1312 `SiteRunner.stop`
-  - L1412 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L1436 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L1538 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L1555 `SiteRunner.state`
-  - L1557 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L1584 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L1591 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L1598 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L1613 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L2131 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L2160 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L2207 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L2265 `SiteRunner._worker_generation_is_current` `[private]`
-  - L2269 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L2330 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L2390 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L2422 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L2453 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L2473 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L2482 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L2507 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L2528 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L2905 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L1146 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1156 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L1217 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L1295 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L1310 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L1321 `SiteRunner.stop`
+  - L1421 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L1445 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L1547 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L1564 `SiteRunner.state`
+  - L1566 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L1602 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L1609 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L1616 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L1631 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L2149 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L2178 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L2225 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L2283 `SiteRunner._worker_generation_is_current` `[private]`
+  - L2287 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L2348 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L2408 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L2440 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L2471 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L2491 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L2500 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L2525 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L2546 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L2628 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L2961 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -325,9 +326,9 @@ Schema version: 2
   - L0095 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
   - L0148 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
   - L0186 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
-  - L0223 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0289 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0397 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+  - L0239 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
+  - L0305 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0413 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 
@@ -413,22 +414,22 @@ Schema version: 2
   - L0072 `QueueMixin._job_status_writer` `[private]`
   - L0075 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
   - L0128 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0364 `QueueMixin.reorder_urls`
-  - L0376 `QueueMixin.set_priority`
-  - L0386 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0404 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0435 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0463 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0488 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0509 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0531 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0555 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0601 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0615 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0631 `QueueMixin.retry`
-  - L0633 `QueueMixin.clear`
-  - L0635 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0641 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0384 `QueueMixin.reorder_urls`
+  - L0396 `QueueMixin.set_priority`
+  - L0406 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0424 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0455 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0483 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0508 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0529 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0551 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0575 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0621 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0635 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0651 `QueueMixin.retry`
+  - L0653 `QueueMixin.clear`
+  - L0655 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0661 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
 ```
 
 
@@ -696,4 +697,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 520 across 22 files._
+_Total entries: 521 across 22 files._

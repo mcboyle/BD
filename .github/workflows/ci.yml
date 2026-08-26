@@ -372,6 +372,12 @@ jobs:
               tests/test_v3_66_1068_modwatch_measures_per_file.py
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
+          # Backlog row 267. These application admission and integrity seams
+          # are a safety boundary, so their direct unavailable-measurement
+          # probes run on every PR instead of depending only on diff routing.
+          - name: application-safety
+            suites: >-
+              tests/test_app_measurements_fail_closed.py
           # @1207 determinism review. The former measurement-tools entry had
           # doubled and serialized every file in one Actions job. Four files
           # are irreducible long poles (1043 consumed 158s of a measured 172s

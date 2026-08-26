@@ -33,8 +33,9 @@ Schema (created lazily):
     ts REAL
   )
 
-Fail-open: every check returns "allow" on any database error. We never
-want a corrupt blocklist to break downloads.
+The URL admission check has three outcomes: a matching block, a measured
+no-match, or an explicit unknown result when persistence cannot be read.  An
+unreadable blocklist must never grant permission to enqueue a URL.
 """
 from __future__ import annotations
 
@@ -59,8 +60,10 @@ _MAX_PATTERN_LEN = 512
 
 def _ensure_tables():
     global _table_ready
-    if _table_ready:
-        return
+    # Always run the idempotent DDL. Tests and maintenance paths can replace
+    # the active database within one process; a process-global success bit
+    # otherwise describes the previous database and turns a healthy new store
+    # into a false UNKNOWN at the first policy read.
     try:
         with _db.db_conn() as cx:
             cx.execute("""
@@ -194,8 +197,12 @@ def list_blocks() -> list:
 
 
 def url_is_blocked(url: str) -> Optional[dict]:
-    """Check if URL matches any blocklist pattern. Returns the
-    matching block dict or None. Fail-open (returns None on error).
+    """Return a matching block, ``None`` for measured no-match, or UNKNOWN.
+
+    UNKNOWN is a truthy result with ``blocked=None`` and ``unknown=True`` so a
+    legacy truthiness caller refuses rather than admitting work.  Callers that
+    render the result can distinguish the unavailable measurement from a real
+    policy match.
 
     v3.46.4 F9: URL is truncated to _MAX_URL_LEN_FOR_MATCH before
     regex evaluation; patterns longer than _MAX_PATTERN_LEN are
@@ -206,8 +213,8 @@ def url_is_blocked(url: str) -> Optional[dict]:
     # Truncate the URL for matching purposes only — we don't modify
     # the URL going forward, just bound the work the regex engine does.
     url_for_match = url[:_MAX_URL_LEN_FOR_MATCH]
-    _ensure_tables()
     try:
+        _ensure_tables()
         with _db.db_conn() as cx:
             rs = cx.execute("""
                 SELECT id, pattern, reason FROM content_blocklist
@@ -224,8 +231,12 @@ def url_is_blocked(url: str) -> Optional[dict]:
             except re.error:
                 continue  # corrupt pattern; skip
         return None
-    except Exception:
-        return None  # fail-open
+    except Exception as e:
+        return {
+            "blocked": None,
+            "unknown": True,
+            "error": f"content-rights blocklist unreadable: {e}"[:200],
+        }
 
 
 def hash_is_blocked(hash_hex: str) -> Optional[dict]:

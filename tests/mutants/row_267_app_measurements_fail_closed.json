@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 267. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row_267_app_measurements_fail_closed.json --work DETACHED_SCRATCH. The single transform restores the representative F41 defect by collapsing unavailable RSS into measured zero. The named catcher reaches sampler failure and requires both the UNKNOWN result and admission hold. The separate transform-control spec applies the identical valid transform only under the measured-under-cap control and must ESCAPE.",
+  "subject": "configured application measurements return UNKNOWN and refuse permission when unavailable",
+  "band": [
+    "tests/test_app_measurements_fail_closed.py::test_f41_missing_or_failed_rss_is_unknown_and_holds_admission",
+    "tests/test_app_measurements_fail_closed.py::test_f41_measured_rss_below_cap_still_admits"
+  ],
+  "mutants": [
+    {
+      "label": "M1 collapse unavailable RSS back into permissive measured zero",
+      "file": "bulk_downloader/run_budget.py",
+      "old": "    if r is None:\n        return {\"over\": None, \"rss_mb\": None, \"budget_mb\": b.mem_mb,\n                \"available\": False, \"unknown\": True,\n                \"error\": \"RSS measurement unavailable\"}\n",
+      "new": "    if r is None:\n        r = 0.0\n",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f41_missing_or_failed_rss_is_unknown_and_holds_admission"
+    }
+  ]
+}
