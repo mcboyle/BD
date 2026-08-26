@@ -18,9 +18,9 @@ POSTURE/MUTATION GREPS ban the actual CONSTRUCT (`set_policy_level(`, `mark_revi
 (decay/reset), which is allowed; the bans target FORBIDDEN mutations only.
 """
 import datetime as _dt
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_trust as atr
 from tools import autonomy_eligibility as el
@@ -35,9 +35,7 @@ _HO2 = [{"capture": "c1", "identity": "m", "renditions": ["1080p"],
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 def _now():

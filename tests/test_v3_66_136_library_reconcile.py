@@ -6,11 +6,11 @@ kind adds no routes/POST; orphan-import is deliberately not here. DB faked via t
 `_lib_*` wrappers — no real database.
 """
 import os
-import shutil
 import time
 
 import pytest  # noqa: F401
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_library_reconcile as lrc
 from tools import autonomy_apply as aap
 from tools import autonomy_grant as ag
@@ -25,8 +25,7 @@ _FRESH = _NOW - 1 * 86400     # 1d — within the 30d debounce
 
 
 def _fresh():
-    os.environ["BD_COCKPIT_TASKS"] = "/tmp/bd_lrc_test_tasks"
-    shutil.rmtree(tasks_root() / "governance", ignore_errors=True)
+    remove_test_governance(tasks_root())
     os.environ.pop("BD_LIB_RECONCILE_MISSING_DAYS", None)
 
 

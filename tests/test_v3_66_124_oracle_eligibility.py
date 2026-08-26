@@ -8,9 +8,9 @@ exists; pinned actions remain permanently ineligible; no apply/approve/rollback/
 behavior is introduced; Class C auto remains disabled by default; plus wiring
 (+6 GET = 118, no POST).
 """
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_oracle as orc
 from tools.cockpit_core import tasks_root
@@ -25,9 +25,7 @@ _HO2 = _HO1 + [{"capture": "c2", "identity": "movieX", "renditions": ["1080p"],
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 class TestTierGating:

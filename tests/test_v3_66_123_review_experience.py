@@ -7,9 +7,9 @@ decision audit spans sources; dashboard orders by deadline; the review DECISION 
 flows through the existing audited path (no new mutation here); Class C auto still
 impossible; wiring (+5 GET = 112, no POST).
 """
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_guardrails as gr
 from tools import autonomy_review as rv
@@ -20,9 +20,7 @@ _CONSOLE = Path((Path(rv.__file__).parent / "cockpit_console.py")).read_text(enc
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 def _make_change():

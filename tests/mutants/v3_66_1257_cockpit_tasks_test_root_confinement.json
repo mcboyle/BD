@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 252 / v3.66.1257. Re-run from a detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1257_cockpit_tasks_test_root_confinement.json --work DETACHED_CLONE. The mutant converts the outside-root refusal into a fall-through and therefore reaches the real destructive call. The named catcher creates only a sacrificial temporary caller root, proves it is outside the fixture-owned cwd, drives a representative _fresh path, and requires both the refusal and surviving data. The separate transform-control spec applies this exact replacement under an import-only test and must ESCAPE.",
+  "subject": "test cockpit governance cleanup refuses every target outside the per-test owned root",
+  "band": [
+    "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py::test_representative_fresh_refuses_and_preserves_a_caller_owned_root",
+    "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py::test_representative_fresh_removes_test_owned_governance"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the outside-root refusal so cleanup deletes caller-owned governance",
+      "file": "tests/_cockpit_tasks.py",
+      "old": "    except ValueError as exc:\n        raise RuntimeError(\n            \"refusing to remove governance outside test-owned root: \"\n            f\"{governance} is not under {test_root}\"\n        ) from exc\n",
+      "new": "    except ValueError:\n        relative = Path(\"outside\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py::test_representative_fresh_refuses_and_preserves_a_caller_owned_root"
+    }
+  ]
+}

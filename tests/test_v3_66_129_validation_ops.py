@@ -14,9 +14,9 @@ is purely advisory and read-only.
 """
 import datetime as _dt
 import json
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_oracle as ao
 from tools import autonomy_validation as av
 from tools.cockpit_core import tasks_root
@@ -25,9 +25,7 @@ _SRC = Path(av.__file__).read_text(encoding="utf-8")
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 def _iso(days):

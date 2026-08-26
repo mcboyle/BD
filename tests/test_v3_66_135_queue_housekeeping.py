@@ -6,10 +6,10 @@ routes and no POST. DB is faked via the injectable `_q_*` wrappers — no real d
 """
 import datetime as _dt
 import os
-import shutil
 
 import pytest  # noqa: F401  (runner supplies fixtures/parametrize; use assert, not pytest.fail)
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_queue_hk as qhk
 from tools import autonomy_apply as aap
 from tools import autonomy_grant as ag
@@ -24,8 +24,7 @@ _NEW = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 def _fresh():
     """Hermetic governance + a clean in-memory queue + clean env flags."""
-    os.environ["BD_COCKPIT_TASKS"] = "/tmp/bd_qhk_test_tasks"
-    shutil.rmtree(tasks_root() / "governance", ignore_errors=True)
+    remove_test_governance(tasks_root())
     os.environ.pop("BD_QUEUE_HK_ABANDON", None)
     os.environ.pop("BD_QUEUE_HK_GC_AGE_DAYS", None)
     os.environ.pop("BD_QUEUE_HK_MAX_RETRIES", None)

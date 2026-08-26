@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 252 transform control. This deliberately is not a passing mutation battery: it applies the same valid outside-root refusal removal but names only a test that imports the guard without invoking cleanup. It must ESCAPE, proving the tracked CAUGHT verdict comes from exercising the destructive branch rather than a parse, import, or collection failure.",
+  "subject": "transform control for removing cockpit task-root cleanup confinement",
+  "band": [
+    "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py::test_transform_control_imports_guard_without_running_cleanup"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL remove the outside-root refusal under an import-only test",
+      "file": "tests/_cockpit_tasks.py",
+      "old": "    except ValueError as exc:\n        raise RuntimeError(\n            \"refusing to remove governance outside test-owned root: \"\n            f\"{governance} is not under {test_root}\"\n        ) from exc\n",
+      "new": "    except ValueError:\n        relative = Path(\"outside\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py::test_transform_control_imports_guard_without_running_cleanup"
+    }
+  ]
+}

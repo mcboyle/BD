@@ -6,10 +6,10 @@ the verdict passes and refuses a rejected candidate; decay is surfaced; and K re
 (it is not grantable) and adds no routes/POST. The designation action stays permanently human.
 """
 import os
-import shutil
 
 import pytest  # noqa: F401
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_oracle as ao
 from tools import autonomy_held_out_assist as ka
 from tools import autonomy_designate as kd
@@ -29,9 +29,8 @@ _MAP = {
 
 def _setup(held=("capX",), training=("capTrain",), designated_at=None):
     """Temp governance store + provenance + monkeypatched descriptor source. Returns saved fns."""
-    os.environ["BD_COCKPIT_TASKS"] = "/tmp/bd_k_test_tasks"
     os.environ.pop("BD_HELD_OUT_STALE_DAYS", None)
-    shutil.rmtree(tasks_root() / "governance", ignore_errors=True)
+    remove_test_governance(tasks_root())
     os.makedirs(ao._oracle_root(), exist_ok=True)
     saved = (ao._held_out_descriptors, ka._descriptor_for, ka._available_captures)
     ao._held_out_descriptors = lambda site: [_MAP[n] for n in ao._held_out_capture_names(site) if n in _MAP]

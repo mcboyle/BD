@@ -20,9 +20,9 @@ functions in prose (backticked, no parens) and must not trip the bans.
 """
 import datetime as _dt
 import json
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_guardrails as agr
 from tools import autonomy_rollback as arb
@@ -38,9 +38,7 @@ _HO2 = [{"capture": "c1", "identity": "m", "renditions": ["1080p"],
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 def _now():

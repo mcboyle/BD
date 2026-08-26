@@ -7,9 +7,9 @@ logged + reversible and reverse restores; the kill switch turns apply into a log
 no-op; no external activity / no correctness-critical writes; read-only wiring
 (+3 GET = 104, no POST).
 """
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_policy as ap
 from tools import autonomy_housekeeping as hk
 from tools.cockpit_core import tasks_root
@@ -19,9 +19,7 @@ _CONSOLE = Path((Path(hk.__file__).parent / "cockpit_console.py")).read_text(enc
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 class TestGuardrailsAndDefaultOff:

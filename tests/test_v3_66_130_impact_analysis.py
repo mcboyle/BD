@@ -14,9 +14,9 @@ POSTURE GREPS ban apply/promotion/family-write/network/browser/capture/any write
 read-only `for s in sites` comprehension in `impact_overview` is legitimate and NOT
 banned — it analyses a benign probe per site; it does not apply.)
 """
-import shutil
 from pathlib import Path
 
+from _cockpit_tasks import remove_test_governance
 from tools import autonomy_eligibility as el
 from tools import autonomy_impact as ai
 from tools.cockpit_core import tasks_root
@@ -26,9 +26,7 @@ _PIN = sorted(el.PERMANENTLY_INELIGIBLE)[0]
 
 
 def _fresh():
-    g = tasks_root() / "governance"
-    if g.exists():
-        shutil.rmtree(g)
+    remove_test_governance(tasks_root())
 
 
 class TestImpactReport:
