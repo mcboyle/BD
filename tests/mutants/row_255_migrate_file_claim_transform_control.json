@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 255 transform control. This deliberately is not a passing mutation battery: it applies the same valid placeholder-removal transform but names only an import test that asserts no destination-claim behavior. It must ESCAPE, proving the main battery's CAUGHT verdict is caused by the missing claim rather than syntax, import, or collection failure.",
+  "subject": "transform control for the migrate_file destination-claim reversion",
+  "band": [
+    "tests/test_v3_43_42_storage_tier.py::test_migrate_file_claim_transform_control_imports_subject"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL remove the exclusive placeholder under an import-only test",
+      "file": "bulk_downloader/storage_tier.py",
+      "old": "    try:\n        shutil.move(source_path, dest_path)\n",
+      "new": "    try:\n        try:\n            os.remove(dest_path)\n        except OSError:\n            pass\n        shutil.move(source_path, dest_path)\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_42_storage_tier.py::test_migrate_file_claim_transform_control_imports_subject"
+    }
+  ]
+}

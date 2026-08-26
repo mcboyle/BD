@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1273 - migrate_file keeps its exclusive destination claim
+
+- The `O_EXCL` placeholder now remains until `shutil.move` replaces or writes
+- RED: unfixed code observed 0 claimed move entries and exactly 1 overwritten
+- GREEN: 54 scoped tests passed.
+- Mutation: exact reversion CAUGHT, 0 invalid/unknown.
+- Transform control: identical valid mutant ESCAPED the import-only test, as 
+- Filed row 255 as OPEN with no version tag. Register metadata is `rows=246`,
+- No new test file was added, so CI shard registration was unnecessary.
+-    # O_EXCL, then `os.replace` over it (atomic on POSIX, atomic on
+-    # Windows when same volume; shutil.move falls back to copy+remove
+-    # for cross-volume which is the original behavior).
+-    # Perform the move. shutil.move handles cross-filesystem
+-    # automatically (uses copy2 + remove when devices differ).
+-    # Note: with our lockfile in place, shutil.move will overwrite
+
 ## v3.66.1272 - the library schema-ready flag cannot outlive its database
 
 -    dbf = tempfile.mktemp(prefix="lib6_", suffix=".db")
