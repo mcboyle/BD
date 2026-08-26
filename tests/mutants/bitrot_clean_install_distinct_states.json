@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 269. The mutant removes recognition of SQLite's exact missing-table state, collapsing a fresh unscanned install back into the unreadable-inventory UNKNOWN result. The endpoint-level clean-install catcher must make it CAUGHT. The separate transform control applies the identical valid transform while exercising a genuinely unreadable inventory and must ESCAPE.",
+  "subject": "fresh absent bitrot inventory is measured zero while an unreadable inventory remains unknown",
+  "band": [
+    "tests/test_v3_57_phase9.py::test_integrity_endpoint_empty_clean_install"
+  ],
+  "mutants": [
+    {
+      "label": "M1 collapse expected missing tables into unreadable inventory",
+      "file": "bulk_downloader/bitrot.py",
+      "old": "    return str(error).casefold() == f\"no such table: {table}\".casefold()",
+      "new": "    return False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_57_phase9.py::test_integrity_endpoint_empty_clean_install"
+    }
+  ]
+}
