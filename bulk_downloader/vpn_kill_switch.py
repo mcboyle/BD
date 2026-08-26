@@ -18,9 +18,9 @@ switch in vpn_kill_switch_system.py is the opt-in heavier alternative.
 # Kill state transitions
 
     cleared → killed  (on critical leak, or manual call to kill_tunnel)
-    killed  → cleared (manual clear_kill, or auto after successful probe)
+    killed  → cleared (manual clear_kill, or auto after fully measured success)
     killed  → cycling (auto-recovery in progress)
-    cycling → cleared (cycle succeeded + next probe passes)
+    cycling → cleared (cycle succeeded + fully measured probes pass)
     cycling → killed  (cycle failed; back to killed, no further auto-attempts)
 
 # Public API
@@ -88,11 +88,14 @@ _auto_recover_enabled: bool = True
 def notify_leak_test_result(tunnel_id: str, agg) -> None:
     """Called by vpn_leak_tests.run_all_probes after each probe run.
 
-    `agg` is an AggregateResult. We only react to its `critical_failures`
-    field and `summary` for logging — keeps the dependency loose so this
-    module is testable without the leak engine present.
+    `agg` is an AggregateResult. Confirmed critical failures arm the switch;
+    unknown critical measurements hold an already-armed switch without being
+    described as a leak. Only an all-measured, zero-failure aggregate advances
+    the consecutive-success auto-clear streak.
     """
     crit = getattr(agg, "critical_failures", 0)
+    unknown = getattr(agg, "critical_unknowns", 0)
+    all_critical_measured = getattr(agg, "all_critical_measured", unknown == 0)
     summary = getattr(agg, "summary", "") or ""
 
     with _state_lock:
@@ -116,7 +119,21 @@ def notify_leak_test_result(tunnel_id: str, agg) -> None:
             )
         return
 
-    # No critical failures. If tunnel is killed, count toward auto-clear.
+    # UNKNOWN is not a confirmed leak and must not arm a clear tunnel. It is
+    # also not successful evidence: reset the consecutive-success streak and
+    # hold an active switch. A cycling tunnel likewise returns to killed until
+    # a later fully measured aggregate establishes recovery.
+    if unknown > 0 or not all_critical_measured:
+        if existing is None or existing.state == "cleared":
+            return
+        with _state_lock:
+            existing.auto_cleared_streak = 0
+            if existing.state == "cycling":
+                existing.state = "killed"
+        return
+
+    # No critical failures and every critical probe was measured. If the
+    # tunnel is killed, count this result toward auto-clear.
     if existing is None or existing.state == "cleared":
         return
 

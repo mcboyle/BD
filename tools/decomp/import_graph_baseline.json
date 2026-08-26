@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3889,
+  "edge_count": 3892,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4563,6 +4563,11 @@
       "tools/autonomy_policy.py",
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py": [
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_leak_tests.py"
     ],
     "tests/test_v3_66_126_eligibility_governance.py": [
       "tools/autonomy_eligibility.py",
