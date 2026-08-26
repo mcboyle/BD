@@ -1,0 +1,54 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 281. Each valid mutant removes exactly one wrapper's completed Vitest receipt while leaving the wrapper importable. The corresponding parameterized catcher must fail with the wrapper's delegation-evidence assertion. The separate transform-control spec applies the same T9a bypass to an import-only node and must ESCAPE.",
+  "subject": "the five original UI gate wrappers require exact evidence from their focused Vitest delegate",
+  "band": [
+    "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t1_dashboard_wired]",
+    "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t9a_live_stream_wired]",
+    "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t9b_push_wired]",
+    "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t10_devtools_wired]",
+    "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t11_approval_wired]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 T1 wrapper drops the Dashboard Vitest execution",
+      "file": "tests/test_t1_dashboard_wired.py",
+      "old": "    receipt = run_vitest(spec, expected_tests=5)",
+      "new": "    receipt = None  # row 281 mutant: Dashboard delegate removed",
+      "direction": "regression",
+      "catcher": "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t1_dashboard_wired]"
+    },
+    {
+      "label": "M2 T9a wrapper drops the LiveStream Vitest execution",
+      "file": "tests/test_t9a_live_stream_wired.py",
+      "old": "    receipt = run_vitest(spec, expected_tests=5)",
+      "new": "    receipt = None  # row 281 mutant: LiveStream delegate removed",
+      "direction": "regression",
+      "catcher": "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t9a_live_stream_wired]"
+    },
+    {
+      "label": "M3 T9b wrapper drops the Push Vitest execution",
+      "file": "tests/test_t9b_push_wired.py",
+      "old": "    receipt = run_vitest(spec, expected_tests=6)",
+      "new": "    receipt = None  # row 281 mutant: Push delegate removed",
+      "direction": "regression",
+      "catcher": "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t9b_push_wired]"
+    },
+    {
+      "label": "M4 T10 wrapper drops the DevTools Vitest execution",
+      "file": "tests/test_t10_devtools_wired.py",
+      "old": "    receipt = run_vitest(spec, expected_tests=7)",
+      "new": "    receipt = None  # row 281 mutant: DevTools delegate removed",
+      "direction": "regression",
+      "catcher": "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t10_devtools_wired]"
+    },
+    {
+      "label": "M5 T11 wrapper drops the ApprovalGate Vitest execution",
+      "file": "tests/test_t11_approval_wired.py",
+      "old": "    receipt = run_vitest(spec, expected_tests=3)",
+      "new": "    receipt = None  # row 281 mutant: ApprovalGate delegate removed",
+      "direction": "regression",
+      "catcher": "tests/test_row281_ui_wrappers_delegate.py::test_each_ui_wrapper_requires_its_exact_delegation_receipt[test_t11_approval_wired]"
+    }
+  ]
+}

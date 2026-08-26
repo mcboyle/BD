@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 281. This battery must exit 1 with one valid ESCAPED mutant: the T9a wrapper still imports after its delegate is bypassed, while this node deliberately never invokes or judges the wrapper. An INVALID/CAUGHT result would mean transformation or import failure was masquerading as behavioural evidence.",
+  "subject": "transform control for the valid T9a UI-wrapper delegation bypass",
+  "band": [
+    "tests/test_row281_ui_wrappers_delegate.py::test_ui_wrapper_transform_control_imports_without_judging_delegation"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 T9a delegate bypass remains importable when delegation is not judged",
+      "file": "tests/test_t9a_live_stream_wired.py",
+      "old": "    receipt = run_vitest(spec, expected_tests=5)",
+      "new": "    receipt = None  # row 281 mutant: LiveStream delegate removed",
+      "direction": "regression",
+      "catcher": "tests/test_row281_ui_wrappers_delegate.py::test_ui_wrapper_transform_control_imports_without_judging_delegation"
+    }
+  ]
+}

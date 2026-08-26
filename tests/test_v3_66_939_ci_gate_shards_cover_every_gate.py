@@ -190,6 +190,10 @@ _DECLARED = {
     "tests/test_t9b_push_wired.py",
     "tests/test_t10_devtools_wired.py",
     "tests/test_t11_approval_wired.py",
+    # Row 281. The five original Python UI wrappers must consume proof that
+    # their focused Vitest delegate actually executed. The separate complete
+    # frontend job is redundancy, not evidence about these wrapper nodes.
+    "tests/test_row281_ui_wrappers_delegate.py",
     "tests/test_config_parity_ratchet.py",
     "tests/test_skip_baseline.py",
     "tests/test_pytest_capture_results.py",
@@ -545,7 +549,7 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 171
+_EXPECTED_DECLARED_GATE_COUNT = 172
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

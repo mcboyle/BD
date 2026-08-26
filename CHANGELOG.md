@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1279 - the UI wrapper gates judge delegation, not shape
+
+-    run_vitest("src/routes/DevTools.wired.test.tsx", expected_tests=7)
+-    run_vitest("src/routes/ApprovalGate.wired.test.tsx", expected_tests=3)
+-    run_vitest("src/routes/Dashboard.wired.test.tsx", expected_tests=5)
+-    run_vitest("src/routes/LiveStream.wired.test.tsx", expected_tests=5)
+-    run_vitest("src/routes/Push.wired.test.tsx", expected_tests=6)
+- [frontend_vitest.py](/home/mboyle/bd-codex-wt/row281/tests/frontend_vitest.
+- T1, T9a, T9b, T10, and T11 require that receipt.
+- Added the five-case positive/negative gate in [test_row281_ui_wrappers_dele
+- Added row-281 [regression](/home/mboyle/bd-codex-wt/row281/tests/mutants/ro
+- Registered the gate in the Node-enabled CI shard and declaration census.
+- Unmodified wrappers produced five identical intended failures: `Failed: DID
+- Summary: `5 failed, 2 passed in 1.11s`.
+- Negative-control gate: `7 passed in 0.74s`.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 171 -> 172.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1278 - child test launches cannot inherit a live install dir
 - CI gate-count pin re-derived 170 -> 171: this cut declares one new gate,
   tests/test_child_test_install_dir_isolation.py. The declared SET was already

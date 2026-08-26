@@ -7,4 +7,16 @@ BD_GATE_SCOPE = "repo-wide"
 
 
 def test_t9a_live_stream_runtime_contract():
-    run_vitest("src/routes/LiveStream.wired.test.tsx", expected_tests=5)
+    spec = "src/routes/LiveStream.wired.test.tsx"
+    receipt = run_vitest(spec, expected_tests=5)
+    expected = {
+        "spec": spec,
+        "files_passed": 1,
+        "files_collected": 1,
+        "tests_passed": 5,
+        "tests_collected": 5,
+    }
+    assert receipt == expected, (
+        "Vitest delegation evidence missing or mismatched for LiveStream: "
+        f"expected={expected!r}, observed={receipt!r}"
+    )

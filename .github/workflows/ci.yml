@@ -338,6 +338,7 @@ jobs:
               tests/test_t9b_push_wired.py
               tests/test_t10_devtools_wired.py
               tests/test_t11_approval_wired.py
+              tests/test_row281_ui_wrappers_delegate.py
               tests/test_config_parity_ratchet.py
               tests/test_skip_baseline.py
               tests/test_pytest_capture_results.py
