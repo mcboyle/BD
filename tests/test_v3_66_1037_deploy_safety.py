@@ -14,8 +14,8 @@ same live writer. Two independent defects in one minute:
      script was correct to abort; it was wrong to abort without putting the
      service back or saying loudly that it had not.
 
-TESTED BY EXTRACTION, NOT BY RUNNING THE SCRIPT. `deploy.sh` resets the tree and
-restarts a live service, so no test may execute it. Each function under test is
+TESTED HERE BY EXTRACTION, NOT BY RUNNING THE SCRIPT. The full-script tests use
+only the isolated fixture in test_deploy_script.py. Each function under test is
 cut out by name on a BALANCED BRACE, never a fixed width -- CLAUDE.md section 2a
 records an extractor that swallowed a closing `fi` and produced bash syntax
 errors that presented as subject failures. Every extraction is `bash -n` checked
@@ -23,6 +23,7 @@ before it is used, so a broken cut fails as a broken cut.
 """
 import contextlib
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
@@ -261,35 +262,95 @@ def test_the_preflight_runs_after_the_install_dir_is_resolved():
 
 # ── the stopped-window recovery ──────────────────────────────────────────────
 
-def test_die_restarts_the_service_when_it_was_stopped():
-    fn = _extract("die")
-    stub = (
+def _exit_definitions() -> str:
+    return "\n".join(_extract(name) for name in ("cleanup", "on_exit", "die"))
+
+
+def _service_stubs() -> str:
+    return (
         'mkdir -p "$T/bin"\n'
         'printf "#!/bin/sh\\necho SUDO \\$* >> $T/calls\\nexit 0\\n" > "$T/bin/sudo"\n'
         'printf "#!/bin/sh\\necho SYSTEMCTL \\$* >> $T/calls\\nexit 0\\n" > "$T/bin/systemctl"\n'
         'chmod +x "$T/bin/sudo" "$T/bin/systemctl"; PATH="$T/bin:$PATH"\n'
     )
-    out = _run('T=$(mktemp -d); ' + stub + 'STEP=9; SERVICE_STOPPED=1\n' + fn +
-               '\n( die "bytecode sweep failed" ) 2>/dev/null; cat "$T/calls"')
-    assert "start bulkdownloader" in out.stdout, (
-        "die() did not attempt a restart after the unit had been stopped:\n%s" % out.stdout)
 
 
-def test_die_does_not_touch_the_service_when_it_was_never_stopped():
-    """OVER-SENSITIVITY CONTROL: a precondition refusal must not start a unit
-    the operator had deliberately left down."""
-    fn = _extract("die")
-    stub = (
-        'mkdir -p "$T/bin"\n'
-        'printf "#!/bin/sh\\necho SUDO \\$* >> $T/calls\\nexit 0\\n" > "$T/bin/sudo"\n'
-        'printf "#!/bin/sh\\necho SYSTEMCTL \\$* >> $T/calls\\nexit 0\\n" > "$T/bin/systemctl"\n'
-        'chmod +x "$T/bin/sudo" "$T/bin/systemctl"; PATH="$T/bin:$PATH"\n'
+def _recorded_service_calls(tmp_path) -> str:
+    path = tmp_path / "calls"
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def test_exit_guard_restarts_the_service_once_when_die_exits(tmp_path):
+    fn = _exit_definitions()
+    stub = _service_stubs()
+    out = _run(
+        'T=%s; ' % shlex.quote(str(tmp_path)) + stub
+        + 'STEP=9; GTMP=""; SERVICE_STOPPED=1; DEPLOY_SUCCEEDED=0; '
+        + 'EXIT_HANDLER_RUNNING=0\n' + fn
+        + '\ntrap on_exit EXIT\ndie "bytecode sweep failed"',
     )
-    out = _run('T=$(mktemp -d); ' + stub + 'STEP=0\n' + fn +
-               '\n( die "a precondition failed" ) 2>/dev/null; cat "$T/calls" 2>/dev/null; echo END')
-    assert "start bulkdownloader" not in out.stdout, (
-        "die() started the service after a failure OUTSIDE the stopped window:\n%s"
-        % out.stdout)
+    calls = _recorded_service_calls(tmp_path)
+    assert out.returncode == 1, out
+    assert calls.count("start bulkdownloader") == 1, (
+        "die() did not trigger exactly one EXIT recovery attempt after the unit "
+        "had been stopped:\n%s\n%s\n%s" % (calls, out.stdout, out.stderr))
+    assert "RESTARTED-PARTIAL-DEPLOY" in out.stderr, out
+
+
+def test_exit_guard_does_not_touch_the_service_when_it_was_never_stopped(tmp_path):
+    fn = _exit_definitions()
+    stub = _service_stubs()
+    out = _run(
+        'T=%s; ' % shlex.quote(str(tmp_path)) + stub
+        + 'STEP=0; GTMP=""; SERVICE_STOPPED=0; DEPLOY_SUCCEEDED=0; '
+        + 'EXIT_HANDLER_RUNNING=0\n' + fn
+        + '\ntrap on_exit EXIT\ndie "a precondition failed"',
+    )
+    calls = _recorded_service_calls(tmp_path)
+    assert "start bulkdownloader" not in calls, (
+        "the EXIT guard started the service after a failure OUTSIDE the stopped "
+        "window:\n%s\n%s\n%s" % (calls, out.stdout, out.stderr))
+
+
+def test_exit_guard_cannot_reenter_recovery_when_die_exits(tmp_path):
+    """Simulate die() exiting while the EXIT handler is already active."""
+    fn = _exit_definitions()
+    stub = _service_stubs()
+    out = _run(
+        'T=%s; ' % shlex.quote(str(tmp_path)) + stub
+        + 'STEP=9; GTMP=""; SERVICE_STOPPED=1; DEPLOY_SUCCEEDED=0; '
+        + 'EXIT_HANDLER_RUNNING=1\n' + fn
+        + '\ntrap on_exit EXIT\ndie "nested failure"',
+    )
+    calls = _recorded_service_calls(tmp_path)
+    assert out.returncode == 1, out
+    assert "start bulkdownloader" not in calls, (
+        "the already-active EXIT handler re-entered service recovery when die() "
+        "exited:\n%s\n%s\n%s" % (calls, out.stdout, out.stderr))
+
+
+def test_every_stopped_flag_assignment_is_covered_by_the_exit_guard():
+    code = shell_code_only(_DEPLOY)
+    armed = [m.start() for m in re.finditer(
+        r"(?m)^SERVICE_STOPPED=1(?:\s+#.*)?$", code)]
+    assert len(armed) == 1, (
+        "the exact stopped-window assignment denominator changed: %s" % armed)
+    trap_at = code.index("trap on_exit EXIT")
+    success_at = code.index("DEPLOY_SUCCEEDED=1")
+    assert trap_at < armed[0] < success_at, (
+        "a SERVICE_STOPPED=1 path exists outside the installed EXIT guard and "
+        "recorded success boundary")
+    handler = _extract("on_exit")
+    assert '"${SERVICE_STOPPED:-0}" = 1' in handler, (
+        "the EXIT handler does not inspect the state that opens the exposure window")
+    assert '"${DEPLOY_SUCCEEDED:-0}" != 1' in handler, (
+        "the EXIT handler does not distinguish failure from recorded success")
+
+
+def test_exit_guard_transform_control_only_checks_shell_syntax():
+    parsed = subprocess.run(
+        ["bash", "-n", str(_DEPLOY)], capture_output=True, text=True)
+    assert parsed.returncode == 0, parsed.stderr
 
 
 def test_the_stopped_flag_is_set_at_the_stop_and_cleared_at_the_start():

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 250 EXIT-recovery battery. Run only in a detached scratch clone: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row_250_deploy_exit_recovery.json --work DETACHED_SCRATCH --timeout 300. M1 removes the unconditional EXIT guard and must be caught by a fixture command that reaches step 9, fails under errexit without calling die, and observes the fake service boundary. M2 removes the explicit re-entry barrier and must be caught by a die-triggered EXIT whose handler is already marked active. The separate row_250_deploy_exit_recovery_transform_control.json applies M1 to the syntax-only control and must ESCAPE, proving the transform remains valid and the behavioral catcher supplies the CAUGHT verdict.",
+  "subject": "backlog row 250 - every unsuccessful exit from the stopped deploy window attempts exactly one reported service recovery",
+  "band": [
+    "tests/test_deploy_script.py::test_errexit_inside_the_stopped_window_attempts_recovery_and_reports_it",
+    "tests/test_v3_66_1037_deploy_safety.py::test_exit_guard_cannot_reenter_recovery_when_die_exits"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the EXIT guard so a bare step-9 errexit leaves the fixture service stopped and prints no recovery outcome",
+      "file": "scripts/deploy.sh",
+      "old": "trap on_exit EXIT",
+      "new": ": # mutant removes the EXIT recovery guard",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_errexit_inside_the_stopped_window_attempts_recovery_and_reports_it"
+    },
+    {
+      "label": "M2 disable the active-handler barrier so die can enter service recovery again while EXIT recovery is already active",
+      "file": "scripts/deploy.sh",
+      "old": "  if [ \"${EXIT_HANDLER_RUNNING:-0}\" = 1 ]; then\n    return\n  fi",
+      "new": "  if false; then\n    return\n  fi",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1037_deploy_safety.py::test_exit_guard_cannot_reenter_recovery_when_die_exits"
+    }
+  ]
+}

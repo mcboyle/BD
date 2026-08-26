@@ -82,6 +82,9 @@
 set -euo pipefail
 
 STEP=0
+SERVICE_STOPPED=0
+DEPLOY_SUCCEEDED=0
+EXIT_HANDLER_RUNNING=0
 # A FAILURE INSIDE THE STOPPED WINDOW MUST NOT LEAVE PRODUCTION DOWN.
 # Steps 8-10 run with the unit deliberately inactive, so anything that dies in
 # there parks the box with the service off -- measured at v3.66.1035, when an
@@ -90,21 +93,13 @@ STEP=0
 # not. SERVICE_STOPPED is what makes the recovery conditional: a precondition
 # refusal must never start a unit the operator had deliberately left down.
 #
-# The restart is best-effort and SAYS WHICH. The tree is already at the new
-# commit by then, so a recovered service is running a PARTIAL deploy -- louder
-# than a silent outage, and the message says to re-run.
+# Recovery belongs to the EXIT guard below rather than to the die function.
+# Errexit can terminate the shell without calling die, and an ERR trap misses
+# valid shell contexts. The tree is already at the new commit by then, so a recovered
+# service is running a PARTIAL deploy -- louder than a silent outage, and the
+# message says to re-run.
 die() {
   printf 'deploy.sh: FAIL [step %s]: %s\n' "$STEP" "$*" >&2
-  if [ "${SERVICE_STOPPED:-0}" = 1 ]; then
-    printf 'deploy.sh: the unit was STOPPED at step 8 -- attempting restart\n' >&2
-    if sudo systemctl start bulkdownloader >/dev/null 2>&1 \
-       && systemctl is-active --quiet bulkdownloader; then
-      printf 'deploy.sh: service RESTARTED, but this is a PARTIAL DEPLOY --\n' >&2
-      printf 'deploy.sh: the tree moved and later steps did not run. Re-run me.\n' >&2
-    else
-      printf 'deploy.sh: *** SERVICE IS DOWN AND COULD NOT BE RESTARTED ***\n' >&2
-    fi
-  fi
   exit 1
 }
 refuse() { printf 'deploy.sh: REFUSED [step %s]: %s\n' "$STEP" "$*" >&2; exit 2; }
@@ -206,9 +201,9 @@ _running_pytest() {
   # /usr/bin/python3.12 -- OUTSIDE $DIR -- so an exe scope never fires at all.
   # Both were measured at v3.66.1037.
   #
-  # So this is a cheap filter for the common case, NOT a guarantee. The thing
-  # that actually makes a collision survivable is die()'s recovery of the
-  # stopped window; this only avoids the collision when it can be seen.
+  # So this is a cheap filter for the common case, NOT a guarantee. The EXIT
+  # guard makes a collision survivable; this only avoids the collision when it
+  # can be seen.
   local pid cwd
   for pid in $(ps -eo pid=,comm=,args= 2>/dev/null \
                | awk '$2 ~ /^python/ && $0 ~ /-m[ ]pytest/ { print $1 }'); do
@@ -236,7 +231,44 @@ VENV_PY="${BD_VENV_PYTHON:-$DIR/venv/bin/python}"
 
 GTMP=""
 cleanup() { if [ -n "$GTMP" ]; then rm -rf -- "$GTMP"; fi; }
-trap cleanup EXIT
+on_exit() {
+  exit_status=$?
+  # Disable the trap before any recovery command can itself exit. The explicit
+  # state flag is a second re-entry barrier and is exercised independently.
+  trap - EXIT
+  if [ "${EXIT_HANDLER_RUNNING:-0}" = 1 ]; then
+    return
+  fi
+  EXIT_HANDLER_RUNNING=1
+
+  # Recovery and cleanup are best-effort work performed while preserving the
+  # triggering status. In particular, errexit must not abort this handler.
+  set +e
+  if [ "${SERVICE_STOPPED:-0}" = 1 ] \
+     && [ "${DEPLOY_SUCCEEDED:-0}" != 1 ]; then
+    printf 'deploy.sh: *** EXIT WITH SERVICE STOPPED [step %s, status %s] ***\n' \
+      "$STEP" "$exit_status" >&2
+    printf 'deploy.sh: attempting emergency start of bulkdownloader\n' >&2
+    sudo systemctl start bulkdownloader >/dev/null 2>&1
+    if systemctl is-active --quiet bulkdownloader; then
+      printf 'deploy.sh: *** RESTARTED-PARTIAL-DEPLOY ***\n' >&2
+      printf 'deploy.sh: the tree moved and later steps did not finish. Re-run me.\n' >&2
+    else
+      printf 'deploy.sh: *** SERVICE-IS-DOWN ***\n' >&2
+      printf 'deploy.sh: emergency start failed; restore the unit before leaving.\n' >&2
+    fi
+    # An exit before the recorded success point is never a successful deploy,
+    # even if the command that left the stopped window happened to return zero.
+    [ "$exit_status" -ne 0 ] || exit_status=1
+  fi
+  cleanup
+  exit "$exit_status"
+}
+
+# Installed before any path can set SERVICE_STOPPED=1. There is deliberately no
+# ERR trap: command substitutions, conditionals and pipelines do not share one
+# reliable ERR inheritance model, while every ordinary shell exit reaches EXIT.
+trap on_exit EXIT
 
 cd "$DIR"
 note "preconditions OK: $DIR (venv python: $VENV_PY)"
@@ -519,7 +551,7 @@ fi
 # CONFIRMED before either runs.
 STEP=8
 sudo systemctl stop bulkdownloader || die "sudo systemctl stop bulkdownloader failed"
-SERVICE_STOPPED=1        # die() owes a restart from here until step 11 clears it
+SERVICE_STOPPED=1        # the EXIT guard owes a restart until step 11 clears it
 if systemctl is-active bulkdownloader >/dev/null 2>&1; then
   die "systemctl stop bulkdownloader returned success but the unit is STILL
   ACTIVE. The bytecode sweep and the parity regen that follow are unsafe against
@@ -645,8 +677,8 @@ STEP=11
 sudo systemctl start bulkdownloader || die "sudo systemctl start bulkdownloader failed"
 # The stopped window is over. Cleared BEFORE the health gate deliberately: from
 # here the unit is up, so a step-12 failure is a sick service, not a stopped
-# one, and restarting it in die() would tell the operator a comforting lie about
-# a box that is actually unhealthy.
+# one. Restarting it in the EXIT guard would tell the operator a comforting lie
+# about a box that is actually unhealthy.
 SERVICE_STOPPED=0
 note "service start requested; verifying by health probe"
 
@@ -723,4 +755,5 @@ if [ "$SAME" -eq 1 ] && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
 else
   note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW)"
 fi
+DEPLOY_SUCCEEDED=1
 exit 0
