@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 259. Re-run from a detached scratch clone with: toolchain/bin/bd-mutate --spec tests/mutants/row_259_ci_shard_coverage.json --work DETACHED_SCRATCH --timeout 120. Measured on the candidate tree: the 1-test baseline was GREEN and M1 was CAUGHT by the named exact-denominator assertion, with 1 caught, 0 escaped, 0 invalid, and 0 error. TRANSFORM CONTROL: the identical old/new transform was re-run with test_the_shards_exist_at_all as its only named catcher. That parser-only node still parsed the mutated workflow and passed, so bd-mutate reported ESCAPED with 0 invalid and 0 error. The mutant is therefore valid and the behavior-specific catcher, not a broken transform, causes RED.",
+  "subject": "Every declared safety gate is reachable from a CI shard over the exact 161-path population",
+  "band": [
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_the_shards_exist_at_all"
+  ],
+  "mutants": [
+    {
+      "label": "M1 THE DEFECT RESTORED: remove the live-response safety gate from its CI shard while leaving it declared",
+      "file": ".github/workflows/ci.yml",
+      "old": "              tests/test_v3_66_1009_live_results_are_bundled.py\n",
+      "new": "              # mutant: omit the live-response logging safety gate\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+    }
+  ]
+}

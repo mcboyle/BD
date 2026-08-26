@@ -29,6 +29,8 @@ import os
 
 import pytest
 
+BD_GATE_SCOPE = "repo-wide"
+
 PKG = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "bulk_downloader")

@@ -69,6 +69,8 @@ import pytest
 
 import conftest as _ct
 
+BD_GATE_SCOPE = "repo-wide"
+
 REPO = Path(__file__).resolve().parents[1]
 
 

@@ -86,7 +86,6 @@ tests/test_cap_finish.py
 tests/test_capture_actions.py
 tests/test_capture_analytics_bounded.py
 tests/test_capture_bodies_json_cap.py
-tests/test_capture_csrf_diag_redacts_cookies.py
 tests/test_capture_diagnostics.py
 tests/test_capture_dict_shape_tripwire.py
 tests/test_capture_execution_lanes.py
@@ -282,7 +281,6 @@ tests/test_harness_retry_timeout.py
 tests/test_headless_default.py
 tests/test_healthcheck_disk_captures.py
 tests/test_heartbeat_detects_a_logged_out_page.py
-tests/test_home_config_stores_are_guarded.py
 tests/test_hooks.py
 tests/test_hooks_webhook_ssrf.py
 tests/test_i18n_phase191.py
@@ -686,7 +684,6 @@ tests/test_v3_64_3_sound_sync.py
 tests/test_v3_66_0_auto_detect.py
 tests/test_v3_66_1002_download_hint_needs_an_interactive_element.py
 tests/test_v3_66_1003_capture_refuses_an_inherited_install_dir.py
-tests/test_v3_66_1009_live_results_are_bundled.py
 tests/test_v3_66_100_cockpit_wave2.py
 tests/test_v3_66_1010_l34_triage_is_affordable.py
 tests/test_v3_66_1011_mod3_pg_isolation.py
@@ -850,7 +847,6 @@ tests/test_v3_66_282_force_redownload.py
 tests/test_v3_66_282_media_verdict.py
 tests/test_v3_66_282_verdict_statemap.py
 tests/test_v3_66_284_integrity.py
-tests/test_v3_66_285_cloak_parity.py
 tests/test_v3_66_285_config_validation.py
 tests/test_v3_66_287_username_classify_type.py
 tests/test_v3_66_288_recorder_nav_survival.py
@@ -1160,7 +1156,6 @@ tests/test_v3_66_791_nuitka_eval.py
 tests/test_v3_66_792_nuitka_onefile_size.py
 tests/test_v3_66_793_nuitka_adopt.py
 tests/test_v3_66_794_waitress_swap.py
-tests/test_v3_66_795_mod3_seam.py
 tests/test_v3_66_796_runner_teardown_module.py
 tests/test_v3_66_797_runner_isolate.py
 tests/test_v3_66_798_runtime_state_manifest_exclude.py
