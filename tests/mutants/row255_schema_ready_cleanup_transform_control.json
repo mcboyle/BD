@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 255. This spec must ESCAPE: its named test loads and uses a path helper without entering the database isolation context. The identical valid cleanup-reversion transform is CAUGHT by row255_schema_ready_cleanup.json.",
+  "subject": "transform-only control proving the cleanup mutant imports without exercising database cleanup",
+  "band": [
+    "tests/test_v3_66_669_lib6_thumb_cascade.py::test_transform_control_loads_library_without_exercising_database_cleanup"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 schema readiness remains unrestored while a cleanup-free library test stays green",
+      "file": "tests/test_v3_66_669_lib6_thumb_cascade.py",
+      "old": "        db.DB_PATH = prior_db_path\n        lib._SCHEMA_READY = prior_schema_ready",
+      "new": "        db.DB_PATH = prior_db_path\n        pass  # mutant leaves schema readiness bound to the test database",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_669_lib6_thumb_cascade.py::test_transform_control_loads_library_without_exercising_database_cleanup"
+    }
+  ]
+}

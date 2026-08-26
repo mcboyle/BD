@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1272 - the library schema-ready flag cannot outlive its database
+
+-    dbf = tempfile.mktemp(prefix="lib6_", suffix=".db")
+-    db.DB_PATH = dbf
+-    lib._SCHEMA_READY = False   # force the library schema onto this fresh DB
+-    lib._ensure_schema()
+-    saved = db.DB_PATH
+-        _isolated_db()
+-        db.DB_PATH = saved
+-    saved = db.DB_PATH
+-        _isolated_db()
+-        db.DB_PATH = saved
+- Centralized exception-safe restoration of both `db.DB_PATH` and `lib._SCHEM
+- Added a real follow-on insert regression: RED returned `None` instead of ro
+- Added a stale-flag negative control proving zero library tables.
+
 ## v3.66.1271 - bd-fullsuite
 
 -            r2 = run_one(a.work, r["file"], max(a.timeout, 300))

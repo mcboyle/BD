@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 255 schema-ready cleanup. The mutant removes the shared cleanup helper's restoration of the library schema flag while retaining DB_PATH restoration. The named catcher first proves the stale-true negative control drops a record with zero library tables, then requires the cited row-only test to leave a follow-on database able to create row id 1 and store exactly one row. The separate transform-control spec applies the identical valid Python transform to a test that never exercises database cleanup and must ESCAPE.",
+  "subject": "the thumbnail cascade tests restore library schema readiness with their database path",
+  "band": [
+    "tests/test_v3_66_669_lib6_thumb_cascade.py::test_library_test_cleanup_preserves_the_next_database_insert"
+  ],
+  "mutants": [
+    {
+      "label": "M1 DB_PATH is restored while schema readiness remains bound to the temporary test database",
+      "file": "tests/test_v3_66_669_lib6_thumb_cascade.py",
+      "old": "        db.DB_PATH = prior_db_path\n        lib._SCHEMA_READY = prior_schema_ready",
+      "new": "        db.DB_PATH = prior_db_path\n        pass  # mutant leaves schema readiness bound to the test database",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_669_lib6_thumb_cascade.py::test_library_test_cleanup_preserves_the_next_database_insert"
+    }
+  ]
+}
