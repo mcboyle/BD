@@ -365,7 +365,7 @@ def test_tree_census_shrinks_while_the_release_record_stays_historical():
     carriers = _tracked_carriers()
     occurrences = _tracked_occurrences()
     assert len(carriers) == 70
-    assert occurrences == 258
+    assert occurrences == 257
 
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     current = changelog.split("## v3.66.1192", 1)[1].split("## v3.66.1191", 1)[0]

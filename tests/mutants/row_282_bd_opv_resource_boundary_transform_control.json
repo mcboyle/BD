@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 282. This battery is expected to exit 1 with one valid ESCAPED mutant. It removes the exact cwd transition caught by the behavioral resource-boundary test, but its only catcher imports bd-opv and checks the registry without executing the CLI or judging isolation. A CAUGHT result here would invalidate the primary battery's behavioral evidence.",
+  "subject": "transform control -- importing bd-opv does not constrain its runtime resource boundary",
+  "band": [
+    "tests/test_row_282_bd_opv_isolates_every_store.py::test_transform_control_imports_bd_opv_without_judging_isolation"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL cwd-isolation transform escapes an import-only test",
+      "file": "toolchain/bin/bd-opv",
+      "old": "    os.chdir(paths[\"cwd\"])",
+      "new": "    # row 282 mutant: leave the verifier in the operator cwd",
+      "direction": "regression",
+      "catcher": "tests/test_row_282_bd_opv_isolates_every_store.py::test_transform_control_imports_bd_opv_without_judging_isolation"
+    }
+  ]
+}

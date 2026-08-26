@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1282 - bd-opv isolates every store its own checks mutate
+
+-    assert occurrences == 258
+-    _need_reexec = False
+-        import playwright  # noqa
+-        from playwright.sync_api import sync_playwright as _sp
+-        with _sp() as _p:
+-            _exe = _p.chromium.executable_path
+-        if not os.path.exists(_exe):
+-            _need_reexec = True
+-    except Exception:  # why: operation failed; degrade to the default and c
+-        _need_reexec = True
+-    if _need_reexec and os.path.realpath(sys.executable) != os.path.realpath
+-        os.environ["_BD_OPV_REEXEC"] = "1"
+-        os.execv(_VENV_PY, [_VENV_PY, os.path.abspath(__file__)] + sys.argv[
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 173 -> 174.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1281 - the ambiguous-launch settlement budget honours its governing bound
 
 -    r = ssh(addr, reap_cmd(receipt_path), timeout=60)
