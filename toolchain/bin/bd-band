@@ -125,6 +125,7 @@ def band_env():
     so they cannot drift apart again.
     """
     env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
     env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1")
     return env
 

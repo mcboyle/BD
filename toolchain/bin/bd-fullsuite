@@ -276,6 +276,7 @@ def _fork_worker(work, timeout, files):
         pid = os.fork()
         if pid == 0:                          # ---- child: one test file ----
             try:
+                os.environ.pop("BD_INSTALL_DIR", None)
                 os.environ["BD_HOME"] = td
                 os.environ["BD_DISABLE_KEEPALIVE"] = "1"
                 # The work tree, not a retired prestage; PREPEND so an
@@ -511,6 +512,7 @@ def preflight(work, fix=True):
 # ---- run one file, isolated -------------------------------------------------
 def run_one(work, f, timeout, retry_bytecode=True):
     env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
     home = tempfile.mkdtemp(prefix="bdfs_")
     # PLAYWRIGHT_BROWSERS_PATH is deliberately NOT set: dict(os.environ) already
     # carries the ambient one, and overwriting it with a hardcoded path aimed
@@ -567,6 +569,8 @@ def _run_fork(work, files, jobs, timeout, on_result):
     import threading
     bins = _lpt_bins(files, jobs)
     me = os.path.realpath(sys.argv[0])
+    worker_env = dict(os.environ)
+    worker_env.pop("BD_INSTALL_DIR", None)
     procs = []
     for b in bins:
         lf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".lst")
@@ -574,7 +578,7 @@ def _run_fork(work, files, jobs, timeout, on_result):
         lf.close()
         procs.append((subprocess.Popen(
             [sys.executable, me, "--_worker", work, str(timeout), lf.name],
-            stdout=subprocess.PIPE, text=True, env=os.environ), lf.name))
+            stdout=subprocess.PIPE, text=True, env=worker_env), lf.name))
 
     def reader(pr):
         for line in pr.stdout:

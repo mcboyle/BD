@@ -70,6 +70,7 @@ echo  ================================================================
 echo.
 
 set "BD_DISABLE_KEEPALIVE=1"
+set "BD_INSTALL_DIR="
 "%PYEXE%" "%~dp0run_tests.py" "tests\%NAME%.py"!FLAGS!
 set "RC=!ERRORLEVEL!"
 

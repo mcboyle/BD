@@ -868,6 +868,7 @@ def _exception_summary(exc: BaseException, limit: int = 500) -> str:
 
 def _child_env() -> dict:
     env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"   # belt; the purge is braces
     return env
 

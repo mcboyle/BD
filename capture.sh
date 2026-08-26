@@ -1031,7 +1031,7 @@ echo "  exit=$PARITY_EXIT"
 # collection; the capture VERDICT is read from the junit XML by
 # tools/pytest_capture_results.py and never from these logs.
 run_with_heartbeat "parallel-safe pytest lane" "$OUT/02_pytest_parallel.log" \
-   env BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest \
+   env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest \
    tests --tb=short \
    -m capture_parallel \
    -n "$WORKERS" --dist loadfile \
@@ -1042,7 +1042,7 @@ PARALLEL_EXIT=$?
 # identically), and a lane that differs from its sibling for no stated reason is
 # the next reader's puzzle. Kept symmetric deliberately.
 run_with_heartbeat "serial pytest lane" "$OUT/02_pytest_serial.log" \
-   env BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest \
+   env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest \
    tests --tb=short \
    -m capture_serial \
    -n 0 \

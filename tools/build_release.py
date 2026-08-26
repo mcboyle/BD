@@ -313,6 +313,7 @@ def _run_extracted_suite(zip_path: Path) -> tuple[bool, str]:
         # instructions. Capture stdout so the summary line can be
         # extracted regardless of whether tests pass.
         env = os.environ.copy()
+        env.pop("BD_INSTALL_DIR", None)
         env["BD_DISABLE_KEEPALIVE"] = "1"
         # Use the same python that's running us.
         try:

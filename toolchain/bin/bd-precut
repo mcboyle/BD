@@ -79,6 +79,7 @@ def _run_insync(root):
     if not present:
         return None, "no in-sync test files found"
     env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
     env["BD_HOME"] = tempfile.mkdtemp()
     env["BD_DISABLE_KEEPALIVE"] = "1"
     # v3.66.855 port: this used to CLOBBER PYTHONPATH with the retired prestaged

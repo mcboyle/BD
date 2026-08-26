@@ -49,6 +49,7 @@ RESULTS=os.environ.get("BD_LAST_BAND",
 def run_one(work,suite,timeout):
     env=dict(os.environ); env.update(BD_HOME=tempfile.mkdtemp(prefix="bdrt_"),
         BD_DISABLE_KEEPALIVE="1")
+    env.pop("BD_INSTALL_DIR", None)
     try:
         r=subprocess.run([_py(work),"run_tests.py",suite],cwd=work,env=env,
                          capture_output=True,text=True,timeout=timeout)
