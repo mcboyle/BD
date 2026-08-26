@@ -324,6 +324,7 @@ jobs:
               tests/test_gui_parity.py
               tests/test_t1_dashboard_wired.py
               tests/test_t2_history_wired.py
+              tests/test_v3_66_1255_frontend_build_is_isolated.py
               tests/test_t3_t4_wired.py
               tests/test_t5_t6_wired.py
               tests/test_t7_notifications_wired.py

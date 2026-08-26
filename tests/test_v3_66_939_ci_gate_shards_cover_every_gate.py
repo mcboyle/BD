@@ -165,6 +165,12 @@ _DECLARED = {
     "tests/test_gui_parity.py",
     "tests/test_t1_dashboard_wired.py",
     "tests/test_t2_history_wired.py",
+    # @1255, backlog rows 247/248. build_manifest() must build only in a copied
+    # frontend tree so a suite cannot empty the deployed SPA or delete its
+    # .bd-built-from provenance marker. The host-dependent byte invariant skips
+    # UNKNOWN on clean CI clones, but this shard installs Node and runs its
+    # deterministic copy-shape and negative-control siblings on every PR.
+    "tests/test_v3_66_1255_frontend_build_is_isolated.py",
     "tests/test_t3_t4_wired.py",
     "tests/test_t5_t6_wired.py",
     "tests/test_t7_notifications_wired.py",
