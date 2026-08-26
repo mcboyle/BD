@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 284. The behavioral catcher reaches one matching receipt and one reap through the real settlement path, consumes each transport's supplied allowance with a synchronized wait, and measures wall elapsed. M1 restores the independent sixty-second reap; M2 makes reap discard the caller's remaining budget; M3 restores the one-second probe floor. The separate transform-control spec applies M1 while running only the module import control and must ESCAPE.",
+  "subject": "row 284 -- every ambiguous-launch subprocess stays inside the settlement deadline governing the item",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row_284_ambiguous_launch_reap_stays_inside_its_actual_elapsed_bound"
+  ],
+  "mutants": [
+    {
+      "label": "M1 ambiguous settlement starts an independent sixty-second reap again",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "            verdict = reap(\n                addr, receipt_path, \"ambiguous launch result\",\n                timeout=min(60.0, reap_budget))",
+      "new": "            verdict = reap(addr, receipt_path, \"ambiguous launch result\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row_284_ambiguous_launch_reap_stays_inside_its_actual_elapsed_bound"
+    },
+    {
+      "label": "M2 reap discards the remaining settlement allowance",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "    r = ssh(addr, reap_cmd(receipt_path), timeout=timeout)",
+      "new": "    r = ssh(addr, reap_cmd(receipt_path), timeout=60)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row_284_ambiguous_launch_reap_stays_inside_its_actual_elapsed_bound"
+    },
+    {
+      "label": "M3 a nearly spent settlement rounds its probe allowance up to one second",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "        probed = ssh(addr, command, timeout=min(5.0, remaining))",
+      "new": "        probed = ssh(addr, command, timeout=max(1, min(5, math.ceil(remaining))))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row_284_ambiguous_launch_reap_stays_inside_its_actual_elapsed_bound"
+    }
+  ]
+}

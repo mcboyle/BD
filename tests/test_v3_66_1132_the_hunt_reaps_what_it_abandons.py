@@ -1360,10 +1360,10 @@ def test_ambiguous_launch_settlement_waits_for_matching_receipt_before_reap(
             f"run_id={run_id}\n", ""),
     ])
     monkeypatch.setattr(mod, "ssh", lambda *_args, **_kwargs: next(replies))
-    reaps: list[tuple[str, str, str]] = []
+    reaps: list[tuple[str, str, str, float]] = []
 
-    def fake_reap(addr, path, why):
-        reaps.append((addr, path, why))
+    def fake_reap(addr, path, why, *, timeout):
+        reaps.append((addr, path, why, timeout))
         return "REAP-OK"
 
     monkeypatch.setattr(mod, "reap", fake_reap)
@@ -1374,7 +1374,135 @@ def test_ambiguous_launch_settlement_waits_for_matching_receipt_before_reap(
     assert settled["terminal"] == "receipt-observed"
     assert [item["state"] for item in settled["observations"]] == [
         "PROCESS-GUARD-UNKNOWN", "RECEIPT-MATCH"]
-    assert reaps == [("10.0.70.95", receipt, "ambiguous launch result")]
+    assert len(reaps) == 1
+    assert reaps[0][:3] == (
+        "10.0.70.95", receipt, "ambiguous launch result")
+    assert 0 < reaps[0][3] <= 1.0, (
+        "the reap received a subprocess allowance outside its settlement: %r"
+        % (reaps,))
+
+
+class _Row284BudgetConsumingTransport:
+    """Consume the timeout handed to the reached transport boundary.
+
+    ``Event.wait`` models a connected subprocess that stays silent for its
+    entire allowance.  The release event exists only to settle a deliberately
+    over-budget RED/control invocation without leaving a thread behind; there
+    is no scheduling sleep in this fixture.
+    """
+
+    def __init__(self, run_id, forced_reap_budget=None):
+        self.run_id = run_id
+        self.forced_reap_budget = forced_reap_budget
+        self.release = threading.Event()
+        self.reap_entered = threading.Event()
+        self.calls = []
+
+    def __call__(self, _addr, command, timeout):
+        action = "reap" if " reap " in command else "probe"
+        self.calls.append((action, float(timeout)))
+        if action == "probe":
+            return subprocess.CompletedProcess(
+                command, 0,
+                "RECEIPT-MATCH receipt=9:1:9:9:4 current=9:1:9:9:4 "
+                f"run_id={self.run_id}\n", "")
+        self.reap_entered.set()
+        consumed_budget = (
+            float(self.forced_reap_budget)
+            if self.forced_reap_budget is not None else float(timeout))
+        self.release.wait(consumed_budget)
+        return subprocess.CompletedProcess(command, 124, "", "reap timed out")
+
+
+def _measure_row284_settlement(mod, monkeypatch, *, forced_reap_budget=None):
+    """Return a real wall-clock measurement of one reached settlement reap."""
+    governing_bound = 0.05
+    assertion_ceiling = 0.20
+    run_id = "2" * 32
+    transport = _Row284BudgetConsumingTransport(
+        run_id, forced_reap_budget=forced_reap_budget)
+    monkeypatch.setattr(mod, "ssh", transport)
+    result = {}
+    failure = {}
+
+    def settle():
+        try:
+            result.update(mod.settle_ambiguous_launch(
+                "10.0.70.95", "/srv/bd-wedge/run/runner.receipt", run_id,
+                **{"timeout_s": governing_bound, "poll_s": governing_bound}))
+        except BaseException as exc:  # preserve the worker's exact failure
+            failure["exception"] = exc
+
+    worker = threading.Thread(target=settle, daemon=True)
+    started = time.monotonic()
+    worker.start()
+    worker.join(assertion_ceiling)
+    exceeded = worker.is_alive()
+    elapsed = time.monotonic() - started
+    # Settle the RED and the deliberate negative control promptly.  A correct
+    # run has already returned because its reap allowance was the remaining
+    # fraction of governing_bound.
+    transport.release.set()
+    worker.join(1.0)
+    assert not worker.is_alive(), "fixture could not settle its transport owner"
+    if failure:
+        raise failure["exception"]
+    return {
+        "governing_bound": governing_bound,
+        "assertion_ceiling": assertion_ceiling,
+        "elapsed": elapsed,
+        "exceeded": exceeded,
+        "calls": transport.calls,
+        "result": result,
+        "reap_entered": transport.reap_entered.is_set(),
+    }
+
+
+def _assert_row284_actual_elapsed_bound(measured):
+    assert measured["calls"] and measured["calls"][0][0] == "probe", (
+        "precondition: the matching receipt probe did not run")
+    assert measured["reap_entered"], (
+        "precondition: the ambiguous launch never entered its reap")
+    assert [action for action, _budget in measured["calls"]] == [
+        "probe", "reap"], (
+        "precondition: expected exactly one probe and one reap, got %r"
+        % (measured["calls"],))
+    assert not measured["exceeded"], (
+        "row 284 actual elapsed exceeded the governing settlement bound: "
+        "the %.3fs item was still inside its one reached reap after %.3fs "
+        "(reap subprocess budget %.3fs)" % (
+            measured["governing_bound"], measured["elapsed"],
+            measured["calls"][1][1]))
+    assert measured["elapsed"] <= measured["assertion_ceiling"], measured
+    assert measured["result"]["terminal"] == "receipt-observed", measured
+
+
+def test_row_284_ambiguous_launch_reap_stays_inside_its_actual_elapsed_bound(
+        monkeypatch):
+    """F30: the five-second settlement must not start a sixty-second reap."""
+    mod = _load()
+    assert mod.settle_ambiguous_launch.__kwdefaults__["timeout_s"] == 5.0, (
+        "precondition: this is no longer the nominal five-second settlement")
+
+    measured = _measure_row284_settlement(mod, monkeypatch)
+    _assert_row284_actual_elapsed_bound(measured)
+    assert all(budget <= measured["governing_bound"]
+               for _action, budget in measured["calls"]), (
+        "a settlement subprocess received a budget outside its %.3fs item: %r"
+        % (measured["governing_bound"], measured["calls"]))
+
+
+def test_row_284_elapsed_gate_rejects_an_oversized_reap_budget(monkeypatch):
+    """Negative control: a larger reap allowance must fail on wall elapsed."""
+    mod = _load()
+    measured = _measure_row284_settlement(
+        mod, monkeypatch, forced_reap_budget=0.40)
+    assert measured["reap_entered"]
+    assert len(measured["calls"]) == 2
+    with pytest.raises(
+            AssertionError,
+            match="row 284 actual elapsed exceeded the governing settlement bound"):
+        _assert_row284_actual_elapsed_bound(measured)
 
 
 def test_ambiguous_launch_settlement_refuses_a_different_run_nonce(monkeypatch):
