@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1252 - capture gains an explicit parallel mode with per-run routing
+
+-    assert "live_tests/results" in code, (
+-        "no executable line references live_tests/results -- the collection 
+-        "prose, not code")
+-        rdir = tmp_path / "live_tests" / "results"
+-    return (f"{FIXTURE_ORIGIN}{_SEED_PATHS[index % len(_SEED_PATHS)]}"
+-               dry_run: bool = False) -> dict:
+-    urls = [seeded_url(i) for i in range(count)]
+-        "login_url": f"{FIXTURE_ORIGIN}/formauth/login",
+-        "success_url": f"{FIXTURE_ORIGIN}/formauth/members",
+-    cfg = login_site_config()
+-                                        dry_run=args.dry_run)
+-                    plans.append(seed_login(client, dry_run=args.dry_run))
+- `--parallel` is now explicitly opt-in in [capture.sh](/home/mboyle/bd-codex
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    test_parallel_capture_services.py -> tools
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1251 - the provisioner gate proves dispatch instead of structure
 
 - PROVISIONER-INVOCATION-IS-STRUCTURAL-NOT-BEHAVIORAL. The gate asserted over

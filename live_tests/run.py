@@ -103,6 +103,12 @@ def main(argv=None) -> int:
                           "BD_HOME env var, the running app's "
                           "/api/dev/env BD_HOME, the running app's "
                           "/api/dev/proc cwd, finally the runner's cwd."))
+    ap.add_argument("--db-path", default=None,
+                    help=("exact database belonging to the target instance; "
+                          "defaults to <bd-home>/downloader_history.db"))
+    ap.add_argument("--results-dir", default=None,
+                    help=("artifact directory for this invocation; capture.sh "
+                          "passes its keyed output directory"))
     ap.add_argument("--include-disruptive", action="store_true",
                     help="also run disruptive tests (reboot, kill, ...)")
     ap.add_argument("--only", default="",
@@ -133,9 +139,12 @@ def main(argv=None) -> int:
     code = harness.run_all(args.url, bd_home,
                            include_disruptive=args.include_disruptive,
                            only=only or None,
+                           db_path=args.db_path,
+                           results_dir=args.results_dir,
                            per_check_timeout_s=args.per_check_timeout)
 
-    rdir = Path(harness.__file__).resolve().parent / "results"
+    rdir = (Path(args.results_dir) if args.results_dir
+            else Path(harness.__file__).resolve().parent / "results")
     print("=" * 64)
     print(f"  artifacts: {rdir}")
     print(f"  exit code: {code} "

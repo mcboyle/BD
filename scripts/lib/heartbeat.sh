@@ -118,6 +118,8 @@ _start_capture_detached() {
   esac
   _capture_add_close_fd "${CAPTURE_VAULT_DIR_FD:-}" "capture vault directory"
   _capture_add_close_fd "${CAPTURE_VAULT_DIR_LOCK_FD:-}" "capture vault lock"
+  _capture_add_close_fd "${CAPTURE_APP_PORT_LOCK_FD:-}" "capture app-port lock"
+  _capture_add_close_fd "${CAPTURE_FIXTURE_PORT_LOCK_FD:-}" "capture fixture-port lock"
   if [ "${#_CAPTURE_CLOSE_FDS[@]}" -gt 0 ]; then
     setsid env --default-signal=INT,QUIT BD_HEARTBEAT_LAUNCH=close-fd bash -c '
       count=$1; shift

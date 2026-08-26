@@ -389,6 +389,10 @@ _DECLARED = {
     # (196s total locally), not count, per the @939 precedent.
     # tree-gates-1
     "tests/test_capture_shell_runtime.py",
+    # Row 175: capture service/port/state ownership is a tree-wide execution
+    # boundary. A fixed resource reintroduced anywhere in capture.sh, its
+    # service installer, the seeder, or the live runner must fail every PR.
+    "tests/test_parallel_capture_services.py",
     "tests/test_capture_vault_is_isolated.py",
     "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
     "tests/test_v3_66_1191_retention_review_edges.py",

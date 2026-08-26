@@ -65,9 +65,12 @@ def test_the_results_are_COPIED_in_executable_shell():
     prose from code -- CLAUDE.md section 0 records four cuts where exactly that
     failed a correct repair."""
     code = shell_code_only(CAPTURE)
-    assert "live_tests/results" in code, (
-        "no executable line references live_tests/results -- the collection is "
-        "prose, not code")
+    assert code.count('LIVE_RESULTS_SRC="$OUT/06_live_results_source"') == 1, (
+        "the collection source is not bound exactly once to this capture's "
+        "result directory")
+    assert code.count('--results-dir "$OUT/06_live_results_source"') == 1, (
+        "the live runner is not writing to the exact directory the capture "
+        "later collects")
     assert "06_live_results" in code, (
         "the collected output has no destination inside $OUT")
 
@@ -242,7 +245,7 @@ def _run_step(tmp_path, *, results):
     out = tmp_path / "out"
     out.mkdir()
     if results is not None:
-        rdir = tmp_path / "live_tests" / "results"
+        rdir = out / "06_live_results_source"
         rdir.mkdir(parents=True)
         for name, body in results.items():
             (rdir / name).write_text(body, encoding="utf-8")

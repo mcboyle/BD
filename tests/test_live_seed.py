@@ -500,7 +500,8 @@ def test_a_later_refusal_does_not_swallow_an_earlier_success(capsys, monkeypatch
     monkeypatch.setattr(seed, "Client", lambda base_url: client)
     monkeypatch.setattr(seed, "preflight", lambda c, force=False: {"ok": True})
 
-    def _vault_locked(c, dry_run=False):
+    def _vault_locked(c, dry_run=False, fixture_origin=seed.FIXTURE_ORIGIN):
+        assert fixture_origin == seed.FIXTURE_ORIGIN
         raise seed.SeedRefused("the secrets vault is LOCKED")
 
     monkeypatch.setattr(seed, "seed_login", _vault_locked)
