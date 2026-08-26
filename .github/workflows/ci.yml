@@ -435,6 +435,7 @@ jobs:
               tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
               tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py
               tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py
+              tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
               tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
               tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py
           - name: tree-gates-1

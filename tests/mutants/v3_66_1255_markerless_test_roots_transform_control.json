@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 245. This spec is expected to report exactly one ESCAPED valid mutant: its only test imports tests/_tmproot.py and asserts callability without exercising install() or judging publication order. The identical transform is M2 in v3_66_1255_markerless_test_roots.json, where the behavioral failure-injection gate must CAUGHT it.",
+  "subject": "transform control -- importing the test-root producer does not constrain its publication order",
+  "band": [
+    "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_transform_control_imports_tmproot_without_judging_publication_order"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 early public publication must escape an import-only test",
+      "file": "tests/_tmproot.py",
+      "old": "        _publish_run_record(_fd, \"RUNNING\")\n        if _publish_staged_root(stage, public):",
+      "new": "        published_early = _publish_staged_root(stage, public)\n        _publish_run_record(_fd, \"RUNNING\")\n        if published_early:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py::test_transform_control_imports_tmproot_without_judging_publication_order"
+    }
+  ]
+}

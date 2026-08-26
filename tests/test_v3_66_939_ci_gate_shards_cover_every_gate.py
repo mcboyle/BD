@@ -369,6 +369,11 @@ _DECLARED = {
     "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",
     "tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py",
+    # Row 245. A public test root that appears before its marker and held lock
+    # becomes permanent UNKNOWN evidence if setup loses any resource. This
+    # gate injects every pre-publication boundary and therefore belongs beside
+    # the session-root lifecycle owners in the isolation shard.
+    "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py",
     # @1085. The isolation shard. Its subject is the test SESSION's module
     # table, not the tree -- the same reason 1034 and 1031 sit here. A
     # patch.dict(sys.modules) that evicts a lazily-imported module poisons an
