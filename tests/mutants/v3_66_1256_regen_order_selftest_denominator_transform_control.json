@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for backlog row 250 / v3.66.1256. This spec is expected to exit 1 with exactly one ESCAPED valid mutant. Its only test runs the unmodified chain, where both independent and CHAIN-derived membership agree. If the mutant is caught here, an import or execution failure is masquerading as denominator evidence in the primary battery.",
+  "subject": "transform-only control for the valid CHAIN-derived denominator mutant",
+  "band": [
+    "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py::test_transform_control_runs_only_the_unmodified_chain"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL derive required membership from CHAIN while the unmodified chain stays green",
+      "file": "toolchain/bin/bd-regen-order",
+      "old": "    required_labels = list(REQUIRED_CHAIN_LABELS)",
+      "new": "    required_labels = [entry[0] for entry in CHAIN]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py::test_transform_control_runs_only_the_unmodified_chain"
+    }
+  ]
+}
