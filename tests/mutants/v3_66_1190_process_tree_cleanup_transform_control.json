@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 255. This spec must ESCAPE: it applies the identical direct-child-only signal replacement while its sole named test observes only the runner file identity. The behavioral process-tree battery must report CAUGHT for the same valid transform.",
+  "subject": "transform control for the direct-child-only cleanup mutant",
+  "band": [
+    "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py::test_transform_control_only_observes_the_runner_identity"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 direct-child signals do not affect a runner-identity-only test",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        os.killpg(pgid, sig)\n",
+      "new": "        os.kill(pgid, sig)  # mutant: signal only the direct child\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py::test_transform_control_only_observes_the_runner_identity"
+    }
+  ]
+}
