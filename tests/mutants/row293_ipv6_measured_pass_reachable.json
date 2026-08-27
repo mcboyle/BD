@@ -1,0 +1,70 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 293. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row293_ipv6_measured_pass_reachable.json --work DETACHED_SCRATCH. Seven exact-once regressions cover the formerly swallowed expected address, run_all_probes family routing, normalized equality, mismatch refusal, the v1282 IPv4-fallback hold, and API forwarding. The separate transform-control spec applies the identical M1 signature regression to an import-only test and must ESCAPE.",
+  "subject": "a real provider-matched IPv6 probe is a reachable measured pass while every unverified outcome stays unknown",
+  "band": [
+    "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_real_ipv6_probe_passes_only_after_matching_provider_address",
+    "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_run_all_real_ipv6_measurement_advances_streak_and_clears",
+    "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_every_unverified_ipv6_outcome_remains_unknown",
+    "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_ipv4_fallback_still_never_clears_the_switch",
+    "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_leak_test_api_forwards_provider_expected_exit_address"
+  ],
+  "mutants": [
+    {
+      "label": "M1 swallow the provider expected address in _probe_ipv6 again",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "def _probe_ipv6(\n    socks_port: int,\n    expected_exit_ip: Optional[str] = None,\n    **_,\n) -> ProbeResult:",
+      "new": "def _probe_ipv6(socks_port: int, **_) -> ProbeResult:\n    expected_exit_ip = None  # mutant drops provider-supplied exit evidence",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_real_ipv6_probe_passes_only_after_matching_provider_address"
+    },
+    {
+      "label": "M2 run_all_probes stops forwarding expected IPv6 evidence",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        if probe_id == ProbeId.IPV6.value and expected_ip_version == 6:\n            kwargs[\"expected_exit_ip\"] = expected_exit_ip",
+      "new": "        if False and probe_id == ProbeId.IPV6.value and expected_ip_version == 6:\n            kwargs[\"expected_exit_ip\"] = expected_exit_ip",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_run_all_real_ipv6_measurement_advances_streak_and_clears"
+    },
+    {
+      "label": "M3 compare IPv6 spellings as raw text instead of normalized addresses",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        if observed != expected:\n",
+      "new": "        if ip.strip() != expected_exit_ip.strip():\n",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_real_ipv6_probe_passes_only_after_matching_provider_address"
+    },
+    {
+      "label": "M4 let a mismatched observed IPv6 address fall through to pass",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        if observed != expected:\n",
+      "new": "        if False and observed != expected:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_every_unverified_ipv6_outcome_remains_unknown"
+    },
+    {
+      "label": "M5 restore the v1282 IPv4-fallback critical pass",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        if \":\" not in ip:\n            return _unknown_ipv6_result(\n                \"dual-stack endpoint used IPv4; IPv6 exposure was not measured\"\n            )",
+      "new": "        if \":\" not in ip:\n            return ProbeResult(\n                probe_id=ProbeId.IPV6.value, passed=True,\n                severity=Severity.CRITICAL.value,\n                state=ProbeState.PASS.value,\n                details={\"classification\": \"proven_absent\", \"ip\": ip},\n            )",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_ipv4_fallback_still_never_clears_the_switch"
+    },
+    {
+      "label": "M6 leak-test API drops the provider expected exit address",
+      "file": "bulk_downloader/app_vpn_api.py",
+      "old": "        agg = vpn_leak_tests.run_all_probes(\n            tunnel_id,\n            expected_country=expected_country,\n            expected_exit_ip=expected_exit_ip,\n        )",
+      "new": "        agg = vpn_leak_tests.run_all_probes(\n            tunnel_id,\n            expected_country=expected_country,\n        )",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_leak_test_api_forwards_provider_expected_exit_address"
+    },
+    {
+      "label": "M7 route an expected IPv6 address into the IPv4 probe too",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old": "        if probe_id == ProbeId.IPV4.value and expected_ip_version == 4:\n            kwargs[\"expected_exit_ip\"] = expected_exit_ip",
+      "new": "        if probe_id == ProbeId.IPV4.value and expected_ip_version == 6:\n            kwargs[\"expected_exit_ip\"] = expected_exit_ip",
+      "direction": "regression",
+      "catcher": "tests/test_row_293_ipv6_measured_pass_is_reachable.py::test_run_all_real_ipv6_measurement_advances_streak_and_clears"
+    }
+  ]
+}

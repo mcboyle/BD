@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1283 - a measured IPv6 pass can clear the kill switch again
+
+- Added a normalized, provider-matched IPv6 PASS path in [vpn_leak_tests.py](
+- Routed `expected_exit_ip` through `run_all_probes` and [app_vpn_api.py](/ho
+- Preserved UNKNOWN for empty response, exception, IPv4 fallback, missing exp
+- Added the six-test production-path gate, CI registration, exact denominator
+- Filed row 293 OPEN in [IMPROVEMENT_BACKLOG.md](/home/mboyle/bd-codex-wt/row
+- New gate plus CI shard gate: 24 passed.
+- Backlog/freshness gates: 32 passed; `bd-freshcheck --repo-only` passed.
+- Complete 59-file derived floor: 1,262 passed, 1 skipped, 1 expected failure.
+- Two contention-sensitive mutation-runner timeout controls initially exceede
+- Transform control: 1 deliberate ESCAPE / 0 INVALID: `TC1 swallowed expected
+- `bd-mutate --selftest`: PASS.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _measured_pass_is_reachable.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1282 - an IPv4 fallback can no longer clear the VPN kill switch
 
 -        ("v4_fallback", v4_fallback, leak.ProbeState.PASS.value, True,

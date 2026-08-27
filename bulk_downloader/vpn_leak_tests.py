@@ -4,7 +4,7 @@ Six probes verify a tunnel isn't leaking the user's real identity:
 
   1. DNS leak       - resolver ASN matches VPN provider's ASN     [CRITICAL]
   2. IPv4 leak      - public v4 IP through tunnel = expected exit [CRITICAL]
-  3. IPv6 leak      - current probe outcomes remain UNKNOWN       [CRITICAL]
+  3. IPv6 leak      - observed v6 = provider's expected exit      [CRITICAL]
   4. WebRTC leak    - RTCPeerConnection doesn't reveal real IP    [CRITICAL]
   5. Geolocation    - IP-geo country matches expected             [WARNING]
   6. Timezone/locale- browser TZ/Accept-Language matches exit     [WARNING]
@@ -43,6 +43,7 @@ Each probe hits a different external endpoint. We pick endpoints with:
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import sys
@@ -228,7 +229,11 @@ def run_probe(probe_id: str, socks_port: int, **kwargs) -> ProbeResult:
     return r
 
 
-def run_all_probes(tunnel_id: str, expected_country: Optional[str] = None) -> AggregateResult:
+def run_all_probes(
+    tunnel_id: str,
+    expected_country: Optional[str] = None,
+    expected_exit_ip: Optional[str] = None,
+) -> AggregateResult:
     """Run every probe for a tunnel. Emits LEAK_DETECTED / LEAK_CLEARED via VPNManager."""
     from .vpn import get_tunnel  # local import to keep this module standalone-importable
     try:
@@ -245,13 +250,24 @@ def run_all_probes(tunnel_id: str, expected_country: Optional[str] = None) -> Ag
             summary="tunnel not up or no SOCKS port allocated",
         )
 
+    try:
+        expected_ip_version = (
+            ipaddress.ip_address(expected_exit_ip.strip()).version
+            if isinstance(expected_exit_ip, str) and expected_exit_ip.strip()
+            else None
+        )
+    except ValueError:
+        expected_ip_version = None
+
     probes: list[ProbeResult] = []
     for probe_id in ALL_PROBES:
         kwargs: dict = {"tunnel_id": tunnel_id}
         if probe_id in (ProbeId.GEO.value, ProbeId.TIMEZONE.value) and expected_country:
             kwargs["expected_country"] = expected_country
-        if probe_id == ProbeId.IPV4.value and tunnel and tunnel.public_ip:
-            kwargs["expected_exit_ip"] = None  # exit_ip is filled from leak-test result itself
+        if probe_id == ProbeId.IPV4.value and expected_ip_version == 4:
+            kwargs["expected_exit_ip"] = expected_exit_ip
+        if probe_id == ProbeId.IPV6.value and expected_ip_version == 6:
+            kwargs["expected_exit_ip"] = expected_exit_ip
         probes.append(run_probe(probe_id, socks_port, **kwargs))
 
     agg = _aggregate_probe_results(tunnel_id, probes)
@@ -377,8 +393,12 @@ def _probe_ipv4(socks_port: int, expected_exit_ip: Optional[str] = None, **_) ->
     )
 
 
-def _probe_ipv6(socks_port: int, **_) -> ProbeResult:
-    """Classify the four observable outcomes without laundering uncertainty.
+def _probe_ipv6(
+    socks_port: int,
+    expected_exit_ip: Optional[str] = None,
+    **_,
+) -> ProbeResult:
+    """Pass only a provider-verified IPv6 exit; otherwise return UNKNOWN.
 
     An empty response, an exception, a dual-stack request that happened to use
     IPv4, or a v6 address that cannot be compared with a provider-supplied
@@ -396,9 +416,42 @@ def _probe_ipv6(socks_port: int, **_) -> ProbeResult:
             return _unknown_ipv6_result(
                 "dual-stack endpoint used IPv4; IPv6 exposure was not measured"
             )
-        return _unknown_ipv6_result(
-            "IPv6 is reachable but no provider-supplied expected address is available",
-            observed_v6=ip,
+        if not isinstance(expected_exit_ip, str) or not expected_exit_ip.strip():
+            return _unknown_ipv6_result(
+                "IPv6 is reachable but no provider-supplied expected address is available",
+                observed_v6=ip,
+            )
+        try:
+            observed = ipaddress.ip_address(ip.strip())
+            expected = ipaddress.ip_address(expected_exit_ip.strip())
+        except ValueError:
+            return _unknown_ipv6_result(
+                "observed or expected IPv6 address could not be parsed for comparison",
+                observed_v6=ip,
+                expected_v6=expected_exit_ip,
+            )
+        if observed.version != 6 or expected.version != 6:
+            return _unknown_ipv6_result(
+                "observed and expected addresses were not both IPv6",
+                observed_v6=ip,
+                expected_v6=expected_exit_ip,
+            )
+        if observed != expected:
+            return _unknown_ipv6_result(
+                "observed IPv6 address did not match the provider-supplied expected address",
+                observed_v6=ip,
+                expected_v6=expected_exit_ip,
+            )
+        return ProbeResult(
+            probe_id=ProbeId.IPV6.value,
+            passed=True,
+            severity=Severity.CRITICAL.value,
+            state=ProbeState.PASS.value,
+            details={
+                "classification": "provider_verified",
+                "observed_v6": ip,
+                "expected_v6": expected_exit_ip,
+            },
         )
     except Exception as e:
         return _unknown_ipv6_result(
@@ -411,11 +464,14 @@ def _unknown_ipv6_result(
     note: str,
     *,
     observed_v6: Optional[str] = None,
+    expected_v6: Optional[str] = None,
     error: Optional[str] = None,
 ) -> ProbeResult:
     details = {"classification": "could_not_measure", "note": note}
     if observed_v6 is not None:
         details["observed_v6"] = observed_v6
+    if expected_v6 is not None:
+        details["expected_v6"] = expected_v6
     return ProbeResult(
         probe_id=ProbeId.IPV6.value,
         passed=None,

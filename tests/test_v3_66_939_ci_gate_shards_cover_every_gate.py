@@ -502,6 +502,12 @@ _DECLARED = {
     # the first F35 repair still called a measured pass, so this safety gate
     # must run regardless of which of the four application paths changes.
     "tests/test_row_286_laundered_failures_hold.py",
+    # Row 293 closes the inverse reachability hole left by row 286: the real
+    # IPv6 probe must be able to compare a provider-supplied expected address,
+    # advance an armed switch's streak, and clear it, while every unmeasured
+    # outcome remains UNKNOWN. This production-path safety contract is not
+    # replaceable by a diff-derived run or a fabricated ProbeResult.
+    "tests/test_row_293_ipv6_measured_pass_is_reachable.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
@@ -558,7 +564,7 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 174
+_EXPECTED_DECLARED_GATE_COUNT = 175
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

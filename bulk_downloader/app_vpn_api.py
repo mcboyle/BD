@@ -253,8 +253,13 @@ def vpn_leak_test_run(tunnel_id):
         return _err("no such tunnel", 404)
     data = request.get_json(silent=True) or {}
     expected_country = data.get("expected_country")
+    expected_exit_ip = data.get("expected_exit_ip")
     try:
-        agg = vpn_leak_tests.run_all_probes(tunnel_id, expected_country=expected_country)
+        agg = vpn_leak_tests.run_all_probes(
+            tunnel_id,
+            expected_country=expected_country,
+            expected_exit_ip=expected_exit_ip,
+        )
     except Exception as e:
         return _err(f"probe run raised: {e}", 500)
     return _ok({"result": agg.to_dict()})
