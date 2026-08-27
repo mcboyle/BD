@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1294 - the capture manifest is judged against an independent expected set
+
+- Added the independent 52-view/104-row contract in [capture_manifest_contrac
+- Updated [capture_all.py](/home/mboyle/bd-codex-wt/row309/project-knowledge/
+- Made [build_navigator.py](/home/mboyle/bd-codex-wt/row309/project-knowledge
+- Added the repo-wide regression gate, CI registration, two mutant specs, and
+- Focused gate: `7 passed in 1.25s`
+- CI visibility gate: `18 passed`
+- Repo-only freshness: PASS
+- Final 48-file affected floor: `992 passed, 1 skipped, 1 failed`
+- Primary: 8 CAUGHT, 0 ESCAPED, 0 INVALID/ERROR.
+- An intermediate stale M4 anchor was refused as ERROR, re-anchored, and the 
+- Mutation self-test passed through `venv`; an earlier wrong-interpreter atte
+- `bd-regen-order`, as explicitly prohibited.
+- Canonical full suite, real browser capture, live service/fleet tests, push,
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 181.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1293 - two dist-dependent gates stop blocking every wide band
 
 - Two gates depended on frontend/dist, a gitignored build artifact that neith

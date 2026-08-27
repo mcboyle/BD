@@ -529,6 +529,11 @@ _DECLARED = {
     # gate runs a real same-process collection and asserts the exact values an
     # unrelated selected test sees, so it is independent of changed paths.
     "tests/test_row_299_live_sampling_collection_isolation.py",
+    # Row 309. The capture manifest cannot define its own completeness. This
+    # gate independently pins all 52 views / 104 themed rows, reaches every
+    # failure seam, and drives the real navigator refusal. Its visual-census
+    # subject remains tree-wide regardless of which route or builder changes.
+    "tests/test_row_309_capture_manifest_contract.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
@@ -585,14 +590,12 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 176
 # 176 -> 177 at row 298. This cut classifies one legacy gate, removes its one
 # frozen-baseline exemption, declares it here, and gives it one dedicated CI
 # shard because its real two-pass regen chain is an independent long pole.
-_EXPECTED_DECLARED_GATE_COUNT = 178
 # 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
 # collection-isolation gate and schedules it directly in tree-gates-2.
-_EXPECTED_DECLARED_GATE_COUNT = 180
+_EXPECTED_DECLARED_GATE_COUNT = 181
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

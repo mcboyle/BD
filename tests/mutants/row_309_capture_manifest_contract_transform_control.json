@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 309 M2. This spec must ESCAPE: its node imports capture_all without invoking manifest validation, so the identical valid Python transform proves the primary CAUGHT verdict is behavioral rather than a parse, import, or collection break.",
+  "subject": "import-only control for the valid manifest-derived-denominator transform",
+  "band": [
+    "tests/test_row_309_capture_manifest_contract.py::test_transform_control_imports_capture_without_asserting_completeness"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 derive expected manifest keys from observed rows under an import-only test",
+      "file": "project-knowledge/capture_manifest_contract.py",
+      "old": "    expected = expected_manifest_keys()",
+      "new": "    expected = {key for key, _row in keyed_rows}",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_transform_control_imports_capture_without_asserting_completeness"
+    }
+  ]
+}
