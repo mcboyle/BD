@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1284 - deploy and capture-service steps fail closed on unavailable state
+
+-    """The four hosts carried a 2-byte config before this session."""
+-        for body in ("{}", "[]", "not json at all"):
+- F03: retained and mutation-tested the existing EXIT recovery.
+- F04: added post-reset `exec` handoff. The bootstrap invocation delivering t
+- F05: capture start requires exact active state and `/api/health` evidence.
+- F06: unknown stop state fails and preserves instance environment state.
+- F07: DSN persistence is atomic, verified, and failure-propagating before pr
+- F08: unreadable configuration and unwritable directories return UNKNOWN/not
+- Added the row-285 repo-wide gate, CI shard registration, and mutation speci
+- `incoming post-reset script body fired 0 times, expected exactly 1; the dep
+- `capture-service readiness probe fired 0 times, expected exactly 1`
+- `an unknown unit state was converted to inactive/success`
+- `PostgreSQL provisioning reported success after DSN persistence failed`
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 175 -> 176.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1283 - a measured IPv6 pass can clear the kill switch again
 
 - Added a normalized, provider-matched IPv6 PASS path in [vpn_leak_tests.py](

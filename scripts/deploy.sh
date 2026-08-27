@@ -132,6 +132,12 @@ SKIP_GRAPH=0
 HEALTH_URL="http://localhost:5555/api/health"
 TIMEOUT=120
 INTERVAL=2
+# Preserve the operator's exact argv for the post-reset handoff. This is a Bash
+# array because paths and arguments may contain whitespace; rebuilding a shell
+# command string here would turn the safety handoff into an injection boundary.
+DEPLOY_ARGS=("$@")
+handoff_expected="${DEPLOY_POST_RESET_EXPECT:-}"
+unset DEPLOY_POST_RESET_EXPECT
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -271,6 +277,14 @@ on_exit() {
 trap on_exit EXIT
 
 cd "$DIR"
+if [ -n "$handoff_expected" ]; then
+  handoff_actual="$(git rev-parse HEAD 2>/dev/null || true)"
+  [ "$handoff_actual" = "$handoff_expected" ] \
+    || die "post-reset handoff expected tree $handoff_expected but the new
+  script started at ${handoff_actual:-<unresolved>}; refusing to certify either
+  body"
+  note "post-reset handoff entered the new script body for $handoff_actual"
+fi
 note "preconditions OK: $DIR (venv python: $VENV_PY)"
 
 # ── [1] fetch ───────────────────────────────────────────────────────
@@ -343,13 +357,14 @@ fi
 
 # ── [4] reset ───────────────────────────────────────────────────────
 #
-# SELF-MODIFICATION CAVEAT -- an improvement to any step BELOW lands one deploy
-# late. This script is one of the files `git reset --hard` replaces, but the
+# SELF-MODIFICATION BOUNDARY. This script is one of the files `git reset --hard`
+# replaces, but the
 # running bash keeps reading from the file descriptor it opened at exec time,
 # and git does not rewrite the file in place: it writes a new object and renames
-# it over the path, so the path gets a NEW inode and the old one stays open and
-# intact behind our fd. Every line from here to [13] therefore executes the
-# PRE-reset copy. The version that ran is not the version now on disk.
+# it over the path, so the path gets a NEW inode while the old one stays open
+# behind our fd. Continuing here would execute steps [5]-[13] from the old body
+# and could report success without ever running deploy logic delivered by this
+# reset. The handoff below closes that boundary before the service stops.
 #
 # MEASURED, not reasoned about (2026-08-03): a two-commit reproduction in which
 # the only difference between the deployed and the incoming script was a line
@@ -357,24 +372,26 @@ fi
 # immediately afterwards showed the NEW text; `ls -i` went 1992621 -> 1992622
 # across the reset, confirming the rename/new-inode mechanism.
 #
-# Consequences worth knowing rather than rediscovering:
-#   * the fd is bound to a whole, consistent file, so this is NOT the classic
-#     mid-execution corruption of editing a running script in place -- the old
-#     content runs to completion correctly;
-#   * a fix to steps [5]-[13] first takes effect on the deploy AFTER the one
-#     that delivers it, so a deploy that lands such a fix must be followed by a
-#     second run before the fix can be said to have executed here;
-#   * steps [0]-[3] above the reset are the only ones that run at the version
-#     being deployed;
-#   * so do not read a green run of this script as evidence that the step
-#     changes it just delivered are correct. Nothing below has been exercised.
-# Not restructured: re-exec'ing the post-reset copy would silently change which
-# code the operator authorized to run, which is a worse property than lateness.
 STEP=4
 git reset --hard origin/main >/dev/null || die "git reset --hard origin/main failed"
 [ "$(git rev-parse HEAD)" = "$NEW" ] \
   || die "reset reported success but HEAD is $(git rev-parse HEAD), not $NEW"
 note "tree reset to $NEW"
+
+# A changed tree MUST execute the copy the reset just installed. This remains
+# the operator-authorized origin/main path; the only alternative is certifying
+# that tree using the pre-reset inode. No service has been stopped yet, so an
+# exec failure cannot strand production. A moving origin may cause another
+# reset/handoff in the child, which is correct: only the final current body may
+# perform steps [5]-[13].
+if [ "$SAME" -eq 0 ]; then
+  note "post-reset handoff: executing deploy logic from $NEW before step 5"
+  cleanup
+  trap - EXIT
+  DEPLOY_POST_RESET_EXPECT="$NEW" \
+    exec "$BASH" "$DIR/scripts/deploy.sh" "${DEPLOY_ARGS[@]}" \
+    || die "could not execute the post-reset deploy script for $NEW"
+fi
 
 # The version the health gate will demand is DERIVED from the tree that was just
 # deployed, never passed in. An --expect flag can disagree with what actually
@@ -750,7 +767,8 @@ note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
 # current and whose ENVIRONMENT had not converged, which is why "already
 # current" is still a full verification and not an early return.
 STEP=13
-if [ "$SAME" -eq 1 ] && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
+if [ "$SAME" -eq 1 ] && [ -z "$handoff_expected" ] \
+   && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
   note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW)"
 else
   note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW)"

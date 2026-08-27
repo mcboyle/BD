@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 285. This applies the identical F07 transform to a test that sources dev_capabilities.sh and checks only that the function definition loads. It must ESCAPE, proving the main CAUGHT verdict comes from the persistence assertion rather than invalid shell or an import failure.",
+  "subject": "row 285 transform control - sourcing the PostgreSQL helper does not judge DSN persistence",
+  "band": [
+    "tests/test_row_285_deploy_fail_open.py::test_transform_control_sources_dev_capabilities_without_testing_persistence"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 ignore DSN-persistence failure while the source-only control stays green",
+      "file": "scripts/lib/dev_capabilities.sh",
+      "old": "    bd_mod3_env_persist || return 1",
+      "new": "    bd_mod3_env_persist || true",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_transform_control_sources_dev_capabilities_without_testing_persistence"
+    }
+  ]
+}

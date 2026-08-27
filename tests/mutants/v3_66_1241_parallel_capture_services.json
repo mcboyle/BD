@@ -59,8 +59,8 @@
     {
       "label": "M7 teardown removes every capture instance environment",
       "file": "scripts/install_capture_service.sh",
-      "old": "  sudo rm -f -- \"$ENV_PATH\" || stop_exit=$?",
-      "new": "  sudo rm -f -- \"$RUNTIME_DIR\"/*.env || stop_exit=$?",
+      "old": "  sudo rm -f -- \"$ENV_PATH\" || exit $?",
+      "new": "  sudo rm -f -- \"$RUNTIME_DIR\"/*.env || exit $?",
       "direction": "regression",
       "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
     },

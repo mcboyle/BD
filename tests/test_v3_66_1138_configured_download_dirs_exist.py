@@ -129,16 +129,32 @@ def test_a_missing_config_is_a_no_op_and_not_an_error():
             f"normal state of a freshly provisioned box\n{r.stderr}")
 
 
-def test_an_empty_or_malformed_config_is_a_no_op_and_not_an_error():
-    """The four hosts carried a 2-byte config before this session."""
+def test_an_empty_config_is_a_no_op_and_not_an_error():
+    """The four hosts carried a valid, empty 2-byte config before this session."""
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
-        for body in ("{}", "[]", "not json at all"):
+        for body in ("{}", "[]"):
             p = tmp / "sites_config.json"
             p.write_text(body)
             r = _run(p)
             assert r.returncode == 0, (
                 f"a config of {body!r} must not fail the deploy: {r.stderr}")
+
+
+def test_a_malformed_config_is_unknown_not_ready():
+    """An unreadable population cannot establish download readiness."""
+    with tempfile.TemporaryDirectory() as td:
+        p = pathlib.Path(td) / "sites_config.json"
+        p.write_text("not json at all")
+
+        r = _run(p)
+
+        assert r.returncode != 0, (
+            "a malformed config made the directory population unavailable but "
+            f"reported readiness: {r.stdout}{r.stderr}")
+        assert "UNKNOWN" in r.stderr, (
+            "the failure did not identify unavailable measurement as UNKNOWN: "
+            f"{r.stderr}")
 
 
 def test_a_blank_download_dir_is_skipped_not_created_as_cwd():

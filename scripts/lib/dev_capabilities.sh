@@ -42,8 +42,31 @@ bd_mod3_env_persist(){
   # same box ran 15712 / 23. The capability was present and the gate could not
   # see it. /etc/environment does not help either -- measured, it does not
   # reach a non-interactive ssh command on this fleet.
-  mkdir -p "$HOME/.config/bd"
-  printf 'export MOD3_PG_TEST_DSN=%s\n' "$MOD3_DSN" > "$HOME/.config/bd/mod3.env"
+  local env_path="$HOME/.config/bd/mod3.env"
+  local env_dir="${env_path%/*}"
+  local env_tmp=""
+  mkdir -p "$env_dir" || {
+    echo "mod3 postgres: DSN persistence failed: cannot create $env_dir" >&2
+    return 1
+  }
+  env_tmp="$(umask 077; mktemp "$env_path.tmp.XXXXXX")" || {
+    echo "mod3 postgres: DSN persistence failed: cannot stage $env_path" >&2
+    return 1
+  }
+  if ! printf 'export MOD3_PG_TEST_DSN=%s\n' "$MOD3_DSN" > "$env_tmp"; then
+    rm -f -- "$env_tmp" 2>/dev/null || true
+    echo "mod3 postgres: DSN persistence failed: cannot write $env_tmp" >&2
+    return 1
+  fi
+  if ! mv -f -- "$env_tmp" "$env_path"; then
+    rm -f -- "$env_tmp" 2>/dev/null || true
+    echo "mod3 postgres: DSN persistence failed: cannot install $env_path" >&2
+    return 1
+  fi
+  [ -r "$env_path" ] || {
+    echo "mod3 postgres: DSN persistence failed: $env_path is unreadable" >&2
+    return 1
+  }
 }
 
 bd_mod3_pg_provision(){
@@ -55,8 +78,14 @@ bd_mod3_pg_provision(){
     # a scripted capture still skipped 18 tests. Measured on test4 @1064:
     # mod3_exit=0 with env_file=ABSENT. An exit code is not evidence that the
     # side effect happened.
-    bd_mod3_env_persist
+    bd_mod3_env_persist || return 1
     echo "mod3 postgres: already serving the DSN"; return 0
+  fi
+  # Prove the non-interactive evidence destination before package, cluster,
+  # role or database mutations. If later provisioning fails, the visible DSN
+  # makes the tests fail instead of silently shrinking their denominator.
+  if ! bd_mod3_env_persist; then
+    return 1
   fi
   # INSTALL IT. REFUSING TO PROVISION IS THE DEFECT (backlog 97).
   #
@@ -112,9 +141,14 @@ SQL
     || $SUDO su -s /bin/bash postgres -c \
       "psql -v ON_ERROR_STOP=1 -qc 'CREATE DATABASE mod3_ci OWNER mod3_ci'" \
     || { echo "database ensure failed"; return 1; }
-  bd_mod3_env_persist
   # Verify by DOING, the section 9 discipline: the DSN itself must answer.
-  psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1
+  psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1 \
+    || { echo "mod3 postgres: provisioned DSN did not answer"; return 1; }
+  if ! bd_mod3_env_persist; then
+    return 1
+  fi
+  echo "mod3 postgres: provisioned and DSN persisted"
+  return 0
 }
 
 bd_dev_inspect_provision(){
