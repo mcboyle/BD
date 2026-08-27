@@ -520,6 +520,11 @@ _DECLARED = {
     # outcome remains UNKNOWN. This production-path safety contract is not
     # replaceable by a diff-derived run or a fabricated ProbeResult.
     "tests/test_row_293_ipv6_measured_pass_is_reachable.py",
+    # Row 299. Merely collecting U42 used to overwrite the live sampler's
+    # process-wide count and gap even when every U42 node was deselected. This
+    # gate runs a real same-process collection and asserts the exact values an
+    # unrelated selected test sees, so it is independent of changed paths.
+    "tests/test_row_299_live_sampling_collection_isolation.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
@@ -581,6 +586,9 @@ _EXPECTED_DECLARED_GATE_COUNT = 176
 # frozen-baseline exemption, declares it here, and gives it one dedicated CI
 # shard because its real two-pass regen chain is an independent long pole.
 _EXPECTED_DECLARED_GATE_COUNT = 178
+# 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
+# collection-isolation gate and schedules it directly in tree-gates-2.
+_EXPECTED_DECLARED_GATE_COUNT = 179
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

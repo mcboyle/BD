@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 299. M1 restores the exact collection-time writes that changed every later test's live-sampler defaults even when U42 was deselected. Its catcher independently records all 18 collected U42 nodes and the one unrelated probe that actually fires. M2 removes the test-scope finally restoration and is caught only after a real four-sample L31 call. The separate transform-control spec applies M1 byte-for-byte to a subprocess that imports U42 without asserting sampler behavior and must ESCAPE.",
+  "subject": "collecting or running U42 tests leaves the live-check sampler configuration exactly as it was",
+  "band": [
+    "tests/test_row_299_live_sampling_collection_isolation.py::test_collecting_u42_leaves_unrelated_test_sampler_defaults_intact",
+    "tests/test_u42_resource_live_tests.py::test_test_sampler_restores_the_exact_prior_configuration"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the four-immediate-sample writes at collection time",
+      "file": "tests/test_u42_resource_live_tests.py",
+      "old": "_FAST_COUNT = 4\n_FAST_GAP = 0.0\n\n\ndef _run_with_test_sampler(test_id, ctx):",
+      "new": "_FAST_COUNT = 4\n_FAST_GAP = 0.0\n\nchecks._SAMPLE_COUNT = _FAST_COUNT\nchecks._SAMPLE_GAP_S = _FAST_GAP\n\n\ndef _run_with_test_sampler(test_id, ctx):",
+      "direction": "regression",
+      "catcher": "tests/test_row_299_live_sampling_collection_isolation.py::test_collecting_u42_leaves_unrelated_test_sampler_defaults_intact"
+    },
+    {
+      "label": "M2 omit exact restoration after a sampled U42 check",
+      "file": "tests/test_u42_resource_live_tests.py",
+      "old": "    finally:\n        checks._SAMPLE_COUNT, checks._SAMPLE_GAP_S = original",
+      "new": "    finally:\n        pass  # mutant leaks the test sampler configuration",
+      "direction": "regression",
+      "catcher": "tests/test_u42_resource_live_tests.py::test_test_sampler_restores_the_exact_prior_configuration"
+    }
+  ]
+}

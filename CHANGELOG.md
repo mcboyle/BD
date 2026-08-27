@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1290 - live-check sampling is restored exactly after collection
+
+-        level, detail = _get_test(tid).fn(ctx)
+-    level, detail = _get_test("L31").fn(_SeriesContext(rising))
+-    level, detail = _get_test("L31").fn(_SeriesContext(flat))
+-    level, detail = _get_test("L32").fn(_SeriesContext(growing))
+-    level, detail = _get_test("L32").fn(_SeriesContext(flat))
+-    level, detail = _get_test("L33").fn(_SeriesContext(clean))
+-    level, detail = _get_test("L33").fn(_SeriesContext(leaking))
+-    level, detail = _get_test("L33").fn(_SeriesContext(windows_clean))
+-    level, detail = _get_test("L33").fn(_SeriesContext(suspicious))
+- Replaced collection-time sampler writes with exact `try/finally` restoratio
+- Added the independent same-process collection gate and negative/transform c
+- Added both mutation specs under [tests/mutants](/home/mboyle/bd-codex-wt/ro
+- Registered the gate in [ci.yml](/home/mboyle/bd-codex-wt/row299/.github/wor
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 179.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1289 - the regen idempotence test runs against a disposable copy
 
 -    m = _REPO / "project-knowledge" / _MANIFEST_NAME

@@ -43,13 +43,22 @@ class _SeriesContext(h.Context):
         return True, 200, b, 1.0
 
 
-# The custom run_tests.py is NOT pytest and does not call
-# setup_module/teardown_module. Zero the sampler's window at IMPORT
-# time instead — the runner does import this module, so this runs.
-# _sample_over_time reads _SAMPLE_COUNT/_SAMPLE_GAP_S at call time,
-# so this makes every sampler test instant (no real sleeping).
-checks._SAMPLE_COUNT = 4
-checks._SAMPLE_GAP_S = 0.0
+# The custom run_tests.py is NOT pytest and does not provide fixtures, so the
+# tests that exercise live samplers use this explicit test-scope owner. Keep
+# the production defaults intact during collection and restore the exact prior
+# values even when a sampled check raises.
+_FAST_COUNT = 4
+_FAST_GAP = 0.0
+
+
+def _run_with_test_sampler(test_id, ctx):
+    original = (checks._SAMPLE_COUNT, checks._SAMPLE_GAP_S)
+    checks._SAMPLE_COUNT = _FAST_COUNT
+    checks._SAMPLE_GAP_S = _FAST_GAP
+    try:
+        return _get_test(test_id).fn(ctx)
+    finally:
+        checks._SAMPLE_COUNT, checks._SAMPLE_GAP_S = original
 
 
 # ── registration ───────────────────────────────────────────────────
@@ -110,12 +119,26 @@ def test_sampler_collects_all_samples_when_reachable():
     assert errors == []
 
 
+def test_test_sampler_restores_the_exact_prior_configuration():
+    process_original = (checks._SAMPLE_COUNT, checks._SAMPLE_GAP_S)
+    checks._SAMPLE_COUNT = 7
+    checks._SAMPLE_GAP_S = 0.125
+    ctx = _SeriesContext([{"rss_mb": 100}] * 4)
+    try:
+        level, detail = _run_with_test_sampler("L31", ctx)
+        assert ctx._i == 4
+        assert level == h.PASS, detail
+        assert (checks._SAMPLE_COUNT, checks._SAMPLE_GAP_S) == (7, 0.125)
+    finally:
+        checks._SAMPLE_COUNT, checks._SAMPLE_GAP_S = process_original
+
+
 # ── graceful degradation ───────────────────────────────────────────
 
 def test_all_three_warn_when_unreachable():
     ctx = _SeriesContext([], reachable=False)
     for tid in ("L31", "L32", "L33"):
-        level, detail = _get_test(tid).fn(ctx)
+        level, detail = _run_with_test_sampler(tid, ctx)
         assert level == h.WARN
         assert "testable" in detail or "could not" in detail
 
@@ -125,14 +148,14 @@ def test_all_three_warn_when_unreachable():
 def test_l31_warns_on_rising_rss():
     rising = [{"rss_mb": 100}, {"rss_mb": 130},
               {"rss_mb": 160}, {"rss_mb": 200}]
-    level, detail = _get_test("L31").fn(_SeriesContext(rising))
+    level, detail = _run_with_test_sampler("L31", _SeriesContext(rising))
     assert level == h.WARN
     assert "leak" in detail or "rose" in detail
 
 
 def test_l31_passes_on_stable_rss():
     flat = [{"rss_mb": 100}] * 4
-    level, detail = _get_test("L31").fn(_SeriesContext(flat))
+    level, detail = _run_with_test_sampler("L31", _SeriesContext(flat))
     assert level == h.PASS
     assert "stable" in detail
 
@@ -140,14 +163,14 @@ def test_l31_passes_on_stable_rss():
 def test_l32_warns_on_thread_growth():
     growing = [{"thread_count": 10}, {"thread_count": 12},
                {"thread_count": 14}, {"thread_count": 16}]
-    level, detail = _get_test("L32").fn(_SeriesContext(growing))
+    level, detail = _run_with_test_sampler("L32", _SeriesContext(growing))
     assert level == h.WARN
     assert "leak" in detail or "rose" in detail
 
 
 def test_l32_passes_on_stable_thread_count():
     flat = [{"thread_count": 12}] * 4
-    level, detail = _get_test("L32").fn(_SeriesContext(flat))
+    level, detail = _run_with_test_sampler("L32", _SeriesContext(flat))
     assert level == h.PASS
 
 
@@ -157,7 +180,7 @@ def test_l33_passes_with_zero_orphans():
     # either in use or a zombie awaiting reap. The top-level orphan_browsers
     # shape is still honoured and still PASSes at zero.
     clean = [{"orphan_browsers": 0}] * 4
-    level, detail = _get_test("L33").fn(_SeriesContext(clean))
+    level, detail = _run_with_test_sampler("L33", _SeriesContext(clean))
     assert level == h.PASS
     assert "no orphaned browser" in detail, detail
 
@@ -165,7 +188,7 @@ def test_l33_passes_with_zero_orphans():
 def test_l33_warns_on_growing_orphans():
     leaking = [{"orphan_browsers": 0}, {"orphan_browsers": 1},
                {"orphan_browsers": 2}, {"orphan_browsers": 3}]
-    level, detail = _get_test("L33").fn(_SeriesContext(leaking))
+    level, detail = _run_with_test_sampler("L33", _SeriesContext(leaking))
     assert level == h.WARN
 
 
@@ -189,7 +212,7 @@ def test_l33_is_not_exercisable_on_the_windows_shape_empty_procs():
     windows_clean = [
         {"processes": {}, "findings": [], "verdict": "no leak signals"}
     ] * 4
-    level, detail = _get_test("L33").fn(_SeriesContext(windows_clean))
+    level, detail = _run_with_test_sampler("L33", _SeriesContext(windows_clean))
     assert level == h.NA, f"got {level} — {detail}"
     assert "not exercisable" in detail, detail
     assert "process table" in detail, detail
@@ -207,7 +230,7 @@ def test_l33_warns_on_empty_procs_with_actual_findings():
         {"processes": {}, "findings": ["something is leaking"],
          "verdict": "leak detected"}
     ] * 4
-    level, detail = _get_test("L33").fn(_SeriesContext(suspicious))
+    level, detail = _run_with_test_sampler("L33", _SeriesContext(suspicious))
     assert level == h.WARN, f"got {level} — {detail}"
     assert "UNKNOWN" in detail, detail
     assert "something is leaking" in detail, detail
