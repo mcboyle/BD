@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1299 - the runner VPN kill-switch gate holds on an unmeasurable tunnel
+
+-      "sha256": "dfd224c3bfa0d57839af8d2c7b7b2a59cdbd93fda03f749f017eb60cb67
+-    monkeypatch.setattr(runner_mod, "_VPN_RUNTIME_AVAILABLE", False)
+- [runner.py](/home/mboyle/bd-codex-wt/row296/bulk_downloader/runner.py:2669)
+- Raised or false VPN measurements now wait 30 seconds and recheck; only expl
+- The [four-state gate](/home/mboyle/bd-codex-wt/row296/tests/test_row_296_vp
+- Updated the lifecycle fixture, CI shard/declaration, mutation specs, and ba
+- Base commit: `3c66d22a6ef32198d075f7e6b304bef2111731fc`
+- Staged candidate tree: `fd5c15f13047e464ea248254e671deafc4398678`
+- Row-296 gate: `5 passed`
+- Affected 13-file runtime/VPN floor: `172 passed`
+- CI visibility gate: `18 passed`
+- Tracked mutation-spec census: `10 passed`
+- `bd-freshcheck --repo-only`: passed
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 189.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _vpn_runner_gate_holds_on_unmeasurable_tunnel.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1298 - concurrent app_config writers cannot lose independent keys (+1 file-disjoint row(s): 316)
 
 - Added a shared OS-backed transaction lock around both config writers in [gl

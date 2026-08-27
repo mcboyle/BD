@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 296 transform control. This must report one valid ESCAPED mutant: the byte-identical M1 exception regression remains importable when the only test does not assert VPN admission behavior.",
+  "subject": "the exception-permission regression remains importable without a behavioral assertion",
+  "band": [
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_transform_control_imports_runner_without_asserting_vpn_admission"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 exception-permission transform remains importable",
+      "file": "bulk_downloader/runner.py",
+      "old": "                except Exception as e:\n                    sys.stderr.write(f\"[runner] vpn check raised: {e}\\n\")\n                    vpn_ready = False",
+      "new": "                except Exception as e:\n                    sys.stderr.write(f\"[runner] vpn check raised: {e}\\n\")\n                    vpn_ready = True",
+      "direction": "regression",
+      "catcher": "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_transform_control_imports_runner_without_asserting_vpn_admission"
+    }
+  ]
+}
