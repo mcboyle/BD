@@ -216,6 +216,10 @@ _DECLARED = {
     # and drives both the refusal and owned-cleanup branches. A diff-derived
     # band cannot protect callers who export BD_COCKPIT_TASKS before any test.
     "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py",
+    # Row 300. The real X display is host-global, so this gate forces the
+    # foreign-process race, proves the atomic claim, and verifies exact owned
+    # teardown on every PR independently of which test files a diff touches.
+    "tests/test_row300_parallel_display_cleanup_owns_process.py",
     # F31. This gate measures every child-test launch that used to forward an
     # operator BD_INSTALL_DIR, drives a real nested bd-band against a
     # sacrificial database root, and proves the central autouse pop plus the
@@ -589,6 +593,9 @@ _EXPECTED_DECLARED_GATE_COUNT = 178
 # 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
 # collection-isolation gate and schedules it directly in tree-gates-2.
 _EXPECTED_DECLARED_GATE_COUNT = 179
+# 176 -> 177 at row 300: the display-ownership gate is declared and scheduled
+# in the isolation shard in the same cut.
+_EXPECTED_DECLARED_GATE_COUNT = 180
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

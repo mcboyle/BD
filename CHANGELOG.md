@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1291 - the parallel display test owns the display it kills
+
+-        # Never leave a server behind; a leaked Xvfb would poison later runs.
+-        if lock.exists():
+-            pid = lock.read_text(encoding="utf-8", errors="ignore").strip()
+-        if pid.isdigit():
+-            subprocess.run(["kill", pid], capture_output=True)
+-        for stale in (lock, Path(f"/tmp/.X11-unix/X{display_num}")):
+-                stale.unlink()
+-            except OSError:
+-                pass
+- [Row 300 gate](/home/mboyle/bd-codex-wt/row300/tests/test_row300_parallel_d
+- Added CI visibility, three mutation specs, and filed [backlog row 300](/hom
+- Focused/CI/backlog gates: `36 passed in 11.60s`
+- Complete 48-file affected floor: `984 passed, 1 skipped, 8 warnings in 546.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 180.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1290 - live-check sampling is restored exactly after collection
 
 -        level, detail = _get_test(tid).fn(ctx)

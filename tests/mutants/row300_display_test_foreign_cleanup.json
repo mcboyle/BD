@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 300 destructive-reach battery. This spec deliberately runs only the sacrificial foreign-display catcher: the mutant restores the exact fixed :71 lock-file bare-PID kill, and no unrelated display test is exposed to that destructive code. Re-run from a detached standalone scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row300_display_test_foreign_cleanup.json --work DETACHED_SCRATCH. The separate transform-control spec applies the identical transform under an import-only test and must ESCAPE.",
+  "subject": "display-test cleanup refuses a foreign process instead of killing the PID published through its fixed lock path",
+  "band": [
+    "tests/test_row300_parallel_display_cleanup_owns_process.py::test_cited_cleanup_leaves_a_foreign_display_alive"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the fixed :71 lock-file PID kill instead of identity-bound cleanup",
+      "file": "tests/test_capture_provides_a_display.py",
+      "old": "                if owned is not None:\n                    _terminate_owned_display(owned)\n",
+      "new": "                lock = Path(\"/tmp/.X71-lock\")\n                pid = lock.read_text(encoding=\"ascii\").strip() if lock.exists() else \"\"\n                if pid.isdigit():\n                    subprocess.run([\"kill\", pid], capture_output=True)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row300_parallel_display_cleanup_owns_process.py::test_cited_cleanup_leaves_a_foreign_display_alive"
+    }
+  ]
+}

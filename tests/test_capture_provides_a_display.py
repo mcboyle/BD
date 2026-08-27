@@ -18,13 +18,20 @@ browser cannot start, L2 still fails.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+import select
+import shlex
 import shutil
 import subprocess
 import fcntl
 import signal
+import sys
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 
@@ -34,6 +41,227 @@ CAPTURE_SH = REPO_ROOT / "capture.sh"
 FRAGMENT = REPO_ROOT / "scripts" / "lib" / "system_deps.sh"
 
 _LIVE_LANE = "live_tests.run"
+_DISPLAY_CANDIDATES = tuple(range(70, 256))
+
+
+@dataclass(frozen=True)
+class _DisplayClaim:
+    number: int
+    fd: int
+    path: Path
+    device: int
+    inode: int
+
+
+@dataclass
+class _OwnedDisplayProcess:
+    number: int
+    pid: int
+    start_ticks: int
+    pidfd: int
+
+
+def _release_display_claim(claim: _DisplayClaim) -> None:
+    """Release only the exact O_EXCL claim descriptor this test created."""
+    try:
+        current = claim.path.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (claim.device, claim.inode):
+            raise AssertionError(
+                "display claim identity changed; refusing pathname cleanup: "
+                f"{claim.path}"
+            )
+        claim.path.unlink()
+    finally:
+        os.close(claim.fd)
+
+
+def _claim_unused_display() -> _DisplayClaim:
+    """Atomically claim one candidate before asking Xvfb to bind its sockets."""
+    count = len(_DISPLAY_CANDIDATES)
+    assert count > 0, "UNKNOWN: display candidate denominator is empty"
+    offset = os.getpid() % count
+    for index in range(count):
+        number = _DISPLAY_CANDIDATES[(offset + index) % count]
+        claim_path = Path(f"/tmp/bd-display-test-X{number}.claim")
+        try:
+            fd = os.open(
+                claim_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+                0o600,
+            )
+        except FileExistsError:
+            continue
+        info = os.fstat(fd)
+        claim = _DisplayClaim(number, fd, claim_path, info.st_dev, info.st_ino)
+        os.write(fd, f"pid={os.getpid()}\n".encode("ascii"))
+        os.fsync(fd)
+        lock = Path(f"/tmp/.X{number}-lock")
+        socket = Path(f"/tmp/.X11-unix/X{number}")
+        probe = subprocess.run(
+            ["xdpyinfo", "-display", f":{number}"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        if probe.returncode != 0 and not lock.exists() and not socket.exists():
+            return claim
+        _release_display_claim(claim)
+    raise AssertionError(
+        f"UNKNOWN: none of {count} atomically claimed display candidates was free"
+    )
+
+
+def _proc_identity(pid: int) -> tuple[int, str] | None:
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        fields = raw.rsplit(") ", 1)[1].split()
+        return int(fields[19]), fields[0]
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _identity_from_receipt(receipt: Path, number: int) -> _OwnedDisplayProcess:
+    try:
+        fields = receipt.read_text(encoding="ascii").split()
+    except OSError as exc:
+        raise AssertionError(
+            "ownership receipt missing: refusing to clean up an unowned display"
+        ) from exc
+    assert len(fields) == 2 and all(field.isdigit() for field in fields), (
+        f"ownership receipt malformed: {fields!r}"
+    )
+    pid, start_ticks = map(int, fields)
+    assert pid > 1 and start_ticks > 0, (
+        f"ownership receipt has invalid identity: pid={pid} start={start_ticks}"
+    )
+    try:
+        pidfd = os.pidfd_open(pid, 0)
+    except (AttributeError, OSError) as exc:
+        raise AssertionError(
+            "UNKNOWN: ownership receipt could not be bound to a pidfd"
+        ) from exc
+    try:
+        observed_identity = _proc_identity(pid)
+        observed_start = observed_identity[0] if observed_identity else None
+        comm = Path(f"/proc/{pid}/comm").read_text(encoding="ascii").strip()
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        assert observed_start == start_ticks, (
+            "ownership receipt start-time mismatch: refusing a reusable PID "
+            f"(pid={pid}, receipt={start_ticks}, observed={observed_start})"
+        )
+        assert comm == "Xvfb", (
+            f"ownership receipt names {comm!r}, not the Xvfb this test started"
+        )
+        assert f":{number}".encode("ascii") in cmdline, (
+            f"ownership receipt PID {pid} does not serve display :{number}"
+        )
+    except BaseException:
+        os.close(pidfd)
+        raise
+    return _OwnedDisplayProcess(number, pid, start_ticks, pidfd)
+
+
+def _owned_process_alive(owned: _OwnedDisplayProcess) -> bool:
+    identity = _proc_identity(owned.pid)
+    return bool(
+        identity is not None
+        and identity[0] == owned.start_ticks
+        and identity[1] != "Z"
+    )
+
+
+def _terminate_owned_display(owned: _OwnedDisplayProcess) -> None:
+    """Signal the non-reusable pidfd, never a PID recovered from an X lock."""
+    try:
+        if _owned_process_alive(owned):
+            signal.pidfd_send_signal(owned.pidfd, signal.SIGTERM)
+            poller = select.poll()
+            poller.register(owned.pidfd, select.POLLIN)
+            events = poller.poll(5000)
+            assert events, (
+                f"owned Xvfb pid {owned.pid} did not exit after SIGTERM"
+            )
+        assert not _owned_process_alive(owned), (
+            f"owned Xvfb identity still alive after cleanup: pid={owned.pid}"
+        )
+    finally:
+        os.close(owned.pidfd)
+        owned.pidfd = -1
+
+
+def _write_xvfb_wrapper(path: Path, real_xvfb: str) -> None:
+    path.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "start_ticks=$(awk '{ print $22 }' /proc/$$/stat)\n"
+        "tmp=${ROW300_XVFB_RECEIPT}.tmp.$$\n"
+        "(umask 077; printf '%s %s\\n' \"$$\" \"$start_ticks\" >\"$tmp\")\n"
+        "mv -- \"$tmp\" \"$ROW300_XVFB_RECEIPT\"\n"
+        f"exec {shlex.quote(real_xvfb)} \"$@\"\n",
+        encoding="ascii",
+    )
+    path.chmod(0o700)
+
+
+@contextlib.contextmanager
+def _owned_bd_start_display() -> Iterator[_OwnedDisplayProcess]:
+    """Run the real helper on an atomic claim and retain its process identity."""
+    real_xvfb = shutil.which("Xvfb")
+    assert real_xvfb is not None, "precondition: Xvfb is required"
+    claim = _claim_unused_display()
+    owned: _OwnedDisplayProcess | None = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="bd-owned-display-") as raw_workspace:
+            workspace = Path(raw_workspace)
+            wrapper = workspace / "Xvfb"
+            receipt = workspace / "ownership.receipt"
+            try:
+                _write_xvfb_wrapper(wrapper, real_xvfb)
+                environment = os.environ.copy()
+                environment["PATH"] = f"{workspace}:{environment['PATH']}"
+                environment["ROW300_XVFB_RECEIPT"] = str(receipt)
+                script = (
+                    f'set -u; cd "{REPO_ROOT}"; . scripts/lib/system_deps.sh; '
+                    f"bd_start_display :{claim.number}"
+                )
+                proc = subprocess.run(
+                    ["bash", "-c", script],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                owned = _identity_from_receipt(receipt, claim.number)
+                assert proc.returncode == 0, (
+                    f"bd_start_display failed: rc={proc.returncode} stderr={proc.stderr}"
+                )
+                assert proc.stdout.strip() == f":{claim.number}", (
+                    f"expected the display on stdout, got {proc.stdout!r}"
+                )
+                assert _owned_process_alive(owned), (
+                    "ownership precondition: helper-started Xvfb is not alive"
+                )
+                yield owned
+            finally:
+                # A timeout or assertion can occur after the wrapper published
+                # its identity but before the normal receipt read. Bind and
+                # terminate that exact identity while the receipt still exists.
+                active_error = sys.exception()
+                recovery_error: AssertionError | None = None
+                if owned is None and receipt.exists():
+                    try:
+                        owned = _identity_from_receipt(receipt, claim.number)
+                    except AssertionError as exc:
+                        recovery_error = exc
+                if owned is not None:
+                    _terminate_owned_display(owned)
+                if recovery_error is not None:
+                    if active_error is None:
+                        raise recovery_error
+                    active_error.add_note(f"failure cleanup: {recovery_error}")
+    finally:
+        _release_display_claim(claim)
 
 
 def _capture_source() -> str:
@@ -147,42 +375,13 @@ def test_bd_start_display_really_yields_a_usable_display():
     confirms an independent client can open that display, so a helper that
     echoed a value without starting a server would fail here.
     """
-    display_num = 71
-    lock = Path(f"/tmp/.X{display_num}-lock")
-    if lock.exists():
-        pytest.skip(f":{display_num} is already in use on this host")
-
-    script = (
-        f'set -u; cd "{REPO_ROOT}"; . scripts/lib/system_deps.sh; '
-        f'bd_start_display :{display_num}'
-    )
-    proc = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, timeout=60
-    )
-    try:
-        assert proc.returncode == 0, (
-            f"bd_start_display failed: rc={proc.returncode} stderr={proc.stderr}"
-        )
-        assert proc.stdout.strip() == f":{display_num}", (
-            f"expected the display on stdout, got {proc.stdout!r}"
-        )
+    with _owned_bd_start_display() as owned:
+        display_num = owned.number
         # Independent confirmation: the socket a client would connect to.
         assert Path(f"/tmp/.X11-unix/X{display_num}").exists(), (
             "bd_start_display returned success but no X socket exists -- it "
             "reported a display nothing is serving"
         )
-    finally:
-        # Never leave a server behind; a leaked Xvfb would poison later runs.
-        pid = ""
-        if lock.exists():
-            pid = lock.read_text(encoding="utf-8", errors="ignore").strip()
-        if pid.isdigit():
-            subprocess.run(["kill", pid], capture_output=True)
-        for stale in (lock, Path(f"/tmp/.X11-unix/X{display_num}")):
-            try:
-                stale.unlink()
-            except OSError:
-                pass
 
 
 def test_the_fragment_is_the_only_place_that_launches_xvfb():
