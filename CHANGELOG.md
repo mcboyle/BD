@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1301 - the visual-audit builders derive their version instead of hardcoding it (+1 file-disjoint row(s): 317)
+
+- the visual-audit builders derive the capture release identity instead of
+- load_validated_manifest runs the release-identity check FIRST and the manif
+- the manifest population contract is preserved, not bypassed, so a builder
+- a builder refuses before writing any output when the identity is unavailabl
+- a mutation spec with a transform control that must escape accompanies the g
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 189 -> 192.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1300 - replication lifecycle locks are measured, not grepped (+1 file-disjoint row(s): 295)
 
 - replication lifecycle locks are measured rather than assumed: db_replication

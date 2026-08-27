@@ -8,6 +8,7 @@ navigation of the live mock SPA.
 """
 import os, json, base64, io, html, sys
 from PIL import Image
+from visual_audit_identity import load_validated_manifest
 
 from capture_manifest_contract import ManifestContractError, load_manifest
 
@@ -17,7 +18,8 @@ OUT = os.environ.get("BD_NAVIGATOR_OUT", "/mnt/user-data/outputs/functional.html
 MAXW = 1100
 
 try:
-    man = load_manifest(f"{CAP}/manifest.json")
+    man, capture_release_version = load_validated_manifest(
+        os.path.join(CAP, "manifest.json"), ROOT)
 except ManifestContractError as exc:
     print(f"CAPTURE MANIFEST UNKNOWN: {exc}", file=sys.stderr)
     raise SystemExit(2)
@@ -93,7 +95,7 @@ CATORD_JS = json.dumps(CAT_ORDER)
 page = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BulkDownloader — Functional Navigator (v3.66.363)</title>
+<title>BulkDownloader — Functional Navigator (__CAPTURE_RELEASE__)</title>
 <style>
   :root{--bg:#f4f5f7;--surface:#fff;--surface2:#eef0f3;--ink:#1c2024;--ink2:#454b54;
         --ink3:#6b7280;--primary:#5b5bd6;--primary-soft:#ecebfb;--hairline:#e3e6ea;
@@ -151,7 +153,7 @@ page = """<!doctype html>
 <body>
 <header>
   <div class="logo"></div>
-  <div><h1>BulkDownloader — Functional Navigator</h1><div class="v">v3.66.363 · empty-instance mock · __TOTAL__ screenshots · light + dark</div></div>
+  <div><h1>BulkDownloader — Functional Navigator</h1><div class="v">__CAPTURE_RELEASE__ · empty-instance mock · __TOTAL__ screenshots · light + dark</div></div>
   <div class="spacer"></div>
   <div class="toggle" id="themeToggle">
     <button data-th="light" class="on">☀ Light</button>
@@ -242,6 +244,7 @@ build(); render();
 
 page = (page.replace("__DATA__", DATA_JS).replace("__IMG__", IMG_JS)
             .replace("__CATLBL__", CATLBL_JS).replace("__CATORD__", CATORD_JS)
+            .replace("__CAPTURE_RELEASE__", f"v{capture_release_version}")
             .replace("__TOTAL__", str(total_shots)))
 
 with open(OUT, "w") as f:

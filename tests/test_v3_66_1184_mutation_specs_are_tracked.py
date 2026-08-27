@@ -8,9 +8,12 @@ the production CLI rather than treating JSON text as evidence by itself.
 from __future__ import annotations
 
 import ast
+import concurrent.futures
 import json
+import os
 import subprocess
 import sys
+from itertools import repeat
 from pathlib import Path
 
 import pytest
@@ -143,6 +146,128 @@ def _collect_spec_band(path: Path, band: list[str]) -> subprocess.CompletedProce
         ) from None
 
 
+def _collection_worker_count(spec_count: int) -> int:
+    """Use at most one quarter of the CPUs available to this process."""
+    assert spec_count > 0, "cannot size a worker pool for zero specs"
+    try:
+        available_cpus = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        available_cpus = os.cpu_count() or 1
+    return min(spec_count, max(1, available_cpus // 4))
+
+
+def _validate_one_tracked_spec(path: Path, tracked: set[str]) -> None:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(document, dict), f"{path}: tracked specs use object form"
+    assert set(document) == _TOP_LEVEL_FIELDS, (
+        f"{path}: fields {sorted(document)} != {sorted(_TOP_LEVEL_FIELDS)}"
+    )
+    assert document["schema"] == _SCHEMA, path
+    assert isinstance(document["_comment"], str) and document["_comment"].strip(), path
+    assert isinstance(document["subject"], str) and document["subject"].strip(), path
+    band = document["band"]
+    assert isinstance(band, list) and band, f"{path}: band denominator is 0"
+    assert len(band) == len(set(band)), f"{path}: duplicate band target"
+    for target in band:
+        assert isinstance(target, str) and target, f"{path}: invalid band target"
+        rel = target.split("::", 1)[0]
+        assert rel in tracked and (_REPO / rel).is_file(), (
+            f"{path}: band target is absent or untracked: {target}"
+        )
+    named_references = []
+    mutants = document["mutants"]
+    assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
+    for mutant in mutants:
+        assert isinstance(mutant, dict), f"{path}: mutant is not an object"
+        direction = mutant.get("direction")
+        expected_fields = (
+            _REGRESSION_FIELDS if direction == "regression"
+            else _OVERCORRECTION_FIELDS if direction == "overcorrection"
+            else set()
+        )
+        assert expected_fields, f"{path}: unsupported direction {direction!r}"
+        assert set(mutant) == expected_fields, (
+            f"{path}: mutant fields {sorted(mutant)} != {sorted(expected_fields)}"
+        )
+        for field in ("label", "file", "old", "new"):
+            assert isinstance(mutant[field], str) and mutant[field], (
+                f"{path}: {field} must be a non-empty string"
+            )
+        assert mutant["file"] in tracked, f"{path}: untracked subject {mutant['file']}"
+        if direction == "overcorrection":
+            assert isinstance(mutant["control"], str) and mutant["control"], path
+            assert isinstance(mutant["preserves"], list) and mutant["preserves"], path
+            assert len(mutant["preserves"]) == len(set(mutant["preserves"])), path
+            assert mutant["control"] not in mutant["preserves"], path
+            named = [mutant["control"], *mutant["preserves"]]
+        else:
+            named = [mutant["catcher"]]
+        named_references.extend(named)
+        for nodeid in named:
+            assert isinstance(nodeid, str) and nodeid, f"{path}: invalid nodeid"
+            node_path = nodeid.split("::", 1)[0]
+            assert node_path in tracked and (_REPO / node_path).is_file(), (
+                f"{path}: named test path is absent or untracked: {nodeid}"
+            )
+            base_nodeid = _defined_base_nodeid(nodeid)
+            assert (base_nodeid is not None
+                    and base_nodeid in _defined_nodeids(_REPO / node_path)), (
+                f"{path}: nodeid is not a defined test: {nodeid}"
+            )
+    collected = _collect_spec_band(path, band)
+    assert collected.returncode == 0, (
+        f"{path}: recorded band did not collect cleanly:\n"
+        f"{(collected.stdout + collected.stderr)[-2000:]}"
+    )
+    assert collected.stdout.strip(), f"{path}: recorded band returned no output"
+    collected_nodeids = []
+    for raw_line in collected.stdout.splitlines():
+        nodeid = raw_line.strip()
+        node_path = nodeid.split("::", 1)[0]
+        if "::" in nodeid and node_path in tracked and (_REPO / node_path).is_file():
+            collected_nodeids.append(nodeid)
+    for nodeid in named_references:
+        assert collected_nodeids.count(nodeid) == 1, (
+            f"{path}: named nodeid must identify one exact collected test; "
+            f"{nodeid!r} appeared {collected_nodeids.count(nodeid)} times"
+        )
+
+
+def _tracked_spec_outcome(path: Path, tracked: set[str]) -> tuple[Path, str | None]:
+    """Return a named failure so every dispatched spec can still be counted."""
+    try:
+        _validate_one_tracked_spec(path, tracked)
+    except Exception as exc:
+        return path, f"{type(exc).__name__}: {exc}"
+    return path, None
+
+
+def _validate_tracked_specs_concurrently(specs: list[Path], tracked: set[str]) -> int:
+    """Validate every spec concurrently and fail only after reconciling the set."""
+    assert specs, "cannot validate a zero-spec population"
+    workers = _collection_worker_count(len(specs))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        # Executor.map preserves input order, making the failure verdict stable
+        # even though subprocess completion order is deliberately nondeterministic.
+        outcomes = list(pool.map(_tracked_spec_outcome, specs, repeat(tracked)))
+
+    processed_paths = [path for path, _error in outcomes]
+    processed = len(processed_paths)
+    assert processed > 0 and processed == len(specs), (
+        f"schema reader processed {processed} of {len(specs)} tracked specs"
+    )
+    assert processed_paths == specs, (
+        "schema reader did not preserve the tracked spec population"
+    )
+    failures = [(path, error) for path, error in outcomes if error is not None]
+    assert not failures, (
+        f"processed {processed} of {len(specs)} tracked specs; "
+        f"{len(failures)} failed:\n"
+        + "\n".join(f"{path}: {error}" for path, error in failures)
+    )
+    return processed
+
+
 def test_a_tracked_mutation_spec_exists_at_all():
     specs = _tracked_specs()
     assert specs, "tracked tests/mutants/*.json denominator is 0"
@@ -160,105 +285,58 @@ def test_spec_collection_timeout_is_reported_with_its_path(monkeypatch, tmp_path
         _collect_spec_band(spec_path, ["tests/test_slow.py"])
 
 
-# MEASURED 241.11s ON test5 AT 113 SPECS, AGAINST THE CANONICAL --timeout=240.
-# This test spawns one `pytest --collect-only` SUBPROCESS PER TRACKED BAND, so its
-# runtime grows LINEARLY with the number of mutant specs -- that is, with the very
-# population it exists to protect. main at v3.66.1288 carries 110 specs and had
-# already crossed the budget: bd-precut --gate returned 3 on row 296 with
-# "Failed: Timeout (>240.0s) from pytest-timeout", which blocked EVERY cut in the
-# lane, because precut runs against each candidate tree.
-#
-# RAISING THE BUDGET IS NOT WEAKENING THE GATE. Every assertion and the complete
-# denominator are untouched; only the wall-clock allowance changes. Sampling the
-# specs or trimming the population WOULD weaken it, and the contract forbids that.
-# A pytest-timeout also reports FAILED rather than UNKNOWN, so leaving this in
-# place keeps manufacturing a false defect signal that sends a reader hunting for
-# a broken anchor that does not exist.
-#
-# 900s is ~3.7x the measured time, leaving room for roughly a further tripling of
-# the spec population before this recurs.
+def test_collection_worker_count_scales_with_available_cpus_and_population(monkeypatch):
+    monkeypatch.setattr(
+        os, "sched_getaffinity", lambda _pid: set(range(48)), raising=False
+    )
+    assert _collection_worker_count(139) == 12
+    assert _collection_worker_count(5) == 5
+
+
+def test_parallel_gate_fails_closed_and_names_a_malformed_spec(tmp_path):
+    specs = _tracked_specs()
+    assert specs, "negative control needs one valid tracked spec"
+    malformed = tmp_path / "malformed-mutation-spec.json"
+    malformed.write_text("{not valid JSON", encoding="utf-8")
+
+    population = [specs[0], malformed]
+    with pytest.raises(AssertionError) as failure:
+        _validate_tracked_specs_concurrently(population, set(_git_paths()))
+
+    message = str(failure.value)
+    assert "processed 2 of 2 tracked specs" in message
+    assert str(malformed) in message
+    assert "JSONDecodeError" in message
+
+
+def test_parallel_gate_rejects_an_empty_collection(monkeypatch):
+    path = _tracked_specs()[0]
+    tracked = set(_git_paths())
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+    with pytest.raises(AssertionError) as failure:
+        _validate_tracked_specs_concurrently([path], tracked)
+    message = str(failure.value)
+    assert "processed 1 of 1 tracked specs" in message
+    assert str(path) in message
+    assert "recorded band returned no output" in message
+
+
+# Row 317, 48 CPUs, 139 specs: 270.00s serial; 77.30s with the 12-worker
+# quarter-CPU pool. The assertions and denominator remain per-spec and ordered
+# outcomes are reconciled before failures surface.
 @pytest.mark.timeout(900)
 def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
     specs = _tracked_specs()
     assert specs, "cannot validate a zero-spec population"
     tracked = set(_git_paths())
-    checked = 0
-    for path in specs:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        assert isinstance(document, dict), f"{path}: tracked specs use object form"
-        assert set(document) == _TOP_LEVEL_FIELDS, (
-            f"{path}: fields {sorted(document)} != {sorted(_TOP_LEVEL_FIELDS)}"
-        )
-        assert document["schema"] == _SCHEMA, path
-        assert isinstance(document["_comment"], str) and document["_comment"].strip(), path
-        assert isinstance(document["subject"], str) and document["subject"].strip(), path
-        band = document["band"]
-        assert isinstance(band, list) and band, f"{path}: band denominator is 0"
-        assert len(band) == len(set(band)), f"{path}: duplicate band target"
-        for target in band:
-            assert isinstance(target, str) and target, f"{path}: invalid band target"
-            rel = target.split("::", 1)[0]
-            assert rel in tracked and (_REPO / rel).is_file(), (
-                f"{path}: band target is absent or untracked: {target}"
-            )
-        named_references = []
-        mutants = document["mutants"]
-        assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
-        for mutant in mutants:
-            assert isinstance(mutant, dict), f"{path}: mutant is not an object"
-            direction = mutant.get("direction")
-            expected_fields = (
-                _REGRESSION_FIELDS if direction == "regression"
-                else _OVERCORRECTION_FIELDS if direction == "overcorrection"
-                else set()
-            )
-            assert expected_fields, f"{path}: unsupported direction {direction!r}"
-            assert set(mutant) == expected_fields, (
-                f"{path}: mutant fields {sorted(mutant)} != {sorted(expected_fields)}"
-            )
-            for field in ("label", "file", "old", "new"):
-                assert isinstance(mutant[field], str) and mutant[field], (
-                    f"{path}: {field} must be a non-empty string"
-                )
-            assert mutant["file"] in tracked, f"{path}: untracked subject {mutant['file']}"
-            if direction == "overcorrection":
-                assert isinstance(mutant["control"], str) and mutant["control"], path
-                assert isinstance(mutant["preserves"], list) and mutant["preserves"], path
-                assert len(mutant["preserves"]) == len(set(mutant["preserves"])), path
-                assert mutant["control"] not in mutant["preserves"], path
-                named = [mutant["control"], *mutant["preserves"]]
-            else:
-                named = [mutant["catcher"]]
-            named_references.extend(named)
-            for nodeid in named:
-                assert isinstance(nodeid, str) and nodeid, f"{path}: invalid nodeid"
-                node_path = nodeid.split("::", 1)[0]
-                assert node_path in tracked and (_REPO / node_path).is_file(), (
-                    f"{path}: named test path is absent or untracked: {nodeid}"
-                )
-                base_nodeid = _defined_base_nodeid(nodeid)
-                assert (base_nodeid is not None
-                        and base_nodeid in _defined_nodeids(_REPO / node_path)), (
-                    f"{path}: nodeid is not a defined test: {nodeid}"
-                )
-        collected = _collect_spec_band(path, band)
-        assert collected.returncode == 0, (
-            f"{path}: recorded band did not collect cleanly:\n"
-            f"{(collected.stdout + collected.stderr)[-2000:]}"
-        )
-        collected_nodeids = []
-        for raw_line in collected.stdout.splitlines():
-            nodeid = raw_line.strip()
-            node_path = nodeid.split("::", 1)[0]
-            if "::" in nodeid and node_path in tracked and (_REPO / node_path).is_file():
-                collected_nodeids.append(nodeid)
-        for nodeid in named_references:
-            assert collected_nodeids.count(nodeid) == 1, (
-                f"{path}: named nodeid must identify one exact collected test; "
-                f"{nodeid!r} appeared {collected_nodeids.count(nodeid)} times"
-            )
-        checked += 1
-    assert checked == len(specs), f"schema reader checked {checked} of {len(specs)} specs"
+    checked = _validate_tracked_specs_concurrently(specs, tracked)
+    assert checked > 0 and checked == len(specs), (
+        f"schema reader processed {checked} of {len(specs)} tracked specs"
+    )
 
 
 def test_every_tracked_mutant_anchor_occurs_exactly_once_in_its_file():

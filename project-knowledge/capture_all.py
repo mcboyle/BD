@@ -14,6 +14,7 @@ import os
 import sys
 
 from playwright.async_api import async_playwright
+from visual_audit_identity import health_release_version, stamp_manifest
 
 import capture_manifest_contract
 from capture_manifest_contract import (
@@ -409,6 +410,10 @@ async def capture_theme(browser, theme):
 
 
 async def main():
+    # Derive the release identity at capture START, so the check before writing
+    # the manifest compares start against end and a version that moved during
+    # capture cannot be stamped as one coherent release.
+    capture_release_version = health_release_version(BASE, ROOT)
     manifest.clear()
     for theme in THEMES:
         os.makedirs(f"{OUT}/{theme}", exist_ok=True)
@@ -418,6 +423,13 @@ async def main():
             print(f"\n######## CAPTURE — {theme.upper()} ########")
             await capture_theme(browser, theme)
         await browser.close()
+
+    completed_release_version = health_release_version(BASE, ROOT)
+    if completed_release_version != capture_release_version:
+        raise RuntimeError(
+            "UNKNOWN: capture release identity mismatch: "
+            f"start={capture_release_version!r} end={completed_release_version!r}")
+    stamp_manifest(manifest, capture_release_version)
 
     with open(f"{OUT}/manifest.json", "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=1)

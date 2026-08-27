@@ -575,6 +575,10 @@ _DECLARED = {
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
     "tests/test_playwright_engines_single_source.py",
+    # Row 308. Visual-audit identity is a release boundary across the complete
+    # capture population and both offline builders, independent of which
+    # capture or builder source changes in a future cut.
+    "tests/test_row308_visual_audit_identity.py",
     # tree-gates-4
     # Walks every tracked tests/test*.py for assertions that are true for
     # every input, so a new test file changes its denominator (@1098).
@@ -646,13 +650,15 @@ _DECLARED = {
 # declares its repo-wide scope and is executed in exactly one shard.
 # 176 -> 177 at row 312 (2026-08-27). The one new pidfd identity gate is named
 # once in this declaration and once in the jobs-determinism shard.
-# 176 -> 177 at backlog row 311. The new real-process app_config transaction
+# 187 -> 188 at backlog row 311. The new real-process app_config transaction
 # gate is one module-scoped safety boundary pinned into application-safety.
 # 188 -> 189 at row 261. The real-process replication lifecycle gate is one
 # module-scoped PID-signal safety boundary pinned into application-safety.
 # 188 -> 189 at row 295. The bd-claim atomic-publication gate is declared and
 # scheduled alongside the existing registry-transaction gate.
-_EXPECTED_DECLARED_GATE_COUNT = 191
+# 188 -> 189 at row 308 (2026-08-27). This cut adds exactly one repo-wide
+# visual-audit identity gate to the declaration and tree-gates-3 shard.
+_EXPECTED_DECLARED_GATE_COUNT = 192
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

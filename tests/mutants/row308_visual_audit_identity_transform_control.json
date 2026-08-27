@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 308 transform control. This must report one valid ESCAPED mutant: it applies the byte-identical complete-population regression from M3 while the named node imports visual_audit_identity without calling or asserting its validator behavior. An escape proves the primary catch is a behavior assertion rather than parse, collection, import, or transform failure.",
+  "subject": "transform control for complete visual-audit manifest validation",
+  "band": [
+    "tests/test_row308_visual_audit_identity.py::test_transform_control_imports_identity_helper_without_judging_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL validate only one row under an import-only behavior spec",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    identities = []\n    for index, row in enumerate(rows):\n",
+      "new": "    identities = []\n    for index, row in enumerate(rows[:1]):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_transform_control_imports_identity_helper_without_judging_behavior"
+    }
+  ]
+}
