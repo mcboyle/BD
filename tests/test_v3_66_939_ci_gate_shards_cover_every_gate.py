@@ -533,6 +533,10 @@ _DECLARED = {
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
     "tests/test_playwright_engines_single_source.py",
+    # Row 308. Both offline visual-audit builders must reconcile every capture
+    # manifest row to the independently parsed release source. A diff-derived
+    # band cannot protect future captures from stale or unavailable identity.
+    "tests/test_row308_visual_audit_identity.py",
     # tree-gates-4
     # Walks every tracked tests/test*.py for assertions that are true for
     # every input, so a new test file changes its denominator (@1098).
@@ -585,14 +589,12 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 176
 # 176 -> 177 at row 298. This cut classifies one legacy gate, removes its one
 # frozen-baseline exemption, declares it here, and gives it one dedicated CI
 # shard because its real two-pass regen chain is an independent long pole.
-_EXPECTED_DECLARED_GATE_COUNT = 178
 # 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
 # collection-isolation gate and schedules it directly in tree-gates-2.
-_EXPECTED_DECLARED_GATE_COUNT = 180
+_EXPECTED_DECLARED_GATE_COUNT = 181
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

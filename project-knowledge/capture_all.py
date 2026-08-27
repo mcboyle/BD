@@ -12,6 +12,7 @@ heading/height/errcount). Backend must serve the built dist on :5599.
 """
 import os, json, asyncio
 from playwright.async_api import async_playwright
+from visual_audit_identity import health_release_version, stamp_manifest
 
 BASE = "http://127.0.0.1:5599"
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -213,6 +214,7 @@ async def cockpit_shots(browser, theme):
     await page.close(); await ctx.close()
 
 async def main():
+    capture_release_version = health_release_version(BASE, ROOT)
     for t in ("light", "dark"):
         os.makedirs(f"{OUT}/{t}", exist_ok=True)
     async with async_playwright() as pw:
@@ -237,6 +239,12 @@ async def main():
             await popup_mobile_drawer(browser, theme)
             await cockpit_shots(browser, theme)
         await browser.close()
+    completed_release_version = health_release_version(BASE, ROOT)
+    if completed_release_version != capture_release_version:
+        raise RuntimeError(
+            "UNKNOWN: capture release identity mismatch: "
+            f"start={capture_release_version!r} end={completed_release_version!r}")
+    stamp_manifest(manifest, capture_release_version)
     with open(f"{OUT}/manifest.json", "w") as f:
         json.dump(manifest, f, indent=1)
     # summary

@@ -5,11 +5,13 @@ Each cell = a 380px-wide top-crop thumbnail + a label bar. Output 4 PNGs:
 """
 import os, json
 from PIL import Image, ImageDraw, ImageFont
+from visual_audit_identity import load_validated_manifest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 CAP = os.environ.get("BD_CAPTURE_DIR", os.path.join(ROOT, "reports", "capture"))
 OUT = "/mnt/user-data/outputs"
-man = json.load(open(f"{CAP}/manifest.json"))
+man, capture_release_version = load_validated_manifest(
+    os.path.join(CAP, "manifest.json"), ROOT)
 
 CW, CH = 380, 300          # cell thumbnail w/h (top-crop)
 LBL = 30                   # label bar height
@@ -47,7 +49,7 @@ def sheet(entries, theme, title, fname):
     img = Image.new("RGB", (W, H), t["bg"])
     d = ImageDraw.Draw(img)
     d.text((PAD+6, 20), title, font=FT, fill=t["ink"])
-    d.text((W - 300, 30), f"v3.66.363 · {theme}", font=FS, fill=t["ink3"])
+    d.text((W - 300, 30), f"v{capture_release_version} · {theme}", font=FS, fill=t["ink3"])
     for idx, (route, label, th_file) in enumerate(entries):
         r, c = divmod(idx, COLS)
         x = PAD + c * cellW

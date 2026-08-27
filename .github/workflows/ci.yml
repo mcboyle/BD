@@ -494,6 +494,7 @@ jobs:
               tests/test_v3_66_1239_precut_runs_the_underived_gates.py
               tests/test_history_file_size_is_the_size_on_disk.py
               tests/test_playwright_engines_single_source.py
+              tests/test_row308_visual_audit_identity.py
           - name: tree-gates-4
             suites: >-
               tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py

@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1293 - the visual-audit builders derive their version instead of hardcoding it
+
+- Added shared identity parsing, health reconciliation, manifest stamping, an
+- [capture_all.py](/home/mboyle/bd-codex-wt/row308/project-knowledge/capture_
+- [build_navigator.py](/home/mboyle/bd-codex-wt/row308/project-knowledge/buil
+- Added the 16-test repo-wide gate [test_row308_visual_audit_identity.py](/ho
+- Row gate: `16 passed in 1.26s`.
+- Final focused/source/CI check: `19 passed`.
+- Affected 49-file floor: `1011 passed, 1 skipped, 1 failed`. The sole failur
+- Underived gate population: `20 passed`.
+- Freshness: all checks passed.
+- Settlement command: `0` hits; `rg` exit `1`, correctly meaning no matches.
+- Transform control: deliberate `1 ESCAPED, 0 INVALID`: `CONTROL validate onl
+- `bd-regen-order`, canonical full suite, real Playwright capture, deployment
+- The release trio was untouched.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 181.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1292 - inherited signal disposition is recorded environment identity
 
 -    done = subprocess.run(["bash", "-c", script], capture_output=True,
