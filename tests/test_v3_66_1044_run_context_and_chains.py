@@ -195,6 +195,10 @@ def test_the_run_context_and_the_socket_recorder_both_still_print():
         "name replaced it:\n%s" % out[-1500:])
     assert "run context:" in out, "the run-context line is missing:\n%s" % out[-1500:]
     assert "cores," in out and "load" in out
+    assert "SigIgn=0x" in out and "SigBlk=0x" in out, (
+        "the terminal record omitted the process signal identity:\n%s"
+        % out[-1500:]
+    )
 
 
 @spawns_pytest

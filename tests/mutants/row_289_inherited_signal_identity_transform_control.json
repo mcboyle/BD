@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 289. This applies the exact valid M1 transform to a test that merely imports the recorder and checks an unrelated constant. It must ESCAPE, proving M1's CAUGHT verdict comes from the signal-identity assertion rather than a syntax or import failure.",
+  "subject": "importing the run-context recorder does not assert that signal identity is present",
+  "band": [
+    "tests/test_row_289_inherited_signals_are_environment_identity.py::test_transform_control_only_imports_the_recorder"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 context omits signal identity while an import-only control remains green",
+      "file": "tests/_run_context.py",
+      "old": "    ctx.update(signal_masks())\n    return ctx",
+      "new": "    # MUTANT: omit signal identity from the recorded context.\n    return ctx",
+      "direction": "regression",
+      "catcher": "tests/test_row_289_inherited_signals_are_environment_identity.py::test_transform_control_only_imports_the_recorder"
+    }
+  ]
+}

@@ -64,6 +64,7 @@ WEDGE_HUNT = ROOT / "toolchain" / "bin" / "bd-wedge-hunt"
 BD_RUN = ROOT / "toolchain" / "bin" / "bd-run"
 
 SENTINEL = "install -d -m 700 /tmp/bd-wrapper-probe && echo LAUNCHED=$$\n"
+DEFAULT_SIGNAL_ENV = ("env", "--default-signal=HUP,INT,QUIT,PIPE")
 
 
 def _fake_ssh(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -171,7 +172,8 @@ def _bd_run(tmp_path, args, ignore_signals):
         "raise SystemExit(r.returncode)\n"
         % (bool(ignore_signals), str(BD_RUN), list(args))
     )
-    return subprocess.run([sys.executable, "-c", driver], capture_output=True,
+    return subprocess.run([*DEFAULT_SIGNAL_ENV, sys.executable, "-c", driver],
+                          capture_output=True,
                           text=True, cwd=str(ROOT), timeout=180)
 
 

@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1292 - inherited signal disposition is recorded environment identity
+
+-    done = subprocess.run(["bash", "-c", script], capture_output=True,
+-    done = subprocess.run(["bash", "-s"], input=script, capture_output=True,
+-    return subprocess.run(["bash", "-c", script], capture_output=True,
+-        ["bash", "-c", "trap '' INT HUP; bash -c %s" % __import__("shlex").q
+-        ["bash", "-c", "trap '' %s; exec ./capture.sh --workers=1" % signals
+-        ["bash", "-c", "exec ./capture.sh --workers=1"],
+-    direct = subprocess.run(["bash", "-c", "trap '' INT HUP; %s" % probe],
+-    viat = subprocess.run(["bash", "-c", "trap '' INT HUP; timeout 10 bash -
+-    return subprocess.run([sys.executable, "-c", driver], capture_output=Tru
+- [tests/_run_context.py](/home/mboyle/bd-codex-wt/row289/tests/_run_context.
+- [tests/conftest.py](/home/mboyle/bd-codex-wt/row289/tests/conftest.py:1317)
+- [1209 signal tests](/home/mboyle/bd-codex-wt/row289/tests/test_v3_66_1209_e
+- [1215 wrapper tests](/home/mboyle/bd-codex-wt/row289/tests/test_v3_66_1215_
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 179 -> 180.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1291 - the mutation-spec gate gets a budget it has outgrown
 
 - The tracked mutation-spec gate exceeded the canonical 240s band timeout and

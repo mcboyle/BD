@@ -1,0 +1,63 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 289. Run this battery from a detached scratch tree under an inherited ignored mask: trap '' HUP INT QUIT PIPE; exec venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row_289_inherited_signal_identity.json --work SCRATCH --timeout 240. Baseline must be green under that mask. M1/M2 prove both exact recording and fail-closed unavailable fields; M3 proves the terminal record is visible; M4 exercises capture.sh's real env --default-signal re-exec and must fail specifically at exit 126 when its generated subject is not executable; M5/M6 remove the two clean-lane resets and are caught only because the battery itself retains the ignored parent mask. The separate transform-control spec applies M1 to an import-only test and must ESCAPE.",
+  "subject": "test-lane environment identity records SigIgn and SigBlk while signal-sensitive tests establish their own claimed dispositions",
+  "band": [
+    "tests/test_row_289_inherited_signals_are_environment_identity.py::test_the_run_context_records_this_process_signal_identity",
+    "tests/test_row_289_inherited_signals_are_environment_identity.py::test_signal_mask_collection_is_complete_and_fails_closed",
+    "tests/test_v3_66_1044_run_context_and_chains.py::test_the_run_context_and_the_socket_recorder_both_still_print",
+    "tests/test_capture_vault_is_isolated.py::test_the_readiness_wait_is_bounded_and_says_so_when_it_times_out",
+    "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py::test_a_foreground_child_is_the_control",
+    "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py::test_the_declaration_does_not_cry_wolf_when_nothing_was_ignored"
+  ],
+  "mutants": [
+    {
+      "label": "M1 context silently omits both process signal masks",
+      "file": "tests/_run_context.py",
+      "old": "    ctx.update(signal_masks())\n    return ctx",
+      "new": "    # MUTANT: omit signal identity from the recorded context.\n    return ctx",
+      "direction": "regression",
+      "catcher": "tests/test_row_289_inherited_signals_are_environment_identity.py::test_the_run_context_records_this_process_signal_identity"
+    },
+    {
+      "label": "M2 unavailable procfs fields become clean-looking zero masks",
+      "file": "tests/_run_context.py",
+      "old": "    masks = {key: \"UNKNOWN\" for key in wanted.values()}",
+      "new": "    masks = {key: \"0x0000000000000000\" for key in wanted.values()}",
+      "direction": "regression",
+      "catcher": "tests/test_row_289_inherited_signals_are_environment_identity.py::test_signal_mask_collection_is_complete_and_fails_closed"
+    },
+    {
+      "label": "M3 terminal context hides SigIgn and SigBlk despite persisting them",
+      "file": "tests/conftest.py",
+      "old": "    write(\"run context: %s, %d cores, %s worker(s) via %s, dist=%s, \"\n          \"SigIgn=%s, SigBlk=%s, load %s -> %s\"\n          % (ctx[\"host\"], ctx[\"cores\"], ctx[\"workers\"], ctx[\"workers_from\"],\n             ctx[\"dist\"], ctx.get(\"sigign\", \"UNKNOWN\"),\n             ctx.get(\"sigblk\", \"UNKNOWN\"), ctx.get(\"load_at_start\"),\n             ctx.get(\"load_at_end\")))",
+      "new": "    write(\"run context: %s, %d cores, %s worker(s) via %s, dist=%s, \"\n          \"load %s -> %s\"\n          % (ctx[\"host\"], ctx[\"cores\"], ctx[\"workers\"], ctx[\"workers_from\"],\n             ctx[\"dist\"], ctx.get(\"load_at_start\"), ctx.get(\"load_at_end\")))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1044_run_context_and_chains.py::test_the_run_context_and_the_socket_recorder_both_still_print"
+    },
+    {
+      "label": "M4 generated capture probe is not executable for capture.sh re-exec",
+      "file": "tests/test_capture_vault_is_isolated.py",
+      "old": "    probe.chmod(0o755)\n    assert os.access(probe, os.X_OK), (\n        \"the capture probe is not executable, so its inherited-signal re-exec \"\n        \"would stop at exit 126 instead of exercising the requested subject\"\n    )",
+      "new": "    assert probe.is_file(), \"MUTANT retained a non-executable probe\"",
+      "direction": "regression",
+      "catcher": "tests/test_capture_vault_is_isolated.py::test_the_readiness_wait_is_bounded_and_says_so_when_it_times_out"
+    },
+    {
+      "label": "M5 detached-launch tests inherit pytest's ignored signals instead of constructing their subject",
+      "file": "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py",
+      "old": "_DEFAULT_SIGNAL_ENV = (\"env\", \"--default-signal=HUP,INT,QUIT,PIPE\")",
+      "new": "_DEFAULT_SIGNAL_ENV = ()",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py::test_a_foreground_child_is_the_control"
+    },
+    {
+      "label": "M6 bd-run clean control inherits pytest's ignored signals and cries wolf",
+      "file": "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py",
+      "old": "DEFAULT_SIGNAL_ENV = (\"env\", \"--default-signal=HUP,INT,QUIT,PIPE\")",
+      "new": "DEFAULT_SIGNAL_ENV = ()",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py::test_the_declaration_does_not_cry_wolf_when_nothing_was_ignored"
+    }
+  ]
+}
