@@ -382,6 +382,10 @@ _DECLARED = {
     # not exist.
     "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
     "tests/test_v3_66_1044_run_context_and_chains.py",
+    # Row 289. SigIgn/SigBlk changed six test verdicts without appearing in
+    # the run context. This gate compares both masks with the current process,
+    # so every PR records and exercises that environment-identity boundary.
+    "tests/test_row_289_inherited_signals_are_environment_identity.py",
     # @1207, scope decision 3. The two suites that assert what row 212 changes:
     # 1054 launches through the REAL CLI and proves `reap` kills the whole
     # process group (backlog 88), and 1087 proves a launched job's log exists
@@ -588,7 +592,7 @@ _EXPECTED_DECLARED_GATE_COUNT = 176
 _EXPECTED_DECLARED_GATE_COUNT = 178
 # 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
 # collection-isolation gate and schedules it directly in tree-gates-2.
-_EXPECTED_DECLARED_GATE_COUNT = 179
+_EXPECTED_DECLARED_GATE_COUNT = 180
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

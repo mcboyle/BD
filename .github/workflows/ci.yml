@@ -373,6 +373,7 @@ jobs:
           - name: measurement-tools-core
             suites: >-
               tests/test_v3_66_1044_run_context_and_chains.py
+              tests/test_row_289_inherited_signals_are_environment_identity.py
               tests/test_v3_66_1068_modwatch_measures_per_file.py
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py

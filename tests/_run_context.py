@@ -6,7 +6,8 @@ other suites sharing the box. Every conclusion drawn from a single run that
 session had to be retracted, and one prediction was wrong because of it. A
 failure count with no record of the machine it came from is not a measurement,
 so this attaches the machine to the result -- cores, load at start and end, the
-worker count actually used, and the distribution mode.
+worker count actually used, the distribution mode, and the process's blocked
+and ignored signal masks.
 
 AND WHICH FILE RAN WHERE. Cross-file state leaks are found by replaying one
 worker's real chain, and that chain had to be reconstructed BY HAND from `-v`
@@ -73,9 +74,36 @@ def dist_mode(config):
     return getattr(config.option, "dist", None) or "no"
 
 
+def signal_masks(status_path="/proc/self/status"):
+    """Return this process's ignored and blocked masks, failing closed.
+
+    The kernel exposes both as hexadecimal bit sets. They are environment
+    identity rather than diagnostics: an inherited ignore changed six test
+    verdicts while every previously recorded context field stayed identical.
+    Missing procfs, a missing field, or a malformed value is UNKNOWN for that
+    field, never a clean-looking zero mask.
+    """
+    wanted = {"SigIgn": "sigign", "SigBlk": "sigblk"}
+    masks = {key: "UNKNOWN" for key in wanted.values()}
+    try:
+        lines = pathlib.Path(status_path).read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError):
+        return masks
+    for line in lines:
+        name, separator, value = line.partition(":")
+        key = wanted.get(name)
+        if not separator or key is None:
+            continue
+        try:
+            masks[key] = "0x%016x" % int(value.strip(), 16)
+        except ValueError:
+            masks[key] = "UNKNOWN"
+    return masks
+
+
 def context(config):
     n, source = worker_count(config)
-    return {
+    ctx = {
         "host": socket.gethostname(),
         "platform": platform.platform(),
         "cores": cores(),
@@ -85,6 +113,8 @@ def context(config):
         "load_at_start": loadavg(),
         "started": time.time(),
     }
+    ctx.update(signal_masks())
+    return ctx
 
 
 def advise(ctx):

@@ -1341,9 +1341,11 @@ def _write_run_context(terminalreporter, config):
     write = terminalreporter.write_line
     write("")
     write("run context: %s, %d cores, %s worker(s) via %s, dist=%s, "
-          "load %s -> %s"
+          "SigIgn=%s, SigBlk=%s, load %s -> %s"
           % (ctx["host"], ctx["cores"], ctx["workers"], ctx["workers_from"],
-             ctx["dist"], ctx.get("load_at_start"), ctx.get("load_at_end")))
+             ctx["dist"], ctx.get("sigign", "UNKNOWN"),
+             ctx.get("sigblk", "UNKNOWN"), ctx.get("load_at_start"),
+             ctx.get("load_at_end")))
     for note in _run_context.advise(ctx):
         write("  NOTE: %s" % note)
 

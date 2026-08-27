@@ -57,6 +57,7 @@ _PYTHON = pathlib.Path(sys.executable)
 # SigIgn/SigCgt are 64-bit masks in /proc/PID/status; signal N is bit N-1.
 _SIGINT_BIT = 1 << (2 - 1)
 _SIGQUIT_BIT = 1 << (3 - 1)
+_DEFAULT_SIGNAL_ENV = ("env", "--default-signal=HUP,INT,QUIT,PIPE")
 
 # Reports its own dispositions from the kernel's view, not Python's.
 _PROBE = r"""
@@ -92,7 +93,8 @@ def _launch(shell_body: str, tmp_path, timeout: int = 60) -> tuple[int, int]:
     probe.write_text(_PROBE, encoding="ascii")
     out = tmp_path / "child.out"
     script = shell_body % {"py": str(_PYTHON), "probe": str(probe), "out": str(out)}
-    done = subprocess.run(["bash", "-c", script], capture_output=True,
+    done = subprocess.run([*_DEFAULT_SIGNAL_ENV, "bash", "-c", script],
+                          capture_output=True,
                           text=True, timeout=timeout, env=_clean_env())
     assert done.returncode == 0, done.stdout + done.stderr
     return _masks(out.read_text(encoding="ascii"))
@@ -174,7 +176,8 @@ def _run_generated(script: str, tmp_path, timeout: int = 60) -> tuple[int, int]:
     remote `bash`, which is non-interactive, which is exactly the condition
     that produces the inherited ignore.
     """
-    done = subprocess.run(["bash", "-s"], input=script, capture_output=True,
+    done = subprocess.run([*_DEFAULT_SIGNAL_ENV, "bash", "-s"], input=script,
+                          capture_output=True,
                           text=True, timeout=timeout, cwd=str(tmp_path),
                           env=_clean_env())
     assert done.returncode == 0, done.stdout + done.stderr
@@ -297,7 +300,8 @@ def _clean_env(**extra) -> dict:
 
 def _caller(body: str, tmp_path, timeout: int = 90) -> subprocess.CompletedProcess:
     script = '. "%s"\n%s\n' % (_HEARTBEAT, body)
-    return subprocess.run(["bash", "-c", script], capture_output=True,
+    return subprocess.run([*_DEFAULT_SIGNAL_ENV, "bash", "-c", script],
+                          capture_output=True,
                           text=True, timeout=timeout,
                           env=_clean_env())
 
@@ -352,7 +356,8 @@ def test_a_lane_whose_signals_cannot_be_armed_says_so(tmp_path):
     # `trap ''` in the PARENT makes bash hand the child an inherited ignore,
     # which is exactly how a nohup'd or detached capture is started.
     result = subprocess.run(
-        ["bash", "-c", "trap '' INT HUP; bash -c %s" % __import__("shlex").quote(script)],
+        [*_DEFAULT_SIGNAL_ENV, "bash", "-c",
+         "trap '' INT HUP; bash -c %s" % __import__("shlex").quote(script)],
         capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr
     announced = "CAPTURE-HEARTBEAT-UNARMED" in result.stderr
@@ -380,7 +385,8 @@ def _capture_with_ignored(signals: str, extra_env=None, timeout: int = 90):
     """
     env = _clean_env(**(extra_env or {}))
     return subprocess.run(
-        ["bash", "-c", "trap '' %s; exec ./capture.sh --workers=1" % signals],
+        [*_DEFAULT_SIGNAL_ENV, "bash", "-c",
+         "trap '' %s; exec ./capture.sh --workers=1" % signals],
         capture_output=True, text=True, cwd=str(_REPO), env=env, timeout=timeout)
 
 
@@ -416,7 +422,7 @@ def test_an_ordinary_foreground_capture_does_not_reexec(tmp_path):
     A capture started normally has nothing to repair, and re-execing it would
     be an unexplained extra process in every operator's run."""
     result = subprocess.run(
-        ["bash", "-c", "exec ./capture.sh --workers=1"],
+        [*_DEFAULT_SIGNAL_ENV, "bash", "-c", "exec ./capture.sh --workers=1"],
         capture_output=True, text=True, cwd=str(_REPO), timeout=90,
         env=_clean_env())
     assert "re-exec" not in result.stderr, (
@@ -432,9 +438,11 @@ def test_timeout_erases_the_condition_so_no_test_may_wrap_the_subject_in_it():
     This asserts the erasure is real, so the reason the tests above avoid
     `timeout` stays measured rather than remembered."""
     probe = "awk '/^SigIgn:/ {print $2}' /proc/self/status"
-    direct = subprocess.run(["bash", "-c", "trap '' INT HUP; %s" % probe],
+    direct = subprocess.run([*_DEFAULT_SIGNAL_ENV, "bash", "-c",
+                             "trap '' INT HUP; %s" % probe],
                             capture_output=True, text=True, timeout=30)
-    viat = subprocess.run(["bash", "-c", "trap '' INT HUP; timeout 10 bash -c %s"
+    viat = subprocess.run([*_DEFAULT_SIGNAL_ENV, "bash", "-c",
+                           "trap '' INT HUP; timeout 10 bash -c %s"
                            % __import__("shlex").quote(probe)],
                           capture_output=True, text=True, timeout=30)
     assert int(direct.stdout.strip(), 16) & _STOP_MASK, direct.stdout

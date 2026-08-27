@@ -594,6 +594,15 @@ def _probe_script(tmp_path: Path, call: str, vault: str) -> Path:
         ),
         encoding="utf-8",
     )
+    # capture.sh correctly re-execs itself directly through
+    # `env --default-signal` when pytest inherited ignored stop signals. This
+    # generated script is therefore an executable subject, even though the
+    # first hop deliberately invokes it as `bash probe.sh`.
+    probe.chmod(0o755)
+    assert os.access(probe, os.X_OK), (
+        "the capture probe is not executable, so its inherited-signal re-exec "
+        "would stop at exit 126 instead of exercising the requested subject"
+    )
     lib_src = CAPTURE_SH.parent / "scripts" / "lib"
     lib_dst = tmp_path / "scripts" / "lib"
     lib_dst.mkdir(parents=True, exist_ok=True)
