@@ -35,16 +35,117 @@ Exit contract (bdtools_sec):
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
 import tempfile
 
-# Self-sufficient bootstrap: this must not depend on where it sits relative to
-# the alphabetical import block above, and `sec` resolves the checkout by
-# walking up from this file, so a relocated tree is followed rather than
-# hardcoded (v3.66.855 port off the retired /home/claude sandbox).
-import os as _os_bd, sys as _sys_bd  # noqa: E402
-_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
-import bdtools_sec as sec  # noqa: E402
+# Resolve the checkout without importing any local module first.  The CLI enters
+# its resource boundary before importing bdtools_sec or bulk_downloader, so even
+# Python bytecode caches are created under the owned cache root rather than in
+# the checkout.  Walking up from this file preserves relocated-tree support.
+_SCRIPT_PATH = Path(__file__).resolve()
+_SCRIPT_DIR = _SCRIPT_PATH.parent
+_WORK = os.environ.get("BD_WORK", str(_SCRIPT_PATH.parents[2]))
+sec = None
+
+
+def _load_sec():
+    global sec
+    if sec is None:
+        sys.path.insert(0, str(_SCRIPT_DIR))
+        import bdtools_sec as loaded_sec
+        sec = loaded_sec
+    return sec
+
+
+def _reexec_under_worktree_python() -> None:
+    """Use the checkout interpreter before any application import.
+
+    The old browser-capability probe imported Playwright before isolation.  In
+    addition to consulting the caller's HOME cache, that import could write a
+    bytecode cache in the checkout.  The repository venv is the interpreter the
+    tool wants whenever it exists, so select it by identity without importing
+    Playwright first.
+    """
+    venv_python = os.path.join(_WORK, "venv", "bin", "python")
+    if (os.environ.get("_BD_OPV_REEXEC") != "1"
+            and os.path.exists(venv_python)
+            and os.path.realpath(sys.executable) != os.path.realpath(venv_python)):
+        env = dict(os.environ)
+        env["_BD_OPV_REEXEC"] = "1"
+        os.execve(venv_python,
+                  [venv_python, str(_SCRIPT_PATH)] + sys.argv[1:], env)
+
+
+def _enter_resource_boundary():
+    """Create the one owned root for every mutable verifier resource.
+
+    A dedicated CLI process also contains every module global a check mutates;
+    none can survive the process.  Filesystem stores are separated below so a
+    future check cannot accidentally treat HOME isolation as database, config,
+    cache, temporary-directory, or cwd isolation.
+    """
+    caller_tmp = os.environ.get("TMPDIR")
+    owner = tempfile.TemporaryDirectory(prefix="bd-opv-resources-",
+                                        dir=caller_tmp)
+    root = Path(owner.name).resolve()
+    paths = {
+        "home": root / "home",
+        "tmp": root / "tmp",
+        "cwd": root / "cwd",
+        "config": root / "config",
+        "cache": root / "cache",
+        "data": root / "data",
+        "runtime": root / "runtime",
+        "state": root / "state",
+        "downloads": root / "downloads",
+        "captures": root / "captures",
+    }
+    for path in paths.values():
+        path.mkdir(parents=True, exist_ok=False)
+    (paths["state"] / "logs").mkdir()
+    (paths["cache"] / "matplotlib").mkdir()
+    (paths["cache"] / "pycache").mkdir()
+
+    # Replace every mutable selector, including hostile inherited values.  The
+    # source checkout remains available only through BD_WORK/PYTHONPATH reads.
+    isolated = {
+        "_BD_OPV_RESOURCE_ROOT": str(root),
+        "HOME": str(paths["home"]),
+        "TMPDIR": str(paths["tmp"]),
+        "TEMP": str(paths["tmp"]),
+        "TMP": str(paths["tmp"]),
+        "SQLITE_TMPDIR": str(paths["tmp"]),
+        "XDG_CONFIG_HOME": str(paths["config"]),
+        "XDG_CACHE_HOME": str(paths["cache"]),
+        "XDG_DATA_HOME": str(paths["data"]),
+        "XDG_RUNTIME_DIR": str(paths["runtime"]),
+        "MPLCONFIGDIR": str(paths["cache"] / "matplotlib"),
+        "PYTHONPYCACHEPREFIX": str(paths["cache"] / "pycache"),
+        "BD_HOME": str(paths["state"]),
+        "BD_INSTALL_DIR": str(paths["state"]),
+        "BD_DOWNLOAD_DIR": str(paths["downloads"]),
+        "BD_CAPTURES_ROOT": str(paths["captures"]),
+        "BD_LOG_FILE": str(paths["state"] / "logs" / "bulk_downloader.log"),
+        "BD_ENVFILE": str(paths["config"] / ".env"),
+        "BD_SITES_CONFIG_PATH": str(paths["config"] / "sites_config.json"),
+        "BD_VPN_CONFIG_PATH": str(paths["config"] / "vpn_config.json"),
+        "BD_WIDGETS_CONFIG_PATH": str(paths["config"] / "widgets_config.json"),
+        "BD_DISABLE_KEEPALIVE": "1",
+    }
+    os.environ.update(isolated)
+    sys.pycache_prefix = str(paths["cache"] / "pycache")
+    tempfile.tempdir = None
+    os.chdir(paths["cwd"])
+    return owner, root
+
+
+def _leave_resource_boundary(owner, root: Path) -> None:
+    """Remove only the exact TemporaryDirectory object this process owns."""
+    try:
+        os.chdir(root.parent)
+    finally:
+        owner.cleanup()
 
 G, R, Y, B, DIM, RST = ("\033[32m", "\033[31m", "\033[33m", "\033[34m",
                         "\033[2m", "\033[0m")
@@ -58,31 +159,11 @@ PASS, FAIL, SKIP, GATED = "PASS", "FAIL", "SKIP", "GATED"
 # and in the summary line the two were indistinguishable.
 BROKEN = "BROKEN"
 
-# ensure the BD tree is importable regardless of CWD
-_WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
+# Ensure the BD tree is importable regardless of the now-isolated CWD.
 if os.path.isdir(os.path.join(_WORK, "bulk_downloader")) and _WORK not in sys.path:
     sys.path.insert(0, _WORK)
 
-# Browser checks need a playwright whose expected chromium build is actually installed.
-# The system python3 (this script's default interpreter under a bare shell) may carry a
-# DIFFERENT playwright than the service venv, expecting a browser build that isn't in the
-# cache -> headed checks SKIP. The venv python (what `bd` uses) matches the cache. If we
-# detect the mismatch, re-exec once under the venv python so bd-opv works either way.
 _VENV_PY = os.path.join(_WORK, "venv", "bin", "python")
-if os.environ.get("_BD_OPV_REEXEC") != "1" and os.path.exists(_VENV_PY):
-    _need_reexec = False
-    try:
-        import playwright  # noqa
-        from playwright.sync_api import sync_playwright as _sp
-        with _sp() as _p:
-            _exe = _p.chromium.executable_path
-        if not os.path.exists(_exe):
-            _need_reexec = True
-    except Exception:  # why: operation failed; degrade to the default and continue
-        _need_reexec = True
-    if _need_reexec and os.path.realpath(sys.executable) != os.path.realpath(_VENV_PY):
-        os.environ["_BD_OPV_REEXEC"] = "1"
-        os.execv(_VENV_PY, [_VENV_PY, os.path.abspath(__file__)] + sys.argv[1:])
 
 
 def _client(auth_token=None):
@@ -119,7 +200,8 @@ def chk_base():
     env = dict(os.environ)
     env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
     r = subprocess.run([sys.executable, tool, "--out", out],
-                       capture_output=True, text=True, cwd=root, timeout=60, env=env)
+                       capture_output=True, text=True, cwd=os.getcwd(),
+                       timeout=60, env=env)
     if os.path.exists(out):
         try:
             json.load(open(out))
@@ -879,6 +961,10 @@ def chk_push():
     except Exception as e:
         return SKIP, f"push import issue ({str(e)[:40]})"
     try:
+        # The subscription check must build its own schema.  Depending on a
+        # pre-existing live DB is both a missing precondition and the path by
+        # which this verifier used to edit the operator's subscriptions.
+        P._db.db_init()
         pub = P.vapid_public_key()
         sub = {"endpoint": "https://push.example.test/ep/opv123",
                "keys": {"p256dh": "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSvpezZ8XiJdyq",
@@ -1121,9 +1207,11 @@ def chk_vpnkill():
                  '    oif "lo" accept\n'
                  f'    oif "{TUN}" accept\n'
                  '    counter\n  }\n}\n')
-        with open("/tmp/ks_opv.nft", "w") as f:
+        rules_path = os.path.join(tempfile.mkdtemp(prefix="opv_vpnkill_"),
+                                  "ks_opv.nft")
+        with open(rules_path, "w") as f:
             f.write(rules)
-        if _sh(["nft", "-f", "/tmp/ks_opv.nft"], ns=NS).returncode != 0:
+        if _sh(["nft", "-f", rules_path], ns=NS).returncode != 0:
             return PASS, "state machine holds; nft load failed -> enforcement gated"
         # tunnel down -> blocked
         _sh(["ip", "link", "set", TUN, "down"], ns=NS)
@@ -1295,7 +1383,7 @@ def chk_render():
     env["PYTHONPATH"] = work
     env.pop("_BD_OPV_REEXEC", None)
     try:
-        r = _sp.run([py, rc], cwd=work, env=env, capture_output=True,
+        r = _sp.run([py, rc], cwd=os.getcwd(), env=env, capture_output=True,
                     text=True, timeout=150)
     except Exception as e:
         return SKIP, f"render_check could not run ({str(e)[:40]})"
@@ -1346,6 +1434,7 @@ def selftest():
 
 
 def main(argv=None):
+    _load_sec()
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
     ap = argparse.ArgumentParser()
@@ -1425,5 +1514,14 @@ def main(argv=None):
     return sec.EXIT_OK
 
 
+def _cli() -> int:
+    _reexec_under_worktree_python()
+    owner, root = _enter_resource_boundary()
+    try:
+        return main()
+    finally:
+        _leave_resource_boundary(owner, root)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_cli())

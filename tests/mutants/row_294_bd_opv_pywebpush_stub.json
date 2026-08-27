@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 294 fixes row 282's CI-vacuous OPV-PUSH fixture. The regression leaves the child with a proven ImportError and no pywebpush stub, so push.send_push returns before its subscription SELECT. The behavioral test proves insert and delete each fired exactly once before rejecting the missing dispatch read. Run from a detached scratch repository with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row_294_bd_opv_pywebpush_stub.json --work DETACHED_SCRATCH. The companion transform control applies the identical valid transform to the import-only test and must ESCAPE.",
+  "subject": "Row 294 -- OPV-PUSH executes its dispatch read when optional pywebpush is absent",
+  "band": [
+    "tests/test_row_282_bd_opv_isolates_every_store.py::test_push_subscription_and_vapid_stores_are_inside_the_same_boundary"
+  ],
+  "mutants": [
+    {
+      "label": "M1 sitecustomize leaves pywebpush absent instead of publishing the child-only stub",
+      "file": "tests/test_row_282_bd_opv_isolates_every_store.py",
+      "old": "        sys.modules[\"pywebpush\"] = pywebpush_stub",
+      "new": "        # row 294 mutant: leave pywebpush absent after the import probe",
+      "direction": "regression",
+      "catcher": "tests/test_row_282_bd_opv_isolates_every_store.py::test_push_subscription_and_vapid_stores_are_inside_the_same_boundary"
+    }
+  ]
+}
