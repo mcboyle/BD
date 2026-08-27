@@ -476,7 +476,14 @@ def test_stop_start_waits_for_old_profile_and_rejects_stale_worker_writes(
     })()
     runner._manual_download_session = None
     runner._manual_login_handle = None
-    monkeypatch.setattr(runner_mod, "_VPN_RUNTIME_AVAILABLE", False)
+    # This test owns the worker lifecycle, not VPN admission.  Keep the
+    # required runtime available and provide its explicit no-hold result;
+    # making the measurement module unavailable now correctly refuses worker
+    # startup and would never reach the profile-generation seam under test.
+    monkeypatch.setattr(runner_mod, "_VPN_RUNTIME_AVAILABLE", True)
+    monkeypatch.setattr(
+        runner_mod.vpn_runtime, "maybe_wait_for_vpn",
+        lambda _site_id, timeout: True)
 
     first_process_entered = threading.Event()
     release_first_process = threading.Event()

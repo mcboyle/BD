@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 296. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row296_vpn_runner_gate_holds.json --work DETACHED_SCRATCH. The complete four-state caller denominator covers no VPN configured, measured down, raised measurement, and unavailable module. The separate transform-control spec applies the byte-identical M1 regression to an import-only node and must ESCAPE.",
+  "subject": "the runner admits only an explicit VPN-ready result and refuses or rechecks every unmeasurable state",
+  "band": [
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[no_vpn_configured]",
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[tunnel_measured_down]",
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[measurement_raised]",
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[runtime_module_absent]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 grant VPN permission when the measurement raises",
+      "file": "bulk_downloader/runner.py",
+      "old": "                except Exception as e:\n                    sys.stderr.write(f\"[runner] vpn check raised: {e}\\n\")\n                    vpn_ready = False",
+      "new": "                except Exception as e:\n                    sys.stderr.write(f\"[runner] vpn check raised: {e}\\n\")\n                    vpn_ready = True",
+      "direction": "regression",
+      "catcher": "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[measurement_raised]"
+    },
+    {
+      "label": "M2 restore the missing-runtime bypass",
+      "file": "bulk_downloader/runner.py",
+      "old": "            if not _VPN_RUNTIME_AVAILABLE:\n                # The soft import cannot tell us whether this site requires a\n                # tunnel.  Refuse the worker before browser launch instead of\n                # treating an unavailable admission instrument as permission.\n                raise RuntimeError(\n                    \"vpn runtime unavailable; refusing worker startup\")",
+      "new": "            if False and not _VPN_RUNTIME_AVAILABLE:\n                # The soft import cannot tell us whether this site requires a\n                # tunnel.  Refuse the worker before browser launch instead of\n                # treating an unavailable admission instrument as permission.\n                raise RuntimeError(\n                    \"vpn runtime unavailable; refusing worker startup\")",
+      "direction": "regression",
+      "catcher": "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[runtime_module_absent]"
+    },
+    {
+      "label": "M3 wait once but then fall through instead of rechecking",
+      "file": "bulk_downloader/runner.py",
+      "old": "                if not vpn_ready:\n                    # Down and unavailable are both holds.  Only an explicit\n                    # True (including the no-VPN-configured fast path) admits.\n                    self._stop.wait(30)\n                    continue",
+      "new": "                if not vpn_ready:\n                    # Mutant waits but then grants this iteration permission.\n                    self._stop.wait(30)",
+      "direction": "regression",
+      "catcher": "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[tunnel_measured_down]"
+    },
+    {
+      "label": "M4 over-hold a site whose VPN runtime explicitly admits it",
+      "file": "bulk_downloader/runner.py",
+      "old": "                    vpn_ready = bool(vpn_runtime.maybe_wait_for_vpn(\n                        self.site_id, timeout=30.0))",
+      "new": "                    vpn_ready = bool(vpn_runtime.maybe_wait_for_vpn(\n                        self.site_id, timeout=30.0)) and False",
+      "direction": "overcorrection",
+      "control": "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[no_vpn_configured]",
+      "preserves": [
+        "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[tunnel_measured_down]",
+        "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[measurement_raised]",
+        "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py::test_worker_vpn_gate_has_four_distinct_outcomes[runtime_module_absent]"
+      ]
+    }
+  ]
+}

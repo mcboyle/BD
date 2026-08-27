@@ -559,6 +559,10 @@ _DECLARED = {
     # failure seam, and drives the real navigator refusal. Its visual-census
     # subject remains tree-wide regardless of which route or builder changes.
     "tests/test_row_309_capture_manifest_contract.py",
+    # Row 296 drives the runner's real pre-claim VPN admission seam. A raised
+    # measurement and an unavailable runtime must never reach the download,
+    # while the no-VPN-configured fast path must still proceed without waiting.
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
@@ -637,6 +641,9 @@ _DECLARED = {
 # 176 -> 177 at backlog row 311. The new real-process app_config transaction
 # gate is one module-scoped safety boundary pinned into application-safety.
 _EXPECTED_DECLARED_GATE_COUNT = 188
+_EXPECTED_DECLARED_GATE_COUNT = 184
+_EXPECTED_DECLARED_GATE_COUNT = 179
+_EXPECTED_DECLARED_GATE_COUNT = 189
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

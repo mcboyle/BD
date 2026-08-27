@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3921,
+  "edge_count": 3926,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3471,6 +3471,13 @@
       "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_kill_switch.py",
       "bulk_downloader/vpn_leak_tests.py"
+    ],
+    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/netns_isolation.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/smart_wakeup.py"
     ],
     "tests/test_row_selectors_screen_inline_hidden_decoys.py": [
       "bulk_downloader/template_extractor.py"

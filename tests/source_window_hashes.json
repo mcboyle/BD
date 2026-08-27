@@ -67,7 +67,7 @@
     {
       "bytes": 5014,
       "key": "tests/test_v3_43_24_reliability.py::test_worker_loop_stamps_heartbeat::src[wl_start:wl_start + 5000]::1",
-      "sha256": "468856d6e76b179a07a3543ae3d792adcafac8f5b51086152d655b0e560dd9fc"
+      "sha256": "dfd224c3bfa0d57839af8d2c7b7b2a59cdbd93fda03f749f017eb60cb67608c4"
     },
     {
       "bytes": 1502,

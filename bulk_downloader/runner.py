@@ -83,8 +83,9 @@ from .db import (
     queue_reorder, queue_set_priority,
 )
 
-# v3.43.60: VPN runtime integration. Soft import — runner.py still works if
-# the VPN modules failed to load (degraded mode: no per-site tunneling).
+# v3.43.60: VPN runtime integration. Keep runner.py importable for diagnostics
+# if the VPN modules fail to load, but workers refuse startup below because an
+# unavailable admission module cannot prove that a site has no VPN configured.
 try:
     from . import vpn_runtime
     _VPN_RUNTIME_AVAILABLE = True
@@ -2665,6 +2666,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # nothing at all is created: the prior path, unchanged.
         _ns_stack = contextlib.ExitStack()
         try:
+            if not _VPN_RUNTIME_AVAILABLE:
+                # The soft import cannot tell us whether this site requires a
+                # tunnel.  Refuse the worker before browser launch instead of
+                # treating an unavailable admission instrument as permission.
+                raise RuntimeError(
+                    "vpn runtime unavailable; refusing worker startup")
             try:
                 netns = _ns_stack.enter_context(netns_isolation.capture_netns(
                     self.config, "browser", f"{self.site_id}/{worker_idx}"))
@@ -2700,14 +2707,17 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # is killed, wait for it to clear (or skip this iteration
                 # and re-check in 30s). Cheap when no VPN is configured —
                 # vpn_runtime.maybe_wait_for_vpn returns True immediately.
-                if _VPN_RUNTIME_AVAILABLE:
-                    try:
-                        if not vpn_runtime.maybe_wait_for_vpn(self.site_id, timeout=30.0):
-                            # Still killed; skip iteration, recheck next loop.
-                            self._stop.wait(30)
-                            continue
-                    except Exception as e:
-                        sys.stderr.write(f"[runner] vpn check raised: {e}\n")
+                try:
+                    vpn_ready = bool(vpn_runtime.maybe_wait_for_vpn(
+                        self.site_id, timeout=30.0))
+                except Exception as e:
+                    sys.stderr.write(f"[runner] vpn check raised: {e}\n")
+                    vpn_ready = False
+                if not vpn_ready:
+                    # Down and unavailable are both holds.  Only an explicit
+                    # True (including the no-VPN-configured fast path) admits.
+                    self._stop.wait(30)
+                    continue
                 # v3.43.80 Phase 160: maintenance window gate. If any
                 # active window pauses 'workers', park here and recheck
                 # in 60s. The window detector module is the source of
