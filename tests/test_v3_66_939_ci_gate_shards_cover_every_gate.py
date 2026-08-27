@@ -242,6 +242,10 @@ _DECLARED = {
     # sibling fleet census. Its failure seam needs a real probe environment,
     # so a source-only check cannot substitute for executing this module.
     "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py",
+    # Row 282. bd-opv executes application writers, so a verifier run can edit
+    # the operator's config, database, subscriptions, and cwd-relative stores
+    # unless its process boundary is exercised on every pull request.
+    "tests/test_row_282_bd_opv_isolates_every_store.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
@@ -568,6 +572,7 @@ _DECLARED = {
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
 _EXPECTED_DECLARED_GATE_COUNT = 176
+_EXPECTED_DECLARED_GATE_COUNT = 177
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

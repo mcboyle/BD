@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1288 - bd-opv isolates every store its own checks mutate
+
+- Added [the regression mutant](/home/mboyle/bd-codex-wt/row294/tests/mutants
+- Did not change `push.py`, requirements, or the release trio.
+- Focused test: `1 passed`
+- Complete row-282 file: `4 passed`
+- Affected 11-file floor: `86 passed`
+- Mutation-spec gates: `25 passed`
+- Exact formerly-red CI shard: `1076 passed, 13 skipped`
+- Optional-absence audit: `322 passed, 2 skipped`
+- Transform control: deliberate ESCAPE named `CONTROL pywebpush-stub transfor
+- Added [the regression mutant](/home/mboyle/bd-codex-wt/row294/tests/mutants
+- Did not change `push.py`, requirements, or the release trio.
+- Focused test: `1 passed`
+- Complete row-282 file: `4 passed`
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 174 -> 177.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1287 - row 280 closes MOOT: v3.66.1268 already fixed all five sites
 
 - F43: `assert 0 == 2`; output included `applied: 1`, proving the operator-ed
