@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1295 - the split browser half stops failing on an unbuilt SPA
+
+- The split browser half returned 8 failed / 6 passed identically in every
+- Cause: the e2e tests assert on an SPA shell, but frontend/dist is a gitigno
+- Neither browser file is in any CI shard, so both could only run where they
+- The seven e2e tests now skip with a reason naming the missing artifact
+- The extension test was NOT skipped: its subject is the lookup API and it on
+- Verified empirically that a 503 still carries Set-Cookie
+- Browser half goes from 8 failed / 6 passed in 57s to 7 passed / 7 skipped i
+
 ## v3.66.1294 - Pillow is declared so the builder gates run in CI
 
 - Pillow is imported at module scope by build_navigator.py and build_montage.

@@ -377,6 +377,7 @@ class TestExtensionLiveBadge(unittest.TestCase):
         """Add a blocklist entry server-side, then verify the extension
         sees `blocked=True` for a matching URL."""
         self._require_sw()
+        import urllib.error
         import urllib.request
         # v3.63.5: visit `/` first to mint the bd_session cookie.
         # `/api/csrf` returns `{"ok": False, "error": "no session — reload
@@ -387,7 +388,19 @@ class TestExtensionLiveBadge(unittest.TestCase):
         # the bug never surfaced.
         cookie_jar = urllib.request.HTTPCookieProcessor()
         opener = urllib.request.build_opener(cookie_jar)
-        opener.open(f"{self.harness.base_url}/", timeout=3).read()
+        # PRIME THE SESSION COOKIE, DO NOT ASSERT THE SPA. This GET exists only
+        # so /api/csrf can read a session cookie; the body is discarded. Without
+        # a built frontend/dist the SPA route answers 503, which urllib raises --
+        # and this test then failed for a reason that has nothing to do with its
+        # subject (the extension lookup API). A 503 still carries Set-Cookie, so
+        # the session is established either way. Anything OTHER than a 503 is
+        # still a real transport failure and is left to propagate.
+        try:
+            opener.open(f"{self.harness.base_url}/", timeout=3).read()
+        except urllib.error.HTTPError as _e:
+            if _e.code != 503:
+                raise
+            _e.read()
         # Now /api/csrf can read the session cookie and return a token
         with opener.open(
                 f"{self.harness.base_url}/api/csrf", timeout=3) as r:
