@@ -18,10 +18,11 @@ the one primitive that removes the reason for all of them.
     bd-job list                         # all jobs + state
     bd-job reap                         # remove finished job dirs (state kept in .last)
 
-Mechanism: each job gets $BD_JOB_DIR/<name>/ with cmd, pid (the setsid leader =
-process-group id), log, and rc (written by the wrapper on exit). Because the child
-is its own session leader, it is NOT in bash_tool's process group and is not reaped
-when the call returns. `kill` targets the whole group so children die too.
+Mechanism: an O_EXCL claim gives exactly one starter the name. Each job gets
+$BD_JOB_DIR/<name>/ with cmd, log, rc, and an atomic identity receipt binding the
+supervisor's pid/pgid/session to its kernel boot and start ticks. Status opens and
+verifies a pidfd; kill signals that non-reusable handle, and the verified session
+leader relays to its own group so children die without a numeric-PID reuse window.
 
 State root: $BD_JOB_DIR or <system tempdir>/.bd_jobs (persists within a session;
 a tempdir resets with the host, which is correct -- a job cannot outlive its
@@ -30,10 +31,13 @@ session).
 Exit: 0 ok | 2 the tool itself broke | 3 policy (e.g. wait timed out, job failed).
 """
 import argparse
-import errno
+import hashlib
+import json
 import os
+import select
 import shlex
 import signal
+import secrets
 import subprocess
 import sys
 import time
@@ -42,6 +46,17 @@ G, R, Y, C, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m"
 
 import tempfile
 ROOT = os.environ.get("BD_JOB_DIR", os.path.join(tempfile.gettempdir(), ".bd_jobs"))
+
+_IDENTITY_SCHEMA = 1
+_IDENTITY_BASENAME = "identity.json"
+_CLAIM_PREFIX = ".claim-"
+_START_READY_TIMEOUT_S = 5.0
+_TERM_GRACE_S = 5.0
+_SUPERVISOR_KILL_SIGNAL = signal.SIGUSR1
+
+
+class IdentityError(RuntimeError):
+    """The saved job identity cannot safely authorize a process operation."""
 
 
 def jdir(name):
@@ -56,21 +71,173 @@ def _read(p, default=""):
         return default
 
 
-def _pgid(name):
-    txt = _read(os.path.join(jdir(name), "pid")).strip()
-    return int(txt) if txt.isdigit() else None
-
-
-def _alive(pgid):
-    """Is any process in this group still alive? Signal 0 = probe."""
-    if pgid is None:
-        return False
+def _write_atomic(path, text):
+    """Publish one complete state value or leave the previous value intact."""
+    tmp = "%s.tmp.%d.%s" % (path, os.getpid(), secrets.token_hex(8))
+    fd = -1
     try:
-        os.killpg(pgid, 0)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        payload = text.encode("utf-8")
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while publishing %s" % path)
+            view = view[written:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(tmp, path)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def _claim_path(name):
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    return os.path.join(ROOT, _CLAIM_PREFIX + digest)
+
+
+def _read_claim_path(path):
+    token = _read(path).strip()
+    return token if token else None
+
+
+def _acquire_claim(name, token):
+    """Atomically acquire NAME; a pre-existing claim is never overwritten."""
+    os.makedirs(ROOT, exist_ok=True)
+    path = _claim_path(name)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return None
+    try:
+        os.write(fd, (token + "\n").encode("ascii"))
+        os.fsync(fd)
+    except BaseException:
+        os.close(fd)
+        try:
+            if _read_claim_path(path) == token:
+                os.unlink(path)
+        finally:
+            raise
+    else:
+        os.close(fd)
+    return path
+
+
+def _release_claim_path(path, token):
+    current = _read_claim_path(path)
+    if current is None:
+        return
+    if current != token:
+        raise IdentityError("claim token changed before release")
+    os.unlink(path)
+
+
+def _proc_receipt(pid, token):
+    try:
+        raw = _read("/proc/%d/stat" % pid, default=None)
+        if raw is None:
+            raise ProcessLookupError(pid)
+        head, tail_text = raw.rsplit(") ", 1)
+        tail = tail_text.split()
+        boot_id = _read("/proc/sys/kernel/random/boot_id", default=None)
+        if boot_id is None or not boot_id.strip():
+            raise IdentityError("kernel boot identity is unavailable")
+        receipt = {
+            "schema": _IDENTITY_SCHEMA,
+            "token": token,
+            "boot_id": boot_id.strip(),
+            "pid": int(head.split(" (", 1)[0]),
+            "pgid": int(tail[2]),
+            "sid": int(tail[3]),
+            "start_ticks": int(tail[19]),
+        }
+    except (IndexError, ValueError) as exc:
+        raise IdentityError("process identity is malformed: %s" % exc) from exc
+    if receipt["pid"] != pid:
+        raise IdentityError("procfs returned the wrong process identity")
+    return receipt
+
+
+def _identity_document(name):
+    path = os.path.join(jdir(name), _IDENTITY_BASENAME)
+    raw = _read(path, default=None)
+    if raw is None:
+        raise IdentityError("identity receipt is unavailable")
+    try:
+        receipt = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise IdentityError("identity receipt is malformed") from exc
+    required = {
+        "schema", "token", "boot_id", "pid", "pgid", "sid", "start_ticks",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != required:
+        raise IdentityError("identity receipt has an unknown schema")
+    if receipt["schema"] != _IDENTITY_SCHEMA:
+        raise IdentityError("identity receipt version is unsupported")
+    if not isinstance(receipt["token"], str) or not receipt["token"]:
+        raise IdentityError("identity receipt has no claim token")
+    if not isinstance(receipt["boot_id"], str) or not receipt["boot_id"]:
+        raise IdentityError("identity receipt has no boot identity")
+    for field in ("pid", "pgid", "sid", "start_ticks"):
+        if isinstance(receipt[field], bool) or not isinstance(receipt[field], int):
+            raise IdentityError("identity receipt field %s is not an integer" % field)
+        if receipt[field] <= 0:
+            raise IdentityError("identity receipt field %s is not positive" % field)
+    if not (receipt["pid"] == receipt["pgid"] == receipt["sid"]):
+        raise IdentityError("job supervisor does not lead its session and group")
+    claim = _read_claim_path(_claim_path(name))
+    if claim is None:
+        raise IdentityError("exclusive name claim is unavailable")
+    if claim != receipt["token"]:
+        raise IdentityError("exclusive name claim does not match identity")
+    return receipt
+
+
+def _open_identity(name):
+    """Return one pidfd spanning receipt verification through later signaling."""
+    receipt = _identity_document(name)
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        raise IdentityError("pidfd identity measurement is unavailable")
+    try:
+        pidfd = os.pidfd_open(receipt["pid"], 0)
+    except ProcessLookupError as exc:
+        raise IdentityError("recorded identity no longer exists") from exc
+    except OSError as exc:
+        raise IdentityError("pidfd identity measurement is unavailable: %s" % exc) from exc
+    try:
+        current = _proc_receipt(receipt["pid"], receipt["token"])
+        compared = ("boot_id", "pid", "pgid", "sid", "start_ticks")
+        if any(current[field] != receipt[field] for field in compared):
+            raise IdentityError("recorded process identity does not match current owner")
+    except BaseException:
+        os.close(pidfd)
+        raise
+    return pidfd, receipt
+
+
+def _pgid(name):
+    try:
+        receipt = _identity_document(name)
+    except IdentityError:
+        return None
+    return receipt["pgid"]
+
+
+def _alive(name):
+    """True only when a reusable PID is bound to the saved kernel identity."""
+    try:
+        pidfd, _receipt = _open_identity(name)
+        os.close(pidfd)
         return True
-    except OSError as e:
-        # ESRCH = gone; EPERM = alive but not ours (still counts as alive)
-        return e.errno == errno.EPERM
+    except IdentityError:
+        return False
 
 
 def _rc(name):
@@ -86,8 +253,8 @@ def _state(name):
     rc = _rc(name)
     if rc is not None:
         return "done" if rc == 0 else "failed"
-    # no rc file yet: alive => running; not alive => crashed before writing rc
-    return "running" if _alive(_pgid(name)) else "unknown"
+    # no rc file yet: only a verified pidfd identity is measured RUNNING.
+    return "running" if _alive(name) else "unknown"
 
 
 def _elapsed(name):
@@ -110,60 +277,238 @@ def _lastline(name):
     return lines[-1] if lines else ""
 
 
+def _relay_group_signal(signum):
+    """Relay from the identity-bound supervisor to its own unreusable group."""
+    previous = signal.getsignal(signum)
+    signal.signal(signum, signal.SIG_IGN)
+    try:
+        os.killpg(os.getpgrp(), signum)
+    finally:
+        signal.signal(signum, previous)
+
+
+def _supervisor_main(job_dir, claim_path, token, ready_fd, release_fd, cmd):
+    """Own the session, publish its identity, and relay exact-handle signals."""
+    ready_open = True
+    release_open = True
+    child = None
+    term_requested = False
+    outcome_written = False
+
+    def on_term(signum, _frame):
+        nonlocal term_requested
+        term_requested = True
+        _relay_group_signal(signum)
+
+    def on_forced_kill(_signum, _frame):
+        # This numeric group is safe here: the caller reached this handler via
+        # the supervisor's verified pidfd, and a live session leader's own PID
+        # cannot be reused out from under its group operation.
+        os.killpg(os.getpgrp(), signal.SIGKILL)
+
+    signal.signal(signal.SIGTERM, on_term)
+    signal.signal(_SUPERVISOR_KILL_SIGNAL, on_forced_kill)
+    identity_path = os.path.join(job_dir, _IDENTITY_BASENAME)
+    pid_path = os.path.join(job_dir, "pid")
+    start_path = os.path.join(job_dir, "start")
+    rc_path = os.path.join(job_dir, "rc")
+    end_path = os.path.join(job_dir, "end")
+    log_path = os.path.join(job_dir, "log")
+    try:
+        receipt = _proc_receipt(os.getpid(), token)
+        if not (receipt["pid"] == receipt["pgid"] == receipt["sid"]):
+            raise IdentityError("supervisor did not acquire a private session")
+        _write_atomic(pid_path, "%d\n" % receipt["pid"])
+        _write_atomic(start_path, "%.9f\n" % time.time())
+        _write_atomic(identity_path, json.dumps(receipt, sort_keys=True) + "\n")
+        os.write(ready_fd, b"OK\n")
+        os.close(ready_fd)
+        ready_open = False
+
+        # The user command cannot exist until the starter has read and verified
+        # the complete identity receipt. EOF is an aborted starter, never GO.
+        released = os.read(release_fd, 1)
+        os.close(release_fd)
+        release_open = False
+        if released != b"G" or term_requested:
+            rc = 125 if released != b"G" else 143
+        else:
+            with open(log_path, "ab", buffering=0) as log_stream:
+                child = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_stream,
+                    stderr=subprocess.STDOUT,
+                    close_fds=True,
+                )
+                if term_requested:
+                    _relay_group_signal(signal.SIGTERM)
+                rc = child.wait()
+        _write_atomic(rc_path, "%d\n" % rc)
+        _write_atomic(end_path, "%.9f\n" % time.time())
+        outcome_written = True
+        return rc
+    except BaseException as exc:
+        if ready_open:
+            try:
+                os.write(ready_fd, ("ERROR %s\n" % type(exc).__name__).encode("ascii"))
+            except OSError:
+                pass
+        try:
+            with open(log_path, "ab", buffering=0) as log_stream:
+                log_stream.write(("bd-job supervisor error: %s: %s\n"
+                                  % (type(exc).__name__, exc)).encode("utf-8"))
+        except OSError:
+            pass
+        if not outcome_written:
+            try:
+                _write_atomic(rc_path, "125\n")
+                _write_atomic(end_path, "%.9f\n" % time.time())
+            except OSError:
+                pass
+        return 125
+    finally:
+        if ready_open:
+            try:
+                os.close(ready_fd)
+            except OSError:
+                pass
+        if release_open:
+            try:
+                os.close(release_fd)
+            except OSError:
+                pass
+        try:
+            _release_claim_path(claim_path, token)
+        except (OSError, IdentityError):
+            pass
+
+
+def _stop_new_supervisor(proc):
+    """Settle an exact waitable child whose launch transaction did not commit."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=1)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    proc.send_signal(_SUPERVISOR_KILL_SIGNAL)
+    try:
+        proc.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=1)
+
+
 def cmd_start(a):
     if not a.cmd:
         print("%sbd-job start: no command (use -- <cmd...>)%s" % (R, RST))
         return 2
     name = a.name or ("job_%d" % int(time.time()))
     d = jdir(name)
-    if os.path.isdir(d) and _state(name) == "running":
-        print("%sjob '%s' already running (pgid %s)%s" % (R, name, _pgid(name), RST))
+    token = secrets.token_hex(24)
+    claim_path = _acquire_claim(name, token)
+    if claim_path is None:
+        state = _state(name)
+        print("%sjob '%s' name is already claimed (state %s, pgid %s)%s"
+              % (R, name, state, _pgid(name), RST))
         return 3
-    os.makedirs(d, exist_ok=True)
-    # clear any prior run's terminal markers
-    for f in ("rc", "end"):
+    proc = None
+    ready_r = ready_w = release_r = release_w = -1
+    claim_transferred = False
+    try:
+        if os.path.isdir(d):
+            prior = _state(name)
+            if prior not in ("done", "failed"):
+                print("%sUNKNOWN: job '%s' has prior state %s; refusing to "
+                      "overwrite its identity%s" % (R, name, prior, RST))
+                return 3
+        os.makedirs(d, exist_ok=True)
+        # Every prior terminal/identity value belongs to a finished generation.
+        for f in ("rc", "end", "pid", "start", _IDENTITY_BASENAME):
+            try:
+                os.remove(os.path.join(d, f))
+            except FileNotFoundError:
+                pass
+        cmdline = " ".join(shlex.quote(x) for x in a.cmd)
+        _write_atomic(os.path.join(d, "cmd"), cmdline + "\n")
+
+        ready_r, ready_w = os.pipe()
+        release_r, release_w = os.pipe()
+        supervisor_argv = [
+            sys.executable,
+            os.path.realpath(__file__),
+            "_supervise",
+            d,
+            claim_path,
+            token,
+            str(ready_w),
+            str(release_r),
+            "--",
+        ] + list(a.cmd)
+        proc = subprocess.Popen(
+            supervisor_argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            pass_fds=(ready_w, release_r),
+            start_new_session=True,
+        )
+        claim_transferred = True
+        os.close(ready_w)
+        ready_w = -1
+        os.close(release_r)
+        release_r = -1
+        readable, _, _ = select.select(
+            [ready_r], [], [], _START_READY_TIMEOUT_S
+        )
+        if not readable:
+            raise IdentityError("supervisor identity publication timed out")
+        ready = os.read(ready_r, 256)
+        os.close(ready_r)
+        ready_r = -1
+        if ready != b"OK\n":
+            raise IdentityError(
+                "supervisor identity publication failed: %s"
+                % ready.decode("ascii", "replace").strip()
+            )
+        pidfd, receipt = _open_identity(name)
         try:
-            os.remove(os.path.join(d, f))
-        except OSError:
-            pass
-    cmdline = " ".join(shlex.quote(x) for x in a.cmd)
-    with open(os.path.join(d, "cmd"), "w") as f:
-        f.write(cmdline + "\n")
-    log = os.path.join(d, "log")
-    rcp = os.path.join(d, "rc")
-    endp = os.path.join(d, "end")
-    pidp = os.path.join(d, "pid")
-    startp = os.path.join(d, "start")
-    # The wrapper: record its own pgid, run the command, then record rc + end time.
-    # setsid makes this a new session leader so bash_tool's exit does not reap it.
-    wrapper = (
-        'echo $$ > %s; echo %s > %s; '
-        '{ %s; } >> %s 2>&1; ec=$?; '
-        'echo $ec > %s; echo %s > %s; exit $ec'
-    ) % (
-        shlex.quote(pidp), "$(date +%s)", shlex.quote(startp),
-        cmdline, shlex.quote(log),
-        shlex.quote(rcp), "$(date +%s)", shlex.quote(endp),
-    )
-    # setsid detaches into a new session/pgroup; the pid we capture inside == pgid.
-    subprocess.Popen(
-        ["setsid", "sh", "-c", wrapper],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        start_new_session=True,
-    )
-    # brief spin so 'pid' lands before we report
-    for _ in range(50):
-        if os.path.exists(pidp):
-            break
-        time.sleep(0.02)
-    pgid = _pgid(name)
-    print("%sstarted%s %s  %s(pgid %s)%s" % (G, RST, name, DIM, pgid, RST))
-    print("  %s%s%s" % (DIM, cmdline, RST))
-    print("  tail: bd-job tail %s   wait: bd-job wait %s" % (name, name))
-    return 0
+            if receipt["pid"] != proc.pid:
+                raise IdentityError("supervisor receipt does not name launched child")
+        finally:
+            os.close(pidfd)
+        os.write(release_w, b"G")
+        os.close(release_w)
+        release_w = -1
+        print("%sstarted%s %s  %s(pgid %s)%s"
+              % (G, RST, name, DIM, receipt["pgid"], RST))
+        print("  %s%s%s" % (DIM, cmdline, RST))
+        print("  tail: bd-job tail %s   wait: bd-job wait %s" % (name, name))
+        return 0
+    except (OSError, IdentityError, subprocess.SubprocessError) as exc:
+        print("%sbd-job start failed for '%s': %s%s" % (R, name, exc, RST))
+        if release_w >= 0:
+            os.close(release_w)
+            release_w = -1
+        if proc is not None:
+            _stop_new_supervisor(proc)
+        return 2
+    finally:
+        for fd in (ready_r, ready_w, release_r, release_w):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        if not claim_transferred:
+            try:
+                _release_claim_path(claim_path, token)
+            except (OSError, IdentityError):
+                pass
 
 
 def _one_status(name, verbose=True):
@@ -241,29 +586,44 @@ def cmd_wait(a):
 
 
 def cmd_kill(a):
-    pgid = _pgid(a.name)
-    if pgid is None:
-        print("%sno pid for job '%s'%s" % (R, a.name, RST))
-        return 2
-    if not _alive(pgid):
+    if _rc(a.name) is not None:
         print("%sjob '%s' not running%s" % (DIM, a.name, RST))
         return 0
     try:
-        os.killpg(pgid, signal.SIGTERM)
-    except OSError as e:
-        print("%sSIGTERM failed: %s%s" % (R, e, RST))
-    for _ in range(25):  # up to 5s grace
-        if not _alive(pgid):
+        pidfd, receipt = _open_identity(a.name)
+    except IdentityError as exc:
+        print("%sUNKNOWN: job '%s' identity is not measurable; refusing to "
+              "signal: %s%s" % (R, a.name, exc, RST))
+        return 3
+    try:
+        try:
+            signal.pidfd_send_signal(pidfd, signal.SIGTERM)
+        except ProcessLookupError:
+            print("%sjob '%s' identity exited before SIGTERM%s"
+                  % (DIM, a.name, RST))
+            return 0
+        readable, _, _ = select.select([pidfd], [], [], _TERM_GRACE_S)
+        if readable:
             print("%skilled%s %s (SIGTERM)" % (G, RST, a.name))
             return 0
-        time.sleep(0.2)
-    try:
-        os.killpg(pgid, signal.SIGKILL)
+        try:
+            signal.pidfd_send_signal(pidfd, _SUPERVISOR_KILL_SIGNAL)
+        except ProcessLookupError:
+            print("%skilled%s %s (settled after SIGTERM)" % (G, RST, a.name))
+            return 0
+        readable, _, _ = select.select([pidfd], [], [], _TERM_GRACE_S)
+        if not readable:
+            print("%sUNKNOWN: exact identity for job '%s' did not settle after "
+                  "forced group kill%s" % (R, a.name, RST))
+            return 3
         print("%skilled%s %s (SIGKILL after grace)" % (Y, RST, a.name))
-    except OSError as e:
-        print("%sSIGKILL failed: %s%s" % (R, e, RST))
-        return 2
-    return 0
+        return 0
+    except OSError as exc:
+        print("%sUNKNOWN: exact signal failed for job '%s': %s%s"
+              % (R, a.name, exc, RST))
+        return 3
+    finally:
+        os.close(pidfd)
 
 
 def cmd_reap(a):
@@ -378,6 +738,26 @@ def cmd_selftest(a):
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "_supervise":
+        internal = sys.argv[2:]
+        if len(internal) < 7 or internal[5] != "--":
+            print("bd-job internal supervisor: malformed launch", file=sys.stderr)
+            return 125
+        job_dir, claim_path, token = internal[:3]
+        try:
+            ready_fd = int(internal[3])
+            release_fd = int(internal[4])
+        except ValueError:
+            print("bd-job internal supervisor: invalid descriptor", file=sys.stderr)
+            return 125
+        cmd = internal[6:]
+        if not cmd:
+            print("bd-job internal supervisor: empty command", file=sys.stderr)
+            return 125
+        return _supervisor_main(
+            job_dir, claim_path, token, ready_fd, release_fd, cmd
+        )
+
     ap = argparse.ArgumentParser(prog="bd-job", add_help=True)
     sub = ap.add_subparsers(dest="op")
 

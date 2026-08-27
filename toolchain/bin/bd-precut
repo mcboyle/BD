@@ -353,6 +353,20 @@ def main(argv=None):
          "an env-inheriting subprocess pins LC_ALL"),
         ("tests/test_import_graph_no_new_edges.py",
          "no undeclared import edge"),
+        # ADDED AT ROW 315, AND IT COST A CI CYCLE TO FIND. This is the
+        # sys.modules leak RATCHET: it censuses EVERY tracked tests/*.py for a
+        # file that drops `bulk_downloader.*` and never restores it, then
+        # compares the count to a fixed budget. Its subject is the whole tree, so
+        # bd-band-derive can never select it -- exactly the shape the four above
+        # are here for -- yet it was missing from this list.
+        #
+        # MEASURED: on 2026-08-27 a candidate returned PRECUT_RC=0 and a GREEN
+        # band of 1476 tests, then GitHub CI failed `gate-suites (isolation)`
+        # with "14 files delete bulk_downloader.* from sys.modules without
+        # restoring it, over a budget of 13". Precut is the pre-freeze floor and
+        # it said cut-ready about a tree that was not.
+        ("tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
+         "no new sys.modules leaker over the ratchet budget"),
     ]
     present = [(rel, why) for rel, why in _UNDERIVED_GATES
                if os.path.isfile(os.path.join(root, rel))]

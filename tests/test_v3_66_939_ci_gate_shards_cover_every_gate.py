@@ -246,6 +246,10 @@ _DECLARED = {
     # the operator's config, database, subscriptions, and cwd-relative stores
     # unless its process boundary is exercised on every pull request.
     "tests/test_row_282_bd_opv_isolates_every_store.py",
+    # Row 313. bd-job is the detached local-job safety boundary: concurrent
+    # starters must not share one state directory, and status/kill must not
+    # mistake a reused numeric PID for the process the job originally owned.
+    "tests/test_row313_bd_job_identity.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
@@ -474,6 +478,10 @@ _DECLARED = {
     # boundary. A fixed resource reintroduced anywhere in capture.sh, its
     # service installer, the seeder, or the live runner must fail every PR.
     "tests/test_parallel_capture_services.py",
+    # Row 290: no-argument capture must reach its local fixture and every later
+    # step; the same executable harness proves --parallel still owns and routes
+    # a real distinct port pair.
+    "tests/test_row290_capture_serial_fixture_port.py",
     "tests/test_capture_vault_is_isolated.py",
     "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
     "tests/test_v3_66_1191_retention_review_edges.py",
@@ -529,6 +537,11 @@ _DECLARED = {
     # gate runs a real same-process collection and asserts the exact values an
     # unrelated selected test sees, so it is independent of changed paths.
     "tests/test_row_299_live_sampling_collection_isolation.py",
+    # Row 309. The capture manifest cannot define its own completeness. This
+    # gate independently pins all 52 views / 104 themed rows, reaches every
+    # failure seam, and drives the real navigator refusal. Its visual-census
+    # subject remains tree-wide regardless of which route or builder changes.
+    "tests/test_row_309_capture_manifest_contract.py",
     # tree-gates-3
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
@@ -540,6 +553,10 @@ _DECLARED = {
     # The mirror slice: assertions FALSE for every input, plus statically
     # unreachable ones. Same denominator, same reason it is repo-wide (@1108).
     "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
+    # Row 297. Every real recon-corpus fixture contributes to the synthesized
+    # request/parameter census, so changing any fixture changes this gate's
+    # exact denominator independently of an application-module diff.
+    "tests/test_ct1_corpus_validation.py",
     "tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py",
     "tests/test_v3_66_935_scan_wait_reports_non_convergence.py",
     "tests/test_history_columns_go_through_migrations.py",
@@ -585,14 +602,16 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 176
 # 176 -> 177 at row 298. This cut classifies one legacy gate, removes its one
 # frozen-baseline exemption, declares it here, and gives it one dedicated CI
 # shard because its real two-pass regen chain is an independent long pole.
-_EXPECTED_DECLARED_GATE_COUNT = 178
 # 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
 # collection-isolation gate and schedules it directly in tree-gates-2.
-_EXPECTED_DECLARED_GATE_COUNT = 180
+# 176 -> 177 at row 297 (2026-08-27). The real-corpus credential census is now
+# a repo-wide gate and this cut adds exactly one declaration and shard entry.
+# 177 -> 178 at row 313. The cut adds exactly one module-scoped bd-job
+# identity gate to both the independent declaration and the toolchain shard.
+_EXPECTED_DECLARED_GATE_COUNT = 184
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

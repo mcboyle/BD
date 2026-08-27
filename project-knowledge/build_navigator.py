@@ -6,15 +6,21 @@ file (no external deps, no sibling files needed) that lets you click through
 every nav tab / drill-in / subtab / cockpit / popup in light & dark, mimicking
 navigation of the live mock SPA.
 """
-import os, json, base64, io, html
+import os, json, base64, io, html, sys
 from PIL import Image
+
+from capture_manifest_contract import ManifestContractError, load_manifest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 CAP = os.environ.get("BD_CAPTURE_DIR", os.path.join(ROOT, "reports", "capture"))
-OUT = "/mnt/user-data/outputs/functional.html"
+OUT = os.environ.get("BD_NAVIGATOR_OUT", "/mnt/user-data/outputs/functional.html")
 MAXW = 1100
 
-man = json.load(open(f"{CAP}/manifest.json"))
+try:
+    man = load_manifest(f"{CAP}/manifest.json")
+except ManifestContractError as exc:
+    print(f"CAPTURE MANIFEST UNKNOWN: {exc}", file=sys.stderr)
+    raise SystemExit(2)
 
 # ---- group manifest by route, collecting light+dark variants ----------------
 # category display order + labels
@@ -38,8 +44,15 @@ for m in man:
 def embed(relpath):
     p = os.path.join(CAP, relpath)
     if not os.path.exists(p):
-        return None
-    im = Image.open(p).convert("RGB")
+        print(f"CAPTURE MANIFEST UNKNOWN: image measurement unavailable: {p}",
+              file=sys.stderr)
+        raise SystemExit(2)
+    try:
+        im = Image.open(p).convert("RGB")
+    except (OSError, ValueError) as exc:
+        print(f"CAPTURE MANIFEST UNKNOWN: image measurement unavailable: "
+              f"{p}: {exc}", file=sys.stderr)
+        raise SystemExit(2)
     if im.width > MAXW:
         im = im.resize((MAXW, round(im.height * MAXW / im.width)), Image.LANCZOS)
     buf = io.BytesIO()
@@ -54,8 +67,7 @@ for r in routes.values():
         if f and f not in seen:
             seen.add(f)
             d = embed(f)
-            if d:
-                IMG[f] = d
+            IMG[f] = d
 
 # ---- build ordered route list for the sidebar -------------------------------
 items = []

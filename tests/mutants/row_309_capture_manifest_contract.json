@@ -1,0 +1,79 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 309 / F11. The battery independently attacks the expected-view population, expected-vs-observed reconciliation, failure-row publication, cockpit-dropdown attempt and visible-open proof, navigator validation, unavailable-image refusal, and explicit failed-row verdict. Each catcher proves exact nonzero preconditions. The separate transform-control spec applies the identical manifest-derived-denominator mutation to an import-only node and must ESCAPE.",
+  "subject": "the capture manifest is judged against an independent exact 52-view and 104-row population",
+  "band": [
+    "tests/test_row_309_capture_manifest_contract.py::test_expected_view_population_is_exact_nonzero_and_has_dropdown",
+    "tests/test_row_309_capture_manifest_contract.py::test_every_planned_view_emits_one_failure_row",
+    "tests/test_row_309_capture_manifest_contract.py::test_cockpit_dropdown_proves_trigger_and_open_menu",
+    "tests/test_row_309_capture_manifest_contract.py::test_manifest_validator_accepts_exact_population_and_refuses_bad_evidence",
+    "tests/test_row_309_capture_manifest_contract.py::test_navigator_refuses_missing_row_before_reading_images",
+    "tests/test_row_309_capture_manifest_contract.py::test_navigator_reports_unavailable_image_as_unknown"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the promised cockpit dropdown from the expected population",
+      "file": "project-knowledge/capture_manifest_contract.py",
+      "old": "    ViewSpec(\"popup\", \"Cockpit nav dropdown\", \"Cockpit nav dropdown\",\n             \"cockpit_nav_dropdown.png\"),",
+      "new": "    ViewSpec(\"popup\", \"Cockpit nav dropdown omitted\", \"Cockpit nav dropdown\",\n             \"cockpit_nav_dropdown.png\"),",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_expected_view_population_is_exact_nonzero_and_has_dropdown"
+    },
+    {
+      "label": "M2 derive the expected manifest denominator from observed rows",
+      "file": "project-knowledge/capture_manifest_contract.py",
+      "old": "    expected = expected_manifest_keys()",
+      "new": "    expected = {key for key, _row in keyed_rows}",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_manifest_validator_accepts_exact_population_and_refuses_bad_evidence"
+    },
+    {
+      "label": "M3 drop every failure row after constructing it",
+      "file": "project-knowledge/capture_all.py",
+      "old": "    manifest.append(row)\n    return row\n\n\ndef _success_row",
+      "new": "    return row\n\n\ndef _success_row",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_every_planned_view_emits_one_failure_row"
+    },
+    {
+      "label": "M4 skip the cockpit navigation dropdown attempt",
+      "file": "project-knowledge/capture_all.py",
+      "old": "        await _cockpit_popup(\n            ctx, theme, \"Cockpit nav dropdown\",\n            ('.nav .navsec .navhead:has-text(\"Captures\")',), layout=\"top\",\n            visible_selector=\".nav .navsec.baropen .navitems\",\n        )",
+      "new": "        if False:\n            await _cockpit_popup(\n                ctx, theme, \"Cockpit nav dropdown\",\n                ('.nav .navsec .navhead:has-text(\"Captures\")',), layout=\"top\",\n                visible_selector=\".nav .navsec.baropen .navitems\",\n            )",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_every_planned_view_emits_one_failure_row"
+    },
+    {
+      "label": "M5 let the navigator trust raw manifest JSON without validation",
+      "file": "project-knowledge/build_navigator.py",
+      "old": "    man = load_manifest(f\"{CAP}/manifest.json\")",
+      "new": "    man = json.load(open(f\"{CAP}/manifest.json\"))",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_navigator_refuses_missing_row_before_reading_images"
+    },
+    {
+      "label": "M6 let a missing capture image become an empty navigator frame",
+      "file": "project-knowledge/build_navigator.py",
+      "old": "    if not os.path.exists(p):\n        print(f\"CAPTURE MANIFEST UNKNOWN: image measurement unavailable: {p}\",\n              file=sys.stderr)\n        raise SystemExit(2)",
+      "new": "    if not os.path.exists(p):\n        return None",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_navigator_reports_unavailable_image_as_unknown"
+    },
+    {
+      "label": "M7 accept explicit failed rows as complete measurements",
+      "file": "project-knowledge/capture_manifest_contract.py",
+      "old": "        if (row.get(\"status\") != \"ok\" or not isinstance(row.get(\"file\"), str)\n                or not row.get(\"file\") or not isinstance(err, int) or err != 0):\n            failed.append(key)",
+      "new": "        if False:\n            failed.append(key)",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_manifest_validator_accepts_exact_population_and_refuses_bad_evidence"
+    },
+    {
+      "label": "M8 trust a trigger click without proving the dropdown became visible",
+      "file": "project-knowledge/capture_all.py",
+      "old": "        if visible_selector is not None:\n            visible = page.locator(visible_selector).first\n            if not await visible.count() or not await visible.is_visible():\n                raise RuntimeError(f\"{route} stayed closed after trigger\")",
+      "new": "        if False:\n            visible = page.locator(visible_selector).first\n            if not await visible.count() or not await visible.is_visible():\n                raise RuntimeError(f\"{route} stayed closed after trigger\")",
+      "direction": "regression",
+      "catcher": "tests/test_row_309_capture_manifest_contract.py::test_cockpit_dropdown_proves_trigger_and_open_menu"
+    }
+  ]
+}
