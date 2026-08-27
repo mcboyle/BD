@@ -18,13 +18,93 @@ Usage:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
-import argparse, glob, os, pathlib, re, subprocess, sys, tempfile
+import argparse, glob, os, pathlib, re, shutil, subprocess, sys, tempfile
 
-# Placed AFTER the whole import block on purpose: inserting above `import sys`
-# leaves sys undefined at the insertion point and --help dies with NameError,
-# while ast.parse still accepts the file (the v3.66.851 trap).
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import bdtools_sec as sec  # noqa: E402  -- DEFAULT_WORK follows a relocated checkout
+
+def _resolve_default_work():
+    env = os.environ.get("BD_ROOT")
+    if env and os.path.isfile(os.path.join(env, "bulk_downloader", "__init__.py")):
+        return env
+    directory = os.path.dirname(os.path.realpath(__file__))
+    for _ in range(8):
+        if os.path.isfile(os.path.join(directory, "bulk_downloader", "__init__.py")):
+            return directory
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return os.environ.get("BD_WORK_TREE", os.getcwd())
+
+
+DEFAULT_WORK = _resolve_default_work()
+
+# Explicit and test-reachable: this path runs the repository's deliberately
+# small pytest-compatible runner, not a real pytest master.  Registering it as
+# pytest ownership would make bd-jobs claim a process that never becomes pytest.
+NON_OWNING_EXEMPTIONS = {
+    "bd-precut::_run_insync": (
+        "runs run_tests.py's pytest-compatible harness, not a real pytest "
+        "master; registration would mislabel the process"
+    ),
+}
+
+
+# INLINE BY DESIGN (row 243).  This block is duplicated in every owning pytest
+# launcher so a byte-for-byte copy of this tool has no sibling Python import.
+# The bootstrap registers its own PID, refuses if publication fails, and only
+# then imports pytest.  runpy keeps registration and pytest in the same process
+# without a wrapper file or an exec hand-off.
+_PYTEST_REGISTRATION_BOOTSTRAP = r'''\
+import os
+import runpy
+import shlex
+import subprocess
+import sys
+
+jobs, purpose, *pytest_args = sys.argv[1:]
+command = shlex.join([sys.executable, "-m", "pytest", *pytest_args])
+registration = subprocess.run(
+    [sys.executable, jobs, "register", "--pid", str(os.getpid()),
+     "--purpose", purpose, "--cmd", command],
+    capture_output=True, text=True,
+)
+if registration.returncode:
+    detail = (registration.stdout + registration.stderr).strip()
+    print("BD-PYTEST REFUSED: registration failed before pytest import/work"
+          + (": " + detail if detail else ""), file=sys.stderr)
+    raise SystemExit(3)
+sys.argv[:] = ["pytest", *pytest_args]
+runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+'''
+
+
+def _registered_pytest_argv(python, purpose, *pytest_args, work=None):
+    """Return a same-PID, register-before-import pytest command."""
+    candidates = []
+    if work is not None:
+        candidates.append(pathlib.Path(work) / "toolchain" / "bin" / "bd-jobs")
+    here = pathlib.Path(__file__).resolve()
+    candidates.append(here.with_name("bd-jobs"))
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "toolchain" / "bin" / "bd-jobs")
+    try:
+        resolved_python = pathlib.Path(python).resolve()
+    except (OSError, RuntimeError):
+        resolved_python = None
+    if resolved_python is not None:
+        candidates.extend(
+            parent / "toolchain" / "bin" / "bd-jobs"
+            for parent in resolved_python.parents
+        )
+    installed = shutil.which("bd-jobs")
+    if installed:
+        candidates.append(pathlib.Path(installed))
+    jobs = next((path for path in candidates if path.is_file()), None)
+    if jobs is None:
+        raise RuntimeError(
+            "owned pytest launch refused: bd-jobs is not reachable; nothing ran")
+    return [str(python), "-c", _PYTEST_REGISTRATION_BOOTSTRAP,
+            str(jobs), str(purpose), *[str(arg) for arg in pytest_args]]
 
 IN_SYNC = [
     "tests/test_function_index_in_sync.py",
@@ -52,7 +132,7 @@ def _auto_baseline(root=None):
     git checkout, and the caller already says so out loud rather than pretending
     precut_check ran.
     """
-    root = root or sec.DEFAULT_WORK
+    root = root or DEFAULT_WORK
     found = [f for f in glob.glob(os.path.join(root, "out", "BulkDownloader_v*.zip"))
              if "overlay" not in os.path.basename(f).lower()]
     return max(found, key=_version) if found else None
@@ -63,7 +143,7 @@ def _auto_root():
     the shared library's own file to the checkout that owns this tool, so it is
     right from any cwd; cwd stays as the second rung for a tree that is not the
     one this tool was installed into."""
-    for c in (sec.DEFAULT_WORK, os.getcwd()):
+    for c in (DEFAULT_WORK, os.getcwd()):
         if os.path.isdir(os.path.join(c, "bulk_downloader")):
             return c
     return os.getcwd()
@@ -385,8 +465,10 @@ def main(argv=None):
         env.pop("BD_INSTALL_DIR", None)          # A5: pop, do not merely omit
         env["BD_DISABLE_KEEPALIVE"] = "1"
         rc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "-p", "no:randomly",
-             "--timeout=240", "--timeout-method=signal"] + [r for r, _ in present],
+            _registered_pytest_argv(
+                sys.executable, "bd-precut underived gates", "-q", "-p",
+                "no:randomly", "--timeout=240", "--timeout-method=signal",
+                *[r for r, _ in present], work=root),
             cwd=root, env=env, timeout=1800).returncode
         if rc != 0:
             blocking.append(

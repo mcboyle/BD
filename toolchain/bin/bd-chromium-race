@@ -76,9 +76,69 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import time
+
+
+# INLINE BY DESIGN (row 243).  This block is duplicated in every owning pytest
+# launcher so a byte-for-byte copy of this tool has no sibling Python import.
+# The bootstrap registers its own PID, refuses if publication fails, and only
+# then imports pytest.  runpy keeps registration and pytest in the same process
+# without a wrapper file or an exec hand-off.
+_PYTEST_REGISTRATION_BOOTSTRAP = r'''\
+import os
+import runpy
+import shlex
+import subprocess
+import sys
+
+jobs, purpose, *pytest_args = sys.argv[1:]
+command = shlex.join([sys.executable, "-m", "pytest", *pytest_args])
+registration = subprocess.run(
+    [sys.executable, jobs, "register", "--pid", str(os.getpid()),
+     "--purpose", purpose, "--cmd", command],
+    capture_output=True, text=True,
+)
+if registration.returncode:
+    detail = (registration.stdout + registration.stderr).strip()
+    print("BD-PYTEST REFUSED: registration failed before pytest import/work"
+          + (": " + detail if detail else ""), file=sys.stderr)
+    raise SystemExit(3)
+sys.argv[:] = ["pytest", *pytest_args]
+runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+'''
+
+
+def _registered_pytest_argv(python, purpose, *pytest_args, work=None):
+    """Return a same-PID, register-before-import pytest command."""
+    candidates = []
+    if work is not None:
+        candidates.append(pathlib.Path(work) / "toolchain" / "bin" / "bd-jobs")
+    here = pathlib.Path(__file__).resolve()
+    candidates.append(here.with_name("bd-jobs"))
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "toolchain" / "bin" / "bd-jobs")
+    try:
+        resolved_python = pathlib.Path(python).resolve()
+    except (OSError, RuntimeError):
+        resolved_python = None
+    if resolved_python is not None:
+        candidates.extend(
+            parent / "toolchain" / "bin" / "bd-jobs"
+            for parent in resolved_python.parents
+        )
+    installed = shutil.which("bd-jobs")
+    if installed:
+        candidates.append(pathlib.Path(installed))
+    jobs = next((path for path in candidates if path.is_file()), None)
+    if jobs is None:
+        raise RuntimeError(
+            "owned pytest launch refused: bd-jobs is not reachable; nothing ran")
+    return [str(python), "-c", _PYTEST_REGISTRATION_BOOTSTRAP,
+            str(jobs), str(purpose), *[str(arg) for arg in pytest_args]]
+
 
 REPO = pathlib.Path.home() / "BulkDownloader"
 PY = REPO / "venv" / "bin" / "python"
@@ -249,8 +309,9 @@ def run_sample(n_launchers: int, whole_file: bool, outdir: pathlib.Path,
         try:
             with open(log, "wb") as fh:
                 rc = subprocess.run(
-                    [str(PY), "-m", "pytest", sel,
-                     "--capture=no", "-p", "no:randomly", "--durations=20", "-v"],
+                    _registered_pytest_argv(
+                        PY, f"bd-chromium-race {tag}", sel, "--capture=no",
+                        "-p", "no:randomly", "--durations=20", "-v", work=REPO),
                     cwd=str(REPO), env=env, stdout=fh, stderr=subprocess.STDOUT,
                     timeout=SAMPLE_CAP).returncode
         except subprocess.TimeoutExpired:

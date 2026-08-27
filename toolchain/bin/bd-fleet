@@ -183,7 +183,7 @@ echo "$jobs_out" | awk -v rc="$jobs_rc" '
 bd_fleet_ps=$(ps -eo pid=,comm=,args= 2>/dev/null)
 bd_fleet_ps_rc=$?
 if [ "$bd_fleet_ps_rc" -eq 0 ]; then
-  bd_fleet_pytest=$(printf '%s\n' "$bd_fleet_ps" | awk '$2 ~ /^python/ && $0 ~ /-m[ ]pytest/ { count++ } END { print count + 0 }')
+  bd_fleet_pytest=$(printf '%s\n' "$bd_fleet_ps" | awk '$2 ~ /^python/ && ($0 ~ /-m[ ]pytest/ || $0 ~ /[/ ]bd-pytest([ ]|$)/) { count++ } END { print count + 0 }')
   bd_fleet_pytest_rc=$?
 else
   bd_fleet_pytest_rc=$bd_fleet_ps_rc

@@ -103,6 +103,65 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
+
+# INLINE BY DESIGN (row 243).  This block is duplicated in every owning pytest
+# launcher so a byte-for-byte copy of this tool has no sibling Python import.
+# The bootstrap registers its own PID, refuses if publication fails, and only
+# then imports pytest.  runpy keeps registration and pytest in the same process
+# without a wrapper file or an exec hand-off.
+_PYTEST_REGISTRATION_BOOTSTRAP = r'''\
+import os
+import runpy
+import shlex
+import subprocess
+import sys
+
+jobs, purpose, *pytest_args = sys.argv[1:]
+command = shlex.join([sys.executable, "-m", "pytest", *pytest_args])
+registration = subprocess.run(
+    [sys.executable, jobs, "register", "--pid", str(os.getpid()),
+     "--purpose", purpose, "--cmd", command],
+    capture_output=True, text=True,
+)
+if registration.returncode:
+    detail = (registration.stdout + registration.stderr).strip()
+    print("BD-PYTEST REFUSED: registration failed before pytest import/work"
+          + (": " + detail if detail else ""), file=sys.stderr)
+    raise SystemExit(3)
+sys.argv[:] = ["pytest", *pytest_args]
+runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+'''
+
+
+def _registered_pytest_argv(python, purpose, *pytest_args, work=None):
+    """Return a same-PID, register-before-import pytest command."""
+    candidates = []
+    if work is not None:
+        candidates.append(Path(work) / "toolchain" / "bin" / "bd-jobs")
+    here = Path(__file__).resolve()
+    candidates.append(here.with_name("bd-jobs"))
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "toolchain" / "bin" / "bd-jobs")
+    try:
+        resolved_python = Path(python).resolve()
+    except (OSError, RuntimeError):
+        resolved_python = None
+    if resolved_python is not None:
+        candidates.extend(
+            parent / "toolchain" / "bin" / "bd-jobs"
+            for parent in resolved_python.parents
+        )
+    installed = shutil.which("bd-jobs")
+    if installed:
+        candidates.append(Path(installed))
+    jobs = next((path for path in candidates if path.is_file()), None)
+    if jobs is None:
+        raise RuntimeError(
+            "owned pytest launch refused: bd-jobs is not reachable; nothing ran")
+    return [str(python), "-c", _PYTEST_REGISTRATION_BOOTSTRAP,
+            str(jobs), str(purpose), *[str(arg) for arg in pytest_args]]
+
+
 CAUGHT, ESCAPED = "CAUGHT", "ESCAPED"
 INDISCRIMINATE, UNKNOWN = "INDISCRIMINATE", "UNKNOWN"
 INVALID, ERROR = "INVALID", "ERROR"
@@ -1453,7 +1512,9 @@ def _run_owned(cmd: list[str], *, work: Path, timeout: float
 def _run_band(band: list[str], work: Path,
               timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS) -> dict:
     py = _python_for(work)
-    collect_cmd = [py, "-m", "pytest", "--collect-only", "-q", "-p", "no:randomly", *band]
+    collect_cmd = _registered_pytest_argv(
+        py, "bd-mutate collection", "--collect-only", "-q", "-p",
+        "no:randomly", *band, work=work)
     try:
         collected_run = _run_owned(collect_cmd, work=work, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -1519,10 +1580,9 @@ def _run_band(band: list[str], work: Path,
     with tempfile.TemporaryDirectory(
             prefix="bd-mutate-junit-", dir=str(junit_parent)) as td:
         junit = Path(td) / "band.xml"
-        cmd = [
-            py, "-m", "pytest", "-q", "-p", "no:randomly",
-            "--junitxml", str(junit), *band,
-        ]
+        cmd = _registered_pytest_argv(
+            py, "bd-mutate execution", "-q", "-p", "no:randomly",
+            "--junitxml", str(junit), *band, work=work)
         try:
             run = _run_owned(cmd, work=work, timeout=timeout)
         except subprocess.TimeoutExpired as exc:

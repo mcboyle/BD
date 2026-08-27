@@ -2,7 +2,7 @@
 
 ASCII-only.
 
-<!-- canonical-task-register schema=1 rows=296 open=4 ids-sha256=d4a37ab31faee50d1a714278505bc24cae1d5b94be4c93010486fa22704bcc56 -->
+<!-- canonical-task-register schema=1 rows=297 open=4 ids-sha256=d7b946709b1daf8df68bc2aa23440aa1a88a675da2c21e2ccdcd0f7e647613b8 -->
 
 ## Why this file exists
 
@@ -378,3 +378,4 @@ proving nothing was lost. Nothing was lost here that any commit ever held.
 | 308 |   CLOSED @1301 | VISUAL-AUDIT-BUILDERS-CARRIED-A-HARDCODED-VERSION -- the builders stamped a version literal instead of deriving the capture release identity. They now derive it, running the identity check before the manifest population contract so the population error cannot mask the identity error, and refuse before emitting any audit evidence when the identity is unavailable, malformed or mismatched. |
 | 317 |   CLOSED @1301 | MUTATION-SPEC-GATE-SPAWNED-ITS-COLLECTIONS-IN-SERIES -- the gate ran one pytest --collect-only subprocess per tracked mutation spec, one after another, on every precut. Collection is now concurrent and bounded, with the processed count asserted equal to the tracked population so parallelism cannot drop a spec, and an errored or timed-out collection still failing the gate. |
 | 321 |   CLOSED @1302 | TMP-CENSUS-CALLED-A-VANISHING-ENTRY-AN-UNMEASURABLE-TMP -- bd-fleet mapped any nonzero `find /tmp` exit to tmp_bd=unknown, including the transient ENOENT raised when an entry disappears mid-walk. The suite's own 24 xdist workers churn /tmp constantly, so the fail-closed gate raced the environment it runs inside. A vanished entry now keeps the count; a real measurement failure still returns unknown, with a negative control proving it. |
+| 322 |   CLOSED @1303 | FIXTURE-MARKER-WAITED-FOR-EXISTENCE-THEN-WAS-READ-FOR-CONTENT -- _w1_wait_for_path returned as soon as a marker file existed, but `open(p,'w')` creates the file before the payload lands, so callers read an empty file and int('') raised. It cost a CI shard and a merge on 2026-08-27. The wait now blocks until the value is usable and RETURNS it, so no caller can re-read and race the writer again. |

@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1303 - owned pytest launches register themselves (+1 file-disjoint row(s): 322)
+
+- every owning pytest launcher registers its own PID before importing pytest,
+- the launcher refuses to start if registration fails, so an unregistered pyt
+- toolchain/pytest_process_ownership.json records which launcher owns which r
+- the process-tree kill test's MODEL was wrong, not the kill logic: the
+- the test additionally proves the descendant EXISTED before the timeout, a
+- bd-mutate still kills the whole tree on timeout, still returns UNKNOWN/exit
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 192 -> 193.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1302 - a /tmp entry disappearing mid-walk is not a failed measurement
 
 - bd-fleet no longer reports tmp_bd=unknown merely because an entry under /tmp

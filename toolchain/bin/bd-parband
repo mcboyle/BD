@@ -20,9 +20,126 @@ Exit 2 never writes the band-results file: a refusal is not a band.
 """
 import argparse
 import concurrent.futures as cf
-import os as _os_bd, sys as _sys_bd  # noqa: E402
-_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
-import bdtools_sec as sec  # noqa: E402
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+
+def _resolve_default_work():
+    env = os.environ.get("BD_ROOT")
+    if env and os.path.isfile(os.path.join(env, "bulk_downloader", "__init__.py")):
+        return env
+    directory = os.path.dirname(os.path.realpath(__file__))
+    for _ in range(8):
+        if os.path.isfile(os.path.join(directory, "bulk_downloader", "__init__.py")):
+            return directory
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return os.environ.get("BD_WORK_TREE", os.getcwd())
+
+
+DEFAULT_WORK = _resolve_default_work()
+EXIT_CANNOT_EVALUATE = 2
+
+
+def _imports_pytest(executable, timeout=30):
+    try:
+        return subprocess.run(
+            [executable, "-c", "import pytest"], capture_output=True,
+            timeout=timeout).returncode == 0
+    except Exception:
+        return False
+
+
+def _resolve_test_interpreter(work=None):
+    work = work or DEFAULT_WORK
+    candidates = [os.path.join(work, "venv", "bin", "python"),
+                  os.path.join(DEFAULT_WORK, "venv", "bin", "python"),
+                  sys.executable, shutil.which("python3") or ""]
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.exists(candidate) and _imports_pytest(candidate):
+            return candidate
+    return None
+
+
+def _missing_suite_reason(work, suite):
+    path = suite if os.path.isabs(suite) else os.path.join(work or DEFAULT_WORK, suite)
+    if os.path.isfile(path):
+        return None
+    return ("no such file under %s -- the compatibility runner falls back to "
+            "a BROAD RUN of the whole tree and the result would be attributed "
+            "to this path"
+            % (work or DEFAULT_WORK))
+
+
+# INLINE BY DESIGN (row 243).  This block is duplicated in every owning pytest
+# launcher so a byte-for-byte copy of this tool has no sibling Python import.
+# The bootstrap registers its own PID, refuses if publication fails, and only
+# then imports pytest.  runpy keeps registration and pytest in the same process
+# without a wrapper file or an exec hand-off.
+_PYTEST_REGISTRATION_BOOTSTRAP = r'''\
+import os
+import runpy
+import shlex
+import subprocess
+import sys
+
+jobs, purpose, *pytest_args = sys.argv[1:]
+command = shlex.join([sys.executable, "-m", "pytest", *pytest_args])
+registration = subprocess.run(
+    [sys.executable, jobs, "register", "--pid", str(os.getpid()),
+     "--purpose", purpose, "--cmd", command],
+    capture_output=True, text=True,
+)
+if registration.returncode:
+    detail = (registration.stdout + registration.stderr).strip()
+    print("BD-PYTEST REFUSED: registration failed before pytest import/work"
+          + (": " + detail if detail else ""), file=sys.stderr)
+    raise SystemExit(3)
+sys.argv[:] = ["pytest", *pytest_args]
+runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+'''
+
+
+def _registered_pytest_argv(python, purpose, *pytest_args, work=None):
+    """Return a same-PID, register-before-import pytest command."""
+    candidates = []
+    if work is not None:
+        candidates.append(pathlib.Path(work) / "toolchain" / "bin" / "bd-jobs")
+    here = pathlib.Path(__file__).resolve()
+    candidates.append(here.with_name("bd-jobs"))
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "toolchain" / "bin" / "bd-jobs")
+    try:
+        resolved_python = pathlib.Path(python).resolve()
+    except (OSError, RuntimeError):
+        resolved_python = None
+    if resolved_python is not None:
+        candidates.extend(
+            parent / "toolchain" / "bin" / "bd-jobs"
+            for parent in resolved_python.parents
+        )
+    installed = shutil.which("bd-jobs")
+    if installed:
+        candidates.append(pathlib.Path(installed))
+    jobs = next((path for path in candidates if path.is_file()), None)
+    if jobs is None:
+        raise RuntimeError(
+            "owned pytest launch refused: bd-jobs is not reachable; nothing ran")
+    return [str(python), "-c", _PYTEST_REGISTRATION_BOOTSTRAP,
+            str(jobs), str(purpose), *[str(arg) for arg in pytest_args]]
 
 _PY_CACHE = {}
 
@@ -36,29 +153,21 @@ def _py(work):
     the v3.66.850 finding (CLAUDE.md s5).
     """
     if work not in _PY_CACHE:
-        exe = sec.resolve_test_interpreter(work)
+        exe = _resolve_test_interpreter(work)
         if exe is None:
             print("BD-UNEVALUABLE: no interpreter under %s can import pytest -- "
                   "refusing to run rather than report interpreter artifacts as "
                   "test failures." % work, file=sys.stderr)
-            raise SystemExit(sec.EXIT_CANNOT_EVALUATE)
+            raise SystemExit(EXIT_CANNOT_EVALUATE)
         _PY_CACHE[work] = exe
     return _PY_CACHE[work]
-
-import json
-import os
-import re
-import subprocess
-import sys
-import tempfile
-import time
 
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
 HANGERS = ("test_perf_lab", "test_v3_66_146_nav_guard")
 # The bd-retest CONTRACT: both tools resolve this identically (env override,
 # then checkout-relative default). Edit them together or the pair breaks.
 RESULTS = os.environ.get("BD_LAST_BAND",
-                         os.path.join(sec.DEFAULT_WORK, ".bd_last_band.json"))
+                         os.path.join(DEFAULT_WORK, ".bd_last_band.json"))
 # Optional env file sourced for the suite env (GTK stack etc.). The retired
 # sandbox kept one at /home/claude/bdenv.sh; no such file ships in this
 # checkout, so the default is ABSENT and the tool falls back to os.environ --
@@ -66,7 +175,7 @@ RESULTS = os.environ.get("BD_LAST_BAND",
 # point this at toolchain/bdenv.sh: that file still exports the retired
 # prestaged PYTHONPATH and /home/claude paths.
 BDENV = os.environ.get("BD_ENV_FILE",
-                       os.path.join(sec.DEFAULT_WORK, "bdenv.sh"))
+                       os.path.join(DEFAULT_WORK, "bdenv.sh"))
 
 _BD_ENV_CACHE = None
 
@@ -113,7 +222,10 @@ def run_one(work, suite, timeout):
         # pytest importable. Measured at v3.66.949 across the whole suite with
         # per-file isolation on both sides: the shim called 28 files non-PASS
         # and 24 of them pass under real pytest, verified 24/24.
-        r = subprocess.run([_py(work), "-m", "pytest", suite, "-q", "-p", "no:randomly"],
+        py = _py(work)
+        r = subprocess.run(_registered_pytest_argv(
+                               py, f"bd-parband {suite}", suite, "-q", "-p",
+                               "no:randomly", work=work),
                            cwd=work, env=env,
                            capture_output=True, text=True, timeout=timeout)
         out = r.stdout + r.stderr
@@ -155,7 +267,7 @@ def selftest():
     tests/test_v3_66_950_* asserts these tools no longer reference it. CLAUDE.md
     section 0 records four instances of exactly that; this cut hit three more."""
     import os as _o, subprocess as _sp
-    py = _py(sec.DEFAULT_WORK)
+    py = _py(DEFAULT_WORK)
     hit = None
     if py:
         r = _sp.run([py, "-c", "import pytest; print(pytest.__version__)"],
@@ -190,7 +302,7 @@ def main():
     ap.add_argument("suites", nargs="+")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--timeout", type=int, default=300)
-    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--work", "--tree", default=DEFAULT_WORK)
     a = ap.parse_args()
 
     # Door check. Two tiers, ONE exit code: the known hazards (which this tool
@@ -214,7 +326,7 @@ def main():
         elif not s.endswith(".py"):
             bad.append((s, "not a .py file"))
         else:
-            why = sec.missing_suite_reason(a.work, s)
+            why = _missing_suite_reason(a.work, s)
             if why:
                 bad.append((s, why))
     if bad:
@@ -229,7 +341,7 @@ def main():
         # Deliberately do NOT write RESULTS here. A refusal is not a band, and
         # bd-retest reads that file back; leaving the previous run's file
         # untouched is correct.
-        return sec.EXIT_CANNOT_EVALUATE
+        return EXIT_CANNOT_EVALUATE
 
     print(f"{BOLD}parallel band{RST} {DIM}{len(a.suites)} suites, {a.jobs} jobs, "
           f"{a.timeout}s each{RST}")

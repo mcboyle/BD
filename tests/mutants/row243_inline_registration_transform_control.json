@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "The exact registration-removal transform is applied while selecting only the single-file copy smoke node; it must escape, proving the transform itself remains executable.",
+  "subject": "row 243 registration transform control",
+  "band": [
+    "tests/test_row243_owned_pytest_inline_registration.py::test_each_registration_tool_runs_from_its_bytes_alone[bd-ladder]"
+  ],
+  "mutants": [
+    {
+      "label": "control suppresses bd-ladder publication without breaking its bytes",
+      "file": "toolchain/bin/bd-ladder",
+      "old": "registration = subprocess.run(\n    [sys.executable, jobs, \"register\", \"--pid\", str(os.getpid()),\n     \"--purpose\", purpose, \"--cmd\", command],\n    capture_output=True, text=True,\n)",
+      "new": "registration = subprocess.CompletedProcess([], 0, \"\", \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row243_owned_pytest_inline_registration.py::test_each_registration_tool_runs_from_its_bytes_alone[bd-ladder]"
+    }
+  ]
+}

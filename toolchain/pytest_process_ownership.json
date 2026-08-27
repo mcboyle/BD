@@ -1,0 +1,84 @@
+{
+  "schema": "bd-pytest-process-ownership/2",
+  "row": 243,
+  "row_state": "OPEN",
+  "registration_design": "inline same-pid bootstrap in each owning tool; no shared Python import, sys.path insertion, helper module, file wrapper, or re-exec",
+  "registration_half": "tracked toolchain launch population complete",
+  "recorded_pid_disposition": {
+    "pids": [1587184, 1619109, 1655881, 1656718, 1656837, 1665966, 1667312],
+    "host": "test5",
+    "disposition": "terminated by an authorised fleet clean at 03:12/03:29 on 2026-08-26; not observed to exit naturally",
+    "satisfies_census_half": false
+  },
+  "tracked_launches": [
+    {
+      "id": "toolchain/bin/bd-ab::sample::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-ab"
+    },
+    {
+      "id": "toolchain/bin/bd-band::main::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-band"
+    },
+    {
+      "id": "toolchain/bin/bd-chromium-race::run_sample::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-chromium-race"
+    },
+    {
+      "id": "toolchain/bin/bd-ladder::probe::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-ladder"
+    },
+    {
+      "id": "toolchain/bin/bd-leakprobe::_run::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-leakprobe"
+    },
+    {
+      "id": "toolchain/bin/bd-modwatch::watch::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-modwatch"
+    },
+    {
+      "id": "toolchain/bin/bd-mutate::_run_band::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-mutate collection"
+    },
+    {
+      "id": "toolchain/bin/bd-mutate::_run_band::2",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-mutate execution"
+    },
+    {
+      "id": "toolchain/bin/bd-parband::run_one::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-parband"
+    },
+    {
+      "id": "toolchain/bin/bd-precut::main::1",
+      "registration": "inline-same-pid-before-pytest-import",
+      "owner": "bd-precut"
+    },
+    {
+      "id": "toolchain/bin/bd-sweep-run::section5_tokens::1",
+      "registration": "registered-ancestor-before-pytest",
+      "owner": "bd-sweep-run remote runner shell",
+      "reason": "the target shell registers its exact pid before it evaluates the pytest command"
+    },
+    {
+      "id": "toolchain/bin/bd-wedge-hunt::<module>::1",
+      "registration": "gated-exact-pid-before-release",
+      "owner": "bd-wedge-hunt",
+      "reason": "the pytest child is held until exact-pid registration succeeds"
+    }
+  ],
+  "non_owning_exemptions": [
+    {
+      "subject": "bd-precut::_run_insync",
+      "tool": "toolchain/bin/bd-precut",
+      "reason": "runs run_tests.py's pytest-compatible harness, not a real pytest master; registration would mislabel the process"
+    }
+  ]
+}

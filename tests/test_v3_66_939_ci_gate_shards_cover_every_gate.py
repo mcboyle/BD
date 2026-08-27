@@ -311,6 +311,10 @@ _DECLARED = {
     # boundary. It runs in a dedicated shard against a disposable copy rather
     # than rewriting generated artifacts beneath sibling workers.
     "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
+    # Row 243's tracked launcher census spans toolchain/bin and its behavioral
+    # proof drives a real copied tool plus the canonical mutation engine. A
+    # diff-derived band cannot protect a launch added in some other tool.
+    "tests/test_row243_owned_pytest_inline_registration.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",
@@ -658,7 +662,7 @@ _DECLARED = {
 # scheduled alongside the existing registry-transaction gate.
 # 188 -> 189 at row 308 (2026-08-27). This cut adds exactly one repo-wide
 # visual-audit identity gate to the declaration and tree-gates-3 shard.
-_EXPECTED_DECLARED_GATE_COUNT = 192
+_EXPECTED_DECLARED_GATE_COUNT = 193
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

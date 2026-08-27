@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "The representative runtime transform bypasses the inline bd-jobs call while leaving pytest executable; the named catcher must fail on the missing exact entry.",
+  "subject": "row 243 inline same-pid pytest registration",
+  "band": [
+    "tests/test_row243_owned_pytest_inline_registration.py::test_bd_ladder_registers_exactly_once_before_work"
+  ],
+  "mutants": [
+    {
+      "label": "bd-ladder runs pytest after suppressing bd-jobs publication",
+      "file": "toolchain/bin/bd-ladder",
+      "old": "registration = subprocess.run(\n    [sys.executable, jobs, \"register\", \"--pid\", str(os.getpid()),\n     \"--purpose\", purpose, \"--cmd\", command],\n    capture_output=True, text=True,\n)",
+      "new": "registration = subprocess.CompletedProcess([], 0, \"\", \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row243_owned_pytest_inline_registration.py::test_bd_ladder_registers_exactly_once_before_work"
+    }
+  ]
+}

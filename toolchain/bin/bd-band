@@ -37,14 +37,114 @@ Exit 0 = all suites Failed:0 ; 1 = any failure/timeout/missing suite.
 """
 import argparse
 import os
+import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
 
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import bdtools_sec as sec  # noqa: E402
+
+def _resolve_default_work():
+    env = os.environ.get("BD_ROOT")
+    if env and os.path.isfile(os.path.join(env, "bulk_downloader", "__init__.py")):
+        return env
+    directory = os.path.dirname(os.path.realpath(__file__))
+    for _ in range(8):
+        if os.path.isfile(os.path.join(directory, "bulk_downloader", "__init__.py")):
+            return directory
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return os.environ.get("BD_WORK_TREE", os.getcwd())
+
+
+DEFAULT_WORK = _resolve_default_work()
+EXIT_CANNOT_EVALUATE = 2
+
+
+def _imports_pytest(executable, timeout=30):
+    try:
+        return subprocess.run(
+            [executable, "-c", "import pytest"], capture_output=True,
+            timeout=timeout).returncode == 0
+    except Exception:
+        return False
+
+
+def _resolve_test_interpreter(work=None):
+    work = work or DEFAULT_WORK
+    candidates = [os.path.join(work, "venv", "bin", "python"),
+                  os.path.join(DEFAULT_WORK, "venv", "bin", "python"),
+                  sys.executable, shutil.which("python3") or ""]
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.exists(candidate) and _imports_pytest(candidate):
+            return candidate
+    return None
+
+
+# INLINE BY DESIGN (row 243).  This block is duplicated in every owning pytest
+# launcher so a byte-for-byte copy of this tool has no sibling Python import.
+# The bootstrap registers its own PID, refuses if publication fails, and only
+# then imports pytest.  runpy keeps registration and pytest in the same process
+# without a wrapper file or an exec hand-off.
+_PYTEST_REGISTRATION_BOOTSTRAP = r'''\
+import os
+import runpy
+import shlex
+import subprocess
+import sys
+
+jobs, purpose, *pytest_args = sys.argv[1:]
+command = shlex.join([sys.executable, "-m", "pytest", *pytest_args])
+registration = subprocess.run(
+    [sys.executable, jobs, "register", "--pid", str(os.getpid()),
+     "--purpose", purpose, "--cmd", command],
+    capture_output=True, text=True,
+)
+if registration.returncode:
+    detail = (registration.stdout + registration.stderr).strip()
+    print("BD-PYTEST REFUSED: registration failed before pytest import/work"
+          + (": " + detail if detail else ""), file=sys.stderr)
+    raise SystemExit(3)
+sys.argv[:] = ["pytest", *pytest_args]
+runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+'''
+
+
+def _registered_pytest_argv(python, purpose, *pytest_args, work=None):
+    """Return a same-PID, register-before-import pytest command."""
+    candidates = []
+    if work is not None:
+        candidates.append(pathlib.Path(work) / "toolchain" / "bin" / "bd-jobs")
+    here = pathlib.Path(__file__).resolve()
+    candidates.append(here.with_name("bd-jobs"))
+    if len(here.parents) >= 3:
+        candidates.append(here.parents[2] / "toolchain" / "bin" / "bd-jobs")
+    try:
+        resolved_python = pathlib.Path(python).resolve()
+    except (OSError, RuntimeError):
+        resolved_python = None
+    if resolved_python is not None:
+        candidates.extend(
+            parent / "toolchain" / "bin" / "bd-jobs"
+            for parent in resolved_python.parents
+        )
+    installed = shutil.which("bd-jobs")
+    if installed:
+        candidates.append(pathlib.Path(installed))
+    jobs = next((path for path in candidates if path.is_file()), None)
+    if jobs is None:
+        raise RuntimeError(
+            "owned pytest launch refused: bd-jobs is not reachable; nothing ran")
+    return [str(python), "-c", _PYTEST_REGISTRATION_BOOTSTRAP,
+            str(jobs), str(purpose), *[str(arg) for arg in pytest_args]]
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -170,7 +270,7 @@ def main(argv=None):
     if "--selftest" in _s.argv: return selftest()
     ap = argparse.ArgumentParser(prog="bd-band")
     ap.add_argument("suites", nargs="+", help="specific test files, e.g. tests/test_x.py")
-    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--work","--tree", default=DEFAULT_WORK)
     ap.add_argument("--from-zip", help="extract this zip and band from the pristine tree")
     ap.add_argument("--timeout", type=int, default=240, help="per-suite timeout seconds")
     ap.add_argument("--skip-bandcheck", action="store_true",
@@ -247,12 +347,12 @@ def main(argv=None):
     # run_tests.py under it reports failures that do not exist (CLAUDE.md s5).
     # None is a verdict -- refuse rather than band on an interpreter whose
     # failures would be artifacts read as results.
-    py = sec.resolve_test_interpreter(rundir)
+    py = _resolve_test_interpreter(rundir)
     if py is None:
         print(f"{R}BD-BAND UNEVALUABLE{RST} no interpreter under {rundir} can "
               f"import pytest. Banding on one that cannot would report failures "
               f"that are interpreter artifacts, not defects.")
-        return sec.EXIT_CANNOT_EVALUATE
+        return EXIT_CANNOT_EVALUATE
     print(f"  {DIM}interpreter: {py}{RST}")
     allok = True
     results = []
@@ -273,7 +373,9 @@ def main(argv=None):
         # manufactured. The shim's own docstring says it is "NOT a replacement
         # for pytest in production" and exists for environments without pytest;
         # the guard above means this is never one.
-        r = run([py, "-m", "pytest", s, "-q", "-p", "no:randomly"],
+        r = run(_registered_pytest_argv(
+                    py, f"bd-band {s}", s, "-q", "-p", "no:randomly",
+                    work=rundir),
                 cwd=rundir, env=env, timeout=a.timeout)
         blob = r.stdout + r.stderr
         tail = blob.strip().splitlines()
