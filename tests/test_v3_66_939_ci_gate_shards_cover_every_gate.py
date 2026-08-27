@@ -89,6 +89,10 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Row 261. Replication start/stop owns one sidecar and signals only the
+    # process identity it launched. This real-process gate forces lifecycle
+    # lock contention and checks every direct/HTTP acquisition for re-entry.
+    "tests/test_v3_66_261_contended_lifecycle_lock.py",
     # Backlog row 311 / F16. Separate app processes write one shared config;
     # this real-process gate forces their stale-read schedule, proves the two
     # lock acquisitions use one exact file, and preserves both disjoint keys.
@@ -292,6 +296,10 @@ _DECLARED = {
     # checkout, so its real-process transaction gate runs on every PR rather
     # than depending on a diff router to infer this operational-tool coupling.
     "tests/test_v3_66_283_bd_claim_transactions.py",
+    # Row 295. Non-cooperating observers do not take the registry lock, so the
+    # claim publisher must keep the old complete record visible until one
+    # atomic pathname replacement publishes the new complete record.
+    "tests/test_v3_66_295_bd_claim_atomic_union.py",
     # @1256, backlog row 250. bd-regen-order is run on every cut, and its
     # selftest is the only precondition for treating the complete CHAIN as the
     # current generator denominator. A dropped member changes no application
@@ -640,10 +648,11 @@ _DECLARED = {
 # once in this declaration and once in the jobs-determinism shard.
 # 176 -> 177 at backlog row 311. The new real-process app_config transaction
 # gate is one module-scoped safety boundary pinned into application-safety.
-_EXPECTED_DECLARED_GATE_COUNT = 188
-_EXPECTED_DECLARED_GATE_COUNT = 184
-_EXPECTED_DECLARED_GATE_COUNT = 179
-_EXPECTED_DECLARED_GATE_COUNT = 189
+# 188 -> 189 at row 261. The real-process replication lifecycle gate is one
+# module-scoped PID-signal safety boundary pinned into application-safety.
+# 188 -> 189 at row 295. The bd-claim atomic-publication gate is declared and
+# scheduled alongside the existing registry-transaction gate.
+_EXPECTED_DECLARED_GATE_COUNT = 191
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

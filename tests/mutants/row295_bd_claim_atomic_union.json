@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 295 keeps row 283's shared registry lock and adds atomic claim publication. M1 removes the lock while preserving valid Python; M2 restores publication directly to the visible pathname. Both are observed during the same paused add and must be CAUGHT. The companion transform-control spec points the identical M1 transform at an import-only node and must ESCAPE.",
+  "subject": "bd-claim holds the shared registry lock while publishing every complete claim by atomic replacement",
+  "band": [
+    "tests/test_v3_66_295_bd_claim_atomic_union.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 claim publication no longer holds the shared registry lock",
+      "file": "toolchain/bin/bd-claim",
+      "old": "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n        try:\n            yield",
+      "new": "        try:\n            yield",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_295_bd_claim_atomic_union.py::test_registry_lock_and_atomic_publish_hold_during_the_same_add"
+    },
+    {
+      "label": "M2 claim publication writes directly to the visible final pathname",
+      "file": "toolchain/bin/bd-claim",
+      "old": "        _publish_claim(claims_dir(repo) / f\"{tok}.json\", rec)",
+      "new": "        (claims_dir(repo) / f\"{tok}.json\").write_text(\n            json.dumps(rec, indent=1), encoding=\"utf-8\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_295_bd_claim_atomic_union.py::test_registry_lock_and_atomic_publish_hold_during_the_same_add"
+    }
+  ]
+}

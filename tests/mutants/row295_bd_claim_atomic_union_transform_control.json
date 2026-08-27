@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 295. The exact valid M1 lock-removal transform is applied while the named node only imports bd-claim and checks callability. It must ESCAPE, proving the main battery's CAUGHT results are behavioral assertions rather than parse, import, or collection failures.",
+  "subject": "removing the claim registry lock leaves bd-claim importable when atomic-union behavior is not asserted",
+  "band": [
+    "tests/test_v3_66_295_bd_claim_atomic_union.py::test_transform_control_imports_without_asserting_union_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL claim publication no longer holds the shared registry lock",
+      "file": "toolchain/bin/bd-claim",
+      "old": "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n        try:\n            yield",
+      "new": "        try:\n            yield",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_295_bd_claim_atomic_union.py::test_transform_control_imports_without_asserting_union_behavior"
+    }
+  ]
+}

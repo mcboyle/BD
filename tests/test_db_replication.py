@@ -143,6 +143,146 @@ def test_default_cfg_is_off_and_has_replica_root():
     assert cfg.get("replica_root")  # non-empty default path
 
 
+def test_repeated_start_spawns_exactly_one_sidecar():
+    """The second start reaches the owned-instance refusal, not Popen."""
+    from bulk_downloader import db_replication as R
+    base = _mkbase_with_config({"enabled": True})
+    _plant_sqlite(base, "queue.db")
+    saved_available = R.litestream_available
+    saved_popen = R.subprocess.Popen
+    missing = object()
+    saved_alive = getattr(R, "_pid_alive", missing)
+    saved_start = getattr(R, "_proc_start", missing)
+    spawns = []
+
+    class FakeProc:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def terminate(self):
+            raise AssertionError("a successfully recorded fake must not be terminated")
+
+    def fake_popen(*args, **kwargs):
+        spawns.append((args, kwargs))
+        return FakeProc(41111 + len(spawns))
+
+    try:
+        R.litestream_available = lambda: True
+        R.subprocess.Popen = fake_popen
+        R._pid_alive = lambda pid: True
+        R._proc_start = lambda pid: "start-%d" % pid
+        first = R.start_replication(base_dir=base)
+        second = R.start_replication(base_dir=base)
+    finally:
+        R.litestream_available = saved_available
+        R.subprocess.Popen = saved_popen
+        if saved_alive is missing:
+            delattr(R, "_pid_alive")
+        else:
+            R._pid_alive = saved_alive
+        if saved_start is missing:
+            delattr(R, "_proc_start")
+        else:
+            R._proc_start = saved_start
+
+    assert first["ok"] is True, first
+    assert second["ok"] is False, second
+    assert "already" in second.get("reason", "").lower(), second
+    assert len(spawns) == 1, "repeated start spawned %d sidecars" % len(spawns)
+
+
+def test_stop_refuses_an_unidentified_legacy_pid_without_signalling():
+    """A numeric-only pidfile is not authority to signal that PID."""
+    from bulk_downloader import db_replication as R
+    base = _mkbase_with_config({"enabled": True})
+    pidfile = os.path.join(base, R._PIDFILE_BASENAME)
+    with open(pidfile, "w") as fh:
+        fh.write("42222")
+    saved_kill = R.os.kill
+    signals = []
+    try:
+        R.os.kill = lambda pid, sig: signals.append((pid, sig))
+        out = R.stop_replication(base_dir=base)
+    finally:
+        R.os.kill = saved_kill
+    assert out["ok"] is False, out
+    assert "identity" in out.get("reason", "").lower(), out
+    assert signals == [], "numeric-only identity triggered signals: %r" % signals
+    assert os.path.exists(pidfile), "unverifiable ownership evidence was discarded"
+
+
+def test_owned_identity_reaches_exactly_one_pidfd_signal():
+    """Negative control: a matching identity still has a reachable stop path."""
+    from bulk_downloader import db_replication as R
+    base = _mkbase_with_config({"enabled": True})
+    pid = 43333
+    pidfile = os.path.join(base, R._PIDFILE_BASENAME)
+    with open(pidfile, "w") as fh:
+        json.dump({"schema": "bd-litestream-pid/1", "pid": pid,
+                   "start": "start-43333"}, fh)
+
+    missing = object()
+    names = ("_open_pidfd", "_send_pidfd_term", "_close_pidfd", "_proc_start")
+    saved = {name: getattr(R, name, missing) for name in names}
+    opened = []
+    sent = []
+    closed = []
+    try:
+        R._open_pidfd = lambda value: opened.append(value) or 91
+        R._send_pidfd_term = lambda fd: sent.append(fd)
+        R._close_pidfd = lambda fd: closed.append(fd)
+        R._proc_start = lambda value: "start-43333"
+        out = R.stop_replication(base_dir=base)
+    finally:
+        for name, value in saved.items():
+            if value is missing:
+                delattr(R, name)
+            else:
+                setattr(R, name, value)
+
+    assert out == {"ok": True, "stopped": True}, out
+    assert opened == [pid]
+    assert sent == [91]
+    assert closed == [91]
+    assert not os.path.exists(pidfile)
+
+
+def test_reused_pid_identity_is_closed_without_signalling():
+    """A pidfd alone is insufficient when the recorded start tick differs."""
+    from bulk_downloader import db_replication as R
+    base = _mkbase_with_config({"enabled": True})
+    pid = 44444
+    pidfile = os.path.join(base, R._PIDFILE_BASENAME)
+    with open(pidfile, "w") as fh:
+        json.dump({"schema": "bd-litestream-pid/1", "pid": pid,
+                   "start": "owned-start"}, fh)
+
+    opened = []
+    sent = []
+    closed = []
+    saved = {
+        "_open_pidfd": R._open_pidfd,
+        "_send_pidfd_term": R._send_pidfd_term,
+        "_close_pidfd": R._close_pidfd,
+        "_proc_start": R._proc_start,
+    }
+    try:
+        R._open_pidfd = lambda value: opened.append(value) or 92
+        R._send_pidfd_term = lambda fd: sent.append(fd)
+        R._close_pidfd = lambda fd: closed.append(fd)
+        R._proc_start = lambda value: "reused-start"
+        out = R.stop_replication(base_dir=base)
+    finally:
+        for name, value in saved.items():
+            setattr(R, name, value)
+
+    assert out == {"ok": True, "stopped": False}, out
+    assert opened == [pid]
+    assert sent == [], "reused PID received a signal: %r" % sent
+    assert closed == [92]
+    assert not os.path.exists(pidfile)
+
+
 if __name__ == "__main__":
     # allow direct execution for quick RED/GREEN checks
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1300 - replication lifecycle locks are measured, not grepped (+1 file-disjoint row(s): 295)
+
+- replication lifecycle locks are measured rather than assumed: db_replication
+- contended acquisition is exercised directly by
+- PID and signal identity are checked before delivery, so a recycled PID cann
+- mutation spec row261_replication_lifecycle_identity.json with a transform
+- test_gitignore_rules_actually_match.py extended for the new artifacts
+- the CI shard registry gains the new gate so it runs where it can fail
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 189 -> 191.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1299 - the runner VPN kill-switch gate holds on an unmeasurable tunnel
 
 -      "sha256": "dfd224c3bfa0d57839af8d2c7b7b2a59cdbd93fda03f749f017eb60cb67

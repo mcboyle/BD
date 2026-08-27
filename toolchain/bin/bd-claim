@@ -64,6 +64,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -98,6 +99,29 @@ def _claims_lock(repo: Path):
             yield
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _publish_claim(path: Path, record: dict) -> None:
+    """Durably publish one complete record with an atomic pathname swap."""
+    directory = path.parent
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.stem}.", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as claim_file:
+            json.dump(record, claim_file, indent=1)
+            claim_file.flush()
+            os.fsync(claim_file.fileno())
+        os.replace(temporary, path)
+        directory_descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 
 def _alive(pid: int) -> bool:
@@ -327,8 +351,7 @@ def add(repo: Path, paths: list[str], label: str, owner: str | None = None,
                # diagnostics only -- NOT the key. Keeping them makes a stale claim
                # traceable without tempting anyone to match on them again.
                "pid": os.getpid(), "ppid": os.getppid()}
-        (claims_dir(repo) / f"{tok}.json").write_text(
-            json.dumps(rec, indent=1), encoding="utf-8")
+        _publish_claim(claims_dir(repo) / f"{tok}.json", rec)
     when = ("never" if expires_at is None
             else time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(expires_at)))
     print(f"claimed {len(rec['paths'])} path(s) as owner {tok}"

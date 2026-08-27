@@ -88,46 +88,28 @@ if bypass:
     subject._claims_lock = no_claims_lock
 
 if role == "A":
-    real_write_text = Path.write_text
+    real_publish = subject._publish_claim
     write_fires = 0
 
-    if scenario == "reader":
-        def controlled_write(self, data, *args, **kwargs):
-            global write_fires
-            if self != claim_file:
-                return real_write_text(self, data, *args, **kwargs)
-            write_fires += 1
-            fd = os.open(self, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
-            mark("begin-A")
-            (repo / "a-entered").touch()
-            wait_for(repo / "release-a", "the parent to release writer A")
-            try:
-                payload = data.encode(kwargs.get("encoding") or "utf-8")
-                os.write(fd, payload)
-            finally:
-                os.close(fd)
-            mark("end-A")
-            return len(data)
-    else:
-        def controlled_write(self, data, *args, **kwargs):
-            global write_fires
-            if self != claim_file:
-                return real_write_text(self, data, *args, **kwargs)
-            write_fires += 1
-            mark("begin-A")
-            (repo / "a-entered").touch()
-            wait_for(repo / "release-a", "the parent to release adder A")
-            written = real_write_text(self, data, *args, **kwargs)
-            mark("end-A")
-            return written
+    def controlled_publish(path, record):
+        global write_fires
+        if path != claim_file:
+            return real_publish(path, record)
+        write_fires += 1
+        mark("begin-A")
+        (repo / "a-entered").touch()
+        wait_for(repo / "release-a", "the parent to release publisher A")
+        published = real_publish(path, record)
+        mark("end-A")
+        return published
 
-    Path.write_text = controlled_write
+    subject._publish_claim = controlled_publish
     try:
         rc = subject.add(repo, ["adder-a.py" if scenario == "adder"
                                 else "mid-write.py"], "A",
                          owner="shared-owner", ttl=0)
     finally:
-        Path.write_text = real_write_text
+        subject._publish_claim = real_publish
     (repo / "a-result.json").write_text(json.dumps({
         "rc": rc,
         "write_fires": write_fires,
@@ -138,22 +120,28 @@ else:
 
     if scenario == "reader":
         real_read_text = Path.read_text
+        real_live_claims_locked = subject._live_claims_locked
         read_fires = 0
 
         def controlled_read(self, *args, **kwargs):
             global read_fires
             if self == claim_file:
                 read_fires += 1
-                mark("begin-B")
-                (repo / "b-entered").touch()
             return real_read_text(self, *args, **kwargs)
 
+        def controlled_live_claims_locked(*args, **kwargs):
+            mark("begin-B")
+            (repo / "b-entered").touch()
+            return real_live_claims_locked(*args, **kwargs)
+
         Path.read_text = controlled_read
+        subject._live_claims_locked = controlled_live_claims_locked
         reaped = []
         try:
             live = subject.live_claims(repo, reaped=reaped)
         finally:
             Path.read_text = real_read_text
+            subject._live_claims_locked = real_live_claims_locked
         mark("end-B")
         result = {
             "live": live,
@@ -161,26 +149,26 @@ else:
             "reaped": reaped,
         }
     else:
-        real_write_text = Path.write_text
+        real_publish = subject._publish_claim
         write_fires = 0
 
-        def controlled_write(self, data, *args, **kwargs):
+        def controlled_publish(path, record):
             global write_fires
-            if self != claim_file:
-                return real_write_text(self, data, *args, **kwargs)
+            if path != claim_file:
+                return real_publish(path, record)
             write_fires += 1
             mark("begin-B")
             (repo / "b-entered").touch()
-            written = real_write_text(self, data, *args, **kwargs)
+            published = real_publish(path, record)
             mark("end-B")
-            return written
+            return published
 
-        Path.write_text = controlled_write
+        subject._publish_claim = controlled_publish
         try:
             rc = subject.add(repo, ["adder-b.py"], "B",
                              owner="shared-owner", ttl=0)
         finally:
-            Path.write_text = real_write_text
+            subject._publish_claim = real_publish
         result = {"rc": rc, "write_fires": write_fires}
 
     (repo / "b-result.json").write_text(json.dumps(result), encoding="utf-8")
@@ -304,8 +292,8 @@ def _assert_common_preconditions(observation: dict, scenario: str) -> None:
     if scenario == "reader" and observation["b_finished_while_a_held"]:
         expected_b = {
             "live": [],
-            "read_fires": 1,
-            "reaped": [["shared-owner.json", "unreadable"]],
+            "read_fires": 0,
+            "reaped": [],
         }
     assert observation["b_result"] == expected_b
     assert observation["marker_counts"] == {
@@ -314,12 +302,8 @@ def _assert_common_preconditions(observation: dict, scenario: str) -> None:
         "end-A": 1,
         "end-B": 1,
     }
-    if scenario == "reader":
-        assert observation["claim_exists_while_a_paused"] is True
-        assert observation["claim_bytes_while_a_paused"] == ""
-    else:
-        assert observation["claim_exists_while_a_paused"] is False
-        assert observation["claim_bytes_while_a_paused"] is None
+    assert observation["claim_exists_while_a_paused"] is False
+    assert observation["claim_bytes_while_a_paused"] is None
 
 
 def _assert_serialized(observation: dict) -> None:
@@ -333,7 +317,10 @@ def _assert_reader_preserved_claim(observation: dict) -> None:
     assert observation["final_record"] is not None, (
         "concurrent reader erased the claim that writer A was still writing; "
         f"trace={observation['trace']!r} reader={observation['b_result']!r}")
-    assert observation["final_record"] == observation["b_result"]["live"][0]
+    assert observation["b_result"]["live"] == [observation["final_record"]], (
+        "concurrent reader crossed the registry transaction before claim "
+        f"publication; trace={observation['trace']!r} "
+        f"reader={observation['b_result']!r}")
     assert observation["final_record"]["paths"] == ["mid-write.py"]
     assert set(observation["final_record"]) == {
         "owner", "owner_pid", "owner_start", "expires_at", "label",
@@ -374,16 +361,17 @@ def test_concurrent_adders_preserve_both_path_sets(tmp_path):
     _assert_adders_preserved_both_paths(observation)
 
 
-def test_reader_race_negative_control_interleaves_and_erases(tmp_path):
+def test_reader_race_negative_control_interleaves_before_publish(tmp_path):
     observation = _exercise_race(tmp_path, scenario="reader", bypass=True)
     assert observation["bypass"] is True
     _assert_common_preconditions(observation, "reader")
     assert observation["trace"] == _DESTRUCTIVE_TRACE
     assert observation["b_entered_while_a_held"] is True
     assert observation["b_finished_while_a_held"] is True
-    assert observation["final_bytes"] is None
-    assert observation["final_record"] is None
-    with pytest.raises(AssertionError, match="concurrent reader erased the claim"):
+    assert observation["final_record"]["paths"] == ["mid-write.py"]
+    assert observation["b_result"] == {
+        "live": [], "read_fires": 0, "reaped": []}
+    with pytest.raises(AssertionError, match="reader crossed the registry transaction"):
         _assert_reader_preserved_claim(observation)
 
 
