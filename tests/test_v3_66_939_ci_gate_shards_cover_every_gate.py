@@ -204,6 +204,10 @@ _DECLARED = {
     "tests/test_csrf_contract_reachability.py",
     "tests/test_csrf_tool_contracts.py",
     "tests/test_spa_root_routing_contract.py",
+    # Row 310. This gate judges every eligible runtime GET rule and the shipped
+    # template/SPA surface, so it is tree-wide. It lives in the Node-enabled
+    # parity shard because its static half performs an attempt-owned SPA build.
+    "tests/test_secret_display_never.py",
     "tests/test_cockpit_route_contract.py",
     "tests/test_cockpit_navigation_contract.py",
     "tests/test_pk_mirrors_stay_retired.py",
@@ -216,6 +220,10 @@ _DECLARED = {
     # and drives both the refusal and owned-cleanup branches. A diff-derived
     # band cannot protect callers who export BD_COCKPIT_TASKS before any test.
     "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py",
+    # Row 300. The real X display is host-global, so this gate forces the
+    # foreign-process race, proves the atomic claim, and verifies exact owned
+    # teardown on every PR independently of which test files a diff touches.
+    "tests/test_row300_parallel_display_cleanup_owns_process.py",
     # F31. This gate measures every child-test launch that used to forward an
     # operator BD_INSTALL_DIR, drives a real nested bd-band against a
     # sacrificial database root, and proves the central autouse pop plus the
@@ -399,6 +407,11 @@ _DECLARED = {
     # measured on any PR. A gate CI does not run does not exist.
     "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
     "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py",
+    # Row 312. A numeric PID signal is a bystander-kill boundary even though
+    # this gate's source population is one tool. Run the forced exit/reuse
+    # interleave on every PR; a diff-derived band is not release evidence that
+    # the safety assertion itself remains reachable in CI.
+    "tests/test_row312_bd_jobs_reap_holds_identity.py",
     # @1207 determinism review. These are the other row-212 contracts whose
     # subjects do not become safe merely because a diff-derived local band can
     # find them: 1132 owns registration-failure process restoration and 1106
@@ -611,7 +624,13 @@ _DECLARED = {
 # a repo-wide gate and this cut adds exactly one declaration and shard entry.
 # 177 -> 178 at row 313. The cut adds exactly one module-scoped bd-job
 # identity gate to both the independent declaration and the toolchain shard.
-_EXPECTED_DECLARED_GATE_COUNT = 184
+# 176 -> 177 at row 300: the display-ownership gate is declared and scheduled
+# in the isolation shard in the same cut.
+# 176 -> 177 at row 310 (2026-08-27). The legacy secret-display gate now
+# declares its repo-wide scope and is executed in exactly one shard.
+# 176 -> 177 at row 312 (2026-08-27). The one new pidfd identity gate is named
+# once in this declaration and once in the jobs-determinism shard.
+_EXPECTED_DECLARED_GATE_COUNT = 187
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

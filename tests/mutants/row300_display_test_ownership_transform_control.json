@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 300 transform control. This spec is expected to exit 1 with one valid ESCAPED mutant: it applies the exact M2 fixed-lock bare-PID cleanup transform, but its catcher only imports the display-owner context without invoking cleanup. The escape proves the primary catch is a behavioral assertion failure rather than a parse, import, or collection failure.",
+  "subject": "transform-only control for the valid fixed-lock bare-PID cleanup mutant",
+  "band": [
+    "tests/test_row300_parallel_display_cleanup_owns_process.py::test_transform_control_imports_display_owner_without_asserting_cleanup"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 fixed :71 lock-file PID kill escapes an import-only control",
+      "file": "tests/test_capture_provides_a_display.py",
+      "old": "                if owned is not None:\n                    _terminate_owned_display(owned)\n",
+      "new": "                lock = Path(\"/tmp/.X71-lock\")\n                pid = lock.read_text(encoding=\"ascii\").strip() if lock.exists() else \"\"\n                if pid.isdigit():\n                    subprocess.run([\"kill\", pid], capture_output=True)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row300_parallel_display_cleanup_owns_process.py::test_transform_control_imports_display_owner_without_asserting_cleanup"
+    }
+  ]
+}

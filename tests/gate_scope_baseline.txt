@@ -457,7 +457,6 @@ tests/test_run03_resolve_safe_no_secret_log.py
 tests/test_runner_manual_characterization.py
 tests/test_runner_template_assist_patch.py
 tests/test_scan_version_pins_fixture.py
-tests/test_secret_display_never.py
 tests/test_secret_rotation_age.py
 tests/test_secrets_audit.py
 tests/test_secrets_endpoints.py

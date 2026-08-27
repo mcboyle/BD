@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 312. This applies the identical valid M1 numeric-signal transform, then runs a node that imports bd-jobs and asserts only that cmd_reap exists. It must ESCAPE; CAUGHT would mean parse/import/transform failure rather than a behavioral assertion and would invalidate the primary battery.",
+  "subject": "transform control -- numeric signal mutant under an import-only-for-reap-behavior test",
+  "band": [
+    "tests/test_row312_bd_jobs_reap_holds_identity.py::test_transform_control_imports_subject_without_reap_assertions"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL numeric PID signaling is not judged by an import-only behavior node",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            signal.pidfd_send_signal(fd, signal.SIGKILL)",
+      "new": "            os.kill(target_pid, signal.SIGKILL)",
+      "direction": "regression",
+      "catcher": "tests/test_row312_bd_jobs_reap_holds_identity.py::test_transform_control_imports_subject_without_reap_assertions"
+    }
+  ]
+}

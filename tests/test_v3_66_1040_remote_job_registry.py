@@ -5300,22 +5300,20 @@ def test_reap_cancellation_stops_before_the_next_entry_unchanged(
     inspected, forgotten, signals = [], [], []
     monkeypatch.setattr(jobs, "load_all", lambda: entries)
 
-    def starttime(pid):
-        inspected.append(pid)
-        if branch == "dead":
-            return None
-        if branch == "recycled":
-            return 2
-        return 1
+    def identity_bound_reap(entry):
+        inspected.append(entry["pid"])
+        if branch in ("dead", "recycled"):
+            return {"state": "STALE", "notes": [branch]}
+        signals.append(entry["pid"])
+        return {"state": "REAPED", "scope": "injected exact identity",
+                "notes": []}
 
     def cancel_forget(entry):
         forgotten.append(entry["id"])
         raise primary
 
-    monkeypatch.setattr(jobs, "proc_starttime", starttime)
+    monkeypatch.setattr(jobs, "_identity_bound_reap", identity_bound_reap)
     monkeypatch.setattr(jobs, "_forget_or_retain", cancel_forget)
-    monkeypatch.setattr(jobs.os, "getpgid", lambda pid: pid)
-    monkeypatch.setattr(jobs.os, "killpg", lambda pid, sig: signals.append(pid))
     with pytest.raises(BaseException) as raised:
         jobs.cmd_reap(type("A", (), {"id": None})())
 
@@ -10216,19 +10214,22 @@ def test_reader_request_id_grammar_keeps_bad_evidence_and_reaps_valid_sibling(
     bad_final.write_text(json.dumps(bad), encoding="utf-8")
     before = bad_final.read_bytes()
     signaled = []
-    real_killpg = jobs.os.killpg
-    real_kill = jobs.os.kill
+    real_pidfd_open = jobs.os.pidfd_open
+    real_pidfd_signal = jobs.signal.pidfd_send_signal
+    opened = {}
 
-    def track_killpg(pid, sig):
-        signaled.append(pid)
-        return real_killpg(pid, sig)
+    def track_pidfd_open(pid, flags=0):
+        fd = real_pidfd_open(pid, flags)
+        opened[fd] = pid
+        return fd
 
-    def track_kill(pid, sig):
-        signaled.append(pid)
-        return real_kill(pid, sig)
+    def track_pidfd_signal(fd, sig, *args):
+        assert fd in opened, "signal used a handle this test never observed"
+        signaled.append(opened[fd])
+        return real_pidfd_signal(fd, sig, *args)
 
-    monkeypatch.setattr(jobs.os, "killpg", track_killpg)
-    monkeypatch.setattr(jobs.os, "kill", track_kill)
+    monkeypatch.setattr(jobs.os, "pidfd_open", track_pidfd_open)
+    monkeypatch.setattr(jobs.signal, "pidfd_send_signal", track_pidfd_signal)
     try:
         list_rc = jobs.cmd_list(type("A", (), {})())
         list_out, list_err = capsys.readouterr()

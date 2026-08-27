@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 91,
+    "total": 94,
     "version": 1,
-    "count_dict": 90,
-    "test_files_scanned": 1449,
+    "count_dict": 93,
+    "test_files_scanned": 1451,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -34,7 +34,7 @@
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
-      "tests/test_secret_display_never.py": 1,
+      "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
       "tests/test_toolchain_534.py": 1,
@@ -259,7 +259,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
-      "line": 450,
+      "line": 594,
       "value": {
         "copy": 1,
         "build": 1
@@ -267,10 +267,55 @@
       "gates_what": "test_secret_surface_build_invokes_exactly_one_fresh_build — The static gate cannot silently return to the checkout's absent dist."
     },
     {
+      "form": "count_dict",
+      "file": "tests/test_secret_display_never.py",
+      "line": 794,
+      "value": {
+        "context": 1,
+        "queue": 1,
+        "process": 2,
+        "start": 2,
+        "get": 2,
+        "terminate": 2,
+        "join": 2
+      },
+      "gates_what": "test_runtime_route_scan_reconciles_two_complete_shards — Positive control: two complete eight-route receipts reconcile to 16."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_secret_display_never.py",
+      "line": 817,
+      "value": {
+        "context": 1,
+        "queue": 1,
+        "process": 2,
+        "start": 2,
+        "get": 2,
+        "terminate": 2,
+        "join": 2
+      },
+      "gates_what": "test_runtime_route_scan_rejects_one_missing_shard_as_unknown — Negative control: 1/2 receipts is UNKNOWN, never partial success."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_secret_display_never.py",
+      "line": 845,
+      "value": {
+        "context": 1,
+        "queue": 1,
+        "process": 2,
+        "start": 2,
+        "get": 2,
+        "terminate": 2,
+        "join": 2
+      },
+      "gates_what": "test_runtime_route_scan_rejects_one_unexecuted_route_as_unknown — Negative control: complete shard receipts cannot hide a skipped route."
+    },
+    {
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1296",
+      "value": "3.66.1297",
       "gates_what": "test_containment_routes_and_version"
     },
     {
