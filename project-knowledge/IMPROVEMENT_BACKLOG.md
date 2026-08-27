@@ -2,7 +2,7 @@
 
 ASCII-only.
 
-<!-- canonical-task-register schema=1 rows=295 open=4 ids-sha256=a58f2e1ee5c900faff835e1ce53b974da0f0bee81087711d4cfa70c9ed991005 -->
+<!-- canonical-task-register schema=1 rows=296 open=4 ids-sha256=d4a37ab31faee50d1a714278505bc24cae1d5b94be4c93010486fa22704bcc56 -->
 
 ## Why this file exists
 
@@ -377,3 +377,4 @@ proving nothing was lost. Nothing was lost here that any commit ever held.
 | 295 |   CLOSED @1300 | BD-CLAIM-UNION-PUBLISH-WAS-NOT-ATOMIC -- a claim that added paths could be observed half-written by a concurrent reader. bd-claim now publishes the union atomically, keeping the existing transaction locking rather than introducing a second locking design. New gate asserts a concurrent reader never sees a torn claim; mutation spec with a transform control that must escape. |
 | 308 |   CLOSED @1301 | VISUAL-AUDIT-BUILDERS-CARRIED-A-HARDCODED-VERSION -- the builders stamped a version literal instead of deriving the capture release identity. They now derive it, running the identity check before the manifest population contract so the population error cannot mask the identity error, and refuse before emitting any audit evidence when the identity is unavailable, malformed or mismatched. |
 | 317 |   CLOSED @1301 | MUTATION-SPEC-GATE-SPAWNED-ITS-COLLECTIONS-IN-SERIES -- the gate ran one pytest --collect-only subprocess per tracked mutation spec, one after another, on every precut. Collection is now concurrent and bounded, with the processed count asserted equal to the tracked population so parallelism cannot drop a spec, and an errored or timed-out collection still failing the gate. |
+| 321 |   CLOSED @1302 | TMP-CENSUS-CALLED-A-VANISHING-ENTRY-AN-UNMEASURABLE-TMP -- bd-fleet mapped any nonzero `find /tmp` exit to tmp_bd=unknown, including the transient ENOENT raised when an entry disappears mid-walk. The suite's own 24 xdist workers churn /tmp constantly, so the fail-closed gate raced the environment it runs inside. A vanished entry now keeps the count; a real measurement failure still returns unknown, with a negative control proving it. |
