@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 261. The identical valid early-unlock transform runs only the deliberate lock-bypass negative control and must ESCAPE, proving the contention catch is behavioral rather than a parse, import, collection, or transform failure.",
+  "subject": "transform control for releasing the replication lifecycle lock early",
+  "band": [
+    "tests/test_v3_66_261_contended_lifecycle_lock.py::test_lifecycle_contention_negative_control_interleaves_without_lock"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL release the lifecycle lock before the bypass-control operation",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "        _lock_lifecycle_file(lock_file)\n        try:\n            yield\n        finally:\n            _unlock_lifecycle_file(lock_file)\n",
+      "new": "        _lock_lifecycle_file(lock_file)\n        _unlock_lifecycle_file(lock_file)\n        yield\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_261_contended_lifecycle_lock.py::test_lifecycle_contention_negative_control_interleaves_without_lock"
+    }
+  ]
+}

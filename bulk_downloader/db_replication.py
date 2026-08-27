@@ -28,11 +28,20 @@ be layered on in a small follow-cut.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
+import signal
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
 
 # Candidate stores in priority order. ``replication_stores`` filters this to the
 # ones that actually exist on disk, so an install that uses only some of them
@@ -47,6 +56,8 @@ REPLICABLE_STORES = (
 
 _CONFIG_BASENAME = "litestream.yml"
 _PIDFILE_BASENAME = ".litestream.pid"
+_LOCKFILE_BASENAME = ".litestream.lifecycle.lock"
+_PID_SCHEMA = "bd-litestream-pid/1"
 
 
 # ── paths / config ──────────────────────────────────────────────────────
@@ -165,17 +176,131 @@ def write_litestream_config(base_dir: str | os.PathLike | None = None) -> dict:
 
 # ── status (never raises) ───────────────────────────────────────────────
 
-def _running_pid(base_dir: str | os.PathLike | None = None) -> int | None:
-    """Best-effort: read the pidfile and check the process is alive. Returns the
-    pid or None. Never raises."""
-    base = _base(base_dir)
+def _pid_path(base_dir: str | os.PathLike | None = None) -> str:
+    return os.path.join(_base(base_dir), _PIDFILE_BASENAME)
+
+
+def _proc_start(pid: int) -> str | None:
+    """Return a Linux process's start tick (field 22), when available."""
     try:
-        with open(os.path.join(base, _PIDFILE_BASENAME), "r") as fh:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            line = fh.read()
+    except OSError:
+        return None
+    tail = line.rsplit(")", 1)
+    if len(tail) != 2:
+        return None
+    fields = tail[1].split()
+    return fields[19] if len(fields) > 19 else None
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _read_pid_record(base_dir: str | os.PathLike | None = None) -> dict | None:
+    try:
+        with open(_pid_path(base_dir), "r", encoding="utf-8") as fh:
+            row = json.load(fh)
+        if (not isinstance(row, dict) or row.get("schema") != _PID_SCHEMA
+                or not isinstance(row.get("pid"), int) or row["pid"] <= 0
+                or not isinstance(row.get("start"), str) or not row["start"]):
+            return None
+        return {"pid": row["pid"], "start": row["start"]}
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _write_pid_record(base_dir, pid: int, start: str) -> None:
+    """Atomically publish the PID together with its non-reusable identity."""
+    base = _base(base_dir)
+    fd, tmp = tempfile.mkstemp(prefix=".litestream.pid.", suffix=".tmp", dir=base)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"schema": _PID_SCHEMA, "pid": pid, "start": start}, fh)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, _pid_path(base_dir))
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def _lock_lifecycle_file(lock_file) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        return
+    lock_file.seek(0, os.SEEK_END)
+    if lock_file.tell() == 0:
+        lock_file.write(b"\0")
+        lock_file.flush()
+    lock_file.seek(0)
+    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_lifecycle_file(lock_file) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+    lock_file.seek(0)
+    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def _lifecycle_lock(base_dir: str | os.PathLike | None = None):
+    """Serialize sidecar start and stop transactions across processes."""
+    lock_path = Path(_base(base_dir)) / _LOCKFILE_BASENAME
+    with lock_path.open("a+b") as lock_file:
+        if hasattr(os, "fchmod"):
+            os.fchmod(lock_file.fileno(), 0o600)
+        _lock_lifecycle_file(lock_file)
+        try:
+            yield
+        finally:
+            _unlock_lifecycle_file(lock_file)
+
+
+def _run_lifecycle_locked(base_dir, verb: str, operation):
+    """Run one lifecycle transaction and keep lock failures fail-closed."""
+    try:
+        with _lifecycle_lock(base_dir):
+            return operation()
+    except OSError as e:
+        return {"ok": False, "reason": f"cannot acquire {verb} lifecycle lock: {e}"}
+
+
+def _legacy_pid(base_dir: str | os.PathLike | None = None) -> int | None:
+    try:
+        with open(_pid_path(base_dir), "r", encoding="utf-8") as fh:
             pid = int(fh.read().strip())
-        os.kill(pid, 0)  # signal 0 == liveness probe
-        return pid
+        return pid if pid > 0 else None
     except (OSError, ValueError):
         return None
+
+
+def _remove_pidfile(base_dir) -> None:
+    try:
+        os.remove(_pid_path(base_dir))
+    except OSError:
+        pass
+
+
+def _running_pid(base_dir: str | os.PathLike | None = None) -> int | None:
+    """Return only a live PID whose start identity matches our record."""
+    row = _read_pid_record(base_dir)
+    if row is None or not _pid_alive(row["pid"]):
+        return None
+    return row["pid"] if _proc_start(row["pid"]) == row["start"] else None
 
 
 def replication_status(base_dir: str | os.PathLike | None = None) -> dict:
@@ -210,43 +335,122 @@ def start_replication(base_dir: str | os.PathLike | None = None) -> dict:
     stores = replication_stores(base_dir)
     if not stores:
         return {"ok": False, "reason": "no replicable SQLite stores found"}
-    wc = write_litestream_config(base_dir)
-    if not wc["ok"]:
-        return {"ok": False, "reason": wc.get("reason", "config write failed")}
-    base = _base(base_dir)
+    proc = None
+
+    def _start_locked():
+        nonlocal proc
+        row = _read_pid_record(base_dir)
+        if row is not None and _pid_alive(row["pid"]):
+            actual_start = _proc_start(row["pid"])
+            if actual_start == row["start"]:
+                return {"ok": False,
+                        "reason": f"replication already running as pid {row['pid']}"}
+            if actual_start is None:
+                return {"ok": False,
+                        "reason": "existing process identity cannot be verified"}
+            # A different start tick proves this PID is a foreign reused one.
+            _remove_pidfile(base_dir)
+        elif row is not None:
+            _remove_pidfile(base_dir)
+        elif os.path.exists(_pid_path(base_dir)):
+            # A live legacy numeric record may represent an older Litestream
+            # process. A malformed record is equally unknowable. Neither is
+            # authority to start a potentially untracked duplicate.
+            legacy = _legacy_pid(base_dir)
+            if legacy is None or _pid_alive(legacy):
+                return {"ok": False,
+                        "reason": "existing pidfile has no verifiable process identity"}
+            _remove_pidfile(base_dir)
+
+        wc = write_litestream_config(base_dir)
+        if not wc["ok"]:
+            return {"ok": False,
+                    "reason": wc.get("reason", "config write failed")}
+        try:
+            os.makedirs(cfg["replica_root"], exist_ok=True)
+            proc = subprocess.Popen(
+                ["litestream", "replicate", "-config", wc["path"]],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            start = _proc_start(proc.pid)
+            if start is None:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
+                return {"ok": False,
+                        "reason": "launched process identity is unavailable"}
+            _write_pid_record(base_dir, proc.pid, start)
+            return {"ok": True, "pid": proc.pid, "dbs": len(stores),
+                    "config": wc["path"]}
+        except OSError as e:
+            if proc is not None:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
+            return {"ok": False, "reason": f"failed to launch litestream: {e}"}
+
+    return _run_lifecycle_locked(base_dir, "start", _start_locked)
+
+
+def _open_pidfd(pid: int) -> int:
+    opener = getattr(os, "pidfd_open", None)
+    if opener is None:
+        raise OSError("pidfd_open is unavailable; refusing numeric-PID signal")
+    return opener(pid)
+
+
+def _send_pidfd_term(fd: int) -> None:
+    sender = getattr(signal, "pidfd_send_signal", None)
+    if sender is None:
+        raise OSError("pidfd_send_signal is unavailable; refusing numeric-PID signal")
+    sender(fd, signal.SIGTERM)
+
+
+def _close_pidfd(fd: int) -> None:
+    os.close(fd)
+
+
+def _terminate_owned(row: dict) -> bool:
+    """Signal the recorded process without a PID-reuse window."""
     try:
-        os.makedirs(cfg["replica_root"], exist_ok=True)
-        proc = subprocess.Popen(
-            ["litestream", "replicate", "-config", wc["path"]],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        with open(os.path.join(base, _PIDFILE_BASENAME), "w") as fh:
-            fh.write(str(proc.pid))
-        return {"ok": True, "pid": proc.pid, "dbs": len(stores),
-                "config": wc["path"]}
-    except OSError as e:
-        return {"ok": False, "reason": f"failed to launch litestream: {e}"}
+        fd = _open_pidfd(row["pid"])
+    except ProcessLookupError:
+        return False
+    try:
+        if _proc_start(row["pid"]) != row["start"]:
+            return False
+        _send_pidfd_term(fd)
+        return True
+    finally:
+        _close_pidfd(fd)
 
 
 def stop_replication(base_dir: str | os.PathLike | None = None) -> dict:
     """Terminate the running sidecar (if any) and clear the pidfile. Idempotent;
     returns ``{ok, stopped}``."""
-    base = _base(base_dir)
-    pid = _running_pid(base_dir)
-    stopped = False
-    if pid is not None:
+    def _stop_locked():
+        row = _read_pid_record(base_dir)
+        if row is None:
+            # Numeric legacy and malformed records carry no authority to signal
+            # OR to declare stopped. Preserve the evidence so a later start
+            # also refuses instead of creating an untracked duplicate.
+            if os.path.exists(_pid_path(base_dir)):
+                return {"ok": False,
+                        "reason": "pidfile has no verifiable process identity"}
+            return {"ok": True, "stopped": False}
         try:
-            os.kill(pid, 15)  # SIGTERM
-            stopped = True
+            stopped = _terminate_owned(row)
         except OSError as e:
-            return {"ok": False, "reason": f"failed to stop pid {pid}: {e}"}
-    try:
-        os.remove(os.path.join(base, _PIDFILE_BASENAME))
-    except OSError:
-        pass
-    return {"ok": True, "stopped": stopped}
+            return {"ok": False,
+                    "reason": f"failed to stop pid {row['pid']}: {e}"}
+        _remove_pidfile(base_dir)
+        return {"ok": True, "stopped": stopped}
+
+    return _run_lifecycle_locked(base_dir, "stop", _stop_locked)
 
 
 # ── restore + verify (fail-closed) ──────────────────────────────────────

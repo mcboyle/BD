@@ -23,6 +23,9 @@ bd_home/
 *.sqlite3
 app_config.json
 app_config.json.lock
+.litestream.lifecycle.lock
+.litestream.pid
+.litestream.pid.*.tmp
 sites_config.json
 cookies/
 *.cookies.json

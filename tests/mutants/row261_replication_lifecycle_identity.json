@@ -1,0 +1,71 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 261. Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row261_replication_lifecycle_identity.json --work DETACHED_SCRATCH. The real-process gate forces lock contention and the unit paths prove duplicate-start refusal, legacy PID non-authority, pidfd delivery, and post-pidfd start-identity verification.",
+  "subject": "replication start and stop are serialized and signal only the launched process identity",
+  "band": [
+    "tests/test_v3_66_261_contended_lifecycle_lock.py::test_lifecycle_lock_serializes_two_real_processes",
+    "tests/test_v3_66_261_contended_lifecycle_lock.py::test_all_lifecycle_entry_points_acquire_at_depth_exactly_one",
+    "tests/test_db_replication.py::test_repeated_start_spawns_exactly_one_sidecar",
+    "tests/test_db_replication.py::test_stop_refuses_an_unidentified_legacy_pid_without_signalling",
+    "tests/test_db_replication.py::test_owned_identity_reaches_exactly_one_pidfd_signal",
+    "tests/test_db_replication.py::test_reused_pid_identity_is_closed_without_signalling"
+  ],
+  "mutants": [
+    {
+      "label": "release the lifecycle lock before its operation",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "        _lock_lifecycle_file(lock_file)\n        try:\n            yield\n        finally:\n            _unlock_lifecycle_file(lock_file)\n",
+      "new": "        _lock_lifecycle_file(lock_file)\n        _unlock_lifecycle_file(lock_file)\n        yield\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_261_contended_lifecycle_lock.py::test_lifecycle_lock_serializes_two_real_processes"
+    },
+    {
+      "label": "a matching recorded process no longer blocks a repeated start",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "            if actual_start == row[\"start\"]:\n                return {\"ok\": False,\n",
+      "new": "            if False:\n                return {\"ok\": False,\n",
+      "direction": "regression",
+      "catcher": "tests/test_db_replication.py::test_repeated_start_spawns_exactly_one_sidecar"
+    },
+    {
+      "label": "a numeric legacy PID regains authority to receive SIGTERM",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "        row = _read_pid_record(base_dir)\n        if row is None:\n            # Numeric legacy and malformed records carry no authority to signal\n",
+      "new": "        row = _read_pid_record(base_dir)\n        legacy = _legacy_pid(base_dir)\n        if row is None and legacy is not None:\n            os.kill(legacy, signal.SIGTERM)\n            _remove_pidfile(base_dir)\n            return {\"ok\": True, \"stopped\": True}\n        if row is None:\n            # Numeric legacy and malformed records carry no authority to signal\n",
+      "direction": "regression",
+      "catcher": "tests/test_db_replication.py::test_stop_refuses_an_unidentified_legacy_pid_without_signalling"
+    },
+    {
+      "label": "pidfd delivery skips the recorded start-identity check",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "        if _proc_start(row[\"pid\"]) != row[\"start\"]:\n            return False\n        _send_pidfd_term(fd)\n",
+      "new": "        if False:\n            return False\n        _send_pidfd_term(fd)\n",
+      "direction": "regression",
+      "catcher": "tests/test_db_replication.py::test_reused_pid_identity_is_closed_without_signalling"
+    },
+    {
+      "label": "owned termination falls back to a reusable numeric PID signal",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "        _send_pidfd_term(fd)\n        return True\n",
+      "new": "        os.kill(row[\"pid\"], signal.SIGTERM)\n        return True\n",
+      "direction": "regression",
+      "catcher": "tests/test_db_replication.py::test_owned_identity_reaches_exactly_one_pidfd_signal"
+    },
+    {
+      "label": "start bypasses the lifecycle transaction",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "    return _run_lifecycle_locked(base_dir, \"start\", _start_locked)\n",
+      "new": "    return _start_locked()\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_261_contended_lifecycle_lock.py::test_all_lifecycle_entry_points_acquire_at_depth_exactly_one"
+    },
+    {
+      "label": "stop bypasses the lifecycle transaction",
+      "file": "bulk_downloader/db_replication.py",
+      "old": "    return _run_lifecycle_locked(base_dir, \"stop\", _stop_locked)\n",
+      "new": "    return _stop_locked()\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_261_contended_lifecycle_lock.py::test_all_lifecycle_entry_points_acquire_at_depth_exactly_one"
+    }
+  ]
+}

@@ -107,6 +107,18 @@ def test_the_web_push_private_key_is_ignored():
     )
 
 
+@pytest.mark.parametrize("rel", [
+    ".litestream.pid",
+    ".litestream.pid.0123456789abcdef.tmp",
+    ".litestream.lifecycle.lock",
+])
+def test_replication_lifecycle_artifacts_are_ignored(rel):
+    """PID publication and locking must not dirty a source-checkout install."""
+    assert _git("check-ignore", "-q", rel).returncode == 0, (
+        f"{rel} is written by the replication lifecycle in the install root "
+        "but is not ignored")
+
+
 # ── the mechanism, locked so the reasoning cannot rot ────────────────────────
 
 def test_a_directory_rule_matches_by_path_not_by_existence():
