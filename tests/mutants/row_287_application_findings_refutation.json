@@ -1,0 +1,49 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 287. Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row_287_application_findings_refutation.json --work DETACHED_SCRATCH. Main already contains row 267's corrections, so this battery reconstructs F39 through F42 one at a time and requires each existing failure-seam assertion to turn RED. F40 mutates only run_scan's unreadable-provenance path; it deliberately does not touch stats(), whose fresh-install distinction belongs to row 269.",
+  "subject": "F39 through F42 remain fail-closed on the current main",
+  "band": [
+    "tests/test_app_measurements_fail_closed.py::test_f39_result_shaped_stage_failure_halts_before_apply",
+    "tests/test_app_measurements_fail_closed.py::test_f39_result_shaped_success_still_reaches_apply",
+    "tests/test_app_measurements_fail_closed.py::test_f40_failed_bitrot_inventory_is_unknown_not_clean",
+    "tests/test_app_measurements_fail_closed.py::test_f40_measured_empty_inventory_is_still_healthy",
+    "tests/test_app_measurements_fail_closed.py::test_f41_missing_or_failed_rss_is_unknown_and_holds_admission",
+    "tests/test_app_measurements_fail_closed.py::test_f41_measured_rss_below_cap_still_admits",
+    "tests/test_app_measurements_fail_closed.py::test_f42_partial_site_tree_read_is_unknown_and_refuses_start",
+    "tests/test_app_measurements_fail_closed.py::test_f42_measured_usage_below_quota_still_starts"
+  ],
+  "mutants": [
+    {
+      "label": "F39 ignore a returned ok:false and continue the pipeline",
+      "file": "bulk_downloader/automation_pipeline.py",
+      "old": "                result = fn(h, c)\n                # Stages use conventional result dictionaries as well as\n                # exceptions.  ``ok: false`` is a completed measurement of\n                # failure, not a successful call merely because it returned.\n                if isinstance(result, dict) and result.get(\"ok\") is False:\n                    state[\"failed\"] = name\n                    state[\"error\"] = str(\n                        result.get(\"error\") or result.get(\"reason\") or\n                        f\"stage '{name}' returned ok:false\"\n                    )[:200]\n                return result\n",
+      "new": "                result = fn(h, c)\n                return result\n",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f39_result_shaped_stage_failure_halts_before_apply"
+    },
+    {
+      "label": "F40 collapse an unreadable provenance inventory into an empty library",
+      "file": "bulk_downloader/bitrot.py",
+      "old": "    except Exception as e:\n        return unavailable(\n            InventoryUnavailable(f\"provenance inventory unreadable: {e}\"))\n    if total == 0:\n",
+      "new": "    except Exception:\n        total = 0\n    if total == 0:\n",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f40_failed_bitrot_inventory_is_unknown_not_clean"
+    },
+    {
+      "label": "F41 collapse unavailable RSS back into permissive measured zero",
+      "file": "bulk_downloader/run_budget.py",
+      "old": "    if r is None:\n        return {\"over\": None, \"rss_mb\": None, \"budget_mb\": b.mem_mb,\n                \"available\": False, \"unknown\": True,\n                \"error\": \"RSS measurement unavailable\"}\n",
+      "new": "    if r is None:\n        r = 0.0\n",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f41_missing_or_failed_rss_is_unknown_and_holds_admission"
+    },
+    {
+      "label": "F42 accept a partial site-tree byte total after a read failure",
+      "file": "bulk_downloader/runner.py",
+      "old": "        if errors:\n            return None\n        setattr(self, cache_attr, (time.time(), total))\n",
+      "new": "        setattr(self, cache_attr, (time.time(), total))\n",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f42_partial_site_tree_read_is_unknown_and_refuses_start"
+    }
+  ]
+}
