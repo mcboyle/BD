@@ -351,6 +351,7 @@ jobs:
               tests/test_csrf_contract_reachability.py
               tests/test_csrf_tool_contracts.py
               tests/test_spa_root_routing_contract.py
+              tests/test_secret_display_never.py
               tests/test_cockpit_route_contract.py
               tests/test_cockpit_navigation_contract.py
               tests/test_import_graph_no_new_edges.py
@@ -433,6 +434,7 @@ jobs:
               tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
               tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py
               tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py
+              tests/test_row312_bd_jobs_reap_holds_identity.py
           - name: provider-facade
             suites: >-
               tests/test_provider_resolve_surface_lock.py
@@ -462,6 +464,7 @@ jobs:
           - name: regen-idempotence-isolation
             suites: >-
               tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py
+              tests/test_row300_parallel_display_cleanup_owns_process.py
           - name: tree-gates-1
             suites: >-
               tests/test_v3_66_121_login_flow_derives_the_observed_drive.py
@@ -577,6 +580,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # X11 TOOLING FOR THE DISPLAY-OWNERSHIP GATES. Installed on EVERY gate
+      # shard on purpose, not only the one that needs it today: the existing
+      # fetch-depth comment in this job already records that a future re-shuffle
+      # of the suite lists must not silently downgrade a shard, and a shard-name
+      # condition here would do exactly that.
+      #
+      # WITHOUT THIS THE GATES DO NOT EXIST. tests/test_capture_provides_a_display.py
+      # skipifs on missing Xvfb, so it has NEVER executed in CI -- it reported
+      # green by not running. Row 300's cut then failed CI outright with
+      # FileNotFoundError: 'xdpyinfo', which is the honest version of the same
+      # condition. CLAUDE.md: a gate CI does not run does not exist.
+      - name: install X11 utilities for display-ownership gates
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends xvfb x11-utils
+          command -v Xvfb    >/dev/null || { echo "Xvfb absent after install"; exit 1; }
+          command -v xdpyinfo >/dev/null || { echo "xdpyinfo absent after install"; exit 1; }
 
       # NODE, BUT ONLY FOR THE SHARD THAT NEEDS IT. The T-series wired gates
       # delegate to Vitest through tests/frontend_vitest.py, which asserts the

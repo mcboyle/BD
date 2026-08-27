@@ -1,0 +1,57 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 312. Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row_312_bd_jobs_reap_identity.json --work DETACHED_SCRATCH. The battery restores numeric signaling, removes post-acquisition identity verification, launders unavailable pidfd or procfs evidence into stale cleanup, and drops the process-group census. Every catcher asserts a nonzero seam; the companion transform control applies M1 to an import-only node and must ESCAPE.",
+  "subject": "F20 -- bd-jobs reap holds an identity-bearing handle from verification through signal",
+  "band": [
+    "tests/test_row312_bd_jobs_reap_holds_identity.py::test_exit_and_reuse_after_acquisition_never_signals_the_replacement",
+    "tests/test_row312_bd_jobs_reap_holds_identity.py::test_stable_identity_is_signaled_once_through_its_handle",
+    "tests/test_row312_bd_jobs_reap_holds_identity.py::test_unavailable_identity_handle_is_unknown_and_authorizes_nothing",
+    "tests/test_row312_bd_jobs_reap_holds_identity.py::test_unavailable_starttime_after_pidfd_is_unknown_not_stale_cleanup",
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py::test_reap_kills_the_whole_process_group"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore reusable numeric PID signaling after pidfd acquisition",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "            signal.pidfd_send_signal(fd, signal.SIGKILL)",
+      "new": "            os.kill(target_pid, signal.SIGKILL)",
+      "direction": "regression",
+      "catcher": "tests/test_row312_bd_jobs_reap_holds_identity.py::test_stable_identity_is_signaled_once_through_its_handle"
+    },
+    {
+      "label": "M2 remove the post-pidfd start-time identity verification",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if current_starttime != entry[\"starttime\"]:\n        return _finish_reap_handles({",
+      "new": "    if False and current_starttime != entry[\"starttime\"]:\n        return _finish_reap_handles({",
+      "direction": "regression",
+      "catcher": "tests/test_row312_bd_jobs_reap_holds_identity.py::test_exit_and_reuse_after_acquisition_never_signals_the_replacement"
+    },
+    {
+      "label": "M3 launder unavailable root pidfd acquisition into stale success",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    except (AttributeError, OSError) as exc:\n        return {\n            \"state\": \"REFUSED\",\n            \"notes\": [\"pidfd acquisition is UNKNOWN for pid %s: %s: %s\"",
+      "new": "    except (AttributeError, OSError) as exc:\n        return {\n            \"state\": \"STALE\",\n            \"notes\": [\"pidfd acquisition is UNKNOWN for pid %s: %s: %s\"",
+      "direction": "regression",
+      "catcher": "tests/test_row312_bd_jobs_reap_holds_identity.py::test_unavailable_identity_handle_is_unknown_and_authorizes_nothing"
+    },
+    {
+      "label": "M4 collapse a led process group back to its registered root only",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "    if pgid == pid:\n        members, census_error = _reap_group_census(pgid)",
+      "new": "    if False and pgid == pid:\n        members, census_error = _reap_group_census(pgid)",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py::test_reap_kills_the_whole_process_group",
+      "preserves": [
+        "tests/test_row312_bd_jobs_reap_holds_identity.py::test_stable_identity_is_signaled_once_through_its_handle"
+      ]
+    },
+    {
+      "label": "M5 launder unavailable post-pidfd procfs evidence into stale cleanup",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if state != \"PRESENT\":\n            return _finish_reap_handles({\n                \"state\": \"REFUSED\",\n                \"notes\": [\"start-time revalidation is UNKNOWN for pid %s: %s\"",
+      "new": "        if state != \"PRESENT\":\n            return _finish_reap_handles({\n                \"state\": \"STALE\",\n                \"notes\": [\"start-time revalidation is UNKNOWN for pid %s: %s\"",
+      "direction": "regression",
+      "catcher": "tests/test_row312_bd_jobs_reap_holds_identity.py::test_unavailable_starttime_after_pidfd_is_unknown_not_stale_cleanup"
+    }
+  ]
+}

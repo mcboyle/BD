@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 300 identity/claim battery. Re-run from a detached standalone scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row300_display_test_ownership.json --work DETACHED_SCRATCH. M1 removes the atomic O_EXCL display claim and M2 disables owned teardown. The separate foreign-cleanup spec restores the historical fixed-lock bare-PID kill against only its sacrificial catcher, so that destructive mutant never runs unrelated display tests.",
+  "subject": "the behavioral display test atomically claims its display and still terminates the non-reusable process identity it started",
+  "band": [
+    "tests/test_row300_parallel_display_cleanup_owns_process.py::test_cleanup_terminates_the_exact_display_process_this_test_started",
+    "tests/test_row300_parallel_display_cleanup_owns_process.py::test_display_claim_is_atomic_and_preserves_an_existing_claim"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove O_EXCL so a competing display claim can be acquired",
+      "file": "tests/test_capture_provides_a_display.py",
+      "old": "                os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,",
+      "new": "                os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW,",
+      "direction": "regression",
+      "catcher": "tests/test_row300_parallel_display_cleanup_owns_process.py::test_display_claim_is_atomic_and_preserves_an_existing_claim"
+    },
+    {
+      "label": "M2 suppress pidfd signaling so the owned display leaks",
+      "file": "tests/test_capture_provides_a_display.py",
+      "old": "            signal.pidfd_send_signal(owned.pidfd, signal.SIGTERM)",
+      "new": "            return",
+      "direction": "regression",
+      "catcher": "tests/test_row300_parallel_display_cleanup_owns_process.py::test_cleanup_terminates_the_exact_display_process_this_test_started"
+    }
+  ]
+}
