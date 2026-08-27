@@ -223,6 +223,7 @@ def _installer_env(
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     systemctl_log = tmp_path / "systemctl.jsonl"
+    service_state = tmp_path / "service-state"
     _write_executable(fake_bin / "sudo", '#!/usr/bin/env bash\nexec "$@"\n')
     _write_executable(
         fake_bin / "systemctl",
@@ -230,8 +231,19 @@ def _installer_env(
         "import json, os, sys\n"
         "with open(os.environ['SYSTEMCTL_LOG'], 'a') as fh:\n"
         "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "action = sys.argv[1] if len(sys.argv) > 1 else ''\n"
+        "state = os.environ['SERVICE_STATE']\n"
+        "if action == 'restart':\n"
+        "    open(state, 'w').write('active\\n')\n"
+        "elif action == 'stop':\n"
+        "    open(state, 'w').write('inactive\\n')\n"
+        "elif action == 'is-active':\n"
+        "    value = open(state).read().strip() if os.path.exists(state) else 'unknown'\n"
+        "    print(value)\n"
+        "    raise SystemExit(0 if value == 'active' else 3)\n"
         "raise SystemExit(0)\n",
     )
+    _write_executable(fake_bin / "curl", "#!/usr/bin/env python3\nraise SystemExit(0)\n")
     unit = tmp_path / "bulkdownloader-capture@.service"
     runtime = tmp_path / "run"
     scratch_repo = tmp_path / "checkout"
@@ -248,9 +260,11 @@ def _installer_env(
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "SYSTEMCTL_LOG": str(systemctl_log),
+        "SERVICE_STATE": str(service_state),
         "CAPTURE_SERVICE_UNIT_PATH": str(unit),
         "CAPTURE_SERVICE_RUNTIME_DIR": str(runtime),
         "CAPTURE_SERVICE_PYTHON": sys.executable,
+        "CAPTURE_SERVICE_READY_TRIES": "1",
     }
     assert installer.is_file() and os.access(installer, os.X_OK)
     assert Path(sys.executable).is_absolute() and os.access(sys.executable, os.X_OK)

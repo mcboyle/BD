@@ -460,6 +460,7 @@ jobs:
             suites: >-
               tests/test_v3_66_121_login_flow_derives_the_observed_drive.py
               tests/test_capture_shell_runtime.py
+              tests/test_row_285_deploy_fail_open.py
               tests/test_parallel_capture_services.py
               tests/test_capture_vault_is_isolated.py
               tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py

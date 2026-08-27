@@ -454,6 +454,9 @@ _DECLARED = {
     # (196s total locally), not count, per the @939 precedent.
     # tree-gates-1
     "tests/test_capture_shell_runtime.py",
+    # Row 285. Deployment, capture-instance teardown, PostgreSQL capability
+    # persistence and configured storage all fail closed on unavailable state.
+    "tests/test_row_285_deploy_fail_open.py",
     # Row 175: capture service/port/state ownership is a tree-wide execution
     # boundary. A fixed resource reintroduced anywhere in capture.sh, its
     # service installer, the seeder, or the live runner must fail every PR.
@@ -564,7 +567,7 @@ _DECLARED = {
 # The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
-_EXPECTED_DECLARED_GATE_COUNT = 175
+_EXPECTED_DECLARED_GATE_COUNT = 176
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

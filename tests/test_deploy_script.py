@@ -380,8 +380,19 @@ class Fx(dict):
             raise AttributeError(k) from exc
 
 
-def _seed_files(version=TREE_VERSION):
+def _seed_files(version=TREE_VERSION, deploy_source=None):
     return {
+        # The installed deploy script must live inside the real clone.  Row 285
+        # drives the reset/self-replacement inode boundary by invoking this
+        # copy; an external fixture script cannot reproduce that boundary.
+        "scripts/deploy.sh": (
+            deploy_source
+            if deploy_source is not None
+            else SCRIPT.read_text(encoding="utf-8")
+        ),
+        "scripts/lib/download_dirs.sh": (
+            REPO / "scripts" / "lib" / "download_dirs.sh"
+        ).read_text(encoding="utf-8"),
         "bulk_downloader/__init__.py": '__version__ = "%s"\n' % version,
         "requirements.txt": "# runtime deps\nlxml>=5.0,<7.0\n",
         "requirements-test.txt": "# suite deps\npyflakes>=3.0,<4.0\n",
@@ -396,7 +407,7 @@ def _seed_files(version=TREE_VERSION):
     }
 
 
-def _setup(version=TREE_VERSION, **envextra):
+def _setup(version=TREE_VERSION, deploy_source=None, **envextra):
     """Real bare origin + real clone + PATH shims. Returns an Fx."""
     work = tempfile.mkdtemp(prefix="bd_gitdeploy_")
     origin = os.path.join(work, "origin.git")
@@ -407,7 +418,7 @@ def _setup(version=TREE_VERSION, **envextra):
     _git(work, "init", "--bare", origin)
     os.makedirs(seed)
     _git(seed, "init")
-    for rel, text in _seed_files(version).items():
+    for rel, text in _seed_files(version, deploy_source).items():
         _write(os.path.join(seed, rel), text)
     _git(seed, "add", "-A")
     _git(seed, "commit", "-m", "seed commit")

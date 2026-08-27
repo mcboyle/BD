@@ -21,15 +21,27 @@ ENV_PATH="$RUNTIME_DIR/${INSTANCE}.env"
 
 if [ "$ACTION" = "stop" ]; then
   stop_exit=0
-  if ! sudo systemctl stop "$SERVICE_INSTANCE"; then
-    if systemctl is-active --quiet "$SERVICE_INSTANCE" 2>/dev/null; then
-      echo "capture service: $SERVICE_INSTANCE is still active" >&2
+  sudo systemctl stop "$SERVICE_INSTANCE" || stop_exit=$?
+  state_exit=0
+  unit_state="$(systemctl is-active "$SERVICE_INSTANCE" 2>&1)" \
+    || state_exit=$?
+  case "$unit_state" in
+    inactive|failed)
+      ;;
+    active|activating|deactivating|reloading)
+      echo "capture service: $SERVICE_INSTANCE is still $unit_state after stop" >&2
       exit 1
-    fi
-  fi
-  sudo rm -f -- "$ENV_PATH" || stop_exit=$?
+      ;;
+    *)
+      echo "capture service: unit state is UNKNOWN for $SERVICE_INSTANCE" \
+           "(state=${unit_state:-<no output>}, is-active exit=$state_exit," \
+           "stop exit=$stop_exit); preserving $ENV_PATH" >&2
+      exit 1
+      ;;
+  esac
+  sudo rm -f -- "$ENV_PATH" || exit $?
   sudo systemctl reset-failed "$SERVICE_INSTANCE" >/dev/null 2>&1 || true
-  exit "$stop_exit"
+  exit 0
 fi
 [ "$ACTION" = "start" ] || usage
 
@@ -56,6 +68,13 @@ case "$PYEXE" in /*) ;; *) usage ;; esac
   echo "capture service: missing $APP_DIR/downloader_ui.py" >&2
   exit 1
 }
+command -v curl >/dev/null 2>&1 || {
+  echo "capture service: curl is required to verify /api/health" >&2
+  exit 1
+}
+READY_TRIES="${CAPTURE_SERVICE_READY_TRIES:-40}"
+case "$READY_TRIES" in ''|*[!0-9]*) usage ;; esac
+[ "$READY_TRIES" -gt 0 ] || usage
 
 sudo install -d -m 0700 -- "$RUNTIME_DIR" || exit 1
 UNIT_TMP="${UNIT_PATH}.${INSTANCE}.tmp"
@@ -105,5 +124,42 @@ sudo mv -f -- "$ENV_TMP" "$ENV_PATH" || exit 1
 
 sudo systemctl daemon-reload || exit 1
 sudo systemctl restart "$SERVICE_INSTANCE" || exit 1
+ready=0
+attempt=1
+while [ "$attempt" -le "$READY_TRIES" ]; do
+  state_exit=0
+  unit_state="$(systemctl is-active "$SERVICE_INSTANCE" 2>&1)" \
+    || state_exit=$?
+  case "$unit_state" in
+    active)
+      if curl -sSf -o /dev/null --max-time 2 \
+          "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null; then
+        ready=1
+        break
+      fi
+      ;;
+    activating)
+      ;;
+    inactive|failed|deactivating)
+      echo "capture service: $SERVICE_INSTANCE became $unit_state before" \
+           "127.0.0.1:$APP_PORT served /api/health" >&2
+      exit 1
+      ;;
+    *)
+      echo "capture service: unit state is UNKNOWN for $SERVICE_INSTANCE" \
+           "(state=${unit_state:-<no output>}, is-active exit=$state_exit)" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$attempt" -lt "$READY_TRIES" ]; then
+    sleep 1
+  fi
+  attempt=$((attempt + 1))
+done
+[ "$ready" -eq 1 ] || {
+  echo "capture service: $SERVICE_INSTANCE is active but /api/health did not" \
+       "answer on 127.0.0.1:$APP_PORT after $READY_TRIES attempts" >&2
+  exit 1
+}
 printf 'capture service: started %s on 127.0.0.1:%s\n' \
   "$SERVICE_INSTANCE" "$APP_PORT"

@@ -66,6 +66,14 @@ def _env(tmp_path: Path, *, pg_present: bool, apt_rc: int = 0,
     binv.mkdir(exist_ok=True)
     log = tmp_path / "apt.log"
 
+    # The row-285 persistence preflight runs before any package mutation. PATH
+    # remains isolated from a real PostgreSQL install, but the filesystem tools
+    # needed to prove the test HOME writable must still execute for real.
+    for command in ("mkdir", "mktemp", "mv", "rm", "chmod"):
+        real = shutil.which(command)
+        assert real, f"fixture prerequisite is unavailable: {command}"
+        _stub(binv, command, f'exec "{real}" "$@"')
+
     # psql must FAIL, or the function short-circuits on "already serving".
     _stub(binv, "psql", "exit 1")
 
@@ -94,6 +102,9 @@ def _run(binv: Path) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["PATH"] = str(binv)
     env["SUDO"] = ""
+    home = binv.parent / "home"
+    home.mkdir(exist_ok=True)
+    env["HOME"] = str(home)
     return subprocess.run([_BASH, "-c", script], capture_output=True,
                           text=True, env=env)
 

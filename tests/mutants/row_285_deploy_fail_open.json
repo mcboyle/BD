@@ -1,0 +1,82 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 285 deploy fail-open battery. Every anchor is unique in the candidate. F03 removes the pre-existing EXIT recovery; F04 turns exec into an ordinary child call so the old inode resumes; F05 skips the health observation; F06 classifies every stop state as safely inactive; F07 ignores a failed DSN write; F08 converts a failed storage-readiness verdict back to success. The separate transform-control spec applies the identical F07 transform to a test that only sources the definitions and must ESCAPE.",
+  "subject": "row 285 - deployment and its readiness helpers fail closed on stopped, stale, or unavailable state",
+  "band": [
+    "tests/test_row_285_deploy_fail_open.py::test_f03_bare_failure_after_stop_attempts_exactly_one_recovery",
+    "tests/test_row_285_deploy_fail_open.py::test_f04_reset_hands_off_to_the_new_script_body_exactly_once",
+    "tests/test_row_285_deploy_fail_open.py::test_f04_bootstrap_delivery_fails_loudly_then_new_inode_succeeds",
+    "tests/test_row_285_deploy_fail_open.py::test_f05_start_requires_active_and_health_evidence",
+    "tests/test_row_285_deploy_fail_open.py::test_f06_stop_preserves_state_when_unit_state_is_unknown",
+    "tests/test_row_285_deploy_fail_open.py::test_f07_pg_success_requires_dsn_persistence",
+    "tests/test_row_285_deploy_fail_open.py::test_f08_unavailable_config_measurement_is_not_ready",
+    "tests/test_row_285_deploy_fail_open.py::test_f08_unwritable_configured_directory_is_not_ready",
+    "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+  ],
+  "mutants": [
+    {
+      "label": "F03 remove the EXIT recovery guard so bare errexit strands the stopped unit",
+      "file": "scripts/deploy.sh",
+      "old": "trap on_exit EXIT",
+      "new": ": # row285 mutant removes EXIT recovery",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f03_bare_failure_after_stop_attempts_exactly_one_recovery"
+    },
+    {
+      "label": "F04 call the post-reset body as a child then resume the old inode",
+      "file": "scripts/deploy.sh",
+      "old": "    exec \"$BASH\" \"$DIR/scripts/deploy.sh\" \"${DEPLOY_ARGS[@]}\" \\",
+      "new": "    \"$BASH\" \"$DIR/scripts/deploy.sh\" \"${DEPLOY_ARGS[@]}\" \\",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f04_reset_hands_off_to_the_new_script_body_exactly_once"
+    },
+    {
+      "label": "F04 bootstrap delivery ignores the stale open-script inode",
+      "file": "scripts/lib/download_dirs.sh",
+      "old": "  bd_require_current_deploy_inode || return 1",
+      "new": "  bd_require_current_deploy_inode || true",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f04_bootstrap_delivery_fails_loudly_then_new_inode_succeeds"
+    },
+    {
+      "label": "F05 accept capture start without making the health request",
+      "file": "scripts/install_capture_service.sh",
+      "old": "      if curl -sSf -o /dev/null --max-time 2 \\\n          \"http://127.0.0.1:${APP_PORT}/api/health\" 2>/dev/null; then",
+      "new": "      if true; then",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f05_start_requires_active_and_health_evidence"
+    },
+    {
+      "label": "F06 classify unknown capture-unit state as safely stopped",
+      "file": "scripts/install_capture_service.sh",
+      "old": "    inactive|failed)\n      ;;",
+      "new": "    inactive|failed|*)\n      ;;",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f06_stop_preserves_state_when_unit_state_is_unknown"
+    },
+    {
+      "label": "F07 ignore DSN-persistence failure on the already-serving path",
+      "file": "scripts/lib/dev_capabilities.sh",
+      "old": "    bd_mod3_env_persist || return 1",
+      "new": "    bd_mod3_env_persist || true",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f07_pg_success_requires_dsn_persistence"
+    },
+    {
+      "label": "F08 convert every failed configured-directory readiness check to success",
+      "file": "scripts/lib/download_dirs.sh",
+      "old": "  [ \"$failed\" -eq 0 ] || return 1",
+      "new": "  [ \"$failed\" -eq 0 ] || return 0",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f08_unwritable_configured_directory_is_not_ready"
+    },
+    {
+      "label": "F06 teardown deletes every capture instance environment instead of its own",
+      "file": "scripts/install_capture_service.sh",
+      "old": "  sudo rm -f -- \"$ENV_PATH\" || exit $?",
+      "new": "  sudo rm -f -- \"$RUNTIME_DIR\"/*.env || exit $?",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_template_start_and_teardown_are_bound_to_the_named_instance"
+    }
+  ]
+}
