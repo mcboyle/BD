@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1287 - row 280 closes MOOT: v3.66.1268 already fixed all five sites
+
+- F43: `assert 0 == 2`; output included `applied: 1`, proving the operator-ed
+- F45: `Failed: DID NOT RAISE SystemExit`.
+- F47: `assert 0 == 2`; output: `scanned 0, compliant=True`.
+- F48: `AssertionError: assert 'PASS' == 'FAIL'`.
+- Five-site gate: `39 passed in 46.79s`.
+- Derived 16-file backlog band: `123 passed, 5 warnings in 201.57s`.
+- CI shard visibility gate: `16 passed in 6.15s`.
+- `bd-freshcheck --repo-only`: all checks passed.
+- Register denominator: 260 rows, 3 open, row 280 occurs exactly once.
+- Transform control: expected escape `TC1 failed Git status is laundered whil
+- All five mutated source files were verified byte-for-byte restored.
+- F43: `assert 0 == 2`; output included `applied: 1`, proving the operator-ed
+- F45: `Failed: DID NOT RAISE SystemExit`.
+
 ## v3.66.1286 - four application findings are refuted with tracked mutants
 
 - Changed: added [row-287 mutation battery](/home/mboyle/bd-codex-wt/row287/t
