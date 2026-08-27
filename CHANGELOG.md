@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1289 - the regen idempotence test runs against a disposable copy
+
+-    m = _REPO / "project-knowledge" / _MANIFEST_NAME
+-    first = subprocess.run(
+-        [str(_PY), str(_REGEN), "--work", str(_REPO)],
+-        capture_output=True, text=True, timeout=900)
+-    assert first.returncode == 0, (first.stdout + first.stderr)[-2000:]
+-    settled = _sha(m)
+-    second = subprocess.run(
+-        [str(_PY), str(_REGEN), "--work", str(_REPO)],
+-        capture_output=True, text=True, timeout=900)
+-    assert second.returncode == 0, (second.stdout + second.stderr)[-2000:]
+-    assert _sha(m) == settled, (
+-        "bd-regen-order rewrote the manifest on a settled tree. CI runs the "
+-        "chain and then `git status --porcelain`, so this fails every PR.")
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 178.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1288 - bd-opv isolates every store its own checks mutate
 
 - Added [the regression mutant](/home/mboyle/bd-codex-wt/row294/tests/mutants

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 298. The mutant points both canonical regen passes back at the checkout under test. The catcher intercepts exactly two real command constructions before either can run, proves the required tool and manifest inputs exist, and rejects the canonical root. Re-run from a detached standalone scratch tree with: toolchain/bin/bd-mutate --spec tests/mutants/row_298_regen_idempotence_isolation.json --work SCRATCH --timeout 300. The matching transform-control spec applies this exact valid Python transform to an import-only node and must ESCAPE.",
+  "subject": "the regen idempotence test executes both canonical-chain passes in one disposable checkout",
+  "band": [
+    "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py::test_the_idempotence_test_runs_both_regens_in_one_disposable_copy"
+  ],
+  "mutants": [
+    {
+      "label": "M1 both idempotence passes target the canonical checkout instead of the disposable copy",
+      "file": "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
+      "old": "        work = _copy_checkout_for_regen(owned_root / \"checkout\")",
+      "new": "        work = _REPO",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py::test_the_idempotence_test_runs_both_regens_in_one_disposable_copy"
+    }
+  ]
+}
