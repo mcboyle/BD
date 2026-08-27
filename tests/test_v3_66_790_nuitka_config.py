@@ -59,8 +59,26 @@ def test_data_dirs_all_exist_in_tree():
     whose denominator excludes the missing thing reports clean. Assert every
     declared data dir is real."""
     pc = _load("tools.packaging_config")
-    for spec in pc.CONFIG["data_dirs"]:
-        src = spec[0] if isinstance(spec, (list, tuple)) else spec
+    # BUILD ARTIFACTS CANNOT BE ASSERTED PRESENT IN A SOURCE CHECKOUT.
+    # frontend/dist is gitignored and produced by `npm run build`, which neither
+    # a fresh worktree nor CI performs. Asserting it exists made this gate fail
+    # on every band wide enough to select it, in a tree where its absence is
+    # CORRECT -- the mirror of the fail-open defect: a gate refusing legitimately
+    # green work. The packaging claim it protects is still checked, by
+    # test_data_dirs_cover_the_served_roots, which reads the DECLARATION rather
+    # than the filesystem.
+    _BUILD_ARTIFACTS = {"frontend/dist"}
+    declared = [spec[0] if isinstance(spec, (list, tuple)) else spec
+                for spec in pc.CONFIG["data_dirs"]]
+    tracked = [d for d in declared if d not in _BUILD_ARTIFACTS]
+    # The exclusion must not be able to empty the population it filters, and the
+    # artifact set must be exactly what we think it is -- a new gitignored dir
+    # must not join it silently.
+    assert tracked, "every declared data dir was excluded as a build artifact"
+    assert _BUILD_ARTIFACTS <= set(declared), (
+        f"a declared build artifact vanished from packaging_config: "
+        f"{_BUILD_ARTIFACTS - set(declared)}")
+    for src in tracked:
         assert os.path.isdir(os.path.join(REPO, src)), \
             f"declared data dir does not exist: {src}"
 

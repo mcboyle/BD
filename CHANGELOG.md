@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1293 - two dist-dependent gates stop blocking every wide band
+
+- Two gates depended on frontend/dist, a gitignored build artifact that neith
+- Measured: both are baselined legacy, declare no BD_GATE_SCOPE, and run in no
+- Band-size dependent: an 80-file band merged, 628-file and 856-file bands bo
+- The share-target gate contradicted its own comment, which blessed a
+- The nuitka gate now separates build artifacts from tracked dirs and pins the
+- Proven narrowed rather than neutered: an injected missing tracked dir still
+
 ## v3.66.1292 - inherited signal disposition is recorded environment identity
 
 -    done = subprocess.run(["bash", "-c", script], capture_output=True,
