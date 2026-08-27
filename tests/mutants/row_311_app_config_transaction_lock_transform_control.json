@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 311 / F16. This applies the identical valid early-unlock transform, then runs a test that imports global_config only to patch its getter while asserting browser-backend selection. It must ESCAPE, proving the primary CAUGHT results come from the concurrent-writer assertions rather than parsing, importing, collection or the transform itself.",
+  "subject": "transform control for releasing the app_config lock before its transaction",
+  "band": [
+    "tests/test_v3_66_141_browser_backend.py::test_default_prefers_cloakbrowser_when_available"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL release the OS lock before an unrelated import-only behavior test",
+      "file": "bulk_downloader/global_config.py",
+      "old": "            _lock_app_config_file(lock_file)\n            try:\n                yield\n            finally:\n                _unlock_app_config_file(lock_file)\n",
+      "new": "            _lock_app_config_file(lock_file)\n            _unlock_app_config_file(lock_file)\n            yield\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_default_prefers_cloakbrowser_when_available"
+    }
+  ]
+}

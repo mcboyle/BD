@@ -21,6 +21,7 @@ resolve — a bug found in integration testing.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import sys
@@ -28,12 +29,62 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
+
 # Same file path as app.py uses. Resolved relative to the working
 # directory at runtime (BD's launch script cwds into INSTALL_DIR).
 _CONFIG_FILE = Path("app_config.json")
 _lock = threading.Lock()
 _cached: Optional[dict] = None
 _cached_mtime: float = 0.0
+
+
+def _lock_app_config_file(lock_file) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        return
+    # msvcrt locks a byte range from the current position.  Keep one byte in
+    # the otherwise content-free lock file so every Windows process contends
+    # on the same range.
+    lock_file.seek(0, os.SEEK_END)
+    if lock_file.tell() == 0:
+        lock_file.write(b"\0")
+        lock_file.flush()
+    lock_file.seek(0)
+    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_app_config_file(lock_file) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+    lock_file.seek(0)
+    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def app_config_transaction(config_file: Path):
+    """Serialize one complete app_config read/merge/replace transaction.
+
+    ``_lock`` covers threads in this interpreter; ``flock`` covers the other
+    application processes that write the same file.  The permanent sibling
+    lock file is intentional: locking a replaceable app_config inode would not
+    coordinate a process that opened it after the rename.
+    """
+    lock_path = config_file.with_name(f"{config_file.name}.lock")
+    with _lock:
+        with lock_path.open("a+b") as lock_file:
+            if hasattr(os, "fchmod"):
+                os.fchmod(lock_file.fileno(), 0o600)
+            _lock_app_config_file(lock_file)
+            try:
+                yield
+            finally:
+                _unlock_app_config_file(lock_file)
 
 
 def _file_mtime() -> float:
@@ -90,18 +141,18 @@ def set_config(updates: dict) -> bool:
     global _cached, _cached_mtime
     if not isinstance(updates, dict):
         return False
-    with _lock:
-        # Read fresh (someone else may have written since our cache)
-        current: dict = {}
-        if _CONFIG_FILE.exists():
-            try:
-                current = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
-                if not isinstance(current, dict):
+    try:
+        with app_config_transaction(_CONFIG_FILE):
+            # Read fresh (someone else may have written since our cache)
+            current: dict = {}
+            if _CONFIG_FILE.exists():
+                try:
+                    current = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
+                    if not isinstance(current, dict):
+                        current = {}
+                except Exception:
                     current = {}
-            except Exception:
-                current = {}
-        current.update(updates)
-        try:
+            current.update(updates)
             # Atomic-ish write: temp file + rename
             tmp = _CONFIG_FILE.with_suffix(".tmp")
             tmp.write_text(json.dumps(current, indent=2,
@@ -116,9 +167,9 @@ def set_config(updates: dict) -> bool:
             _cached = current
             _cached_mtime = _file_mtime()
             return True
-        except Exception as e:
-            sys.stderr.write(f"[global_config] write failed: {e}\n")
-            return False
+    except Exception as e:
+        sys.stderr.write(f"[global_config] write failed: {e}\n")
+        return False
 
 
 # ─── BP-CFG (v3.66.285): global-config schema validation ─────────────────────

@@ -1993,39 +1993,41 @@ def _save_app_config():
     the user's global settings (concurrency cap, AI endpoint, log
     level, watch folder, etc.) on next start."""
     try:
-        # v3.66.964 (item 41): READ-MODIFY-WRITE, not a wholesale overwrite.
-        # `_app_cfg` is a snapshot taken when this module was imported, and
-        # global_config.set_config() writes THIS SAME FILE. Writing _app_cfg
-        # wholesale therefore erased every key another writer had persisted
-        # since import -- notably api_auth_token_secret, which
-        # api_tokens._signing_secret() stores through set_config(). Losing it
-        # mints a fresh secret on the next call and invalidates every
-        # already-issued API token. Measured before the fix: set_config writes
-        # the secret, this function runs, the key is gone.
-        #
-        # Disk first, _app_cfg overlaid on top: app.py's values win for the
-        # keys it manages, foreign keys survive. That is set_config's own
-        # merge direction, so the two writers now agree.
-        merged: dict = {}
-        try:
-            if APP_CFG_FILE.exists():
-                _disk = json.loads(APP_CFG_FILE.read_text(encoding="utf-8"))
-                if isinstance(_disk, dict):
-                    merged.update(_disk)
-        except Exception:
-            # An unreadable or malformed file is not a reason to refuse to
-            # save; fall back to writing what we hold rather than losing it.
-            merged = {}
-        merged.update(_app_cfg)
-        tmp = APP_CFG_FILE.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False),
-                       encoding="utf-8")
-        # 0600 BEFORE the rename, which preserves the mode onto the final
-        # path. set_config does this for F-COREBD11-01 and this writer did
-        # not, so a save here silently widened a token-bearing file from 0600
-        # back to the process umask (measured: 0644).
-        _os.chmod(tmp, 0o600)
-        tmp.replace(APP_CFG_FILE)
+        from .global_config import app_config_transaction as _cfg_transaction
+        with _cfg_transaction(APP_CFG_FILE):
+            # v3.66.964 (item 41): READ-MODIFY-WRITE, not a wholesale overwrite.
+            # `_app_cfg` is a snapshot taken when this module was imported, and
+            # global_config.set_config() writes THIS SAME FILE. Writing _app_cfg
+            # wholesale therefore erased every key another writer had persisted
+            # since import -- notably api_auth_token_secret, which
+            # api_tokens._signing_secret() stores through set_config(). Losing it
+            # mints a fresh secret on the next call and invalidates every
+            # already-issued API token. Measured before the fix: set_config writes
+            # the secret, this function runs, the key is gone.
+            #
+            # Disk first, _app_cfg overlaid on top: app.py's values win for the
+            # keys it manages, foreign keys survive. That is set_config's own
+            # merge direction, so the two writers now agree.
+            merged: dict = {}
+            try:
+                if APP_CFG_FILE.exists():
+                    _disk = json.loads(APP_CFG_FILE.read_text(encoding="utf-8"))
+                    if isinstance(_disk, dict):
+                        merged.update(_disk)
+            except Exception:
+                # An unreadable or malformed file is not a reason to refuse to
+                # save; fall back to writing what we hold rather than losing it.
+                merged = {}
+            merged.update(_app_cfg)
+            tmp = APP_CFG_FILE.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False),
+                           encoding="utf-8")
+            # 0600 BEFORE the rename, which preserves the mode onto the final
+            # path. set_config does this for F-COREBD11-01 and this writer did
+            # not, so a save here silently widened a token-bearing file from 0600
+            # back to the process umask (measured: 0644).
+            _os.chmod(tmp, 0o600)
+            tmp.replace(APP_CFG_FILE)
     except Exception as e:
         from . import log as _log
         _log.get_logger(__name__).error("app_config save failed: %s", e)
