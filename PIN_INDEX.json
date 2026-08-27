@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 102,
+    "total": 104,
     "version": 1,
-    "count_dict": 101,
-    "test_files_scanned": 1455,
+    "count_dict": 103,
+    "test_files_scanned": 1456,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -34,6 +34,7 @@
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
+      "tests/test_row308_visual_audit_identity.py": 2,
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
@@ -260,6 +261,29 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row308_visual_audit_identity.py",
+      "line": 138,
+      "value": {
+        "light": 52,
+        "dark": 52
+      },
+      "gates_what": "_capture_fixture"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_row308_visual_audit_identity.py",
+      "line": 139,
+      "value": {
+        "nav": 58,
+        "drillin": 10,
+        "subtab": 24,
+        "popup": 10,
+        "cockpit": 2
+      },
+      "gates_what": "_capture_fixture"
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
       "line": 594,
       "value": {
@@ -317,7 +341,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1300",
+      "value": "3.66.1301",
       "gates_what": "test_containment_routes_and_version"
     },
     {

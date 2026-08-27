@@ -1,0 +1,106 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 308. Run from a detached standalone scratch tree with toolchain/bin/bd-mutate --spec tests/mutants/row308_visual_audit_identity.json --work DETACHED_SCRATCH. The battery pins both capture-time health measurements, the complete nonzero manifest population, independent release reconciliation, and both builders' rendered version labels. The separate transform control applies M3 byte-for-byte to a node that imports the helper without asserting this behavior and must ESCAPE.",
+  "subject": "visual-audit builders derive and validate capture/release identity",
+  "band": [
+    "tests/test_row308_visual_audit_identity.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 skip the capture-end health identity measurement",
+      "file": "project-knowledge/capture_all.py",
+      "old": "    completed_release_version = health_release_version(BASE, ROOT)\n    if completed_release_version != capture_release_version:\n",
+      "new": "    completed_release_version = capture_release_version\n    if completed_release_version != capture_release_version:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_capture_producer_measures_identity_at_both_boundaries"
+    },
+    {
+      "label": "M2 stamp only the first row in the capture population",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    if not _VERSION_RE.fullmatch(version):\n        raise RuntimeError(\n            f\"UNKNOWN: capture release identity malformed: {version!r}\"\n        )\n    for index, row in enumerate(rows):\n",
+      "new": "    if not _VERSION_RE.fullmatch(version):\n        raise RuntimeError(\n            f\"UNKNOWN: capture release identity malformed: {version!r}\"\n        )\n    for index, row in enumerate(rows[:1]):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_health_identity_fires_once_and_stamps_every_nonzero_row"
+    },
+    {
+      "label": "M3 validate only the first manifest row",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    identities = []\n    for index, row in enumerate(rows):\n",
+      "new": "    identities = []\n    for index, row in enumerate(rows[:1]):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_builders_validate_the_complete_manifest_population[build_navigator]"
+    },
+    {
+      "label": "M4 accept a health version that differs from the release source",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    if observed != expected:\n        raise RuntimeError(\n            \"UNKNOWN: capture release identity mismatch: \"\n            f\"health={observed!r} release={expected!r}\"\n        )\n    return observed\n",
+      "new": "    return observed\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_health_mismatch_and_unavailable_measurement_are_unknown"
+    },
+    {
+      "label": "M5 trust the manifest as its own expected identity",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    expected = release_version(repo_root)\n    observed = sorted(set(identities))\n",
+      "new": "    expected = identities[0]\n    observed = sorted(set(identities))\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_builders_refuse_unknown_capture_identity_before_emitting"
+    },
+    {
+      "label": "M6 erase the validated release from navigator output",
+      "file": "project-knowledge/build_navigator.py",
+      "old": "            .replace(\"__CAPTURE_RELEASE__\", f\"v{capture_release_version}\")\n",
+      "new": "            .replace(\"__CAPTURE_RELEASE__\", \"\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_both_builders_emit_the_validated_capture_release"
+    },
+    {
+      "label": "M7 erase the validated release from montage labels",
+      "file": "project-knowledge/build_montage.py",
+      "old": "    d.text((W - 300, 30), f\"v{capture_release_version} · {theme}\", font=FS, fill=t[\"ink3\"])\n",
+      "new": "    d.text((W - 300, 30), theme, font=FS, fill=t[\"ink3\"])\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_both_builders_emit_the_validated_capture_release"
+    },
+    {
+      "label": "M8 allow a zero-row capture to be stamped as successful",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "def stamp_manifest(rows: list[dict], version: str) -> None:\n    \"\"\"Stamp every row after proving a non-empty, well-shaped population.\"\"\"\n    if not rows:\n        raise RuntimeError(\n            \"UNKNOWN: capture release identity unavailable: manifest has zero rows\"\n        )\n    if not _VERSION_RE.fullmatch(version):\n",
+      "new": "def stamp_manifest(rows: list[dict], version: str) -> None:\n    \"\"\"Stamp every row after proving a non-empty, well-shaped population.\"\"\"\n    if not _VERSION_RE.fullmatch(version):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_zero_or_unshaped_manifest_is_unknown_not_ok"
+    },
+    {
+      "label": "M9 classify a zero-row builder manifest as an identity mismatch",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    if not rows:\n        raise RuntimeError(\n            \"UNKNOWN: capture release identity unavailable: manifest has zero rows\"\n        )\n\n    identities = []\n",
+      "new": "    identities = []\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_zero_or_unshaped_manifest_is_unknown_not_ok"
+    },
+    {
+      "label": "M10 let builders bypass every capture identity refusal",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    version = validate_manifest_release(rows, repo_root)\n    from capture_manifest_contract import validate_manifest\n    return validate_manifest(rows), version\n",
+      "new": "    version = release_version(repo_root)\n    from capture_manifest_contract import validate_manifest\n    return validate_manifest(rows), version\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_builders_refuse_unknown_capture_identity_before_emitting"
+    },
+    {
+      "label": "M11 let both builders bypass row 309 population validation",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    version = validate_manifest_release(rows, repo_root)\n    from capture_manifest_contract import validate_manifest\n    return validate_manifest(rows), version\n",
+      "new": "    version = validate_manifest_release(rows, repo_root)\n    return rows, version\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_builders_refuse_incomplete_population_before_emitting"
+    },
+    {
+      "label": "M12 run row 309 population validation before row 308 identity validation",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    version = validate_manifest_release(rows, repo_root)\n    from capture_manifest_contract import validate_manifest\n    return validate_manifest(rows), version\n",
+      "new": "    from capture_manifest_contract import validate_manifest\n    validated_rows = validate_manifest(rows)\n    version = validate_manifest_release(validated_rows, repo_root)\n    return validated_rows, version\n",
+      "direction": "regression",
+      "catcher": "tests/test_row308_visual_audit_identity.py::test_identity_refusal_precedes_population_contract"
+    }
+  ]
+}

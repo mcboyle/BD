@@ -44,10 +44,10 @@
       "catcher": "tests/test_row_309_capture_manifest_contract.py::test_every_planned_view_emits_one_failure_row"
     },
     {
-      "label": "M5 let the navigator trust raw manifest JSON without validation",
-      "file": "project-knowledge/build_navigator.py",
-      "old": "    man = load_manifest(f\"{CAP}/manifest.json\")",
-      "new": "    man = json.load(open(f\"{CAP}/manifest.json\"))",
+      "label": "M5 let the navigator bypass expected-population validation",
+      "file": "project-knowledge/visual_audit_identity.py",
+      "old": "    version = validate_manifest_release(rows, repo_root)\n    from capture_manifest_contract import validate_manifest\n    return validate_manifest(rows), version\n",
+      "new": "    version = validate_manifest_release(rows, repo_root)\n    return rows, version\n",
       "direction": "regression",
       "catcher": "tests/test_row_309_capture_manifest_contract.py::test_navigator_refuses_missing_row_before_reading_images"
     },

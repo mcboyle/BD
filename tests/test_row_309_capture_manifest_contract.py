@@ -8,6 +8,7 @@ measurements instead of treating the rows it happened to receive as complete.
 from __future__ import annotations
 
 import asyncio
+import ast
 import importlib.util
 import json
 import os
@@ -85,22 +86,46 @@ _EXPECTED_LOGICAL_VIEWS = frozenset({
 _THEMES = ("light", "dark")
 
 
+def _release_version():
+    source = (_REPO / "bulk_downloader" / "__init__.py").read_text(
+        encoding="utf-8")
+    versions = []
+    for statement in ast.parse(source).body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = (statement.targets if isinstance(statement, ast.Assign)
+                   else [statement.target])
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__version__"
+            for target in targets
+        ):
+            continue
+        value = statement.value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            versions.append(value.value)
+    assert len(versions) == 1
+    return versions[0]
+
+
 def _load_capture(monkeypatch):
     monkeypatch.syspath_prepend(str(_PK))
     name = "row_309_capture_all"
     spec = importlib.util.spec_from_file_location(name, _CAPTURE)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    saved_modules = {name: sys.modules[name]} if name in sys.modules else {}
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
     finally:
         sys.modules.pop(name, None)
+        sys.modules.update(saved_modules)
     return module
 
 
 def _valid_rows(contract):
     rows = []
+    capture_release_version = _release_version()
     for view in contract.EXPECTED_VIEWS:
         for theme in contract.THEMES:
             rows.append({
@@ -114,6 +139,7 @@ def _valid_rows(contract):
                 "h": 1,
                 "err": 0,
                 "ox": False,
+                "capture_release_version": capture_release_version,
             })
     return rows
 
