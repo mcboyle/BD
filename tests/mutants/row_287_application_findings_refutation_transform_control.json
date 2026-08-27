@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for backlog row 287. This applies the identical valid F41 UNKNOWN-to-zero transform, then runs a test module that imports bulk_downloader.run_budget but whose selected test asserts only RunBudget's disabled-limit behavior. It must ESCAPE, proving the primary catches are behavioral assertions rather than parse, import, collection, or transform failures.",
+  "subject": "transform control for the valid unavailable-RSS collapse",
+  "band": [
+    "tests/test_v3_66_672_run3_budget.py::test_zero_limit_never_breaches"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL collapse unavailable RSS under an import-only-for-this-behavior test",
+      "file": "bulk_downloader/run_budget.py",
+      "old": "    if r is None:\n        return {\"over\": None, \"rss_mb\": None, \"budget_mb\": b.mem_mb,\n                \"available\": False, \"unknown\": True,\n                \"error\": \"RSS measurement unavailable\"}\n",
+      "new": "    if r is None:\n        r = 0.0\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_672_run3_budget.py::test_zero_limit_never_breaches"
+    }
+  ]
+}

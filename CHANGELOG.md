@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1286 - four application findings are refuted with tracked mutants
+
+- Changed: added [row-287 mutation battery](/home/mboyle/bd-codex-wt/row287/t
+- Reconstructed RED diagnostics:
+- F39: `AssertionError: dependent apply must not run after ok:false` with `['
+- F40: `assert True is False`.
+- F41: `assert False is None`.
+- F42: `AssertionError: assert 90 is None`.
+- Failure seams plus controls: `8 passed in 1.75s`.
+- Affected, contract, and CI-shard floor: `44 passed in 19.49s`.
+- Tracked-spec schema, node IDs, and exact-once anchors: `2 passed in 193.02s
+- Mutation: 4/4 CAUGHT, 0 escaped, 0 invalid/unknown/error. The deliberate tr
+- Not run: full suite, regeneration, release gates, deployment, or live-servi
+- Found but not fixed: one diagnostic-only replay encountered a concurrent `_
+- Changed: added [row-287 mutation battery](/home/mboyle/bd-codex-wt/row287/t
+
 ## v3.66.1285 - the descriptor negative control proves its own precondition
 
 -                **os.environ,
