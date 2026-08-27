@@ -1,0 +1,54 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 313. Five exact-once regressions cover exclusive name acquisition, start-tick identity validation, pidfd signaling, UNKNOWN state on unavailable identity, and supervisor-owned group escalation. Run with toolchain/bin/bd-mutate --spec tests/mutants/row313_bd_job_identity.json --work WORKTREE. The companion transform control applies the identical M2 transform to an import-only test and must ESCAPE.",
+  "subject": "bd-job atomically owns one name and signals only its non-reusable process identity",
+  "band": [
+    "tests/test_row313_bd_job_identity.py::test_exactly_one_concurrent_starter_acquires_the_name",
+    "tests/test_row313_bd_job_identity.py::test_reused_pid_bystander_is_unknown_and_never_signalled",
+    "tests/test_row313_bd_job_identity.py::test_matching_identity_reaches_exact_pidfd_signal_once",
+    "tests/test_row313_bd_job_identity.py::test_unavailable_pidfd_measurement_is_unknown_not_ok",
+    "tests/test_row313_bd_job_identity.py::test_forced_kill_is_relayed_to_the_owned_process_group"
+  ],
+  "mutants": [
+    {
+      "label": "M1 overwrite an existing name claim instead of acquiring it exclusively",
+      "file": "toolchain/bin/bd-job",
+      "old": "        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)",
+      "new": "        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)",
+      "direction": "regression",
+      "catcher": "tests/test_row313_bd_job_identity.py::test_exactly_one_concurrent_starter_acquires_the_name"
+    },
+    {
+      "label": "M2 stop comparing the saved process start ticks",
+      "file": "toolchain/bin/bd-job",
+      "old": "        compared = (\"boot_id\", \"pid\", \"pgid\", \"sid\", \"start_ticks\")",
+      "new": "        compared = (\"boot_id\", \"pid\", \"pgid\", \"sid\")",
+      "direction": "regression",
+      "catcher": "tests/test_row313_bd_job_identity.py::test_reused_pid_bystander_is_unknown_and_never_signalled"
+    },
+    {
+      "label": "M3 signal the reusable numeric process group instead of the pidfd",
+      "file": "toolchain/bin/bd-job",
+      "old": "            signal.pidfd_send_signal(pidfd, signal.SIGTERM)",
+      "new": "            os.killpg(receipt[\"pgid\"], signal.SIGTERM)",
+      "direction": "regression",
+      "catcher": "tests/test_row313_bd_job_identity.py::test_matching_identity_reaches_exact_pidfd_signal_once"
+    },
+    {
+      "label": "M4 call an unavailable identity a completed job instead of UNKNOWN",
+      "file": "toolchain/bin/bd-job",
+      "old": "    return \"running\" if _alive(name) else \"unknown\"",
+      "new": "    return \"running\" if _alive(name) else \"done\"",
+      "direction": "regression",
+      "catcher": "tests/test_row313_bd_job_identity.py::test_unavailable_pidfd_measurement_is_unknown_not_ok"
+    },
+    {
+      "label": "M5 force-kill only the supervisor and orphan its process group",
+      "file": "toolchain/bin/bd-job",
+      "old": "        os.killpg(os.getpgrp(), signal.SIGKILL)",
+      "new": "        os.kill(os.getpid(), signal.SIGKILL)",
+      "direction": "regression",
+      "catcher": "tests/test_row313_bd_job_identity.py::test_forced_kill_is_relayed_to_the_owned_process_group"
+    }
+  ]
+}

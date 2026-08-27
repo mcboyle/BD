@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1296 - real-corpus credential assertions have a nonzero denominator (+4 file-disjoint row(s): 290,309,313,315)
+
+-        "requests": 106,
+-        "parameters": 47,
+-        "credential_parameters": 47,
+-        "redacted_parameters": 39,
+-        "signing_parameters": 42
+-      "gates_what": "test_fixtures_exist"
+- "generated": "2026-08-27T02:37:21+00:00",
+-   "sha256": "56cefb22a0834318242ad7fa27893c42da25f208ac851ecb0e3045d947c37b
+-    assert len(entries) == 1253, (
+-        "safety gates; "
+- Added a six-key credential census and nonzero 47-parameter floor in [test_c
+- Pinned exact metrics: 6 fixtures, 106 requests, 47 parameters, 47 credentia
+- Added exact-six-call, zero-parameter, metric-drift, and import-only control
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 178 -> 184.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1295 - the split browser half stops failing on an unbuilt SPA
 
 - The split browser half returned 8 failed / 6 passed identically in every

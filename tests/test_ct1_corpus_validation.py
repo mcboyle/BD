@@ -23,6 +23,10 @@ import pytest
 from bulk_downloader.capture_synth import synthesize, classify_value
 from bulk_downloader.capture_redact import PLACEHOLDER, SENSITIVE_QS_KEY
 
+# This gate judges every shipped real-corpus fixture, so fixture changes alter
+# its denominator independently of which production module a diff touches.
+BD_GATE_SCOPE = "repo-wide"
+
 _CORPUS_DIR = Path(__file__).resolve().parent / "fixtures" / "recon_corpus"
 _FIXTURES = sorted(p.name for p in _CORPUS_DIR.glob("*.json"))
 _CACHE: dict = {}
@@ -48,11 +52,111 @@ def _query_values(cap: dict):
                 yield pair.partition("=")[2]
 
 
+def _credential_census() -> dict[str, int]:
+    metrics = {
+        "fixtures": 0,
+        "requests": 0,
+        "parameters": 0,
+        "credential_parameters": 0,
+        "redacted_parameters": 0,
+        "signing_parameters": 0,
+    }
+    for name in _FIXTURES:
+        syn = synthesize(_load(name), _load(name))
+        metrics["fixtures"] += 1
+        metrics["requests"] += len(syn["requests"])
+        for request in syn["requests"]:
+            metrics["parameters"] += len(request["params"])
+            for param in request["params"]:
+                if param["credential"]:
+                    metrics["credential_parameters"] += 1
+                if (str(param.get("value_a", "")).startswith(PLACEHOLDER)
+                        or str(param.get("value_b", "")).startswith(PLACEHOLDER)):
+                    metrics["redacted_parameters"] += 1
+                if SENSITIVE_QS_KEY.search(param["key"]):
+                    metrics["signing_parameters"] += 1
+    return metrics
+
+
 class TestCorpusPresent:
 
     def test_fixtures_exist(self):
         # Guard against silently testing nothing if the corpus moves.
         assert len(_FIXTURES) >= 5, _FIXTURES
+        metrics = _credential_census()
+        assert metrics["parameters"] > 0, (
+            "real corpus produced zero synthesized parameters eligible for "
+            f"credential assertions: {metrics}")
+        assert metrics == {
+            "fixtures": 6,
+            "requests": 106,
+            "parameters": 47,
+            "credential_parameters": 47,
+            "redacted_parameters": 39,
+            "signing_parameters": 42,
+        }, metrics
+
+    def test_credential_census_visits_every_fixture(self, monkeypatch):
+        assert len(_FIXTURES) == 6, _FIXTURES
+        real_synthesize = synthesize
+        synthesized = []
+
+        def counted_synthesize(cap_a, cap_b):
+            synthesized.append((cap_a, cap_b))
+            return real_synthesize(cap_a, cap_b)
+
+        monkeypatch.setitem(globals(), "synthesize", counted_synthesize)
+        self.test_fixtures_exist()
+        assert len(synthesized) == len(_FIXTURES), (
+            f"credential census synthesized {len(synthesized)} fixtures; "
+            f"expected {len(_FIXTURES)}")
+
+    def test_credential_census_rejects_zero_eligible_parameters(
+            self, monkeypatch):
+        assert len(_FIXTURES) == 6, _FIXTURES
+        synthesized = []
+        no_eligible_parameters = {"requests": [{"params": []}]}
+        assert len(no_eligible_parameters["requests"]) == 1
+        assert no_eligible_parameters["requests"][0]["params"] == []
+
+        def empty_parameter_synthesize(cap_a, cap_b):
+            synthesized.append((cap_a, cap_b))
+            return no_eligible_parameters
+
+        monkeypatch.setitem(globals(), "synthesize", empty_parameter_synthesize)
+        with pytest.raises(
+                AssertionError,
+                match="zero synthesized parameters eligible for credential assertions"):
+            self.test_fixtures_exist()
+        assert len(synthesized) == len(_FIXTURES), (
+            f"negative control synthesized {len(synthesized)} fixtures; "
+            f"expected {len(_FIXTURES)}")
+
+    def test_credential_census_rejects_exact_metric_drift(self, monkeypatch):
+        assert len(_FIXTURES) == 6, _FIXTURES
+        real_synthesize = synthesize
+        synthesized = []
+
+        def extra_empty_request_synthesize(cap_a, cap_b):
+            syn = real_synthesize(cap_a, cap_b)
+            assert isinstance(syn["requests"], list)
+            synthesized.append((cap_a, cap_b))
+            return {**syn, "requests": [*syn["requests"], {"params": []}]}
+
+        monkeypatch.setitem(
+            globals(), "synthesize", extra_empty_request_synthesize)
+        with pytest.raises(AssertionError) as raised:
+            self.test_fixtures_exist()
+        assert len(synthesized) == len(_FIXTURES), (
+            f"metric-drift control synthesized {len(synthesized)} fixtures; "
+            f"expected {len(_FIXTURES)}")
+        failure = str(raised.value)
+        assert "'requests': 112" in failure, failure
+        assert "'parameters': 47" in failure, failure
+
+    def test_transform_control_imports_census_without_asserting_behavior(self):
+        module = __import__(__name__)
+        getattr(module, "_credential_census")
 
 
 class TestCorpusRobustness:

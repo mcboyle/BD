@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 90,
+    "total": 91,
     "version": 1,
-    "count_dict": 89,
-    "test_files_scanned": 1446,
+    "count_dict": 90,
+    "test_files_scanned": 1449,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -29,6 +29,7 @@
       "tests/test_contracts.py": 1,
       "tests/test_corpus_disposition_buckets.py": 1,
       "tests/test_coverage_map_frontend.py": 2,
+      "tests/test_ct1_corpus_validation.py": 1,
       "tests/test_daily_digest.py": 2,
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dom_analyzer.py": 1,
@@ -166,6 +167,20 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_ct1_corpus_validation.py",
+      "line": 90,
+      "value": {
+        "fixtures": 6,
+        "requests": 106,
+        "parameters": 47,
+        "credential_parameters": 47,
+        "redacted_parameters": 39,
+        "signing_parameters": 42
+      },
+      "gates_what": "test_fixtures_exist"
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_daily_digest.py",
       "line": 96,
       "value": {
@@ -255,7 +270,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1295",
+      "value": "3.66.1296",
       "gates_what": "test_containment_routes_and_version"
     },
     {

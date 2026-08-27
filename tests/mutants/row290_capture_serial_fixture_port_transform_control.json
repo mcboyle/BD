@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 290. capture.sh is a shell entry point rather than an importable Python module, so the control performs its compile-time analogue: bash parses the live script without asserting fixture behavior. Removing the serial assignment remains valid shell and must ESCAPE, proving M1 is caught by the runtime assertion rather than a parse/import failure.",
+  "subject": "transform control -- parsing capture.sh does not constrain serial fixture routing",
+  "band": [
+    "tests/test_row290_capture_serial_fixture_port.py::test_transform_control_capture_parses_without_asserting_fixture_routing"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 serial fixture assignment disappears while syntax-only consumer stays green",
+      "file": "capture.sh",
+      "old": "  CAPTURE_FIXTURE_PORT=8899\n",
+      "new": "  # mutant: serial fixture port is unassigned\n",
+      "direction": "regression",
+      "catcher": "tests/test_row290_capture_serial_fixture_port.py::test_transform_control_capture_parses_without_asserting_fixture_routing"
+    }
+  ]
+}

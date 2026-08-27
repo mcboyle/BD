@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 313 transform control. This must report one valid ESCAPED mutant: the byte-identical M2 transform leaves bd-job importable, while the named test deliberately makes no status or kill assertion. A CAUGHT or INVALID result would invalidate the primary battery's behavioral evidence.",
+  "subject": "removing start-tick comparison remains importable without a process-identity assertion",
+  "band": [
+    "tests/test_row313_bd_job_identity.py::test_transform_control_imports_bd_job_without_asserting_identity"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL missing start-tick comparison escapes an import-only test",
+      "file": "toolchain/bin/bd-job",
+      "old": "        compared = (\"boot_id\", \"pid\", \"pgid\", \"sid\", \"start_ticks\")",
+      "new": "        compared = (\"boot_id\", \"pid\", \"pgid\", \"sid\")",
+      "direction": "regression",
+      "catcher": "tests/test_row313_bd_job_identity.py::test_transform_control_imports_bd_job_without_asserting_identity"
+    }
+  ]
+}

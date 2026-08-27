@@ -37,6 +37,7 @@ PRECUT = REPO / "toolchain" / "bin" / "bd-precut"
 #: from the artifact under test is how a dropped entry passes (CLAUDE.md A7).
 EXPECTED_GATES = {
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+    "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
     "tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
     "tests/test_import_graph_no_new_edges.py",

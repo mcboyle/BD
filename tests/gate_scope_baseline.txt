@@ -162,7 +162,6 @@ tests/test_credential_persistence.py
 tests/test_csrf_origin_guard.py
 tests/test_csv_bulk.py
 tests/test_ct1_capture_synth.py
-tests/test_ct1_corpus_validation.py
 tests/test_ct2_capture_bodies.py
 tests/test_curl_cffi_api.py
 tests/test_curl_cffi_response_context.py

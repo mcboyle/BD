@@ -1,0 +1,46 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 290. The behavioral band executes capture.sh in default and parallel modes. M1 replays the measured unbound-variable exit, M2 breaks the origin/port invariant, M3 leaks the serial default into the parallel initializer, and M4 makes the fixture launch ignore the claimed parallel port. The separate transform control applies M1 to a syntax-only consumer and must ESCAPE.",
+  "subject": "row 290 -- default capture defines the fixture port while parallel capture retains real per-run port ownership",
+  "band": [
+    "tests/test_row290_capture_serial_fixture_port.py",
+    "tests/test_parallel_capture_services.py::test_two_port_pairs_are_live_concurrently_and_a_shared_pair_refuses"
+  ],
+  "mutants": [
+    {
+      "label": "M1 serial fixture port is unassigned again",
+      "file": "capture.sh",
+      "old": "  CAPTURE_FIXTURE_PORT=8899\n",
+      "new": "  # mutant: serial fixture port is unassigned\n",
+      "direction": "regression",
+      "catcher": "tests/test_row290_capture_serial_fixture_port.py::test_default_capture_reaches_fixture_seed_and_steps_six_through_nine"
+    },
+    {
+      "label": "M2 serial fixture port disagrees with its published origin",
+      "file": "capture.sh",
+      "old": "  CAPTURE_FIXTURE_PORT=8899\n",
+      "new": "  CAPTURE_FIXTURE_PORT=8898\n",
+      "direction": "regression",
+      "catcher": "tests/test_row290_capture_serial_fixture_port.py::test_default_capture_reaches_fixture_seed_and_steps_six_through_nine"
+    },
+    {
+      "label": "M3 serial fixture default leaks into the parallel port initializer",
+      "file": "capture.sh",
+      "old": "if [ \"$CAPTURE_LEGACY_SINGLETON\" = \"0\" ]; then\n  # The descriptor-owned directory is the complete per-run application state,\n",
+      "new": "CAPTURE_FIXTURE_PORT=8899\nif [ \"$CAPTURE_LEGACY_SINGLETON\" = \"0\" ]; then\n  # The descriptor-owned directory is the complete per-run application state,\n",
+      "direction": "overcorrection",
+      "control": "tests/test_row290_capture_serial_fixture_port.py::test_parallel_capture_claims_and_routes_a_real_distinct_port_pair",
+      "preserves": [
+        "tests/test_row290_capture_serial_fixture_port.py::test_default_capture_reaches_fixture_seed_and_steps_six_through_nine"
+      ]
+    },
+    {
+      "label": "M4 fixture launch ignores the claimed parallel port",
+      "file": "capture.sh",
+      "old": "    venv/bin/python tools/fixture_site.py --port \"$CAPTURE_FIXTURE_PORT\"\n",
+      "new": "    venv/bin/python tools/fixture_site.py --port 8899\n",
+      "direction": "regression",
+      "catcher": "tests/test_row290_capture_serial_fixture_port.py::test_parallel_capture_claims_and_routes_a_real_distinct_port_pair"
+    }
+  ]
+}
