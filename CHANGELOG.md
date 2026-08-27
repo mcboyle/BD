@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1298 - concurrent app_config writers cannot lose independent keys (+1 file-disjoint row(s): 316)
+
+- Added a shared OS-backed transaction lock around both config writers in [gl
+- Added the forced two-process test and negative control in [test_row311_app_
+- Registered the gate in CI and its exact denominator.
+- Added primary and transform-control mutation specs.
+- Filed [backlog row 311](/home/mboyle/bd-codex-wt/row311/project-knowledge/I
+- Final row gate: `2 passed in 3.89s`
+- Affected CI/import/pin/backlog/mutation-spec gates: `32 passed in 320.47s`
+- Legacy config compatibility selection: `6 passed in 9.56s`
+- `git diff --check`: passed
+- Primary: `4/4 CAUGHT`, `0 ESCAPED`, `0 INVALID`, `0 UNKNOWN`, `0 ERROR`.
+- Transform control: `1 ESCAPED`, `0 INVALID`: `CONTROL release the OS lock b
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 177 -> 188.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1297 - the parallel display test owns the display it kills (+2 file-disjoint row(s): 310,312)
 
 -        # Never leave a server behind; a leaked Xvfb would poison later runs.

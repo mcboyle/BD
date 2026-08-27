@@ -1,0 +1,43 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 311 / F16. Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row_311_app_config_transaction_lock.json --work DETACHED_SCRATCH. The two real writers are forced to contend while the gate records the exact lock, read and completion populations; each valid regression must turn the preservation assertion or its lock-identity precondition RED.",
+  "subject": "all app_config read/merge/replace writers share one OS-backed transaction lock",
+  "band": [
+    "tests/test_row311_app_config_writers_are_serialized.py::test_concurrent_app_config_writers_preserve_both_disjoint_keys",
+    "tests/test_row311_app_config_writers_are_serialized.py::test_forced_schedule_loses_a_key_when_the_os_lock_is_bypassed"
+  ],
+  "mutants": [
+    {
+      "label": "replace the OS lock acquisition with an inert file operation",
+      "file": "bulk_downloader/global_config.py",
+      "old": "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n",
+      "new": "        lock_file.seek(0)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row311_app_config_writers_are_serialized.py::test_concurrent_app_config_writers_preserve_both_disjoint_keys"
+    },
+    {
+      "label": "release the OS lock before the read merge replace transaction",
+      "file": "bulk_downloader/global_config.py",
+      "old": "            _lock_app_config_file(lock_file)\n            try:\n                yield\n            finally:\n                _unlock_app_config_file(lock_file)\n",
+      "new": "            _lock_app_config_file(lock_file)\n            _unlock_app_config_file(lock_file)\n            yield\n",
+      "direction": "regression",
+      "catcher": "tests/test_row311_app_config_writers_are_serialized.py::test_concurrent_app_config_writers_preserve_both_disjoint_keys"
+    },
+    {
+      "label": "make set_config lock a different sibling file",
+      "file": "bulk_downloader/global_config.py",
+      "old": "        with app_config_transaction(_CONFIG_FILE):\n",
+      "new": "        with app_config_transaction(_CONFIG_FILE.with_name(\"global_config.writer\")):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row311_app_config_writers_are_serialized.py::test_concurrent_app_config_writers_preserve_both_disjoint_keys"
+    },
+    {
+      "label": "make the app writer lock a different sibling file",
+      "file": "bulk_downloader/app.py",
+      "old": "        with _cfg_transaction(APP_CFG_FILE):\n",
+      "new": "        with _cfg_transaction(APP_CFG_FILE.with_name(\"app_config.app-writer\")):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row311_app_config_writers_are_serialized.py::test_concurrent_app_config_writers_preserve_both_disjoint_keys"
+    }
+  ]
+}

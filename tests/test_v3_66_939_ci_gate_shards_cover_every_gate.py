@@ -89,6 +89,10 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Backlog row 311 / F16. Separate app processes write one shared config;
+    # this real-process gate forces their stale-read schedule, proves the two
+    # lock acquisitions use one exact file, and preserves both disjoint keys.
+    "tests/test_row311_app_config_writers_are_serialized.py",
     # Backlog row 267. Seven application measurements had each collapsed an
     # unavailable result into the same value as measured permission. This
     # module drives the real enqueue/start/admission and integrity seams, so it
@@ -630,7 +634,9 @@ _DECLARED = {
 # declares its repo-wide scope and is executed in exactly one shard.
 # 176 -> 177 at row 312 (2026-08-27). The one new pidfd identity gate is named
 # once in this declaration and once in the jobs-determinism shard.
-_EXPECTED_DECLARED_GATE_COUNT = 187
+# 176 -> 177 at backlog row 311. The new real-process app_config transaction
+# gate is one module-scoped safety boundary pinned into application-safety.
+_EXPECTED_DECLARED_GATE_COUNT = 188
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

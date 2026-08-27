@@ -22,6 +22,7 @@ bd_home/
 *.premigration.bak
 *.sqlite3
 app_config.json
+app_config.json.lock
 sites_config.json
 cookies/
 *.cookies.json
