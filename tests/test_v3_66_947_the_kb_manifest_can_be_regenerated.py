@@ -49,16 +49,298 @@ import hashlib
 import json
 import os
 import runpy
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
+
+
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parent.parent
 _PY = Path(sys.executable)
 _TOOL = _REPO / "toolchain" / "bin" / "bd-kb-sync"
 _REGEN = _REPO / "toolchain" / "bin" / "bd-regen-order"
 _MANIFEST_NAME = "STATIC_KB_MANIFEST.json"
+
+
+def _assert_disposable_regen_roots(roots: list[Path]) -> None:
+    """Require both idempotence passes to share one non-canonical checkout."""
+    assert len(roots) == 2, (
+        f"expected exactly two regen launches, observed {len(roots)}: {roots}"
+    )
+    resolved = [root.resolve() for root in roots]
+    assert resolved[0] == resolved[1], (
+        f"idempotence passes used different work roots: {resolved}"
+    )
+    canonical = _REPO.resolve()
+    escaped = [
+        root for root in resolved
+        if root == canonical or root.is_relative_to(canonical)
+    ]
+    assert not escaped, (
+        "regen escaped the disposable copy and targeted the canonical checkout: "
+        f"{escaped}"
+    )
+
+
+def _git_checkout_populations() -> tuple[list[Path], list[Path]]:
+    """Return tracked and relevant untracked inputs as distinct populations."""
+    env = dict(os.environ)
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    tracked_result = subprocess.run(
+        [
+            "git",
+            "--no-optional-locks",
+            "-C",
+            str(_REPO),
+            "ls-files",
+            "-z",
+            "--cached",
+        ],
+        capture_output=True,
+        timeout=60,
+        env=env,
+    )
+    assert tracked_result.returncode == 0, tracked_result.stderr.decode(
+        "utf-8", errors="replace"
+    )
+    untracked_result = subprocess.run(
+        [
+            "git",
+            "--no-optional-locks",
+            "-C",
+            str(_REPO),
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+        ],
+        capture_output=True,
+        timeout=60,
+        env=env,
+    )
+    assert untracked_result.returncode == 0, untracked_result.stderr.decode(
+        "utf-8", errors="replace"
+    )
+    tracked = [
+        Path(os.fsdecode(entry))
+        for entry in tracked_result.stdout.split(b"\0")
+        if entry
+    ]
+    visible_untracked = [
+        Path(os.fsdecode(entry))
+        for entry in untracked_result.stdout.split(b"\0")
+        if entry
+    ]
+    assert len(tracked) == len(set(tracked)) > 0, (
+        f"tracked copy denominator is invalid: {len(tracked)} entries, "
+        f"{len(set(tracked))} unique"
+    )
+    assert len(visible_untracked) == len(set(visible_untracked)), (
+        f"untracked copy population contains duplicates: {visible_untracked}"
+    )
+    assert not (set(tracked) & set(visible_untracked)), (
+        "tracked and untracked checkout populations overlap"
+    )
+    environment_roots = {
+        Path("venv"),
+        Path(".venv"),
+        Path("frontend/node_modules"),
+        Path("frontend/dist"),
+    }
+    untracked = [
+        path for path in visible_untracked
+        if not any(
+            path == root or path.is_relative_to(root)
+            for root in environment_roots
+        )
+    ]
+    files = tracked + untracked
+    unsafe = [
+        path for path in files
+        if path.is_absolute() or path == Path(".") or ".." in path.parts
+    ]
+    assert not unsafe, f"Git returned unsafe checkout paths: {unsafe}"
+    unavailable = [
+        path for path in files
+        if not (_REPO / path).is_file() and not (_REPO / path).is_symlink()
+    ]
+    assert not unavailable, (
+        f"Git-visible copy inputs became unavailable: {unavailable}"
+    )
+    return tracked, untracked
+
+
+def _git_in_disposable_checkout(work: Path, *arguments: str) -> None:
+    env = dict(os.environ)
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        ["git", "--no-optional-locks", *arguments],
+        cwd=work,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"disposable Git setup failed for {arguments}: {result.stderr[-2000:]}"
+    )
+
+
+def _copy_checkout_for_regen(destination: Path) -> Path:
+    """Copy current test inputs and create an owned index for Git-based scans."""
+    canonical = _REPO.resolve()
+    resolved_destination = destination.resolve()
+    assert resolved_destination != canonical
+    assert not resolved_destination.is_relative_to(canonical), (
+        f"disposable checkout was placed inside the canonical tree: {destination}"
+    )
+    assert not destination.exists(), f"disposable checkout already exists: {destination}"
+
+    tracked, untracked = _git_checkout_populations()
+    # SCAFFOLDING IS NOT PART OF THE SUBJECT, AND IT IS FILTERED AT THE SOURCE.
+    # bd-codex-cut.sh and bd-verify-cut.sh create ABSOLUTE symlinks for venv,
+    # frontend/node_modules and frontend/dist so a fresh worktree can run at all.
+    # They are gitignored tooling artifacts, not repository content, and including
+    # them made this test refuse its own harness. bd-prepush.sh already excludes
+    # exactly this set for exactly this reason; the list is kept identical.
+    # Filtering `tracked` and `untracked` HERE rather than only the copy list keeps
+    # every downstream consumer consistent -- the copy, the `add` pathspec and the
+    # indexed_files reconciliation must quantify over ONE population, and filtering
+    # only one of them is how this first failed.
+    _SCAFFOLD = ("venv", "frontend/node_modules", "frontend/dist")
+
+    def _is_scaffold(path) -> bool:
+        text = Path(path).as_posix()
+        return any(text == s or text.startswith(s + "/") for s in _SCAFFOLD)
+
+    _before = len(tracked) + len(untracked)
+    tracked = [p for p in tracked if not _is_scaffold(p)]
+    untracked = [p for p in untracked if not _is_scaffold(p)]
+    files = tracked + untracked
+    assert files and len(files) == len(set(files))
+    # The exclusion must not be able to empty the population it filters, and it
+    # must actually be an exclusion rather than a no-op rename.
+    assert 0 <= _before - len(files) < _before, (
+        f"scaffolding filter removed {_before - len(files)} of {_before} paths"
+    )
+    destination.mkdir(parents=True)
+    copied = 0
+    for relative in files:
+        source = _REPO / relative
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_symlink():
+            link_target = os.readlink(source)
+            assert not Path(link_target).is_absolute(), (
+                f"absolute symlink cannot be isolated: {relative} -> {link_target}"
+            )
+            os.symlink(link_target, target)
+            assert target.resolve(strict=False).is_relative_to(resolved_destination), (
+                f"symlink escapes disposable checkout: {relative} -> {link_target}"
+            )
+        else:
+            shutil.copy2(source, target)
+        copied += 1
+
+    assert copied == len(files) > 0, (
+        f"copied {copied} of {len(files)} Git-visible checkout files"
+    )
+    _git_in_disposable_checkout(destination, "init", "--quiet")
+    for start in range(0, len(tracked), 256):
+        stop = min(len(tracked), start + 256)
+        chunk = [path.as_posix() for path in tracked[start:stop]]
+        assert chunk
+        _git_in_disposable_checkout(
+            destination, "add", "--intent-to-add", "--force", "--", *chunk
+        )
+
+    env = dict(os.environ)
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    indexed = subprocess.run(
+        ["git", "--no-optional-locks", "ls-files", "-z"],
+        cwd=destination,
+        capture_output=True,
+        timeout=60,
+        env=env,
+    )
+    assert indexed.returncode == 0, indexed.stderr.decode("utf-8", errors="replace")
+    indexed_files = {
+        Path(os.fsdecode(entry))
+        for entry in indexed.stdout.split(b"\0")
+        if entry
+    }
+    assert indexed_files == set(tracked), (
+        f"disposable Git index does not match tracked denominator: "
+        f"missing={sorted(set(tracked) - indexed_files)}, "
+        f"extra={sorted(indexed_files - set(tracked))}"
+    )
+    unindexed = subprocess.run(
+        [
+            "git",
+            "--no-optional-locks",
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+        ],
+        cwd=destination,
+        capture_output=True,
+        timeout=60,
+        env=env,
+    )
+    assert unindexed.returncode == 0, unindexed.stderr.decode(
+        "utf-8", errors="replace"
+    )
+    unindexed_files = {
+        Path(os.fsdecode(entry))
+        for entry in unindexed.stdout.split(b"\0")
+        if entry
+    }
+    assert unindexed_files == set(untracked), (
+        f"disposable untracked population does not match its source: "
+        f"missing={sorted(set(untracked) - unindexed_files)}, "
+        f"extra={sorted(unindexed_files - set(untracked))}"
+    )
+
+    required = [
+        Path("toolchain/bin/bd-regen-order"),
+        Path("project-knowledge") / _MANIFEST_NAME,
+    ]
+    assert len(required) == 2
+    assert set(required) <= set(tracked), (
+        f"required regen inputs are absent from the tracked denominator: {required}"
+    )
+    for relative in required:
+        copied_path = destination / relative
+        canonical_path = _REPO / relative
+        assert copied_path.is_file(), f"required regen input was not copied: {relative}"
+        assert copied_path.read_bytes() == canonical_path.read_bytes(), (
+            f"copied regen input differs from canonical bytes: {relative}"
+        )
+    return destination
+
+
+def _regen_environment(owned_root: Path) -> dict[str, str]:
+    """Confine generator home, cache, bytecode and temporary state."""
+    env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
+    for name in ("home", "tmp", "cache", "pycache"):
+        (owned_root / name).mkdir()
+    env.update(
+        {
+            "BD_HOME": str(owned_root / "home"),
+            "HOME": str(owned_root / "home"),
+            "TMPDIR": str(owned_root / "tmp"),
+            "XDG_CACHE_HOME": str(owned_root / "cache"),
+            "PYTHONPYCACHEPREFIX": str(owned_root / "pycache"),
+        }
+    )
+    return env
 
 
 def _seed(root: Path, version: str = "v9.9.9") -> subprocess.CompletedProcess:
@@ -271,18 +553,97 @@ def test_the_real_regen_chain_is_idempotent():
     second run is in a different wall-clock second, without which this passes
     over the very defect it exists to catch.
     """
-    m = _REPO / "project-knowledge" / _MANIFEST_NAME
-    first = subprocess.run(
-        [str(_PY), str(_REGEN), "--work", str(_REPO)],
-        capture_output=True, text=True, timeout=900)
-    assert first.returncode == 0, (first.stdout + first.stderr)[-2000:]
-    settled = _sha(m)
+    canonical_manifest = _REPO / "project-knowledge" / _MANIFEST_NAME
+    canonical_before = canonical_manifest.read_bytes()
+    assert canonical_before, "canonical manifest precondition is empty"
 
-    _tick()
-    second = subprocess.run(
-        [str(_PY), str(_REGEN), "--work", str(_REPO)],
-        capture_output=True, text=True, timeout=900)
-    assert second.returncode == 0, (second.stdout + second.stderr)[-2000:]
-    assert _sha(m) == settled, (
-        "bd-regen-order rewrote the manifest on a settled tree. CI runs the "
-        "chain and then `git status --porcelain`, so this fails every PR.")
+    with tempfile.TemporaryDirectory(prefix="bd_regen_idempotence_") as raw_tmp:
+        owned_root = Path(raw_tmp)
+        work = _copy_checkout_for_regen(owned_root / "checkout")
+        env = _regen_environment(owned_root)
+        m = work / "project-knowledge" / _MANIFEST_NAME
+        assert m.read_bytes() == canonical_before, (
+            "disposable manifest did not start with the canonical bytes"
+        )
+
+        first = subprocess.run(
+            [str(_PY), str(_REGEN), "--work", str(work)],
+            capture_output=True, text=True, timeout=900, env=env)
+        assert first.returncode == 0, (first.stdout + first.stderr)[-2000:]
+        settled = _sha(m)
+
+        _tick()
+        second = subprocess.run(
+            [str(_PY), str(_REGEN), "--work", str(work)],
+            capture_output=True, text=True, timeout=900, env=env)
+        assert second.returncode == 0, (second.stdout + second.stderr)[-2000:]
+        assert _sha(m) == settled, (
+            "bd-regen-order rewrote the manifest on a settled tree. CI runs the "
+            "chain and then `git status --porcelain`, so this fails every PR.")
+
+    assert canonical_manifest.read_bytes() == canonical_before, (
+        "the disposable regen test changed the canonical manifest"
+    )
+
+
+def test_the_idempotence_test_runs_both_regens_in_one_disposable_copy(monkeypatch):
+    """The safety gate must not reproduce the checkout mutation it detects."""
+    real_run = subprocess.run
+    observed_roots: list[Path] = []
+    observed_shapes: list[tuple[bool, bool]] = []
+    ticks: list[None] = []
+    canonical_manifest = _REPO / "project-knowledge" / _MANIFEST_NAME
+    before = canonical_manifest.read_bytes()
+    assert before, "canonical manifest precondition is empty"
+
+    def recording_run(argv, *args, **kwargs):
+        if len(argv) >= 2 and Path(argv[1]).name == _REGEN.name:
+            work_flags = [index for index, value in enumerate(argv) if value == "--work"]
+            assert work_flags == [2], f"regen command has no unique --work: {argv}"
+            assert len(argv) == 4, f"unexpected regen command shape: {argv}"
+            work = Path(argv[3])
+            observed_roots.append(work)
+            observed_shapes.append(
+                (
+                    (work / "toolchain" / "bin" / "bd-regen-order").is_file(),
+                    (work / "project-knowledge" / _MANIFEST_NAME).is_file(),
+                )
+            )
+            return subprocess.CompletedProcess(argv, 0, "regen intercepted\n", "")
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", recording_run)
+    monkeypatch.setattr(
+        sys.modules[__name__], "_tick", lambda: ticks.append(None)
+    )
+
+    test_the_real_regen_chain_is_idempotent()
+
+    assert len(ticks) == 1, f"expected exactly one inter-run tick, got {len(ticks)}"
+    assert len(observed_shapes) == 2
+    assert observed_shapes == [(True, True), (True, True)], (
+        f"regen work-root preconditions were not built twice: {observed_shapes}"
+    )
+    assert canonical_manifest.read_bytes() == before, (
+        "the isolation regression test itself changed the canonical manifest"
+    )
+    _assert_disposable_regen_roots(observed_roots)
+
+
+def test_disposable_root_verdict_rejects_the_canonical_checkout():
+    """Negative control: the filed two-pass shape reaches the refusal."""
+    roots = [_REPO, _REPO]
+    assert len(roots) == 2 and all(root == _REPO for root in roots)
+    with pytest.raises(
+        AssertionError,
+        match="regen escaped the disposable copy and targeted the canonical checkout",
+    ):
+        _assert_disposable_regen_roots(roots)
+
+
+def test_transform_control_imports_without_asserting_regen_isolation():
+    """A valid work-root transform still imports when isolation is not judged."""
+    import importlib
+
+    imported = importlib.import_module(__name__)
+    assert imported._REGEN.is_file()

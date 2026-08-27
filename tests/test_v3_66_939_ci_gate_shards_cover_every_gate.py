@@ -282,6 +282,11 @@ _DECLARED = {
     # path from which bd-band-derive could select this gate, so CI must run it
     # directly on every tree.
     "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py",
+    # Row 298. The end-to-end idempotence gate executes the entire canonical
+    # regen chain twice, so its work-root ownership is a tree-wide concurrency
+    # boundary. It runs in a dedicated shard against a disposable copy rather
+    # than rewriting generated artifacts beneath sibling workers.
+    "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",
@@ -572,7 +577,10 @@ _DECLARED = {
 # was correct and only the count was stale, which is the case this pin exists to
 # allow. Verified: the cut adds exactly ONE entry to the declared list.
 _EXPECTED_DECLARED_GATE_COUNT = 176
-_EXPECTED_DECLARED_GATE_COUNT = 177
+# 176 -> 177 at row 298. This cut classifies one legacy gate, removes its one
+# frozen-baseline exemption, declares it here, and gives it one dedicated CI
+# shard because its real two-pass regen chain is an independent long pole.
+_EXPECTED_DECLARED_GATE_COUNT = 178
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
