@@ -208,7 +208,7 @@ FIXTURE_OCCURRENCE_COUNTS: Mapping[str, int] = {
     "tests/test_v3_66_252_dom_excerpt.py": 1,
     "tests/test_v3_66_276_row_selector_robust.py": 1,
     "tests/test_v3_66_527_numeric_integer_backstop.py": 1,
-    "tests/test_v3_66_653_dep_freshness.py": 2,
+    "tests/test_v3_66_653_dep_freshness.py": 1,
     "tests/test_v3_66_799_audit_tool_selftests.py": 1,
 }
 
@@ -232,7 +232,7 @@ FIXTURE_ANCHORS: Mapping[str, str] = {
     "tests/test_v3_66_252_dom_excerpt.py": "/.cache/ms-playwright/chromium-1223",
     "tests/test_v3_66_276_row_selector_robust.py": "/.cache/ms-playwright/chromium-1223",
     "tests/test_v3_66_527_numeric_integer_backstop.py": "/fixture_numeric_sites.json",
-    "tests/test_v3_66_653_dep_freshness.py": "/capture",
+    "tests/test_v3_66_653_dep_freshness.py": "/lsp_kit/wheels",
     "tests/test_v3_66_799_audit_tool_selftests.py": "/bin",
 }
 
@@ -365,7 +365,7 @@ def test_tree_census_shrinks_while_the_release_record_stays_historical():
     carriers = _tracked_carriers()
     occurrences = _tracked_occurrences()
     assert len(carriers) == 70
-    assert occurrences == 257
+    assert occurrences == 256
 
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     current = changelog.split("## v3.66.1192", 1)[1].split("## v3.66.1191", 1)[0]
@@ -494,11 +494,11 @@ def test_fixture_occurrences_and_semantic_anchors_are_exact():
         "tests/test_v3_66_252_dom_excerpt.py": 1,
         "tests/test_v3_66_276_row_selector_robust.py": 1,
         "tests/test_v3_66_527_numeric_integer_backstop.py": 1,
-        "tests/test_v3_66_653_dep_freshness.py": 2,
+        "tests/test_v3_66_653_dep_freshness.py": 1,
         "tests/test_v3_66_799_audit_tool_selftests.py": 1,
     }
     assert globals().get("FIXTURE_OCCURRENCE_COUNTS") == expected_counts
-    assert sum(FIXTURE_OCCURRENCE_COUNTS.values()) == 48
+    assert sum(FIXTURE_OCCURRENCE_COUNTS.values()) == 47
     assert set(FIXTURE_ANCHORS) == set(expected_counts)
 
     errors = _fixture_preservation_errors(

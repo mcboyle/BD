@@ -175,3 +175,13 @@ pytest-xdist>=3.6,<4.0
 # DIFFERENT manifest than the one deploy.sh checks first, so a fresh venv would
 # exit 2 on the first check.
 packaging>=23.0,<27.0
+
+# Pillow: project-knowledge/build_navigator.py and build_montage.py import it
+# at MODULE SCOPE. It was waived as undeclared-by-design on the grounds that
+# those builders were "documentation scratch, run by no lane" -- true until two
+# rows made them CI-gated tooling. OPERATOR DECISION 2026-08-27: declare it in
+# BOTH manifests, so a base install can actually run the builders rather than
+# only a machine that happens to have test extras. The waiver entries in
+# tests/test_v3_66_653_dep_freshness.py were retired in the same cut, following
+# the psycopg precedent recorded there on 2026-08-10.
+Pillow

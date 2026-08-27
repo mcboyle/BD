@@ -267,8 +267,13 @@ _UNDECLARED_BY_DESIGN = {
                 "'requests not installed' result rather than raising",
     "rich": "cli_dashboard TUI decoration only; soft-imported, plain text "
             "otherwise",
-    "PIL": "system-tray icon rendering (tray_app.py) -- the tray is a desktop "
-           "affordance the headless deploy never starts",
+    # PIL's waiver was REMOVED 2026-08-27: Pillow is declared in
+    # requirements-test.txt now (operator decision). Rows 308 and 309 gate
+    # project-knowledge/build_navigator.py and build_montage.py, so those
+    # builders stopped being "documentation scratch, run by no lane" and
+    # became CI-gated tooling. A waiver saying a name is undeclared BY DESIGN
+    # cannot stand once the design changed; leaving it would make this gate
+    # assert something the manifests contradict.
     "pystray": "the tray itself; same reason as PIL",
     "plexapi": "Plex library sync, opt-in per install",
     # psycopg's waiver was REMOVED 2026-08-10: it is declared in
@@ -292,9 +297,13 @@ _UNDECLARED_OUTSIDE_BY_DESIGN = {
                 "flask pin; the in-process test servers and "
                 "project-knowledge/spa_serve.py reach make_server through "
                 "flask's install, not on their own",
-    "PIL": "project-knowledge/build_montage.py and build_navigator.py are "
-           "one-off montage builders that read an off-box capture directory "
-           "(/home/claude/capture); documentation scratch, run by no lane",
+    # PIL's waiver was REMOVED 2026-08-27: Pillow is declared in
+    # requirements-test.txt now (operator decision). Rows 308 and 309 gate
+    # project-knowledge/build_navigator.py and build_montage.py, so those
+    # builders stopped being "documentation scratch, run by no lane" and
+    # became CI-gated tooling. A waiver saying a name is undeclared BY DESIGN
+    # cannot stand once the design changed; leaving it would make this gate
+    # assert something the manifests contradict.
     "atheris": "tools/fuzz_probe.py's coverage-guided harness, try/except "
                "guarded into HAS_ATHERIS; it needs a clang build and the "
                "whole Z.8 section is explicitly best-effort",

@@ -120,3 +120,15 @@ psycopg[binary]>=3.1,<4
 # nothing that is installed -- it makes a dependency that already exists in
 # fact exist on paper, which is the only thing that survives a rebuild.
 httpcore>=1.0,<2.0
+
+# Pillow is a REAL dependency, not a test convenience: project-knowledge/
+# build_navigator.py and build_montage.py both `from PIL import ...` at module
+# scope. It was declared in NEITHER requirements file, so it existed only
+# because the local venv happened to carry it. Row 308's gate imports the same
+# module and CI failed with `ModuleNotFoundError: No module named 'PIL'` --
+# collection error, exit 2, before a single assertion ran. Declared here so the
+# gate actually executes in CI; a gate whose tool is missing is a gate that does
+# not exist. NOTE FOR A SEPARATE ROW: the two builders are RUNTIME code and
+# their dependency belongs in requirements.txt too -- a fresh install without
+# the test extras cannot run them today.
+Pillow

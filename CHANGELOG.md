@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1294 - Pillow is declared so the builder gates run in CI
+
+- Pillow is imported at module scope by build_navigator.py and build_montage.
+- It worked only because the local venv carried it; a fresh install cannot run
+- an unmerged visual-audit-literals row failed CI with ModuleNotFoundError: N
+- an unmerged capture-manifest row failed CI with assert 1 == 2, because the 
+- Both bands were green locally because the venv has Pillow; only CI could se
+- Filed as its own row because 308 and 309 both need the same manifest line a
+- Not fully closed: the builders are runtime code, so requirements.txt needs 
+
 ## v3.66.1293 - two dist-dependent gates stop blocking every wide band
 
 - Two gates depended on frontend/dist, a gitignored build artifact that neith
