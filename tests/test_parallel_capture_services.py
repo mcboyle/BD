@@ -481,11 +481,29 @@ def test_capture_routes_seeding_live_artifacts_and_verdicts_by_instance() -> Non
 
 def test_detached_children_close_both_port_claim_descriptors(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app_lock = tmp_path / "app.lock"
     fixture_lock = tmp_path / "fixture.lock"
     app_lock.touch(mode=0o600)
     fixture_lock.touch(mode=0o600)
+
+    # capture.sh exports this numeric token for the whole pytest lane, but
+    # subprocess.run does not inherit the descriptor it used to identify. A
+    # fresh bash can then allocate the same number to one of this fixture's
+    # locks. Recreate that fleet shape deliberately so the control proves it
+    # removes ambient descriptor claims instead of passing only in a clean
+    # developer shell.
+    monkeypatch.setenv("BD_HEARTBEAT_CLOSE_FD", "41")
+    assert os.environ["BD_HEARTBEAT_CLOSE_FD"] == "41"
+    descriptor_environment = (
+        "BD_HEARTBEAT_CLOSE_FD",
+        "CAPTURE_VAULT_DIR_FD",
+        "CAPTURE_VAULT_DIR_LOCK_FD",
+        "CAPTURE_APP_PORT_LOCK_FD",
+        "CAPTURE_FIXTURE_PORT_LOCK_FD",
+    )
+    assert len(descriptor_environment) == 5
 
     def run_probe(close_capture_fds: bool, log_name: str) -> subprocess.CompletedProcess[str]:
         assignments = ""
@@ -496,50 +514,77 @@ def test_detached_children_close_both_port_claim_descriptors(
             )
         driver = (
             'source "$HEARTBEAT"\n'
-            'exec {app_fd}<>"$APP_LOCK"; flock -n "$app_fd" || exit 73\n'
-            'exec {fixture_fd}<>"$FIXTURE_LOCK"; flock -n "$fixture_fd" || exit 73\n'
+            'setsid() {\n'
+            '  checked=0; launch_open=0\n'
+            '  for fd in $CHECK_FDS; do\n'
+            '    checked=$((checked + 1))\n'
+            '    [ ! -e /proc/$BASHPID/fd/$fd ] || '
+            'launch_open=$((launch_open + 1))\n'
+            '  done\n'
+            '  printf "LAUNCH_BOUNDARY=%s,%s CLOSE_LIST=%s\\n" '
+            '"$checked" "$launch_open" "${_CAPTURE_CLOSE_FDS[*]:-<empty>}"\n'
+            '  command setsid "$@"\n'
+            '}\n'
+            'exec 40<>"$APP_LOCK"; app_fd=40; flock -n "$app_fd" || exit 73\n'
+            'exec 41<>"$FIXTURE_LOCK"; fixture_fd=41; '
+            'flock -n "$fixture_fd" || exit 73\n'
             + assignments
             + 'export CHECK_FDS="$app_fd $fixture_fd"\n'
-              'printf "PARENT_OPEN=%s\\n" "$(for fd in $CHECK_FDS; do '
-              '[ -e /proc/$$/fd/$fd ] && printf x; done | wc -c)"\n'
+              'checked=0; parent_open=0\n'
+              'for fd in $CHECK_FDS; do\n'
+              '  checked=$((checked + 1))\n'
+              '  [ ! -e /proc/$BASHPID/fd/$fd ] || '
+              'parent_open=$((parent_open + 1))\n'
+              'done\n'
+              'printf "PARENT=%s,%s\\n" "$checked" "$parent_open"\n'
               "_start_capture_detached \"$LOG\" bash -c '\n"
               '  checked=0; inherited=0\n'
               '  for fd in $CHECK_FDS; do\n'
               '    checked=$((checked + 1))\n'
-              '    [ ! -e /proc/$$/fd/$fd ] || inherited=$((inherited + 1))\n'
+              '    [ ! -e /proc/$BASHPID/fd/$fd ] || '
+              'inherited=$((inherited + 1))\n'
               '  done\n'
-              '  printf "%s,%s\\n" "$checked" "$inherited"\n'
+              '  printf "CHILD=%s,%s\\n" "$checked" "$inherited"\n'
               "'\n"
               'wait "$CAPTURE_DETACHED_PID"\n'
         )
+        probe_env = {
+            **os.environ,
+            "HEARTBEAT": str(HEARTBEAT),
+            "APP_LOCK": str(app_lock),
+            "FIXTURE_LOCK": str(fixture_lock),
+            "LOG": str(tmp_path / log_name),
+        }
+        for variable in descriptor_environment:
+            probe_env.pop(variable, None)
         return subprocess.run(
             ["bash", "-c", driver],
-            env={
-                **os.environ,
-                "HEARTBEAT": str(HEARTBEAT),
-                "APP_LOCK": str(app_lock),
-                "FIXTURE_LOCK": str(fixture_lock),
-                "LOG": str(tmp_path / log_name),
-            },
+            env=probe_env,
             capture_output=True, text=True, timeout=10,
         )
 
-    closed = run_probe(True, "closed.log")
-    assert closed.returncode == 0, closed.stdout + closed.stderr
-    assert closed.stdout.count("PARENT_OPEN=2") == 1, (
-        "the fixture did not actually open both descriptors in the parent"
-    )
-    assert (tmp_path / "closed.log").read_text() == "2,0\n", (
-        "the detached child inherited one or both capture port claims"
-    )
-
     control = run_probe(False, "inherited.log")
     assert control.returncode == 0, control.stdout + control.stderr
-    assert control.stdout.count("PARENT_OPEN=2") == 1
-    assert (tmp_path / "inherited.log").read_text() == "2,2\n", (
+    assert control.stdout == "PARENT=2,2\n", (
+        "the control fixture did not open exactly two descriptors"
+    )
+    assert (tmp_path / "inherited.log").read_text() == (
+        "LAUNCH_BOUNDARY=2,2 CLOSE_LIST=<empty>\n"
+        "CHILD=2,2\n"
+    ), (
         "negative control did not prove descriptors are inherited without the "
         "capture-specific close list"
     )
+
+    closed = run_probe(True, "closed.log")
+    assert closed.returncode == 0, closed.stdout + closed.stderr
+    assert closed.stdout == "PARENT=2,2\n", (
+        "the positive fixture did not open exactly two descriptors"
+    )
+    assert (tmp_path / "closed.log").read_text() == (
+        "LAUNCH_BOUNDARY=2,2 CLOSE_LIST=40 41\n"
+        "CHILD=2,0\n"
+    ), "the detached child inherited one or both capture port claims"
 
 
 def test_seeder_builds_every_url_from_the_requested_fixture_origin() -> None:
@@ -613,3 +658,13 @@ def test_transform_control_imports_live_seed_without_asserting_fixture_routing()
     from tools import live_seed
 
     assert live_seed.__name__ == "tools.live_seed"
+
+
+def test_transform_control_sources_heartbeat_without_asserting_close_list() -> None:
+    """The row-291 transform remains valid when only module loading is tested."""
+    result = subprocess.run(
+        ["bash", "-c", 'source "$HEARTBEAT"'],
+        env={**os.environ, "HEARTBEAT": str(HEARTBEAT)},
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

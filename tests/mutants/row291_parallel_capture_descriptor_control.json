@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 291. The runtime gate recreates the capture-exported stale numeric descriptor token, proves both test descriptors are open at the launch boundary, and distinguishes the empty control close list from the two-entry production close list. Re-run from a detached scratch copy: toolchain/bin/bd-mutate --spec tests/mutants/row291_parallel_capture_descriptor_control.json --work <scratch>.",
+  "subject": "row 291 -- the detached-child descriptor gate establishes its own inheritance precondition under the real capture environment",
+  "band": [
+    "tests/test_parallel_capture_services.py::test_detached_children_close_both_port_claim_descriptors"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the control retains stale descriptor claims exported by its parent capture",
+      "file": "tests/test_parallel_capture_services.py",
+      "old": "        for variable in descriptor_environment:\n            probe_env.pop(variable, None)",
+      "new": "        # mutant: retain the parent capture's stale descriptor environment\n        pass",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_detached_children_close_both_port_claim_descriptors"
+    },
+    {
+      "label": "M2 the application port claim is omitted from the detached-child close list",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_APP_PORT_LOCK_FD:-}\" \"capture app-port lock\"",
+      "new": "  : \"${CAPTURE_APP_PORT_LOCK_FD:-}\"  # mutant retains capture app-port lock",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_detached_children_close_both_port_claim_descriptors"
+    },
+    {
+      "label": "M3 the fixture port claim is omitted from the detached-child close list",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_FIXTURE_PORT_LOCK_FD:-}\" \"capture fixture-port lock\"",
+      "new": "  : \"${CAPTURE_FIXTURE_PORT_LOCK_FD:-}\"  # mutant retains capture fixture-port lock",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_detached_children_close_both_port_claim_descriptors"
+    },
+    {
+      "label": "M4 both capture port claims are removed from the detached-child close list",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_APP_PORT_LOCK_FD:-}\" \"capture app-port lock\"\n  _capture_add_close_fd \"${CAPTURE_FIXTURE_PORT_LOCK_FD:-}\" \"capture fixture-port lock\"",
+      "new": "  : \"${CAPTURE_APP_PORT_LOCK_FD:-}\" \"${CAPTURE_FIXTURE_PORT_LOCK_FD:-}\"  # mutant retains both port locks",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_detached_children_close_both_port_claim_descriptors"
+    }
+  ]
+}
