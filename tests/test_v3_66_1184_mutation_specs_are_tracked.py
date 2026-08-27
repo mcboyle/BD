@@ -160,6 +160,24 @@ def test_spec_collection_timeout_is_reported_with_its_path(monkeypatch, tmp_path
         _collect_spec_band(spec_path, ["tests/test_slow.py"])
 
 
+# MEASURED 241.11s ON test5 AT 113 SPECS, AGAINST THE CANONICAL --timeout=240.
+# This test spawns one `pytest --collect-only` SUBPROCESS PER TRACKED BAND, so its
+# runtime grows LINEARLY with the number of mutant specs -- that is, with the very
+# population it exists to protect. main at v3.66.1288 carries 110 specs and had
+# already crossed the budget: bd-precut --gate returned 3 on row 296 with
+# "Failed: Timeout (>240.0s) from pytest-timeout", which blocked EVERY cut in the
+# lane, because precut runs against each candidate tree.
+#
+# RAISING THE BUDGET IS NOT WEAKENING THE GATE. Every assertion and the complete
+# denominator are untouched; only the wall-clock allowance changes. Sampling the
+# specs or trimming the population WOULD weaken it, and the contract forbids that.
+# A pytest-timeout also reports FAILED rather than UNKNOWN, so leaving this in
+# place keeps manufacturing a false defect signal that sends a reader hunting for
+# a broken anchor that does not exist.
+#
+# 900s is ~3.7x the measured time, leaving room for roughly a further tripling of
+# the spec population before this recurs.
+@pytest.mark.timeout(900)
 def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
     specs = _tracked_specs()
     assert specs, "cannot validate a zero-spec population"

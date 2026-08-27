@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1291 - the mutation-spec gate gets a budget it has outgrown
+
+- The tracked mutation-spec gate exceeded the canonical 240s band timeout and
+- Measured on test5 at 113 specs: 241.11s unmarked, then 234.98s with the mar
+- The gate spawns one pytest --collect-only subprocess per tracked band, so i
+- RED was not synthetic: bd-precut --gate returned 3 on the candidate then in
+- Fix is an explicit pytest.mark.timeout(900) on that one test, ~3.7x measured
+- The gate is NOT weakened: every assertion and the complete tracked denomina
+- Sampling or trimming the spec population would weaken it and was refused
+- A pytest-timeout reports FAILED rather than UNKNOWN, so the symptom present
+
 ## v3.66.1290 - live-check sampling is restored exactly after collection
 
 -        level, detail = _get_test(tid).fn(ctx)
