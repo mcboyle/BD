@@ -116,6 +116,37 @@ def _active_systemctl(tmp_path: Path) -> Path:
     return bindir
 
 
+def _find_with_vanishing_entry(tmp_path: Path) -> Path:
+    """Emulate GNU find losing one readdir result before it can stat it."""
+    bindir = tmp_path / "racing-find"
+    bindir.mkdir()
+    find = bindir / "find"
+    find.write_text(
+        "#!/bin/sh\n"
+        "printf 'M\\n'\n"
+        "printf \"find: '/tmp/bd-fleet-vanished': No such file or directory\\n\" >&2\n"
+        "exit 1\n",
+        encoding="ascii",
+    )
+    find.chmod(0o755)
+    return bindir
+
+
+def _find_that_really_fails(tmp_path: Path) -> Path:
+    bindir = tmp_path / "failed-find"
+    bindir.mkdir()
+    find = bindir / "find"
+    find.write_text(
+        "#!/bin/sh\n"
+        "printf 'M\\n'\n"
+        "printf \"find: '/tmp': Permission denied\\n\" >&2\n"
+        "exit 1\n",
+        encoding="ascii",
+    )
+    find.chmod(0o755)
+    return bindir
+
+
 def test_unresolvable_checkout_and_failed_counts_are_unknown_not_clean(tmp_path):
     """The old probe emitted head='', version='', dirty=0 and pytest=0."""
     checkout = tmp_path / "BulkDownloader"
@@ -184,6 +215,37 @@ def test_clean_dirty_and_unknown_are_three_reachable_distinct_states(tmp_path):
     states = (clean["dirty"], dirty["dirty"], unknown["dirty"])
     assert states == ("clean", "dirty", "unknown")
     assert len(set(states)) == 3
+
+
+def test_tmp_count_survives_an_entry_vanishing_mid_walk(tmp_path):
+    """A child ENOENT is a slightly stale count, not a failed measurement."""
+    home = tmp_path / "home"
+    home.mkdir()
+    _repo(home)
+    bindir = _find_with_vanishing_entry(tmp_path)
+
+    _, result, fields = _run_probe(
+        home, extra_env={"PATH": f"{bindir}:/usr/bin:/bin"}
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert fields["tmp_bd"] == "1", fields
+
+
+def test_tmp_count_real_failure_remains_unknown(tmp_path):
+    """Negative control: suppressing deletion races must not fail open."""
+    home = tmp_path / "home"
+    home.mkdir()
+    _repo(home)
+    bindir = _find_that_really_fails(tmp_path)
+
+    module, result, fields = _run_probe(
+        home, extra_env={"PATH": f"{bindir}:/usr/bin:/bin"}
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert fields["tmp_bd"] == "unknown", fields
+    assert "tmp_bd" in module.unknown_measurements(fields)
 
 
 def test_git_status_failure_reaches_dirty_unknown_not_clean(tmp_path):

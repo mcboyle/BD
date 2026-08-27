@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1302 - a /tmp entry disappearing mid-walk is not a failed measurement
+
+- bd-fleet no longer reports tmp_bd=unknown merely because an entry under /tmp
+- a genuine failure to measure /tmp still returns unknown, so the three-state
+- a negative control proves unknown remains reachable after the change, becau
+- MEASURED on test5 before the fix: 0 nonzero find exits in 3 runs on a quiet
+
 ## v3.66.1301 - the visual-audit builders derive their version instead of hardcoding it (+1 file-disjoint row(s): 317)
 
 - the visual-audit builders derive the capture release identity instead of
