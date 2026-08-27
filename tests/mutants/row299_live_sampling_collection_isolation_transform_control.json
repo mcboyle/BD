@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 299 transform control. This spec must report one valid ESCAPED mutant: it applies the byte-identical M1 collection-time regression while its only test imports the changed U42 module in a child interpreter without reading or asserting sampler values. The escape proves the primary M1 CAUGHT verdict is behavioral rather than a parse, collection, or import failure.",
+  "subject": "the collection-time sampler regression remains importable without a behavioral assertion",
+  "band": [
+    "tests/test_row_299_live_sampling_collection_isolation.py::test_transform_control_imports_u42_without_asserting_sampler_values"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 collection-time sampler writes remain importable",
+      "file": "tests/test_u42_resource_live_tests.py",
+      "old": "_FAST_COUNT = 4\n_FAST_GAP = 0.0\n\n\ndef _run_with_test_sampler(test_id, ctx):",
+      "new": "_FAST_COUNT = 4\n_FAST_GAP = 0.0\n\nchecks._SAMPLE_COUNT = _FAST_COUNT\nchecks._SAMPLE_GAP_S = _FAST_GAP\n\n\ndef _run_with_test_sampler(test_id, ctx):",
+      "direction": "regression",
+      "catcher": "tests/test_row_299_live_sampling_collection_isolation.py::test_transform_control_imports_u42_without_asserting_sampler_values"
+    }
+  ]
+}
