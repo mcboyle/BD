@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 291. This valid transform must ESCAPE because its sole test sources the heartbeat module without asserting descriptor-close behavior. The identical transform is M4 in row291_parallel_capture_descriptor_control.json.",
+  "subject": "row 291 transform control -- sourcing heartbeat cannot catch removal of both capture port descriptors",
+  "band": [
+    "tests/test_parallel_capture_services.py::test_transform_control_sources_heartbeat_without_asserting_close_list"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL both capture port claims are removed while a source-only test runs",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "  _capture_add_close_fd \"${CAPTURE_APP_PORT_LOCK_FD:-}\" \"capture app-port lock\"\n  _capture_add_close_fd \"${CAPTURE_FIXTURE_PORT_LOCK_FD:-}\" \"capture fixture-port lock\"",
+      "new": "  : \"${CAPTURE_APP_PORT_LOCK_FD:-}\" \"${CAPTURE_FIXTURE_PORT_LOCK_FD:-}\"  # mutant retains both port locks",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_transform_control_sources_heartbeat_without_asserting_close_list"
+    }
+  ]
+}

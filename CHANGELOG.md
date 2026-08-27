@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1285 - the descriptor negative control proves its own precondition
+
+-                **os.environ,
+-                "HEARTBEAT": str(HEARTBEAT),
+-                "APP_LOCK": str(app_lock),
+-                "FIXTURE_LOCK": str(fixture_lock),
+-                "LOG": str(tmp_path / log_name),
+-    closed = run_probe(True, "closed.log")
+-    assert closed.returncode == 0, closed.stdout + closed.stderr
+-    assert closed.stdout.count("PARENT_OPEN=2") == 1, (
+-        "the fixture did not actually open both descriptors in the parent"
+-    assert (tmp_path / "closed.log").read_text() == "2,0\n", (
+-        "the detached child inherited one or both capture port claims"
+-    assert control.stdout.count("PARENT_OPEN=2") == 1
+-    assert (tmp_path / "inherited.log").read_text() == "2,2\n", (
+
 ## v3.66.1284 - deploy and capture-service steps fail closed on unavailable state
 
 -    """The four hosts carried a 2-byte config before this session."""
