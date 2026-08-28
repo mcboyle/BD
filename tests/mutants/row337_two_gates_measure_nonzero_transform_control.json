@@ -1,0 +1,43 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 337 transform control. This applies M1-M4 byte-for-byte while selecting only load/import controls that make no runtime-gate or worker-population verdict. Exactly four valid ESCAPED results prove the primary catches are behavioral rather than syntax, import, or collection failures.",
+  "subject": "transform controls for the UNKNOWN-gate and zero-worker lifecycle regressions",
+  "band": [
+    "tests/test_row337_tool_smoke_unknown_is_failure.py::test_tool_smoke_transform_control_loads_without_judging_timeout",
+    "tests/test_session_keeper.py::test_keeper_start_transform_control_imports_without_starting_a_worker"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 human gate transform remains loadable",
+      "file": "toolchain/bin/bd-tool-smoke",
+      "old": "    if (bad or runtime_bad or slow) and a.gate:\n        return 3\n",
+      "new": "    if (bad or runtime_bad) and a.gate:\n        return 3\n",
+      "direction": "regression",
+      "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_tool_smoke_transform_control_loads_without_judging_timeout"
+    },
+    {
+      "label": "TC2 JSON gate transform remains loadable",
+      "file": "toolchain/bin/bd-tool-smoke",
+      "old": "        return 3 if ((bad or runtime_bad or slow) and a.gate) else 0\n",
+      "new": "        return 3 if ((bad or runtime_bad) and a.gate) else 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_tool_smoke_transform_control_loads_without_judging_timeout"
+    },
+    {
+      "label": "TC3 CLEAN-label transform remains loadable",
+      "file": "toolchain/bin/bd-tool-smoke",
+      "old": "    if not bad and not runtime_bad and not slow:\n        print(f\"{G}CLEAN{RST} -- no tool would crash on invocation.\")\n",
+      "new": "    if not bad and not runtime_bad:\n        print(f\"{G}CLEAN{RST} -- no tool would crash on invocation.\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_tool_smoke_transform_control_loads_without_judging_timeout"
+    },
+    {
+      "label": "TC4 suppressed worker-start transform remains importable",
+      "file": "bulk_downloader/session_keeper.py",
+      "old": "    keeper.start()\n    return keeper\n",
+      "new": "    # mutant: worker start suppressed\n    return keeper\n",
+      "direction": "regression",
+      "catcher": "tests/test_session_keeper.py::test_keeper_start_transform_control_imports_without_starting_a_worker"
+    }
+  ]
+}

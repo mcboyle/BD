@@ -1,0 +1,44 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 337. Re-run from a detached scratch tree carrying the candidate: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row337_two_gates_measure_nonzero.json --work DETACHED_SCRATCH'. M1 and M2 restore the human and JSON fail-open timeout exits, M3 restores the false CLEAN label, and M4 suppresses the keeper worker start. The companion transform-control spec applies the byte-identical four transforms to load/import-only nodes and all four must ESCAPE.",
+  "subject": "runtime gates distinguish completed clean work from an unmeasured timeout or zero-worker lifecycle",
+  "band": [
+    "tests/test_row337_tool_smoke_unknown_is_failure.py::test_timeout_is_unknown_and_fails_gate_while_clean_tool_stays_clean",
+    "tests/test_row337_tool_smoke_unknown_is_failure.py::test_json_timeout_is_unknown_and_fails_gate",
+    "tests/test_session_keeper.py::test_start_and_stop_keeper"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the human-output gate's exit zero for timed-out tools",
+      "file": "toolchain/bin/bd-tool-smoke",
+      "old": "    if (bad or runtime_bad or slow) and a.gate:\n        return 3\n",
+      "new": "    if (bad or runtime_bad) and a.gate:\n        return 3\n",
+      "direction": "regression",
+      "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_timeout_is_unknown_and_fails_gate_while_clean_tool_stays_clean"
+    },
+    {
+      "label": "M2 restore the JSON gate's exit zero for timed-out tools",
+      "file": "toolchain/bin/bd-tool-smoke",
+      "old": "        return 3 if ((bad or runtime_bad or slow) and a.gate) else 0\n",
+      "new": "        return 3 if ((bad or runtime_bad) and a.gate) else 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_json_timeout_is_unknown_and_fails_gate"
+    },
+    {
+      "label": "M3 relabel an UNKNOWN timed-out invocation as CLEAN",
+      "file": "toolchain/bin/bd-tool-smoke",
+      "old": "    if not bad and not runtime_bad and not slow:\n        print(f\"{G}CLEAN{RST} -- no tool would crash on invocation.\")\n",
+      "new": "    if not bad and not runtime_bad:\n        print(f\"{G}CLEAN{RST} -- no tool would crash on invocation.\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_timeout_is_unknown_and_fails_gate_while_clean_tool_stays_clean"
+    },
+    {
+      "label": "M4 suppress the SessionKeeper worker start while retaining its registry row",
+      "file": "bulk_downloader/session_keeper.py",
+      "old": "    keeper.start()\n    return keeper\n",
+      "new": "    # mutant: worker start suppressed\n    return keeper\n",
+      "direction": "regression",
+      "catcher": "tests/test_session_keeper.py::test_start_and_stop_keeper"
+    }
+  ]
+}

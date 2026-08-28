@@ -39,7 +39,7 @@ executing a single line.
 tool, RESTORES anything the tools mutated, and attributes a traceback to the file in its
 DEEPEST frame (so a caller is not blamed for its callee). Use it via bd-job; it is slow.
 
-Exit: 0 clean | 2 the tool broke | 3 a tool would crash (with --gate).
+Exit: 0 clean | 2 the tool broke | 3 crash or UNKNOWN measurement (with --gate).
 """
 import argparse
 import hashlib
@@ -172,7 +172,7 @@ def cmd_scan(a):
         #     Fix: start_new_session + killpg the whole group.
         #  2. TIMEOUT IS NOT A CRASH. bd-tool-lint legitimately takes ~10 MINUTES. Calling
         #     a slow tool "CRASHED" is a lie. It is a THIRD state: DID NOT COMPLETE =
-        #     unknown, reported separately, never silently folded into pass or fail.
+        #     UNKNOWN, reported separately and treated as a failing gate measurement.
         #  3. SELF-RECURSION. bd-tool-smoke invoking bd-tool-smoke invokes every tool again.
         #  4. IT MUTATES THE WORK TREE. Tools write into reports/. Snapshot -> run ->
         #     restore -> and then VERIFY the restore, because a restore that silently
@@ -269,15 +269,15 @@ def cmd_scan(a):
             "would_crash": {k: [m for _, m in v] for k, v in bad.items()},
             "runtime_crash": runtime_bad,
             "did_not_complete": slow,
-            "note": "did_not_complete is NOT a failure -- several tools legitimately take "
-                    "minutes (bd-tool-lint ~10min). It is UNKNOWN: the run could not verify "
-                    "them, and it says so rather than calling them clean.",
+            "note": "did_not_complete is UNKNOWN -- several tools legitimately take "
+                    "minutes (bd-tool-lint ~10min), but the run could not verify them. "
+                    "UNKNOWN fails --gate rather than being called clean.",
         }, indent=2))
-        return 3 if ((bad or runtime_bad) and a.gate) else 0
+        return 3 if ((bad or runtime_bad or slow) and a.gate) else 0
 
     print(f"{C}bd-tool-smoke{RST} -- {len(tools)} python tools scanned "
           f"{DIM}(static undefined-name pass; no execution){RST}\n")
-    if not bad and not runtime_bad:
+    if not bad and not runtime_bad and not slow:
         print(f"{G}CLEAN{RST} -- no tool would crash on invocation.")
     for t, hits in sorted(bad.items()):
         print(f"  {R}WOULD CRASH{RST} {t}")
@@ -289,14 +289,14 @@ def cmd_scan(a):
             print(f"      {msg.strip()}")
     if slow:
         print(f"\n{Y}DID NOT COMPLETE{RST} in {a.timeout}s ({len(slow)}) -- "
-              f"{DIM}UNKNOWN, not a failure. Several tools legitimately take minutes "
-              f"(bd-tool-lint ~10min).{RST}")
+              f"{DIM}UNKNOWN; --gate fails because these invocations were not measured. "
+              f"Several tools legitimately take minutes (bd-tool-lint ~10min).{RST}")
         print(f"  {DIM}{' '.join(sorted(slow))}{RST}")
     if bad or runtime_bad:
         print(f"\n{Y}Nothing else in the toolchain sees these.{RST} --selftest passes "
               f"(it drives a different code\npath), --help short-circuits, and both "
               f"bd-tool-lint modes report 'toolchain clean'.")
-    if (bad or runtime_bad) and a.gate:
+    if (bad or runtime_bad or slow) and a.gate:
         return 3
     return 0
 
@@ -396,7 +396,7 @@ def main():
     ap = argparse.ArgumentParser(prog="bd-tool-smoke")
     ap.add_argument("--bin", default=BIN)
     ap.add_argument("--gate", action="store_true",
-                    help="exit 3 if any tool would crash (for bd-precut)")
+                    help="exit 3 if any tool crashes or cannot be measured (for bd-precut)")
     ap.add_argument("--run", action="store_true",
                     help="ALSO really invoke each tool (slow, ~10min; snapshots + RESTORES "
                          "the work tree; run it under bd-job)")

@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1319 - a timed-out tool is UNKNOWN, not a clean gate
+
+-        # Wait briefly for the thread to do its first iteration
+-        time.sleep(0.5)
+-        time.sleep(0.1)
+-        #     unknown, reported separately, never silently folded into pass 
+-            "note": "did_not_complete is NOT a failure -- several tools legi
+-                    "minutes (bd-tool-lint ~10min). It is UNKNOWN: the run c
+-                    "them, and it says so rather than calling them clean.",
+-        return 3 if ((bad or runtime_bad) and a.gate) else 0
+-    if not bad and not runtime_bad:
+-              f"{DIM}UNKNOWN, not a failure. Several tools legitimately take
+-              f"(bd-tool-lint ~10min).{RST}")
+-    if (bad or runtime_bad) and a.gate:
+-                    help="exit 3 if any tool would crash (for bd-precut)")
+
 ## v3.66.1318 - an analyzer that did not run is UNKNOWN, not zero findings
 
 -                        "--scan", root, "--out", "/tmp/_dp.json"])

@@ -16,9 +16,12 @@ logic.
 """
 import os
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+
+import pytest
 
 
 @contextmanager
@@ -82,6 +85,36 @@ def _reset_module_state():
 def _keeper_config():
     """Config for lifecycle/API tests that must not launch a real browser."""
     return {"password": "p", "keep_alive_enabled": False}
+
+
+# Measured on test5 at dcd8201 over 100 public-API lifecycles: maximum start
+# latency 0.001312s and maximum stop latency 0.014766s.
+# ceil(100 * max(0.001312s, 0.014766s)) = 2s.
+_KEEPER_THREAD_BOUND_SECONDS = 2
+
+
+def _worker_thread_population(keeper) -> int:
+    return sum(thread is keeper._thread for thread in threading.enumerate())
+
+
+def _assert_keeper_worker_started(keeper) -> None:
+    population = _worker_thread_population(keeper)
+    assert keeper._thread.ident is not None, (
+        "keeper start returned without starting its worker thread"
+    )
+    assert keeper._thread.is_alive(), "keeper worker exited before stop was tested"
+    assert population == 1, (
+        "expected exactly one live keeper worker thread, found "
+        f"{population}"
+    )
+
+
+def _assert_thread_stopped(thread: threading.Thread) -> None:
+    thread.join(timeout=_KEEPER_THREAD_BOUND_SECONDS)
+    assert not thread.is_alive(), (
+        "keeper worker did not stop within the measured "
+        f"{_KEEPER_THREAD_BOUND_SECONDS}s bound"
+    )
 
 
 # ─── session_history DB ───────────────────────────────────────────
@@ -224,15 +257,67 @@ def test_start_and_stop_keeper():
             called.append((sid, idx))
             return True, "test login ok"
         keeper = sk.start_keeper("wow", 0, _keeper_config(), cb)
-        # Wait briefly for the thread to do its first iteration
-        time.sleep(0.5)
+        # Establish the nonzero subject before making any lifecycle verdict.
+        _assert_keeper_worker_started(keeper)
         # Status should exist now
         status = sk.get_status()
         assert len(status) == 1
         assert status[0]["site_id"] == "wow"
-        # Clean up
+        # stop_keeper is deliberately non-blocking.  Join under the measured
+        # lifecycle bound, then prove both the registry and worker are gone.
         sk.stop_keeper("wow", 0)
-        time.sleep(0.1)
+        assert keeper._stop.is_set(), "stop_keeper did not signal its worker"
+        _assert_thread_stopped(keeper._thread)
+        assert _worker_thread_population(keeper) == 0
+        assert sk.get_status() == []
+
+
+def test_start_stop_precondition_rejects_zero_worker_threads(monkeypatch):
+    """Control: the lifecycle assertion must fail if start creates no worker."""
+    from bulk_downloader import session_keeper as sk
+    with _isolated_cwd():
+        from bulk_downloader import db
+        db.db_init()
+        _reset_module_state()
+        monkeypatch.setattr(sk.SessionKeeper, "start", lambda self: None)
+        keeper = sk.start_keeper("wow", 0, _keeper_config(), lambda *_: (True, ""))
+        assert ("wow", 0) in sk._keepers, (
+            "control did not reach the same registered-keeper precondition"
+        )
+        with pytest.raises(
+            AssertionError,
+            match="keeper start returned without starting its worker thread",
+        ):
+            _assert_keeper_worker_started(keeper)
+        assert _worker_thread_population(keeper) == 0
+
+
+def test_keeper_stop_bound_still_fires_for_genuinely_hung_work():
+    """Negative bound control: a never-released worker must remain a failure."""
+    release = threading.Event()
+    thread = threading.Thread(
+        target=release.wait,
+        name="row337-genuinely-hung-keeper-control",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        assert thread.is_alive(), "hung-control worker never started"
+        with pytest.raises(
+            AssertionError,
+            match="did not stop within the measured 2s bound",
+        ):
+            _assert_thread_stopped(thread)
+        assert thread.is_alive(), "the bound control was not genuinely hung"
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_keeper_start_transform_control_imports_without_starting_a_worker():
+    """Mutation transform control: importability makes no start verdict."""
+    from bulk_downloader import session_keeper as sk
+    assert callable(sk.start_keeper)
 
 
 def test_force_check_returns_true_when_keeper_exists():
