@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+BD_GATE_SCOPE = "repo-wide"
+
+import hashlib
 import importlib.util
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
+
+# These are MECHANICAL facts derived from the existing curated allowlist on the
+# row-292 implementation base. They do not claim a new whole-tree review. The
+# digest canonicalisation is the sorted non-comment membership, with one UTF-8
+# newline after every entry; tooling may re-derive both facts when an actual
+# allowlist edit has its own review evidence.
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1253
+_MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
+    "5115fd5a8f4176fe4d2aadbbbdad8b352c77cea7acd4f3122105e6fd17985a73"
+)
+_PARALLEL_RATCHET_MARGIN = 10
+_PARALLEL_RATCHET_FLOOR = (
+    _MECHANICAL_PARALLEL_ALLOWLIST_COUNT - _PARALLEL_RATCHET_MARGIN
+)
 
 
 def _load_lanes_module():
@@ -20,6 +39,58 @@ def _load_lanes_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _tracked_test_files() -> frozenset[str]:
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--", "tests/test*.py"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AssertionError(
+            "tracked test denominator is UNKNOWN because git ls-files "
+            f"could not run: {exc}"
+        ) from exc
+    assert listed.returncode == 0, (
+        "tracked test denominator is UNKNOWN because git ls-files failed: "
+        + listed.stderr
+    )
+    tracked = frozenset(
+        Path(line).relative_to("tests").as_posix()
+        for line in listed.stdout.splitlines()
+        if line
+    )
+    assert tracked, "tracked test denominator is zero; lane verdict is UNKNOWN"
+    return tracked
+
+
+def _parallel_allowlist_digest(allowlist: frozenset[str]) -> str:
+    canonical = "".join(f"{relative}\n" for relative in sorted(allowlist))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _assert_parallel_allowlist_pin(allowlist: frozenset[str]) -> None:
+    digest = _parallel_allowlist_digest(allowlist)
+    assert digest == _MECHANICAL_PARALLEL_ALLOWLIST_SHA256, (
+        "parallel allowlist is outside its mechanically pinned curated set: "
+        "an entry was added, removed, or replaced without updating the "
+        f"allowlist evidence (actual sha256={digest})"
+    )
+
+
+def _assert_parallel_ratchet(parallel: int) -> None:
+    assert parallel >= _PARALLEL_RATCHET_FLOOR, (
+        f"the parallel lane is down to {parallel} files. The mechanically "
+        f"derived allowlist count was {_MECHANICAL_PARALLEL_ALLOWLIST_COUNT}; "
+        f"the stated margin is {_PARALLEL_RATCHET_MARGIN} files and the floor "
+        f"is {_PARALLEL_RATCHET_FLOOR}. If files were legitimately demoted, "
+        "update the count, digest, and evidence in the same commit -- do not "
+        "let the lane erode silently toward the 45-minute serial capture."
+    )
 
 
 def _collect(marker: str, test_path: str) -> subprocess.CompletedProcess[str]:
@@ -287,16 +358,129 @@ def test_parallel_manifest_is_explicit_complete_and_risk_free() -> None:
     lanes = _load_lanes_module()
     tests_root = REPO_ROOT / "tests"
     allowlist = lanes.parallel_allowlist()
+    tracked = _tracked_test_files()
 
     assert allowlist
+    _assert_parallel_allowlist_pin(allowlist)
+    assert allowlist <= tracked, (
+        "parallel allowlist contains untracked paths: "
+        f"{sorted(allowlist - tracked)}"
+    )
     for relative in sorted(allowlist):
         path = tests_root / relative
         assert path.is_file(), f"stale parallel allowlist entry: {relative}"
         assert lanes.classify_capture_file(path) == "parallel", relative
 
-    for path in tests_root.rglob("test*.py"):
+    parallel = set()
+    for relative in sorted(tracked):
+        path = tests_root / relative
         if lanes.classify_capture_file(path) == "parallel":
-            assert path.relative_to(tests_root).as_posix() in allowlist
+            assert relative in allowlist
+            parallel.add(relative)
+
+    assert 0 < len(parallel) <= len(tracked), (
+        f"classified parallel denominator {len(parallel)} is invalid for "
+        f"{len(tracked)} tracked files; lane verdict is UNKNOWN"
+    )
+    _assert_parallel_ratchet(len(parallel))
+
+
+def test_a_new_unreviewed_file_stays_serial_without_invalidating_the_gate(
+    monkeypatch,
+) -> None:
+    """Tree growth is safe because an unlisted file cannot enter xdist."""
+    lanes = _load_lanes_module()
+    tracked = _tracked_test_files()
+    relative = "test_row292_new_unreviewed_probe.py"
+
+    assert relative not in tracked
+    assert relative not in lanes.parallel_allowlist()
+    assert (
+        lanes.classify_capture_file(
+            REPO_ROOT / "tests" / relative,
+            source="def test_pure_looking_but_unreviewed(): assert True",
+        )
+        == "serial"
+    )
+
+    grown = tracked | {relative}
+    assert len(grown) == len(tracked) + 1
+    with pytest.raises(AssertionError):
+        # RED control for the retired design: exact equality rejects this safe
+        # growth even though the classifier above kept it out of xdist.
+        assert len(grown) == len(tracked)
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_load_lanes_module", lambda: lanes
+    )
+    monkeypatch.setattr(
+        sys.modules[__name__], "_tracked_test_files", lambda: grown
+    )
+    test_parallel_manifest_is_explicit_complete_and_risk_free()
+
+
+def test_an_allowlist_addition_outside_the_pinned_digest_is_rejected(
+    monkeypatch,
+) -> None:
+    """Allowlisting is the unsafe direction, so an addition needs evidence."""
+    lanes = _load_lanes_module()
+    tracked = _tracked_test_files()
+    allowlist = lanes.parallel_allowlist()
+    candidates = []
+    for relative in sorted(tracked - allowlist):
+        path = REPO_ROOT / "tests" / relative
+        source = path.read_text(encoding="utf-8")
+        if (
+            path.name.lower() not in lanes.SERIAL_EXACT_BASENAMES
+            and not lanes.runner_import_hazard(lanes.code_only(source))
+        ):
+            candidates.append(relative)
+
+    assert candidates, "no safe-looking unlisted file reaches the negative control"
+    relative = candidates[0]
+    path = REPO_ROOT / "tests" / relative
+    assert lanes.classify_capture_file(path) == "serial"
+
+    augmented = allowlist | {relative}
+    assert len(augmented) == len(allowlist) + 1
+    monkeypatch.setattr(lanes, "parallel_allowlist", lambda: augmented)
+    assert lanes.classify_capture_file(path) == "parallel"
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_load_lanes_module", lambda: lanes
+    )
+    monkeypatch.setattr(
+        sys.modules[__name__], "_tracked_test_files", lambda: tracked
+    )
+    with pytest.raises(
+        AssertionError,
+        match="outside its mechanically pinned curated set",
+    ):
+        test_parallel_manifest_is_explicit_complete_and_risk_free()
+
+
+def test_a_failed_git_tracked_census_is_unknown(monkeypatch) -> None:
+    completed = subprocess.CompletedProcess(
+        args=["git", "ls-files"],
+        returncode=2,
+        stdout="",
+        stderr="forced git failure",
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    with pytest.raises(AssertionError, match="UNKNOWN because git ls-files failed"):
+        _tracked_test_files()
+
+
+def test_a_zero_tracked_census_is_unknown(monkeypatch) -> None:
+    completed = subprocess.CompletedProcess(
+        args=["git", "ls-files"],
+        returncode=0,
+        stdout="",
+        stderr="",
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    with pytest.raises(AssertionError, match="tracked test denominator is zero"):
+        _tracked_test_files()
 
 
 def test_real_pytest_collection_selects_safe_and_serial_lanes() -> None:
@@ -399,14 +583,33 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
     error. This makes a repeat loud.
     """
     lanes = _load_lanes_module()
+    allowlist = lanes.parallel_allowlist()
+    _assert_parallel_allowlist_pin(allowlist)
     parallel = sum(
         1
-        for path in (REPO_ROOT / "tests").rglob("test_*.py")
-        if lanes.classify_capture_file(path) == "parallel"
+        for relative in allowlist
+        if lanes.classify_capture_file(REPO_ROOT / "tests" / relative)
+        == "parallel"
     )
-    assert parallel >= 1000, (
-        f"the parallel lane is down to {parallel} files. It was 1079 at "
-        f"v3.66.923. If files were legitimately demoted, lower this floor in "
-        f"the same commit and say which and why -- do not let it erode "
-        f"silently, which is how the 45-minute capture happened."
+    assert 0 < parallel <= len(allowlist), (
+        f"classified parallel denominator {parallel} is invalid for "
+        f"{len(allowlist)} allowlisted files; lane verdict is UNKNOWN"
     )
+    _assert_parallel_ratchet(parallel)
+
+
+def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1253
+    assert _PARALLEL_RATCHET_MARGIN == 10
+    assert _PARALLEL_RATCHET_FLOOR == 1243
+    with pytest.raises(
+        AssertionError,
+        match=r"down to 1242 files.*count was 1253.*margin is 10.*floor is 1243",
+    ):
+        _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
+
+
+def test_transform_control_imports_lanes_without_judging_lane_population() -> None:
+    """Mutation transform control: valid imports alone make no census verdict."""
+    lanes = _load_lanes_module()
+    assert lanes.__name__ == "bd_capture_lanes_under_test"

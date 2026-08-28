@@ -89,6 +89,10 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Row 292. This census pins the existing curated parallel allowlist by a
+    # mechanical digest and ratchet while allowing new, unreviewed tracked
+    # files to remain in the classifier's fail-closed serial default.
+    "tests/test_capture_execution_lanes.py",
     # Row 261. Replication start/stop owns one sidecar and signals only the
     # process identity it launched. This real-process gate forces lifecycle
     # lock contention and checks every direct/HTTP acquisition for re-entry.
@@ -658,7 +662,9 @@ _DECLARED = {
 # scheduled alongside the existing registry-transaction gate.
 # 188 -> 189 at row 308 (2026-08-27). This cut adds exactly one repo-wide
 # visual-audit identity gate to the declaration and tree-gates-3 shard.
-_EXPECTED_DECLARED_GATE_COUNT = 192
+# 192 -> 193 at row 292 (2026-08-27). The existing capture-lane gate now
+# declares its tree-wide census scope and runs directly in tree-gates-1.
+_EXPECTED_DECLARED_GATE_COUNT = 193
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

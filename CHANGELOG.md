@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1303 - the parallel census pins the curated allowlist, not the whole-tree total (+1 file-disjoint row(s): 322)
+
+-    for path in tests_root.rglob("test*.py"):
+-            assert path.relative_to(tests_root).as_posix() in allowlist
+-        for path in (REPO_ROOT / "tests").rglob("test_*.py")
+-        if lanes.classify_capture_file(path) == "parallel"
+-    assert parallel >= 1000, (
+-        f"the parallel lane is down to {parallel} files. It was 1079 at "
+-        f"v3.66.923. If files were legitimately demoted, lower this floor in
+-        f"the same commit and say which and why -- do not let it erode "
+-        f"silently, which is how the 45-minute capture happened."
+-    assert len(entries) == 1250, (
+-        "corpus-credential gate, and the row-310 secret-runtime-route gate; "
+- [Census gate](/home/mboyle/bd-codex-wt/row292/tests/test_capture_execution_
+- Tree growth no longer depends on exact whole-tree equality. Failed/zero Git
+
 ## v3.66.1302 - a /tmp entry disappearing mid-walk is not a failed measurement
 
 - bd-fleet no longer reports tmp_bd=unknown merely because an entry under /tmp
