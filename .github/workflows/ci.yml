@@ -396,6 +396,7 @@ jobs:
             suites: >-
               tests/test_app_measurements_fail_closed.py
               tests/test_ffmpeg_capability_health.py
+              tests/test_row356_cookie_quality_reports_unknown.py
               tests/test_row346_plugin_sandbox_is_truthful.py
               tests/test_row311_app_config_writers_are_serialized.py
               tests/test_v3_66_261_contended_lifecycle_lock.py

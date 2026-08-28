@@ -56,8 +56,12 @@ def _score_one(row: dict, *,
     base += pref_pts
 
     # 3. Cookie quality — low score means likely to fail; deprioritize
-    if context and "cookie_scores" in context:
-        cs = context["cookie_scores"].get(sid, 100)
+    if context and sid in context.get("cookie_quality_unknown", {}):
+        # Unknown freshness is not a penalty, but it must remain visible in the
+        # explanation rather than silently becoming the old default-perfect 100.
+        breakdown["cookie_quality_unmeasured"] = 0.0
+    elif context and sid in context.get("cookie_scores", {}):
+        cs = context["cookie_scores"][sid]
         if cs < 80:
             penalty = -(80 - cs) * 0.3  # -24 .. 0
             breakdown["cookie_quality_penalty"] = round(penalty, 1)
@@ -91,13 +95,23 @@ def _gather_context(s_cfg: Optional[dict] = None) -> dict:
     ctx: dict = {}
     try:
         from . import cookie_quality as _cq
-        ctx["cookie_scores"] = {
-            r["site_id"]: r.get("score", 100)
-            for r in _cq.report_all(s_cfg or {})
-            if "score" in r
-        }
+        cookie_rows = _cq.report_all(s_cfg or {})
+        ctx["cookie_scores"] = {}
+        ctx["cookie_quality_unknown"] = {}
+        for row in cookie_rows:
+            value = row.get("score")
+            if (isinstance(value, (int, float))
+                    and not isinstance(value, bool)):
+                ctx["cookie_scores"][row["site_id"]] = value
+            else:
+                ctx["cookie_quality_unknown"][row["site_id"]] = (
+                    row.get("measurement_status") or "unknown"
+                )
     except Exception:
         ctx["cookie_scores"] = {}
+        ctx["cookie_quality_unknown"] = {
+            sid: "quality census unavailable" for sid in (s_cfg or {})
+        }
     try:
         from . import circuit_breaker as _cb
         rep = _cb.report() or {}

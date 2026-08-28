@@ -132,7 +132,18 @@ def check_and_schedule(s_cfg: Optional[dict] = None,
             except Exception as e:
                 skipped.append({"site_id": sid, "reason": f"score failed: {e}"})
                 continue
-            score = score_result.get("score", 100)
+            score = score_result.get("score")
+            if (not isinstance(score, (int, float))
+                    or isinstance(score, bool)):
+                status = score_result.get("measurement_status") or "unknown"
+                skipped.append({
+                    "site_id": sid,
+                    "reason": (
+                        f"cookie quality unknown ({status}); "
+                        "relogin cannot be inferred"
+                    ),
+                })
+                continue
             if score >= relogin_threshold:
                 continue
             if not _ratelimit_ok(sid, min_seconds_between=_gap_seconds):
