@@ -20,85 +20,50 @@ PARALLEL_ALLOWLIST_PATH = TESTS_ROOT / "capture_parallel_files.txt"
 
 SERIAL_EXACT_BASENAMES = frozenset(
     {
-        # v3.66.998 -- ELEVEN NAMES LEFT THIS SET, and each departure is a
-        # claim with its evidence, because a removal without one is how a
-        # refutation gets relitigated by a green run:
+        # Row 324 / 2026-08-28 -- all six historical exact pins were inspected
+        # for the recorded mechanism, then run together three times at each of
+        # `-n 2` and `-n 4` under real pytest/xdist. Every run reconciled to 68
+        # passed and one explicit exec-bridge skip. Green samples authorize
+        # nothing by themselves; only the three mechanisms eliminated in
+        # current source moved to capture_parallel_files.txt:
         #
-        # * test_fixture_site / test_fixture_site2 / test_session_keeper /
-        #   test_v3_66_13_phase2_p2_snapshot_replay: ORIGINAL (pre-@921)
-        #   entries with no recorded refutation -- inherited from the old
-        #   runner's _PINNED_TOGETHER era, whose 754c pin note calls the
-        #   fixture sites "fixed-port" while both files drive Flask TEST
-        #   CLIENTS ("no real socket... don't need a free port"). Reviewed
-        #   per file; session_keeper's one wall-clock bound was widened.
-        # * test_u50_widget_backfills (@922's refutation): FIXED, not
-        #   re-promoted on a green run -- the test now creates its own
-        #   schema (db_init + migrations), so the cross-file table
-        #   dependency @922 named no longer exists.
-        # * test_u30_runner_replay (@923's refutation): FIXED -- the
-        #   empty-fleet test asserted the process-global app.runners was
-        #   empty; it now pins that global to the state it is about.
-        # * test_differential_oracle_frontend / test_fuzz_harness_frontend /
-        #   test_reachability_frontend (@923, refuted directly): the named
-        #   mechanism -- one-second AdapterBudget wall clocks under 16-64
-        #   concurrent processes -- was REMOVED: non-subject budgets are now
-        #   30s, timeout-side tests keep small budgets against sleeps that
-        #   exceed them decisively, and the two descendant-reap tests carry
-        #   10s budgets because their pid files must survive worker boot.
-        # * test_coverage_map_frontend / test_semantic_diff_frontend (@923,
-        #   named by SHAPE, never refuted directly): the shape claim was a
-        #   grep artifact. The "(18 and 19 worker/child references)" are
-        #   line-counts of /worker|child/ -- and in coverage_map those lines
-        #   are fixture FILENAMES (package_a/worker.py), in semantic_diff
-        #   nested `def child()` names in parsed sample source. Neither file
-        #   contains a wall clock, a sleep, or an AdapterBudget at all
-        #   (measured at v3.66.997), and semantic_diff's "budget assertions"
-        #   are a deterministic node-count ValueError, not a timer.
+        # * body_contract_fixtures: the @754 FILE timeout was the old runner's
+        #   480-process oversubscription, not capture's xdist runner. Its second
+        #   hazard -- replayed calls leaking app singleton state -- is removed:
+        #   probe_fixtures snapshots/wipes/restores s_cfg, s_meta, runners and
+        #   _app_cfg, while Fixtures.ensure resets the world before both sides
+        #   of every probe. The regression tests force a dirty first world and
+        #   a second full probe. Row-324 measurement: 11/11 passed in all six
+        #   shared-worker runs.
+        # * perf_lab: @1088 later isolated the exact two-host worker-residue
+        #   failure behind @923's process-ambient description: h11 can leave a
+        #   gc object whose type refuses __name__. _interpreter_stats now
+        #   handles that member, and its test first proves the refusing type
+        #   exists; the old whole-tree hang claim was separately refuted at
+        #   @948. Row-324 measurement: 19/19 passed in all six runs.
+        # * t14_vpn_probe_egress: @1093 deterministically reproduced @923's
+        #   width-only failure as a fixture resetting vpn_config._state while
+        #   the probe reads vpn._tunnels. _vpn_state now resets the latter on
+        #   ENTRY, and an adversarial test dirties it first. Row-324
+        #   measurement: 11/11 passed in all six runs.
         #
-        # The box capture is still the gate: anything it refutes comes back
-        # HERE by name with its mechanism, per the protocol below.
-        #
-        # v3.66.754c -- FILE-LEVEL 900s timeout under the old runner's
-        # --workers=480 oversubscription (root-caused, not theorised), and the
-        # heaviest in-process consumer of bulk_downloader.app module globals:
-        # probe_fixtures replays ~126 MUTATING call sites against the real app
-        # in a module-scoped fixture. Not promoted without an isolation story
-        # for that state.
-        "test_v3_66_729_body_contract_fixtures.py",
-        # Drives run_tests.py end-to-end as a subprocess ~5 times; also pinned
-        # by the runner-literal rule below. Cheap to keep serial; freeing it
-        # is the runner-rule design decision, not a per-file fix.
+        # These three stay pinned because their recorded mechanisms still
+        # exist in current source, regardless of the same green samples.
+        # runner_isolate launches run_tests.py five times as a subprocess; the
+        # process-boundary form is reviewable but remains deliberately costly.
+        # Row-324 measurement: 5/5 passed in all six runs.
         "test_v3_66_797_runner_isolate.py",
-        # v3.66.921 -- PROVEN FRAGILE BY EXPERIMENT, not by heuristic. The
-        # whole serial lane (1059 files, 13,429 tests) was run under
-        # `-n $(nproc) --dist loadfile` ON THE BOX; exactly five files failed
-        # and every one passed on a serial retry. Three were already listed or
-        # source-flagged; these two were not, and they are the only files in
-        # the promotion set that the experiment refuted.
-        #
-        # Both also failed the same way in an independent 496-file xdist run in
-        # a cloud container, so this is two machines agreeing, not one flake.
-        # Do not promote them on a future green run: a race that resolves
-        # favourably passes, which is the whole reason this list is by name.
-        # (tier1b's candidate mechanism: deadlock_detector / thread_dump /
-        # dev_metrics assert over PROCESS-AMBIENT threads and counters that
-        # other files' residue legitimately alters. exec_bridge runs real
-        # allowlisted binaries under the bridge's own hard timeout.)
+        # tier1b still samples process-ambient thread stacks twice across a
+        # 0.6-second wall clock and declares two unchanged non-idle threads a
+        # deadlock; it also reads process-global request counters. Row-324
+        # measurement: 10/10 passed in all six runs, which is the favourable
+        # race the two-machine @921 comment explicitly forbids using.
         "test_dev_suite_tier1b.py",
+        # exec_bridge still runs host-resolved yt-dlp/ffprobe binaries under
+        # its own 30-second hard timeout. Row-324 measurement: 12 passed and
+        # one explicit ffprobe-unavailable skip in all six runs, so even the
+        # path-typed refusal mechanism was UNKNOWN on this host.
         "test_v3_66_717_exec_bridge.py",
-        # v3.66.923 -- refuted by the all-parallel box sweep (-n 64) and ZERO
-        # failures survived a serial retry. perf_lab asserts over
-        # process-ambient memory/thread snapshots (pl.snapshot, audit deltas),
-        # which a shared worker's residue legitimately moves; it is also the
-        # file CLAUDE.md section 5 once recorded as a hanger when the tree ran
-        # whole (disproven as a hang at @947, but the refutation as parallel
-        # stands).
-        "test_perf_lab.py",
-        # v3.66.923 -- refuted by the N/2 packing (-n 32) and by NOTHING ELSE.
-        # The full-width run at -n 64 passed it. That is the entire case for
-        # running more than one width: file-to-worker assignment is by count,
-        # so halving the workers changed who shares a worker and exposed it.
-        "test_t14_vpn_probe_egress.py",
     }
 )
 

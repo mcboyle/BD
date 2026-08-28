@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1306 - the serial capture pins are re-derived from measurement, not a source read
+
+- Focused gate: `17 passed`
+- Derived 18-file band: `321 passed`
+- Durable-spec validation in tracked scratch candidate: `13 passed`
+- `bd-freshcheck --repo-only`: passed
+- Row 324 mutation battery: 5 CAUGHT, 0 escaped/invalid/unknown/error
+- Row 324 transform control: deliberate `TC1 re-pin perf-lab` ESCAPED
+- Refreshed row 292 battery: 5 CAUGHT; digest-removal transform deliberately 
+-        # v3.66.998 -- ELEVEN NAMES LEFT THIS SET, and each departure is a
+-        # claim with its evidence, because a removal without one is how a
+-        # refutation gets relitigated by a green run:
+-        # * test_fixture_site / test_fixture_site2 / test_session_keeper /
+-        #   test_v3_66_13_phase2_p2_snapshot_replay: ORIGINAL (pre-@921)
+-        #   entries with no recorded refutation -- inherited from the old
+
 ## v3.66.1305 - the frontend security-floor gate runs in CI and compares floors
 
 - For each unit, you should be able to answer: what does it do, how do you us

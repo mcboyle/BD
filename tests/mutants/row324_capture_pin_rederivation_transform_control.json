@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 324 transform control. This deliberately must report exactly one ESCAPED mutant: it applies the byte-identical perf-lab re-pin from M1 while its only node imports capture_lanes without judging exact pins. The escape proves the primary CAUGHT verdict comes from the lane assertion rather than invalid Python, import failure, or collection failure.",
+  "subject": "transform-only control for restoring the stale perf-lab exact pin",
+  "band": [
+    "tests/test_capture_execution_lanes.py::test_transform_control_imports_lanes_without_judging_lane_population"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 re-pin perf-lab while the import-only control remains green",
+      "file": "tests/capture_lanes.py",
+      "old": "        \"test_v3_66_797_runner_isolate.py\",\n        # tier1b still samples process-ambient thread stacks twice across a\n",
+      "new": "        \"test_perf_lab.py\",  # mutant: stale exact pin restored\n        \"test_v3_66_797_runner_isolate.py\",\n        # tier1b still samples process-ambient thread stacks twice across a\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_transform_control_imports_lanes_without_judging_lane_population"
+    }
+  ]
+}
