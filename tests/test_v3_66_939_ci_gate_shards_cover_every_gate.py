@@ -320,6 +320,10 @@ _DECLARED = {
     # path from which bd-band-derive could select this gate, so CI must run it
     # directly on every tree.
     "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py",
+    # Row 243. Registration resolution is a tree-wide launcher contract, and
+    # its copied-bd-mutate CI reproduction plus durable mutation battery cannot
+    # be derived from whichever one of the seven owning tools a diff touches.
+    "tests/test_row243_registration_resolves_without_ambient_luck.py",
     # Row 298. The end-to-end idempotence gate executes the entire canonical
     # regen chain twice, so its work-root ownership is a tree-wide concurrency
     # boundary. It runs in a dedicated shard against a disposable copy rather
@@ -674,7 +678,9 @@ _DECLARED = {
 # visual-audit identity gate to the declaration and tree-gates-3 shard.
 # 192 -> 193 at row 292 (2026-08-27). The existing capture-lane gate now
 # declares its tree-wide census scope and runs directly in tree-gates-1.
-_EXPECTED_DECLARED_GATE_COUNT = 195
+# 192 -> 193 at row 243 rebuild (2026-08-28). The deterministic registration
+# gate is declared once and scheduled once in toolchain-verifiers.
+_EXPECTED_DECLARED_GATE_COUNT = 196
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

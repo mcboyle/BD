@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: applies M1 byte-for-byte, but the selected test only imports bd-ladder and asserts no registration behavior. One valid ESCAPED result proves the primary catches are behavioral assertion failures rather than parse or import failures.",
+  "subject": "row 243 registration mutation transform control",
+  "band": [
+    "tests/test_row243_registration_resolves_without_ambient_luck.py::test_transform_control_imports_launcher_without_asserting_registration"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL M1 ambient sweep with import-only catcher",
+      "file": "toolchain/bin/bd-ladder",
+      "old": "    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)\n    anchor = pathlib.Path(raw_anchor).resolve(strict=True)\n",
+      "new": "    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)\n    if state == NO_REGISTRAR:\n        for parent in pathlib.Path(python).resolve().parents:\n            ambient = parent / \"toolchain\" / \"bin\" / \"bd-jobs\"\n            if ambient.is_file():\n                state, registrar, proof = (\n                    REGISTERED, ambient, \"ambient interpreter-parent rescue\")\n                break\n    anchor = pathlib.Path(raw_anchor).resolve(strict=True)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_transform_control_imports_launcher_without_asserting_registration"
+    }
+  ]
+}
