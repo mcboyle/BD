@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1310 - the T3/T4 vitest budget is derived from measurement with headroom
+
+- [primary mutation battery](/home/mboyle/bd-codex-wt/row329/tests/mutants/ro
+- [transform control](/home/mboyle/bd-codex-wt/row329/tests/mutants/row329_vi
+- RED on untouched source under same-CPU load: Maintenance took 5,235 ms and 
+- Repeated measurements included 12 parallel target runs, five same-CPU runs,
+- Loaded GREEN: Maintenance completed in 7,169 ms under a stricter provisiona
+- Loaded frontend census: 617/617 passed; T5 Maintenance reached 5,216.919 ms.
+- Negative control passed by observing Vitest fail the hung case exactly at `
+- Mutation battery: primary **CAUGHT 1/1**; identical transform control **ESC
+- Final focused suite: 5/5 passed.
+- Affected band: 105 passed.
+- Regeneration, freshness, schema validation, `py_compile`, `git diff --check
+
 ## v3.66.1309 - a profile lock disappearing mid-scan is not a failed measurement
 
 -        "suppression_errors",

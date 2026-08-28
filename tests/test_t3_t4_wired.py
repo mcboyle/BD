@@ -42,9 +42,18 @@ CAUGHT verdicts are assertion failures rather than TSX transform failures.
 
 run_tests.py conventions: zero-arg test functions; no pytest builtins.
 """
-from tests.frontend_vitest import run_vitest
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+from tests.frontend_vitest import FRONTEND, VITEST, run_vitest
 
 BD_GATE_SCOPE = "repo-wide"
+
+_VITEST_TEST_TIMEOUT_MS = 10_754
+_VITEST_HANG_OUTER_TIMEOUT_S = 30
 
 # Independent pinned denominator: do not derive this population from the
 # route/hook artifact under test.  The Vitest spec carries its own duplicate
@@ -112,3 +121,51 @@ def test_t3_t4_transform_control_imports_subjects_without_judging_behaviour():
     """Mutation-only transform control; this is deliberately not safety proof."""
     spec = "src/routes/T3T4.transform.test.tsx"
     run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
+
+
+def test_the_measured_vitest_budget_still_fires_for_genuinely_hung_work():
+    """The explicit frontend budget must fail a real never-settling case.
+
+    The fixture runs through a copy of the tracked config, rather than reading
+    the config as text.  The outer subprocess bound governs this negative
+    control if Vitest ever loses its own timer entirely.
+    """
+    assert VITEST.is_file(), f"Vitest unavailable at {VITEST}"
+    with tempfile.TemporaryDirectory(prefix="bd_vitest_timeout_control_") as raw:
+        root = Path(raw)
+        (root / "src").mkdir()
+        shutil.copy2(FRONTEND / "vitest.config.ts", root / "vitest.config.ts")
+        shutil.copy2(FRONTEND / "vitest.setup.ts", root / "vitest.setup.ts")
+        os.symlink(
+            FRONTEND / "node_modules",
+            root / "node_modules",
+            target_is_directory=True,
+        )
+        spec = root / "src" / "timeout-control.test.ts"
+        spec.write_text(
+            'import { it } from "vitest";\n'
+            'it("never-settling negative control", async () => {\n'
+            '  await new Promise<void>(() => {});\n'
+            '});\n',
+            encoding="utf-8",
+        )
+
+        proc = subprocess.run(
+            [
+                str(VITEST),
+                "run",
+                "src/timeout-control.test.ts",
+                "--reporter=verbose",
+                "--no-color",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=_VITEST_HANG_OUTER_TIMEOUT_S,
+        )
+
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 1, output
+    assert "never-settling negative control" in output, output
+    assert "Tests  1 failed (1)" in output, output
+    assert f"Test timed out in {_VITEST_TEST_TIMEOUT_MS}ms." in output, output
