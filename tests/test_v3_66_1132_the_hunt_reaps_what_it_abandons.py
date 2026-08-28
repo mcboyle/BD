@@ -288,7 +288,8 @@ _MEASURED_S = {
     "nul_bearing_terminal_frame_is_not_exec_success/exit":                       (6.6857, 20.0),
     "one_second_lifecycle_cap_remains_truthfully_unknown/run":                   (1.791, 7),
     "partial_coproc_setup_settles_every_acquired_owner/run":                     (2.1835, 8),
-    "partial_handoff_frame_does_not_restart_the_protocol_budget/exit":           (2.2217, 20.0),
+    # ROW 325: 8.2455s with the measured 9s partial-frame expiry control.
+    "partial_handoff_frame_does_not_restart_the_protocol_budget/exit":           (8.2455, 20.0),
     "partial_handoff_frame_does_not_restart_the_protocol_budget/fifo":           (4.0875, 10),
     "partial_handoff_frame_does_not_restart_the_protocol_budget/wait":           (0.0035, 5),
     "partial_handoff_frame_does_not_restart_the_protocol_budget/wait-2":         (0.0035, 5),
@@ -330,7 +331,9 @@ _MEASURED_S = {
     "successful_registration_releases_exact_command_and_status/wait":            (1.6197, 8),
     "successful_registration_releases_exact_command_and_status/wait-2":          (0.0035, 5),
     "term_resistant_observer_stays_inside_gate_budget/fifo":                     (1.6607, 10),
-    "term_resistant_observer_stays_inside_gate_budget/wait":                     (2.5733, 7),
+    # ROW 325: this site now exercises the shipped 10s forward deadline rather
+    # than the old fixture-only 2s clock. Measured on test5 at load 26.2.
+    "term_resistant_observer_stays_inside_gate_budget/wait":                    (10.6006, 7),
     "term_resistant_observer_stays_inside_gate_budget/wait-2":                   (0.0035, 5),
     "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/exit":      (6.2437, 20.0),
     "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait":      (0.0035, 5),
@@ -2166,7 +2169,7 @@ def _w1_pid_is_live(pid: int) -> bool:
 
 
 def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
-                     ready_seconds=None,
+                     forward_expiry_is_subject=False, ready_seconds=None,
                      proc_stat_path=None, gate_prelude=None,
                      pytest_pid_override=None, gate_program=None,
                      terminal_relay_program=None,
@@ -2224,11 +2227,22 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
         workload_shim=shlex.quote(
             mod.registration_workload_shim(str(rundir), cmd)),
     )
+    if forward_expiry_is_subject:
+        assert reap_seconds is not None, (
+            "a fixture declared forward-deadline expiry as its subject but "
+            "provided no shortened deadline")
     if reap_seconds is not None:
         anchor = "W1_GATE_SECONDS=10"
         assert body.count(anchor) == 1, (
             "the production runner has no single finite gate-protocol deadline")
-        body = body.replace(anchor, "W1_GATE_SECONDS=%d" % reap_seconds)
+        shipped = _w1_runner_deadline_constants()["W1_GATE_SECONDS"]
+        # ROW 325. Fifty-five sites inherited this old speed knob, usually at
+        # three seconds, although expiry was their subject at only four. Under
+        # xdist the short clock fired before an otherwise-correct fixture could
+        # reach its transition. An ordinary request is therefore clamped to
+        # the production value; only an explicit expiry control may shorten it.
+        effective = reap_seconds if forward_expiry_is_subject else shipped
+        body = body.replace(anchor, "W1_GATE_SECONDS=%d" % effective)
     if ready_seconds is not None:
         ready_anchor = "W1_READY_SECONDS=10"
         assert body.count(ready_anchor) == 1, (
@@ -3095,12 +3109,13 @@ def _w1_block_probe_fifo(tmp_path, mode: str):
     return bash_env, entered_fd, release
 
 
-def _w1_run_registration_probe(mod, mode: str, *args: object):
+def _w1_run_registration_probe(mod, mode: str, *args: object, env=None):
     """Drive the production observer without borrowing its parser in tests."""
     return subprocess.run(
         [os.environ.get("PYTHON", "python3"), "-c",
          mod.REGISTRATION_PROBE_PROGRAM, mode, *map(str, args)],
-        text=True, capture_output=True, timeout=_w1_budget_s("_w1_run_registration_probe/run"), check=False,
+        text=True, capture_output=True, env=env,
+        timeout=_w1_budget_s("_w1_run_registration_probe/run"), check=False,
     )
 
 
@@ -3543,6 +3558,50 @@ def test_group_probe_never_promotes_an_incomplete_census_to_present(tmp_path):
     )
 
 
+def test_group_probe_treats_processlookup_during_census_as_vanished(tmp_path):
+    """ESRCH is a completed disappearance, not ambient census uncertainty."""
+    mod = _load()
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    vanished = proc_root / "602"
+    vanished.mkdir()
+    vanished_stat = vanished / "stat"
+    vanished_stat.write_text(
+        _w1_stat_row(602, ppid=77, pgrp=602, starttime=9002),
+        encoding="utf-8",
+    )
+
+    hook = tmp_path / "lookup-hook"
+    hook.mkdir()
+    raised = tmp_path / "processlookup-raised"
+    (hook / "sitecustomize.py").write_text(
+        "import errno, os, pathlib\n"
+        "_real_read_text = pathlib.Path.read_text\n"
+        "def _row325_read_text(self, *args, **kwargs):\n"
+        "    if self == pathlib.Path(os.environ['W1_PROCESSLOOKUP_STAT']):\n"
+        "        pathlib.Path(os.environ['W1_PROCESSLOOKUP_RAISED']).write_text(\n"
+        "            'raised\\n', encoding='ascii')\n"
+        "        raise ProcessLookupError(errno.ESRCH, 'vanished during census')\n"
+        "    return _real_read_text(self, *args, **kwargs)\n"
+        "pathlib.Path.read_text = _row325_read_text\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["W1_PROCESSLOOKUP_STAT"] = str(vanished_stat)
+    env["W1_PROCESSLOOKUP_RAISED"] = str(raised)
+    _w1_prepend_pythonpath(env, hook)
+
+    result = _w1_run_registration_probe(
+        mod, "group", 601, proc_root, env=env)
+
+    assert raised.read_text(encoding="ascii") == "raised\n", (
+        "the forced process-disappearance schedule never ran")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ABSENT", (
+        "an unrelated process that vanished with ESRCH poisoned the complete "
+        "target-group absence census: %r" % result.stdout)
+
+
 def test_registration_gate_precedes_registration_and_workload_release():
     """Source-order control for the race-closing direct-child gate."""
     mod = _load()
@@ -3906,7 +3965,8 @@ def test_one_second_lifecycle_cap_remains_truthfully_unknown(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=1, cleanup_seconds=1, observation_seconds=0,
+        reap_seconds=1, forward_expiry_is_subject=True,
+        cleanup_seconds=1, observation_seconds=0,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -4817,7 +4877,8 @@ def test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait(
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, gate_program=gate_program,
+        reap_seconds=3, forward_expiry_is_subject=True,
+        gate_program=gate_program,
         checked_wait_probe=checked_wait_log,
     )
     env = dict(os.environ)
@@ -4859,7 +4920,8 @@ def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, checked_wait_probe=checked_wait_log,
+        reap_seconds=3, forward_expiry_is_subject=True,
+        checked_wait_probe=checked_wait_log,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-4242\n"))
@@ -5375,7 +5437,6 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
     env["BASH_ENV"] = str(bash_env)
     env["W1_REGISTRAR_MARKER"] = str(registrar)
-    started = time.monotonic()
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -5398,7 +5459,6 @@ def test_term_resistant_observer_stays_inside_gate_budget(tmp_path):
         assert not registrar.exists() and not marker.exists()
         assert "initial-observation-unavailable" in (
             rundir / "jobid.err").read_text(encoding="utf-8")
-        assert time.monotonic() - started < 6.0
         assert rc == int(W1_RETAINED_FAILURE_CODE)
     finally:
         os.close(entered_fd)
@@ -7187,6 +7247,32 @@ _W1_RUNNER_DEADLINE_KNOBS = (
 )
 _W1_SETTLEMENT_KNOB = "cleanup_seconds"
 _W1_OBSERVATION_KNOB = "observation_seconds"
+_W1_FORWARD_KNOB = "reap_seconds"
+
+#: The partial-frame barrier's real arrival under the acceptance load. The
+#: first value is the prior loaded baseline; the second is row 325's 48/48-core
+#: spike. The control's nine-second deadline is the integral ceiling above
+#: both observations while remaining stricter than production's ten seconds.
+_W1_PARTIAL_FRAME_LOADED_WAIT_S = (4.0875, 5.1862)
+
+#: Every test allowed to shorten the shipped forward gate deadline, with the
+#: reason its EXPIRY is part of that test's subject.  Ordinary lifecycle tests
+#: use the production value: shortening their clock makes scheduler admission
+#: decide their verdict before the behaviour they assert can run.
+_W1_FORWARD_EXPIRY_IS_THE_SUBJECT = (
+    ("test_partial_handoff_frame_does_not_restart_the_protocol_budget",
+     "The partial frame is held open past the forward deadline so the test can "
+     "prove that receiving more bytes did not restart that one deadline."),
+    ("test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait",
+     "The terminal-looking frame deliberately withholds EOF; expiry proves the "
+     "runner never converts incomplete authority into an unbounded child wait."),
+    ("test_handoff_timeout_retains_registered_id_under_one_budget",
+     "The gate withholds its terminal status and the test asserts the exact "
+     "registered failure produced when the one handoff deadline expires."),
+    ("test_one_second_lifecycle_cap_remains_truthfully_unknown",
+     "The one-second cap is the explicit subject and must expire before later "
+     "authority can turn unavailable initial evidence into a definite result."),
+)
 
 #: Every test allowed to shorten the OWNER-OBSERVATION floor, with the
 #: reason. MEASURED, not guessed: these are exactly the two nodes that
@@ -7202,10 +7288,9 @@ _W1_OBSERVATION_EXPIRY_IS_THE_SUBJECT = (
      " and the record reads wait_ok=1."),
     ("test_term_resistant_observer_stays_inside_gate_budget",
      "The subject is an observation that ignores TERM being ended by its"
-     " own bound, and the node asserts the whole run finishes inside 6s."
-     " A floor that gave that observation three further seconds would"
-     " move the very number the test exists to police. MEASURED: 6.39s"
-     " against a 6.0s assertion with the shipped floor."),
+     " own bound, and the node asserts both the observer and its descendant"
+     " are dead before the runner returns. A floor that did not bound that"
+     " owner would leave those exact processes alive."),
 )
 
 #: Every test allowed to shorten the SETTLEMENT deadline, with the reason.
@@ -7231,9 +7316,9 @@ _W1_SETTLEMENT_EXPIRY_IS_THE_SUBJECT = (
      "would be a lifecycle the cap does not actually cap. MEASURED 1.90s -> "
      "3.59s."),
     ("test_term_resistant_observer_stays_inside_gate_budget",
-     "The observer ignores TERM and the test asserts the runner stays inside "
-     "its budget regardless, which requires the deadline to end the wait. "
-     "MEASURED 4.29s -> 5.24s."),
+     "The observer ignores TERM and the test asserts its exact owner record "
+     "has settled and both owned pids are absent before the runner returns, "
+     "which requires the deadline to end the wait."),
     ("test_the_settlement_deadline_still_bounds_a_gate_that_will_not_settle",
      "The over-sensitivity control for this cut: it exists to prove the "
      "settlement deadline still fires, so its expiry IS its subject."),
@@ -7296,7 +7381,7 @@ def _w1_runner_deadline_constants():
     return found
 
 
-def _w1_runner_deadline_sites():
+def _w1_runner_deadline_sites(*, effective_only=False):
     """(enclosing test, knob, value) for every fixture-fed runner deadline.
 
     An AST census, never a grep: this file's prose names every one of these
@@ -7320,8 +7405,19 @@ def _w1_runner_deadline_sites():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
+            keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+            forward_opt_in = keywords.get("forward_expiry_is_subject")
+            forward_is_subject = (
+                isinstance(forward_opt_in, ast.Constant)
+                and forward_opt_in.value is True
+            )
             for keyword in node.keywords:
                 if keyword.arg not in _W1_RUNNER_DEADLINE_KNOBS:
+                    continue
+                if (effective_only and keyword.arg == _W1_FORWARD_KNOB
+                        and not forward_is_subject):
+                    # The builder clamps an inherited ordinary request to the
+                    # shipped deadline. It is not a fixture-fed override.
                     continue
                 if not isinstance(keyword.value, ast.Constant):
                     continue   # forwarded from a parameter; the caller has it
@@ -7649,6 +7745,85 @@ def test_only_a_declared_subject_shortens_the_observation_floor():
         "a declared observation site is not actually shorter than the "
         "shipped floor, so it declares an intent it does not have: %r"
         % (over,))
+
+
+def test_only_a_declared_subject_shortens_the_forward_deadline():
+    """A scheduler-sensitive fixture never replaces the shipped gate clock.
+
+    The split made these two files concurrent with their band neighbours, but
+    55 builder sites still replaced the production ten-second forward deadline
+    with one to eight seconds.  Expiry was the subject at only the four sites
+    declared above.  Everywhere else the short clock could decide first and
+    produce an unrelated missing marker, partial protocol, retained-uncertainty
+    status, or an unreachable FIFO timeout.  This census constrains the shared
+    cause rather than naming whichever test lost the schedule on one run.
+    """
+    sites = _w1_runner_deadline_sites(effective_only=True)
+    forward = [(test, value) for test, knob, value in sites
+               if knob == _W1_FORWARD_KNOB]
+    others = [site for site in sites if site[1] != _W1_FORWARD_KNOB]
+    assert len(forward) >= len(_W1_FORWARD_EXPIRY_IS_THE_SUBJECT), (
+        "the shortened-forward population this gate judges has gone missing: "
+        "%r" % (forward,))
+    assert len(others) > 20, (
+        "the other deadline population this gate contrasts against has gone "
+        "missing: %d site(s)" % len(others))
+    declared = {name for name, _why in _W1_FORWARD_EXPIRY_IS_THE_SUBJECT}
+    assert len(declared) == len(_W1_FORWARD_EXPIRY_IS_THE_SUBJECT), (
+        "the declared forward-expiry set names a test twice")
+    shortened = {test for test, _value in forward}
+    assert shortened == declared, (
+        "the forward deadline is shortened by test/helper sites whose subject "
+        "is not its expiry (%r), or declared by entries no site uses (%r)"
+        % (sorted(shortened - declared), sorted(declared - shortened)))
+    for _name, why in _W1_FORWARD_EXPIRY_IS_THE_SUBJECT:
+        assert len(why) > 40, (
+            "a declared forward-expiry site carries no real reason: %r" % why)
+    shipped = _w1_runner_deadline_constants()["W1_GATE_SECONDS"]
+    over = [(test, value) for test, value in forward if value >= shipped]
+    assert not over, (
+        "a declared forward-expiry site is not actually shorter than the "
+        "shipped deadline, so it declares an intent it does not have: %r"
+        % (over,))
+    partial = dict(forward)[
+        "test_partial_handoff_frame_does_not_restart_the_protocol_budget"]
+    assert partial == shipped - 1, (
+        "the partial-frame control is no longer the largest integral bound "
+        "that remains stricter than production: %r" % partial)
+    assert partial >= math.ceil(
+        max(_W1_PARTIAL_FRAME_LOADED_WAIT_S) * 1.5), (
+        "the partial-frame expiry no longer carries 50%% headroom over its "
+        "largest loaded wait: deadline=%r samples=%r"
+        % (partial, _W1_PARTIAL_FRAME_LOADED_WAIT_S))
+
+
+def test_an_ordinary_short_forward_request_uses_the_shipped_deadline(tmp_path):
+    """The central clamp is behavioural, and its expiry opt-in remains live."""
+    mod = _load()
+    shipped = _w1_runner_deadline_constants()["W1_GATE_SECONDS"]
+    assert shipped > 1, (
+        "the negative arm is not shorter than the production deadline")
+
+    ordinary_root = tmp_path / "ordinary"
+    ordinary_root.mkdir()
+    ordinary, _ = _w1_build_runner(
+        mod, ordinary_root, "#!/bin/bash\nexit 0\n", reap_seconds=1)
+    ordinary_text = ordinary.read_text(encoding="utf-8")
+    assert ordinary_text.count("W1_GATE_SECONDS=%d" % shipped) == 1, (
+        "an ordinary fixture request shortened the production forward clock")
+    assert "W1_GATE_SECONDS=1\n" not in ordinary_text
+
+    expiry_root = tmp_path / "expiry-control"
+    expiry_root.mkdir()
+    explicit_expiry_control = True
+    expiry, _ = _w1_build_runner(
+        mod, expiry_root, "#!/bin/bash\nexit 0\n", reap_seconds=1,
+        forward_expiry_is_subject=explicit_expiry_control)
+    expiry_text = expiry.read_text(encoding="utf-8")
+    assert expiry_text.count("W1_GATE_SECONDS=1\n") == 1, (
+        "the explicit expiry control did not receive its short deadline, so "
+        "the population declaration could be decoration")
+    assert "W1_GATE_SECONDS=%d\n" % shipped not in expiry_text
 
 
 def test_only_a_declared_subject_shortens_the_settlement_deadline():

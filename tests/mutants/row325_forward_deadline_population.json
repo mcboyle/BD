@@ -1,0 +1,63 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 325. A vanished procfs row reported as ESRCH is absence, not system-wide census uncertainty. Ordinary fixtures use the shipped forward deadline; only four declared expiry controls may shorten it, and the partial-frame control is derived from its loaded wait. The battery covers the procfs classifier, central clamp in both directions, complete AST population, loaded bound, and an accidental opt-in on a historically flaky node. The separate transform-control spec applies the byte-identical procfs transform to an import-only precondition and must ESCAPE.",
+  "subject": "vanished procfs rows do not poison group absence and ordinary hunt/reap fixtures cannot shorten the shipped forward deadline",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_probe_treats_processlookup_during_census_as_vanished",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_only_a_declared_subject_shortens_the_forward_deadline",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_an_ordinary_short_forward_request_uses_the_shipped_deadline"
+  ],
+  "mutants": [
+    {
+      "label": "M0 ESRCH from a vanished procfs row poisons the host census again",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "        try:\n            parsed = parse_stat((entry / \"stat\").read_text(encoding=\"utf-8\"))\n        except (FileNotFoundError, ProcessLookupError):\n            # A procfs row can disappear between iterdir() and read_text().\n            # Linux reports that completed disappearance as either ENOENT or\n            # ESRCH; neither is an unreadable live member of the target group.\n            continue\n",
+      "new": "        try:\n            parsed = parse_stat((entry / \"stat\").read_text(encoding=\"utf-8\"))\n        except FileNotFoundError:\n            continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_probe_treats_processlookup_during_census_as_vanished"
+    },
+    {
+      "label": "M1 ordinary fixtures shorten the forward deadline again",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "        effective = reap_seconds if forward_expiry_is_subject else shipped\n",
+      "new": "        effective = reap_seconds\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_an_ordinary_short_forward_request_uses_the_shipped_deadline"
+    },
+    {
+      "label": "M2 overcorrect by disabling every explicit expiry control",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "        effective = reap_seconds if forward_expiry_is_subject else shipped\n",
+      "new": "        effective = shipped\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_an_ordinary_short_forward_request_uses_the_shipped_deadline",
+      "preserves": [
+        "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_only_a_declared_subject_shortens_the_forward_deadline"
+      ]
+    },
+    {
+      "label": "M3 the AST census treats every legacy request as an expiry subject",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "            forward_is_subject = (\n                isinstance(forward_opt_in, ast.Constant)\n                and forward_opt_in.value is True\n            )",
+      "new": "            forward_is_subject = True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_only_a_declared_subject_shortens_the_forward_deadline"
+    },
+    {
+      "label": "M4 a historically flaky ordinary lifecycle test opts back into three seconds",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
+      "old": "        reap_seconds=3, reconcile_seconds=3, gate_program=gate_program,\n",
+      "new": "        reap_seconds=3, forward_expiry_is_subject=True,\n        reconcile_seconds=3, gate_program=gate_program,\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_only_a_declared_subject_shortens_the_forward_deadline"
+    },
+    {
+      "label": "M5 restore the partial-frame expiry below its measured loaded arrival",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
+      "old": "        reap_seconds=9, forward_expiry_is_subject=True,\n",
+      "new": "        reap_seconds=3, forward_expiry_is_subject=True,\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_only_a_declared_subject_shortens_the_forward_deadline"
+    }
+  ]
+}

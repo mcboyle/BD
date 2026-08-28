@@ -2269,8 +2269,8 @@
       "direction": "regression",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
       "label": "R12-N252 SHORT-CAP-FIXTURE-EXTENSION",
-      "new": "        reap_seconds=3, cleanup_seconds=3, observation_seconds=3,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))",
-      "old": "        reap_seconds=1, cleanup_seconds=1, observation_seconds=0,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))"
+      "new": "        reap_seconds=3, forward_expiry_is_subject=True,\n        cleanup_seconds=3, observation_seconds=3,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))",
+      "old": "        reap_seconds=1, forward_expiry_is_subject=True,\n        cleanup_seconds=1, observation_seconds=0,\n    )\n    env = dict(os.environ)\n    env[\"HOME\"] = str(_w1_fake_home(\n        tmp_path, code=0, stdout=\"stubhost-4242\\n\"))"
     },
     {
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_delayed_extra_ready_frame_never_reaches_the_registrar",

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 325 transform control. This must report exactly one ESCAPED mutant: it applies the byte-identical M0 regression that stops classifying ESRCH as a vanished procfs row, while the named precondition only parses the hunt tool and never runs its group probe. Escape proves the primary CAUGHT result is behavioral rather than an invalid transform, import failure, or collection failure.",
+  "subject": "transform-only control for treating ESRCH as ambient census uncertainty",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_tool_exists_and_parses"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 ESRCH poisons the procfs census outside the judged behavior",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old": "        try:\n            parsed = parse_stat((entry / \"stat\").read_text(encoding=\"utf-8\"))\n        except (FileNotFoundError, ProcessLookupError):\n            # A procfs row can disappear between iterdir() and read_text().\n            # Linux reports that completed disappearance as either ENOENT or\n            # ESRCH; neither is an unreadable live member of the target group.\n            continue\n",
+      "new": "        try:\n            parsed = parse_stat((entry / \"stat\").read_text(encoding=\"utf-8\"))\n        except FileNotFoundError:\n            continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_tool_exists_and_parses"
+    }
+  ]
+}
