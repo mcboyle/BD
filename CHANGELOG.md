@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1322 - READY is not claimed without the artifact that defines it
+
+- [cloud-setup.sh](/home/mboyle/bd-codex-wt/row341/scripts/cloud-setup.sh:568
+- `bd-provision` now treats `npm ci` and `npm run build` failures as fatal an
+- Added behavioral missing/degraded/healthy controls in [test_cloud_setup_tru
+- Added [primary mutation battery](/home/mboyle/bd-codex-wt/row341/tests/muta
+- Direct provisioner and CI gates: `43 passed, 1 skipped`
+- Related provisioning floor: `77 passed, 2 skipped`
+- Assertion/source-window meta-gates: `48 passed`
+- Tracked mutation-spec census via temporary candidate index: `13 passed`
+- Mutation: `5 caught, 0 escaped, 0 invalid/unknown/error`
+- Transform control: `0 caught, 5 escaped, 0 invalid/unknown/error`
+- Scratch source restored byte-identically: `restored=yes`
+- `bash -n` and `git diff --check`: clean
+
 ## v3.66.1321 - a non-200 health response stops counting as a verified deploy (+5 file-disjoint row(s): 342,343,345,346,350)
 
 -      "old": "      if curl -sSf -o /dev/null --max-time 2 \\\n          \"h

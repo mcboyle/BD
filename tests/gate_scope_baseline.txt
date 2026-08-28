@@ -116,7 +116,6 @@ tests/test_cbd03_ollama_rebind_pin.py
 tests/test_cloak_install_path.py
 tests/test_cloak_persistent_context_fallback.py
 tests/test_cloud_bootstrap_is_thin.py
-tests/test_cloud_setup_truthfulness.py
 tests/test_cockpit01_activity_limit.py
 tests/test_cockpit01_capture_normalize_confine.py
 tests/test_cockpit01_report_html_sanitize.py

@@ -590,9 +590,40 @@ fi
 # stale one (any new tool / route / env var, e.g. BD_SKIP_ARCHB above) reads as
 # drift and fails the full suite. Regenerate it HERE, in the deploy venv, so the
 # shipped artifact matches a same-environment regen by construction. Needs the app
-# venv (full deps), so it runs after the browser/dep steps.
-if [ "$HAVE_REPO" = 1 ] && [ -x ./venv/bin/python ]; then
-  step "gui-parity inventory" optional ./venv/bin/python tools/gui_parity_inventory.py
+# venv (full deps), so it runs after the browser/dep steps.  This is a core
+# deliverable, not an optional capability: parity gates read this exact file.
+# The generator can also exit zero after falling back from the live app to the
+# endpoint catalog, so its exit status is only the first measurement.  Parse
+# the artifact and verify its provenance before allowing READY.
+if [ "$HAVE_REPO" = 1 ]; then
+  if [ ! -x ./venv/bin/python ]; then
+    row "gui-parity inventory" "**FAILED**" "venv/bin/python absent -- inventory generation unavailable"
+    echo "[FAIL] gui-parity inventory (venv python absent)"
+    CORE_FAILED=1
+  else
+    step "gui-parity inventory" core ./venv/bin/python tools/gui_parity_inventory.py
+    GUI_PARITY_SOURCE=""
+    GUI_PARITY_RC=0
+    GUI_PARITY_SOURCE="$(./venv/bin/python -c 'import json
+from pathlib import Path
+p = Path("reports/gui_parity_inventory.json")
+try:
+    payload = json.loads(p.read_text(encoding="utf-8"))
+except Exception as exc:
+    raise SystemExit(f"UNREADABLE: {type(exc).__name__}: {exc}")
+source = payload.get("route_source")
+if not isinstance(source, str) or not source:
+    raise SystemExit("UNREADABLE: route_source absent")
+print(source)' 2>&1)" || GUI_PARITY_RC=$?
+    if [ "$GUI_PARITY_RC" -eq 0 ] && [ "$GUI_PARITY_SOURCE" = "live url_map" ]; then
+      row "inventory route source" "OK" "live url_map (artifact parsed; app import succeeded)"
+    else
+      GUI_PARITY_DETAIL="$(printf '%s' "${GUI_PARITY_SOURCE:-<no output>}" | tr '\n|' ' /' | cut -c1-100)"
+      row "inventory route source" "**FAILED**" "${GUI_PARITY_DETAIL}; expected live url_map"
+      echo "[FAIL] gui-parity inventory read-back: ${GUI_PARITY_DETAIL}"
+      CORE_FAILED=1
+    fi
+  fi
 fi
 
 # ================================================================ 8. runtime
@@ -830,7 +861,19 @@ echo "python interp: $("$PYBIN" --version 2>&1)"
 ./venv/bin/pip install -q -r requirements.txt || exit 1
 ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes "pyyaml>=6.0,<7.0"
 [ "${NODE_ENV:-}" = "production" ] && { echo "FATAL: NODE_ENV=production omits devDependencies"; exit 1; }
-( cd frontend && npm ci --no-audit --no-fund ) || echo "WARN: frontend deps failed"
+if ! ( cd frontend && npm ci --no-audit --no-fund ); then
+  echo "FATAL: frontend dependency installation failed"
+  exit 1
+fi
+if ! ( cd frontend && npm run build ); then
+  echo "FATAL: frontend SPA build failed"
+  exit 1
+fi
+if [ ! -f frontend/dist/index.html ]; then
+  echo "FATAL: npm run build exited 0 but frontend/dist/index.html is absent"
+  exit 1
+fi
+echo "frontend bundle: frontend/dist/index.html present"
 # Browsers. This heredoc body is a STANDALONE script installed into ~/bin, so
 # it sources the fragment itself rather than inheriting it -- but it has just
 # cd'd into the checkout, so the path is known. The engine names are never

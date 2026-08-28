@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -24,6 +26,12 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLOUD_SETUP = REPO_ROOT / "scripts" / "cloud-setup.sh"
+
+# This module executes the production cloud provisioner and its emitted
+# recovery helper.  It is deliberately pinned into CI even though its subject
+# is one script: a READY verdict is a provisioning safety boundary, and a test
+# that no pull request runs cannot protect that boundary.
+BD_GATE_SCOPE = "module"
 
 # The seven release-guard files, and where their authoritative SHAs live.
 # CLAUDE.md's table is the operator-declared record; cloud-setup.sh keeps a
@@ -67,6 +75,34 @@ def _run_bash(snippet: str, *, cwd: Path | None = None, env: dict | None = None,
         capture_output=True, text=True, cwd=str(cwd) if cwd else None,
         env=env, timeout=timeout,
     )
+
+
+def _extract_section(start_marker: str, end_marker: str | None = None) -> str:
+    """Return a production shell section bounded by exact content markers."""
+    source = _script()
+    start = source.find(start_marker)
+    assert start != -1, (
+        f"start marker {start_marker!r} not found in {CLOUD_SETUP} -- "
+        "the executable test lost its subject")
+    if end_marker is None:
+        return source[start:]
+    end = source.find(end_marker, start + len(start_marker))
+    assert end != -1, (
+        f"end marker {end_marker!r} not found after {start_marker!r} -- "
+        "the executable test has no bounded subject")
+    return source[start:end]
+
+
+def _extract_heredoc(start_marker: str, delimiter: str) -> str:
+    """Extract the exact standalone script body emitted by a heredoc."""
+    source = _script()
+    start = source.find(start_marker)
+    assert start != -1, f"heredoc marker {start_marker!r} is absent"
+    start += len(start_marker)
+    end_marker = f"\n{delimiter}\n"
+    end = source.find(end_marker, start)
+    assert end != -1, f"heredoc delimiter {delimiter!r} is absent"
+    return source[start:end] + "\n"
 
 
 # --------------------------------------------------------------------------
@@ -417,6 +453,278 @@ def test_the_missing_bundle_branch_actually_fails(tmp_path):
         "with frontend/dist/index.html absent the provisioner still reported a "
         f"healthy host.\n{proc.stdout}"
     )
+
+
+# --------------------------------------------------------------------------
+# Row 341: READY requires the GUI-parity artifact that defines the inventory.
+# --------------------------------------------------------------------------
+
+_GUI_PARITY_START = (
+    "# ==================================================== 7c. reconcile inventories"
+)
+_GUI_PARITY_END = "# ================================================================ 8. runtime"
+_VERDICT_START = "# =============================================================== 12. verdict"
+
+
+def _run_gui_parity_verdict(tmp_path: Path, mode: str):
+    """Execute the real GUI-parity and final-verdict blocks.
+
+    The generator fixture is an executable Python program, not a replacement
+    for the shell under test.  It can exit zero without writing, emit either
+    provenance state, or fail after a prior valid artifact was planted.  Thus
+    each arm reaches the production ``step`` and read-back decisions.
+    """
+    work = tmp_path / mode
+    (work / "tools").mkdir(parents=True)
+    (work / "venv" / "bin").mkdir(parents=True)
+    os.symlink(sys.executable, work / "venv" / "bin" / "python")
+    generator = work / "tools" / "gui_parity_inventory.py"
+    generator.write_text(textwrap.dedent(
+        """
+        import json
+        import os
+        from pathlib import Path
+
+        mode = os.environ["PROBE_GUI_MODE"]
+        with Path("generator.log").open("a", encoding="utf-8") as log:
+            log.write(mode + "\\n")
+        if mode == "generator-fails-with-stale-live":
+            raise SystemExit(7)
+        if mode != "missing":
+            out = Path("reports/gui_parity_inventory.json")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            route_source = "live url_map" if mode == "live" else "endpoint catalog"
+            out.write_text(json.dumps({"route_source": route_source}), encoding="utf-8")
+        """), encoding="utf-8")
+
+    inventory = work / "reports" / "gui_parity_inventory.json"
+    existed_before = inventory.exists()
+    if mode == "generator-fails-with-stale-live":
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text(
+            json.dumps({"route_source": "live url_map"}), encoding="utf-8")
+
+    harness = textwrap.dedent(
+        """
+        set -uo pipefail
+        REPORT="$PWD/report.md"; : > "$REPORT"
+        CORE_FAILED=0
+        HAVE_REPO=1
+        REPO="$PWD"
+        START=$(date +%%s)
+        %s
+        %s
+        %s
+        %s
+        """
+    ) % (
+        _extract_function_row(),
+        _extract_function("step"),
+        _extract_section(_GUI_PARITY_START, _GUI_PARITY_END),
+        _extract_section(_VERDICT_START),
+    )
+    env = dict(os.environ)
+    env["PROBE_GUI_MODE"] = mode
+    proc = _run_bash(harness, cwd=work, env=env)
+
+    calls = (work / "generator.log").read_text(encoding="utf-8").splitlines()
+    assert calls == [mode], (
+        f"the production generator step fired {len(calls)} times, expected "
+        f"exactly once: {calls}")
+    return proc, inventory, existed_before, (work / "report.md").read_text(
+        encoding="utf-8")
+
+
+def _proc_context(proc: subprocess.CompletedProcess[str]) -> str:
+    return f"\nreturncode={proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+
+
+def test_gui_parity_generator_exit_zero_without_artifact_is_incomplete(tmp_path):
+    """RED: exit zero is not evidence that the inventory was generated."""
+    proc, inventory, existed_before, report = _run_gui_parity_verdict(
+        tmp_path, "missing")
+    assert not existed_before, "the missing-artifact fixture started with an artifact"
+    assert not inventory.exists(), (
+        "the no-output generator unexpectedly created the inventory; this no "
+        "longer exercises the demonstrated absent-artifact state")
+    assert proc.returncode == 1, (
+        "cloud-setup returned success after the generator exited zero without "
+        "reports/gui_parity_inventory.json; it advertised READY with the "
+        "load-bearing artifact absent" + _proc_context(proc))
+    assert "## VERDICT: INCOMPLETE" in report
+    assert "=== READY" not in proc.stdout
+
+
+def test_gui_parity_live_inventory_remains_ready(tmp_path):
+    """Healthy control: a parsed, app-derived inventory still earns READY."""
+    proc, inventory, existed_before, report = _run_gui_parity_verdict(
+        tmp_path, "live")
+    assert not existed_before
+    payload = json.loads(inventory.read_text(encoding="utf-8"))
+    assert payload["route_source"] == "live url_map"
+    assert proc.returncode == 0, _proc_context(proc)
+    assert "## VERDICT: READY" in report
+    assert "inventory route source | OK" in report, (
+        "the healthy artifact was never read back, so READY still rests only "
+        "on the generator's exit code")
+
+
+def test_gui_parity_catalog_fallback_is_incomplete(tmp_path):
+    """Negative control: valid JSON from the wrong route source is not good."""
+    proc, inventory, existed_before, report = _run_gui_parity_verdict(
+        tmp_path, "catalog")
+    assert not existed_before
+    payload = json.loads(inventory.read_text(encoding="utf-8"))
+    assert payload["route_source"] == "endpoint catalog"
+    assert proc.returncode == 1, (
+        "catalog-derived inventory was accepted as app-derived evidence" +
+        _proc_context(proc))
+    assert "## VERDICT: INCOMPLETE" in report
+
+
+def test_gui_parity_generator_failure_cannot_reuse_stale_live_artifact(tmp_path):
+    """The generator command itself is core even when old output looks valid."""
+    proc, inventory, existed_before, report = _run_gui_parity_verdict(
+        tmp_path, "generator-fails-with-stale-live")
+    assert not existed_before, "fixture bookkeeping must precede the stale plant"
+    assert json.loads(inventory.read_text(encoding="utf-8"))["route_source"] == (
+        "live url_map")
+    assert proc.returncode == 1, (
+        "the failed generation attempt was demoted to WARN and a stale artifact "
+        "laundered the run into READY" + _proc_context(proc))
+    assert "gui-parity inventory | **FAILED** | exit 7" in report
+    assert "## VERDICT: INCOMPLETE" in report
+
+
+# --------------------------------------------------------------------------
+# Row 341: the advertised bd-provision recovery must build and read back SPA.
+# --------------------------------------------------------------------------
+
+_PROVISION_HEREDOC = "cat > \"$BIN/bd-provision\" <<'PROV'\n"
+
+
+def _write_executable(path: Path, source: str) -> None:
+    path.write_text(source, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _run_bd_provision(tmp_path: Path, npm_mode: str):
+    work = tmp_path / npm_mode
+    repo = work / "repo"
+    bindir = work / "bin"
+    repo.joinpath("bulk_downloader").mkdir(parents=True)
+    repo.joinpath("bulk_downloader", "__init__.py").write_text(
+        '__version__ = "3.66.999"\n', encoding="utf-8")
+    repo.joinpath("frontend").mkdir()
+    repo.joinpath("scripts", "lib").mkdir(parents=True)
+    repo.joinpath("scripts", "lib", "system_deps.sh").write_text(textwrap.dedent(
+        """
+        bd_playwright_engines() {
+          if [ "$1" = core ]; then echo chromium; else echo firefox; fi
+        }
+        """), encoding="utf-8")
+    repo.joinpath("requirements.txt").write_text("# fixture\n", encoding="utf-8")
+    repo.joinpath("venv", "bin").mkdir(parents=True)
+    bindir.mkdir(parents=True)
+
+    helper = work / "bd-provision"
+    _write_executable(
+        helper, _extract_heredoc(_PROVISION_HEREDOC, "PROV"))
+
+    control_log = work / "control.log"
+    _write_executable(bindir / "python3.12", textwrap.dedent(
+        """#!/bin/bash
+        echo "system-python $*" >> "$PROBE_CONTROL_LOG"
+        exit 0
+        """))
+    _write_executable(repo / "venv" / "bin" / "pip", textwrap.dedent(
+        """#!/bin/bash
+        echo "pip $*" >> "$PROBE_CONTROL_LOG"
+        exit 0
+        """))
+    _write_executable(repo / "venv" / "bin" / "python", textwrap.dedent(
+        """#!/bin/bash
+        echo "venv-python $*" >> "$PROBE_CONTROL_LOG"
+        if [ "${1:-}" = "-c" ]; then echo 3.66.999; fi
+        exit 0
+        """))
+    _write_executable(bindir / "npm", textwrap.dedent(
+        """#!/bin/bash
+        echo "npm $*" >> "$PROBE_CONTROL_LOG"
+        if [ "$PROBE_NPM_MODE" = ci-fails ] && [ "${1:-}" = ci ]; then
+          exit 7
+        fi
+        if [ "${1:-}" = run ] && [ "${2:-}" = build ]; then
+          if [ "$PROBE_NPM_MODE" = build-fails ]; then exit 9; fi
+          if [ "$PROBE_NPM_MODE" = healthy ] || [ "$PROBE_NPM_MODE" = ci-fails ]; then
+            mkdir -p "$PROBE_REPO/frontend/dist"
+            printf '<!doctype html>\n' > "$PROBE_REPO/frontend/dist/index.html"
+          fi
+        fi
+        exit 0
+        """))
+
+    index = repo / "frontend" / "dist" / "index.html"
+    assert not index.exists(), "the fresh-checkout fixture already has a SPA bundle"
+    env = dict(os.environ)
+    env.update({
+        "PATH": f"{bindir}:/usr/local/bin:/usr/bin:/bin",
+        "PROBE_CONTROL_LOG": str(control_log),
+        "PROBE_NPM_MODE": npm_mode,
+        "PROBE_REPO": str(repo),
+    })
+    proc = subprocess.run(
+        [str(helper), str(repo)], capture_output=True, text=True, env=env,
+        cwd=work, timeout=60)
+    controls = control_log.read_text(encoding="utf-8").splitlines()
+    npm_calls = [line.removeprefix("npm ") for line in controls
+                 if line.startswith("npm ")]
+    assert npm_calls and npm_calls[0].startswith("ci "), (
+        f"the helper never reached its npm dependency precondition: {controls}")
+    return proc, index, npm_calls
+
+
+def test_bd_provision_no_output_build_cannot_report_ready(tmp_path):
+    """RED: a successful command without dist/index.html is not a built SPA."""
+    proc, index, npm_calls = _run_bd_provision(tmp_path, "no-output")
+    assert not index.exists(), (
+        "the no-output build control unexpectedly emitted the SPA artifact")
+    assert proc.returncode != 0, (
+        "bd-provision returned READY without building frontend/dist/index.html" +
+        _proc_context(proc))
+    assert "run build" in npm_calls, (
+        f"the advertised recovery helper never invoked the SPA build: {npm_calls}")
+    assert "bd-provision: READY" not in proc.stdout
+
+
+def test_bd_provision_healthy_build_remains_ready(tmp_path):
+    """Healthy control: npm builds index.html and the helper reports READY."""
+    proc, index, npm_calls = _run_bd_provision(tmp_path, "healthy")
+    assert "run build" in npm_calls, npm_calls
+    assert index.read_text(encoding="utf-8") == "<!doctype html>\n"
+    assert proc.returncode == 0, _proc_context(proc)
+    assert proc.stdout.count("bd-provision: READY") == 1
+
+
+def test_bd_provision_npm_ci_failure_is_fatal_even_if_a_build_could_pass(tmp_path):
+    """Unavailable dependency installation cannot be demoted into READY."""
+    proc, _index, npm_calls = _run_bd_provision(tmp_path, "ci-fails")
+    assert npm_calls[0].startswith("ci ")
+    assert proc.returncode != 0, (
+        "npm ci exited 7 but bd-provision demoted it to WARN and returned READY" +
+        _proc_context(proc))
+    assert "bd-provision: READY" not in proc.stdout
+
+
+def test_bd_provision_build_failure_is_fatal(tmp_path):
+    """Negative control: the build command's nonzero bound still fires."""
+    proc, index, npm_calls = _run_bd_provision(tmp_path, "build-fails")
+    assert "run build" in npm_calls, npm_calls
+    assert not index.exists()
+    assert proc.returncode != 0, (
+        "npm run build exited 9 but bd-provision returned success" +
+        _proc_context(proc))
+    assert "bd-provision: READY" not in proc.stdout
 
 
 # --------------------------------------------------------------------------
