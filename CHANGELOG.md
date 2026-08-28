@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1323 - the omitted live gate is scheduled in CI
+
+-    assert len(entries) == 1246, (
+-        "the row-292 capture-lane census gate; "
+-    """The five confirmed safety gates belong to the exact live population."
+- Declared the raw-Unicode gate repo-wide and removed its legacy exemption: [
+- Ratcheted all seven H15 sibling gates: each is repo-wide, declared, schedul
+- Updated the exact legacy-baseline identity from 1246 to 1245: [scope-debt g
+- Added primary and transform-control mutation specs: [primary](/home/mboyle/
+- Scheduled denominator: `1 passed`, `scheduled_meta_rc=0`.
+- Omitted live gate: `omitted_live_gate_rc=1` with:
+- Final row-specific core: `25 passed`.
+- Current-main invalidated suites: toolchain `52 passed`; inner-budget gate `
+- Underived ceiling: `33 passed`.
+- Current tracked-spec schema/collection/anchor validation: `2 passed`.
+
 ## v3.66.1322 - READY is not claimed without the artifact that defines it
 
 - [cloud-setup.sh](/home/mboyle/bd-codex-wt/row341/scripts/cloud-setup.sh:568

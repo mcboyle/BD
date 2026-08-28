@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 348. This applies the identical valid M2 declaration-removal transform to a node that imports the gate module without judging CI reachability. It must ESCAPE; INVALID, ERROR, or UNKNOWN is not an escape.",
+  "subject": "a valid declaration-removal transform does not fail merely because the CI meta-gate module is imported",
+  "band": [
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_ci_gate_without_judging_row348_reachability"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 declaration removal escapes an import-only control",
+      "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+      "old": "    \"tests/test_no_raw_unicode_escape_in_jsx.py\",\n    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
+      "new": "    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_ci_gate_without_judging_row348_reachability"
+    }
+  ]
+}

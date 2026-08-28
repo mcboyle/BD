@@ -331,6 +331,7 @@ jobs:
               tests/test_frontend_dependency_security_floor.py
               tests/test_v3_66_1217_a_fixture_is_not_wiring.py
               tests/test_v3_66_1225_spa_scanner_populations.py
+              tests/test_no_raw_unicode_escape_in_jsx.py
               tests/test_gui_parity.py
               tests/test_t1_dashboard_wired.py
               tests/test_t2_history_wired.py
