@@ -491,7 +491,9 @@ def test_bd_band_verdict_refuses_for_registration_failure(tmp_path):
     assert not fired.exists()
 
 
-def test_chromium_sample_refuses_instead_of_recording_empty_measurement(tmp_path):
+def test_chromium_sample_refuses_instead_of_recording_empty_measurement(
+    tmp_path, monkeypatch
+):
     runner = _copied_tool_with_failed_registrar(tmp_path, "bd-chromium-race")
     module = _load_extensionless("row243_chromium_owner", runner)
     work = tmp_path / "chromium-work"
@@ -506,13 +508,18 @@ def test_chromium_sample_refuses_instead_of_recording_empty_measurement(tmp_path
     module.REPO = work
     module.PY = Path(sys.executable)
     module.SAMPLE_CAP = 60
-    module.time.sleep = lambda _seconds: None
-
-    with pytest.raises(
-        module.PytestRegistrationRefused,
-        match=r"REGISTRATION FAILED:.*owner-boundary refusal",
-    ):
-        module.run_sample(0, False, outdir, "registration-refusal")
+    real_sleep = module.time.sleep
+    with monkeypatch.context() as scoped:
+        scoped.setattr(module.time, "sleep", lambda _seconds: None)
+        with pytest.raises(
+            module.PytestRegistrationRefused,
+            match=r"REGISTRATION FAILED:.*owner-boundary refusal",
+        ):
+            module.run_sample(0, False, outdir, "registration-refusal")
+    assert module.time.sleep is real_sleep, (
+        "the Chromium probe test leaked its no-op sleep into Python's shared "
+        "time module"
+    )
 
 
 def test_scoped_launch_sites_all_use_the_registered_helper():
@@ -612,14 +619,16 @@ def _mutation_work(tmp_path: Path) -> Path:
     tests = work / "tests"
     private_bin.mkdir(parents=True)
     tests.mkdir()
-    shutil.copy2(BIN / "bd-ladder", private_bin / "bd-ladder")
+    mutation_tools = ("bd-ladder", "bd-chromium-race")
+    for tool_name in mutation_tools:
+        shutil.copy2(BIN / tool_name, private_bin / tool_name)
     _copy_jobs_with_registry(
         private_bin / "bd-jobs", tmp_path / "mutation-work-registry"
     )
     shutil.copy2(Path(__file__), tests / Path(__file__).name)
     _git_init(
         work,
-        "toolchain/bin/bd-ladder",
+        *("toolchain/bin/" + name for name in mutation_tools),
         "toolchain/bin/bd-jobs",
         "tests/" + Path(__file__).name,
     )
@@ -670,7 +679,7 @@ def _mutation_payload(
     return process, payload
 
 
-def test_bd_mutate_catches_three_regressions_and_control_escapes(tmp_path):
+def test_bd_mutate_catches_four_regressions_and_control_escapes(tmp_path):
     work = _mutation_work(tmp_path)
     runner = _mutation_runner(tmp_path)
 
@@ -680,16 +689,16 @@ def test_bd_mutate_catches_three_regressions_and_control_escapes(tmp_path):
     assert caught_process.returncode == 0, (
         caught_process.stdout + caught_process.stderr
     )
-    assert caught["selected"] == caught["total"] == 3
-    assert len(caught["rows"]) == 3
-    assert [row["verdict"] for row in caught["rows"]] == ["CAUGHT"] * 3
+    assert caught["selected"] == caught["total"] == 4
+    assert len(caught["rows"]) == 4
+    assert [row["verdict"] for row in caught["rows"]] == ["CAUGHT"] * 4
     assert {row["label"].split()[0] for row in caught["rows"]} == {
-        "M1", "M2", "M3"
+        "M1", "M2", "M3", "M4"
     }
 
     assert control_process.returncode == 1, (
         control_process.stdout + control_process.stderr
     )
-    assert control["selected"] == control["total"] == 1
-    assert len(control["rows"]) == 1
-    assert control["rows"][0]["verdict"] == "ESCAPED"
+    assert control["selected"] == control["total"] == 2
+    assert len(control["rows"]) == 2
+    assert [row["verdict"] for row in control["rows"]] == ["ESCAPED"] * 2
