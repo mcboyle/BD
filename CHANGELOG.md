@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1312 - the hunt reap family passes under xdist without a coin flip
+
+-        reap_seconds=3, gate_program=gate_program,
+-    "partial_handoff_frame_does_not_restart_the_protocol_budget/exit":      
+-    "term_resistant_observer_stays_inside_gate_budget/wait":                
+-                     ready_seconds=None,
+-        body = body.replace(anchor, "W1_GATE_SECONDS=%d" % reap_seconds)
+-        text=True, capture_output=True, timeout=_w1_budget_s("_w1_run_regist
+-        reap_seconds=1, cleanup_seconds=1, observation_seconds=0,
+-        reap_seconds=3, gate_program=gate_program,
+-        reap_seconds=3, checked_wait_probe=checked_wait_log,
+-    started = time.monotonic()
+-        assert time.monotonic() - started < 6.0
+-     " own bound, and the node asserts the whole run finishes inside 6s."
+-     " A floor that gave that observation three further seconds would"
+
 ## v3.66.1311 - every third-party import bulk_downloader makes is declared somewhere
 
 -    "werkzeug": "flask's own hard dependency; pinning it separately would le

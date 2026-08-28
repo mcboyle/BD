@@ -1212,7 +1212,10 @@ def group_observation(pgrp_text, proc_root):
             continue
         try:
             parsed = parse_stat((entry / "stat").read_text(encoding="utf-8"))
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
+            # A procfs row can disappear between iterdir() and read_text().
+            # Linux reports that completed disappearance as either ENOENT or
+            # ESRCH; neither is an unreadable live member of the target group.
             continue
         except (OSError, ValueError, IndexError):
             uncertain = True

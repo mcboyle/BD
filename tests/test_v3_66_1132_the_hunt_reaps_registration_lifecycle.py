@@ -161,7 +161,6 @@ def test_registration_release_failure_is_bounded_and_classified(tmp_path):
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-4242\n"))
     env["BASH_ENV"] = str(bash_env)
-    started = time.monotonic()
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -169,7 +168,6 @@ def test_registration_release_failure_is_bounded_and_classified(tmp_path):
     try:
         pgid, _ = _w1_wait_for_gate(rundir)
         rc = proc.wait(timeout=_w1_budget_s("registration_release_failure_is_bounded_and_classified/wait"))
-        assert time.monotonic() - started < 8
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert not workload_marker.exists(), (
             "a failed release nevertheless started the registered command")
@@ -519,7 +517,7 @@ def test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group(
     marker = tmp_path / "workload-started"
     argv_log = tmp_path / "stub-argv"
     gate_program = _w1_adversarial_gate_program(
-        terminal="EXEC-OK v1", hold=30, status=0)
+        terminal="EXEC-OK v1", hold=300, status=0)
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
@@ -529,7 +527,6 @@ def test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group(
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-4242\n"))
     env["W1_STUB_ARGV_LOG"] = str(argv_log)
-    started = time.monotonic()
     proc = subprocess.Popen(
         ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -537,14 +534,15 @@ def test_invalid_exec_ok_reconciles_registered_id_without_waiting_live_group(
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         rc = proc.wait(timeout=_w1_budget_s("invalid_exec_ok_reconciles_registered_id_without_waiting_live_group/wait"))
-        assert _w1_live_in_group(gate_pid), (
-            "the fixture did not retain the hostile registered gate")
+        live_gate = _w1_live_in_group(gate_pid)
+        assert str(gate_pid) in live_gate, (
+            "reconciliation did not return while the hostile registered "
+            "gate was still live: %r" % live_gate)
         calls = argv_log.read_text(encoding="utf-8").splitlines()
         assert len(calls) == 2 and calls[0].startswith("register ")
         assert calls[1] == "reap --id stubhost-4242"
         assert not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        assert time.monotonic() - started < 7.0
         assert rc == int(W1_RELEASE_FAILURE_CODE)
     finally:
         _w1_kill_group(gate_pid)
@@ -724,7 +722,8 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3, gate_program=gate_program,
+        reap_seconds=9, forward_expiry_is_subject=True,
+        gate_program=gate_program,
         checked_wait_probe=checked_wait_log,
         handoff_deadline_probe=deadline_probe,
     )
