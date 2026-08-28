@@ -148,7 +148,9 @@ def test_fixture_body_probe_restores_vpn_kill_switch_state(monkeypatch):
         "unknownType": False,
     }
 
-    result = bc.probe_fixtures(ROOT, [call])
+    # Exercise the worker core directly so the counted mutation denominator
+    # and its restoration are observed in this process.
+    result = bc._probe_fixtures_in_process(ROOT, [call])
     assert result, "the fixture-backed production probe returned no verdict"
     assert fired["fixture_kills"] == 2, (
         "both fixture differential requests must reach the real kill endpoint; "
@@ -233,7 +235,7 @@ from tools import body_contract as bc
 assert "bulk_downloader.app" not in sys.modules
 ks.set_auto_recover(False)
 before = ks.get_auto_recover()
-result = bc.probe_fixtures(sys.argv[1], [])
+result = bc._probe_fixtures_in_process(sys.argv[1], [])
 print(json.dumps({"before": before, "after": ks.get_auto_recover(), "result": result}))
 """
     env = os.environ.copy()
