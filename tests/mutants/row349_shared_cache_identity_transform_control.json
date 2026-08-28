@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 349 transform control. This deliberately must ESCAPE: it applies the identical valid envscan namespace regression but runs only a control which imports all three subjects and checks shell syntax without asserting cache identity. ESCAPED proves the behavior battery's CAUGHT verdict is not a parse, import, or collection failure.",
+  "subject": "transform control for the envscan shared-import-namespace regression",
+  "band": [
+    "tests/test_row349_shared_caches_are_identity_bound.py::test_transform_control_loads_subjects_without_identity_assertions"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL envscan reuses helpers while all three subjects remain loadable",
+      "file": "toolchain/bin/bd-envscan",
+      "old": "def _open_env(tree):\n    \"\"\"Classify one tree in an attempt-owned interpreter/import namespace.\"\"\"\n    command = [sys.executable, os.path.realpath(__file__),\n               \"--_inspect-tree\", os.path.abspath(tree)]\n    try:\n        measured = subprocess.run(\n            command, capture_output=True, text=True, timeout=180,\n            env=os.environ.copy())\n    except (OSError, subprocess.TimeoutExpired) as exc:\n        raise RuntimeError(\"tree-local inventory subprocess unavailable for %s: %s\"\n                           % (tree, exc)) from exc\n    payload_lines = [\n        line[len(_TREE_RESULT_PREFIX):]\n        for line in measured.stdout.splitlines()\n        if line.startswith(_TREE_RESULT_PREFIX)\n    ]\n    if measured.returncode != 0 or len(payload_lines) != 1:\n        detail = (measured.stdout + measured.stderr).strip()\n        raise RuntimeError(\n            \"tree-local inventory subprocess failed for %s (exit %s, \"\n            \"result records %s): %s\"\n            % (tree, measured.returncode, len(payload_lines), detail[-1200:]))\n    try:\n        payload = json.loads(payload_lines[0])\n        return (payload[\"open_env_vars\"], payload[\"items\"],\n                payload[\"open_runtime_tunable_count\"])\n    except (KeyError, TypeError, json.JSONDecodeError) as exc:\n        raise RuntimeError(\"tree-local inventory returned malformed JSON for %s\"\n                           % tree) from exc",
+      "new": "def _open_env(tree):\n    \"\"\"Mutant: reuse the caller's process-wide helper cache.\"\"\"\n    return _open_env_local(tree)",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_transform_control_loads_subjects_without_identity_assertions"
+    }
+  ]
+}

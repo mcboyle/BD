@@ -18,7 +18,7 @@ false-positive-free by construction.
 (the actionable trap) vs what was already open. Advisory: exit 0, but exit 3 if
 open env_vars exist in --tree (so it can gate a pre-cut hook if wired to $?).
 """
-import argparse, os, sys, importlib
+import argparse, json, os, subprocess, sys, importlib
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
@@ -34,7 +34,7 @@ def _load_csi(tree):
     return importlib.import_module("config_surface_inventory")
 
 
-def _open_env(tree):
+def _open_env_local(tree):
     """(sorted open env_var keys, {key->item}, open_runtime_tunable count) for a tree."""
     csi = _load_csi(tree)
     d = csi.build(tree)
@@ -42,6 +42,40 @@ def _open_env(tree):
     openset = set(csi._open_settings(d["items"]))
     ev = sorted(k for k in openset if items[k].get("kind") == "env_var")
     return ev, items, d["counts"].get("open_runtime_tunable")
+
+
+_TREE_RESULT_PREFIX = "BD-ENVSCAN-TREE-RESULT "
+
+
+def _open_env(tree):
+    """Classify one tree in an attempt-owned interpreter/import namespace."""
+    command = [sys.executable, os.path.realpath(__file__),
+               "--_inspect-tree", os.path.abspath(tree)]
+    try:
+        measured = subprocess.run(
+            command, capture_output=True, text=True, timeout=180,
+            env=os.environ.copy())
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("tree-local inventory subprocess unavailable for %s: %s"
+                           % (tree, exc)) from exc
+    payload_lines = [
+        line[len(_TREE_RESULT_PREFIX):]
+        for line in measured.stdout.splitlines()
+        if line.startswith(_TREE_RESULT_PREFIX)
+    ]
+    if measured.returncode != 0 or len(payload_lines) != 1:
+        detail = (measured.stdout + measured.stderr).strip()
+        raise RuntimeError(
+            "tree-local inventory subprocess failed for %s (exit %s, "
+            "result records %s): %s"
+            % (tree, measured.returncode, len(payload_lines), detail[-1200:]))
+    try:
+        payload = json.loads(payload_lines[0])
+        return (payload["open_env_vars"], payload["items"],
+                payload["open_runtime_tunable_count"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("tree-local inventory returned malformed JSON for %s"
+                           % tree) from exc
 
 
 def _src(item):
@@ -89,7 +123,20 @@ def main():
     ap.add_argument("--baseline-tree", default=None)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--_inspect-tree", default=None, help=argparse.SUPPRESS)
     a = ap.parse_args()
+    if a._inspect_tree:
+        try:
+            opened, items, count = _open_env_local(a._inspect_tree)
+        except Exception as exc:
+            print("CANNOT-EVALUATE tree-local inventory for %s: %s"
+                  % (a._inspect_tree, exc), file=sys.stderr)
+            return 2
+        print(_TREE_RESULT_PREFIX + json.dumps({
+            "open_env_vars": opened, "items": items,
+            "open_runtime_tunable_count": count,
+        }, separators=(",", ":")))
+        return 0
     if a.selftest:
         return _selftest()
 
@@ -101,7 +148,6 @@ def main():
     preexisting = [k for k in cur if base is not None and k in base]
 
     if a.json:
-        import json
         print(json.dumps({"tree": a.tree, "open_env_vars": cur,
                           "open_runtime_tunable_count": count,
                           "added_vs_baseline": added,
