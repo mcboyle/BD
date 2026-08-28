@@ -10,6 +10,8 @@ import sys
 import pytest
 
 
+BD_GATE_SCOPE = "module"
+
 
 # v3.66.13: this file used to define its own autouse isolated_bd_home
 # fixture; the canonical one lives in tests/conftest.py. The marker
@@ -132,17 +134,15 @@ def test_integrity_endpoint_unreadable_inventory_stays_unknown(monkeypatch):
     app = Flask("library-integrity-measurement-probe")
     app.register_blueprint(app_library.library_bp)
     response = app.test_client().get("/api/library/integrity")
-    assert response.status_code == 200
+    assert response.status_code == 503
     body = response.get_json()
-    stats = body["stats"]
-    assert body["ok"] is True
-    assert body["count"] == 0
-    assert stats["ok"] is False
-    assert stats["inventory_status"] == "unknown"
-    assert stats["available"] is False
-    assert "locked" in stats["error"]
-    assert stats["open_issues"] is None
-    assert stats["open_issues"] != 0
+    assert body["ok"] is False
+    assert body["available"] is False
+    assert body["inventory_status"] == "unknown"
+    assert body["issues"] is None
+    assert body["count"] is None
+    assert body["stats"] is None
+    assert "locked" in body["error"]
 
 
 def test_integrity_endpoint_kind_filter():

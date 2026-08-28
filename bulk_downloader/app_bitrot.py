@@ -43,7 +43,13 @@ def api_bitrot_issues():
         rep = None if repaired is None else (repaired in ("1", "true", "yes"))
         return jsonify({"issues": _br.list_issues(kind=kind, repaired=rep)})
     except Exception as e:
-        return jsonify({"issues": [], "error": str(e)[:200]}), 500
+        return jsonify({
+            "ok": False,
+            "available": False,
+            "inventory_status": "unknown",
+            "issues": None,
+            "error": str(e)[:200],
+        }), 503
 
 @bitrot_bp.route("/api/bitrot/stats")
 def api_bitrot_stats():

@@ -257,7 +257,6 @@ tests/test_extension_vault.py
 tests/test_extraction_core.py
 tests/test_extraction_core_characterization.py
 tests/test_f2_3_needs_review_wired.py
-tests/test_ffmpeg_capability_health.py
 tests/test_fixture_recognizer_loop.py
 tests/test_fixture_serves_a_decodable_mp4.py
 tests/test_fixture_site.py
@@ -664,7 +663,6 @@ tests/test_v3_53_phase6.py
 tests/test_v3_54_phase7.py
 tests/test_v3_55_phase4_backlog.py
 tests/test_v3_56_phase8.py
-tests/test_v3_57_phase9.py
 tests/test_v3_58_phase10.py
 tests/test_v3_59_phase11.py
 tests/test_v3_60_phase12.py

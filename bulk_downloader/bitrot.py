@@ -388,7 +388,11 @@ def run_scan(*,
 def list_issues(*, kind: Optional[str] = None, repaired: Optional[bool] = None,
                 limit: int = 100) -> list:
     """Return recent integrity_issues rows. Filter by kind ('missing',
-    'modified', 'truncated', 'error') and repaired status."""
+    'modified', 'truncated', 'error') and repaired status.
+
+    Raises InventoryUnavailable when the query cannot be measured; ``[]`` is
+    reserved for a successful query with no matching issues.
+    """
     _ensure_integrity_table()
     sql = "SELECT * FROM integrity_issues WHERE 1=1"
     params: list = []
@@ -404,8 +408,13 @@ def list_issues(*, kind: Optional[str] = None, repaired: Optional[bool] = None,
         from . import db as _db
         with _db.db_conn() as cx:
             return [dict(r) for r in cx.execute(sql, params).fetchall()]
-    except Exception:
-        return []
+    except Exception as e:
+        # [] is reserved for a successful query that measured no issues.
+        # Callers must surface an unreadable inventory as unavailable instead
+        # of serialising it as a clean inventory.
+        raise InventoryUnavailable(
+            f"integrity issue inventory unavailable: {e}"
+        ) from e
 
 
 def stats() -> dict:

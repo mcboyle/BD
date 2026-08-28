@@ -298,6 +298,16 @@ def api_library_integrity():
         stats = _bitrot.stats()
         return jsonify({"ok": True, "issues": issues, "stats": stats,
                         "count": len(issues)})
+    except _bitrot.InventoryUnavailable as e:
+        return jsonify({
+            "ok": False,
+            "available": False,
+            "inventory_status": "unknown",
+            "issues": None,
+            "stats": None,
+            "count": None,
+            "error": str(e)[:200],
+        }), 503
     except Exception as e:
         return jsonify({"ok": False,
                         "error": f"{type(e).__name__}: {e}"}), 500
@@ -306,4 +316,3 @@ def register_routes(app) -> int:
     app.register_blueprint(library_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("library."))
-

@@ -200,9 +200,11 @@ def _check_ytdlp() -> dict:
 def _ffmpeg_capability(ff: str) -> dict:
     """Probe an ffmpeg binary beyond mere presence: does it run, and does it
     support the mpegts muxer + https protocol BD needs for HLS/TS remuxing?
-    Returns ``{"error": str}`` if it won't run, else ``{"missing": [caps]}``.
-    (Presence alone isn't enough -- a build that crashes on invocation or lacks
-    mpegts/https still fails real downloads.)"""
+    Returns ``{"error": str}`` if it won't run, a capability status of
+    ``unknown`` if either capability listing cannot be measured, or a measured
+    ``{"missing": [caps]}`` result.  (Presence alone isn't enough -- a build
+    that crashes on invocation or lacks mpegts/https still fails real
+    downloads.)"""
     import subprocess
     try:
         r = subprocess.run([ff, "-hide_banner", "-version"],
@@ -211,19 +213,33 @@ def _ffmpeg_capability(ff: str) -> dict:
         return {"error": f"{type(e).__name__}: {e}"}
     if r.returncode != 0:
         return {"error": f"-version exited {r.returncode}"}
+    listings = {}
+    for option in ("-muxers", "-protocols"):
+        try:
+            probe = subprocess.run(
+                [ff, "-hide_banner", option],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            return {
+                "available": False,
+                "capability_status": "unknown",
+                "error": f"{option} unavailable: {type(e).__name__}: {e}",
+            }
+        if probe.returncode != 0:
+            return {
+                "available": False,
+                "capability_status": "unknown",
+                "error": f"{option} exited {probe.returncode}",
+            }
+        listings[option] = probe.stdout
     missing = []
-    try:
-        muxers = subprocess.run([ff, "-hide_banner", "-muxers"],
-                               capture_output=True, text=True, timeout=10).stdout
-        if "mpegts" not in muxers:
-            missing.append("mpegts")
-        protos = subprocess.run([ff, "-hide_banner", "-protocols"],
-                               capture_output=True, text=True, timeout=10).stdout
-        if "https" not in protos:
-            missing.append("https")
-    except (OSError, subprocess.SubprocessError):
-        pass  # -version already passed; capability lists just unavailable
-    return {"missing": missing}
+    if "mpegts" not in listings["-muxers"]:
+        missing.append("mpegts")
+    if "https" not in listings["-protocols"]:
+        missing.append("https")
+    return {"available": True, "capability_status": "measured",
+            "missing": missing}
 
 
 def _check_ffmpeg() -> dict:
@@ -243,6 +259,10 @@ def _check_ffmpeg() -> dict:
                 "message": f"partial: ffmpeg={'ok' if ff else 'missing'}, "
                            f"ffprobe={'ok' if fp else 'missing'}"}
     cap = _ffmpeg_capability(ff)
+    if cap.get("capability_status") == "unknown":
+        return {"severity": SEV_WARN,
+                "message": "ffmpeg capability measurement unknown: "
+                           f"{cap.get('error', 'capability lists unavailable')}"}
     if cap.get("error"):
         return {"severity": SEV_FAIL,
                 "message": f"ffmpeg present but not usable: {cap['error']}"}
@@ -290,8 +310,10 @@ def _check_circuit_breakers() -> dict:
     try:
         from . import circuit_breaker as _cb
         rep = _cb.report() or {}
-    except Exception:
-        return {"severity": SEV_OK, "message": "circuit module unavailable"}
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"circuit breaker measurement unknown: "
+                           f"{type(e).__name__}: {e}"[:200]}
     open_hosts = [h for h, s in rep.items() if s.get("state") == "open"]
     if not open_hosts:
         return {"severity": SEV_OK,
@@ -307,8 +329,10 @@ def _check_account_health(s_cfg: Optional[dict]) -> dict:
     try:
         from . import account_health as _ah
         rows = _ah.report_all() or []
-    except Exception:
-        return {"severity": SEV_OK, "message": "account health unavailable"}
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"account health measurement unknown: "
+                           f"{type(e).__name__}: {e}"[:200]}
     low = [r for r in rows if r.get("score", 100) < 50]
     if not low:
         return {"severity": SEV_OK,

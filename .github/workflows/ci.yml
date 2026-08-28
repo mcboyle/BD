@@ -390,8 +390,10 @@ jobs:
           - name: application-safety
             suites: >-
               tests/test_app_measurements_fail_closed.py
+              tests/test_ffmpeg_capability_health.py
               tests/test_row311_app_config_writers_are_serialized.py
               tests/test_v3_66_261_contended_lifecycle_lock.py
+              tests/test_v3_57_phase9.py
           # F31. A service-owned BD_INSTALL_DIR must not cross any child-test
           # boundary. This shard runs the real nested-pytest and sacrificial-DB
           # probes on every PR instead of relying on a diff-derived band.
