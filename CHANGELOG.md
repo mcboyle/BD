@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1329 - the contract states three defect shapes it kept catching
+
+- A8 now states that the tool denominator includes the operator harness outsi
+- the repository, and that a file name must be proven unused before it is cre
+- A7 now states that a process probe matches the shell that wrote the script,
+- probes anchor on the invocation or a known PID rather than a bare substring
+- A5 now states that a wait on an appended log must gate on a line that only
+- exists when the current run succeeded, not on a completion marker
+- Documentation only: no source, test, gate or generated artifact changes
+- The repository freshness gate passes over all 138 documents it covers
+
 ## v3.66.1328 - an unmeasurable cookie jar stops grading 100/ok
 
 -        return cq.score(site_id, s_cfg_entry=cfg) or {}

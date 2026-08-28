@@ -233,6 +233,13 @@ Do not export `BD_INSTALL_DIR` into pytest. `BD_HOME` does not govern the same
 resources. Pop inherited values with `env -u BD_INSTALL_DIR`; merely omitting an
 assignment still inherits the caller's shell state.
 
+A wait or monitor that greps a log for a completion marker must gate on a line
+that exists ONLY when the current run succeeded. Logs are appended across
+attempts, so an earlier failed run's completion line satisfies the wait and the
+caller proceeds against stale evidence. Gate on the verdict itself, seed the
+seen-set before arming, or record the line count before the run and read only
+past it.
+
 Every selected test lane records a nonzero expected, collected, and executed
 denominator; pass/fail/error/skip/xfail/xpass/deselected identities; raw process
 status; timeout state; exact command and digest; environment identity; start/end
@@ -340,6 +347,13 @@ counts; include a negative control; and assert the distinctive outcome. Empty
 iterables, unrelated early refusal, or teardown restoration must not manufacture
 green.
 
+A process probe matches every command line containing its pattern, including the
+shell that WROTE the script being searched for -- which the `[b]racket` trick
+does not hide, because there the pattern is data rather than argv. Anchor on the
+invocation (`^bash /path/to/script`) or match a known PID. A count that is
+suspiciously uniform across hosts is the tell that the probe is counting itself;
+print the matching lines once and read them before trusting any such number.
+
 Environment-changing tests remove inherited values rather than merely declining
 to set them. To ask whether importing code touches a resource, instrument the
 resource boundary and exercise relevant flag states; source reading is not
@@ -382,6 +396,15 @@ failure, not a successful no-op.
 Keep this routing table small. It is a starting point, not a complete tool
 denominator; inspect `toolchain/bin` and read the nearest tool's implementation
 and selftest before hand-writing a replacement.
+
+The tool denominator is not only `toolchain/bin`. Operator harness scripts live
+outside the repository and are equally load-bearing. Before creating a file at
+any path, prove that exact name is unused: list the target and search the harness
+directory as well as the repository. A name that already exists belongs to its
+existing caller, so read that caller's invocation to learn the real interface and
+choose a different name for new logic. Writing new logic under an existing tool's
+name changed its argument contract silently and every integrate refused until the
+original was reconstructed from its caller.
 
 | Question | Focused authority |
 | --- | --- |
