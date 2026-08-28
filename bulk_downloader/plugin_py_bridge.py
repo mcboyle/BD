@@ -48,6 +48,8 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
+from .plugin_sandbox import run_plugin_process
+
 PY_SUFFIXES = (".py",)
 
 # Plain-comment sentinel on line 1 that marks a .py as a bridge plugin.
@@ -99,13 +101,14 @@ def is_bridge_file(path: Path) -> bool:
 
 def probe_manifest(path: Path) -> Tuple[Optional[dict], str]:
     """Run ``python <path> --manifest``; return (manifest_dict, error_str)."""
+    path = path.resolve()
     b = py_bin()
     if not py_available(b):
         return (None, f"python runtime not found ({b!r})")
     try:
-        proc = subprocess.run(
+        proc = run_plugin_process(
             [b, str(path), "--manifest"],
-            capture_output=True, text=True, timeout=_PROBE_TIMEOUT,
+            plugin_path=path, timeout=_PROBE_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return (None, "manifest probe timed out")
@@ -149,6 +152,7 @@ def _make_shim(path: Path, *, inproc: bool = False):
     them. The subprocess form is killed at :data:`_FIRE_TIMEOUT` (no leaked
     thread); the in-proc form calls ``handle`` directly with no fork.
     """
+    path = path.resolve()
     fname = path.name
 
     def _normalize(payload, _k):
@@ -169,10 +173,9 @@ def _make_shim(path: Path, *, inproc: bool = False):
         req = json.dumps({"event": event, "payload": payload, "ctx": _k.get("ctx") or {}})
         b = py_bin()
         try:
-            proc = subprocess.run(
+            proc = run_plugin_process(
                 [b, str(path), str(event)],
-                input=req, capture_output=True, text=True,
-                timeout=_FIRE_TIMEOUT,
+                input_text=req, plugin_path=path, timeout=_FIRE_TIMEOUT,
             )
         except subprocess.TimeoutExpired as e:
             raise RuntimeError(f"py plugin {fname} timed out") from e

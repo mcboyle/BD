@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 340 transform control: M1 is byte-identical to the primary deploy mutant, but the selected test only asks Bash to parse the production script and makes no readiness assertion. Exactly one valid ESCAPED result proves the primary CAUGHT is behavioural rather than a syntax, import, or collection failure.",
+  "subject": "transform-only control for the deploy HTTP-status readiness guard",
+  "band": [
+    "tests/test_deploy_script.py::test_script_parses_clean"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 disable the deploy HTTP-status guard while syntax remains valid",
+      "file": "scripts/deploy.sh",
+      "old": "  if [ \"$code\" != \"200\" ]; then\n    got=\"\"",
+      "new": "  if false; then\n    got=\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_script_parses_clean"
+    }
+  ]
+}

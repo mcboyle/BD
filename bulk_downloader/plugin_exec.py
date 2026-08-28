@@ -36,6 +36,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .plugin_sandbox import run_plugin_process
+
 # Default suffix -> interpreter argv-prefix. ``.js``/``.mjs`` (node) and ``.py``
 # (py-bridge / legacy) are deliberately ABSENT -- they have dedicated paths.
 INTERPRETER_BY_SUFFIX = {
@@ -97,13 +99,14 @@ def _argv(argv_prefix, path: Path, *rest) -> list:
 
 def probe_manifest(path: Path, argv_prefix) -> Tuple[Optional[dict], str]:
     """Run ``<interp> <path> --manifest``; return (manifest_dict, error_str)."""
+    path = path.resolve()
     if not interpreter_available(argv_prefix, path):
         who = argv_prefix[0] if argv_prefix else str(path)
         return (None, f"interpreter not found ({who!r})")
     try:
-        proc = subprocess.run(
+        proc = run_plugin_process(
             _argv(argv_prefix, path, "--manifest"),
-            capture_output=True, text=True, timeout=_PROBE_TIMEOUT,
+            plugin_path=path, timeout=_PROBE_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return (None, "manifest probe timed out")
@@ -131,6 +134,7 @@ def _make_shim(path: Path, argv_prefix):
     Errors raise so the caller's guarded-call / quarantine machinery records
     them; the subprocess is killed at :data:`_FIRE_TIMEOUT` (no leaked thread).
     """
+    path = path.resolve()
     fname = path.name
 
     def _shim(payload, *_a, **_k):
@@ -139,9 +143,9 @@ def _make_shim(path: Path, argv_prefix):
         event = _k.get("event") or "fire"
         req = json.dumps({"event": event, "payload": payload, "ctx": _k.get("ctx") or {}})
         try:
-            proc = subprocess.run(
+            proc = run_plugin_process(
                 _argv(argv_prefix, path, str(event)),
-                input=req, capture_output=True, text=True, timeout=_FIRE_TIMEOUT,
+                input_text=req, plugin_path=path, timeout=_FIRE_TIMEOUT,
             )
         except subprocess.TimeoutExpired as e:
             raise RuntimeError(f"plugin {fname} timed out") from e

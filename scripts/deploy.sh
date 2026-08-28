@@ -723,6 +723,18 @@ while :; do
   Not retried: 503 here is an answer, not a slow start."
   fi
 
+  # A body is health evidence only when it came with HTTP 200. In particular,
+  # framework error responses can carry the running version in their JSON;
+  # accepting that version from a 500 turns an observed failure into a false
+  # verified deploy. Other non-200 states may still be transient, so retain the
+  # existing polling budget while refusing to parse their bodies as readiness.
+  if [ "$code" != "200" ]; then
+    got=""
+    [ "$(date +%s)" -lt "$deadline" ] || break
+    sleep "$INTERVAL"
+    continue
+  fi
+
   # The health body is read with a whitespace-tolerant match rather than a JSON
   # parser on purpose: this loop must keep working when the app is mid-restart
   # and answering with anything at all.
@@ -742,6 +754,11 @@ if [ "$got" != "$TREE_VERSION" ]; then
   throughout the ${TIMEOUT}s budget. Check the PORT before concluding the service
   is down -- the app binds 5555 (BD_PORT) and there is no /api/version route.
   This is UNKNOWN, not 'down', and unknown fails."
+  fi
+  if [ "$code" != "200" ]; then
+    die "health gate: GET $HEALTH_URL returned HTTP $code, expected 200, after
+  ${TIMEOUT}s. Any version string in a non-200 response body is error context,
+  not readiness evidence, and was deliberately ignored."
   fi
   die "health gate: /api/health reported version '${got:-<none>}', expected
   $TREE_VERSION, after ${TIMEOUT}s (HTTP $code). The tree is at $TREE_VERSION, so

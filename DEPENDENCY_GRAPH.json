@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1647,
+    "edge_count": 1650,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4082,6 +4082,11 @@
       ],
       "bulk_downloader/plugin_py_bridge.py": [
         "bulk_downloader/plugins.py"
+      ],
+      "bulk_downloader/plugin_sandbox.py": [
+        "bulk_downloader/plugin_exec.py",
+        "bulk_downloader/plugin_node.py",
+        "bulk_downloader/plugin_py_bridge.py"
       ],
       "bulk_downloader/plugins.py": [
         "bulk_downloader/app_plugins.py",
@@ -6618,15 +6623,18 @@
         "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/plugin_exec.py": [
+        "bulk_downloader/plugin_sandbox.py",
         "bulk_downloader/plugins.py"
       ],
       "bulk_downloader/plugin_kv.py": [
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/plugin_node.py": [
+        "bulk_downloader/plugin_sandbox.py",
         "bulk_downloader/plugins.py"
       ],
       "bulk_downloader/plugin_py_bridge.py": [
+        "bulk_downloader/plugin_sandbox.py",
         "bulk_downloader/plugins.py"
       ],
       "bulk_downloader/plugins.py": [

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 345. This battery is expected to exit 1 with one valid ESCAPED mutant. It applies the identical non-200 status-gate transform caught by the behavioral battery, but its only catcher imports bd-opv and inspects the registry without executing A11Y. A CAUGHT result here would invalidate the primary battery's behavioral evidence.",
+  "subject": "transform control -- importing bd-opv does not constrain A11Y navigation-status behavior",
+  "band": [
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_transform_control_imports_bd_opv_without_judging_a11y"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL non-200 status-gate transform escapes an import-only test",
+      "file": "toolchain/bin/bd-opv",
+      "old": "                if http_status != 200:",
+      "new": "                if False and http_status != 200:",
+      "direction": "regression",
+      "catcher": "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_transform_control_imports_bd_opv_without_judging_a11y"
+    }
+  ]
+}

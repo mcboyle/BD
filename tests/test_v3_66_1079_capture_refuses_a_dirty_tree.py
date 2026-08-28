@@ -81,6 +81,18 @@ def test_the_library_exists_and_is_sourceable():
     assert r.returncode == 0, f"{_LIB.name} is not valid bash: {r.stderr}"
 
 
+def test_transform_control_sources_library_without_running_tree_check():
+    """Mutation transform control: loading the shell library is not evidence
+    about what its predicate reports for a failed measurement."""
+    r = subprocess.run(
+        ["bash", "-c", f'. "{_LIB}"\ndeclare -F bd_tree_state_check >/dev/null\n'],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, f"the tree-state library did not load: {r.stderr}"
+
+
 def test_a_clean_tree_passes(tmp_path):
     """The over-sensitivity control, and it comes first deliberately. A check
     that refused every run would be switched off inside a day, which section 0
@@ -90,6 +102,59 @@ def test_a_clean_tree_passes(tmp_path):
     assert r.returncode == 0, (
         f"a CLEAN tree was refused -- this fires on every run and gets "
         f"disabled:\nstdout={r.stdout}\nstderr={r.stderr}")
+
+
+def test_a_git_status_failure_is_unknown_not_clean(tmp_path):
+    """A repository probe succeeded, then the cleanliness measurement failed.
+
+    The shim records every executed Git operation so an unrelated early
+    refusal cannot manufacture this test's nonzero result.
+    """
+    repo = tmp_path / "reported-repository"
+    repo.mkdir()
+    shim_dir = tmp_path / "bin"
+    shim_dir.mkdir()
+    calls = tmp_path / "git-calls"
+    git = shim_dir / "git"
+    git.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$GIT_CALL_LOG\"\n"
+        "case \" $* \" in\n"
+        "  *\" rev-parse --is-inside-work-tree \"*) exit 0 ;;\n"
+        "  *\" status --porcelain --untracked-files=all \"*) exit 77 ;;\n"
+        "  *) printf 'unexpected git operation: %s\\n' \"$*\" >&2; exit 98 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+
+    env = {
+        "PATH": f"{shim_dir}:/usr/bin:/bin",
+        "HOME": str(repo),
+        "GIT_CALL_LOG": str(calls),
+    }
+    r = subprocess.run(
+        ["bash", "-c", f'. "{_LIB}"\nbd_tree_state_check "$PWD"\n'],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+
+    assert calls.is_file(), "the fake Git boundary was never executed"
+    observed = calls.read_text(encoding="utf-8").splitlines()
+    assert len(observed) == 2, f"expected exactly two Git probes, got {observed!r}"
+    assert sum(" rev-parse --is-inside-work-tree" in call
+               for call in observed) == 1, observed
+    assert sum(" status --porcelain --untracked-files=all" in call
+               for call in observed) == 1, observed
+    assert r.stdout == "", (
+        f"the failed status command was required to have empty stdout: {r.stdout!r}")
+    out = r.stderr.lower()
+    assert r.returncode == 2 and "unknown" in out and "status" in out and "77" in out, (
+        "git status exited 77 with empty stdout, but the predicate did not "
+        f"report that measurement as UNKNOWN: rc={r.returncode} stderr={r.stderr!r}")
 
 
 def test_a_dirty_tree_is_refused_and_says_why(tmp_path):

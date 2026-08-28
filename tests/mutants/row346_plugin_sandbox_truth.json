@@ -1,0 +1,61 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 346. The runtime mutants separately restore ambient environment inheritance, ambient cwd, and silent output truncation. The checker mutants shrink the call-kind, bridge-file, and launch-shape denominators. Every transform remains importable; the named runtime/checker assertion must catch each wrong state.",
+  "subject": "all six plugin launches enforce env/cwd/output containment and the checker distinguishes the former leaky shape",
+  "band": [
+    "tests/test_row346_plugin_sandbox_is_truthful.py::test_manifest_launch_hides_ambient_environment_and_uses_plugin_cwd[py]",
+    "tests/test_row346_plugin_sandbox_is_truthful.py::test_fire_launch_hides_ambient_environment_and_uses_plugin_cwd[py]",
+    "tests/test_row346_plugin_sandbox_is_truthful.py::test_plugin_output_overflow_is_refused_while_normal_output_passes[py]",
+    "tests/test_row346_plugin_sandbox_is_truthful.py::test_checker_distinguishes_the_six_leaky_launches_from_the_secure_tree"
+  ],
+  "mutants": [
+    {
+      "label": "M1 plugin boundary copies the complete ambient environment",
+      "file": "bulk_downloader/plugin_sandbox.py",
+      "old": "    child_env = {\n        name: os.environ[name]\n        for name in _ENV_ALLOWLIST\n        if name in os.environ\n    }",
+      "new": "    child_env = dict(os.environ)",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_manifest_launch_hides_ambient_environment_and_uses_plugin_cwd[py]"
+    },
+    {
+      "label": "M2 plugin boundary inherits the caller cwd",
+      "file": "bulk_downloader/plugin_sandbox.py",
+      "old": "        cwd=str(plugin_dir),",
+      "new": "        cwd=None,",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_fire_launch_hides_ambient_environment_and_uses_plugin_cwd[py]"
+    },
+    {
+      "label": "M3 output drain silently discards overflow without refusing",
+      "file": "bulk_downloader/plugin_sandbox.py",
+      "old": "        if len(chunk) > room:",
+      "new": "        if False and len(chunk) > room:",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_plugin_output_overflow_is_refused_while_normal_output_passes[py]"
+    },
+    {
+      "label": "M4 checker no longer counts subprocess.run as a launch",
+      "file": "toolchain/bin/bd-plugin-sandbox-check",
+      "old": "_DIRECT_SPAWNS = {\"Popen\", \"run\", \"call\", \"check_call\", \"check_output\"}",
+      "new": "_DIRECT_SPAWNS = {\"Popen\", \"call\", \"check_call\", \"check_output\"}",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_checker_distinguishes_the_six_leaky_launches_from_the_secure_tree"
+    },
+    {
+      "label": "M5 checker drops the generic exec bridge from its population",
+      "file": "toolchain/bin/bd-plugin-sandbox-check",
+      "old": "BRIDGES = (\"plugin_node.py\", \"plugin_py_bridge.py\", \"plugin_exec.py\")",
+      "new": "BRIDGES = (\"plugin_node.py\", \"plugin_py_bridge.py\")",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_checker_distinguishes_the_six_leaky_launches_from_the_secure_tree"
+    },
+    {
+      "label": "M6 checker drops event firing from the expected launch shapes",
+      "file": "toolchain/bin/bd-plugin-sandbox-check",
+      "old": "EXPECTED_LAUNCHES_PER_BRIDGE = (\"probe_manifest\", \"_make_shim\")",
+      "new": "EXPECTED_LAUNCHES_PER_BRIDGE = (\"probe_manifest\",)",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_checker_distinguishes_the_six_leaky_launches_from_the_secure_tree"
+    }
+  ]
+}

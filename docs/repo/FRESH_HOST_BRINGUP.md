@@ -161,12 +161,39 @@ cd ~/BulkDownloader
 ./scripts/provision_test_host.sh               # proceed only on VERDICT: READY
 
 # ── 3. restore state BEFORE the first capture ───────────────────────
+set -euo pipefail
+scp mboyle@<old-box-ip>:/tmp/bd_state.tar.gz /tmp/
+scp mboyle@<old-box-ip>:/tmp/bd_userconfig.tar.gz /tmp/
+test -s /tmp/bd_state.tar.gz
+test -s /tmp/bd_userconfig.tar.gz
 tar xzf /tmp/bd_state.tar.gz -C ~/BulkDownloader
 tar xzf /tmp/bd_userconfig.tar.gz -C ~
 rsync -a mboyle@<old-box-ip>:~/BulkDownloader/captures/ ~/BulkDownloader/captures/
 grep -E 'download_dir|cookie_file' sites_config.json   # audit old-box absolute paths
-grep BD_PORT .env 2>/dev/null                          # see the port caveat
-mkdir -p "$(python3 -c 'import json;print(json.load(open("sites_config.json"))["sites"][0]["download_dir"])' 2>/dev/null || echo ~/d)"
+grep BD_PORT .env 2>/dev/null || true                  # see the port caveat
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+with open("sites_config.json", encoding="utf-8") as stream:
+    sites = json.load(stream)
+if not isinstance(sites, dict) or not sites:
+    raise SystemExit("sites_config.json must be a non-empty site-ID mapping")
+
+download_dirs = []
+for site_id, config in sites.items():
+    if not isinstance(config, dict):
+        raise SystemExit(f"sites_config.json entry {site_id!r} is not an object")
+    value = config.get("download_dir")
+    if isinstance(value, str) and value.strip():
+        download_dirs.append(Path(value).expanduser())
+if not download_dirs:
+    raise SystemExit("sites_config.json has no configured download_dir")
+
+for directory in download_dirs:
+    directory.mkdir(parents=True, exist_ok=True)
+    print(f"download directory ready: {directory}")
+PY
 
 # ── 3b. the AI backend, IF the migrated config expects one ──────────
 # app_config.json ships ai_enabled from the old box. When it is true and

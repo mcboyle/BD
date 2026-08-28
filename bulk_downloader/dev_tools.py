@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -33,6 +34,36 @@ from typing import Optional
 _runs_lock = threading.RLock()
 _runs: list = []  # [{run_id, target, state, output, started, finished, returncode}]
 _MAX_HISTORY = 50
+
+
+def _public_run(run: dict) -> dict:
+    """Return the JSON-safe lifecycle record, excluding held OS handles."""
+    return {key: value for key, value in run.items()
+            if not key.startswith("_")}
+
+
+def _close_run_identity(run: dict) -> None:
+    """Release a held pidfd exactly once. Caller holds ``_runs_lock``."""
+    pidfd = run.pop("_pidfd", None)
+    run.pop("_process", None)
+    if pidfd is not None:
+        try:
+            os.close(pidfd)
+        except OSError:
+            pass
+
+
+def _settle_completed_run(run: dict, proc: subprocess.Popen) -> bool:
+    """Publish a process verdict without overwriting another terminal owner."""
+    returncode = proc.poll()
+    if returncode is None:
+        return False
+    run["returncode"] = returncode
+    if run["state"] == "running":
+        run["state"] = "done" if returncode == 0 else "failed"
+        run["finished"] = time.time()
+    _close_run_identity(run)
+    return True
 
 
 def is_dev_mode() -> bool:
@@ -195,6 +226,8 @@ def start_run(target: str, *, kind: str = "file") -> dict:
         "finished": None,
         "returncode": None,
         "pid": None,
+        "_process": None,
+        "_pidfd": None,
     }
     with _runs_lock:
         _runs.append(run)
@@ -236,8 +269,18 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                 bufsize=1,
                 **_pgrp,
             )
+            pidfd = None
+            if os.name != "nt":
+                opener = getattr(os, "pidfd_open", None)
+                if opener is not None:
+                    try:
+                        pidfd = opener(proc.pid, 0)
+                    except OSError:
+                        pidfd = None
             with _runs_lock:
                 run["pid"] = proc.pid
+                run["_process"] = proc
+                run["_pidfd"] = pidfd
 
             # Stream output to the run record line-by-line so the UI's
             # polling sees progress without waiting for the whole run.
@@ -256,16 +299,17 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                     run["output"] = "".join(buf)
             proc.wait()
             with _runs_lock:
-                run["state"] = "done" if proc.returncode == 0 else "failed"
-                run["finished"] = time.time()
-                run["returncode"] = proc.returncode
+                _settle_completed_run(run, proc)
         except Exception as e:
             with _runs_lock:
-                run["state"] = "error"
+                if run["state"] == "running":
+                    run["state"] = "error"
+                    run["finished"] = time.time()
                 run["output"] = (run.get("output") or "") + \
                                  f"\n[worker error] {type(e).__name__}: {e}"
-                run["finished"] = time.time()
-                run["returncode"] = -1
+                if run["returncode"] is None:
+                    run["returncode"] = -1
+                _close_run_identity(run)
 
     t = threading.Thread(target=_worker, daemon=True,
                           name=f"dev-run-{run_id}")
@@ -321,42 +365,58 @@ def run_status(run_id: str) -> Optional[dict]:
     with _runs_lock:
         for r in _runs:
             if r["run_id"] == run_id:
-                return dict(r)
+                return _public_run(r)
     return None
 
 
 def cancel_run(run_id: str) -> dict:
-    """Kill a running subprocess. Best-effort — the worker thread may
-    not notice immediately."""
+    """Cancel only the exact process identity retained from launch."""
     with _runs_lock:
         run = next((r for r in _runs if r["run_id"] == run_id), None)
         if not run:
             return {"ok": False, "error": "unknown run_id"}
         if run["state"] != "running":
             return {"ok": False, "error": f"not running (state={run['state']})"}
-        pid = run.get("pid")
-    if pid is None:
-        return {"ok": False, "error": "no pid yet — try again in a moment"}
-    try:
-        import signal
-        if os.name == "nt":
-            # Windows: subprocess.Popen.kill uses TerminateProcess
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                           capture_output=True, timeout=5)
-        else:
-            os.kill(pid, signal.SIGTERM)
-        with _runs_lock:
-            run["state"] = "cancelled"
-            run["finished"] = time.time()
+        proc = run.get("_process")
+        if proc is None:
+            return {"ok": False,
+                    "error": "no process identity yet — try again in a moment"}
+        if _settle_completed_run(run, proc):
+            return {"ok": False,
+                    "error": f"not running (state={run['state']})"}
+        try:
+            if os.name == "nt":
+                # Popen retains the non-reusable Windows process handle.
+                proc.terminate()
+            else:
+                pidfd = run.get("_pidfd")
+                sender = getattr(signal, "pidfd_send_signal", None)
+                if pidfd is None or sender is None:
+                    return {"ok": False,
+                            "error": "process identity unavailable; refusing "
+                                     "numeric-PID signal"}
+                sender(pidfd, signal.SIGTERM)
+        except ProcessLookupError:
+            _settle_completed_run(run, proc)
+            return {"ok": False, "error": "process exited before cancellation"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+        # The signal seam may synchronously publish a worker verdict. Never let
+        # cancellation replace a terminal state it did not win.
+        if run["state"] != "running":
+            _close_run_identity(run)
+            return {"ok": False,
+                    "error": f"not running (state={run['state']})"}
+        run["state"] = "cancelled"
+        run["finished"] = time.time()
+        _close_run_identity(run)
         return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
 
 
 def recent_runs(*, limit: int = 20) -> list:
     """Most-recent runs first."""
     with _runs_lock:
-        return list(reversed(_runs))[:limit]
+        return [_public_run(run) for run in reversed(_runs[:])][:limit]
 
 
 def parse_summary(output: str) -> dict:

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 340: the production deploy and capture-service installer must require a transport-successful HTTP 200 before readiness. Re-run from a detached scratch copy carrying this candidate: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row340_http_readiness.json --work DETACHED_SCRATCH --timeout 300. The companion transform control applies M1 byte-for-byte to the deploy parser-only node and must ESCAPE.",
+  "subject": "non-200 HTTP responses cannot present as deploy or capture-service readiness",
+  "band": [
+    "tests/test_deploy_script.py::test_health_requires_http_200_even_when_error_body_matches_version",
+    "tests/test_parallel_capture_services.py::test_capture_installer_requires_http_200_and_preserves_healthy_path"
+  ],
+  "mutants": [
+    {
+      "label": "M1 parse a version-matching non-200 deploy body as readiness",
+      "file": "scripts/deploy.sh",
+      "old": "  if [ \"$code\" != \"200\" ]; then\n    got=\"\"",
+      "new": "  if false; then\n    got=\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_health_requires_http_200_even_when_error_body_matches_version"
+    },
+    {
+      "label": "M2 restore curl --fail redirect acceptance in capture installation",
+      "file": "scripts/install_capture_service.sh",
+      "old": "      health_code=\"\"\n      health_exit=0\n      health_code=\"$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 \\\n          \"http://127.0.0.1:${APP_PORT}/api/health\" 2>/dev/null)\" \\\n        || health_exit=$?\n      [ -n \"$health_code\" ] || health_code=\"000\"\n      last_health_code=\"$health_code\"\n      last_health_exit=\"$health_exit\"\n      if [ \"$health_exit\" -eq 0 ] && [ \"$health_code\" = \"200\" ]; then",
+      "new": "      if curl -sSf -o /dev/null --max-time 2 \\\n          \"http://127.0.0.1:${APP_PORT}/api/health\" 2>/dev/null; then",
+      "direction": "regression",
+      "catcher": "tests/test_parallel_capture_services.py::test_capture_installer_requires_http_200_and_preserves_healthy_path"
+    }
+  ]
+}

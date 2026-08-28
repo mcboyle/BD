@@ -219,6 +219,8 @@ def test_an_occupied_port_and_a_same_port_pair_fail_for_distinct_reasons(
 
 def _installer_env(
     tmp_path: Path,
+    *,
+    fake_curl: bool = True,
 ) -> tuple[dict[str, str], Path, Path, Path]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -243,7 +245,11 @@ def _installer_env(
         "    raise SystemExit(0 if value == 'active' else 3)\n"
         "raise SystemExit(0)\n",
     )
-    _write_executable(fake_bin / "curl", "#!/usr/bin/env python3\nraise SystemExit(0)\n")
+    if fake_curl:
+        _write_executable(
+            fake_bin / "curl",
+            "#!/usr/bin/env python3\nprint('200', end='')\nraise SystemExit(0)\n",
+        )
     unit = tmp_path / "bulkdownloader-capture@.service"
     runtime = tmp_path / "run"
     scratch_repo = tmp_path / "checkout"
@@ -273,6 +279,85 @@ def _installer_env(
         "absence is the host-independent subject"
     )
     return env, unit, runtime, installer
+
+
+def test_capture_installer_requires_http_200_and_preserves_healthy_path(
+    tmp_path: Path,
+) -> None:
+    response_code = {"value": 302}
+    probes: list[tuple[str, int]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+            code = response_code["value"]
+            probes.append((self.path, code))
+            self.send_response(code)
+            if code == 302:
+                self.send_header("Location", "/login")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, _format, *_args):
+            return
+
+    fixture_root = tmp_path / "installer"
+    fixture_root.mkdir()
+    env, _, runtime, installer = _installer_env(fixture_root, fake_curl=False)
+    env["CAPTURE_SERVICE_READY_TRIES"] = "1"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        redirect_state = tmp_path / "redirect-state"
+        redirect_state.mkdir()
+        redirect = subprocess.run(
+            [str(installer), "start", "redirect", str(server.server_port),
+             str(redirect_state)],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+
+        response_code["value"] = 200
+        healthy_state = tmp_path / "healthy-state"
+        healthy_state.mkdir()
+        healthy = subprocess.run(
+            [str(installer), "start", "healthy", str(server.server_port),
+             str(healthy_state)],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+    assert probes == [("/api/health", 302), ("/api/health", 200)], (
+        "the fixture must deliver exactly one redirect and one healthy "
+        f"measurement to the production readiness URL: {probes}"
+    )
+    assert (runtime / "redirect.env").is_file(), (
+        "the redirect case never reached the post-restart readiness boundary"
+    )
+    assert (runtime / "healthy.env").is_file(), (
+        "the healthy control never reached the post-restart readiness boundary"
+    )
+    assert redirect.returncode == 1, (
+        "HTTP 302 /login was accepted as capture-service readiness\n"
+        + redirect.stdout + redirect.stderr
+    )
+    assert "HTTP 302" in redirect.stderr, (
+        "the refusal did not name the redirect measurement\n"
+        + redirect.stdout + redirect.stderr
+    )
+    assert "started" not in redirect.stdout.lower()
+    assert healthy.returncode == 0, healthy.stdout + healthy.stderr
+    assert healthy.stdout.lower().count("started") == 1
 
 
 def test_template_start_and_teardown_are_bound_to_the_named_instance(

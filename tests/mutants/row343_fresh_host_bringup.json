@@ -1,0 +1,78 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 343 battery. The gate executes the shipped cloud setup with python3.12-venv initially unavailable, and executes the canonical old/new host runbook excerpts against separate roots. M1 recreates the first-run ordering defect. M2/M3 remove one of the two archive transfers, while M4 removes the fail-closed shell bound. M5 restores the application-incompatible nested config reader, M6 restores the unrelated fallback directory, and M7 accepts the legacy nested shape. O1 is the asymmetry control: an application-written flat mapping containing both configured and intentionally blank entries remains healthy. The matching transform-control spec applies M1 to a parse-only test and must ESCAPE, proving M1 is caught by the runtime ordering assertion rather than shell syntax or collection failure.",
+  "subject": "Row 343 -- fresh-host cloud setup and the documented old-to-new bring-up distinguish executable state from missing packages, archives, and configured directories",
+  "band": [
+    "tests/test_row343_fresh_host_bringup.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the declared core group no longer installs python3.12-venv before the first venv attempt",
+      "file": "scripts/cloud-setup.sh",
+      "old": "    step \"system packages (core)\" core apt_i $CORE_PKGS",
+      "new": "    step \"system packages (core)\" core true",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_fresh_cloud_setup_installs_python_venv_support_before_building_the_venv"
+    },
+    {
+      "label": "M2 the state archive remains on the old host while the new host still tries to restore its local tmp path",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "scp mboyle@<old-box-ip>:/tmp/bd_state.tar.gz /tmp/",
+      "new": "true # state archive transfer removed",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_runbook_transfers_both_archives_before_restoring_them"
+    },
+    {
+      "label": "M3 the user-config archive remains on the old host while the new host still tries to restore its local tmp path",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "scp mboyle@<old-box-ip>:/tmp/bd_userconfig.tar.gz /tmp/",
+      "new": "true # user-config archive transfer removed",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_runbook_transfers_both_archives_before_restoring_them"
+    },
+    {
+      "label": "M4 the new-host restore block continues after an unavailable archive transfer",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "set -euo pipefail",
+      "new": "set -uo pipefail",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_an_unavailable_archive_transfer_stops_before_restore"
+    },
+    {
+      "label": "M5 the directory reader indexes a nested sites list that the application writer never persists",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "for site_id, config in sites.items():",
+      "new": "for site_id, config in enumerate(sites[\"sites\"]):",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_app_written_flat_config_creates_every_configured_download_dir"
+    },
+    {
+      "label": "M6 absence of every configured download directory creates an unrelated fallback and returns success",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "    raise SystemExit(\"sites_config.json has no configured download_dir\")",
+      "new": "    download_dirs.append(Path.home() / \"d\")",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_no_configured_download_directory_fails_instead_of_creating_a_fallback"
+    },
+    {
+      "label": "M7 the obsolete nested sites list is normalized and accepted even though the application never writes it",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "if not isinstance(sites, dict) or not sites:\n    raise SystemExit(\"sites_config.json must be a non-empty site-ID mapping\")",
+      "new": "if isinstance(sites, dict) and isinstance(sites.get(\"sites\"), list):\n    sites = {str(index): config for index, config in enumerate(sites[\"sites\"])}\nif not isinstance(sites, dict) or not sites:\n    raise SystemExit(\"sites_config.json must be a non-empty site-ID mapping\")",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_legacy_nested_sites_shape_is_rejected"
+    },
+    {
+      "label": "O1 every site is required to configure a directory, rejecting the application-supported mix of configured and intentionally blank entries",
+      "file": "docs/repo/FRESH_HOST_BRINGUP.md",
+      "old": "    if isinstance(value, str) and value.strip():\n        download_dirs.append(Path(value).expanduser())",
+      "new": "    if not isinstance(value, str) or not value.strip():\n        raise SystemExit(f\"sites_config.json entry {site_id!r} has no download_dir\")\n    download_dirs.append(Path(value).expanduser())",
+      "direction": "overcorrection",
+      "control": "tests/test_row343_fresh_host_bringup.py::test_app_written_flat_config_creates_every_configured_download_dir",
+      "preserves": [
+        "tests/test_row343_fresh_host_bringup.py::test_runbook_transfers_both_archives_before_restoring_them",
+        "tests/test_row343_fresh_host_bringup.py::test_legacy_nested_sites_shape_is_rejected"
+      ]
+    }
+  ]
+}

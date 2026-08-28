@@ -33,6 +33,7 @@ Exit contract (bdtools_sec):
      could not see), or --only named an id that is not in the registry.
 """
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -178,6 +179,32 @@ def _client(auth_token=None):
     return m.app.test_client(), m.app
 
 
+_AUTH_MISSING = object()
+
+
+@contextmanager
+def _authenticated_client(auth_token):
+    """Temporarily boot an authenticated app without leaking it to a check.
+
+    ``importlib.reload`` mutates the existing module object, so restoring the
+    environment alone is insufficient: a later check would still import the
+    authenticated Flask app assembled for this client.  Rebuild that module
+    under the restored environment before leaving the check.
+    """
+    previous_auth = os.environ.get("BD_AUTH_TOKEN", _AUTH_MISSING)
+    try:
+        yield _client(auth_token=auth_token)
+    finally:
+        if previous_auth is _AUTH_MISSING:
+            os.environ.pop("BD_AUTH_TOKEN", None)
+        else:
+            os.environ["BD_AUTH_TOKEN"] = previous_auth
+        import importlib
+        app_module = sys.modules.get("bulk_downloader.app")
+        if app_module is not None:
+            importlib.reload(app_module)
+
+
 def _csrf(c):
     r = c.get("/api/csrf")
     d = r.get_json() or {}
@@ -224,33 +251,33 @@ def chk_base():
 def chk_f43():
     """OPV-F4.3: an enqueue-scoped token is 403 on an admin route; admin is
     reserved (DEC-2). Fully API -- runs against the test client."""
-    c, _ = _client(auth_token="opv-master")
-    # (0) auth ON?
-    r0 = c.get("/api/api_tokens")
-    if r0.status_code != 401:
-        return SKIP, f"auth not enforced (got {r0.status_code} not 401) -- scoping bypassed by design"
-    csrf = _csrf(c)
-    h = {"Authorization": "Bearer opv-master", "X-CSRF-Token": csrf,
-         "Content-Type": "application/json"}
-    mint = c.post("/api/api_tokens", headers=h,
-                  data=json.dumps({"scope": "enqueue", "label": "opv"}))
-    if mint.status_code >= 300:
-        return SKIP, f"could not mint enqueue token ({mint.status_code})"
-    tok = (mint.get_json() or {}).get("token")
-    if not tok:
-        return SKIP, "mint returned no token field"
-    r2 = c.post("/api/retention/apply",
-                headers={"Authorization": f"Bearer {tok}",
-                         "Content-Type": "application/json"},
-                data=json.dumps({"dry_run": True}))
-    admin_mint = c.post("/api/api_tokens", headers=h,
-                        data=json.dumps({"scope": "admin"}))
-    reserved = "reserved" in json.dumps(admin_mint.get_json() or {})
-    if r2.status_code == 403 and reserved:
-        return PASS, "enqueue token 403 on admin route; admin mint reserved (DEC-2)"
-    if r2.status_code != 403:
-        return FAIL, f"enqueue token got {r2.status_code} on admin route (expected 403)"
-    return FAIL, "admin scope was NOT rejected as reserved (DEC-2 regression)"
+    with _authenticated_client("opv-master") as (c, _):
+        # (0) auth ON?
+        r0 = c.get("/api/api_tokens")
+        if r0.status_code != 401:
+            return SKIP, f"auth not enforced (got {r0.status_code} not 401) -- scoping bypassed by design"
+        csrf = _csrf(c)
+        h = {"Authorization": "Bearer opv-master", "X-CSRF-Token": csrf,
+             "Content-Type": "application/json"}
+        mint = c.post("/api/api_tokens", headers=h,
+                      data=json.dumps({"scope": "enqueue", "label": "opv"}))
+        if mint.status_code >= 300:
+            return SKIP, f"could not mint enqueue token ({mint.status_code})"
+        tok = (mint.get_json() or {}).get("token")
+        if not tok:
+            return SKIP, "mint returned no token field"
+        r2 = c.post("/api/retention/apply",
+                    headers={"Authorization": f"Bearer {tok}",
+                             "Content-Type": "application/json"},
+                    data=json.dumps({"dry_run": True}))
+        admin_mint = c.post("/api/api_tokens", headers=h,
+                            data=json.dumps({"scope": "admin"}))
+        reserved = "reserved" in json.dumps(admin_mint.get_json() or {})
+        if r2.status_code == 403 and reserved:
+            return PASS, "enqueue token 403 on admin route; admin mint reserved (DEC-2)"
+        if r2.status_code != 403:
+            return FAIL, f"enqueue token got {r2.status_code} on admin route (expected 403)"
+        return FAIL, "admin scope was NOT rejected as reserved (DEC-2 regression)"
 
 
 def chk_csrf_gate():
@@ -804,16 +831,37 @@ def chk_a11y():
         with sync_playwright() as p:
             b = p.chromium.launch(headless=False,
                                   args=["--no-sandbox", "--disable-dev-shm-usage"])
-            pg = b.new_page()
-            pg.goto(base + "/cockpit/reports", wait_until="domcontentloaded", timeout=8000)
-            pg.wait_for_timeout(1200)
-            pg.evaluate(axe)
-            rep = pg.evaluate(
-                "async () => { const r = await axe.run(document,"
-                "{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']}});"
-                "return {v:r.violations.length, passes:r.passes.length,"
-                "ids:r.violations.map(x=>x.id)}; }")
-            b.close()
+            try:
+                pg = b.new_page()
+                navigation = pg.goto(
+                    base + "/cockpit/reports",
+                    wait_until="domcontentloaded",
+                    timeout=8000,
+                )
+                http_status = getattr(navigation, "status", None)
+                if http_status != 200:
+                    observed = (f"HTTP {http_status}" if http_status is not None
+                                else "no HTTP response")
+                    return SKIP, f"cockpit page unavailable ({observed}; expected HTTP 200)"
+                pg.wait_for_timeout(1200)
+                identity = pg.evaluate(
+                    "() => ({title: document.title, heading: "
+                    "(document.querySelector('h1')?.textContent || '').trim()})"
+                )
+                title = identity.get("title", "") if isinstance(identity, dict) else ""
+                heading = identity.get("heading", "") if isinstance(identity, dict) else ""
+                if (title != "Report Center (read-only)"
+                        or not heading.startswith("Report Center")):
+                    return SKIP, ("cockpit page identity mismatch "
+                                  f"(title={title!r}, heading={heading!r})")
+                pg.evaluate(axe)
+                rep = pg.evaluate(
+                    "async () => { const r = await axe.run(document,"
+                    "{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']}});"
+                    "return {v:r.violations.length, passes:r.passes.length,"
+                    "ids:r.violations.map(x=>x.id)}; }")
+            finally:
+                b.close()
     except Exception as e:
         return SKIP, f"headed scan could not run ({str(e)[:40]})"
     ids = ",".join(rep.get("ids", [])[:4]) or "none"

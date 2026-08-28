@@ -1,66 +1,429 @@
 #!/usr/bin/env python3
-"""bd-plugin-sandbox-check -- verify plugin isolation settings.
+"""bd-plugin-sandbox-check -- verify every plugin process boundary.
 
-Inspects the node/python plugin bridges (plugin_node/plugin_py_bridge/
-plugin_exec) for the isolation controls that should be present: a subprocess
-timeout, a restricted env, no shell=True, and a bounded output size. A bridge
-that spawns a plugin without a timeout or with shell=True -> BD-SANDBOX-WEAK.
-Read-only, heuristic over the real bridge source.
+The denominator is exact: ``probe_manifest`` and the subprocess-backed shim in
+each of plugin_node, plugin_py_bridge, and plugin_exec (six launch sites).  Each
+site must route through ``plugin_sandbox.run_plugin_process``; that one helper
+must provide an explicit allowlisted environment, plugin-owned cwd, timeout,
+no shell, and capped stdout/stderr.  Missing/malformed files and a population
+other than three bridges/six sites are findings, never a clean empty scan.
 
 Usage: bd-plugin-sandbox-check [--work DIR] [--json] [--selftest]
-Exit 0 (advisory).
+Exit 0 clean, 1 findings, 2 when the source tree cannot be evaluated.
 """
-import argparse, os, re, sys
+from __future__ import annotations
+
+import argparse
+import ast
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
-from bdtools_cli import G, R, Y, DIM, RST
-BRIDGES=["plugin_node.py","plugin_py_bridge.py","plugin_exec.py"]
+from bdtools_cli import G, Y, RST
+
+
+BRIDGES = ("plugin_node.py", "plugin_py_bridge.py", "plugin_exec.py")
+EXPECTED_LAUNCHES_PER_BRIDGE = ("probe_manifest", "_make_shim")
+HELPER = "plugin_sandbox.py"
+_DIRECT_SPAWNS = {"Popen", "run", "call", "check_call", "check_output"}
+SAFE_ENV_ALLOWLIST = frozenset({
+    "COMSPEC", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "PATHEXT",
+    "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "TZ", "WINDIR",
+})
+
+
+def _finding(file, issue, control, node=None):
+    row = {"file": file, "issue": issue, "control": control}
+    if node is not None:
+        row["line"] = getattr(node, "lineno", 0)
+    return row
+
+
+def _function(tree, name):
+    return [node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name]
+
+
+def _is_direct_spawn(call):
+    fn = call.func
+    if (isinstance(fn, ast.Attribute) and fn.attr in _DIRECT_SPAWNS
+            and isinstance(fn.value, ast.Name) and fn.value.id == "subprocess"):
+        return True
+    return (
+        isinstance(fn, ast.Attribute)
+        and fn.attr == "create_subprocess_exec"
+        and isinstance(fn.value, ast.Name)
+        and fn.value.id == "asyncio"
+    )
+
+
+def _is_helper_call(call):
+    return isinstance(call.func, ast.Name) and call.func.id == "run_plugin_process"
+
+
+def _keyword(call, name):
+    return next((kw.value for kw in call.keywords if kw.arg == name), None)
+
+
+def _is_attr(node, owner, attr):
+    return (isinstance(node, ast.Attribute) and node.attr == attr
+            and isinstance(node.value, ast.Name) and node.value.id == owner)
+
+
+def _int_value(node):
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+        left, right = _int_value(node.left), _int_value(node.right)
+        if left is not None and right is not None:
+            return left * right
+    return None
+
+
+def _string_frozenset(node):
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "frozenset" and len(node.args) == 1
+            and isinstance(node.args[0], (ast.Set, ast.List, ast.Tuple))):
+        return None
+    values = []
+    for item in node.args[0].elts:
+        if not (isinstance(item, ast.Constant) and isinstance(item.value, str)):
+            return None
+        values.append(item.value)
+    return frozenset(values)
+
+
+def _inspect_bridge(work, name):
+    findings = []
+    path = os.path.join(work, "bulk_downloader", name)
+    if not os.path.isfile(path):
+        return [_finding(name, "required bridge source is absent", "population")], 0
+    try:
+        source = open(path, encoding="utf-8").read()
+        tree = ast.parse(source, filename=path)
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        return [_finding(name, "bridge source cannot be parsed: %s" % exc,
+                         "population")], 0
+
+    imports_helper = any(
+        isinstance(node, ast.ImportFrom)
+        and node.level == 1
+        and node.module == "plugin_sandbox"
+        and any(alias.name == "run_plugin_process" and alias.asname is None
+                for alias in node.names)
+        for node in tree.body
+    )
+    if not imports_helper:
+        findings.append(_finding(
+            name, "does not import the enforced plugin process boundary", "boundary"))
+
+    all_launches = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                    and (_is_direct_spawn(node) or _is_helper_call(node))]
+    for site in EXPECTED_LAUNCHES_PER_BRIDGE:
+        functions = _function(tree, site)
+        if len(functions) != 1:
+            findings.append(_finding(
+                name, "expected exactly one %s function, found %d" % (site, len(functions)),
+                "population"))
+            continue
+        launches = [node for node in ast.walk(functions[0]) if isinstance(node, ast.Call)
+                    and (_is_direct_spawn(node) or _is_helper_call(node))]
+        if len(launches) != 1:
+            findings.append(_finding(
+                name, "%s must contain exactly one plugin launch, found %d"
+                % (site, len(launches)), "population", functions[0]))
+            continue
+        launch = launches[0]
+        if _is_direct_spawn(launch):
+            findings.extend([
+                _finding(name, "%s bypasses the restricted child environment" % site,
+                         "environment", launch),
+                _finding(name, "%s bypasses the plugin-owned cwd" % site,
+                         "cwd", launch),
+                _finding(name, "%s uses an unbounded direct output capture" % site,
+                         "output", launch),
+            ])
+            shell = _keyword(launch, "shell")
+            if isinstance(shell, ast.Constant) and shell.value is True:
+                findings.append(_finding(
+                    name, "%s spawns with shell=True" % site, "shell", launch))
+            if _keyword(launch, "timeout") is None:
+                findings.append(_finding(
+                    name, "%s spawn has no timeout" % site, "timeout", launch))
+            continue
+
+        if _keyword(launch, "plugin_path") is None:
+            findings.append(_finding(
+                name, "%s helper call does not bind its plugin path" % site,
+                "cwd", launch))
+        if _keyword(launch, "timeout") is None:
+            findings.append(_finding(
+                name, "%s helper call does not bind a timeout" % site,
+                "timeout", launch))
+
+    if len(all_launches) != 2:
+        findings.append(_finding(
+            name, "bridge launch denominator is %d, expected 2" % len(all_launches),
+            "population"))
+    return findings, len(all_launches)
+
+
+def _inspect_helper(work):
+    findings = []
+    path = os.path.join(work, "bulk_downloader", HELPER)
+    if not os.path.isfile(path):
+        return [_finding(HELPER, "enforced process boundary source is absent",
+                         "boundary")]
+    try:
+        source = open(path, encoding="utf-8").read()
+        tree = ast.parse(source, filename=path)
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        return [_finding(HELPER, "process boundary cannot be parsed: %s" % exc,
+                         "boundary")]
+
+    assignments = {
+        target.id: value
+        for node in tree.body if isinstance(node, ast.Assign)
+        for target in node.targets if isinstance(target, ast.Name)
+        for value in (node.value,)
+    }
+    cap = _int_value(assignments.get("MAX_OUTPUT_BYTES"))
+    if cap is None or not (0 < cap <= 1024 * 1024):
+        findings.append(_finding(
+            HELPER, "MAX_OUTPUT_BYTES must be a positive cap no larger than 1 MiB",
+            "output", assignments.get("MAX_OUTPUT_BYTES")))
+    allowed = _string_frozenset(assignments.get("_ENV_ALLOWLIST"))
+    if allowed != SAFE_ENV_ALLOWLIST:
+        findings.append(_finding(
+            HELPER, "_ENV_ALLOWLIST differs from the restricted runtime-key set",
+            "environment", assignments.get("_ENV_ALLOWLIST")))
+
+    env_functions = _function(tree, "_plugin_environment")
+    if len(env_functions) != 1:
+        findings.append(_finding(
+            HELPER, "expected exactly one child-environment builder", "environment"))
+    else:
+        env_names = {node.id for node in ast.walk(env_functions[0])
+                     if isinstance(node, ast.Name)}
+        if "_ENV_ALLOWLIST" not in env_names:
+            findings.append(_finding(
+                HELPER, "child environment is not derived from _ENV_ALLOWLIST",
+                "environment", env_functions[0]))
+        child_env_assignments = [
+            node for node in ast.walk(env_functions[0])
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "child_env"
+                    for target in node.targets)
+        ]
+        if not (len(child_env_assignments) == 1
+                and isinstance(child_env_assignments[0].value, ast.DictComp)):
+            findings.append(_finding(
+                HELPER, "child_env is not built by one allowlist comprehension",
+                "environment", env_functions[0]))
+        else:
+            comp = child_env_assignments[0].value
+            generators = comp.generators
+            if not (len(generators) == 1
+                    and isinstance(generators[0].iter, ast.Name)
+                    and generators[0].iter.id == "_ENV_ALLOWLIST"):
+                findings.append(_finding(
+                    HELPER, "child_env comprehension does not iterate _ENV_ALLOWLIST",
+                    "environment", comp))
+        returns = [node for node in ast.walk(env_functions[0])
+                   if isinstance(node, ast.Return)]
+        if not (len(returns) == 1 and isinstance(returns[0].value, ast.Name)
+                and returns[0].value.id == "child_env"):
+            findings.append(_finding(
+                HELPER, "environment builder does not return only child_env",
+                "environment", env_functions[0]))
+        copies_ambient = any(
+            isinstance(node, ast.Call)
+            and (
+                (isinstance(node.func, ast.Name) and node.func.id == "dict"
+                 and any(_is_attr(arg, "os", "environ") for arg in node.args))
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "copy"
+                    and _is_attr(node.func.value, "os", "environ"))
+            )
+            for node in ast.walk(env_functions[0])
+        )
+        if copies_ambient:
+            findings.append(_finding(
+                HELPER, "child environment copies the ambient environment",
+                "environment", env_functions[0]))
+        ambient_updates = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "update"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "child_env"
+            for node in ast.walk(env_functions[0])
+        )
+        if ambient_updates:
+            findings.append(_finding(
+                HELPER, "child environment is widened after allowlist construction",
+                "environment", env_functions[0]))
+
+    drain_functions = _function(tree, "_drain_limited")
+    if len(drain_functions) != 1:
+        findings.append(_finding(
+            HELPER, "expected exactly one bounded pipe drain", "output"))
+    else:
+        drain_names = {node.id for node in ast.walk(drain_functions[0])
+                       if isinstance(node, ast.Name)}
+        if not {"MAX_OUTPUT_BYTES", "_kill_plugin_group"} <= drain_names:
+            findings.append(_finding(
+                HELPER, "pipe drain does not cap and terminate overflow",
+                "output", drain_functions[0]))
+
+    run_functions = _function(tree, "run_plugin_process")
+    if len(run_functions) != 1:
+        findings.append(_finding(
+            HELPER, "expected exactly one run_plugin_process boundary", "boundary"))
+        return findings
+    run = run_functions[0]
+    popens = [node for node in ast.walk(run) if isinstance(node, ast.Call)
+              and isinstance(node.func, ast.Attribute)
+              and _is_attr(node.func, "subprocess", "Popen")]
+    if len(popens) != 1:
+        findings.append(_finding(
+            HELPER, "process boundary must contain exactly one subprocess.Popen, found %d"
+            % len(popens), "population", run))
+        return findings
+    popen = popens[0]
+    required = {
+        "cwd": "cwd",
+        "env": "environment",
+        "stdout": "output",
+        "stderr": "output",
+        "shell": "shell",
+    }
+    for keyword, control in required.items():
+        if _keyword(popen, keyword) is None:
+            findings.append(_finding(
+                HELPER, "Popen omits %s=" % keyword, control, popen))
+    shell = _keyword(popen, "shell")
+    if not (isinstance(shell, ast.Constant) and shell.value is False):
+        findings.append(_finding(
+            HELPER, "Popen shell setting is not literal False", "shell", popen))
+    for keyword in ("stdout", "stderr"):
+        if not _is_attr(_keyword(popen, keyword), "subprocess", "PIPE"):
+            findings.append(_finding(
+                HELPER, "Popen %s is not a bounded-drain pipe" % keyword,
+                "output", popen))
+    if not (isinstance(_keyword(popen, "env"), ast.Name)
+            and _keyword(popen, "env").id == "child_env"):
+        findings.append(_finding(
+            HELPER, "Popen does not receive the allowlisted child_env",
+            "environment", popen))
+    cwd = _keyword(popen, "cwd")
+    if not (isinstance(cwd, ast.Call) and isinstance(cwd.func, ast.Name)
+            and cwd.func.id == "str" and len(cwd.args) == 1
+            and isinstance(cwd.args[0], ast.Name) and cwd.args[0].id == "plugin_dir"):
+        findings.append(_finding(
+            HELPER, "Popen cwd is not the resolved plugin_dir", "cwd", popen))
+
+    waits = [node for node in ast.walk(run) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Attribute) and node.func.attr == "wait"
+             and _keyword(node, "timeout") is not None]
+    if len(waits) != 1:
+        findings.append(_finding(
+            HELPER, "process boundary does not perform exactly one timeout-bound wait",
+            "timeout", run))
+    drain_refs = [node for node in ast.walk(run) if isinstance(node, ast.Name)
+                  and node.id == "_drain_limited" and isinstance(node.ctx, ast.Load)]
+    if len(drain_refs) != 2:
+        findings.append(_finding(
+            HELPER, "process boundary does not attach two bounded pipe drains",
+            "output", run))
+    return findings
+
 
 def scan(work):
-    findings=[]; checked=0
+    findings = []
+    launches = 0
+    checked = 0
     for name in BRIDGES:
-        p=os.path.join(work,"bulk_downloader",name)
-        if not os.path.exists(p): continue
-        checked+=1
-        txt=open(p,errors="ignore").read()
-        spawns=re.search(r'subprocess\.(Popen|run|call)|asyncio\.create_subprocess',txt)
-        if not spawns: continue
-        if "shell=True" in txt:
-            findings.append({"file":name,"issue":"spawns with shell=True"})
-        if not re.search(r'\btimeout\s*=',txt):
-            findings.append({"file":name,"issue":"subprocess spawn without a timeout="})
-    return findings, checked
+        rows, count = _inspect_bridge(work, name)
+        if os.path.isfile(os.path.join(work, "bulk_downloader", name)):
+            checked += 1
+        findings.extend(rows)
+        launches += count
+    findings.extend(_inspect_helper(work))
+    if checked != len(BRIDGES):
+        findings.append(_finding(
+            "bulk_downloader", "bridge denominator is %d, expected %d"
+            % (checked, len(BRIDGES)), "population"))
+    if launches != len(BRIDGES) * len(EXPECTED_LAUNCHES_PER_BRIDGE):
+        findings.append(_finding(
+            "bulk_downloader", "launch denominator is %d, expected 6" % launches,
+            "population"))
+    return findings, {"bridges": checked, "launches": launches, "weak": len(findings)}
+
 
 def selftest():
-    ok=True
     import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        b=os.path.join(d,"bulk_downloader"); os.makedirs(b)
-        open(os.path.join(b,"plugin_node.py"),"w").write("import subprocess\nsubprocess.run(cmd, shell=True)\n")
-        open(os.path.join(b,"plugin_exec.py"),"w").write("import subprocess\nsubprocess.run(cmd, timeout=30)\n")
-        f,c=scan(d)
-    issues=" ".join(x["issue"] for x in f)
-    good="shell=True" in issues and any("plugin_node" in x["file"] and "timeout" in x["issue"] for x in f) and not any("plugin_exec" in x["file"] for x in f)
-    print(("PASS" if good else "FAIL")+"  shell=True + no-timeout flagged, timeout-guarded clean (%d)"%len(f))
-    ok=ok and good
-    r=scan(sec.DEFAULT_WORK)
-    print(("PASS" if r[1]>=0 else "FAIL")+"  real tree: %d bridges checked, %d issues"%(r[1],len(r[0])))
+
+    ok = True
+    former_shape = (
+        "import subprocess\n"
+        "def probe_manifest(path):\n"
+        "    return subprocess.run(['runtime', str(path)], timeout=5, capture_output=True)\n"
+        "def _make_shim(path):\n"
+        "    def _shim(payload):\n"
+        "        return subprocess.run(['runtime', str(path)], timeout=30, capture_output=True)\n"
+        "    return _shim\n"
+    )
+    with tempfile.TemporaryDirectory() as work:
+        package = os.path.join(work, "bulk_downloader")
+        os.makedirs(package)
+        for name in BRIDGES:
+            open(os.path.join(package, name), "w", encoding="utf-8").write(former_shape)
+        findings, summary = scan(work)
+    controls = {row["control"] for row in findings}
+    leaky = (summary["bridges"] == 3 and summary["launches"] == 6
+             and {"environment", "cwd", "output"} <= controls)
+    print(("PASS" if leaky else "FAIL")
+          + "  six timeout-bearing but leaky launches are findings")
+    ok = ok and leaky
+
+    findings, summary = scan(sec.DEFAULT_WORK)
+    clean = summary == {"bridges": 3, "launches": 6, "weak": 0} and not findings
+    print(("PASS" if clean else "FAIL")
+          + "  real tree has exactly three bridges/six enforced launches")
+    ok = ok and clean
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
+
 def main():
-    ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
-    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
-    a=ap.parse_args()
-    if a.selftest: return selftest()
-    sec.require_source_tree(a.work)
-    f,c=scan(a.work)
-    if sec.emit({"findings":f,"summary":{"bridges":c,"weak":len(f)}},as_json=a.json): return 0
-    print("%d plugin bridge(s) checked; %d isolation issue(s):"%(c,len(f)))
-    for x in f[:40]: print("  %sBD-SANDBOX-WEAK%s %s: %s"%(Y,RST,x["file"],x["issue"]))
-    if not f: print(G+"plugin bridges have timeout + no shell=True"+RST)
-    return 0
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--selftest", action="store_true")
+    args = parser.parse_args()
+    if args.selftest:
+        return selftest()
+    try:
+        sec.require_source_tree(args.work)
+        findings, summary = scan(args.work)
+    except (OSError, RuntimeError) as exc:
+        print("CANNOT-EVALUATE: %s" % exc, file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
+    document = {"findings": findings, "summary": summary}
+    if sec.emit(document, as_json=args.json):
+        return sec.EXIT_FINDINGS if findings else sec.EXIT_OK
+    print("%d plugin bridge(s), %d launch(es); %d isolation issue(s):"
+          % (summary["bridges"], summary["launches"], summary["weak"]))
+    for row in findings[:40]:
+        print("  %sBD-SANDBOX-WEAK%s %s: %s"
+              % (Y, RST, row["file"], row["issue"]))
+    if not findings:
+        print(G + "all six plugin launches use the enforced sandbox boundary" + RST)
+    return sec.EXIT_FINDINGS if findings else sec.EXIT_OK
+
+
 sys.exit(main())

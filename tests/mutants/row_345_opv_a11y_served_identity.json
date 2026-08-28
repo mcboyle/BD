@@ -1,0 +1,49 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 345. Run from a detached scratch repository with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row_345_opv_a11y_served_identity.json --work DETACHED_SCRATCH. The battery removes each independent discriminator: F4.3 auth restoration, the navigation-status gate, and cockpit identity. Its overcorrection also proves a real served cockpit remains PASS. The companion row_345_opv_a11y_served_identity_transform_control.json applies the status transform to an import-only test and must ESCAPE.",
+  "subject": "Row 345 -- OPV-A11Y grades only an HTTP 200 cockpit page and F4.3 restores per-check auth state",
+  "band": [
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_f43_then_a11y_restores_auth_and_grades_the_served_cockpit",
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_refuses_a_real_401_before_running_axe",
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_refuses_a_200_response_without_cockpit_identity",
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_still_passes_for_a_200_response_with_cockpit_identity"
+  ],
+  "mutants": [
+    {
+      "label": "M1 F4.3 leaves a newly introduced BD_AUTH_TOKEN active for the next check",
+      "file": "toolchain/bin/bd-opv",
+      "old": "        if previous_auth is _AUTH_MISSING:\n            os.environ.pop(\"BD_AUTH_TOKEN\", None)\n        else:\n            os.environ[\"BD_AUTH_TOKEN\"] = previous_auth",
+      "new": "        if previous_auth is not _AUTH_MISSING:\n            os.environ[\"BD_AUTH_TOKEN\"] = previous_auth",
+      "direction": "regression",
+      "catcher": "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_f43_then_a11y_restores_auth_and_grades_the_served_cockpit"
+    },
+    {
+      "label": "M2 A11Y ignores a non-200 cockpit navigation response",
+      "file": "toolchain/bin/bd-opv",
+      "old": "                if http_status != 200:",
+      "new": "                if False and http_status != 200:",
+      "direction": "regression",
+      "catcher": "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_refuses_a_real_401_before_running_axe"
+    },
+    {
+      "label": "M3 A11Y accepts a 200 page without the Report Center identity",
+      "file": "toolchain/bin/bd-opv",
+      "old": "                if (title != \"Report Center (read-only)\"\n                        or not heading.startswith(\"Report Center\")):",
+      "new": "                if False and (title != \"Report Center (read-only)\"\n                        or not heading.startswith(\"Report Center\")):",
+      "direction": "regression",
+      "catcher": "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_refuses_a_200_response_without_cockpit_identity"
+    },
+    {
+      "label": "M4 a correctly served and identified cockpit is lazily changed from PASS to refusal",
+      "file": "toolchain/bin/bd-opv",
+      "old": "    return PASS, (f\"headed cockpit rendered; axe WCAG2.1-AA ran: {rep['passes']} passes, \"",
+      "new": "    return SKIP, (f\"headed cockpit rendered; axe WCAG2.1-AA ran: {rep['passes']} passes, \"",
+      "direction": "overcorrection",
+      "control": "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_still_passes_for_a_200_response_with_cockpit_identity",
+      "preserves": [
+        "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_refuses_a_real_401_before_running_axe",
+        "tests/test_row345_opv_a11y_requires_served_cockpit.py::test_a11y_refuses_a_200_response_without_cockpit_identity"
+      ]
+    }
+  ]
+}

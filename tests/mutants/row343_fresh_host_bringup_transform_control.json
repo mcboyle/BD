@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 343. This spec is expected to exit 1 with one valid ESCAPED mutant. It applies the exact M1 production transform from the primary battery, but runs only a test that checks the shell parses and both subject files can be loaded without asserting package/install ordering. The escape proves the primary M1 CAUGHT verdict is behavioural assertion evidence rather than a syntax, import, or collection failure.",
+  "subject": "transform control -- parsing the cloud setup and loading the runbook do not constrain fresh-host package ordering",
+  "band": [
+    "tests/test_row343_fresh_host_bringup.py::test_transform_control_loads_subjects_without_asserting_bringup"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the first-run package transform escapes a parse-only subject test",
+      "file": "scripts/cloud-setup.sh",
+      "old": "    step \"system packages (core)\" core apt_i $CORE_PKGS",
+      "new": "    step \"system packages (core)\" core true",
+      "direction": "regression",
+      "catcher": "tests/test_row343_fresh_host_bringup.py::test_transform_control_loads_subjects_without_asserting_bringup"
+    }
+  ]
+}

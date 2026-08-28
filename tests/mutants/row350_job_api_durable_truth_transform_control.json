@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 350 transform control. This must report one valid ESCAPED mutant: the byte-identical M7 transform leaves every lifecycle module importable, while the named node deliberately asserts no cancellation behavior. CAUGHT or INVALID would invalidate the primary battery's evidence.",
+  "subject": "numeric-PID cancellation remains importable without a lifecycle assertion",
+  "band": [
+    "tests/test_row350_job_api_durable_truth.py::test_transform_control_only_imports_the_lifecycle_modules"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL numeric-PID cancellation escapes an import-only test",
+      "file": "bulk_downloader/dev_tools.py",
+      "old": "                sender(pidfd, signal.SIGTERM)",
+      "new": "                os.kill(proc.pid, signal.SIGTERM)",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_transform_control_only_imports_the_lifecycle_modules"
+    }
+  ]
+}
