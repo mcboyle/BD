@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import re
 import shutil
 import subprocess
@@ -93,6 +94,10 @@ if [ "${1:-}" = "-c" ]; then
       mkdir -p "$PWD/venv/lib/python3.12/site-packages"
       echo "$PWD/venv/lib/python3.12/site-packages"
       ;;
+    *gui_parity_inventory*|*route_source*)
+      "$BD_TEST_REAL_PYTHON" -c "$2"
+      exit $?
+      ;;
   esac
   exit 0
 fi
@@ -165,6 +170,7 @@ def _run_cloud_setup(
             "BD_TEST_VENV_STATE": str(state),
             "BD_TEST_EVENTS": str(events),
             "BD_TEST_APT_FAIL": "1" if apt_fails else "0",
+            "BD_TEST_REAL_PYTHON": sys.executable,
             "PATH": f"{tmp_path / 'bin'}:/usr/bin:/bin",
             "BD_SKIP_BROWSERS": "1",
             "BD_SKIP_CLOAK": "1",
@@ -178,6 +184,11 @@ def _run_cloud_setup(
         }
     )
     env.pop("NODE_ENV", None)
+    reports = repo / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / "gui_parity_inventory.json").write_text(
+        json.dumps({"route_source": "live url_map"}), encoding="utf-8"
+    )
     proc = subprocess.run(
         ["bash", str(CLOUD_SETUP)],
         cwd=repo,

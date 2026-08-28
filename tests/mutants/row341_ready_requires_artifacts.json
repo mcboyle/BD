@@ -1,0 +1,57 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 341. Five exact-once regressions restore the demonstrated false READY states at their independent decision points: optional generation, unverified route provenance, read-back failure not affecting the verdict, npm-ci failure demoted to WARN, and SPA build/read-back omitted. The band retains healthy controls for both deliverables. The separate transform-control battery applies the byte-identical transforms while running only an unrelated collection/import-safe gate; all five must ESCAPE.",
+  "subject": "cloud provisioning READY requires measured GUI-parity and SPA artifacts",
+  "band": [
+    "tests/test_cloud_setup_truthfulness.py::test_gui_parity_generator_exit_zero_without_artifact_is_incomplete",
+    "tests/test_cloud_setup_truthfulness.py::test_gui_parity_live_inventory_remains_ready",
+    "tests/test_cloud_setup_truthfulness.py::test_gui_parity_catalog_fallback_is_incomplete",
+    "tests/test_cloud_setup_truthfulness.py::test_gui_parity_generator_failure_cannot_reuse_stale_live_artifact",
+    "tests/test_cloud_setup_truthfulness.py::test_bd_provision_no_output_build_cannot_report_ready",
+    "tests/test_cloud_setup_truthfulness.py::test_bd_provision_healthy_build_remains_ready",
+    "tests/test_cloud_setup_truthfulness.py::test_bd_provision_npm_ci_failure_is_fatal_even_if_a_build_could_pass",
+    "tests/test_cloud_setup_truthfulness.py::test_bd_provision_build_failure_is_fatal"
+  ],
+  "mutants": [
+    {
+      "label": "M1 demote failed GUI-parity generation back to optional",
+      "file": "scripts/cloud-setup.sh",
+      "old": "    step \"gui-parity inventory\" core ./venv/bin/python tools/gui_parity_inventory.py",
+      "new": "    step \"gui-parity inventory\" optional ./venv/bin/python tools/gui_parity_inventory.py",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_gui_parity_generator_failure_cannot_reuse_stale_live_artifact"
+    },
+    {
+      "label": "M2 accept any parsed route source as live application evidence",
+      "file": "scripts/cloud-setup.sh",
+      "old": "    if [ \"$GUI_PARITY_RC\" -eq 0 ] && [ \"$GUI_PARITY_SOURCE\" = \"live url_map\" ]; then",
+      "new": "    if [ \"$GUI_PARITY_RC\" -eq 0 ]; then",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_gui_parity_catalog_fallback_is_incomplete"
+    },
+    {
+      "label": "M3 report failed inventory read-back without failing READY",
+      "file": "scripts/cloud-setup.sh",
+      "old": "      echo \"[FAIL] gui-parity inventory read-back: ${GUI_PARITY_DETAIL}\"\n      CORE_FAILED=1",
+      "new": "      echo \"[warn] gui-parity inventory read-back: ${GUI_PARITY_DETAIL}\"\n      :",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_gui_parity_generator_exit_zero_without_artifact_is_incomplete"
+    },
+    {
+      "label": "M4 demote npm dependency installation failure back to WARN",
+      "file": "scripts/cloud-setup.sh",
+      "old": "if ! ( cd frontend && npm ci --no-audit --no-fund ); then\n  echo \"FATAL: frontend dependency installation failed\"\n  exit 1\nfi",
+      "new": "( cd frontend && npm ci --no-audit --no-fund ) || echo \"WARN: frontend deps failed\"",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_bd_provision_npm_ci_failure_is_fatal_even_if_a_build_could_pass"
+    },
+    {
+      "label": "M5 omit the SPA build and artifact read-back from recovery",
+      "file": "scripts/cloud-setup.sh",
+      "old": "if ! ( cd frontend && npm run build ); then\n  echo \"FATAL: frontend SPA build failed\"\n  exit 1\nfi\nif [ ! -f frontend/dist/index.html ]; then\n  echo \"FATAL: npm run build exited 0 but frontend/dist/index.html is absent\"\n  exit 1\nfi\necho \"frontend bundle: frontend/dist/index.html present\"",
+      "new": "echo \"frontend bundle: unchecked\"",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_bd_provision_no_output_build_cannot_report_ready"
+    }
+  ]
+}

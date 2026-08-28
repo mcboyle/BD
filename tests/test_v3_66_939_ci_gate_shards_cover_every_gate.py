@@ -110,6 +110,11 @@ _DECLARED = {
     # module drives the real enqueue/start/admission and integrity seams, so it
     # is pinned into the application-safety shard on every PR.
     "tests/test_app_measurements_fail_closed.py",
+    # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
+    # boundaries. This behavioral module proves missing, malformed, degraded,
+    # and command-failed artifacts are distinct from the two healthy paths, so
+    # it runs directly rather than relying on a diff-derived shell-script band.
+    "tests/test_cloud_setup_truthfulness.py",
     # Row 334. Four operator health surfaces used an empty collection for both
     # measured-empty and unavailable. This runtime gate pairs every exception
     # probe with a measured-healthy control and is pinned into CI here.
@@ -756,7 +761,9 @@ _DECLARED = {
 # 208 -> 209 at row 346 (2026-08-28). Exactly one repo-wide plugin sandbox
 # runtime/checker gate is declared here and scheduled once in application-safety.
 # 208 -> 209 at row 350 (2026-08-28): one job-lifecycle truth gate.
-_EXPECTED_DECLARED_GATE_COUNT = 215
+# Row 341 (2026-08-28). One cloud-setup truthfulness gate is declared and
+# scheduled; on top of main's 215 that is 216.
+_EXPECTED_DECLARED_GATE_COUNT = 216
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 341 transform controls. These are the five byte-identical production transforms from the primary battery, but the only selected spec merely imports/collects this test module and checks an unrelated guard-pin contract. Every transform must ESCAPE, proving the primary CAUGHT verdicts come from the new READY/artifact assertions rather than shell syntax, Python collection, or an always-failing test module.",
+  "subject": "transform-only controls for cloud provisioning artifact regressions",
+  "band": [
+    "tests/test_cloud_setup_truthfulness.py::test_guard_pins_in_cloud_setup_match_the_files_on_disk"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 optional GUI generation transform under unrelated import control",
+      "file": "scripts/cloud-setup.sh",
+      "old": "    step \"gui-parity inventory\" core ./venv/bin/python tools/gui_parity_inventory.py",
+      "new": "    step \"gui-parity inventory\" optional ./venv/bin/python tools/gui_parity_inventory.py",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_guard_pins_in_cloud_setup_match_the_files_on_disk"
+    },
+    {
+      "label": "TC2 permissive route-source transform under unrelated import control",
+      "file": "scripts/cloud-setup.sh",
+      "old": "    if [ \"$GUI_PARITY_RC\" -eq 0 ] && [ \"$GUI_PARITY_SOURCE\" = \"live url_map\" ]; then",
+      "new": "    if [ \"$GUI_PARITY_RC\" -eq 0 ]; then",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_guard_pins_in_cloud_setup_match_the_files_on_disk"
+    },
+    {
+      "label": "TC3 non-failing read-back transform under unrelated import control",
+      "file": "scripts/cloud-setup.sh",
+      "old": "      echo \"[FAIL] gui-parity inventory read-back: ${GUI_PARITY_DETAIL}\"\n      CORE_FAILED=1",
+      "new": "      echo \"[warn] gui-parity inventory read-back: ${GUI_PARITY_DETAIL}\"\n      :",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_guard_pins_in_cloud_setup_match_the_files_on_disk"
+    },
+    {
+      "label": "TC4 npm-ci warning transform under unrelated import control",
+      "file": "scripts/cloud-setup.sh",
+      "old": "if ! ( cd frontend && npm ci --no-audit --no-fund ); then\n  echo \"FATAL: frontend dependency installation failed\"\n  exit 1\nfi",
+      "new": "( cd frontend && npm ci --no-audit --no-fund ) || echo \"WARN: frontend deps failed\"",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_guard_pins_in_cloud_setup_match_the_files_on_disk"
+    },
+    {
+      "label": "TC5 omitted SPA build transform under unrelated import control",
+      "file": "scripts/cloud-setup.sh",
+      "old": "if ! ( cd frontend && npm run build ); then\n  echo \"FATAL: frontend SPA build failed\"\n  exit 1\nfi\nif [ ! -f frontend/dist/index.html ]; then\n  echo \"FATAL: npm run build exited 0 but frontend/dist/index.html is absent\"\n  exit 1\nfi\necho \"frontend bundle: frontend/dist/index.html present\"",
+      "new": "echo \"frontend bundle: unchecked\"",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_guard_pins_in_cloud_setup_match_the_files_on_disk"
+    }
+  ]
+}
