@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1324 - the six capture failures introduced between v1306 and v1314 are removed
+
+-  "_comment": "Row 243: three behavioral regressions over the deterministic 
+-  "subject": "owned pytest registration resolves without ambient luck and fa
+-    "tests/test_row243_registration_resolves_without_ambient_luck.py::test_t
+-  "_comment": "Transform control: applies M1 byte-for-byte, but the selected
+-    module.time.sleep = lambda _seconds: None
+-    with pytest.raises(
+-        module.PytestRegistrationRefused,
+-        match=r"REGISTRATION FAILED:.*owner-boundary refusal",
+-        module.run_sample(0, False, outdir, "registration-refusal")
+-    shutil.copy2(BIN / "bd-ladder", private_bin / "bd-ladder")
+-        "toolchain/bin/bd-ladder",
+-    assert caught["selected"] == caught["total"] == 3
+-    assert len(caught["rows"]) == 3
+
 ## v3.66.1323 - the omitted live gate is scheduled in CI
 
 -    assert len(entries) == 1246, (

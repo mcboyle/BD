@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Transform control: applies M1 byte-for-byte, but the selected test only imports bd-ladder and asserts no registration behavior. One valid ESCAPED result proves the primary catches are behavioral assertion failures rather than parse or import failures.",
+  "_comment": "Transform control: applies M1 and M4 byte-for-byte, but the selected test only imports bd-ladder and asserts neither registration nor clock-restoration behavior. Two valid ESCAPED results prove the primary catches are behavioral assertion failures rather than parse, import, or collection failures.",
   "subject": "row 243 registration mutation transform control",
   "band": [
     "tests/test_row243_registration_resolves_without_ambient_luck.py::test_transform_control_imports_launcher_without_asserting_registration"
@@ -11,6 +11,14 @@
       "file": "toolchain/bin/bd-ladder",
       "old": "    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)\n    anchor = pathlib.Path(raw_anchor).resolve(strict=True)\n",
       "new": "    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)\n    if state == NO_REGISTRAR:\n        for parent in pathlib.Path(python).resolve().parents:\n            ambient = parent / \"toolchain\" / \"bin\" / \"bd-jobs\"\n            if ambient.is_file():\n                state, registrar, proof = (\n                    REGISTERED, ambient, \"ambient interpreter-parent rescue\")\n                break\n    anchor = pathlib.Path(raw_anchor).resolve(strict=True)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_transform_control_imports_launcher_without_asserting_registration"
+    },
+    {
+      "label": "CONTROL M4 process-wide no-op sleep with import-only catcher",
+      "file": "tests/test_row243_registration_resolves_without_ambient_luck.py",
+      "old": "    with monkeypatch.context() as scoped:\n        scoped.setattr(module.time, \"sleep\", lambda _seconds: None)\n        with pytest.raises(\n            module.PytestRegistrationRefused,\n            match=r\"REGISTRATION FAILED:.*owner-boundary refusal\",\n        ):\n            module.run_sample(0, False, outdir, \"registration-refusal\")\n",
+      "new": "    module.time.sleep = lambda _seconds: None\n    with pytest.raises(\n        module.PytestRegistrationRefused,\n        match=r\"REGISTRATION FAILED:.*owner-boundary refusal\",\n    ):\n        module.run_sample(0, False, outdir, \"registration-refusal\")\n",
       "direction": "regression",
       "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_transform_control_imports_launcher_without_asserting_registration"
     }
