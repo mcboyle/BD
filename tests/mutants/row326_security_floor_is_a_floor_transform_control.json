@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 326 transform control. This deliberately must ESCAPE: it applies the identical M1 transform that degrades the range minimum to a constant, but runs only the prerelease test, which never calls _range_minimum. The escape proves the main battery's CAUGHT verdicts are assertion failures rather than invalid Python, an import failure, or a collection error.",
+  "subject": "transform-only control for the degraded range minimum",
+  "band": [
+    "tests/test_frontend_dependency_security_floor.py::test_numeric_semver_rejects_prerelease_versions"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the identical M1 transform against a test that never parses a range",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "    return _numeric_semver(rest)\n",
+      "new": "    return _numeric_semver(rest) if False else (6, 30, 4)\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_numeric_semver_rejects_prerelease_versions"
+    }
+  ]
+}
