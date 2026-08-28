@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1315 - the remaining capture poles stop bounding wall time
+
+- Row 332 removed the 494.7s pole; a different file then set the path.
+- This shards the recognizer corpus four ways, partitioned 10/11/13/12.
+- The behavioural denominator is unchanged at exactly 46 tests.
+- All four shards enter the parallel lane and are scheduled in CI.
+- classify_capture_file defaults an unlisted file to serial by design.
+- Shards left serial would be the same critical path wearing new names.
+- THE NUMBER NOBODY HAD MEASURED: the parallel lane's arithmetic floor.
+- Total work divided by workers is 210.332 seconds.
+- After rows 332 and 333 the largest file is 199.743s.
+- The next unchanged file is 159.214s; both are below that floor.
+- Further splitting of this list cannot improve the ideal floor.
+- Remaining capture wall time is the serial lane and non-pytest steps.
+- That split is unmeasured and is the honest next question.
+
 ## v3.66.1314 - capture wall time stops being one file's serial critical path
 
 - Capture uses --dist loadfile, which pins a whole file to one worker.

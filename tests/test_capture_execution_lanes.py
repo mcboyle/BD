@@ -22,9 +22,9 @@ LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 # The digest canonicalisation is sorted non-comment membership with one UTF-8
 # newline after every entry; an actual allowlist edit updates both facts and its
 # review evidence in the same commit.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1260
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1264
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "c53edbb297e639e8ac98aaa112837cdcb958eacbbd8df01007a6fdf794e39972"
+    "f6f56f9ae338a4b6cf11cda5599605bc033728238f277807a47b83832178c13e"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -632,12 +632,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1260
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1264
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1250
+    assert _PARALLEL_RATCHET_FLOOR == 1254
     with pytest.raises(
         AssertionError,
-        match=r"down to 1249 files.*count was 1260.*margin is 10.*floor is 1250",
+        match=r"down to 1253 files.*count was 1264.*margin is 10.*floor is 1254",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 
@@ -668,6 +668,33 @@ def test_tool_state_partition_has_five_parallel_loadfile_units() -> None:
     missing = sorted(partition - allowlist)
     assert not missing, (
         "row 332 split the tool-state module so loadfile could spread it, but "
+        f"these pieces are not in the parallel lane and would still serialise: {missing}"
+    )
+    for name in sorted(partition):
+        assert (REPO_ROOT / "tests" / name).is_file(), name
+
+
+def test_recognizer_corpus_partition_has_five_parallel_loadfile_units() -> None:
+    """The corpus split is useful only when every piece reaches xdist.
+
+    `--dist loadfile` gives one FILE to one worker, so splitting the corpus buys
+    nothing unless each shard is in the parallel allowlist -- four shards left in
+    the serial lane would be the same critical path wearing new names. The
+    behavioural denominator stays 46; this asserts only where the work RUNS.
+    """
+    lanes = _load_lanes_module()
+    allowlist = lanes.parallel_allowlist()
+    partition = {
+        "test_recognizer_corpus.py",
+        "test_recognizer_corpus_shard_a.py",
+        "test_recognizer_corpus_shard_b.py",
+        "test_recognizer_corpus_shard_c.py",
+        "test_recognizer_corpus_shard_d.py",
+    }
+    assert len(partition) == 5
+    missing = sorted(partition - allowlist)
+    assert not missing, (
+        "row 333 split the recognizer corpus so loadfile could spread it, but "
         f"these pieces are not in the parallel lane and would still serialise: {missing}"
     )
     for name in sorted(partition):
