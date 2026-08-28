@@ -1,7 +1,7 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 292 census mechanism only. Re-run from a detached standalone scratch checkout with: toolchain/bin/bd-mutate --spec tests/mutants/row292_capture_lane_census.json --work SCRATCH --timeout 300. The battery removes digest enforcement, restores the rejected whole-tree equality, weakens the ratchet, and launders failed or zero git measurements. It does not mutate capture_lanes.py or capture_parallel_files.txt. The companion transform-control spec applies the byte-identical digest-enforcement removal to an import-only node and must ESCAPE.",
-  "subject": "the existing 1253-entry curated allowlist is digest-pinned, erosion-ratcheted with a 10-file margin, and independent of safe serial-defaulting tree growth",
+  "_comment": "Row 292 census mechanism, refreshed atomically for row 324's three measured promotions. Re-run from a detached standalone scratch checkout with: toolchain/bin/bd-mutate --spec tests/mutants/row292_capture_lane_census.json --work SCRATCH --timeout 300. The battery removes digest enforcement, restores the rejected whole-tree equality, weakens the ratchet, and launders failed or zero git measurements. It does not mutate capture_lanes.py or capture_parallel_files.txt. The companion transform-control spec applies the byte-identical digest-enforcement removal to an import-only node and must ESCAPE.",
+  "subject": "the current 1256-entry curated allowlist is digest-pinned, erosion-ratcheted with a 10-file margin, and independent of safe serial-defaulting tree growth",
   "band": [
     "tests/test_capture_execution_lanes.py::test_parallel_manifest_is_explicit_complete_and_risk_free",
     "tests/test_capture_execution_lanes.py::test_a_new_unreviewed_file_stays_serial_without_invalidating_the_gate",

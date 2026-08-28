@@ -15,14 +15,16 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 
-# These are MECHANICAL facts derived from the existing curated allowlist on the
-# row-292 implementation base. They do not claim a new whole-tree review. The
-# digest canonicalisation is the sorted non-comment membership, with one UTF-8
-# newline after every entry; tooling may re-derive both facts when an actual
-# allowlist edit has its own review evidence.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1253
+# These are MECHANICAL facts derived from the curated allowlist after row 324's
+# three evidence-backed promotions. They do not claim a new whole-tree review:
+# 1,253 memberships retain row 292's evidence and exactly three have the
+# per-file mechanism and two-width measurements recorded beside the lane set.
+# The digest canonicalisation is sorted non-comment membership with one UTF-8
+# newline after every entry; an actual allowlist edit updates both facts and its
+# review evidence in the same commit.
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1256
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "5115fd5a8f4176fe4d2aadbbbdad8b352c77cea7acd4f3122105e6fd17985a73"
+    "eb18ebf8ddee219cfc7e91bdaf8466f3e379d0059cc78c1081c504109b74b789"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -549,20 +551,35 @@ def test_an_allowlist_entry_overrides_a_filename_token() -> None:
     )
 
 
-def test_files_the_experiment_refuted_stay_serial() -> None:
-    """Named, not merely omitted, so a later green run cannot promote them.
+def test_serial_exact_pins_match_row324_mechanism_measurements() -> None:
+    """Only mechanisms still present in source remain exact serial pins.
 
-    The whole serial lane was run in parallel on the box at v3.66.920: five
-    files failed and all five passed on a serial retry. Three were already
-    source-flagged or listed; these two were neither, and they failed the same
-    way in an independent container run. Two machines agreeing is the evidence.
-
-    Omission would not have held -- the backfill is generated, so anything not
-    explicitly refused gets regenerated back in. This is why the refusal lives
-    in SERIAL_EXACT_BASENAMES rather than in a comment.
+    Row 324 re-derived all six names rather than treating a favourable race as
+    evidence. Body-contract's singleton leakage, perf-lab's nameless h11 type,
+    and the VPN fixture's wrong-registry reset each have a current behavioural
+    regression test for the recorded mechanism, and all three files passed
+    three shared-worker runs at both ``-n 2`` and ``-n 4``. The other three
+    source mechanisms still exist, so their equally green samples cannot
+    promote them.
     """
     lanes = _load_lanes_module()
-    for name in ("test_dev_suite_tier1b.py", "test_v3_66_717_exec_bridge.py"):
+
+    still_serial = {
+        "test_dev_suite_tier1b.py",
+        "test_v3_66_717_exec_bridge.py",
+        "test_v3_66_797_runner_isolate.py",
+    }
+    promoted = {
+        "test_perf_lab.py",
+        "test_t14_vpn_probe_egress.py",
+        "test_v3_66_729_body_contract_fixtures.py",
+    }
+
+    assert lanes.SERIAL_EXACT_BASENAMES == still_serial
+    assert promoted <= lanes.parallel_allowlist()
+    assert not (promoted & lanes.SERIAL_EXACT_BASENAMES)
+
+    for name in still_serial:
         assert name in lanes.SERIAL_EXACT_BASENAMES, name
         assert (
             lanes.classify_capture_file(
@@ -570,6 +587,12 @@ def test_files_the_experiment_refuted_stay_serial() -> None:
                 source="def test_pure_looking(): assert True",
             )
             == "serial"
+        ), name
+
+    for name in promoted:
+        assert (
+            lanes.classify_capture_file(REPO_ROOT / "tests" / name)
+            == "parallel"
         ), name
 
 
@@ -599,12 +622,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1253
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1256
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1243
+    assert _PARALLEL_RATCHET_FLOOR == 1246
     with pytest.raises(
         AssertionError,
-        match=r"down to 1242 files.*count was 1253.*margin is 10.*floor is 1243",
+        match=r"down to 1245 files.*count was 1256.*margin is 10.*floor is 1246",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 

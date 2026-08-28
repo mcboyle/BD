@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 324 serial-pin re-derivation. Re-run from a detached standalone scratch checkout with: toolchain/bin/bd-mutate --spec tests/mutants/row324_capture_pin_rederivation.json --work SCRATCH --timeout 300. The battery makes each direction of the exact lane decision wrong: it re-pins each measured promotion, removes a promoted allowlist membership, and removes exact protection from a file whose recorded mechanism still exists. The companion transform-control spec applies the byte-identical perf-lab re-pin to an import-only node and must ESCAPE.",
+  "subject": "exact serial pins contain only runner-isolate, tier1b, and exec-bridge while the three mechanism-refuted files are allowlisted",
+  "band": [
+    "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
+  ],
+  "mutants": [
+    {
+      "label": "M1 re-pin perf-lab after its two-host nameless-type mechanism was fixed",
+      "file": "tests/capture_lanes.py",
+      "old": "        \"test_v3_66_797_runner_isolate.py\",\n        # tier1b still samples process-ambient thread stacks twice across a\n",
+      "new": "        \"test_perf_lab.py\",  # mutant: stale exact pin restored\n        \"test_v3_66_797_runner_isolate.py\",\n        # tier1b still samples process-ambient thread stacks twice across a\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
+    },
+    {
+      "label": "M2 re-pin VPN after the fixture began clearing the registry it reads",
+      "file": "tests/capture_lanes.py",
+      "old": "        \"test_dev_suite_tier1b.py\",\n        # exec_bridge still runs host-resolved yt-dlp/ffprobe binaries under\n",
+      "new": "        \"test_t14_vpn_probe_egress.py\",  # mutant: stale exact pin restored\n        \"test_dev_suite_tier1b.py\",\n        # exec_bridge still runs host-resolved yt-dlp/ffprobe binaries under\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
+    },
+    {
+      "label": "M3 re-pin body-contract after its app singleton world became isolated",
+      "file": "tests/capture_lanes.py",
+      "old": "        \"test_v3_66_717_exec_bridge.py\",\n    }\n)\n",
+      "new": "        \"test_v3_66_717_exec_bridge.py\",\n        \"test_v3_66_729_body_contract_fixtures.py\",  # mutant: stale exact pin restored\n    }\n)\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
+    },
+    {
+      "label": "M4 drop one measured promotion from the reviewed allowlist",
+      "file": "tests/capture_parallel_files.txt",
+      "old": "test_perf_lab.py\ntest_t14_vpn_probe_egress.py\ntest_v3_66_729_body_contract_fixtures.py\n",
+      "new": "test_perf_lab.py\ntest_v3_66_729_body_contract_fixtures.py\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
+    },
+    {
+      "label": "M5 unpin tier1b while its process-ambient deadlock mechanism remains",
+      "file": "tests/capture_lanes.py",
+      "old": "        \"test_dev_suite_tier1b.py\",\n        # exec_bridge still runs host-resolved yt-dlp/ffprobe binaries under\n",
+      "new": "        # mutant: tier1b exact pin removed despite live mechanism\n        # exec_bridge still runs host-resolved yt-dlp/ffprobe binaries under\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
+    }
+  ]
+}

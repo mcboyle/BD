@@ -1350,3 +1350,16 @@ test_v3_66_994_leakprobe_refuses_when_blind.py
 # immediately after the guard -- it never reaches capture.sh's rm -rf.
 test_v3_66_1002_download_hint_needs_an_interactive_element.py
 test_v3_66_1003_capture_refuses_an_inherited_install_dir.py
+
+# Row 324 / 2026-08-28 -- promoted only where the recorded mechanism has a
+# current behavioural refutation, then measured with all six historical pins
+# sharing workers: three runs at each of -n 2 and -n 4, --dist loadfile. The
+# body-contract singleton state is now snapshot/restored, perf-lab handles the
+# exact h11 nameless-type residue reproduced on two hosts, and the VPN fixture
+# clears the registry the probe actually reads on entry. Per-run denominators:
+# body-contract 11/11, perf-lab 19/19, VPN 11/11; zero failures in all six runs.
+# runner-isolate, tier1b and exec-bridge remain exact pins because their cited
+# subprocess, ambient-thread and real-binary timeout mechanisms still exist.
+test_perf_lab.py
+test_t14_vpn_probe_egress.py
+test_v3_66_729_body_contract_fixtures.py
