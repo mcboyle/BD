@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 329. Re-run from a detached scratch tree with frontend/node_modules available: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row329_vitest_timeout.json --work DETACHED_SCRATCH --timeout 120'. The mutant restores the defective 5000ms global budget. The catcher runs a real never-settling Vitest case through the tracked config copy and requires Vitest itself to fire at the measured 10754ms bound.",
+  "subject": "the config-wide Vitest case budget is derived from loaded measurements and still terminates genuinely hung work",
+  "band": [
+    "tests/test_t3_t4_wired.py::test_the_measured_vitest_budget_still_fires_for_genuinely_hung_work"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore Vitest's 5000ms default that timed out correct T3/T4 work under load",
+      "file": "frontend/vitest.config.ts",
+      "old": "    testTimeout: 10_754,",
+      "new": "    testTimeout: 5_000,",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_the_measured_vitest_budget_still_fires_for_genuinely_hung_work"
+    }
+  ]
+}
