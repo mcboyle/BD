@@ -215,7 +215,8 @@ def test_find_repo_refuses_rather_than_searching_the_filesystem(tmp_path):
         "HOME": str(empty_home),
         "PWD": str(cwd),
     }
-    proc = _run_bash(harness, cwd=cwd, env=env, timeout=300)
+    # Row 338 measured 0.010162s; max(60, ceil(2 * 0.010162)) = 60s.
+    proc = _run_bash(harness, cwd=cwd, env=env, timeout=60)
 
     assert "REFUSED" in proc.stdout, (
         "find_repo returned a path when no named probe matched:\n"

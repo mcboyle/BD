@@ -1,27 +1,9 @@
 {
  "schema": "bd-budget-ratchet/1",
- "_comment": "FROZEN DENOMINATOR of constant wall-clock budgets in tests/ that are >= the sanctioned per-item bound (240s). A budget above the bound governing its item can never fire, so its own `except TimeoutExpired` is dead code and what runs instead is pytest-timeout killing the worker -- which on 2026-08-24 took the whole session into a 19-minute livelock. This list MAY SHRINK AND MAY NOT GROW. Keys are (file, callee, value) and deliberately NOT line numbers, so an unrelated edit does not churn the baseline. Entries carrying `why` are known-benign and are recorded rather than filtered, because a clever classifier that is wrong once is worse than a frozen list that is honest.",
+ "_comment": "FROZEN DENOMINATOR of constant wall-clock budgets in tests/ that are >= the sanctioned per-item bound (240s). A budget above the bound governing its item can never fire, so its own `except TimeoutExpired` is dead code and what runs instead is pytest-timeout killing the worker -- which on 2026-08-24 took the whole session into a 19-minute livelock. This list MAY SHRINK AND MAY NOT GROW. Keys are (file, callee, value) and deliberately NOT line numbers, so an unrelated edit does not churn the baseline. Entries carrying `why` are known-benign and are recorded rather than filtered, because a clever classifier that is wrong once is worse than a frozen list that is honest. Row 338 removed 20 measured occurrences from six files; leaving their entries here would silently permit every repair to regress.",
  "measured_at": "v3.66.1222",
  "governing_bound_s": 240,
  "entries": [
-  {
-   "file": "tests/test_cloud_setup_truthfulness.py",
-   "callee": "_run_bash",
-   "value": 300,
-   "count": 1
-  },
-  {
-   "file": "tests/test_csrf_tool_contracts.py",
-   "callee": "subprocess.run",
-   "value": 600,
-   "count": 1
-  },
-  {
-   "file": "tests/test_env_example_matches_the_ledger.py",
-   "callee": "subprocess.run",
-   "value": 300,
-   "count": 1
-  },
   {
    "file": "tests/test_macro_replay.py",
    "callee": "DEFAULT:click",
@@ -57,12 +39,6 @@
    "count": 1
   },
   {
-   "file": "tests/test_secret_display_never.py",
-   "callee": "out_q.get",
-   "value": 300,
-   "count": 1
-  },
-  {
    "file": "tests/test_t43_tls_check.py",
    "callee": "ds.tls_cert_check",
    "value": 999,
@@ -82,30 +58,6 @@
    "value": 9999,
    "count": 1,
    "why": "Deliberately over-large: test_vision_test_clamps_timeout asserts the clamp into [1,120]."
-  },
-  {
-   "file": "tests/test_toolchain_534.py",
-   "callee": "DEFAULT:_band_tool",
-   "value": 300,
-   "count": 1
-  },
-  {
-   "file": "tests/test_toolchain_534.py",
-   "callee": "_band_tool",
-   "value": 300,
-   "count": 2
-  },
-  {
-   "file": "tests/test_toolchain_534.py",
-   "callee": "subprocess.run",
-   "value": 300,
-   "count": 9
-  },
-  {
-   "file": "tests/test_toolchain_534.py",
-   "callee": "subprocess.run",
-   "value": 600,
-   "count": 3
   },
   {
    "file": "tests/test_v3_66_1015_capture_analytics_bounds.py",
@@ -351,12 +303,6 @@
    "file": "tests/test_v3_66_984_template_viability.py",
    "callee": "subprocess.run",
    "value": 900,
-   "count": 1
-  },
-  {
-   "file": "tests/test_v3_66_985_templates_parallel.py",
-   "callee": "subprocess.run",
-   "value": 1800,
    "count": 1
   },
   {

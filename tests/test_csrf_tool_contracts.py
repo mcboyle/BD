@@ -342,9 +342,10 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
     asserted on: they have their own subjects, and folding them in here would
     make this gate fire for reasons it cannot describe.
     """
+    # Row 338 measured 1.861821s; max(60, ceil(2 * 1.861821)) = 60s.
     r = subprocess.run(
         [sys.executable, str(TOOLS / "functional_probe.py")],
-        cwd=str(REPO), capture_output=True, text=True, timeout=600)
+        cwd=str(REPO), capture_output=True, text=True, timeout=60)
     out = r.stdout + r.stderr
 
     header = "F.1 - CSRF bootstrap"

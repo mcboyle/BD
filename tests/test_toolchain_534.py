@@ -553,8 +553,9 @@ def test_tool_smoke_runs_unaided_and_the_toolchain_has_no_undefined_names():
     assert os.path.isfile(tool), "bd-tool-smoke is missing"
 
     # The wired invocation takes NO arguments -- BIN and WORK must self-resolve.
+    # Row 338 measured 43.047950s; max(60, ceil(2 * 43.047950)) = 87s.
     r = subprocess.run([sys.executable, tool, "--gate"], cwd=root,
-                       capture_output=True, text=True, timeout=600)
+                       capture_output=True, text=True, timeout=87)
     out = r.stdout + r.stderr
     m = re.search(r"(\d+)\s+python tools scanned", out)
     assert m, ("bd-tool-smoke --gate did not report a scan count; it must say "
@@ -743,10 +744,11 @@ def test_equiv_refuses_to_certify_over_an_empty_token_set():
     # shipped defect rather than only on a symbol it introduces (section 2a:
     # discriminate the exception you are hunting -- a missing grade() and a
     # broken verdict are different failures and must not look alike).
+    # Row 338 measured 0.484521s; max(60, ceil(2 * 0.484521)) = 60s.
     r = subprocess.run(
         [sys.executable, tgt, "--old", "bd-capture-chaos", "--new",
          "bd-plugin-chaos", "--inputs", root, "--json", "--work", root],
-        cwd=root, capture_output=True, text=True, timeout=300)
+        cwd=root, capture_output=True, text=True, timeout=60)
     assert r.returncode == 2, (
         "comparing two unrelated tools whose token sets are both EMPTY exited "
         "%d. Both sets empty is CANNOT-EVALUATE (2), not agreement:\n%s"
@@ -966,8 +968,9 @@ def test_the_derivable_half_of_staleness_is_clean():
     root = str(_REPO_ROOT)
     tool = os.path.join(root, "toolchain", "bin", "bd-freshcheck")
     assert os.path.isfile(tool), "bd-freshcheck is missing"
+    # Row 338 measured 0.688181s; max(60, ceil(2 * 0.688181)) = 60s.
     r = subprocess.run([sys.executable, tool, "--root", root, "--repo-only"],
-                       cwd=root, capture_output=True, text=True, timeout=300)
+                       cwd=root, capture_output=True, text=True, timeout=60)
     out = r.stdout + r.stderr
     assert "doc file:line anchors" in out, (
         "bd-freshcheck ran but reported no anchor check -- it saw nothing, which "
@@ -1221,8 +1224,9 @@ def test_a_file_that_collects_nothing_is_not_a_pass():
             if os.path.isfile(src):
                 with open(src) as a, open(os.path.join(td, f), "w") as b:
                     b.write(a.read())
+        # Row 338 measured 0.192434s; max(60, ceil(2 * 0.192434)) = 60s.
         r = subprocess.run([sys.executable, "run_tests.py", "tests/test_zero.py"],
-                           cwd=td, capture_output=True, text=True, timeout=300)
+                           cwd=td, capture_output=True, text=True, timeout=60)
         assert r.returncode != 0, (
             "a file collecting ZERO tests exited 0. bd-band grades that PASS, so "
             "a RED-first battery could prove nothing and still look proven.\n%s"
@@ -1247,8 +1251,9 @@ def test_a_file_that_collects_nothing_is_not_a_pass():
             fh.write("import pytest\n"
                      "def test_a():\n"
                      "    pytest.skip('environment')\n")
+        # Row 338 measured 0.095506s; max(60, ceil(2 * 0.095506)) = 60s.
         r2 = subprocess.run([sys.executable, "run_tests.py", "tests/test_allskip.py"],
-                            cwd=td, capture_output=True, text=True, timeout=300)
+                            cwd=td, capture_output=True, text=True, timeout=60)
         assert r2.returncode == 0, (
             "an ALL-SKIPPED file failed. Skips are legitimate -- the bug is "
             "collecting NOTHING, not skipping everything.\n%s"
@@ -1260,8 +1265,9 @@ def test_a_file_that_collects_nothing_is_not_a_pass():
     # runner while passing under pytest. A pre-existing harness incompatibility,
     # unrelated to this guard, and a reminder that "the band is green" and "the
     # tests pass" are answers to different questions.
+    # Row 338 measured 16.581278s; max(60, ceil(2 * 16.581278)) = 60s.
     r = subprocess.run([sys.executable, "run_tests.py", "tests/test_contracts.py"],
-                       cwd=root, capture_output=True, text=True, timeout=600)
+                       cwd=root, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, (
         "a real, passing suite now fails -- the guard is over-sensitive:\n%s"
         % (r.stdout + r.stderr)[-500:])
@@ -1308,9 +1314,10 @@ def test_band_derive_finds_the_curated_map_and_says_so_when_it_cannot():
             b.write(a.read())
         with open(os.path.join(td, "tests", "test_x.py"), "w") as fh:
             fh.write("def test_x(): pass\n")
+        # Row 338 measured 0.192148s; max(60, ceil(2 * 0.192148)) = 60s.
         r = subprocess.run([sys.executable, tool, "--work", td,
                             "--file", "bulk_downloader/__init__.py"],
-                           cwd=root, capture_output=True, text=True, timeout=300)
+                           cwd=root, capture_output=True, text=True, timeout=60)
         assert "curated map not found" in (r.stdout + r.stderr), (
             "an absent map produced no notice -- the band silently loses one of "
             "its four signals and still reads as authoritative.")
@@ -1335,7 +1342,9 @@ def test_band_derive_finds_the_curated_map_and_says_so_when_it_cannot():
 # in-process import writes .bd_last_band.json into the repo root and the
 # "no verdict was minted" assertion stops meaning anything.
 
-def _band_tool(name, args, results_path, timeout=300):
+# The slowest real helper call measured 2.906562s in row 338;
+# max(60, ceil(2 * 2.906562)) = 60s for the otherwise-unused default.
+def _band_tool(name, args, results_path, timeout=60):
     tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", name)
     env = dict(os.environ)
     env["BD_LAST_BAND"] = results_path
@@ -1407,9 +1416,10 @@ def test_parband_still_runs_a_suite_that_exists():
 
     with tempfile.TemporaryDirectory() as td:
         results = os.path.join(td, "band.json")
+        # Row 338 measured 2.906562s; max(60, ceil(2 * 2.906562)) = 60s.
         r = _band_tool("bd-parband",
                        [suite, "--work", str(_REPO_ROOT), "--jobs", "1",
-                        "--timeout", "180"], results, timeout=300)
+                        "--timeout", "180"], results, timeout=60)
         out = r.stdout + r.stderr
         assert r.returncode == 0, (
             "a real, green suite was not run cleanly (exit %d). The door check "
@@ -1521,9 +1531,10 @@ def test_retest_still_retests_a_suite_that_exists():
                        "results": [{"suite": suite, "status": "fail",
                                     "failed": 1, "passed": 0, "secs": 0.1,
                                     "tail": ""}]}, fh)
+        # Row 338 measured 0.710941s; max(60, ceil(2 * 0.710941)) = 60s.
         r = _band_tool("bd-retest",
                        ["--retries", "1", "--timeout", "180",
-                        "--work", str(_REPO_ROOT)], results, timeout=300)
+                        "--work", str(_REPO_ROOT)], results, timeout=60)
         out = r.stdout + r.stderr
         assert r.returncode == 0, (
             "a real suite that passes on retry did not grade clean (exit %d)."
@@ -1570,9 +1581,11 @@ def test_the_band_pair_shares_one_existence_check():
 
 def _derive(args):
     tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-band-derive")
+    # Row 338 measured the exact helper command 3x, max 0.76s;
+    # max(60, ceil(2 * 0.76)) = 60s.
     return subprocess.run([sys.executable, tool, "--work", str(_REPO_ROOT)] + args,
                           cwd=str(_REPO_ROOT), capture_output=True, text=True,
-                          timeout=600)
+                          timeout=60)
 
 
 # test_band_derive_reaches_the_pk_mirror_gate retired @943 with its subject:
@@ -1651,9 +1664,11 @@ def _fullsuite(td, extra, state):
     tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-fullsuite")
     env = dict(os.environ)
     env["BD_FULLSUITE_STATE"] = state
+    # Five real helper calls measured at most 2.645160s in row 338;
+    # max(60, ceil(2 * 2.645160)) = 60s.
     return subprocess.run([sys.executable, tool, "--work", td, "--jobs", "1"] + extra,
                           cwd=str(_REPO_ROOT), capture_output=True, text=True,
-                          timeout=300, env=env)
+                          timeout=60, env=env)
 
 
 def _fullsuite_timeout_tree(td):
@@ -2374,8 +2389,10 @@ def test_a_derived_band_contains_only_files_the_runner_collects():
                     "tests/shell_source.py"):
         if not os.path.isfile(os.path.join(root, changed)):
             continue
+        # Three loop executions measured at most 0.743233s in row 338;
+        # max(60, ceil(2 * 0.743233)) = 60s.
         r = subprocess.run([sys.executable, derive, "--file", changed, "--json"],
-                           cwd=root, capture_output=True, text=True, timeout=300)
+                           cwd=root, capture_output=True, text=True, timeout=60)
         assert r.returncode == 0, r.stderr
         band = json.loads(r.stdout)["band"]
         strays = [b for b in band
@@ -2424,9 +2441,10 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
         except OSError:
             pass
 
+        # Row 338 measured 1.531214s; max(60, ceil(2 * 1.531214)) = 60s.
         r = subprocess.run([sys.executable, band_tool, "--work", td,
                             "--skip-bandcheck", "tests/test_zero.py"],
-                           cwd=root, capture_output=True, text=True, timeout=300)
+                           cwd=root, capture_output=True, text=True, timeout=60)
         out = r.stdout + r.stderr
         assert r.returncode != 0, (
             "a zero-collect SUITE went green -- that undoes @860, which exists "
@@ -2435,9 +2453,10 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
             "the runner said 'nothing was proven' and bd-band did not pass it "
             "on; the operator sees FAIL beside 'Failed: 0':\n" + out)
 
+        # Row 338 measured 1.513284s; max(60, ceil(2 * 1.513284)) = 60s.
         ok = subprocess.run([sys.executable, band_tool, "--work", td,
                              "--skip-bandcheck", "tests/test_real.py"],
-                            cwd=root, capture_output=True, text=True, timeout=300)
+                            cwd=root, capture_output=True, text=True, timeout=60)
         assert ok.returncode == 0, (
             "a real passing suite must stay green:\n" + ok.stdout + ok.stderr)
 

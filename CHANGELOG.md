@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1320 - every inner budget is below the item bound governing it
+
+-    """(sites >= the bound, total constant sites, files parsed).
+-    bound = json.loads(RATCHET.read_text(encoding="utf-8"))["governing_bound
+-    rows, total, files = [], 0, _tracked_test_files()
+-                        total += 1
+-                        if not _is_ms(callee) and kw.value.value >= bound:
+-                            rows.append({"file": rel, "callee": callee,
+-                                         "value": kw.value.value})
+-                        total += 1
+-                        if not _is_ms(callee) and d.value >= bound:
+-                            rows.append({"file": rel, "callee": callee,
+-                                         "value": d.value})
+-    return rows, total, len(files)
+-                       capture_output=True, text=True, timeout=1800, env=env)
+
 ## v3.66.1319 - a timed-out tool is UNKNOWN, not a clean gate
 
 -        # Wait briefly for the thread to do its first iteration

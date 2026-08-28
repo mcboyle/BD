@@ -285,7 +285,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
-      "line": 594,
+      "line": 596,
       "value": {
         "copy": 1,
         "build": 1
@@ -295,7 +295,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
-      "line": 794,
+      "line": 796,
       "value": {
         "context": 1,
         "queue": 1,
@@ -310,7 +310,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
-      "line": 817,
+      "line": 819,
       "value": {
         "context": 1,
         "queue": 1,
@@ -325,7 +325,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
-      "line": 845,
+      "line": 847,
       "value": {
         "context": 1,
         "queue": 1,
@@ -341,7 +341,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1319",
+      "value": "3.66.1320",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -395,7 +395,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_toolchain_534.py",
-      "line": 1720,
+      "line": 1735,
       "value": {
         "files": 2,
         "passed": 1,
