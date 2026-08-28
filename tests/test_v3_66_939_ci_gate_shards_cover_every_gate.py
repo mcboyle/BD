@@ -272,6 +272,10 @@ _DECLARED = {
     # release-verdict boundaries: absent witness/analyzer evidence must remain
     # UNKNOWN on every PR, independently of a diff-derived module band.
     "tests/test_row336_audit_and_scan_evidence.py",
+    # Row 349. Three operational tools each exposed one subject to another's
+    # cached bytes.  This runtime gate forces all three two-identity seams and
+    # must run directly in CI rather than depend on a changed-path band.
+    "tests/test_row349_shared_caches_are_identity_bound.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly
     # below it was a second one -- stale within five releases of being written,
@@ -770,8 +774,10 @@ _DECLARED = {
 # scheduled; on top of main's 215 that is 216.
 # Row 348 (2026-08-28). The raw-Unicode JSX gate existed in the tree and was
 # scheduled nowhere; declaring and scheduling it takes main's 216 to 217.
-_EXPECTED_DECLARED_GATE_COUNT = 217
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
+# Row 349 (2026-08-28). One shared-cache identity gate is declared and
+# scheduled; on top of main's 217 that is 218.
+_EXPECTED_DECLARED_GATE_COUNT = 218
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

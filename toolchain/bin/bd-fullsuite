@@ -66,6 +66,7 @@ code defect, and the run exits non-zero only on REAL failures.
 Usage:
     bd-fullsuite [--jobs N] [--timeout S] [--shard i/n] [--only SUBSTR]
                  [--work DIR] [--state-dir DIR] [--json] [--selftest]
+    bd-fullsuite --status --run-id ID [--state-dir DIR]
 
 Exit contract (bdtools_sec):
   0  zero REAL failures (and, for --status, a run that has finished)
@@ -76,11 +77,14 @@ Exit contract (bdtools_sec):
      or (@871) the run finished with ZERO tests passed, so nothing was
      verified and a green verdict would be over an empty denominator.
 
-Run state (--bg log, --status progress, the per-file duration cache that drives
-LPT bin-packing) lives in --state-dir, default $BD_FULLSUITE_STATE or
-~/.bd_fullsuite. PLAYWRIGHT_BROWSERS_PATH and PYTHONPATH are INHERITED from the
-environment, never overwritten: pointing workers at a browser cache that does
-not exist made this tool classify its own misconfiguration as ENV_BROWSER.
+Each --bg launch acquires an attempt-owned run ID beneath --state-dir and prints
+the matching --status command.  Its log, progress and results therefore remain
+bound to that launch even when another suite starts concurrently.  Foreground
+state and the per-file duration cache remain directly in --state-dir, default
+$BD_FULLSUITE_STATE or ~/.bd_fullsuite. PLAYWRIGHT_BROWSERS_PATH and PYTHONPATH
+are INHERITED from the environment, never overwritten: pointing workers at a
+browser cache that does not exist made this tool classify its own
+misconfiguration as ENV_BROWSER.
 """
 import argparse
 import concurrent.futures as cf
@@ -139,12 +143,52 @@ def _default_state_dir():
             or os.path.join(os.path.expanduser("~"), ".bd_fullsuite"))
 
 
-STATE_DIR = _default_state_dir()
+STATE_ROOT = _default_state_dir()
+STATE_DIR = STATE_ROOT
 RESULTS = os.path.join(STATE_DIR, "results.json")
 PROGRESS = os.path.join(STATE_DIR, "progress.json")
 LOGFILE = os.path.join(STATE_DIR, "run.log")
+RUN_ID = None
 MIN_FREE_MB = 2048        # refuse to start below this
 ABORT_FREE_MB = 400       # abort mid-run below this (before it corrupts)
+
+_RUN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+
+
+def _configure_state(root, run_id=None):
+    """Bind every state pathname to one root/run identity."""
+    global STATE_ROOT, STATE_DIR, RESULTS, PROGRESS, LOGFILE, RUN_ID
+    root = os.path.abspath(os.fspath(root))
+    if run_id is not None and not _RUN_ID_RE.fullmatch(run_id):
+        raise ValueError("invalid run ID %r" % run_id)
+    STATE_ROOT = root
+    RUN_ID = run_id
+    STATE_DIR = (os.path.join(root, "runs", run_id) if run_id is not None
+                 else root)
+    RESULTS = os.path.join(STATE_DIR, "results.json")
+    PROGRESS = os.path.join(STATE_DIR, "progress.json")
+    LOGFILE = os.path.join(STATE_DIR, "run.log")
+
+
+def _atomic_json_dump(path, payload, *, indent=None):
+    """Publish one complete JSON generation or leave the old one visible."""
+    path = os.path.abspath(os.fspath(path))
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".%s." % os.path.basename(path), dir=parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(payload, output, indent=indent)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 # ---- failure classification -------------------------------------------------
 # (label, regex) -- first match wins. ENV_* are environment, not code defects.
@@ -627,6 +671,9 @@ def main():
                     help="detach: run in background, poll with --status")
     ap.add_argument("--status", action="store_true",
                     help="print progress of a --bg run and exit")
+    ap.add_argument("--run-id", default=None,
+                    help="identity printed by --bg (required to address that "
+                         "run's status)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--state-dir", default=None,
                     help="where --bg/--status run state and the duration cache "
@@ -637,12 +684,19 @@ def main():
     if a.selftest:
         return selftest()
 
-    if a.state_dir:
-        global STATE_DIR, RESULTS, PROGRESS, LOGFILE
-        STATE_DIR = os.path.abspath(a.state_dir)
-        RESULTS = os.path.join(STATE_DIR, "results.json")
-        PROGRESS = os.path.join(STATE_DIR, "progress.json")
-        LOGFILE = os.path.join(STATE_DIR, "run.log")
+    state_root = os.path.abspath(a.state_dir or _default_state_dir())
+    try:
+        _configure_state(state_root, a.run_id)
+    except ValueError as exc:
+        ap.error(str(exc))
+
+    if a.run_id is not None and not a.bg and not a.status:
+        handed_off = os.environ.pop("_BD_FULLSUITE_BG_RUN_ID", None)
+        if handed_off != a.run_id:
+            sys.stderr.write(
+                "REFUSED bd-fullsuite: --run-id %s names an existing/background "
+                "namespace and cannot start a foreground writer\n" % a.run_id)
+            return 1
 
     if a.status:
         # THREE states, not two. "no run recorded" used to share exit 1 with
@@ -663,19 +717,50 @@ def main():
                              "(%s is not readable JSON)\n"
                              % (sec.REASON_UNREADABLE, PROGRESS))
             return sec.EXIT_CANNOT_EVALUATE
+        if a.run_id is not None and pg.get("run_id") != a.run_id:
+            sys.stderr.write(
+                "CANNOT-EVALUATE bd-fullsuite --status: reason=%s "
+                "(requested run %s but progress identifies %r)\n"
+                % (sec.REASON_UNREADABLE, a.run_id, pg.get("run_id")))
+            return sec.EXIT_CANNOT_EVALUATE
         print(json.dumps(pg))
-        return 0 if pg.get("state") != "running" else 1
+        return 1 if pg.get("state") in ("starting", "running") else 0
 
     if a.bg:
+        runs_root = os.path.join(state_root, "runs")
+        os.makedirs(runs_root, exist_ok=True)
+        if a.run_id is None:
+            run_dir = tempfile.mkdtemp(prefix="run-", dir=runs_root)
+            a.run_id = os.path.basename(run_dir)
+        else:
+            run_dir = os.path.join(runs_root, a.run_id)
+            try:
+                os.mkdir(run_dir)
+            except FileExistsError:
+                sys.stderr.write("REFUSED bd-fullsuite --bg: run ID %s already "
+                                 "exists under %s\n" % (a.run_id, runs_root))
+                return 1
+        _configure_state(state_root, a.run_id)
         me = os.path.realpath(sys.argv[0])
         args = [x for x in sys.argv[1:] if x != "--bg"]
-        os.makedirs(STATE_DIR, exist_ok=True)
-        log = open(LOGFILE, "w")
-        pr = subprocess.Popen([sys.executable, me] + args, stdout=log,
-                              stderr=log, start_new_session=True,
-                              env=os.environ)
-        print("detached pid %d -- poll: bd-fullsuite --status ; "
-              "log: %s" % (pr.pid, LOGFILE))
+        if "--run-id" not in args:
+            args.extend(["--run-id", a.run_id])
+        _atomic_json_dump(PROGRESS, {
+            "state": "starting", "run_id": a.run_id, "done": 0,
+            "total": None, "passed": 0, "not_pass": 0, "elapsed_s": 0.0,
+        })
+        log = open(LOGFILE, "x")
+        try:
+            child_env = os.environ.copy()
+            child_env["_BD_FULLSUITE_BG_RUN_ID"] = a.run_id
+            pr = subprocess.Popen([sys.executable, me] + args, stdout=log,
+                                  stderr=log, start_new_session=True,
+                                  env=child_env)
+        finally:
+            log.close()
+        print("detached pid %d -- poll: bd-fullsuite --status --run-id %s "
+              "--state-dir %s ; log: %s"
+              % (pr.pid, a.run_id, state_root, LOGFILE))
         return 0
 
     if not a.jobs:
@@ -736,13 +821,14 @@ def main():
             if free_mb() < ABORT_FREE_MB:
                 aborted = True
             try:
-                json.dump({"state": "aborted" if aborted else "running",
-                           "done": done, "total": len(files),
-                           "passed": sum(x["passed"] for x in results),
-                           "not_pass": sum(1 for x in results
-                                           if x["status"] != "pass"),
-                           "elapsed_s": round(time.time() - t0, 1)},
-                          open(PROGRESS, "w"))
+                _atomic_json_dump(
+                    PROGRESS,
+                    {"state": "aborted" if aborted else "running",
+                     "run_id": a.run_id, "done": done, "total": len(files),
+                     "passed": sum(x["passed"] for x in results),
+                     "not_pass": sum(1 for x in results
+                                     if x["status"] != "pass"),
+                     "elapsed_s": round(time.time() - t0, 1)})
             except OSError:
                 pass
         if not a.json and r["status"] != "pass":
@@ -804,17 +890,19 @@ def main():
     flakes = [r for r in results if r["status"] == "flake"]
     tmo = [r for r in results if r["status"] == "timeout"]
 
-    summary = {"work": a.work, "files": len(results), "passed": P, "real_failed": F,
+    summary = {"run_id": a.run_id, "work": a.work, "files": len(results),
+               "passed": P, "real_failed": F,
                "skipped": S, "env_failures": len(envf), "load_flakes": len(flakes),
                "timeouts": len(tmo), "wall_s": wall, "aborted_low_disk": aborted,
                "results": results}
-    json.dump(summary, open(RESULTS, "w"), indent=2)
+    _atomic_json_dump(RESULTS, summary, indent=2)
     try:
-        json.dump({"state": "aborted" if aborted else "done",
-                   "done": len(results), "total": len(files),
-                   "passed": P, "real_failed": F, "env": len(envf),
-                   "load_flakes": len(flakes), "elapsed_s": wall},
-                  open(PROGRESS, "w"))
+        _atomic_json_dump(
+            PROGRESS,
+            {"state": "aborted" if aborted else "done",
+             "run_id": a.run_id, "done": len(results), "total": len(files),
+             "passed": P, "real_failed": F, "env": len(envf),
+             "load_flakes": len(flakes), "elapsed_s": wall})
     except OSError:
         pass
 

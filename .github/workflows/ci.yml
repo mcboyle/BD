@@ -568,6 +568,7 @@ jobs:
               tests/test_desandbox_tool_verifiers.py
               tests/test_row243_registration_resolves_without_ambient_luck.py
               tests/test_row336_audit_and_scan_evidence.py
+              tests/test_row349_shared_caches_are_identity_bound.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py

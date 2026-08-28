@@ -71,6 +71,25 @@ UPLOADS="${BD_UPLOADS:-/mnt/user-data/uploads}"
 CHROMROOT="${CLOAKBROWSER_HOME:-/root/.cloakbrowser}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
 
+# Provisioning mutates the complete target venv in several stages.  The lock is
+# keyed by the canonical target path rather than globally, so two attempts for
+# one venv serialize while different work trees remain independent.
+acquire_venv_lock() {
+    local _venv_lock_key _venv_lock_root
+    command -v flock >/dev/null 2>&1 || {
+        echo "bd-venv: flock is required to serialize target provisioning" >&2
+        return 1
+    }
+    _venv_lock_key="$(printf '%s\0' "$VENV" | sha256sum | awk '{print $1}')" || return 1
+    [ -n "$_venv_lock_key" ] || return 1
+    _venv_lock_root="/tmp/bd-venv-locks-$(id -u)"
+    mkdir -p "$_venv_lock_root" || return 1
+    chmod 700 "$_venv_lock_root" || return 1
+    _venv_lock_path="$_venv_lock_root/${_venv_lock_key}.lock"
+    exec 9>"$_venv_lock_path" || return 1
+    flock -x 9 || return 1
+}
+
 MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -96,9 +115,9 @@ tree_version() {
 }
 
 # --- locate a cloak pack (dir or zip); echo an EXTRACTED dir path, or empty ----
-_extract_cache="/tmp/bd_cloak_pack_extracted"
+_extract_token="$$.$RANDOM.$RANDOM"
 find_cloak_pack() {
-    local c
+    local c extract_cache
     for c in "${BD_CLOAK_PACK:-}" \
              ./bd_cloak_pack_* "$HOME"/bd_cloak_pack_* \
              ./bd_cloak_combined_offline_pack "$HOME"/bd_cloak_combined_offline_pack; do
@@ -108,12 +127,18 @@ find_cloak_pack() {
     for c in ./bd_cloak_pack_*.zip "$UPLOADS"/bd_cloak_pack_*.zip \
              ./bd_cloak_combined_offline_pack*.zip "$UPLOADS"/bd_cloak_combined_offline_pack*.zip; do
         [ -f "$c" ] || continue
-        rm -rf "$_extract_cache"; mkdir -p "$_extract_cache"
-        unzip -q "$c" -d "$_extract_cache" 2>/dev/null || continue
+        extract_cache="$(mktemp -d "${TMPDIR:-/tmp}/bd_cloak_pack_extracted.XXXXXXXX")" \
+            || return 1
+        printf '%s\n' "$_extract_token" > "$extract_cache/.bd-venv-owned-extraction"
+        mkdir -p "$extract_cache/unpacked"
+        if ! unzip -q "$c" -d "$extract_cache/unpacked" 2>/dev/null; then
+            rm -rf -- "$extract_cache"
+            continue
+        fi
         # the zip may wrap a single top dir
-        local inner; inner="$(find "$_extract_cache" -maxdepth 2 -type d -name 'pip-wheels' 2>/dev/null | head -1)"
+        local inner; inner="$(find "$extract_cache/unpacked" -maxdepth 2 -type d -name 'pip-wheels' 2>/dev/null | head -1)"
         [ -n "$inner" ] && { dirname "$inner"; return 0; }
-        echo "$_extract_cache"; return 0
+        echo "$extract_cache/unpacked"; return 0
     done
     return 1
 }
@@ -216,8 +241,25 @@ if [ "$MODE" = "check" ]; then
 fi
 
 # ------------------------------- ENSURE MODE -------------------------------
+acquire_venv_lock || {
+    bad "could not acquire the target venv provisioning lock"; exit 1;
+}
 echo "== bd-venv: provisioning service venv + stealth =="
 PACK="$(find_cloak_pack || true)"
+_extract_cache=""
+_candidate_extract_cache="${PACK%%/unpacked*}"
+if [ -n "$PACK" ] && [ -f "$_candidate_extract_cache/.bd-venv-owned-extraction" ] \
+   && [ "$(cat "$_candidate_extract_cache/.bd-venv-owned-extraction" 2>/dev/null)" = "$_extract_token" ]; then
+    _extract_cache="$_candidate_extract_cache"
+fi
+cleanup_extract_cache() {
+    [ -n "$_extract_cache" ] || return 0
+    [ -f "$_extract_cache/.bd-venv-owned-extraction" ] || return 1
+    [ "$(cat "$_extract_cache/.bd-venv-owned-extraction" 2>/dev/null)" = "$_extract_token" ] \
+        || return 1
+    rm -rf -- "$_extract_cache"
+}
+trap cleanup_extract_cache EXIT
 [ -n "$PACK" ] && echo "  cloak pack: $PACK" || echo "  cloak pack: (none found; will use live PyPI unless --offline)"
 
 pip_offline_ok=0

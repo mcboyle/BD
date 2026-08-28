@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1325 - three shared caches stop serving one tree's bytes to another
+
+-        global STATE_DIR, RESULTS, PROGRESS, LOGFILE
+-        STATE_DIR = os.path.abspath(a.state_dir)
+-        RESULTS = os.path.join(STATE_DIR, "results.json")
+-        PROGRESS = os.path.join(STATE_DIR, "progress.json")
+-        LOGFILE = os.path.join(STATE_DIR, "run.log")
+-        return 0 if pg.get("state") != "running" else 1
+-        os.makedirs(STATE_DIR, exist_ok=True)
+-        log = open(LOGFILE, "w")
+-        pr = subprocess.Popen([sys.executable, me] + args, stdout=log,
+-                              stderr=log, start_new_session=True,
+-                              env=os.environ)
+-        print("detached pid %d -- poll: bd-fullsuite --status ; "
+-              "log: %s" % (pr.pid, LOGFILE))
+
 ## v3.66.1324 - the six capture failures introduced between v1306 and v1314 are removed
 
 -  "_comment": "Row 243: three behavioral regressions over the deterministic 

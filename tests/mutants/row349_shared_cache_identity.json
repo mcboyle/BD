@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 349. Re-run from a detached standalone scratch tree: toolchain/bin/bd-mutate --spec tests/mutants/row349_shared_cache_identity.json --work SCRATCH --timeout 120. The eight regressions independently collapse the fullsuite run namespace, bypass atomic JSON publication in the helper and one real caller, reopen an existing run identity, restore a parent-after-child progress write, restore bd-venv's shared extraction directory, remove its target lock, and restore envscan's process-local helper leakage. Every catcher forces two distinguishable positive subjects.",
+  "subject": "fullsuite, venv and envscan shared caches remain bound to the identity they serve",
+  "band": [
+    "tests/test_row349_shared_caches_are_identity_bound.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 background fullsuite runs collapse back into one shared state namespace",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "    STATE_DIR = (os.path.join(root, \"runs\", run_id) if run_id is not None\n                 else root)",
+      "new": "    STATE_DIR = os.path.join(root, \"runs\", \"shared\")",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_background_fullsuite_runs_publish_two_identity_bound_results"
+    },
+    {
+      "label": "M2 fullsuite atomic JSON helper truncates the published path in place",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "def _atomic_json_dump(path, payload, *, indent=None):\n    \"\"\"Publish one complete JSON generation or leave the old one visible.\"\"\"\n    path = os.path.abspath(os.fspath(path))\n    parent = os.path.dirname(path)\n    os.makedirs(parent, exist_ok=True)\n    descriptor, temporary = tempfile.mkstemp(\n        prefix=\".%s.\" % os.path.basename(path), dir=parent)\n    try:\n        with os.fdopen(descriptor, \"w\", encoding=\"utf-8\") as output:\n            json.dump(payload, output, indent=indent)\n            output.write(\"\\n\")\n            output.flush()\n            os.fsync(output.fileno())\n        os.replace(temporary, path)\n    finally:\n        try:\n            os.unlink(temporary)\n        except FileNotFoundError:\n            pass",
+      "new": "def _atomic_json_dump(path, payload, *, indent=None):\n    \"\"\"Mutant: expose truncate-and-dump bytes at the published path.\"\"\"\n    path = os.path.abspath(os.fspath(path))\n    parent = os.path.dirname(path)\n    os.makedirs(parent, exist_ok=True)\n    with open(path, \"w\", encoding=\"utf-8\") as output:\n        json.dump(payload, output, indent=indent)\n        output.write(\"\\n\")\n        output.flush()\n        os.fsync(output.fileno())",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_fullsuite_json_publication_never_exposes_partial_bytes"
+    },
+    {
+      "label": "M3 a real fullsuite results writer bypasses the atomic helper",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "    _atomic_json_dump(RESULTS, summary, indent=2)",
+      "new": "    json.dump(summary, open(RESULTS, \"w\"), indent=2)",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_fullsuite_json_publication_never_exposes_partial_bytes"
+    },
+    {
+      "label": "M4 bd-venv restores one destructive extraction directory for every attempt",
+      "file": "toolchain/bin/bd-venv",
+      "old": "        extract_cache=\"$(mktemp -d \"${TMPDIR:-/tmp}/bd_cloak_pack_extracted.XXXXXXXX\")\" \\\n            || return 1",
+      "new": "        extract_cache=\"${TMPDIR:-/tmp}/bd_cloak_pack_extracted\"\n        rm -rf -- \"$extract_cache\"\n        mkdir -p \"$extract_cache\" || return 1",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_cloak_pack_extractions_keep_attempt_owned_bytes"
+    },
+    {
+      "label": "M5 bd-venv computes a target lock path but never acquires it",
+      "file": "toolchain/bin/bd-venv",
+      "old": "    flock -x 9 || return 1",
+      "new": "    : # mutant: target provisioning proceeds without acquiring the lock",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_venv_provisioning_lock_serializes_only_the_same_target"
+    },
+    {
+      "label": "M6 envscan evaluates both trees in the caller's shared import namespace",
+      "file": "toolchain/bin/bd-envscan",
+      "old": "def _open_env(tree):\n    \"\"\"Classify one tree in an attempt-owned interpreter/import namespace.\"\"\"\n    command = [sys.executable, os.path.realpath(__file__),\n               \"--_inspect-tree\", os.path.abspath(tree)]\n    try:\n        measured = subprocess.run(\n            command, capture_output=True, text=True, timeout=180,\n            env=os.environ.copy())\n    except (OSError, subprocess.TimeoutExpired) as exc:\n        raise RuntimeError(\"tree-local inventory subprocess unavailable for %s: %s\"\n                           % (tree, exc)) from exc\n    payload_lines = [\n        line[len(_TREE_RESULT_PREFIX):]\n        for line in measured.stdout.splitlines()\n        if line.startswith(_TREE_RESULT_PREFIX)\n    ]\n    if measured.returncode != 0 or len(payload_lines) != 1:\n        detail = (measured.stdout + measured.stderr).strip()\n        raise RuntimeError(\n            \"tree-local inventory subprocess failed for %s (exit %s, \"\n            \"result records %s): %s\"\n            % (tree, measured.returncode, len(payload_lines), detail[-1200:]))\n    try:\n        payload = json.loads(payload_lines[0])\n        return (payload[\"open_env_vars\"], payload[\"items\"],\n                payload[\"open_runtime_tunable_count\"])\n    except (KeyError, TypeError, json.JSONDecodeError) as exc:\n        raise RuntimeError(\"tree-local inventory returned malformed JSON for %s\"\n                           % tree) from exc",
+      "new": "def _open_env(tree):\n    \"\"\"Mutant: reuse the caller's process-wide helper cache.\"\"\"\n    return _open_env_local(tree)",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_envscan_classifies_each_tree_with_that_trees_helpers"
+    },
+    {
+      "label": "M7 a foreground fullsuite writer can reopen a completed background identity",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "    if a.run_id is not None and not a.bg and not a.status:\n        handed_off = os.environ.pop(\"_BD_FULLSUITE_BG_RUN_ID\", None)\n        if handed_off != a.run_id:\n            sys.stderr.write(\n                \"REFUSED bd-fullsuite: --run-id %s names an existing/background \"\n                \"namespace and cannot start a foreground writer\\n\" % a.run_id)\n            return 1",
+      "new": "    if a.run_id is not None and not a.bg and not a.status:\n        os.environ.pop(\"_BD_FULLSUITE_BG_RUN_ID\", None)",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_background_fullsuite_runs_publish_two_identity_bound_results"
+    },
+    {
+      "label": "M8 the fullsuite parent can overwrite a fast child's terminal progress",
+      "file": "toolchain/bin/bd-fullsuite",
+      "old": "        finally:\n            log.close()\n        print(\"detached pid %d -- poll: bd-fullsuite --status --run-id %s \"",
+      "new": "        finally:\n            log.close()\n        _atomic_json_dump(PROGRESS, {\n            \"state\": \"running\", \"run_id\": a.run_id, \"pid\": pr.pid,\n            \"done\": 0, \"total\": None, \"passed\": 0, \"not_pass\": 0,\n            \"elapsed_s\": 0.0,\n        })\n        print(\"detached pid %d -- poll: bd-fullsuite --status --run-id %s \"",
+      "direction": "regression",
+      "catcher": "tests/test_row349_shared_caches_are_identity_bound.py::test_fullsuite_json_publication_never_exposes_partial_bytes"
+    }
+  ]
+}
