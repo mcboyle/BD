@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 292 transform control. This deliberately must report exactly one ESCAPED mutant: it applies the byte-identical M1 transform that removes digest enforcement from the manifest gate, while its only node imports capture_lanes without judging allowlist membership. The escape proves the primary CAUGHT verdict comes from the negative control rather than invalid Python, import failure, or collection failure.",
+  "subject": "transform-only control for removal of curated-allowlist digest enforcement",
+  "band": [
+    "tests/test_capture_execution_lanes.py::test_transform_control_imports_lanes_without_judging_lane_population"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 remove digest enforcement while the import-only control remains green",
+      "file": "tests/test_capture_execution_lanes.py",
+      "old": "    assert allowlist\n    _assert_parallel_allowlist_pin(allowlist)\n    assert allowlist <= tracked, (\n",
+      "new": "    assert allowlist\n    # mutant: allowlist membership changes no longer require evidence\n    assert allowlist <= tracked, (\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_transform_control_imports_lanes_without_judging_lane_population"
+    }
+  ]
+}

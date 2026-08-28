@@ -198,6 +198,8 @@ _MEASURED_S = {
     "_w1_wait_for_exit/communicate":                                             (0.0314, 5),
     "_w1_wait_for_gate/default":                                                 (0.7916, 5.0),
     "_w1_wait_for_path/default":                                                 (3.1513, 5.0),
+    "fixture_marker_waits_for_content/fifo":                                     (0.1000, 0),
+    "fixture_marker_waits_for_content/wait":                                     (0.1000, 0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink":  (0.0054, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink-2":(0.0003, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait":      (0.0033, 5),
@@ -3102,11 +3104,59 @@ def _w1_run_registration_probe(mod, mode: str, *args: object):
     )
 
 
-def _w1_wait_for_path(path: pathlib.Path, *, timeout=_w1_budget_s("_w1_wait_for_path/default")) -> None:
+def _w1_wait_for_path(
+        path: pathlib.Path, *, content: str | None = None,
+        timeout=_w1_budget_s("_w1_wait_for_path/default"),
+) -> None | int | str:
+    """Wait for existence, a parseable integer, or non-empty text.
+
+    ``Path.write_text`` opens with truncation before it writes its payload, so
+    existence is only a sufficient condition for callers that never consume
+    the marker.  Content callers receive the value observed by this wait and
+    therefore cannot reintroduce an unchecked second read.
+    """
+    expected = {
+        None: None,
+        "integer": "an integer",
+        "text": "non-empty text",
+    }
+    if content not in expected:
+        raise ValueError("unknown fixture marker content condition %r" % content)
+
     deadline = time.monotonic() + timeout
-    while not path.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert path.exists(), f"timed out waiting for fixture marker {path}"
+    appeared = False
+    while True:
+        if path.exists():
+            appeared = True
+            if content is None:
+                return None
+            try:
+                payload = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                pass
+            else:
+                if content == "text" and payload:
+                    return payload
+                if content == "integer":
+                    try:
+                        return int(payload)
+                    except ValueError:
+                        pass
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(0.01, remaining))
+
+    # Classify a marker that appeared at the deadline as a publication defect,
+    # even if the last in-budget observation narrowly preceded its creation.
+    appeared = appeared or path.exists()
+    if not appeared:
+        raise AssertionError(
+            f"timed out waiting for fixture marker {path}: never appeared")
+    raise AssertionError(
+        "timed out waiting for fixture marker %s: appeared but never became "
+        "readable as %s" % (path, expected[content]))
 
 
 def _w1_delay_path_write(tmp_path, target: pathlib.Path):
@@ -3142,6 +3192,76 @@ def _w1_prepend_pythonpath(env, path: pathlib.Path) -> None:
     inherited = env.get("PYTHONPATH")
     env["PYTHONPATH"] = str(path) + (
         os.pathsep + inherited if inherited else "")
+
+
+def test_fixture_marker_waits_for_content(tmp_path, monkeypatch):
+    """An open marker is not ready until its delayed payload is visible."""
+    target = tmp_path / "integer-marker"
+    write_shim, payload_entered_fd, payload_release = _w1_delay_path_write(
+        tmp_path, target)
+    env = dict(os.environ)
+    _w1_prepend_pythonpath(env, write_shim)
+    writer = subprocess.Popen(
+        [sys.executable, "-c",
+         "import pathlib; pathlib.Path(%r).write_text('731', encoding='ascii')"
+         % str(target)],
+        env=env,
+    )
+    observed_empty = []
+    try:
+        assert _w1_await_fifo(
+            payload_entered_fd,
+            site="fixture_marker_waits_for_content/fifo",
+        ) == "payload-write-opened\n"
+        assert target.exists() and target.read_text(encoding="ascii") == "", (
+            "the delayed writer did not expose the create-before-payload race")
+
+        real_read_text = pathlib.Path.read_text
+
+        def release_after_observing_empty(path, *args, **kwargs):
+            payload = real_read_text(path, *args, **kwargs)
+            if path == target and not observed_empty:
+                assert payload == "", (
+                    "the content wait did not inspect the held-open empty file")
+                observed_empty.append(payload)
+                _w1_release_fifo(payload_release)
+            return payload
+
+        monkeypatch.setattr(pathlib.Path, "read_text",
+                            release_after_observing_empty)
+        marker = _w1_wait_for_path(target, content="integer")
+
+        assert observed_empty == [""]
+        assert marker == 731
+    finally:
+        if not observed_empty:
+            _w1_release_fifo(payload_release)
+        os.close(payload_entered_fd)
+        writer.wait(timeout=_w1_budget_s(
+            "fixture_marker_waits_for_content/wait"))
+
+
+def test_fixture_marker_timeout_distinguishes_absent_from_unreadable(
+        tmp_path, monkeypatch):
+    missing = tmp_path / "missing-marker"
+    with monkeypatch.context() as clock:
+        ticks = iter((0.0, _GOVERNING_BOUND_S))
+        clock.setattr(time, "monotonic", lambda: next(ticks))
+        with pytest.raises(AssertionError, match="never appeared") as absent:
+            _w1_wait_for_path(missing, content="integer")
+    assert "appeared but never became readable" not in str(absent.value)
+
+    empty = tmp_path / "empty-marker"
+    empty.write_text("", encoding="ascii")
+    with monkeypatch.context() as clock:
+        ticks = iter((0.0, _GOVERNING_BOUND_S))
+        clock.setattr(time, "monotonic", lambda: next(ticks))
+        with pytest.raises(
+                AssertionError,
+                match="appeared but never became readable as an integer",
+        ) as unreadable:
+            _w1_wait_for_path(empty, content="integer")
+    assert "never appeared" not in str(unreadable.value)
 
 
 def _w1_delay_shell_publish(tmp_path, target: pathlib.Path):
@@ -3739,8 +3859,8 @@ def test_completed_owner_ready_receipt_censuses_live_descendant(tmp_path):
                 "descendant pid became visible before its payload was complete")
         finally:
             _w1_release_fifo(payload_release)
-        _w1_wait_for_path(descendant_pid_path)
-        descendant_pid = int(descendant_pid_path.read_text(encoding="ascii"))
+        descendant_pid = _w1_wait_for_path(
+            descendant_pid_path, content="integer")
         assert _w1_pid_is_live(descendant_pid)
         assert os.getpgid(descendant_pid) == owner_pid
         deadline = time.monotonic() + 5
@@ -4020,8 +4140,7 @@ def test_vanished_gate_leader_with_live_descendant_is_retained_unknown(tmp_path)
         finally:
             _w1_release_fifo(payload_release)
         assert proc.wait(timeout=_w1_budget_s("vanished_gate_leader_with_live_descendant_is_retained_unknown/wait")) == int(W1_RETAINED_FAILURE_CODE)
-        _w1_wait_for_path(child_marker)
-        child_pid = int(child_marker.read_text().strip())
+        child_pid = _w1_wait_for_path(child_marker, content="integer")
         assert child_pid in {int(pid) for pid in _w1_live_in_group(gate_pid)}
         assert not marker.exists()
         err = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -4265,8 +4384,10 @@ def test_gate_ready_is_exact_terminal_admission(tmp_path, preamble, settlement):
         start_new_session=True)
     gate_pid = -1
     try:
-        _w1_wait_for_path(gate_pidfile, timeout=_w1_budget_s("gate_ready_is_exact_terminal_admission/marker"))
-        gate_pid = int(gate_pidfile.read_text().strip())
+        gate_pid = _w1_wait_for_path(
+            gate_pidfile, content="integer",
+            timeout=_w1_budget_s(
+                "gate_ready_is_exact_terminal_admission/marker"))
         assert gate_pid > 0, gate_pid
 
         # SHARED PRECONDITION, asserted before either branch relies on it: the
@@ -5323,8 +5444,8 @@ def test_monotonic_clock_rollback_fails_closed_without_extending_budget(tmp_path
                 "pytest pid became visible before its payload was complete")
         finally:
             _w1_release_fifo(publish_release)
-        _w1_wait_for_path(pytest_pid_path)
-        gate_pid = int(pytest_pid_path.read_text().strip())
+        gate_pid = _w1_wait_for_path(
+            pytest_pid_path, content="integer")
         rc = proc.wait(timeout=_w1_budget_s("monotonic_clock_rollback_fails_closed_without_extending_budget/wait"))
         assert not marker.exists()
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -5922,8 +6043,7 @@ def test_the_cheap_presence_probe_agrees_with_the_complete_census(tmp_path):
         [sys.executable, "-c", _W1_GROWABLE_GROUP_LEADER % str(entered)],
         stdin=subprocess.PIPE, text=True)
     try:
-        _w1_wait_for_path(entered)
-        pgid = int(entered.read_text())
+        pgid = _w1_wait_for_path(entered, content="integer")
         assert pgid == child.pid, "precondition: the child leads its own group"
 
         census = _w1_live_in_group(pgid)
@@ -6001,8 +6121,7 @@ def test_the_presence_probe_costs_the_group_and_not_the_host(tmp_path):
         return real(pid)
 
     try:
-        _w1_wait_for_path(entered)
-        pgid = int(entered.read_text())
+        pgid = _w1_wait_for_path(entered, content="integer")
         assert pgid == child.pid, "precondition: the child leads its own group"
         table = [p for p in os.listdir("/proc") if p.isdigit()]
         assert len(table) >= 50, (
@@ -6060,8 +6179,7 @@ def test_a_non_descendant_group_member_fails_the_probe_closed_not_open(
         stdin=subprocess.PIPE, text=True)
     joined = None
     try:
-        _w1_wait_for_path(ready)
-        pgid = int(ready.read_text())
+        pgid = _w1_wait_for_path(ready, content="integer")
         assert pgid == leader.pid
         # A SIBLING of the leader, put into the leader's group by its own
         # parent. It is in the group and it is not in the subtree.
@@ -6127,10 +6245,9 @@ def test_an_absence_claim_is_immune_to_a_live_neighbour_group(tmp_path):
         [sys.executable, "-c", _W1_GROWABLE_GROUP_LEADER % str(ready_b)],
         stdin=subprocess.PIPE, text=True)
     try:
-        _w1_wait_for_path(ready_a)
-        _w1_wait_for_path(ready_b)
-        neighbour_pgid = int(ready_a.read_text())
-        subject_pgid = int(ready_b.read_text())
+        neighbour_pgid = _w1_wait_for_path(
+            ready_a, content="integer")
+        subject_pgid = _w1_wait_for_path(ready_b, content="integer")
         assert neighbour_pgid != subject_pgid, (
             "precondition: two live groups cannot share a pgid, and these two "
             "did -- the fixture is not building what this test is about")
@@ -6196,8 +6313,8 @@ def test_a_descriptor_wait_is_required_because_a_live_pid_proves_nothing(tmp_pat
         [sys.executable, "-c", program], text=True,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
-        _w1_wait_for_path(alive)
-        assert alive.read_text() == "alive\n"
+        alive_payload = _w1_wait_for_path(alive, content="text")
+        assert alive_payload == "alive\n"
         assert _w1_pid_is_live(child.pid), "precondition: the child must be live"
         assert not os.path.lexists("/proc/%d/fd/3" % child.pid), (
             "precondition: the child must NOT have installed fd 3 yet")

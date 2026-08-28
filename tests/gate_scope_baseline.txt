@@ -88,7 +88,6 @@ tests/test_capture_analytics_bounded.py
 tests/test_capture_bodies_json_cap.py
 tests/test_capture_diagnostics.py
 tests/test_capture_dict_shape_tripwire.py
-tests/test_capture_execution_lanes.py
 tests/test_capture_fixture_roots.py
 tests/test_capture_goto_renav.py
 tests/test_capture_iframe_clipboard.py

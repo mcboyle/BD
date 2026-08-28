@@ -1,0 +1,55 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 292 census mechanism only. Re-run from a detached standalone scratch checkout with: toolchain/bin/bd-mutate --spec tests/mutants/row292_capture_lane_census.json --work SCRATCH --timeout 300. The battery removes digest enforcement, restores the rejected whole-tree equality, weakens the ratchet, and launders failed or zero git measurements. It does not mutate capture_lanes.py or capture_parallel_files.txt. The companion transform-control spec applies the byte-identical digest-enforcement removal to an import-only node and must ESCAPE.",
+  "subject": "the existing 1253-entry curated allowlist is digest-pinned, erosion-ratcheted with a 10-file margin, and independent of safe serial-defaulting tree growth",
+  "band": [
+    "tests/test_capture_execution_lanes.py::test_parallel_manifest_is_explicit_complete_and_risk_free",
+    "tests/test_capture_execution_lanes.py::test_a_new_unreviewed_file_stays_serial_without_invalidating_the_gate",
+    "tests/test_capture_execution_lanes.py::test_an_allowlist_addition_outside_the_pinned_digest_is_rejected",
+    "tests/test_capture_execution_lanes.py::test_a_failed_git_tracked_census_is_unknown",
+    "tests/test_capture_execution_lanes.py::test_a_zero_tracked_census_is_unknown",
+    "tests/test_capture_execution_lanes.py::test_parallel_lane_ratchet_negative_control_rejects_a_regression"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the curated-allowlist digest enforcement from the manifest gate",
+      "file": "tests/test_capture_execution_lanes.py",
+      "old": "    assert allowlist\n    _assert_parallel_allowlist_pin(allowlist)\n    assert allowlist <= tracked, (\n",
+      "new": "    assert allowlist\n    # mutant: allowlist membership changes no longer require evidence\n    assert allowlist <= tracked, (\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_an_allowlist_addition_outside_the_pinned_digest_is_rejected"
+    },
+    {
+      "label": "M2 restore the frozen whole-tree equality that rejects one safe new serial file",
+      "file": "tests/test_capture_execution_lanes.py",
+      "old": "    allowlist = lanes.parallel_allowlist()\n    tracked = _tracked_test_files()\n\n    assert allowlist\n",
+      "new": "    allowlist = lanes.parallel_allowlist()\n    tracked = _tracked_test_files()\n    assert len(tracked) == 1441, \"mutant: frozen whole-tree total changed\"\n\n    assert allowlist\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_a_new_unreviewed_file_stays_serial_without_invalidating_the_gate"
+    },
+    {
+      "label": "M3 restore the obsolete 1000-file erosion floor",
+      "file": "tests/test_capture_execution_lanes.py",
+      "old": "_PARALLEL_RATCHET_FLOOR = (\n    _MECHANICAL_PARALLEL_ALLOWLIST_COUNT - _PARALLEL_RATCHET_MARGIN\n)\n",
+      "new": "_PARALLEL_RATCHET_FLOOR = 1000\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_parallel_lane_ratchet_negative_control_rejects_a_regression"
+    },
+    {
+      "label": "M4 turn a failed git census into a fabricated nonzero denominator",
+      "file": "tests/test_capture_execution_lanes.py",
+      "old": "    assert listed.returncode == 0, (\n        \"tracked test denominator is UNKNOWN because git ls-files failed: \"\n        + listed.stderr\n    )\n",
+      "new": "    if listed.returncode != 0:\n        return frozenset({\"test_fail_open_probe.py\"})\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_a_failed_git_tracked_census_is_unknown"
+    },
+    {
+      "label": "M5 accept a zero tracked-test denominator",
+      "file": "tests/test_capture_execution_lanes.py",
+      "old": "    assert tracked, \"tracked test denominator is zero; lane verdict is UNKNOWN\"\n    return tracked\n",
+      "new": "    return tracked\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_a_zero_tracked_census_is_unknown"
+    }
+  ]
+}
