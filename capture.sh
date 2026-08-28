@@ -1085,32 +1085,63 @@ echo "  Summary written: $OUT/02_SUMMARY.txt"
 # The trust anchor is a small content pin OUTSIDE the install tree.  Rebuild the
 # graph from the currently deployed source into a throwaway directory, compare
 # canonical node/edge rows, and delete the SQLite database on every exit path.
-# A missing pin is UNKNOWN by default and a hard failure for release/OPV runs
-# that set BD_REQUIRE_GRAPH_HASH=1.  Pin generation is a separate, deliberate
-# deployment-acceptance step; never write a pin immediately before this check.
+# Applicability comes from recorded deployment state, never from a hostname or a
+# caller assertion. scripts/deploy.sh writes <pin>.deploy-tree only after the
+# service and root endpoint verify for the exact Git tree; fresh-host provisioning
+# writes the same record after building and checking its initial pin. A missing
+# pin or a record for another tree says this host cannot judge this checkout.
+#
+# Exit 4 is reserved for that NOT-APPLICABLE state. Exit 0 remains a matching
+# pin and exit 1 remains content drift on a recorded deployed tree; exit 2 was
+# already CANNOT-EVALUATE for broken tools/temporary storage. The separate code
+# keeps status-only callers from silently swallowing C or confusing it with B.
 # bd_graph_gate_function_begin
 run_graph_hash_gate() (
   graph_pin="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
-  graph_required="${BD_REQUIRE_GRAPH_HASH:-0}"
+  graph_deploy_record="${graph_pin}.deploy-tree"
+  graph_not_applicable_exit=4
 
   if [ ! -f "$graph_pin" ]; then
-    echo "graph content pin: MISSING -- $graph_pin"
-    if [ "$graph_required" = "1" ]; then
-      echo "graph content pin is required (BD_REQUIRE_GRAPH_HASH=1)"
-      return 1
-    fi
-    echo "graph content pin: UNKNOWN -- optional check not armed"
-    return 0
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- pin is absent: $graph_pin"
+    return "$graph_not_applicable_exit"
   fi
   if [ ! -r "$graph_pin" ]; then
     echo "graph content pin: UNREADABLE -- $graph_pin"
-    if [ "$graph_required" = "1" ]; then
-      echo "graph content pin must be readable (BD_REQUIRE_GRAPH_HASH=1)"
-      return 1
-    fi
-    echo "graph content pin: UNKNOWN -- optional check not armed"
-    return 0
+    echo "graph content pin: CANNOT EVALUATE -- an existing pin must be readable"
+    return 2
   fi
+  if [ ! -f "$graph_deploy_record" ]; then
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- deploy record is absent: $graph_deploy_record"
+    return "$graph_not_applicable_exit"
+  fi
+  if [ ! -r "$graph_deploy_record" ]; then
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- deploy record is unreadable: $graph_deploy_record"
+    return "$graph_not_applicable_exit"
+  fi
+
+  graph_here="$(pwd -P)"
+  graph_root="$(git rev-parse --show-toplevel 2>/dev/null)" || graph_root=""
+  if [ -z "$graph_root" ]; then
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- current Git tree identity is unavailable in $graph_here"
+    return "$graph_not_applicable_exit"
+  fi
+  graph_root="$(cd "$graph_root" 2>/dev/null && pwd -P)" || graph_root=""
+  if [ "$graph_root" != "$graph_here" ]; then
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- capture root $graph_here is not the Git root ${graph_root:-<unresolved>}"
+    return "$graph_not_applicable_exit"
+  fi
+  graph_current_tree="$(git rev-parse 'HEAD^{tree}' 2>/dev/null)" \
+    || graph_current_tree=""
+  if [ -z "$graph_current_tree" ]; then
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- current Git tree SHA is unavailable in $graph_here"
+    return "$graph_not_applicable_exit"
+  fi
+  graph_deployed_tree="$(tr -d '\r\n' < "$graph_deploy_record")"
+  if [ "$graph_deployed_tree" != "$graph_current_tree" ]; then
+    echo "graph pin applicability: UNKNOWN / NOT-APPLICABLE -- deploy record tree ${graph_deployed_tree:-<empty>} does not match capture tree $graph_current_tree"
+    return "$graph_not_applicable_exit"
+  fi
+  echo "graph pin applicability: APPLICABLE -- deploy record matches capture tree $graph_current_tree"
   if [ ! -x venv/bin/python ] || [ ! -f tools/l0_extract.py ] \
       || [ ! -f tools/graph_build.py ]; then
     echo "graph content pin: CANNOT EVALUATE -- graph tools or venv missing"
@@ -1866,6 +1897,8 @@ if [ "$FINAL_EXIT" -eq 0 ]; then
   echo "  PASS. Upload $ARCHIVE for the complete evidence bundle."
 elif [ "$BUNDLE_EXIT" -ne 0 ]; then
   echo "  FAIL (exit=$FINAL_EXIT). No archive was created."
+elif [ "$FINAL_EXIT" -eq 2 ]; then
+  echo "  UNKNOWN / NOT-APPLICABLE (exit=2). Upload $ARCHIVE for the complete evidence bundle."
 else
   echo "  FAIL (exit=$FINAL_EXIT). Upload $ARCHIVE for diagnosis."
 fi

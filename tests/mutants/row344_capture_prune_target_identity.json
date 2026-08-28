@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 344. Run from a detached standalone scratch tree with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row344_capture_prune_target_identity.json --work DETACHED_SCRATCH --timeout 300. M1 restores the demonstrated hard-coded /tmp deletion; the gate's PATH-local find maps that historical lookup into a same-named decoy inside tmp_path, so no real capture is reachable. M2-M4 prove unavailable root identity, archive ownership, and newest-retention direction. The companion transform control applies M1 byte-for-byte to a source-only node and must ESCAPE.",
+  "subject": "bd_capture_prune is object-bound to the directory advertised by its glob",
+  "band": [
+    "tests/test_row344_capture_prune_is_target_bound.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the demonstrated hard-coded /tmp search and pathname rm",
+      "file": "scripts/lib/capture_run_dir.sh",
+      "old": "  \"$python\" \"$prune_tool\" \"$keep\" \"$glob\"\n",
+      "new": "  local d n=0\n  while IFS= read -r d; do\n    n=$((n + 1))\n    if [ \"$n\" -gt \"$keep\" ]; then\n      rm -rf -- \"$d\" \"${d}.tar.gz\"\n      printf 'pruned %s\\n' \"$d\"\n    fi\n  done <<EOF\n$(find /tmp -maxdepth 1 -name \"$(basename \"$glob\")\" -type d -printf '%T@ %p\\n' 2>/dev/null \\\n    | sort -rn | cut -d' ' -f2-)\nEOF\n",
+      "direction": "regression",
+      "catcher": "tests/test_row344_capture_prune_is_target_bound.py::test_prune_uses_the_requested_root_and_is_idempotent"
+    },
+    {
+      "label": "M2 follow a mutable symlink instead of proving the advertised root",
+      "file": "tools/capture_prune.py",
+      "old": "    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC\n",
+      "new": "    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC\n",
+      "direction": "regression",
+      "catcher": "tests/test_row344_capture_prune_is_target_bound.py::test_prune_reports_unknown_when_the_requested_root_is_not_provable"
+    },
+    {
+      "label": "M3 accept a foreign archive link as an owned tarball",
+      "file": "tools/capture_prune.py",
+      "old": "    if archive.mode != stat.S_IFREG:\n        raise PruneUnknown(f\"archive {name!r} is not a regular file\")\n",
+      "new": "    if False:\n        raise PruneUnknown(f\"archive {name!r} is not a regular file\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row344_capture_prune_is_target_bound.py::test_prune_refuses_an_unowned_archive_before_removing_its_directory"
+    },
+    {
+      "label": "M4 reverse retention and prune the newest capture",
+      "file": "tools/capture_prune.py",
+      "old": "        victims = candidates[keep:]\n",
+      "new": "        victims = candidates[:keep]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row344_capture_prune_is_target_bound.py::test_prune_uses_the_requested_root_and_is_idempotent"
+    }
+  ]
+}

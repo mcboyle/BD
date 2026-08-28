@@ -20,13 +20,12 @@ export default defineConfig({
     css: false,
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
-    // Row 329, test5 loaded measurements (ms): 12 parallel T3/T4 runs put
-    // Library at 2294.762-3137.827 and Maintenance at 1537.648-2248.980;
-    // five same-CPU runs put them at 4554.031-4815.732 and
-    // 3001.935-3355.211.  Two loaded 617-case censuses found the unbounded
-    // T5 Maintenance case at 4857.209 and 5216.919, so this is config-wide.
-    // The worst completed same-load replay was Maintenance at 7169ms with four
-    // same-CPU load workers: ceil(7169 * 1.5) = 10754ms (50% headroom).
-    testTimeout: 10_754,
+    // Row 339, test5 loaded complete census: 329 suites / 617 cases passed while
+    // the 48-core load average rose 5.95 -> 26.18.  History.confirm's allowlist
+    // case was the worst at 8840.502ms; round that measurement up first, then
+    // ceil(8841ms * 1.5) = 13262ms (50% headroom).  Two exact-base replays at
+    // load 2.25 -> 10.95 and 7.09 -> 18.73 peaked at 7203.287ms, so the heavier
+    // retained census governs.  13262ms remains below the 240000ms pytest item.
+    testTimeout: 13_262,
   },
 });

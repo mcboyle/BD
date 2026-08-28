@@ -42,6 +42,7 @@ CAUGHT verdicts are assertion failures rather than TSX transform failures.
 
 run_tests.py conventions: zero-arg test functions; no pytest builtins.
 """
+import math
 import os
 from pathlib import Path
 import shutil
@@ -52,8 +53,10 @@ from tests.frontend_vitest import FRONTEND, VITEST, run_vitest
 
 BD_GATE_SCOPE = "repo-wide"
 
-_VITEST_TEST_TIMEOUT_MS = 10_754
+_VITEST_LOADED_WORST_MS = 8_841
+_VITEST_TEST_TIMEOUT_MS = 13_262
 _VITEST_HANG_OUTER_TIMEOUT_S = 30
+_GOVERNING_PYTEST_ITEM_TIMEOUT_MS = 240_000
 
 # Independent pinned denominator: do not derive this population from the
 # route/hook artifact under test.  The Vitest spec carries its own duplicate
@@ -121,6 +124,20 @@ def test_t3_t4_transform_control_imports_subjects_without_judging_behaviour():
     """Mutation-only transform control; this is deliberately not safety proof."""
     spec = "src/routes/T3T4.transform.test.tsx"
     run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
+
+
+def test_the_vitest_budget_is_derived_from_the_heavier_loaded_measurement():
+    """Row 339: the wall retains 50% headroom over the loaded 617-case worst.
+
+    The retained runtime report measured History.confirm at 8840.502ms while
+    test5's 48-core load average rose from 5.95 to 26.18.  Milliseconds are
+    rounded up before applying the safety factor, so no fractional measurement
+    is silently truncated.  The independent 240s pytest item remains the owner.
+    """
+    derived = math.ceil(_VITEST_LOADED_WORST_MS * 1.5)
+    assert derived == 13_262
+    assert _VITEST_TEST_TIMEOUT_MS == derived
+    assert _VITEST_TEST_TIMEOUT_MS < _GOVERNING_PYTEST_ITEM_TIMEOUT_MS
 
 
 def test_the_measured_vitest_budget_still_fires_for_genuinely_hung_work():

@@ -24,6 +24,7 @@ def _make_source_tree(tmp_path: Path) -> Path:
     (source / "bulk_downloader").mkdir(parents=True)
     (source / "frontend" / "src").mkdir(parents=True)
     (source / "tools").mkdir(parents=True)
+    (source / "tools" / "code_intelligence").mkdir()
     (source / "venv" / "bin").mkdir(parents=True)
     (source / "bulk_downloader" / "sample.py").write_text(
         "def answer():\n    return 42\n", encoding="utf-8")
@@ -31,7 +32,46 @@ def _make_source_tree(tmp_path: Path) -> Path:
         "export const answer = 42;\n", encoding="utf-8")
     shutil.copy2(ROOT / "tools" / "l0_extract.py", source / "tools")
     shutil.copy2(ROOT / "tools" / "graph_build.py", source / "tools")
+    for name in (
+        "__init__.py", "artifacts.py", "paths.py", "schemas.py", "snapshot.py"
+    ):
+        shutil.copy2(
+            ROOT / "tools" / "code_intelligence" / name,
+            source / "tools" / "code_intelligence" / name,
+        )
     os.symlink(sys.executable, source / "venv" / "bin" / "python")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Graph Pin Test"],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "graph-pin@example.invalid"],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git", "add",
+            "bulk_downloader/sample.py",
+            "frontend/src/sample.ts",
+            "tools/l0_extract.py",
+            "tools/graph_build.py",
+            "tools/code_intelligence/__init__.py",
+            "tools/code_intelligence/artifacts.py",
+            "tools/code_intelligence/paths.py",
+            "tools/code_intelligence/schemas.py",
+            "tools/code_intelligence/snapshot.py",
+        ],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "graph pin fixture"],
+        cwd=source,
+        check=True,
+    )
     return source
 
 
@@ -39,11 +79,23 @@ def _write_pin(source: Path, pin: Path, scratch: Path) -> None:
     db = scratch / "seed.db"
     subprocess.run(
         [sys.executable, "tools/l0_extract.py", "--root", str(source),
-         "--db", str(db)], cwd=source, check=True, capture_output=True, text=True)
+         "--db", str(db)], cwd=source, check=True, capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(source)})
     subprocess.run(
         [sys.executable, "tools/graph_build.py", "--db", str(db),
          "--hash-pin", str(pin), "--write-hash"],
         cwd=source, check=True, capture_output=True, text=True)
+
+
+def _write_deploy_record(source: Path, pin: Path) -> None:
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(f"{pin}.deploy-tree").write_text(tree + "\n", encoding="ascii")
 
 
 def _graph_function() -> str:
@@ -60,6 +112,7 @@ def _run_graph_gate(source: Path, pin: Path, temp_parent: Path, *, required: boo
         "BD_GRAPH_HASH_PIN": str(pin),
         "BD_REQUIRE_GRAPH_HASH": "1" if required else "0",
         "TMPDIR": str(temp_parent),
+        "PYTHONPATH": str(source),
     })
     return subprocess.run(
         ["bash", "-c", script], cwd=source, env=env,
@@ -86,6 +139,7 @@ def test_explicit_hash_cli_invocations_remain_compatible(tmp_path):
             str(database),
         ],
         cwd=source,
+        env={**os.environ, "PYTHONPATH": str(source)},
         capture_output=True,
         text=True,
     )
@@ -133,6 +187,7 @@ def test_matching_external_source_pin_succeeds_and_cleans_temp_db(tmp_path):
     temp_parent = tmp_path / "tmp"
     temp_parent.mkdir()
     _write_pin(source, pin, tmp_path)
+    _write_deploy_record(source, pin)
 
     result = _run_graph_gate(source, pin, temp_parent, required=True)
 
@@ -148,6 +203,7 @@ def test_source_mutation_fails_against_external_pin_and_cleans_temp_db(tmp_path)
     temp_parent = tmp_path / "tmp"
     temp_parent.mkdir()
     _write_pin(source, pin, tmp_path)
+    _write_deploy_record(source, pin)
     (source / "bulk_downloader" / "sample.py").write_text(
         "def answer():\n    return 43\n", encoding="utf-8")
 
@@ -158,7 +214,7 @@ def test_source_mutation_fails_against_external_pin_and_cleans_temp_db(tmp_path)
     _assert_graph_tmp_clean(temp_parent)
 
 
-def test_missing_external_pin_fails_when_required_without_creating_db(tmp_path):
+def test_missing_external_pin_is_not_applicable_when_required_without_creating_db(tmp_path):
     source = _make_source_tree(tmp_path)
     pin = tmp_path / "missing" / "KNOWLEDGE_GRAPH.content.sha256"
     temp_parent = tmp_path / "tmp"
@@ -166,8 +222,9 @@ def test_missing_external_pin_fails_when_required_without_creating_db(tmp_path):
 
     result = _run_graph_gate(source, pin, temp_parent, required=True)
 
-    assert result.returncode != 0
-    assert "required" in (result.stdout + result.stderr).lower()
+    assert result.returncode == 4
+    assert "UNKNOWN / NOT-APPLICABLE" in result.stdout
+    assert "pin is absent" in result.stdout
     _assert_graph_tmp_clean(temp_parent)
 
 
@@ -179,8 +236,9 @@ def test_missing_external_pin_is_explicit_unknown_when_optional(tmp_path):
 
     result = _run_graph_gate(source, pin, temp_parent, required=False)
 
-    assert result.returncode == 0
-    assert "UNKNOWN -- optional check not armed" in result.stdout
+    assert result.returncode == 4
+    assert "UNKNOWN / NOT-APPLICABLE" in result.stdout
+    assert "pin is absent" in result.stdout
     _assert_graph_tmp_clean(temp_parent)
 
 
@@ -218,7 +276,7 @@ def test_operator_policy_documents_external_pin_lifecycle():
     policy = (ROOT / "project-knowledge" / "OPERATOR_POLICY_DECISIONS.md").read_text(
         encoding="utf-8")
     assert "/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256" in policy
-    assert "BD_REQUIRE_GRAPH_HASH=1" in policy
+    assert ".deploy-tree" in policy
     assert "immediately before" in policy.lower()
     assert "release_root=/home/mboyle/BulkDownloader" in policy
     assert "set -euo pipefail" in policy
@@ -231,4 +289,4 @@ def test_canonical_certification_command_requires_graph_pin():
     policy = (ROOT / "project-knowledge" / "OPERATOR_POLICY_DECISIONS.md").read_text(
         encoding="utf-8"
     )
-    assert "BD_REQUIRE_GRAPH_HASH=1 DISPLAY=:99 ./capture.sh --workers=60 --summary" in policy
+    assert "DISPLAY=:99 ./capture.sh --workers=60 --summary" in policy

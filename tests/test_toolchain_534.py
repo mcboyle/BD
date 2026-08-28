@@ -44,13 +44,14 @@ def test_capture_sh_has_graph_checkhash_gate():
         "capture.sh has no graph --check-hash gate -- P2 pin is toothless on stash (B not wired)"
 
 
-def test_capture_sh_graph_gate_uses_external_pin_with_required_mode():
+def test_capture_sh_graph_gate_uses_external_pin_with_deploy_provenance():
     txt = _read("capture.sh")
     assert txt, "capture.sh not found"
     assert "BD_GRAPH_HASH_PIN" in txt
-    assert "BD_REQUIRE_GRAPH_HASH" in txt
     assert re.search(r'if \[ ! -f "\$graph_pin" \]', txt)
-    assert "UNKNOWN -- optional check not armed" in txt
+    assert '${graph_pin}.deploy-tree' in txt
+    assert "UNKNOWN / NOT-APPLICABLE" in txt
+    assert "graph_not_applicable_exit=4" in txt
 
 
 # --------------------------------------------------------------------------- #

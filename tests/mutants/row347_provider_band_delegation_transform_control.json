@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 347 transform control. This spec must report exactly one valid ESCAPED mutant: it applies the byte-identical provider-band early return while its only node checks the tool file identity without invoking or judging the wrapper. The escape proves the primary CAUGHT result is a delegation assertion failure rather than invalid Python, import failure, collection failure, or a broken transform.",
+  "subject": "transform control for the provider-band wrapper delegation receipt",
+  "band": [
+    "tests/test_v3_66_1180_band_derivation_paths.py::test_provider_band_transform_control_imports_tool_without_judging_delegation"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 provider band early return under an import-only control",
+      "file": "tests/test_v3_66_1180_band_derivation_paths.py",
+      "old": "def test_provider_resolve_band_contains_only_existing_current_suites():\n    result = subprocess.run(",
+      "new": "def test_provider_resolve_band_contains_only_existing_current_suites():\n    return None  # row 347 mutant: provider band delegate removed\n    result = subprocess.run(",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1180_band_derivation_paths.py::test_provider_band_transform_control_imports_tool_without_judging_delegation"
+    }
+  ]
+}

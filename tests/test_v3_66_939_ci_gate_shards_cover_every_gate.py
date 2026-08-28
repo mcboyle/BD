@@ -204,6 +204,10 @@ _DECLARED = {
     # This module drives their real gate seams plus measured-empty controls;
     # it is pinned into CI because neither legacy test file ran in any shard.
     "tests/test_row335_release_gate_populations.py",
+    # Row 339 (2026-08-28). Module-scoped: it judges verify_release.py's
+    # measurement walls. Declared and scheduled beside its row 335 sibling
+    # because it exercises the same release-verifier seam.
+    "tests/test_row339_measurement_noise_bounds.py",
     "tests/test_scan_version_pins_fixture.py",
     "tests/test_gui_parity.py",
     "tests/test_t1_dashboard_wired.py",
@@ -317,6 +321,10 @@ _DECLARED = {
     # Row 353. Regex mutation anchors and the tracked row-348 regression read
     # mutable whole-tree source/spec state, so this gate runs directly.
     "tests/test_row353_mutant_anchors_survive_a_moved_census.py",
+    # Row 354. Capture's deployment-local graph pin has three states. This gate
+    # executes all three against isolated exact-tree records and prevents a
+    # never-deployed checkout from masquerading as either PASS or graph drift.
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
@@ -517,11 +525,19 @@ _DECLARED = {
     # one file and not the other proves half of what it used to.
     "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
     "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py",
+    # Row 344. The shell library accepts a caller-selected capture glob and
+    # removes evidence, so its target-binding fixture is an always-scheduled
+    # safety boundary rather than a test left to diff-derived reachability.
+    "tests/test_row344_capture_prune_is_target_bound.py",
     # @1206 provider-facade. Retained implementation modules and re-imported
     # public facades form a process-wide generation boundary, so the direct
     # concurrency/ownership gate must execute even when no provider file is in
     # the diff that triggered CI.
     "tests/test_provider_resolve_surface_lock.py",
+    # Row 347. The provider-band gate's own early return escaped its only
+    # catcher. Its independent exact-call receipt now runs on every PR beside
+    # the provider facade whose affected band it constrains.
+    "tests/test_v3_66_1180_band_derivation_paths.py",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
     "tests/test_v3_66_1040_remote_job_registry.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
@@ -785,7 +801,7 @@ _DECLARED = {
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 349 (2026-08-28). One shared-cache identity gate is declared and
 # scheduled; on top of main's 217 that is 218.
-_EXPECTED_DECLARED_GATE_COUNT = 220
+_EXPECTED_DECLARED_GATE_COUNT = 224
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

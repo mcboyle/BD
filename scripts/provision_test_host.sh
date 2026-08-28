@@ -632,18 +632,17 @@ echo "=== [8/9] graph content pin ==="
 # (/var/lib/...), so `git reset --hard` never delivers it and a freshly
 # provisioned box has none at all.
 #
-# With BD_REQUIRE_GRAPH_HASH unset -- the default is 0 -- capture.sh's MISSING
-# branch prints "UNKNOWN -- optional check not armed" and RETURNS 0. The
-# capture then goes green with the graph check never performed: a gate that
-# cannot see its subject reporting OK. Arming the pin here is what makes a
-# provisioned host come up with that check live rather than silently skipped.
+# capture.sh now reports a missing pin as UNKNOWN / NOT-APPLICABLE, never PASS.
+# A hash alone is still insufficient: the gate also needs the exact Git tree
+# this fresh-host initialization validated. This step therefore writes the same
+# <pin>.deploy-tree record that routine deploy.sh refreshes after health checks.
 #
 # The default below MUST match capture.sh's. If the two drift, this step arms a
 # file the gate never reads and BOTH report success -- two green tools and no
 # gate. tests/test_provision_test_host.py pins the shared literal.
 GRAPH_PIN="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
 if [ ! -x "$REPO/venv/bin/python" ]; then
-    record "graph content pin" "UNKNOWN" "no venv at venv/bin/python; the pin was NOT armed, so capture.sh will skip the graph gate and still exit 0"
+    record "graph content pin" "UNKNOWN" "no venv at venv/bin/python; the pin was NOT armed, so capture.sh will report graph pin NOT-APPLICABLE"
 elif [ ! -f "$REPO/tools/l0_extract.py" ] || [ ! -f "$REPO/tools/graph_build.py" ]; then
     record "graph content pin" "UNKNOWN" "tools/l0_extract.py or tools/graph_build.py is missing; cannot build the graph to pin against"
 else
@@ -669,18 +668,33 @@ else
         $SUDO chmod 0644 "$GRAPH_PIN" 2>/dev/null || true
 
         # Exit 0 from --write-hash proves a WRITE happened, not that capture.sh
-        # can read the result. An unreadable pin sends the gate down its
-        # `[ ! -r ]` branch -- "UNKNOWN -- optional check not armed", return 0 --
-        # which is the same silent skip this step exists to remove, now with a
-        # pin that exists. So re-run the gate's own --check-hash AS THE INVOKING
+        # can read the result. Re-run the gate's own --check-hash AS THE INVOKING
         # USER (never under $SUDO): that measures readable AND matching in one
-        # go, which is exactly the condition capture.sh will evaluate.
+        # go, which is exactly the content condition capture.sh will evaluate.
         if ./venv/bin/python tools/graph_build.py \
                 --db "$GRAPH_TMP/KNOWLEDGE_GRAPH.db" --hash-pin "$GRAPH_PIN" \
                 --check-hash >"$LOGDIR/08_graph_checkhash.log" 2>&1; then
             record "graph pin readable" "OK" "check-hash matches as $(id -un); capture.sh's graph gate is armed"
+            GRAPH_REPO_ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)" \
+                || GRAPH_REPO_ROOT=""
+            GRAPH_TREE="$(git -C "$REPO" rev-parse 'HEAD^{tree}' 2>/dev/null)" \
+                || GRAPH_TREE=""
+            if [ -z "$GRAPH_REPO_ROOT" ] \
+                    || [ "$(cd "$GRAPH_REPO_ROOT" 2>/dev/null && pwd -P)" != "$(cd "$REPO" && pwd -P)" ] \
+                    || [ -z "$GRAPH_TREE" ]; then
+                record "graph pin provenance" "UNKNOWN" "pin matches, but the exact Git tree identity for $REPO is unavailable; capture.sh will report NOT-APPLICABLE"
+            else
+                GRAPH_RECORD="${GRAPH_PIN}.deploy-tree"
+                printf '%s\n' "$GRAPH_TREE" > "$GRAPH_TMP/deploy-tree" || true
+                if $SUDO install -m 0644 "$GRAPH_TMP/deploy-tree" "$GRAPH_RECORD" \
+                        && [ "$(tr -d '\r\n' < "$GRAPH_RECORD" 2>/dev/null)" = "$GRAPH_TREE" ]; then
+                    record "graph pin provenance" "OK" "recorded exact initialized tree $GRAPH_TREE beside the pin"
+                else
+                    record "graph pin provenance" "UNKNOWN" "could not write/read exact tree $GRAPH_TREE at $GRAPH_RECORD; capture.sh will report NOT-APPLICABLE"
+                fi
+            fi
         else
-            record "graph pin readable" "UNKNOWN" "pin written but check-hash did not verify as $(id -un) -- unreadable or mismatched; capture.sh will skip or fail the graph gate. See $LOGDIR/08_graph_checkhash.log"
+            record "graph pin readable" "UNKNOWN" "pin written but check-hash did not verify as $(id -un) -- unreadable or mismatched; capture.sh cannot evaluate or will fail the graph gate. See $LOGDIR/08_graph_checkhash.log"
         fi
         rm -rf -- "$GRAPH_TMP"
     fi

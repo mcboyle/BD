@@ -92,16 +92,17 @@ not have.
 
 `capture.sh` step [2b] compares a rebuilt source graph against a pin under
 `/var/lib/bulkdownloader/validation/` — **outside the repo**, so `git reset
---hard` never delivers it and a fresh box has none. With `BD_REQUIRE_GRAPH_HASH`
-unset the MISSING branch prints `UNKNOWN -- optional check not armed` and
-**returns 0**: the capture goes green with the graph never checked.
+--hard` never delivers it and a fresh box has none. A missing pin is now
+`UNKNOWN / NOT-APPLICABLE`: graph step exit 4 and final capture exit 2, never a
+green result and never the FAIL wording reserved for measured graph drift.
 
 The provisioner arms it (step [8/9]) and then re-runs the gate's own
 `--check-hash` **as the invoking user**, because writing a pin proves a write,
-not that `capture.sh` can read and match it. After that the gate is live, and it
-must be **re-pinned after every source change** — `scripts/deploy.sh` does that
-automatically at its step [7]; a by-hand deploy does not, and the next capture
-goes red on drift.
+not that `capture.sh` can read and match it. It also records the exact initialized
+Git tree in `<pin>.deploy-tree`. Routine `scripts/deploy.sh` refreshes the pin at
+step [7] and writes that same tree record only after health and `GET /` verify.
+After that the gate is live. A by-hand update writes neither trustworthy state:
+the next capture is NOT-APPLICABLE when the tree record differs, not permission.
 
 ## Operator state to migrate — the list that loses data if you miss it
 

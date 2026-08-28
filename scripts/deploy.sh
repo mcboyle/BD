@@ -28,6 +28,8 @@
 #   * the graph content pin lives OUTSIDE the repo under /var/lib/, so a reset
 #     never delivers it either, and capture.sh step [2b] then reports drift
 #     which capture_verdict.py turns into a whole-capture FAIL.
+#   * whether that pin belongs to THIS deployed tree was not recorded at all, so
+#     a capture in a never-deployed checkout could only misgrade drift as FAIL.
 #   * the service is not restarted, so the process keeps running the old tree.
 #
 # THE DESIGN RULE (CLAUDE.md section 0). Every step VERIFIES what it did rather
@@ -402,6 +404,10 @@ TREE_VERSION="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/
 [ -n "$TREE_VERSION" ] \
   || die "could not derive __version__ from bulk_downloader/__init__.py after the reset"
 note "tree version is $TREE_VERSION"
+DEPLOY_TREE="$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)"
+[ -n "$DEPLOY_TREE" ] \
+  || die "could not derive the exact Git tree SHA after the reset"
+note "tree identity is $DEPLOY_TREE"
 
 # ── [5] requirements converge ───────────────────────────────────────
 # Keyed on the CHECK, not on the diff: a requirements change pulled in by an
@@ -522,15 +528,17 @@ fi
 # whole-capture FAIL. This is the step that keeps getting left off the
 # post-deploy checklist, which is why it is in the script and on by default.
 STEP=7
+PIN="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
+PIN_DEPLOY_RECORD="${PIN}.deploy-tree"
 if [ "$SKIP_GRAPH" -eq 1 ]; then
-  note "WARNING: --skip-graph-pin given. The pin still describes the PREVIOUS
-  tree, so the next ./capture.sh step [2b] will report graph drift and
-  capture_verdict.py will fail the whole capture. Re-pin by hand before running it."
+  note "WARNING: --skip-graph-pin given. A present pin still describes the
+  PREVIOUS tree, so after this deploy is recorded the next ./capture.sh step [2b]
+  will report graph drift and fail. An absent pin will report NOT-APPLICABLE.
+  Re-pin by hand before running capture."
 else
   # This default MUST stay byte-identical to capture.sh's and
   # provision_test_host.sh's. If they drift, this step arms a file the gate
   # never reads and BOTH report success -- two green tools and no gate.
-  PIN="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
   GTMP="$(mktemp -d "${TMPDIR:-/tmp}/bd_deploy_graph.XXXXXX")" \
     || die "mktemp failed; cannot build a throwaway graph to pin against"
   GDB="$GTMP/KNOWLEDGE_GRAPH.db"
@@ -784,6 +792,24 @@ note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
 # current and whose ENVIRONMENT had not converged, which is why "already
 # current" is still a full verification and not an early return.
 STEP=13
+# The record is written LAST, after both health and GET / verified. Writing it
+# beside the pin at step 7 would let a later failed deploy claim this tree had
+# deployed successfully. It is the exact Git TREE rather than a version string:
+# tools/deployed_version.txt is rewritten on service start and cannot distinguish
+# two commits (or trees) that carry the same release version.
+GTMP="$(mktemp "${TMPDIR:-/tmp}/bd_deploy_tree.XXXXXX")" \
+  || die "mktemp failed; cannot record deployed tree provenance"
+printf '%s\n' "$DEPLOY_TREE" > "$GTMP" \
+  || die "could not prepare deployed tree provenance"
+sudo mkdir -p "$(dirname "$PIN_DEPLOY_RECORD")" \
+  || die "could not create graph-pin provenance directory: $(dirname "$PIN_DEPLOY_RECORD")"
+sudo install -m 0644 "$GTMP" "$PIN_DEPLOY_RECORD" \
+  || die "could not record deployed tree provenance: $PIN_DEPLOY_RECORD"
+rm -f -- "$GTMP"; GTMP=""
+recorded_tree="$(tr -d '\r\n' < "$PIN_DEPLOY_RECORD" 2>/dev/null || true)"
+[ "$recorded_tree" = "$DEPLOY_TREE" ] \
+  || die "deployed tree record did not read back as $DEPLOY_TREE: $PIN_DEPLOY_RECORD"
+note "deployed tree provenance recorded beside graph pin: $DEPLOY_TREE"
 if [ "$SAME" -eq 1 ] && [ -z "$handoff_expected" ] \
    && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
   note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW)"

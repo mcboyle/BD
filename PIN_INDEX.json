@@ -20,7 +20,7 @@
     "total": 105,
     "version": 1,
     "count_dict": 104,
-    "test_files_scanned": 1478,
+    "test_files_scanned": 1481,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -353,7 +353,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1326",
+      "value": "3.66.1327",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -407,7 +407,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_toolchain_534.py",
-      "line": 1735,
+      "line": 1736,
       "value": {
         "files": 2,
         "passed": 1,

@@ -66,18 +66,24 @@ bd_capture_prune() {
     return 2
   fi
 
-  local d n=0
-  # -maxdepth 0 so the glob's own matches are the subjects, never their
-  # contents; -printf with %T@ gives a sortable mtime that does not depend on
-  # the name format.
-  while IFS= read -r d; do
-    n=$((n + 1))
-    if [ "$n" -gt "$keep" ]; then
-      rm -rf -- "$d" "${d}.tar.gz"
-      printf 'pruned %s\n' "$d"
-    fi
-  done <<EOF
-$(find /tmp -maxdepth 1 -name "$(basename "$glob")" -type d -printf '%T@ %p\n' 2>/dev/null \
-    | sort -rn | cut -d' ' -f2-)
-EOF
+  local lib_dir repo python prune_tool
+  lib_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)" || {
+    printf 'bd_capture_prune: UNKNOWN -- cannot identify its library directory\n' >&2
+    return 3
+  }
+  repo="$(CDPATH= cd -- "$lib_dir/../.." && pwd -P)" || {
+    printf 'bd_capture_prune: UNKNOWN -- cannot identify its repository\n' >&2
+    return 3
+  }
+  prune_tool="$repo/tools/capture_prune.py"
+  if [ -x "$repo/venv/bin/python" ]; then
+    python="$repo/venv/bin/python"
+  else
+    python="$(command -v python3 2>/dev/null || true)"
+  fi
+  if [ -z "$python" ] || ! [ -f "$prune_tool" ]; then
+    printf 'bd_capture_prune: UNKNOWN -- object-bound pruner is unavailable\n' >&2
+    return 3
+  fi
+  "$python" "$prune_tool" "$keep" "$glob"
 }

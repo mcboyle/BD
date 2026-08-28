@@ -3844,6 +3844,30 @@ def _run_verdict_probe(
     else:
         shutil.rmtree(repo / "venv")
 
+    # A healthy provision target is an exact Git tree.  The graph-pin
+    # provenance step intentionally refuses to invent that identity when the
+    # fixture supplies only loose files, so establish the same precondition a
+    # real checkout has before asking the whole-file verdict to report READY.
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git", "-c", "user.name=Provision Verdict Probe",
+            "-c", "user.email=provision-verdict@example.invalid",
+            "add", ".",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git", "-c", "user.name=Provision Verdict Probe",
+            "-c", "user.email=provision-verdict@example.invalid",
+            "commit", "-q", "-m", "provision verdict fixture",
+        ],
+        cwd=repo,
+        check=True,
+    )
+
     stub_bin = work / "bin"
     stub_bin.mkdir()
     _write_stub(stub_bin / "apt-get", _FAKE_APT_GET)
@@ -4929,10 +4953,9 @@ def test_claude_md_keeps_the_canonical_regen_command() -> None:
 # content hash to a pin at
 # /var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256. That path
 # is OUTSIDE the repository, so `git reset --hard` never delivers it and a
-# freshly provisioned box has no pin at all. With BD_REQUIRE_GRAPH_HASH unset
-# (the default is 0) capture.sh's MISSING branch prints
-# "UNKNOWN -- optional check not armed" and RETURNS 0: the capture goes green
-# with the graph check never performed.
+# freshly provisioned box has no pin at all. capture.sh now reports that state
+# UNKNOWN / NOT-APPLICABLE rather than going green; the provisioner must write
+# both the pin and the exact-tree sidecar to make the measurement applicable.
 #
 # Nothing in scripts/, install_linux.sh or capture.sh armed it -- measured, a
 # grep for --write-hash / KNOWLEDGE_GRAPH.content / BD_GRAPH_HASH_PIN outside
@@ -5071,6 +5094,22 @@ def _run_provisioner_graph_step(
             "# provisioner probe stand-in\n", encoding="utf-8"
         )
     _write_stub(repo / "venv" / "bin" / "python", _GRAPH_FAKE_PYTHON)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Provision Probe",
+         "-c", "user.email=provision@example.invalid", "add",
+         "bulk_downloader/__init__.py", "tools/l0_extract.py",
+         "tools/graph_build.py"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-c", "user.name=Provision Probe",
+         "-c", "user.email=provision@example.invalid", "commit", "-q",
+         "-m", "provision graph fixture"],
+        cwd=repo,
+        check=True,
+    )
 
     pin = tmp_path / "validation" / "KNOWLEDGE_GRAPH.content.sha256"
     order_log = tmp_path / "order.log"
@@ -5114,9 +5153,9 @@ def _run_provisioner_graph_step(
 def test_provisioner_arms_the_graph_content_pin(tmp_path: Path) -> None:
     """RED. A provisioned host must come up with capture.sh's graph gate ARMED.
 
-    Without this step the pin never exists on a fresh box, capture.sh's MISSING
-    branch reports "UNKNOWN -- optional check not armed" and returns 0, and the
-    capture is green with the graph check never performed.
+    Without this step the pin and exact-tree record do not exist on a fresh box,
+    so capture.sh correctly reports UNKNOWN / NOT-APPLICABLE instead of grading
+    graph content.
     """
     completed, entries, rows, pin = _run_provisioner_graph_step(tmp_path)
 
@@ -5130,6 +5169,19 @@ def test_provisioner_arms_the_graph_content_pin(tmp_path: Path) -> None:
         f"stdout={completed.stdout[-2000:]!r}"
     )
     assert pin.read_text(encoding="utf-8").strip(), "the pin was written EMPTY"
+    deploy_record = Path(f"{pin}.deploy-tree")
+    expected_tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=tmp_path / "fake-repo",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert deploy_record.is_file(), (
+        "the provisioner wrote a graph hash without recording which exact tree "
+        "it came from; capture.sh must treat that orphan pin as NOT-APPLICABLE"
+    )
+    assert deploy_record.read_text(encoding="ascii").strip() == expected_tree
 
 
 def test_provisioner_does_not_record_ok_when_the_pin_does_not_verify(
@@ -5139,10 +5191,8 @@ def test_provisioner_does_not_record_ok_when_the_pin_does_not_verify(
 
     Exit 0 from --write-hash proves a WRITE happened, not that capture.sh can
     read and match the result. Root writes with root's umask; at 077 the pin
-    lands 0600 and capture.sh's `[ ! -r ]` branch degrades to
-    "UNKNOWN -- optional check not armed", return 0 -- the same silent skip
-    this step exists to remove, now with a pin that exists. A mismatched pin
-    fails differently but just as quietly if nobody looks.
+    lands 0600 and capture.sh's `[ ! -r ]` branch cannot evaluate the content.
+    A mismatched pin fails differently but just as loudly.
 
     So the step must re-run the gate's own --check-hash as the invoking user
     and grade THAT. Both directions are asserted, because a check that answers

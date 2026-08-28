@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3946,
+  "edge_count": 3949,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3468,6 +3468,9 @@
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
     ],
+    "tests/test_row339_measurement_noise_bounds.py": [
+      "tools/verify_release.py"
+    ],
     "tests/test_row346_plugin_sandbox_is_truthful.py": [
       "bulk_downloader/plugin_exec.py",
       "bulk_downloader/plugin_node.py",
@@ -3480,6 +3483,9 @@
       "bulk_downloader/dev_tools.py",
       "bulk_downloader/mass_import.py",
       "tools/onboard_site_template.py"
+    ],
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py": [
+      "tools/capture_verdict.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
@@ -6680,6 +6686,9 @@
       "bulk_downloader/wacz_export.py",
       "tools/build_template_from_wacz.py",
       "tools/workflow_diagnostic.py"
+    ],
+    "tools/capture_prune.py": [
+      "tools/safe_temp_remove.py"
     ],
     "tools/capture_quality_report.py": [
       "tools/capture_analytics.py",
