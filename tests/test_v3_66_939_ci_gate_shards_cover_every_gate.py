@@ -186,6 +186,10 @@ _DECLARED = {
     "tests/test_settings_center_slice4.py",
     "tests/test_versync_gate.py",
     "tests/test_release_hygiene_gates.py",
+    # Row 335. Both release verifiers previously passed over absent evidence.
+    # This module drives their real gate seams plus measured-empty controls;
+    # it is pinned into CI because neither legacy test file ran in any shard.
+    "tests/test_row335_release_gate_populations.py",
     "tests/test_scan_version_pins_fixture.py",
     "tests/test_gui_parity.py",
     "tests/test_t1_dashboard_wired.py",
@@ -709,7 +713,9 @@ _DECLARED = {
 # whole-tree dependency-freshness gate.
 # 201 -> 203 at row 334 (2026-08-28). This cut classifies exactly two legacy
 # runtime health-measurement gates and schedules both in application-safety.
-_EXPECTED_DECLARED_GATE_COUNT = 207
+# 201 -> 202 at row 335 (2026-08-28). Exactly one module-scoped release-gate
+# population test is declared here and scheduled once in artifacts-pins.
+_EXPECTED_DECLARED_GATE_COUNT = 208
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
