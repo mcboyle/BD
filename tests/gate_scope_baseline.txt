@@ -339,7 +339,6 @@ tests/test_multi_conn_ssrf.py
 tests/test_nav_probe.py
 tests/test_nav_reachability.py
 tests/test_negative.py
-tests/test_no_raw_unicode_escape_in_jsx.py
 tests/test_no_test_writes_the_real_vpn_config.py
 tests/test_no_test_writes_the_repo_plugins_dir.py
 tests/test_not_exercisable_is_its_own_verdict.py

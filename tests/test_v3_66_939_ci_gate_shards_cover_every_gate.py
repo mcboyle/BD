@@ -184,6 +184,11 @@ _DECLARED = {
     # tree whose two arms differ only in a filename. Repo-wide because a new
     # scanner can appear in any file in that population.
     "tests/test_v3_66_1225_spa_scanner_populations.py",
+    # Row 348 / H15-2. This live all-source TSX gate was classified by the SPA
+    # scanner census but absent from every CI shard. A planted raw Unicode
+    # escape therefore failed here while the scheduled denominator stayed
+    # green. Pin the live verdict beside the census that classifies it.
+    "tests/test_no_raw_unicode_escape_in_jsx.py",
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",
@@ -763,10 +768,15 @@ _DECLARED = {
 # 208 -> 209 at row 350 (2026-08-28): one job-lifecycle truth gate.
 # Row 341 (2026-08-28). One cloud-setup truthfulness gate is declared and
 # scheduled; on top of main's 215 that is 216.
-_EXPECTED_DECLARED_GATE_COUNT = 216
+# Row 348 (2026-08-28). The raw-Unicode JSX gate existed in the tree and was
+# scheduled nowhere; declaring and scheduling it takes main's 216 to 217.
+_EXPECTED_DECLARED_GATE_COUNT = 217
+_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 _CONFIRMED_SAFETY_GATES = {
+    "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
+    "tests/test_no_raw_unicode_escape_in_jsx.py",
     "tests/test_v3_66_285_cloak_parity.py",
     "tests/test_v3_66_795_mod3_seam.py",
     "tests/test_v3_66_1009_live_results_are_bundled.py",
@@ -1001,13 +1011,30 @@ def test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check():
 
 
 def test_declared_and_ci_executed_gate_denominators_are_exact():
-    """The five confirmed safety gates belong to the exact live population."""
+    """All seven H15 CI-coverage gates belong to the exact live population."""
+    assert len(_CONFIRMED_SAFETY_GATES) == _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT, (
+        "the confirmed H15 safety-gate denominator changed from exactly "
+        f"{_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT}: "
+        f"{sorted(_CONFIRMED_SAFETY_GATES)}")
+    wrong_scopes = sorted(
+        f"{rel}: {_declared_scope(_REPO / rel)!r}"
+        for rel in _CONFIRMED_SAFETY_GATES
+        if _declared_scope(_REPO / rel) != "repo-wide"
+    )
+    assert not wrong_scopes, (
+        "confirmed H15 safety gate(s) do not declare repo-wide scope: "
+        f"{wrong_scopes}")
     missing_required = sorted(_CONFIRMED_SAFETY_GATES - _DECLARED)
     assert not missing_required, (
         "confirmed safety gate(s) remain undeclared and therefore unreachable "
         f"from every CI shard: {missing_required}")
     _assert_exact_gate_coverage(
         _DECLARED, _shard_lists(), _EXPECTED_DECLARED_GATE_COUNT)
+
+
+def test_transform_control_imports_ci_gate_without_judging_row348_reachability():
+    """Mutation transform control: collection/import alone judges no gate."""
+    assert _CI.is_file()
 
 
 def test_the_coverage_comparison_actually_compares():
