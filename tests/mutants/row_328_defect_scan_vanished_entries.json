@@ -1,0 +1,59 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 328. The battery restores the vanishing-open refusal, launders a present EACCES into VANISHED, corrupts the exact vanished denominator, drops real findings, and disables the derived Chromium profile marker. Each mutant has a named behavioral catcher in the real scanner subprocess. The companion transform control applies M1 byte-for-byte to a stable scan and must ESCAPE.",
+  "subject": "bd-defect-scan counts only ENOENT source-open races as vanished while preserving UNKNOWN, findings, and the declared source population",
+  "band": [
+    "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_source_file_vanishing_after_enumeration_is_counted_exactly",
+    "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_an_unreadable_present_source_remains_unknown_and_refuses",
+    "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_real_finding_in_a_real_file_is_still_reported",
+    "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_chromium_profile_markers_exclude_generated_profile_data"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore CANNOT-EVALUATE when an enumerated source vanishes before open",
+      "file": "toolchain/bin/bd-defect-scan",
+      "old": "                    except OSError as exc:\n                        if exc.errno != errno.ENOENT:\n                            raise\n                        vanished += 1\n                        continue\n",
+      "new": "                    except OSError as exc:\n                        if exc.errno != errno.ENOENT:\n                            raise\n                        raise\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_source_file_vanishing_after_enumeration_is_counted_exactly"
+    },
+    {
+      "label": "M2 launder every present unreadable OSError into a vanished entry",
+      "file": "toolchain/bin/bd-defect-scan",
+      "old": "                        if exc.errno != errno.ENOENT:\n                            raise\n",
+      "new": "                        if False and exc.errno != errno.ENOENT:\n                            raise\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_an_unreadable_present_source_remains_unknown_and_refuses",
+      "preserves": [
+        "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_source_file_vanishing_after_enumeration_is_counted_exactly"
+      ]
+    },
+    {
+      "label": "M3 report a zero vanished denominator after observing the race",
+      "file": "toolchain/bin/bd-defect-scan",
+      "old": "               \"files_scanned\": scanned, \"files_vanished\": vanished,",
+      "new": "               \"files_scanned\": scanned, \"files_vanished\": 0,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_source_file_vanishing_after_enumeration_is_counted_exactly"
+    },
+    {
+      "label": "M4 discard findings produced by successfully opened real files",
+      "file": "toolchain/bin/bd-defect-scan",
+      "old": "                    if fnd:\n                        results[rel] = fnd\n",
+      "new": "                    if False and fnd:\n                        results[rel] = fnd\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_real_finding_in_a_real_file_is_still_reported",
+      "preserves": [
+        "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_a_source_file_vanishing_after_enumeration_is_counted_exactly"
+      ]
+    },
+    {
+      "label": "M5 stop recognizing Chromium user-data roots by their stable marker",
+      "file": "toolchain/bin/bd-defect-scan",
+      "old": "BROWSER_PROFILE_MARKERS = (\"Local State\",)",
+      "new": "BROWSER_PROFILE_MARKERS = (\"Not a Chromium marker\",)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py::test_chromium_profile_markers_exclude_generated_profile_data"
+    }
+  ]
+}

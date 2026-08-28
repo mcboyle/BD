@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1309 - a profile lock disappearing mid-scan is not a failed measurement
+
+-        "suppression_errors",
+-        for dp_, _, fns in os.walk(os.path.join(root, base)):
+-                    if cache is not None:
+-                        fnd = cache.get_or_compute(
+-                            p, lambda p=p, rel=rel: scan_file(
+-                                rel, open(p, encoding="utf-8",
+-                                          errors="replace").read()))
+-                    else:
+-                        src = open(p, encoding="utf-8", errors="replace").re
+-                        fnd = scan_file(rel, src)
+-        return (visible, scanned, suppressed, results, len(suppressions),
+-                suppression_errors)
+-    return visible, scanned
+
 ## v3.66.1308 - body_contract_fixtures returns to the serial lane on capture evidence
 
 - v3.66.1306 promoted body_contract_fixtures into the parallel capture lane.

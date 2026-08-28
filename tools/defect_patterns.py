@@ -18,6 +18,7 @@ stdlib `ast`/`re` only, offline, deterministic.
 """
 import argparse
 import ast
+import errno
 import json
 import os
 import re
@@ -485,6 +486,17 @@ DETECTORS = {
 CORPUS_GATED = ["DP-01", "DP-03", "DP-07", "DP-08", "DP-10", "DP-11", "DP-14"]
 
 PROD = (("bulk_downloader", (".py",)), ("tools", (".py",)))
+BROWSER_PROFILE_MARKERS = ("Local State",)
+
+
+def _is_browser_profile(path):
+    """Chromium user-data roots are runtime state, never detector source."""
+    return any(os.path.isfile(os.path.join(path, marker))
+               for marker in BROWSER_PROFILE_MARKERS)
+
+
+def _raise_walk_error(exc):
+    raise exc
 
 
 def _parse(path, src):
@@ -512,15 +524,35 @@ def scan_file(path, src, only=None):
 def scan_tree(root, include_suppression_report=False):
     suppressions = load_suppressions(root, DETECTORS)
     results = {}
+    enumerated = 0
+    scanned = 0
+    vanished = 0
     for base, exts in PROD:
-        for dp_, _, fns in os.walk(os.path.join(root, base)):
+        source_root = os.path.join(root, base)
+        if not os.path.exists(source_root):
+            continue
+        for dp_, dirs, fns in os.walk(
+                source_root, onerror=_raise_walk_error):
+            dirs[:] = [
+                directory for directory in dirs
+                if directory not in ("node_modules", "__pycache__")
+                and not _is_browser_profile(os.path.join(dp_, directory))
+            ]
             if "node_modules" in dp_ or "__pycache__" in dp_:
                 continue
             for f in fns:
                 if f.endswith(exts):
                     p = os.path.join(dp_, f)
                     rel = os.path.relpath(p, root)
-                    src = open(p, encoding="utf-8", errors="replace").read()
+                    enumerated += 1
+                    try:
+                        src = open(p, encoding="utf-8", errors="replace").read()
+                    except OSError as exc:
+                        if exc.errno != errno.ENOENT:
+                            raise
+                        vanished += 1
+                        continue
+                    scanned += 1
                     fnd = scan_file(rel, src)
                     if fnd:
                         results[rel] = fnd
@@ -528,11 +560,11 @@ def scan_tree(root, include_suppression_report=False):
         results, suppressions
     )
     if include_suppression_report:
-        return (visible, suppressed, results, len(suppressions),
-                suppression_errors)
+        return (visible, enumerated, scanned, vanished, suppressed, results,
+                len(suppressions), suppression_errors)
     if suppression_errors:
         raise SuppressionError(suppression_errors[0])
-    return visible
+    return visible, enumerated, scanned, vanished
 
 
 def check_corpus(corpus_dir):
@@ -580,10 +612,15 @@ def main():
         return
 
     if a.scan:
+        if not os.path.isdir(os.path.realpath(a.scan)):
+            print("CANNOT-EVALUATE --scan %s: reason=ABSENT (no such directory)"
+                  % a.scan, file=sys.stderr)
+            raise SystemExit(2)
         try:
-            res, suppressed, raw, suppression_entries, suppression_errors = scan_tree(
-                a.scan, include_suppression_report=True
-            )
+            (res, enumerated, scanned, vanished, suppressed, raw,
+             suppression_entries, suppression_errors) = scan_tree(
+                 a.scan, include_suppression_report=True
+             )
         except SuppressionError as exc:
             print(json.dumps({
                 "schema": 1,
@@ -593,6 +630,15 @@ def main():
             }, indent=2, sort_keys=True))
             print("CANNOT-EVALUATE --scan %s: suppression authority: %s"
                   % (a.scan, exc), file=sys.stderr)
+            raise SystemExit(2)
+        except OSError as exc:
+            print("CANNOT-EVALUATE --scan %s: reason=UNREADABLE (%s)"
+                  % (a.scan, exc), file=sys.stderr)
+            raise SystemExit(2)
+        if scanned == 0:
+            print("CANNOT-EVALUATE --scan %s: reason=EMPTY "
+                  "(0 files under %s)" %
+                  (a.scan, "/".join(base for base, _ in PROD)), file=sys.stderr)
             raise SystemExit(2)
 
         def summarize(findings):
@@ -607,7 +653,9 @@ def main():
         raw_n, raw_by_dp = summarize(raw)
         suppressed_n, suppressed_by_dp = summarize(suppressed)
         payload = {"schema": 1, "root": a.scan, "files_with_findings": len(res),
-                   "total_findings": n, "by_dp": dict(sorted(by_dp.items())),
+                   "total_findings": n, "files_enumerated": enumerated,
+                   "files_scanned": scanned, "files_vanished": vanished,
+                   "by_dp": dict(sorted(by_dp.items())),
                    "findings": res,
                    "raw_total_findings": raw_n,
                    "suppressed_total_findings": suppressed_n,
@@ -620,8 +668,10 @@ def main():
         if a.out:
             json.dump(payload, open(a.out, "w"), indent=2, sort_keys=True)
             print("defect_patterns --scan: %d visible + %d suppressed = %d raw "
-                  "findings across %d visible files -> %s"
-                  % (n, suppressed_n, raw_n, len(res), a.out))
+                  "findings across %d visible files (enumerated %d; scanned %d; "
+                  "vanished %d) -> %s"
+                  % (n, suppressed_n, raw_n, len(res), enumerated, scanned,
+                     vanished, a.out))
             print("  by DP:", json.dumps(dict(sorted(by_dp.items()))))
         else:
             print(json.dumps(payload, indent=2, sort_keys=True))
