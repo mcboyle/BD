@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1651,
+    "edge_count": 1653,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3220,6 +3220,7 @@
         "bulk_downloader/selector_playground.py",
         "bulk_downloader/session_keeper.py",
         "bulk_downloader/takeover_vnc.py",
+        "bulk_downloader/template_selector_verifier.py",
         "tools/capture_session.py",
         "tools/cockpit_console.py",
         "tools/nav_probe.py"
@@ -4379,7 +4380,8 @@
       ],
       "bulk_downloader/selector_playground.py": [
         "bulk_downloader/app_playground.py",
-        "bulk_downloader/dom_analyzer.py"
+        "bulk_downloader/dom_analyzer.py",
+        "bulk_downloader/template_selector_verifier.py"
       ],
       "bulk_downloader/selector_versions.py": [
         "bulk_downloader/user_templates.py"
@@ -7088,6 +7090,10 @@
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/pattern_hygiene.py",
         "bulk_downloader/selector_lint.py"
+      ],
+      "bulk_downloader/template_selector_verifier.py": [
+        "bulk_downloader/cloak.py",
+        "bulk_downloader/selector_playground.py"
       ],
       "bulk_downloader/temporal_benchmark.py": [
         "bulk_downloader/capture_synth.py",

@@ -127,6 +127,11 @@ _DECLARED = {
     # Row 334. The library integrity route is a second consumer of the bitrot
     # issue census. Its runtime gate refuses to call a locked inventory clean.
     "tests/test_v3_57_phase9.py",
+    # Row 362. This gate compiles the selector population of every committed
+    # template and renders two network-blocked shapes with a real browser. A
+    # changed selector in any family changes its denominator, so it must run
+    # directly rather than depend on a diff-derived template band.
+    "tests/test_row362_templates_are_resolvable.py",
     # Backlog row 176. Verdict pins cannot detect a fixture whose recognizer
     # result is correct for the wrong site's bytes, so this gate independently
     # declares every recognizer fixture's page host and checks the payload.
@@ -806,7 +811,7 @@ _DECLARED = {
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 349 (2026-08-28). One shared-cache identity gate is declared and
 # scheduled; on top of main's 217 that is 218.
-_EXPECTED_DECLARED_GATE_COUNT = 225
+_EXPECTED_DECLARED_GATE_COUNT = 226
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

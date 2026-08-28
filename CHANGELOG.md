@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1330 - committed template selectors are resolved and proven syntactically valid
+
+-        "bd-plugin-audit", "bd-template-safety", "bd-log-sanitize", "bd-scru
+- Added the Playwright-backed verifier and static corpus gate in [template_se
+- Added installed CLI [bd-template-verify](/home/mboyle/bd-codex-wt/row362/to
+- Offline fixtures are network-blocked and cover both options-present and one
+- Added the repo-wide 15-test gate in [test_row362_templates_are_resolvable.p
+- Registered [row 362 as `OPEN`](/home/mboyle/bd-codex-wt/row362/project-know
+- RED first: 8 expected failures before implementation.
+- Required focused command: **15 passed**.
+- Static audit: **91 templates, 547/547 selectors checked, 0 malformed, 0 unk
+- Mutation battery: **10/10 CAUGHT**, zero escaped/unknown/invalid/error.
+- Identical import-only transform control: required **1 ESCAPED**, exit 1.
+- Supporting register/mutation suites: **63 passed**.
+- `bd-regen-order`: **REGEN COMPLETE**.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 225 -> 226.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _templates_are_resolvable.py -> bulk_downloader
+    template_selector_verifier.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1329 - the contract states three defect shapes it kept catching
 
 - A8 now states that the tool denominator includes the operator harness outsi

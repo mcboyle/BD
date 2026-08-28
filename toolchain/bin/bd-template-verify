@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Resolve one site template's selectors against a URL or saved HTML page."""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+
+sys.dont_write_bytecode = True
+TOOL = Path(__file__).resolve()
+RESOLVER = TOOL.parent / "_bd_work_tree.py"
+try:
+    resolver_spec = importlib.util.spec_from_file_location(
+        "_bd_template_verify_work_tree", RESOLVER
+    )
+    if resolver_spec is None or resolver_spec.loader is None:
+        raise ImportError(f"cannot load {RESOLVER}")
+    resolver = importlib.util.module_from_spec(resolver_spec)
+    resolver_spec.loader.exec_module(resolver)
+    WORK = resolver.resolve_work_tree(__file__)
+except (Exception, SystemExit) as exc:
+    print(
+        f"BD-TEMPLATE-VERIFY-UNKNOWN: checkout authority unavailable: {exc}",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+venv_python = WORK / "venv" / "bin" / "python"
+if (venv_python.is_file() and os.access(venv_python, os.X_OK)
+        and Path(sys.prefix).resolve() != (WORK / "venv").resolve()):
+    try:
+        os.execve(
+            str(venv_python),
+            [str(venv_python), str(TOOL), *sys.argv[1:]],
+            dict(os.environ),
+        )
+    except OSError as exc:
+        print(
+            f"BD-TEMPLATE-VERIFY-UNKNOWN: checkout interpreter failed: {exc}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+sys.path.insert(0, str(WORK))
+
+from bulk_downloader.template_selector_verifier import (  # noqa: E402
+    audit_committed_selector_syntax,
+    parse_selectors,
+    verify_template_source,
+)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("template_id", nargs="?", help="committed template id")
+    parser.add_argument("subject", nargs="?", help="live http(s) URL or saved UTF-8 HTML")
+    parser.add_argument("--json", action="store_true", help="emit the full report as JSON")
+    parser.add_argument("--audit-corpus", action="store_true", help="compile every committed selector; no browser/network")
+    parser.add_argument("--headed", action="store_true", help="show the browser for human-driven login/navigation")
+    parser.add_argument("--wait-for", help="wait for this selector before measuring")
+    parser.add_argument("--timeout", type=float, default=10.0, help="navigation/selector timeout in seconds")
+    parser.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
+    return parser
+
+
+def _print_human(report: dict) -> None:
+    print(f"template={report.get('template_id', '<corpus>')} verdict={report['verdict']} selectors={report['selector_count']}")
+    for row in report.get("selectors", []):
+        count = "-" if row.get("count") is None else str(row["count"])
+        print(f"{row['status']:9} count={count:>3} {row['path']}: {row['selector']}")
+        if row.get("error"):
+            print(f"          {row['error']}")
+
+
+def _selftest() -> int:
+    if venv_python.is_file():
+        assert Path(sys.prefix).resolve() == (WORK / "venv").resolve(), (
+            f"tool did not re-exec the checkout interpreter: {sys.prefix}"
+        )
+    controls = parse_selectors(["a[href]", "a[href*='.mp4'"])
+    assert [item["status"] for item in controls] == ["VALID", "MALFORMED"], controls
+    missing = verify_template_source(
+        {"id": "selftest", "learned": {"download": {"row_selectors": ["a[href]"]}}},
+        WORK / "toolchain" / "fixtures" / "bd-template-verify-intentionally-absent.html",
+    )
+    assert missing["verdict"] == "UNKNOWN" and missing["ok"] is False, missing
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.selftest:
+        return _selftest()
+    if args.audit_corpus:
+        report = audit_committed_selector_syntax()
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            _print_human(report)
+        return 0 if report["verdict"] == "OK" else (2 if report["verdict"] == "UNKNOWN" else 1)
+    if not args.template_id or not args.subject:
+        _parser().error("template_id and subject are required unless --audit-corpus is used")
+    report = verify_template_source(
+        args.template_id,
+        args.subject,
+        timeout=args.timeout,
+        headless=not args.headed,
+        wait_for=args.wait_for,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        _print_human(report)
+    if report["verdict"] == "HIT":
+        return 0
+    return 2 if report["verdict"] == "UNKNOWN" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
