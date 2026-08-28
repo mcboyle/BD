@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1305 - the frontend security-floor gate runs in CI and compares floors
+
+- For each unit, you should be able to answer: what does it do, how do you us
+- Can someone understand what a unit does without reading its internals? Can 
+- Smaller, well-bounded units are also easier for you to work with - you reas
+- Explore the current structure before proposing changes. Follow existing pat
+- Where existing code has problems that affect the work (e.g., a file that's 
+- Don't propose unrelated refactoring. Stay focused on what serves the curren
+- Write the validated design (spec) to `docs/superpowers/specs/YYYY-MM-DD-<to
+- (User preferences for spec location override this default)
+- Use elements-of-style:writing-clearly-and-concisely skill if available
+- Commit the design document to git
+- Invoke the writing-plans skill to create a detailed implementation plan
+- Do NOT invoke any other skill. writing-plans is the next step.
+- Throwaway prototypes
+
 ## v3.66.1304 - a row pinning a whole-tree census says so where the queue can read it
 
 - A row pinning a whole-tree human review now declares it as data.

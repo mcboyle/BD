@@ -301,6 +301,11 @@ _DECLARED = {
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
+    # Row 326. The frontend security floor was legacy-classified and named in
+    # NO shard, so it never ran -- and sat RED on main at v3.66.1304 because a
+    # legitimate patch upgrade tripped its exact-equality pin. Declaring it
+    # here makes removing it from ci.yml a failure of THIS gate.
+    "tests/test_frontend_dependency_security_floor.py",
     # Row 283. bd-claim coordinates separate writer processes in a shared
     # checkout, so its real-process transaction gate runs on every PR rather
     # than depending on a diff router to infer this operational-tool coupling.
@@ -669,7 +674,7 @@ _DECLARED = {
 # visual-audit identity gate to the declaration and tree-gates-3 shard.
 # 192 -> 193 at row 292 (2026-08-27). The existing capture-lane gate now
 # declares its tree-wide census scope and runs directly in tree-gates-1.
-_EXPECTED_DECLARED_GATE_COUNT = 194
+_EXPECTED_DECLARED_GATE_COUNT = 195
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

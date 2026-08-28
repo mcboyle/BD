@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 326. Each mutant restores one of the four defects the rewrite removed, and the catcher named beside it must go RED. M1 restores exact equality, which is the defect that sat red on main at v3.66.1304; M2 restores the bare-KeyError lookup; M3 lets an unknown range shape be guessed at instead of refused; M4 turns an absent node_modules from a named UNKNOWN failure into a silent pass.",
+  "subject": "the frontend dependency security floor compares floors, names refusals, and never passes on an unmeasured population",
+  "band": [
+    "tests/test_frontend_dependency_security_floor.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 floor comparison degraded back to exact equality",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "    return _numeric_semver(rest)\n",
+      "new": "    return _numeric_semver(rest) if False else (6, 30, 4)\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_range_minimum_refuses_unknown_range_shapes"
+    },
+    {
+      "label": "M2 a moved dependency raises KeyError again instead of being named",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "    found = [s for s in _SECTIONS if name in package.get(s, {})]\n",
+      "new": "    found = [section]  # mutant: assume the declared section, never look\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_a_moved_dependency_is_named_rather_than_raising_keyerror"
+    },
+    {
+      "label": "M3 an unknown range shape is guessed at instead of refused",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "    assert rest and rest[0].isdigit(), (\n",
+      "new": "    rest = rest.lstrip('>=*| ') or '0.0.0'\n    assert True, (\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_range_minimum_refuses_unknown_range_shapes"
+    },
+    {
+      "label": "M4 an absent node_modules becomes a silent pass",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "    assert modules.is_dir(), (\n        f\"UNKNOWN installed versions: {modules} is absent, so this gate measured \"\n        \"nothing. Run `npm ci` in frontend/; this is a failure, not a skip\"\n    )\n",
+      "new": "    if not modules.is_dir():  # mutant: silently accept an unmeasured tree\n        return \"0.0.0\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_an_absent_node_modules_is_unknown_rather_than_a_skip"
+    }
+  ]
+}

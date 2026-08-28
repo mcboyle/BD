@@ -326,6 +326,7 @@ jobs:
           - name: parity-graph
             suites: >-
               tests/test_v3_66_1218_vitest_delegating_shards_have_node.py
+              tests/test_frontend_dependency_security_floor.py
               tests/test_v3_66_1217_a_fixture_is_not_wiring.py
               tests/test_v3_66_1225_spa_scanner_populations.py
               tests/test_gui_parity.py
