@@ -1362,4 +1362,3 @@ test_v3_66_1003_capture_refuses_an_inherited_install_dir.py
 # subprocess, ambient-thread and real-binary timeout mechanisms still exist.
 test_perf_lab.py
 test_t14_vpn_probe_egress.py
-test_v3_66_729_body_contract_fixtures.py

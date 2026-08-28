@@ -23,18 +23,18 @@
       "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
     },
     {
-      "label": "M3 re-pin body-contract after its app singleton world became isolated",
+      "label": "M3 unpin body-contract, the exact v3.66.1306 regression row 327 reverted",
       "file": "tests/capture_lanes.py",
-      "old": "        \"test_v3_66_717_exec_bridge.py\",\n    }\n)\n",
-      "new": "        \"test_v3_66_717_exec_bridge.py\",\n        \"test_v3_66_729_body_contract_fixtures.py\",  # mutant: stale exact pin restored\n    }\n)\n",
+      "old": "        \"test_v3_66_729_body_contract_fixtures.py\",\n",
+      "new": "        # mutant: body-contract unpinned again, as at v3.66.1306\n",
       "direction": "regression",
       "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
     },
     {
-      "label": "M4 drop one measured promotion from the reviewed allowlist",
+      "label": "M4 drop one measured promotion from the allowlist (row 327: two remain)",
       "file": "tests/capture_parallel_files.txt",
-      "old": "test_perf_lab.py\ntest_t14_vpn_probe_egress.py\ntest_v3_66_729_body_contract_fixtures.py\n",
-      "new": "test_perf_lab.py\ntest_v3_66_729_body_contract_fixtures.py\n",
+      "old": "test_perf_lab.py\ntest_t14_vpn_probe_egress.py\n",
+      "new": "test_t14_vpn_probe_egress.py\n",
       "direction": "regression",
       "catcher": "tests/test_capture_execution_lanes.py::test_serial_exact_pins_match_row324_mechanism_measurements"
     },

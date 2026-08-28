@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1308 - body_contract_fixtures returns to the serial lane on capture evidence
+
+- v3.66.1306 promoted body_contract_fixtures into the parallel capture lane.
+- That release's own fleet capture refuted the promotion on test3.
+- test_unknown_only_ever_shrinks: UNKNOWN rose to 135 against a 134 baseline.
+- test_verdicts_are_order_independent: state leaks across probe runs.
+- That is the @754 app-singleton mechanism the promotion believed closed.
+- Row 324 measured at -n 2 and -n 4; the capture lane is far wider.
+- A cross-file singleton leak cannot surface with four co-resident files.
+- The file returns to SERIAL_EXACT_BASENAMES with the capture named beside it.
+- perf_lab and t14_vpn_probe_egress stay promoted and did not fail.
+- Row 292's mechanical allowlist count and digest move 1256 to 1255.
+- Row 324's own pin assertion is corrected rather than deleted.
+- The pin stands until the leak is refuted at capture width, not at -n 4.
+
 ## v3.66.1307 - owned pytest launches register themselves
 
 -        cmd = [sys.executable, "-m", "pytest", str(loader), *files,

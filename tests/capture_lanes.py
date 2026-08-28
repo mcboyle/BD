@@ -64,6 +64,20 @@ SERIAL_EXACT_BASENAMES = frozenset(
         # one explicit ffprobe-unavailable skip in all six runs, so even the
         # path-typed refusal mechanism was UNKNOWN on this host.
         "test_v3_66_717_exec_bridge.py",
+        # RE-PINNED AT ROW 327 AFTER A MEASURED REGRESSION. v3.66.1306
+        # (row 324) promoted this file on six shared-worker runs at -n 2
+        # and -n 4, concluding the @754 app-singleton leak was closed by
+        # probe_fixtures snapshotting s_cfg/s_meta/runners/_app_cfg. The
+        # FLEET CAPTURE of that very commit refuted it: on test3,
+        # bd_capture-20260828T021337Z-0d53fd2c failed twice in this file --
+        # test_unknown_only_ever_shrinks (UNKNOWN rose to 135 from a 134
+        # baseline) and test_verdicts_are_order_independent_across_probe_runs,
+        # whose own message reads "state is leaking across probe runs
+        # (fixture isolation regression)". The capture parallel lane is far
+        # wider than -n 4, so row 324 measured a shape that could not
+        # express the mechanism it was clearing. THE PIN STANDS UNTIL THE
+        # LEAK ITSELF IS FIXED AND REFUTED AT CAPTURE WIDTH, not at -n 4.
+        "test_v3_66_729_body_contract_fixtures.py",
     }
 )
 

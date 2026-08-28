@@ -22,9 +22,9 @@ LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 # The digest canonicalisation is sorted non-comment membership with one UTF-8
 # newline after every entry; an actual allowlist edit updates both facts and its
 # review evidence in the same commit.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1256
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1255
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "eb18ebf8ddee219cfc7e91bdaf8466f3e379d0059cc78c1081c504109b74b789"
+    "ecf4fa0705651673d2b401754ab433048cc78b2eb10954656fbf2a1e08146067"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -555,12 +555,20 @@ def test_serial_exact_pins_match_row324_mechanism_measurements() -> None:
     """Only mechanisms still present in source remain exact serial pins.
 
     Row 324 re-derived all six names rather than treating a favourable race as
-    evidence. Body-contract's singleton leakage, perf-lab's nameless h11 type,
-    and the VPN fixture's wrong-registry reset each have a current behavioural
-    regression test for the recorded mechanism, and all three files passed
-    three shared-worker runs at both ``-n 2`` and ``-n 4``. The other three
-    source mechanisms still exist, so their equally green samples cannot
-    promote them.
+    evidence, and promoted three. ROW 327 RETURNED ONE OF THEM. The fleet
+    capture of v3.66.1306 itself -- bd_capture-20260828T021337Z-0d53fd2c on
+    test3 -- failed twice inside test_v3_66_729_body_contract_fixtures.py:
+    test_unknown_only_ever_shrinks (UNKNOWN rose to 135 against a 134 baseline)
+    and test_verdicts_are_order_independent_across_probe_runs, whose message is
+    "state is leaking across probe runs (fixture isolation regression)". That
+    is precisely the @754 app-singleton mechanism row 324 believed closed.
+
+    THE LESSON IS ABOUT THE SHAPE OF THE MEASUREMENT, NOT THE CARE TAKEN. Six
+    green runs at ``-n 2`` and ``-n 4`` cannot express a leak that needs many
+    co-resident files to surface; the capture parallel lane is far wider. A
+    promotion is only refuted at the width the lane actually runs.
+    perf_lab and t14_vpn_probe_egress stay promoted: their mechanisms are
+    named, fixed in source, and did not fail anywhere in that same capture.
     """
     lanes = _load_lanes_module()
 
@@ -568,11 +576,13 @@ def test_serial_exact_pins_match_row324_mechanism_measurements() -> None:
         "test_dev_suite_tier1b.py",
         "test_v3_66_717_exec_bridge.py",
         "test_v3_66_797_runner_isolate.py",
+        # Row 327: promoted at v3.66.1306, refuted by that release's own
+        # capture, returned here. See the docstring.
+        "test_v3_66_729_body_contract_fixtures.py",
     }
     promoted = {
         "test_perf_lab.py",
         "test_t14_vpn_probe_egress.py",
-        "test_v3_66_729_body_contract_fixtures.py",
     }
 
     assert lanes.SERIAL_EXACT_BASENAMES == still_serial
@@ -622,12 +632,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1256
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1255
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1246
+    assert _PARALLEL_RATCHET_FLOOR == 1245
     with pytest.raises(
         AssertionError,
-        match=r"down to 1245 files.*count was 1256.*margin is 10.*floor is 1246",
+        match=r"down to 1244 files.*count was 1255.*margin is 10.*floor is 1245",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 
