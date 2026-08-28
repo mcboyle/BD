@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 323 transform control. This deliberately must ESCAPE: it removes the same stale-version comparison, but its only test runs a row with no census declaration. That proves the main battery's CAUGHT verdict comes from the explicit expiry refusal rather than an invalid transform, import failure, or unrelated collection error.",
+  "subject": "transform-only control for removal of the stale census comparison",
+  "band": [
+    "tests/test_row323_census_pins_declare_expiry.py::test_transform_control_exercises_only_a_row_without_a_pin"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 a stale census would be ignored while the no-pin control remains green",
+      "file": "tests/_row_census_pin.py",
+      "old": "    if pin.taken_at == base_version:\n        return\n",
+      "new": "    if True:  # mutant: treat every census as current\n        return\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_transform_control_exercises_only_a_row_without_a_pin"
+    }
+  ]
+}

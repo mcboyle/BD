@@ -26,6 +26,8 @@ from pathlib import Path
 import pytest
 from capture_lanes import classify_capture_path
 
+pytest_plugins = ("_row_census_pin",)
+
 # IMPORTED FOR ITS PRESENCE IN sys.modules, NOT FOR ITS API -- do not remove as
 # "unused". `unittest.mock.patch.dict` restores sys.modules to the snapshot it
 # took on entry, so a module FIRST IMPORTED inside such a block is DELETED on
