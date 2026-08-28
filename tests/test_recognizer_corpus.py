@@ -14,9 +14,10 @@ manifest bodies; heavy media/segment/mutation bodies dropped). Pins
 Regenerate after an intentional recognizer change:
     python3 tools/build_recognizer_corpus.py --regen-pins --out tests/corpus/recognizer
 """
+import ast
+import json
 import os
 import sys
-import json
 from pathlib import Path
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +29,32 @@ from bulk_downloader.capture_artifact_redact import scan_artifact_secrets  # noq
 
 _CORPUS = Path(_REPO) / "tests" / "corpus" / "recognizer"
 _PINS = json.loads((_CORPUS / "expected_verdicts.json").read_text(encoding="utf-8"))
+
+
+# Independent scheduling denominator for row 333.  Capture uses
+# ``--dist loadfile``, so the former 46 case functions in this module were one
+# 220.132-second worker unit even though no case shares mutable fixture state.
+# Keep the intended partition here, separate from the shard implementations,
+# so deleting a case or duplicating it in another file cannot make its own
+# reduced denominator look complete.
+_EXPECTED_SHARDS = {
+    "test_recognizer_corpus_shard_a.py": {
+        "scroller", "tiny", "theo", "kelly", "xnxx", "embed", "media",
+        "clappr", "brightcove", "vimeo",
+    },
+    "test_recognizer_corpus_shard_b.py": {
+        "erome", "adult", "news", "banb", "vdash", "wowza", "mxchrome",
+        "hlsjs", "nubiles", "react_player", "kaltura",
+    },
+    "test_recognizer_corpus_shard_c.py": {
+        "ultra", "beeg", "bang", "reptyle", "redgif", "nook", "teen",
+        "dpla", "iframe", "vip4k", "dashjs", "mux", "bunny_stream",
+    },
+    "test_recognizer_corpus_shard_d.py": {
+        "dfx", "wow", "bit", "peg", "brazzers", "shaka", "vixen", "art",
+        "shaka_clear", "dailymotion", "cloudflare_stream", "sproutvideo",
+    },
+}
 
 
 def _pin(draft):
@@ -88,6 +115,60 @@ def test_corpus_covers_the_class_matrix():
     assert max(v["caption_count"] for v in _PINS.values()) >= 5
 
 
+def test_all_46_corpus_cases_are_partitioned_across_four_loadfile_shards():
+    """The complete corpus must be split, never narrowed or duplicated."""
+    expected = set().union(*_EXPECTED_SHARDS.values())
+    fixtures = {path.name.removesuffix(".cap.json")
+                for path in _CORPUS.glob("*.cap.json")}
+    assert len(_EXPECTED_SHARDS) == 4, "recognizer shard denominator changed"
+    assert len(expected) == len(fixtures) == len(_PINS) == 46, (
+        "recognizer corpus denominator changed: expected=%d fixtures=%d pins=%d"
+        % (len(expected), len(fixtures), len(_PINS)))
+    assert expected == fixtures == set(_PINS), (
+        "recognizer cases left the complete fixture/pin population: "
+        f"expected-only={sorted(expected - fixtures)}, "
+        f"fixture-only={sorted(fixtures - expected)}, "
+        f"pin-only={sorted(set(_PINS) - expected)}")
+    assert sum(len(cases) for cases in _EXPECTED_SHARDS.values()) == 46, (
+        "a recognizer case appears in more than one scheduling shard")
+
+    observed = {}
+    missing = []
+    for filename, cases in _EXPECTED_SHARDS.items():
+        path = Path(__file__).with_name(filename)
+        if not path.is_file():
+            missing.append(filename)
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        call_names = [
+            node.args[0].value
+            for node in ast.walk(tree)
+            if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_check_one"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str))
+        ]
+        calls = set(call_names)
+        observed[filename] = calls
+        assert len(call_names) == len(cases), (
+            f"{filename} must call each of its {len(cases)} cases exactly once; "
+            f"found {len(call_names)} calls")
+        assert calls == cases, (
+            f"{filename} does not execute its exact pinned population: "
+            f"missing={sorted(cases - calls)}, extra={sorted(calls - cases)}")
+    assert not missing, (
+        "recognizer corpus remains one loadfile critical-path unit; missing "
+        f"physical shards: {missing}")
+    assert observed.keys() == _EXPECTED_SHARDS.keys()
+
+
+def test_recognizer_partition_transform_control_imports_without_judging_cases():
+    """Mutation control: the partition remains valid Python when not judged."""
+    assert callable(_check_one)
+
+
 def _check_one(name):
     fx = _CORPUS / f"{name}.cap.json"
     draft = brc.build_from_fixture(fx)
@@ -97,79 +178,6 @@ def _check_one(name):
     assert scan_artifact_secrets(draft) == [], f"{name}: secret leak in draft"
 
 
-# one zero-arg test per fixture (the runner injects no params)
-def test_reptyle():  _check_one("reptyle")
-def test_ultra():    _check_one("ultra")
-def test_banb():     _check_one("banb")
-def test_news():     _check_one("news")
-def test_vip4k():    _check_one("vip4k")
-def test_dfx():      _check_one("dfx")
-def test_vixen():    _check_one("vixen")
-def test_tiny():     _check_one("tiny")
-def test_bit():      _check_one("bit")
-def test_iframe():   _check_one("iframe")
-def test_xnxx():     _check_one("xnxx")
-def test_beeg():     _check_one("beeg")
-def test_nubiles():  _check_one("nubiles")
-def test_scroller(): _check_one("scroller")
-def test_peg():      _check_one("peg")
-def test_teen():     _check_one("teen")
-def test_brazzers(): _check_one("brazzers")
-def test_nook():     _check_one("nook")
-def test_theo():     _check_one("theo")
-def test_shaka():    _check_one("shaka")
-# P7 (v3.66.681): a 2nd shaka fixture -- a CLEAR (non-DRM) DASH stream, the
-# structural counterpart to the DRM+SSAI shaka demo. NET-NEW combo
-# (dash_manifest x auto_template x dash x shaka, downloadable/clear), so the
-# recognizer's shaka tell is guarded in a non-DRM context too.
-def test_shaka_clear(): _check_one("shaka_clear")
-def test_media():    _check_one("media")
-def test_dpla():     _check_one("dpla")
-def test_art():      _check_one("art")
-def test_adult():    _check_one("adult")
-def test_redgif():   _check_one("redgif")
-def test_wow():      _check_one("wow")
-# DASH-primary fixture (vidstack/DASH) -- the only primary_protocol=dash +
-# site_type=dash_manifest coverage in the corpus.
-def test_vdash():    _check_one("vdash")
-# iframe_embed fixture. NOTE: this pins the iframe_embed *site_type label* via
-# the clean-path fallback (primary None + no player selector -> family stays
-# "unknown"); it is NOT a guard on the iframe_hit -> family=iframe_embed
-# detection branch. A real cross-origin third-party-embed capture
-# (family=iframe_embed, not_downloadable) would guard detection; none was in
-# the supplied set. Remaining corpus gap: a family=iframe_embed fixture.
-def test_embed():    _check_one("embed")
-# CORPUS-EXP (v3.66.520) -- widen the class matrix from the consolidated corpus.
-# Each adds a NET-NEW (site_type x recommended_path x primary_protocol x
-# player_family) combo not already pinned. Two new player FAMILIES land here:
-#   mxchrome -> media_chrome (Mux <media-chrome> web component, hls_manifest)
-#   hlsjs    -> hls.js (operator-confirmed real hls.js site, hls_manifest)
-# plus a real videojs progressive site (bang), a signed_generic_token+progressive
-# videojs (kelly), a 2nd flowplayer host (wowza), and an unsigned videojs HLS
-# manifest (erome).
-def test_mxchrome(): _check_one("mxchrome")
-def test_hlsjs():    _check_one("hlsjs")
-def test_bang():     _check_one("bang")
-def test_kelly():    _check_one("kelly")
-def test_wowza():    _check_one("wowza")
-def test_erome():    _check_one("erome")
-# P7 (v3.66.681, "go p7 A on all available families"): synthetic fixtures for the
-# three recognizer-detectable PLAYER_LIBRARIES families that had NO in-tree
-# coverage -- clappr (HLS), react_player (HLS), dashjs (DASH). Each is a clean,
-# downloadable, non-DRM stream on a synthetic .test host; the recognizer emits the
-# distinct family, guarding its detection tell against silent rot.
-def test_clappr():       _check_one("clappr")
-def test_react_player(): _check_one("react_player")
-def test_dashjs():       _check_one("dashjs")
-# P7 (v3.66.681) cont. -- the hosted/embed PROVIDER families the recognizer emits
-# as a distinct player_family (bulk_downloader.deep_detect._common.PROVIDERS) that
-# had no in-tree fixture. wistia + jwplayer were already covered; vidyard/panopto/
-# youtube collapse to unknown (provider ID-hint only, not a distinct family verdict).
-def test_brightcove():        _check_one("brightcove")
-def test_kaltura():           _check_one("kaltura")
-def test_vimeo():             _check_one("vimeo")
-def test_mux():               _check_one("mux")
-def test_dailymotion():       _check_one("dailymotion")
-def test_bunny_stream():      _check_one("bunny_stream")
-def test_cloudflare_stream(): _check_one("cloudflare_stream")
-def test_sproutvideo():       _check_one("sproutvideo")
+# The 46 zero-argument fixture cases live in four physical shard files.  Keep
+# the helpers and the corpus-wide assertions here; the independent map above
+# proves that the move changed scheduling only, not membership.

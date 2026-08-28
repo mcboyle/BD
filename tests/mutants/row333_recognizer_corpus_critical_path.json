@@ -1,0 +1,44 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 333: the complete 46-case recognizer corpus occupies four reviewed parallel loadfile shards, and all five corpus files are directly visible in CI. Re-run from a tracked-files-only detached clone carrying this candidate: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row333_recognizer_corpus_critical_path.json --work DETACHED_SCRATCH --timeout 300. The companion transform control applies M1 byte-for-byte to an import-only test and must ESCAPE.",
+  "subject": "recognizer corpus keeps its exact population while leaving one loadfile critical path",
+  "band": [
+    "tests/test_recognizer_corpus.py::test_all_46_corpus_cases_are_partitioned_across_four_loadfile_shards",
+    "tests/test_capture_execution_lanes.py::test_recognizer_corpus_partition_has_five_parallel_loadfile_units",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 duplicate tiny behind scroller and drop scroller from the independent denominator",
+      "file": "tests/test_recognizer_corpus.py",
+      "old": "        \"scroller\", \"tiny\", \"theo\", \"kelly\", \"xnxx\", \"embed\", \"media\",\n",
+      "new": "        \"tiny\", \"tiny\", \"theo\", \"kelly\", \"xnxx\", \"embed\", \"media\",\n",
+      "direction": "regression",
+      "catcher": "tests/test_recognizer_corpus.py::test_all_46_corpus_cases_are_partitioned_across_four_loadfile_shards"
+    },
+    {
+      "label": "M2 shard A silently executes tiny twice instead of scroller",
+      "file": "tests/test_recognizer_corpus_shard_a.py",
+      "old": "def test_scroller(): _check_one(\"scroller\")\n",
+      "new": "def test_scroller(): _check_one(\"tiny\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_recognizer_corpus.py::test_all_46_corpus_cases_are_partitioned_across_four_loadfile_shards"
+    },
+    {
+      "label": "M3 return one corpus shard to capture serial",
+      "file": "tests/capture_parallel_files.txt",
+      "old": "test_recognizer_corpus_shard_c.py\n",
+      "new": "# mutant: recognizer shard C returned to serial\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_recognizer_corpus_partition_has_five_parallel_loadfile_units"
+    },
+    {
+      "label": "M4 remove shard D from its CI shard, dropping it from the denominator",
+      "file": ".github/workflows/ci.yml",
+      "old": "              tests/test_recognizer_corpus_shard_d.py\n",
+      "new": "              # mutant: shard D is not scheduled\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+    }
+  ]
+}

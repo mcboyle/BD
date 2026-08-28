@@ -516,6 +516,10 @@ jobs:
           - name: tree-gates-4
             suites: >-
               tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py
+              tests/test_recognizer_corpus_shard_a.py
+              tests/test_recognizer_corpus_shard_b.py
+              tests/test_recognizer_corpus_shard_c.py
+              tests/test_recognizer_corpus_shard_d.py
               tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py
               tests/test_ct1_corpus_validation.py
               tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py

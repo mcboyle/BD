@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 333 transform control: M1 is byte-identical to the primary mutant, but the selected test imports the partition without judging its population. Exactly one valid ESCAPED result proves the primary catch is behavioral rather than a parse, import, or collection failure.",
+  "subject": "transform-only control for the recognizer shard population",
+  "band": [
+    "tests/test_recognizer_corpus.py::test_recognizer_partition_transform_control_imports_without_judging_cases"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 duplicate tiny behind scroller while importability stays green",
+      "file": "tests/test_recognizer_corpus.py",
+      "old": "        \"scroller\", \"tiny\", \"theo\", \"kelly\", \"xnxx\", \"embed\", \"media\",\n",
+      "new": "        \"tiny\", \"tiny\", \"theo\", \"kelly\", \"xnxx\", \"embed\", \"media\",\n",
+      "direction": "regression",
+      "catcher": "tests/test_recognizer_corpus.py::test_recognizer_partition_transform_control_imports_without_judging_cases"
+    }
+  ]
+}

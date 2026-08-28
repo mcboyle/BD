@@ -1373,3 +1373,11 @@ test_v3_66_1046_tool_state_1040.py
 test_v3_66_1046_tool_state_1043.py
 test_v3_66_1046_tool_state_1044.py
 test_v3_66_1046_tool_state_1054.py
+# Row 333. The recognizer corpus split four ways, partitioned 10/11/13/12 with
+# the behavioural denominator unchanged at 46. They enter the parallel lane
+# deliberately: classify_capture_file defaults an unlisted file to serial, so
+# shards left out would be the same critical path wearing new names.
+test_recognizer_corpus_shard_a.py
+test_recognizer_corpus_shard_b.py
+test_recognizer_corpus_shard_c.py
+test_recognizer_corpus_shard_d.py

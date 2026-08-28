@@ -301,6 +301,14 @@ _DECLARED = {
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
+    # Row 333. The recognizer corpus split four ways. Each shard declares
+    # repo-wide scope because its subject is the whole corpus population,
+    # and a repo-wide gate must reach a shard in its own right or the
+    # split would have moved coverage out of CI rather than parallelised it.
+    "tests/test_recognizer_corpus_shard_a.py",
+    "tests/test_recognizer_corpus_shard_b.py",
+    "tests/test_recognizer_corpus_shard_c.py",
+    "tests/test_recognizer_corpus_shard_d.py",
     # Row 332. The four-way split of test_v3_66_1046: each shard declares
     # repo-wide scope because its subject is still the whole tool-state
     # population, and each must reach a shard in its own right or the
@@ -692,7 +700,7 @@ _DECLARED = {
 # 196 -> 197 at row 331 (2026-08-28). The mechanically derived application
 # dependency-declaration gate is declared once and scheduled beside the older
 # whole-tree dependency-freshness gate.
-_EXPECTED_DECLARED_GATE_COUNT = 201
+_EXPECTED_DECLARED_GATE_COUNT = 205
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
