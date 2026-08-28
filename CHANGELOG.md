@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1313 - the body-contract probe does not leak app singletons across runs
+
+-    result = bc.probe_fixtures(ROOT, injected)
+-    """v3.66.750 -- run the WHOLE probe a second time in the same process and
+-    bc, calls = _typed_calls()
+-    second = bc.probe_fixtures(ROOT, calls)
+-    # So snapshot the app's module-level state, wipe it, and restore it afte
+-            # App import itself mutates kill-switch policy.  It belongs insi
+-            # the preservation window just as much as the endpoint replay do
+-            # otherwise a cold probe snapshots the import's value as baselin
+-            _saved = None
+-            _saved_app_cfg = None
+-                import bulk_downloader.app as _A
+-                _saved = ({k: dict(v) if isinstance(v, dict) else v
+-                           for k, v in _A.s_cfg.items()},
+
 ## v3.66.1312 - the hunt reap family passes under xdist without a coin flip
 
 -        reap_seconds=3, gate_program=gate_program,

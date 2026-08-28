@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 330 transform control. This deliberately must report exactly one ESCAPED mutant: it applies the byte-identical fresh-worker bypass from M1 while its only node imports tools.body_contract and checks an unrelated resource-error classification. The escape proves the primary CAUGHT verdict comes from the isolation assertion rather than invalid Python, import failure, or collection failure.",
+  "subject": "transform-only control for bypassing the fresh fixture worker",
+  "band": [
+    "tests/test_v3_66_729_body_contract_fixtures.py::test_a_resource_complaint_is_never_reported_as_dead"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 reuse caller singletons while import-only control stays green",
+      "file": "tools/body_contract.py",
+      "old": "    return _probe_fixtures_in_subprocess(work, tcalls)\n",
+      "new": "    return _probe_fixtures_in_process(work, tcalls)  # mutant: reuse caller singletons\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_729_body_contract_fixtures.py::test_a_resource_complaint_is_never_reported_as_dead"
+    }
+  ]
+}

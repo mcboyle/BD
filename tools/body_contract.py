@@ -44,11 +44,14 @@ import argparse
 import contextlib
 import copy
 import glob
+import importlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 
 WORK = os.environ.get("BD_WORK", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
@@ -76,6 +79,7 @@ def _preserve_vpn_kill_switch_state():
             kill_switch._states.clear()
             kill_switch._states.update(states)
             kill_switch._auto_recover_enabled = auto_recover
+
 
 # An FE call site: the route template + the literal body keys it sends.
 CALL = re.compile(
@@ -419,6 +423,72 @@ def _probe_inner(work, calls):
 
 
 def probe_fixtures(work, tcalls):
+    """Replay fixtures in a new interpreter, never in the caller's app world.
+
+    The endpoint surface mutates process state far beyond the fixture builder's
+    four original aliases: app boot/session/rate caches, global-config caches,
+    dev event/run histories, library and mass-import worker state, runner
+    semaphores, and the selected secrets backend.  Several of those mutations
+    happen on background threads.  Snapshotting them is neither complete nor
+    race-free, so every run owns a fresh process and lets process exit discard
+    the whole world.
+    """
+    return _probe_fixtures_in_subprocess(work, tcalls)
+
+
+def _probe_fixtures_in_subprocess(work, tcalls):
+    work = os.path.abspath(work)
+    with tempfile.TemporaryDirectory(prefix="bd_fxprobe_ipc_") as ipc:
+        calls_path = os.path.join(ipc, "calls.json")
+        result_path = os.path.join(ipc, "result.json")
+        with open(calls_path, "w", encoding="utf-8") as fh:
+            json.dump(tcalls, fh)
+
+        env = os.environ.copy()
+        env.pop("BD_INSTALL_DIR", None)
+        env["BD_DISABLE_KEEPALIVE"] = "1"
+        prior_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (work if not prior_pythonpath
+                             else work + os.pathsep + prior_pythonpath)
+        command = [
+            sys.executable,
+            os.path.abspath(__file__),
+            "--work", work,
+            "--fixture-worker", calls_path, result_path,
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=work,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=900,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "fixture probe worker timed out after 900s; no verdicts exist"
+            ) from exc
+        if completed.returncode != 0:
+            detail = (completed.stdout + completed.stderr)[-4000:]
+            raise RuntimeError(
+                "fixture probe worker failed (exit %d):\n%s"
+                % (completed.returncode, detail)
+            )
+        try:
+            with open(result_path, encoding="utf-8") as fh:
+                result = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                "fixture probe worker returned no readable verdict artifact"
+            ) from exc
+        if not isinstance(result, list):
+            raise RuntimeError("fixture probe worker returned a non-list artifact")
+        return result
+
+
+def _probe_fixtures_in_process(work, tcalls):
     """v3.66.729 -- THE FIXTURE-BACKED PROBE. Replay against a world that EXISTS.
 
     probe_typed() replays the body a control sends against an EMPTY world: site id
@@ -454,8 +524,6 @@ def probe_fixtures(work, tcalls):
       to judge this endpoint. A to-do list, not a verdict. And a 5xx is HARNESS-FAULT,
       never a product finding: the app must not be blamed for choking on our fiction.
     """
-    import tempfile
-
     sys.path.insert(0, work)
     os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
     scratch = tempfile.mkdtemp(prefix="bd_fxprobe_")
@@ -472,49 +540,17 @@ def probe_fixtures(work, tcalls):
     # count was exactly 64; under a single-boot band it was not. Same bug as the shared
     # world, one level up -- a verdict that depends on what ran first is not a verdict.
     #
-    # So snapshot the app's module-level state, wipe it, and restore it afterwards.
+    # The public probe invokes this core only in a fresh worker process.  Keeping
+    # the scratch-home boundary here makes the core directly testable without
+    # changing the production isolation denominator.
     try:
         with _preserve_vpn_kill_switch_state():
-            # App import itself mutates kill-switch policy.  It belongs inside
-            # the preservation window just as much as the endpoint replay does;
-            # otherwise a cold probe snapshots the import's value as baseline.
-            _saved = None
-            _saved_app_cfg = None
-            try:
-                import bulk_downloader.app as _A
-                _saved = ({k: dict(v) if isinstance(v, dict) else v
-                           for k, v in _A.s_cfg.items()},
-                          dict(_A.s_meta), dict(_A.runners))
-                # v3.66.750 -- _app_cfg is module-level state exactly like s_cfg,
-                # and a replayed settings probe mutates it (path_allowlist -> ["x"]).
-                # Without this restore, the SECOND probe_fixtures() call in a
-                # process inherits the first call's poisoned config and setup_site
-                # flaps OK -> UNKNOWN (the ratchet's old +1 tolerance).
-                _saved_app_cfg = dict(getattr(_A, "_app_cfg", {}) or {})
-                _A.s_cfg.clear()
-                _A.s_meta.clear()
-                _A.runners.clear()
-            except Exception:
-                pass
-            try:
-                return _probe_fixtures_inner(work, tcalls, scratch)
-            finally:
-                if _saved is not None:
-                    try:
-                        import bulk_downloader.app as _A
-                        _A.s_cfg.clear()
-                        _A.s_cfg.update(_saved[0])
-                        _A.s_meta.clear()
-                        _A.s_meta.update(_saved[1])
-                        _A.runners.clear()
-                        _A.runners.update(_saved[2])
-                        if _saved_app_cfg is not None:
-                            _cfg = getattr(_A, "_app_cfg", None)
-                            if _cfg is not None:
-                                _cfg.clear()
-                                _cfg.update(_saved_app_cfg)
-                    except Exception:
-                        pass
+            # In the production worker this direct-child binding is canonical
+            # because the interpreter began specifically for this probe.
+            import bulk_downloader.app as fixture_app
+            return _probe_fixtures_inner(
+                work, tcalls, scratch, fixture_app=fixture_app
+            )
     finally:
         os.chdir(prev)
         if prev_home is None:
@@ -543,7 +579,7 @@ _INFRA = (
 )
 
 
-def _probe_fixtures_inner(work, tcalls, home):
+def _probe_fixtures_inner(work, tcalls, home, *, fixture_app=None):
     from bulk_downloader.db import db_init
     db_init()
     # db_init() creates the BASE tables. `library`, `tags`, `library_tags` and friends
@@ -560,8 +596,8 @@ def _probe_fixtures_inner(work, tcalls, home):
         pass
     os.makedirs(os.path.join(home, "screenshots"), exist_ok=True)
 
-    import bulk_downloader.app as A
-    from bulk_downloader.app import app
+    A = fixture_app or importlib.import_module("bulk_downloader.app")
+    app = A.app
     from tools.body_contract_fixtures import Fixtures
 
     app.config["TESTING"] = True
@@ -690,7 +726,18 @@ def main():
                     help="regenerate tools/BODY_CONTRACT_CALLS.json (needs node)")
     ap.add_argument("--fixtures", action="store_true",
                     help="replay against a REAL world (v3.66.729)")
+    ap.add_argument("--fixture-worker", nargs=2, metavar=("CALLS", "RESULT"),
+                    help=argparse.SUPPRESS)
     a = ap.parse_args()
+
+    if a.fixture_worker:
+        calls_path, result_path = a.fixture_worker
+        with open(calls_path, encoding="utf-8") as fh:
+            calls = json.load(fh)
+        result = _probe_fixtures_in_process(os.path.abspath(a.work), calls)
+        with open(result_path, "w", encoding="utf-8") as fh:
+            json.dump(result, fh)
+        return 0
 
     if a.regen:
         try:

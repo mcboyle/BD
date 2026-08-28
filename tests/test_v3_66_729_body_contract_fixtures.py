@@ -53,9 +53,12 @@ never a product finding.
 A gate that cannot fail is not a gate: test_the_fixture_gate_can_actually_fail is the
 one that earns the green.
 """
+import copy
+import importlib
 import os
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -153,6 +156,56 @@ def verdicts():
     return bc.probe_fixtures(ROOT, calls)
 
 
+@pytest.fixture(scope="module")
+def verdicts_after_stale_app_neighbour(verdicts):
+    """A neighbouring module restore can split package attr from module table.
+
+    ``import bulk_downloader.app as A`` follows the package's direct-child
+    attribute, while Flask's dynamic imports follow ``sys.modules``.  Model the
+    exact cross-file residue: the package attribute is an older app module, but
+    the module table still holds the live app whose routes the probe executes.
+    The first clean probe above establishes the comparison; this dirty neighbour
+    sits between it and the second probe below.
+    """
+    import bulk_downloader as package
+
+    bc, calls = _typed_calls()
+    canonical = importlib.import_module("bulk_downloader.app")
+    assert sys.modules["bulk_downloader.app"] is canonical
+    assert getattr(package, "app", None) is canonical
+
+    stale = types.ModuleType("bulk_downloader.app")
+    # A real stale app object predates only the app-kernel re-export.  The
+    # mutable site owners were hoisted to app_state and remain shared by
+    # identity; making those stale too would manufacture dozens of 404s and
+    # would not reproduce the fleet's one-UNKNOWN regression.
+    stale.s_cfg = canonical.s_cfg
+    stale.s_meta = canonical.s_meta
+    stale.runners = canonical.runners
+    stale._app_cfg = dict(canonical._app_cfg)
+    stale.app = canonical.app
+    assert stale.s_cfg is canonical.s_cfg
+    assert stale.s_meta is canonical.s_meta
+    assert stale.runners is canonical.runners
+    assert stale._app_cfg is not canonical._app_cfg
+    package.app = stale
+    try:
+        # Prove the dirty neighbour reaches the import form used by the probe.
+        import bulk_downloader.app as package_resolved_app
+        assert package_resolved_app is stale
+        assert sys.modules["bulk_downloader.app"] is canonical
+        result = bc.probe_fixtures(ROOT, calls)
+        app_state = importlib.import_module("bulk_downloader.app_state")
+        app_kernel = importlib.import_module("bulk_downloader.app_kernel")
+        assert canonical.s_cfg is app_state.s_cfg
+        assert canonical.s_meta is app_state.s_meta
+        assert canonical.runners is app_state.runners
+        assert canonical._app_cfg is app_kernel._app_cfg
+        return result
+    finally:
+        package.app = canonical
+
+
 def _by(verdicts, v):
     return [r for r in verdicts if r["verdict"] == v]
 
@@ -191,6 +244,17 @@ def test_unknown_only_ever_shrinks(verdicts):
         "UNKNOWN rose to %d (baseline %d). New unjudgeable control(s):\n%s"
         % (len(unknown), UNKNOWN_BASELINE,
            "\n".join("  %s -- %s" % (r["path"], r["why"]) for r in unknown[:12])))
+
+
+def test_unknown_only_ever_shrinks_after_a_stale_app_neighbour(
+        verdicts_after_stale_app_neighbour):
+    """The UNKNOWN ratchet also holds after a co-resident file dirties imports."""
+    unknown = _by(verdicts_after_stale_app_neighbour, "UNKNOWN")
+    assert len(unknown) <= UNKNOWN_BASELINE, (
+        "UNKNOWN rose to %d (baseline %d). New unjudgeable control(s):\n%s"
+        % (len(unknown), UNKNOWN_BASELINE,
+           "\n".join("  %s -- %s" % (r["path"], r["why"])
+                     for r in unknown[:12])))
 
 
 def test_the_fixture_world_is_actually_there(verdicts):
@@ -251,7 +315,9 @@ def test_template_onboard_probe_never_launches_a_capture(monkeypatch):
         "unknownType": False,
     }]
 
-    result = bc.probe_fixtures(ROOT, injected)
+    # Exercise the exact in-process core the fresh worker invokes, so the
+    # monkeypatched launch trap remains inside the measured process.
+    result = bc._probe_fixtures_in_process(ROOT, injected)
 
     assert result
     assert result[0]["verdict"] == "OK"
@@ -324,8 +390,9 @@ def test_call_artifact_freshness_is_unknown_without_node(monkeypatch):
             monkeypatch.setenv("PATH", child_path)
 
 
-def test_verdicts_are_order_independent_across_probe_runs(verdicts):
-    """v3.66.750 -- run the WHOLE probe a second time in the same process and
+def test_verdicts_are_order_independent_across_probe_runs(
+        verdicts, verdicts_after_stale_app_neighbour):
+    """Run the WHOLE probe twice with a dirtying neighbour between them and
     demand the identical UNKNOWN set.
 
     The +1 flap this file's baseline used to tolerate was documented as a
@@ -338,8 +405,7 @@ def test_verdicts_are_order_independent_across_probe_runs(verdicts):
     same disease as a verdict that depends on replay order -- this test is
     the mechanical proof neither remains.
     """
-    bc, calls = _typed_calls()
-    second = bc.probe_fixtures(ROOT, calls)
+    second = verdicts_after_stale_app_neighbour
     u1 = {r["probe"] for r in verdicts if r["verdict"] == "UNKNOWN"}
     u2 = {r["probe"] for r in second if r["verdict"] == "UNKNOWN"}
     assert u1 == u2, (
@@ -347,6 +413,102 @@ def test_verdicts_are_order_independent_across_probe_runs(verdicts):
         "  run2-only UNKNOWN: %s\n  run1-only UNKNOWN: %s\n"
         "state is leaking across probe runs (fixture isolation regression)"
         % (sorted(u2 - u1), sorted(u1 - u2)))
+
+
+def test_fixture_process_boundary_preserves_parent_state_exactly():
+    """A probe worker cannot mutate any pre-dirty parent singleton."""
+    from tools import body_contract as bc
+
+    package = importlib.import_module("bulk_downloader")
+    canonical = importlib.import_module("bulk_downloader.app")
+    app_state = importlib.import_module("bulk_downloader.app_state")
+    app_kernel = importlib.import_module("bulk_downloader.app_kernel")
+    global_config = importlib.import_module("bulk_downloader.global_config")
+    original_package_app = package.app
+    original = (
+        copy.deepcopy(app_state.s_cfg),
+        copy.deepcopy(app_state.s_meta),
+        dict(app_state.runners),
+        copy.deepcopy(app_kernel._app_cfg),
+    )
+    app_local_names = ("_APP_CFG_SEED_PENDING", "_BOOTED_PATHS",
+                       "_rate_buckets", "_rate_last_sweep", "_sessions")
+    original_app_locals = {
+        name: (vars(canonical)[name], copy.deepcopy(vars(canonical)[name]))
+        for name in app_local_names
+    }
+    original_cache = (global_config._cached,
+                      copy.deepcopy(global_config._cached),
+                      global_config._cached_mtime)
+    seeded_runner = object()
+    seeded_cache = {"outside": {"must": "survive"}}
+    dirty_package_app = types.ModuleType("bulk_downloader.app")
+    try:
+        app_state.s_cfg.clear()
+        app_state.s_cfg["outside"] = {"nested": ["must", "survive"]}
+        app_state.s_meta.clear()
+        app_state.s_meta["outside"] = {"status": "real"}
+        app_state.runners.clear()
+        app_state.runners["outside"] = seeded_runner
+        app_kernel._app_cfg.clear()
+        app_kernel._app_cfg.update({"path_allowlist": ["/outside"],
+                                    "nested": {"keep": True}})
+        canonical._APP_CFG_SEED_PENDING = ["/outside"]
+        canonical._BOOTED_PATHS.clear()
+        canonical._BOOTED_PATHS.add("/outside.db")
+        canonical._rate_buckets.clear()
+        canonical._rate_buckets[("outside", "action")] = [1.0]
+        canonical._rate_last_sweep = 123.0
+        canonical._sessions.clear()
+        canonical._sessions["outside"] = {"created": 1.0}
+        global_config._cached = seeded_cache
+        global_config._cached_mtime = 456.0
+        package.app = dirty_package_app
+
+        assert bc.probe_fixtures(ROOT, []) == []
+
+        assert package.app is dirty_package_app
+        assert app_state.s_cfg == {"outside": {"nested": ["must", "survive"]}}
+        assert app_state.s_meta == {"outside": {"status": "real"}}
+        assert app_state.runners == {"outside": seeded_runner}
+        assert app_state.runners["outside"] is seeded_runner
+        assert app_kernel._app_cfg == {
+            "path_allowlist": ["/outside"], "nested": {"keep": True}}
+        assert canonical._APP_CFG_SEED_PENDING == ["/outside"]
+        assert canonical._BOOTED_PATHS == {"/outside.db"}
+        assert canonical._rate_buckets == {("outside", "action"): [1.0]}
+        assert canonical._rate_last_sweep == 123.0
+        assert canonical._sessions == {"outside": {"created": 1.0}}
+        assert global_config._cached is seeded_cache
+        assert global_config._cached == {"outside": {"must": "survive"}}
+        assert global_config._cached_mtime == 456.0
+        assert canonical.s_cfg is app_state.s_cfg
+        assert canonical.s_meta is app_state.s_meta
+        assert canonical.runners is app_state.runners
+        assert canonical._app_cfg is app_kernel._app_cfg
+    finally:
+        app_state.s_cfg.clear()
+        app_state.s_cfg.update(original[0])
+        app_state.s_meta.clear()
+        app_state.s_meta.update(original[1])
+        app_state.runners.clear()
+        app_state.runners.update(original[2])
+        app_kernel._app_cfg.clear()
+        app_kernel._app_cfg.update(original[3])
+        for name, (binding, saved) in original_app_locals.items():
+            if hasattr(binding, "clear") and hasattr(binding, "update"):
+                binding.clear()
+                binding.update(saved)
+            else:
+                binding = saved
+            setattr(canonical, name, binding)
+        cached_binding, cached_saved, cached_mtime = original_cache
+        if cached_binding is not None:
+            cached_binding.clear()
+            cached_binding.update(cached_saved)
+        global_config._cached = cached_binding
+        global_config._cached_mtime = cached_mtime
+        package.app = original_package_app
 
 
 def test_ensure_resets_global_config_and_drops_probe_created_sites():

@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 330 fixture-probe process isolation. Re-run from a detached standalone scratch checkout with: toolchain/bin/bd-mutate --spec tests/mutants/row330_probe_fixture_module_identity.json --work SCRATCH --timeout 300. M1 bypasses the fresh interpreter and executes the exact worker core in the dirty caller, recreating the order-dependent setup_site verdict. The companion transform-control applies the byte-identical bypass while running an import-only/unrelated assertion and must ESCAPE.",
+  "subject": "every probe_fixtures run owns a fresh interpreter rather than the caller's process singletons",
+  "band": [
+    "tests/test_v3_66_729_body_contract_fixtures.py::test_verdicts_are_order_independent_across_probe_runs",
+    "tests/test_v3_66_729_body_contract_fixtures.py::test_fixture_process_boundary_preserves_parent_state_exactly"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass the fresh worker and replay inside the dirty caller",
+      "file": "tools/body_contract.py",
+      "old": "    return _probe_fixtures_in_subprocess(work, tcalls)\n",
+      "new": "    return _probe_fixtures_in_process(work, tcalls)  # mutant: reuse caller singletons\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_729_body_contract_fixtures.py::test_verdicts_are_order_independent_across_probe_runs"
+    }
+  ]
+}
