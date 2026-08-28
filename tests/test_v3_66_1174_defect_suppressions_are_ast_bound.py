@@ -94,11 +94,14 @@ def _write_authority(root: Path, rows: list[dict], *, raw: str | None = None) ->
     _git(root, "add", ".")
 
 
-def _run(scanner: Path, root: Path, *, home: Path | None = None):
+def _run(scanner: Path, root: Path, *, home: Path | None = None,
+         extra_env: dict[str, str] | None = None):
     env = dict(os.environ, BDTOOLS_CACHE="1")
     if home is not None:
         home.mkdir(parents=True, exist_ok=True)
         env.update(HOME=str(home), XDG_CACHE_HOME=str(home / "cache"))
+    if extra_env is not None:
+        env.update(extra_env)
     command = [sys.executable, str(scanner), "--scan", str(root)]
     if scanner.name == "bd-defect-scan":
         command.append("--json")
@@ -112,6 +115,85 @@ def _run(scanner: Path, root: Path, *, home: Path | None = None):
     except json.JSONDecodeError:
         pass
     return cp, payload
+
+
+def _fault_hook(tmp_path: Path, *, mode: str, target: Path) -> tuple[dict[str, str], Path]:
+    """Install a subprocess hook at the real filesystem boundary.
+
+    ``delete-after-walk`` lets the real walk enumerate ``target`` before
+    deleting it. ``deny-open`` leaves the real file in place and raises EACCES
+    only when the scanner opens that exact path. Both record every firing so a
+    test cannot pass through an unexercised fault seam.
+    """
+    hook_dir = tmp_path / ("hook-" + mode)
+    hook_dir.mkdir()
+    record = tmp_path / (mode + ".record")
+    hook_dir.joinpath("sitecustomize.py").write_text(
+        '''\
+import builtins
+import errno
+import os
+
+_mode = os.environ["ROW328_FAULT_MODE"]
+_target = os.path.realpath(os.environ["ROW328_FAULT_TARGET"])
+_record = os.environ["ROW328_FAULT_RECORD"]
+_real_open = builtins.open
+
+
+def _same_path(path):
+    try:
+        return os.path.realpath(os.fspath(path)) == _target
+    except TypeError:
+        return False
+
+
+def _mark(label):
+    with _real_open(_record, "a", encoding="utf-8") as stream:
+        stream.write(label + ":" + _target + "\\n")
+
+
+if _mode == "delete-after-walk":
+    _real_walk = os.walk
+    _fired = False
+
+    def _racing_walk(*args, **kwargs):
+        global _fired
+        for dirpath, dirnames, filenames in _real_walk(*args, **kwargs):
+            listed = [os.path.join(dirpath, name) for name in filenames]
+            if not _fired and any(_same_path(path) for path in listed):
+                if not os.path.isfile(_target):
+                    raise RuntimeError("row328 race target was not a real file")
+                os.unlink(_target)
+                _mark("deleted-after-walk")
+                _fired = True
+            yield dirpath, dirnames, filenames
+
+    os.walk = _racing_walk
+elif _mode == "deny-open":
+    def _denied_open(path, *args, **kwargs):
+        if _same_path(path):
+            if not os.path.isfile(_target):
+                raise RuntimeError("row328 unreadable target is not present")
+            _mark("denied-open")
+            raise PermissionError(errno.EACCES, "row328 forced unreadable", _target)
+        return _real_open(path, *args, **kwargs)
+
+    builtins.open = _denied_open
+else:
+    raise RuntimeError("unknown row328 fault mode: " + _mode)
+''',
+        encoding="utf-8",
+    )
+    pythonpath = str(hook_dir)
+    if os.environ.get("PYTHONPATH"):
+        pythonpath += os.pathsep + os.environ["PYTHONPATH"]
+    return ({
+        "BDTOOLS_CACHE": "0",
+        "PYTHONPATH": pythonpath,
+        "ROW328_FAULT_MODE": mode,
+        "ROW328_FAULT_TARGET": str(target),
+        "ROW328_FAULT_RECORD": str(record),
+    }, record)
 
 
 def _assert_valid_payload(payload: dict, *, raw: int, visible: int, suppressed: int,
@@ -166,6 +248,110 @@ def test_canonical_authority_matches_the_exact_current_tree_findings() -> None:
         assert payload["suppressed_total_findings"] == 12
         assert payload["raw_total_findings"] == payload["total_findings"] + 12
         assert payload["raw_by_dp"]["DP-13"] == payload["by_dp"]["DP-13"] + 12
+
+
+def test_a_source_file_vanishing_after_enumeration_is_counted_exactly(
+    tmp_path: Path,
+) -> None:
+    root, stable = _make_tree(tmp_path, "stable_value = 1\n")
+    vanishing = stable.with_name("vanishing.py")
+    vanishing.write_text("vanishing_value = 1\n", encoding="utf-8")
+    _write_authority(root, [])
+    fault_env, record = _fault_hook(
+        tmp_path, mode="delete-after-walk", target=vanishing
+    )
+
+    cp, payload = _run(SCANNERS[0], root, extra_env=fault_env)
+
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "deleted-after-walk:" + str(vanishing.resolve())
+    ]
+    assert not vanishing.exists()
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert payload is not None
+    assert payload["files_enumerated"] == 2
+    assert payload["files_scanned"] == 1
+    assert payload["files_vanished"] == 1
+    assert payload["total_findings"] == 0
+
+
+def test_an_unreadable_present_source_remains_unknown_and_refuses(
+    tmp_path: Path,
+) -> None:
+    root, stable = _make_tree(tmp_path, "stable_value = 1\n")
+    unreadable = stable.with_name("unreadable.py")
+    unreadable.write_text("unreadable_value = 1\n", encoding="utf-8")
+    _write_authority(root, [])
+    fault_env, record = _fault_hook(tmp_path, mode="deny-open", target=unreadable)
+
+    cp, payload = _run(SCANNERS[0], root, extra_env=fault_env)
+
+    assert unreadable.is_file(), "the negative control must remain present"
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "denied-open:" + str(unreadable.resolve())
+    ]
+    assert cp.returncode == 2, cp.stdout + cp.stderr
+    assert payload is None
+    assert "CANNOT-EVALUATE" in cp.stderr
+    assert "UNREADABLE" in cp.stderr
+    assert str(unreadable) in cp.stderr
+    assert "VANISHED" not in cp.stderr
+
+
+def test_a_real_finding_in_a_real_file_is_still_reported(tmp_path: Path) -> None:
+    root, target = _make_tree(tmp_path, _source())
+    _write_authority(root, [])
+
+    cp, payload = _run(SCANNERS[0], root, extra_env={"BDTOOLS_CACHE": "0"})
+
+    assert target.is_file()
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert payload is not None
+    assert payload["files_enumerated"] == 1
+    assert payload["files_scanned"] == 1
+    assert payload["files_vanished"] == 0
+    assert payload["total_findings"] == 1
+    assert payload["raw_total_findings"] == 1
+    assert [finding["dp"] for finding in
+            payload["findings"]["bulk_downloader/probe.py"]] == ["DP-13"]
+
+
+def test_chromium_profile_markers_exclude_generated_profile_data(
+    tmp_path: Path,
+) -> None:
+    root, stable = _make_tree(tmp_path, "stable_value = 1\n")
+    profile = root / "tools" / "browser-runtime-data"
+    profile.mkdir(parents=True)
+    profile.joinpath("Local State").write_text("{}\n", encoding="utf-8")
+    profile.joinpath("payload.py").write_text(_source(), encoding="utf-8")
+    profile.joinpath("SingletonLock").symlink_to("browser-host-12345")
+    _write_authority(root, [])
+
+    cp, payload = _run(SCANNERS[0], root, extra_env={"BDTOOLS_CACHE": "0"})
+
+    assert stable.is_file()
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert payload is not None
+    assert payload["files_enumerated"] == 1
+    assert payload["files_scanned"] == 1
+    assert payload["files_vanished"] == 0
+    assert payload["total_findings"] == 0
+    assert "tools/browser-runtime-data/payload.py" not in payload["findings"]
+
+
+def test_transform_control_runs_a_stable_scan_without_exercising_the_race(
+    tmp_path: Path,
+) -> None:
+    root, stable = _make_tree(tmp_path, "stable_value = 1\n")
+    _write_authority(root, [])
+
+    cp, payload = _run(SCANNERS[0], root, extra_env={"BDTOOLS_CACHE": "0"})
+
+    assert stable.is_file()
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert payload is not None
+    assert payload["files_scanned"] == 1
+    assert payload["total_findings"] == 0
 
 
 def test_one_node_is_suppressed_while_an_adjacent_finding_stays_visible(tmp_path: Path) -> None:
@@ -284,7 +470,8 @@ def test_the_two_entry_points_return_identical_suppression_evidence(tmp_path: Pa
     evidence_keys = {
         "schema", "raw_total_findings", "raw_by_dp", "total_findings", "by_dp",
         "findings", "suppressed_findings", "suppression_entries",
-        "suppression_errors",
+        "suppression_errors", "files_enumerated", "files_scanned",
+        "files_vanished",
     }
     results = []
     for scanner in SCANNERS:

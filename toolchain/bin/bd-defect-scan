@@ -18,6 +18,7 @@ stdlib `ast`/`re` only, offline, deterministic.
 """
 import argparse
 import ast
+import errno
 import json
 import os
 import re
@@ -767,6 +768,17 @@ DETECTORS = {
 CORPUS_GATED = ["DP-01", "DP-03", "DP-07", "DP-08", "DP-10", "DP-11", "DP-14"]
 
 PROD = (("bulk_downloader", (".py",)), ("tools", (".py",)))
+BROWSER_PROFILE_MARKERS = ("Local State",)
+
+
+def _is_browser_profile(path):
+    """Chromium user-data roots are runtime state, never detector source."""
+    return any(os.path.isfile(os.path.join(path, marker))
+               for marker in BROWSER_PROFILE_MARKERS)
+
+
+def _raise_walk_error(exc):
+    raise exc
 
 
 def _parse(path, src):
@@ -818,24 +830,42 @@ def scan_tree(root, include_suppression_report=False):
         cache = None
 
     results = {}
+    enumerated = 0
     scanned = 0
+    vanished = 0
     for base, exts in PROD:
-        for dp_, _, fns in os.walk(os.path.join(root, base)):
+        source_root = os.path.join(root, base)
+        if not os.path.exists(source_root):
+            continue
+        for dp_, dirs, fns in os.walk(
+                source_root, onerror=_raise_walk_error):
+            dirs[:] = [
+                directory for directory in dirs
+                if directory not in ("node_modules", "__pycache__")
+                and not _is_browser_profile(os.path.join(dp_, directory))
+            ]
             if "node_modules" in dp_ or "__pycache__" in dp_:
                 continue
             for f in fns:
                 if f.endswith(exts):
                     p = os.path.join(dp_, f)
                     rel = os.path.relpath(p, root)
+                    enumerated += 1
+                    try:
+                        if cache is not None:
+                            fnd = cache.get_or_compute(
+                                p, lambda p=p, rel=rel: scan_file(
+                                    rel, open(p, encoding="utf-8",
+                                              errors="replace").read()))
+                        else:
+                            src = open(p, encoding="utf-8", errors="replace").read()
+                            fnd = scan_file(rel, src)
+                    except OSError as exc:
+                        if exc.errno != errno.ENOENT:
+                            raise
+                        vanished += 1
+                        continue
                     scanned += 1
-                    if cache is not None:
-                        fnd = cache.get_or_compute(
-                            p, lambda p=p, rel=rel: scan_file(
-                                rel, open(p, encoding="utf-8",
-                                          errors="replace").read()))
-                    else:
-                        src = open(p, encoding="utf-8", errors="replace").read()
-                        fnd = scan_file(rel, src)
                     if fnd:
                         results[rel] = fnd
     if cache is not None:
@@ -844,11 +874,11 @@ def scan_tree(root, include_suppression_report=False):
         results, suppressions
     )
     if include_suppression_report:
-        return (visible, scanned, suppressed, results, len(suppressions),
-                suppression_errors)
+        return (visible, enumerated, scanned, vanished, suppressed, results,
+                len(suppressions), suppression_errors)
     if suppression_errors:
         raise SuppressionError(suppression_errors[0])
-    return visible, scanned
+    return visible, enumerated, scanned, vanished
 
 
 def check_corpus(corpus_dir):
@@ -902,7 +932,7 @@ def selftest():
         ok = ok and good
     # real-tree scan runs clean (no detector crashes -> no 'error' precision findings)
     try:
-        res, _nscanned = scan_tree(sec.DEFAULT_WORK)
+        res, _enumerated, _nscanned, _vanished = scan_tree(sec.DEFAULT_WORK)
         errs = [f for v in res.values() for f in v if f.get("precision") == "error"]
         print(("PASS" if not errs else "FAIL") +
               "  real-tree scan ran (%d files with findings, %d detector errors)" %
@@ -1023,11 +1053,15 @@ def main():
     # never opened. Guard the root, then require that the PROD bases inside it
     # actually yielded files: a root that exists but holds no bulk_downloader/
     # or tools/ is just as unscannable, and must not read as clean.
-    sec.require_corpus(root, min_files=1, label="--scan")
+    if not os.path.isdir(os.path.realpath(root)):
+        sys.stderr.write("CANNOT-EVALUATE --scan %s: reason=%s "
+                         "(no such directory)\n" % (root, sec.REASON_ABSENT))
+        return sec.EXIT_CANNOT_EVALUATE
     try:
-        res, scanned, suppressed, raw, suppression_entries, suppression_errors = scan_tree(
-            root, include_suppression_report=True
-        )
+        (res, enumerated, scanned, vanished, suppressed, raw,
+         suppression_entries, suppression_errors) = scan_tree(
+             root, include_suppression_report=True
+         )
     except SuppressionError as exc:
         if a.json:
             print(json.dumps({
@@ -1038,6 +1072,10 @@ def main():
             }, indent=2, sort_keys=True))
         sys.stderr.write("CANNOT-EVALUATE --scan %s: suppression authority: %s\n"
                          % (root, exc))
+        return sec.EXIT_CANNOT_EVALUATE
+    except OSError as exc:
+        sys.stderr.write("CANNOT-EVALUATE --scan %s: reason=%s (%s)\n"
+                         % (root, sec.REASON_UNREADABLE, exc))
         return sec.EXIT_CANNOT_EVALUATE
     if scanned == 0:
         sys.stderr.write("CANNOT-EVALUATE --scan %s: reason=%s (0 files under %s)\n"
@@ -1056,7 +1094,8 @@ def main():
     raw_n, raw_by_dp = summarize(raw)
     suppressed_n, suppressed_by_dp = summarize(suppressed)
     payload = {"schema": 1, "root": root, "files_with_findings": len(res),
-               "total_findings": n, "files_scanned": scanned,
+               "total_findings": n, "files_enumerated": enumerated,
+               "files_scanned": scanned, "files_vanished": vanished,
                "by_dp": dict(sorted(by_dp.items())),
                "findings": res,
                "raw_total_findings": raw_n,
@@ -1070,16 +1109,19 @@ def main():
     if a.out:
         json.dump(payload, open(a.out, "w"), indent=2, sort_keys=True)
         print("bd-defect-scan: %d visible + %d suppressed = %d raw findings "
-              "across %d visible files (scanned %d) -> %s"
-              % (n, suppressed_n, raw_n, len(res), scanned, a.out))
+              "across %d visible files (enumerated %d; scanned %d; vanished %d) "
+              "-> %s"
+              % (n, suppressed_n, raw_n, len(res), enumerated, scanned,
+                 vanished, a.out))
         return (sec.EXIT_CANNOT_EVALUATE if suppression_errors
                 else sec.EXIT_OK)
     if a.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return sec.EXIT_CANNOT_EVALUATE if suppression_errors else 0
     print("bd-defect-scan: %d visible + %d suppressed = %d raw finding(s) "
-          "across %d visible file(s) | scanned %d files"
-          % (n, suppressed_n, raw_n, len(res), scanned))
+          "across %d visible file(s) | enumerated %d files | scanned %d files | "
+          "vanished %d files"
+          % (n, suppressed_n, raw_n, len(res), enumerated, scanned, vanished))
     for dp, c in sorted(by_dp.items()):
         print("  %s: %d" % (dp, c))
     if not n:
