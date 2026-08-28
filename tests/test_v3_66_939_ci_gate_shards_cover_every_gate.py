@@ -89,6 +89,10 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Row 346. The plugin sandbox checker judges an exact tree-wide population
+    # of three bridges/six launches, while the runtime cases execute both
+    # launch shapes with leaked and benign environment controls.
+    "tests/test_row346_plugin_sandbox_is_truthful.py",
     # Row 292. This census pins the existing curated parallel allowlist by a
     # mechanical digest and ratchet while allowing new, unreviewed tracked
     # files to remain in the classifier's fail-closed serial default.
@@ -281,10 +285,16 @@ _DECLARED = {
     # the operator's config, database, subscriptions, and cwd-relative stores
     # unless its process boundary is exercised on every pull request.
     "tests/test_row_282_bd_opv_isolates_every_store.py",
+    # Row 345. OPV-A11Y must distinguish a served cockpit from an HTTP error or
+    # a different 200 page, and F4.3 must not leak its authenticated app state.
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py",
     # Row 313. bd-job is the detached local-job safety boundary: concurrent
     # starters must not share one state directory, and status/kill must not
     # mistake a reused numeric PID for the process the job originally owned.
     "tests/test_row313_bd_job_identity.py",
+    # Row 350. Four lifecycle APIs must not report success when admission,
+    # recovery, capture identity, or cancellation disagrees with durable state.
+    "tests/test_row350_job_api_durable_truth.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
@@ -546,6 +556,10 @@ _DECLARED = {
     # (196s total locally), not count, per the @939 precedent.
     # tree-gates-1
     "tests/test_capture_shell_runtime.py",
+    # Row 342. This module executes the capture preflight's shared tree-state
+    # predicate. A failed Git status is UNKNOWN, never affirmative clean
+    # evidence, and its clean/dirty controls make the inverse reachable too.
+    "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py",
     # Row 285. Deployment, capture-instance teardown, PostgreSQL capability
     # persistence and configured storage all fail closed on unavailable state.
     "tests/test_row_285_deploy_fail_open.py",
@@ -553,6 +567,11 @@ _DECLARED = {
     # boundary. A fixed resource reintroduced anywhere in capture.sh, its
     # service installer, the seeder, or the live runner must fail every PR.
     "tests/test_parallel_capture_services.py",
+    # Row 340. A version-matching error body used to make deploy.sh report
+    # health verified over HTTP 500. This real deploy-process gate is pinned
+    # independently of the source-derived band because every fleet deploy
+    # rests on the step-12 readiness claim.
+    "tests/test_deploy_script.py",
     # Row 290: no-argument capture must reach its local fixture and every later
     # step; the same executable harness proves --parallel still owns and routes
     # a real distinct port pair.
@@ -655,6 +674,10 @@ _DECLARED = {
     "tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py",
     "tests/test_generated_artifact_workflow.py",
     "tests/test_git_deploy_gaps_are_documented.py",
+    # Row 343. This executes the cloud provisioner and the canonical runbook in
+    # isolated fresh-host fixtures, covering ordering, cross-host transfer and
+    # the application-written sites_config shape on every PR.
+    "tests/test_row343_fresh_host_bringup.py",
     # Row 259. These five source-derived safety censuses already rejected
     # credential disclosure, operator-state writes, migration-seam bypasses,
     # and uncontained browser launches, but all five remained legacy-baselined
@@ -721,7 +744,19 @@ _DECLARED = {
 # population test is declared here and scheduled once in artifacts-pins.
 # 201 -> 202 at row 336 (2026-08-28). One repo-wide verifier/scanner evidence
 # gate is declared once and scheduled in toolchain-verifiers.
-_EXPECTED_DECLARED_GATE_COUNT = 209
+# 201 -> 202 at row 340 (2026-08-28). The existing production deploy-process
+# suite gains a declared scope and an explicit independent CI runner; on top
+# of main's 209 that is 210.
+# 207 -> 208 at row 342 (2026-08-28). This cut schedules exactly one existing
+# module-scoped capture preflight gate and adds one declaration for it.
+# 207 -> 208 at row 343 (2026-08-28). This cut adds exactly one repo-wide
+# fresh-host execution gate and schedules it once in tree-gates-3.
+# 208 -> 209 at row 345 (2026-08-28). Exactly one module-scoped OPV A11Y
+# availability/identity gate is declared and scheduled once in toolchain.
+# 208 -> 209 at row 346 (2026-08-28). Exactly one repo-wide plugin sandbox
+# runtime/checker gate is declared here and scheduled once in application-safety.
+# 208 -> 209 at row 350 (2026-08-28): one job-lifecycle truth gate.
+_EXPECTED_DECLARED_GATE_COUNT = 215
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

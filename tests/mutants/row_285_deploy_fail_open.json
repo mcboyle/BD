@@ -41,8 +41,8 @@
     {
       "label": "F05 accept capture start without making the health request",
       "file": "scripts/install_capture_service.sh",
-      "old": "      if curl -sSf -o /dev/null --max-time 2 \\\n          \"http://127.0.0.1:${APP_PORT}/api/health\" 2>/dev/null; then",
-      "new": "      if true; then",
+      "old": "      health_code=\"$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 \\\n          \"http://127.0.0.1:${APP_PORT}/api/health\" 2>/dev/null)\" \\\n        || health_exit=$?",
+      "new": "      health_code=\"200\"",
       "direction": "regression",
       "catcher": "tests/test_row_285_deploy_fail_open.py::test_f05_start_requires_active_and_health_evidence"
     },

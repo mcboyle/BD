@@ -125,6 +125,8 @@ sudo mv -f -- "$ENV_TMP" "$ENV_PATH" || exit 1
 sudo systemctl daemon-reload || exit 1
 sudo systemctl restart "$SERVICE_INSTANCE" || exit 1
 ready=0
+last_health_code="000"
+last_health_exit=0
 attempt=1
 while [ "$attempt" -le "$READY_TRIES" ]; do
   state_exit=0
@@ -132,8 +134,15 @@ while [ "$attempt" -le "$READY_TRIES" ]; do
     || state_exit=$?
   case "$unit_state" in
     active)
-      if curl -sSf -o /dev/null --max-time 2 \
-          "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null; then
+      health_code=""
+      health_exit=0
+      health_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 \
+          "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null)" \
+        || health_exit=$?
+      [ -n "$health_code" ] || health_code="000"
+      last_health_code="$health_code"
+      last_health_exit="$health_exit"
+      if [ "$health_exit" -eq 0 ] && [ "$health_code" = "200" ]; then
         ready=1
         break
       fi
@@ -158,7 +167,8 @@ while [ "$attempt" -le "$READY_TRIES" ]; do
 done
 [ "$ready" -eq 1 ] || {
   echo "capture service: $SERVICE_INSTANCE is active but /api/health did not" \
-       "answer on 127.0.0.1:$APP_PORT after $READY_TRIES attempts" >&2
+       "answer HTTP 200 on 127.0.0.1:$APP_PORT after $READY_TRIES attempts" \
+       "(last HTTP $last_health_code, curl exit $last_health_exit)" >&2
   exit 1
 }
 printf 'capture service: started %s on 127.0.0.1:%s\n' \

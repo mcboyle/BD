@@ -35,6 +35,24 @@ from .app_sites import (
 # there is no usable pid. >= 40 min sits comfortably above the 25-min capture
 # auto-save, so a long-but-live capture is never cleared by age.
 _CAPTURE_AGE_LIMIT_SECONDS = 40 * 60
+_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
+
+
+def _capture_process_identity(pid: int) -> dict | None:
+    """Read the non-reusable Linux identity for one capture process."""
+    try:
+        raw = Path(f"/proc/{int(pid)}/stat").read_text(
+            encoding="ascii", errors="replace"
+        )
+        tail = raw.rsplit(") ", 1)
+        fields = tail[1].split() if len(tail) == 2 else []
+        pid_start = fields[19] if len(fields) > 19 else ""
+        boot_id = _BOOT_ID_PATH.read_text(encoding="ascii").strip()
+    except (OSError, TypeError, ValueError):
+        return None
+    if not pid_start or not boot_id or boot_id.lower() == "unknown":
+        return None
+    return {"pid_start": pid_start, "boot_id": boot_id}
 
 
 def _capture_marker_stale(cap: dict) -> bool:
@@ -43,32 +61,57 @@ def _capture_marker_stale(cap: dict) -> bool:
     draft exists.
 
     Errs SAFE in every direction:
-      * live pid -> NOT stale (a live capture is never cleared, even a long one);
+      * matching process identity -> NOT stale, even for a long capture;
+      * recycled pid identity -> use the conservative age backstop;
       * dead pid -> stale (ProcessLookupError);
-      * pid alive-but-not-ours (PermissionError) -> treat as alive, decline;
-      * no usable pid -> fall back to the age backstop on started_at;
+      * unavailable identity evidence -> decline to clear;
+      * legacy/no usable pid identity -> use the age backstop on started_at;
       * neither a usable pid nor started_at -> NOT stale (the pre-B1 marker
         shape; treat as in-flight).
     """
     if not isinstance(cap, dict):
         return False
-    # PID liveness (primary, authoritative). os.kill(pid, 0) probes without
-    # signalling. A live pid wins over any age check.
     try:
         pid = int(cap.get("pid"))
     except (TypeError, ValueError):
         pid = 0
     if pid > 0:
-        try:
-            os.kill(pid, 0)
-            return False  # alive -> not stale
-        except ProcessLookupError:
-            return True   # gone -> stale
-        except PermissionError:
-            return False  # alive but not ours -> decline to clear
-        except OSError:
-            return False  # unknowable -> err safe
-    # Age backstop (only reached when there is no usable pid).
+        recorded_start = cap.get("pid_start")
+        recorded_boot = cap.get("boot_id")
+        has_recorded_identity = (
+            isinstance(recorded_start, str) and bool(recorded_start)
+            and isinstance(recorded_boot, str) and bool(recorded_boot)
+        )
+        if has_recorded_identity:
+            current = _capture_process_identity(pid)
+            if current is not None:
+                if (current["pid_start"] == recorded_start
+                        and current["boot_id"] == recorded_boot):
+                    return False
+                # The numeric PID now names a different process. It carries no
+                # authority over this marker; let age decide below.
+            else:
+                # Distinguish a dead owner from unavailable identity evidence.
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return True
+                except (PermissionError, OSError):
+                    return False
+                return False
+        else:
+            # Legacy markers have no process-start receipt. A dead PID is still
+            # decisive, while a live numeric PID alone cannot defeat age
+            # recovery because it may have been recycled.
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                pass
+            except OSError:
+                return False
+    # Age backstop for no identity, a recycled identity, or no usable PID.
     try:
         started = float(cap.get("started_at"))
     except (TypeError, ValueError):
@@ -264,6 +307,9 @@ def api_template_onboard(sid):
             cfg["template_capture"]["started_at"] = _started_at
             if _cap_pid:
                 cfg["template_capture"]["pid"] = int(_cap_pid)
+                _identity = _capture_process_identity(int(_cap_pid))
+                if _identity is not None:
+                    cfg["template_capture"].update(_identity)
             _save_sites_config()
             result["launched"] = True
             result["capture"] = cfg["template_capture"]

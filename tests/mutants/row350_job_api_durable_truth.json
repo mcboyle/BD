@@ -1,0 +1,81 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 350. Eight exact-once regressions restore reusable capture and cancellation PIDs, split mass-import admission and recovery, erase run identity, or let competing terminal writers overwrite one another. The companion transform control applies the identical M7 numeric-PID transform to an import-only node and must ESCAPE.",
+  "subject": "job lifecycle APIs report success only when identity-bound durable state agrees",
+  "band": [
+    "tests/test_row350_job_api_durable_truth.py::test_recycled_capture_pid_reaches_age_recovery",
+    "tests/test_row350_job_api_durable_truth.py::test_matching_capture_identity_survives_the_same_old_age",
+    "tests/test_row350_job_api_durable_truth.py::test_capture_launch_persists_the_process_identity",
+    "tests/test_row350_job_api_durable_truth.py::test_mass_import_admission_counts_and_inserts_under_one_lock",
+    "tests/test_row350_job_api_durable_truth.py::test_first_use_recovery_crashes_only_prior_run_jobs",
+    "tests/test_row350_job_api_durable_truth.py::test_dev_cancel_does_not_signal_or_overwrite_a_completed_identity",
+    "tests/test_row350_job_api_durable_truth.py::test_dev_cancel_matching_identity_signals_pidfd_once",
+    "tests/test_row350_job_api_durable_truth.py::test_dev_start_holds_identity_through_cancel_and_worker_settlement"
+  ],
+  "mutants": [
+    {
+      "label": "M1 treat every live numeric capture PID as the recorded owner",
+      "file": "bulk_downloader/app_sites_teach.py",
+      "old": "                if (current[\"pid_start\"] == recorded_start\n                        and current[\"boot_id\"] == recorded_boot):\n                    return False",
+      "new": "                if True:  # mutant: reusable PID regains authority\n                    return False",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_recycled_capture_pid_reaches_age_recovery"
+    },
+    {
+      "label": "M2 launch persists only the reusable capture PID",
+      "file": "bulk_downloader/app_sites_teach.py",
+      "old": "                _identity = _capture_process_identity(int(_cap_pid))\n                if _identity is not None:\n                    cfg[\"template_capture\"].update(_identity)",
+      "new": "                _identity = None  # mutant: omit process-start receipt\n                if _identity is not None:\n                    cfg[\"template_capture\"].update(_identity)",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_capture_launch_persists_the_process_identity"
+    },
+    {
+      "label": "M3 release mass-import admission lock between count and insert",
+      "file": "bulk_downloader/mass_import.py",
+      "old": "    with _jobs_lock:\n        if _running_jobs_count() >= _MAX_CONCURRENT_JOBS:\n            return {\"ok\": False,\n                    \"error\": f\"too many concurrent imports running \"\n                             f\"(max {_MAX_CONCURRENT_JOBS})\"}\n        _jobs[job_id] = state",
+      "new": "    if _running_jobs_count() >= _MAX_CONCURRENT_JOBS:\n        return {\"ok\": False,\n                \"error\": f\"too many concurrent imports running \"\n                         f\"(max {_MAX_CONCURRENT_JOBS})\"}\n    with _jobs_lock:\n        _jobs[job_id] = state",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_mass_import_admission_counts_and_inserts_under_one_lock"
+    },
+    {
+      "label": "M4 first-use recovery uses a fresh lock for every caller",
+      "file": "bulk_downloader/mass_import.py",
+      "old": "    with _jobs_lock:\n        if _TABLE_READY:\n            return",
+      "new": "    with threading.RLock():  # mutant: callers do not share recovery lock\n        if _TABLE_READY:\n            return",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_first_use_recovery_crashes_only_prior_run_jobs"
+    },
+    {
+      "label": "M5 recovery rewrites current-run jobs as crashed",
+      "file": "bulk_downloader/mass_import.py",
+      "old": "                    WHERE state = 'running' AND run_id != ?",
+      "new": "                    WHERE state = 'running' OR run_id = ?",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_first_use_recovery_crashes_only_prior_run_jobs"
+    },
+    {
+      "label": "M6 dev-run launch retains no pidfd identity",
+      "file": "bulk_downloader/dev_tools.py",
+      "old": "            pidfd = None\n            if os.name != \"nt\":\n                opener = getattr(os, \"pidfd_open\", None)\n                if opener is not None:\n                    try:\n                        pidfd = opener(proc.pid, 0)\n                    except OSError:\n                        pidfd = None",
+      "new": "            pidfd = None  # mutant: launch retains no identity handle",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_dev_start_holds_identity_through_cancel_and_worker_settlement"
+    },
+    {
+      "label": "M7 dev cancellation signals the reusable numeric PID",
+      "file": "bulk_downloader/dev_tools.py",
+      "old": "                sender(pidfd, signal.SIGTERM)",
+      "new": "                os.kill(proc.pid, signal.SIGTERM)",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_dev_cancel_matching_identity_signals_pidfd_once"
+    },
+    {
+      "label": "M8 worker completion overwrites cancellation's terminal verdict",
+      "file": "bulk_downloader/dev_tools.py",
+      "old": "    if run[\"state\"] == \"running\":\n        run[\"state\"] = \"done\" if returncode == 0 else \"failed\"",
+      "new": "    if True:  # mutant: every finisher overwrites terminal state\n        run[\"state\"] = \"done\" if returncode == 0 else \"failed\"",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_dev_start_holds_identity_through_cancel_and_worker_settlement"
+    }
+  ]
+}

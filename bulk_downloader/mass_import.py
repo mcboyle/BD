@@ -36,6 +36,7 @@ from . import db as _db
 _TABLE_READY = False
 _jobs_lock = threading.RLock()
 _jobs: dict = {}  # job_id → {state, total, processed, added, dupes, skipped, error}
+_PROCESS_RUN_ID = uuid.uuid4().hex
 _MAX_URLS_PER_JOB = 200_000
 _MAX_CONCURRENT_JOBS = 3
 _CHUNK_SIZE = 100
@@ -48,36 +49,52 @@ _MAX_RETAINED_JOBS = 50
 
 def _ensure_table():
     global _TABLE_READY
-    if _TABLE_READY:
-        return
-    try:
-        with _db.db_conn() as cx:
-            cx.execute("""
-                CREATE TABLE IF NOT EXISTS mass_imports (
-                    job_id TEXT PRIMARY KEY,
-                    site_id TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    total INTEGER NOT NULL DEFAULT 0,
-                    processed INTEGER NOT NULL DEFAULT 0,
-                    added INTEGER NOT NULL DEFAULT 0,
-                    dupes INTEGER NOT NULL DEFAULT 0,
-                    skipped INTEGER NOT NULL DEFAULT 0,
-                    error TEXT DEFAULT '',
-                    started_ts REAL NOT NULL,
-                    finished_ts REAL
-                )
-            """)
-            # Flag any jobs still 'running' from a previous boot —
-            # they were interrupted by the restart.
-            cx.execute("""
-                UPDATE mass_imports
-                SET state = 'crashed', error = 'process restarted',
-                    finished_ts = ?
-                WHERE state = 'running'
-            """, (time.time(),))
-        _TABLE_READY = True
-    except Exception:
-        pass
+    # First-use recovery and publication share the same lifecycle lock as job
+    # admission. No current-run row can be inserted between recovery commit and
+    # the once-only flag becoming visible.
+    with _jobs_lock:
+        if _TABLE_READY:
+            return
+        try:
+            with _db.db_conn() as cx:
+                cx.execute("""
+                    CREATE TABLE IF NOT EXISTS mass_imports (
+                        job_id TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        total INTEGER NOT NULL DEFAULT 0,
+                        processed INTEGER NOT NULL DEFAULT 0,
+                        added INTEGER NOT NULL DEFAULT 0,
+                        dupes INTEGER NOT NULL DEFAULT 0,
+                        skipped INTEGER NOT NULL DEFAULT 0,
+                        error TEXT DEFAULT '',
+                        started_ts REAL NOT NULL,
+                        finished_ts REAL,
+                        run_id TEXT NOT NULL DEFAULT ''
+                    )
+                """)
+                columns = {
+                    row[1]
+                    for row in cx.execute(
+                        "PRAGMA table_info(mass_imports)"
+                    ).fetchall()
+                }
+                if "run_id" not in columns:
+                    cx.execute(
+                        "ALTER TABLE mass_imports "
+                        "ADD COLUMN run_id TEXT NOT NULL DEFAULT ''"
+                    )
+                # Only rows that predate this process run were interrupted by
+                # its restart. A current-run row is never recovery input.
+                cx.execute("""
+                    UPDATE mass_imports
+                    SET state = 'crashed', error = 'process restarted',
+                        finished_ts = ?
+                    WHERE state = 'running' AND run_id != ?
+                """, (time.time(), _PROCESS_RUN_ID))
+            _TABLE_READY = True
+        except Exception:
+            pass
 
 
 def _running_jobs_count() -> int:
@@ -112,8 +129,8 @@ def _persist(job_id: str, state: dict):
             cx.execute("""
                 INSERT INTO mass_imports
                 (job_id, site_id, state, total, processed, added,
-                 dupes, skipped, error, started_ts, finished_ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 dupes, skipped, error, started_ts, finished_ts, run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     state = excluded.state,
                     processed = excluded.processed,
@@ -121,7 +138,8 @@ def _persist(job_id: str, state: dict):
                     dupes = excluded.dupes,
                     skipped = excluded.skipped,
                     error = excluded.error,
-                    finished_ts = excluded.finished_ts
+                    finished_ts = excluded.finished_ts,
+                    run_id = excluded.run_id
             """, (job_id, state.get("site_id", ""),
                   state.get("state", "running"),
                   state.get("total", 0),
@@ -131,7 +149,8 @@ def _persist(job_id: str, state: dict):
                   state.get("skipped", 0),
                   state.get("error", "")[:500],
                   state.get("started_ts", time.time()),
-                  state.get("finished_ts")))
+                  state.get("finished_ts"),
+                  state.get("run_id", _PROCESS_RUN_ID)))
     except Exception:
         pass
 
@@ -150,11 +169,6 @@ def start_import(*, site_id: str, urls: list, load_urls_fn: Callable,
         return {"ok": False,
                 "error": f"too many URLs ({len(urls)}); "
                          f"split into batches of {_MAX_URLS_PER_JOB}"}
-    if _running_jobs_count() >= _MAX_CONCURRENT_JOBS:
-        return {"ok": False,
-                "error": f"too many concurrent imports running "
-                         f"(max {_MAX_CONCURRENT_JOBS})"}
-
     _ensure_table()
     job_id = uuid.uuid4().hex[:16]
     state = {
@@ -169,8 +183,13 @@ def start_import(*, site_id: str, urls: list, load_urls_fn: Callable,
         "error": "",
         "started_ts": time.time(),
         "finished_ts": None,
+        "run_id": _PROCESS_RUN_ID,
     }
     with _jobs_lock:
+        if _running_jobs_count() >= _MAX_CONCURRENT_JOBS:
+            return {"ok": False,
+                    "error": f"too many concurrent imports running "
+                             f"(max {_MAX_CONCURRENT_JOBS})"}
         _jobs[job_id] = state
         _prune_jobs()   # bound the in-memory map (memory audit)
     _persist(job_id, state)

@@ -234,6 +234,8 @@ def _capture_fixture(
         "import json, os, sys\n"
         "with open(os.environ['CURL_LOG'], 'a', encoding='utf-8') as fh:\n"
         "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "if int(os.environ['CURL_RC']) == 0:\n"
+        "    print('200', end='')\n"
         "raise SystemExit(int(os.environ['CURL_RC']))\n",
     )
 

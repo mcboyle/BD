@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1321 - a non-200 health response stops counting as a verified deploy (+5 file-disjoint row(s): 342,343,345,346,350)
+
+-      "old": "      if curl -sSf -o /dev/null --max-time 2 \\\n          \"h
+-      "new": "      if true; then",
+-    _write_executable(fake_bin / "curl", "#!/usr/bin/env python3\nraise Syst
+-    assert len(entries) == 1248, (
+-        "the row-292 capture-lane census gate; "
+- [deploy.sh](/home/mboyle/bd-codex-wt/row340/scripts/deploy.sh:726) now pars
+- [install_capture_service.sh](/home/mboyle/bd-codex-wt/row340/scripts/instal
+- Added 500/200 and real-server 302/200 controls in [test_deploy_script.py](/
+- Added durable [row340 mutation battery](/home/mboyle/bd-codex-wt/row340/tes
+- `AssertionError: HTTP 500 carried the expected version and was reported as 
+- `AssertionError: HTTP 302 /login was accepted as capture-service readiness`
+- Final adversarial/healthy controls: `2 passed`.
+- Final deploy suite: `34 passed`.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 209 -> 215.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _job_api_durable_truth.py -> bulk_downloader
+    _job_api_durable_truth.py -> tools
+    plugin_exec.py -> bulk_downloader
+    plugin_node.py -> bulk_downloader
+    plugin_py_bridge.py -> bulk_downloader
+    _plugin_sandbox_is_truthful.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1320 - every inner budget is below the item bound governing it
 
 -    """(sites >= the bound, total constant sites, files parsed).

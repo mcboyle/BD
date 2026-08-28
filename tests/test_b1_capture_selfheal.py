@@ -10,8 +10,8 @@ backstop, scoped to the no-draft case. Explicitly NOT wacz-exists (the wacz exis
 for the whole legitimate in-flight window).
 
 Errs SAFE in every direction:
-  * a live capture (live pid) is NEVER cleared;
-  * a dead pid reused by an unrelated process -> os.kill says alive -> decline;
+  * a live capture with the recorded process identity is NEVER cleared;
+  * a dead pid reused by an unrelated process reaches conservative age recovery;
   * a marker with neither a usable pid nor a usable started_at -> treated as
     in-flight (the conservative default; the pre-B1 markers look like this).
 
@@ -114,10 +114,23 @@ def test_no_pid_no_age_keeps_marker(fresh_app):
     assert "template_capture" in bd_app.s_cfg[sid]
 
 
-# (g) a live pid older than the age limit is STILL kept -- liveness wins over age
-# (the safety invariant: a live capture is never cleared, even a long one).
+# (g) the exact live identity older than the age limit is STILL kept. Numeric
+# liveness alone is not authority because a PID can be recycled.
 def test_live_pid_old_age_still_kept(fresh_app):
     import os as _os
-    sid = _seed("b1g", pid=_os.getpid(), started_at=time.time() - (41 * 60))
+    pid = _os.getpid()
+    raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+    fields = raw.rsplit(") ", 1)[1].split()
+    assert len(fields) > 19
+    pid_start = fields[19]
+    boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(
+        encoding="ascii"
+    ).strip()
+    assert pid_start and boot_id
+    sid = _seed("b1g", pid=pid, started_at=time.time() - (41 * 60))
+    bd_app.s_cfg[sid]["template_capture"].update({
+        "pid_start": pid_start,
+        "boot_id": boot_id,
+    })
     assert _status_in_flight(fresh_app, sid) is True
     assert "template_capture" in bd_app.s_cfg[sid]

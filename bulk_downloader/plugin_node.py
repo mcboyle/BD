@@ -29,6 +29,8 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .plugin_sandbox import run_plugin_process
+
 NODE_SUFFIXES = (".js", ".mjs")
 
 # Per-invocation wall-clock bound (seconds). Probe is cheaper; fire is bounded
@@ -64,13 +66,14 @@ def node_available(binary: Optional[str] = None) -> bool:
 
 def probe_manifest(path: Path) -> Tuple[Optional[dict], str]:
     """Run ``node <path> --manifest``; return (manifest_dict, error_str)."""
+    path = path.resolve()
     b = node_bin()
     if not node_available(b):
         return (None, f"node runtime not found ({b!r})")
     try:
-        proc = subprocess.run(
+        proc = run_plugin_process(
             [b, str(path), "--manifest"],
-            capture_output=True, text=True, timeout=_PROBE_TIMEOUT,
+            plugin_path=path, timeout=_PROBE_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return (None, "manifest probe timed out")
@@ -96,6 +99,7 @@ def _make_shim(path: Path):
     Payload (a dict) -> JSON on stdin; stdout JSON -> returned. Errors raise so
     the caller's guarded-call / quarantine machinery records them.
     """
+    path = path.resolve()
     b = node_bin()
     fname = path.name
 
@@ -105,9 +109,9 @@ def _make_shim(path: Path):
             payload = {"arg": payload}
         event = _k.get("event") or "fire"
         try:
-            proc = subprocess.run(
+            proc = run_plugin_process(
                 [b, str(path), str(event)],
-                input=json.dumps(payload), capture_output=True, text=True,
+                input_text=json.dumps(payload), plugin_path=path,
                 timeout=_FIRE_TIMEOUT,
             )
         except subprocess.TimeoutExpired as e:

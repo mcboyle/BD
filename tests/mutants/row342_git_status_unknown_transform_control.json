@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 342 transform control. This deliberately must report one valid ESCAPED mutant: it applies M1 byte-for-byte, but its only named test sources the shell library without running or judging bd_tree_state_check. Escape proves M1's CAUGHT verdict is behavioral rather than a parse, source, collection, or transform failure.",
+  "subject": "transform control -- sourcing tree_state.sh does not constrain failed-status classification",
+  "band": [
+    "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_transform_control_sources_library_without_running_tree_check"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL failed status may read clean when no behavioral assertion judges it",
+      "file": "scripts/lib/tree_state.sh",
+      "old": "  changed=\"$(git -C \"$dir\" status --porcelain --untracked-files=all 2>/dev/null)\" \\\n    || status_rc=$?",
+      "new": "  changed=\"$(git -C \"$dir\" status --porcelain --untracked-files=all 2>/dev/null)\" \\\n    || :",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_transform_control_sources_library_without_running_tree_check"
+    }
+  ]
+}

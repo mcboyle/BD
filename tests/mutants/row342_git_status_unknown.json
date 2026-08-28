@@ -1,0 +1,38 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 342. M1 restores the demonstrated wrong green by discarding git status exit 77 while its stdout remains empty. M2 misclassifies UNKNOWN as DIRTY. M3 is the lazy inversion control: it refuses a genuinely clean tree while preserving both the failed-status fix and the dirty-tree bound. Re-run from a detached scratch copy with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row342_git_status_unknown.json --work DETACHED_SCRATCH. The companion transform-control spec applies M1 byte-for-byte to a test that only sources the library and must ESCAPE.",
+  "subject": "row 342 -- a failed git status is UNKNOWN while measured clean and dirty states remain reachable",
+  "band": [
+    "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 failed git status is discarded and empty stdout reads clean",
+      "file": "scripts/lib/tree_state.sh",
+      "old": "  changed=\"$(git -C \"$dir\" status --porcelain --untracked-files=all 2>/dev/null)\" \\\n    || status_rc=$?",
+      "new": "  changed=\"$(git -C \"$dir\" status --porcelain --untracked-files=all 2>/dev/null)\" \\\n    || :",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_a_git_status_failure_is_unknown_not_clean"
+    },
+    {
+      "label": "M2 failed git status is reported as dirty instead of UNKNOWN",
+      "file": "scripts/lib/tree_state.sh",
+      "old": "    printf '  cannot be established. Refusing rather than assuming.\\n' >&2\n    return 2\n  fi\n\n  if [ -z \"$changed\" ]; then",
+      "new": "    printf '  cannot be established. Refusing rather than assuming.\\n' >&2\n    return 1\n  fi\n\n  if [ -z \"$changed\" ]; then",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_a_git_status_failure_is_unknown_not_clean"
+    },
+    {
+      "label": "M3 every successfully measured clean tree is refused",
+      "file": "scripts/lib/tree_state.sh",
+      "old": "  if [ -z \"$changed\" ]; then\n    return 0\n  fi",
+      "new": "  if [ -z \"$changed\" ]; then\n    return 2\n  fi",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_a_clean_tree_passes",
+      "preserves": [
+        "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_a_git_status_failure_is_unknown_not_clean",
+        "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py::test_a_dirty_tree_is_refused_and_says_why"
+      ]
+    }
+  ]
+}

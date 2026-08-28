@@ -231,6 +231,30 @@ df -h / | awk 'NR==2{print "disk free at start: "$4}'
 # ============================================================ 0. system base
 step "apt update" optional bash -c "$SUDO apt-get update -qq"
 
+# The venv command below needs python3.12-venv on a stock host.  This package
+# group used to live under section 7 (extras), AFTER the venv was attempted.
+# A first run therefore failed, installed the missing package later, and left
+# enough state for a second run to succeed.  Install the shared core group here,
+# before any consumer, and grade an unavailable/empty group as load-bearing.
+if [ "$HAVE_SYSDEPS" = 1 ]; then
+  CORE_PKGS="$(bd_system_pkgs core)" || CORE_PKGS=""
+  if [ -n "$CORE_PKGS" ]; then
+    # Word splitting is the point: one arg per package.
+    # shellcheck disable=SC2086
+    step "system packages (core)" core apt_i $CORE_PKGS
+  else
+    row "system packages (core)" "**FAILED**" "bd_system_pkgs core returned nothing -- cannot prove python3.12-venv is installable"
+    echo "[FAIL] system packages (core) -- empty package list"
+    CORE_FAILED=1
+  fi
+elif [ "$HAVE_REPO" = 1 ]; then
+  row "system packages (core)" "**FAILED**" "system_deps fragment unavailable -- cannot install python3.12-venv before building the venv"
+  echo "[FAIL] system packages (core) -- shared package group unavailable"
+  CORE_FAILED=1
+else
+  row "system packages (core)" "WARN" "no repo at setup time -- shared core package group unavailable"
+fi
+
 # Git identity. Every in-session commit must be attributable to Claude with the
 # noreply@anthropic.com committer email, or the verified-commit stop-hook flags
 # it as Unverified. Set --global so it holds before the repo is even located.
@@ -476,24 +500,27 @@ fi
 if skip EXTRAS; then
   row "extras" "WARN" "skipped via BD_SKIP_EXTRAS — GTK module-import gate cannot run"
 else
-  # @903: THE FRAGMENT OWNS FIVE GROUPS AND THIS FILE TOOK TWO. core, node and
-  # media were never requested here, so the cloud container was provisioned
-  # from a different list than the box -- install_linux.sh takes `all` and
+  # @903: THE FRAGMENT OWNS FIVE GROUPS. This section originally took only gtk
+  # and lint, so the cloud container was provisioned from a different list than
+  # the box -- install_linux.sh takes `all` and
   # provision_test_host.sh installs all five by name. Measured: the box carried
   # ffmpeg 6.1.1-3ubuntu5 (the `media` group) and this container had NONE, so
   # bulk_downloader/integrity.py's ffprobe shell-out could not run and its
   # check failed open. That is CLAUDE.md section 5's three-copies drift with
   # the container as the copy nobody updated.
   #
-  # Each group is captured and refused-if-empty for the reason the GTK step
-  # below spells out: command substitution DISCARDS the function's non-zero
+  # Core now runs before the venv in section 0; media remains in this optional
+  # section; node remains deliberately excluded below. Each requested group is
+  # captured and refused-if-empty for the reason the GTK step below spells out:
+  # command substitution DISCARDS the function's non-zero
   # exit and `apt-get install` with zero arguments exits 0, so the obvious
   # one-liner installs nothing and records OK.
   if [ "$HAVE_SYSDEPS" = 1 ]; then
-    CORE_PKGS="$(bd_system_pkgs core)"   || CORE_PKGS=""
+    # The load-bearing core group is installed before section 1, because it
+    # contains python3.12-venv.  Extras owns only the optional media half here.
     MEDIA_PKGS="$(bd_system_pkgs media)" || MEDIA_PKGS=""
   else
-    CORE_PKGS=""; MEDIA_PKGS=""
+    MEDIA_PKGS=""
   fi
   # THE `node` GROUP IS DELIBERATELY NOT INSTALLED HERE, and this comment is
   # load-bearing: 4-of-5 reads like an oversight, and the obvious "fix" breaks
@@ -508,13 +535,6 @@ else
   #     the frontend build gets
   # Node IS required (npm run build produces frontend/dist, and a missing
   # bundle is a silent 503) -- it is simply not apt's to provide here.
-  if [ -n "$CORE_PKGS" ]; then
-    # Word splitting is the point: one arg per package.
-    # shellcheck disable=SC2086
-    step "system packages (core)" optional apt_i $CORE_PKGS
-  else
-    row "system packages (core)" "WARN" "bd_system_pkgs core returned nothing -- refusing to run apt on an empty package list"
-  fi
   if [ -n "$MEDIA_PKGS" ]; then
     # shellcheck disable=SC2086
     step "system packages (media)" optional apt_i $MEDIA_PKGS

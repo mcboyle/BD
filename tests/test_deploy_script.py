@@ -70,6 +70,8 @@ CLOUD_SETUP = REPO / "scripts" / "cloud-setup.sh"
 VENV_PY = Path(sys.executable)
 BASH = "bash"
 
+BD_GATE_SCOPE = "module"
+
 TREE_VERSION = "3.66.848"
 MARKER_REL = "frontend/dist/.bd-built-from"
 
@@ -323,6 +325,8 @@ case "$mode" in
     body=""; code="000"; rc=7;;
   bundle_missing)
     body=""; code="503"; rc=0;;
+  server_error_matching_version)
+    body="{\"version\": \"$ver\", \"status\": \"broken\"}"; code="500"; rc=0;;
   versionless_then_healthy)
     if [ "${count:-2}" -le 1 ]; then
       body="{}"
@@ -342,6 +346,9 @@ done
 # without pattern-matching a hostname the test happens to have chosen.
 if [ -n "${ROOT_CODE:-}" ] && [ "${url##*/api/health}" = "$url" ]; then
   body=""; code="$ROOT_CODE"; rc=0
+fi
+if [ -n "${CURL_RESPONSES_FILE:-}" ]; then
+  printf '%s\t%s\t%s\n' "$code" "$url" "$body" >> "$CURL_RESPONSES_FILE"
 fi
 if [ -n "$outfile" ]; then
   printf '%s' "$body" > "$outfile"
@@ -451,6 +458,7 @@ def _setup(version=TREE_VERSION, deploy_source=None, **envextra):
     env["PIP_MARKER"] = os.path.join(work, "pip-marker")
     env["SVC_STATE"] = os.path.join(work, "svc-state")
     env["CURL_CALLS_FILE"] = os.path.join(work, "curl-calls")
+    env["CURL_RESPONSES_FILE"] = os.path.join(work, "curl-responses")
     env["CURL_VERSION"] = version
     env.update({k: str(v) for k, v in envextra.items()})
     _write(env["SVC_STATE"], "active\n")     # the box starts with the unit running
@@ -513,6 +521,10 @@ exec /usr/bin/rm "$@"
 def _curl_calls(fx):
     txt = _read(fx.env["CURL_CALLS_FILE"]).strip()
     return int(txt) if txt.isdigit() else 0
+
+
+def _curl_responses(fx):
+    return [line.split("\t", 2) for line in _lines(fx.env["CURL_RESPONSES_FILE"])]
 
 
 # ─────────────────────────────────────────────────────────── tests
@@ -1219,6 +1231,44 @@ def test_root_url_confirmed_separately_from_api_health():
         "gate that fires on identity gets switched off" + _ctx(r))
     assert "GET / = 200" in _out(r), (
         "the health note must report the root probe it actually made" + _ctx(r))
+
+
+def test_health_requires_http_200_even_when_error_body_matches_version():
+    bad_fx = _setup(
+        CURL_MODE="server_error_matching_version",
+        ROOT_CODE="200",
+    )
+    _bundle_current(bad_fx)
+    bad = _deploy(bad_fx, "--timeout", "0")
+
+    good_fx = _setup(CURL_MODE="healthy", ROOT_CODE="200")
+    _bundle_current(good_fx)
+    good = _deploy(good_fx, "--timeout", "0")
+
+    bad_responses = _curl_responses(bad_fx)
+    good_responses = _curl_responses(good_fx)
+    assert len(bad_responses) >= 1, "the error-status health seam never fired"
+    assert bad_responses[0] == [
+        "500",
+        "http://deploy-test.invalid/api/health",
+        '{"version": "3.66.848", "status": "broken"}',
+    ], f"fixture did not deliver the version-matching HTTP 500: {bad_responses}"
+    assert len(good_responses) == 2, (
+        "the healthy control must make exactly one health probe and one root "
+        f"probe: {good_responses}"
+    )
+    assert [response[0] for response in good_responses] == ["200", "200"]
+
+    assert bad.returncode == 1, (
+        "HTTP 500 carried the expected version and was reported as a verified "
+        "deploy" + _ctx(bad, f"responses: {bad_responses!r}"))
+    assert "HTTP 500" in _out(bad), (
+        "the refusal did not name the non-200 health measurement" + _ctx(bad))
+    assert "health verified" not in _low(bad), _ctx(bad)
+    assert good.returncode == 0, (
+        "two genuine HTTP 200 responses must remain a verified deploy"
+        + _ctx(good, f"responses: {good_responses!r}"))
+    assert "health verified" in _low(good), _ctx(good)
 
 
 def test_stop_failure_blocks_mutating_window():

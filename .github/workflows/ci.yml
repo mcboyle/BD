@@ -287,7 +287,9 @@ jobs:
               tests/test_v3_66_1158_fleet_provenance_fails_closed.py
               tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py
               tests/test_row_282_bd_opv_isolates_every_store.py
+              tests/test_row345_opv_a11y_requires_served_cockpit.py
               tests/test_row313_bd_job_identity.py
+              tests/test_row350_job_api_durable_truth.py
               tests/test_v3_66_1159_fleet_prune_is_object_bound.py
               tests/test_v3_66_1160_bridge_verifier_isolation.py
               tests/test_v3_66_1161_context_census_is_retired.py
@@ -391,6 +393,7 @@ jobs:
             suites: >-
               tests/test_app_measurements_fail_closed.py
               tests/test_ffmpeg_capability_health.py
+              tests/test_row346_plugin_sandbox_is_truthful.py
               tests/test_row311_app_config_writers_are_serialized.py
               tests/test_v3_66_261_contended_lifecycle_lock.py
               tests/test_v3_57_phase9.py
@@ -441,6 +444,13 @@ jobs:
               tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py
               tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py
               tests/test_u45_capture_sh_shipped.py
+          # Row 340. The production deploy harness drives real git and the
+          # complete step-12 health boundary. It is isolated because the suite
+          # constructs a fresh origin/clone per case and would otherwise make
+          # an existing shard's runtime depend on deploy coverage.
+          - name: deploy-readiness
+            suites: >-
+              tests/test_deploy_script.py
           - name: jobs-determinism
             suites: >-
               tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
@@ -482,6 +492,7 @@ jobs:
               tests/test_v3_66_121_login_flow_derives_the_observed_drive.py
               tests/test_capture_execution_lanes.py
               tests/test_capture_shell_runtime.py
+              tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py
               tests/test_row_285_deploy_fail_open.py
               tests/test_parallel_capture_services.py
               tests/test_row290_capture_serial_fixture_port.py
@@ -515,6 +526,7 @@ jobs:
               tests/test_history_file_size_is_the_size_on_disk.py
               tests/test_playwright_engines_single_source.py
               tests/test_row308_visual_audit_identity.py
+              tests/test_row343_fresh_host_bringup.py
           - name: tree-gates-4
             suites: >-
               tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3934,
+  "edge_count": 3946,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1543,15 +1543,18 @@
       "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/plugin_exec.py": [
+      "bulk_downloader/plugin_sandbox.py",
       "bulk_downloader/plugins.py"
     ],
     "bulk_downloader/plugin_kv.py": [
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/plugin_node.py": [
+      "bulk_downloader/plugin_sandbox.py",
       "bulk_downloader/plugins.py"
     ],
     "bulk_downloader/plugin_py_bridge.py": [
+      "bulk_downloader/plugin_sandbox.py",
       "bulk_downloader/plugins.py"
     ],
     "bulk_downloader/plugins.py": [
@@ -3464,6 +3467,19 @@
     ],
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
+    ],
+    "tests/test_row346_plugin_sandbox_is_truthful.py": [
+      "bulk_downloader/plugin_exec.py",
+      "bulk_downloader/plugin_node.py",
+      "bulk_downloader/plugin_py_bridge.py",
+      "bulk_downloader/plugin_sandbox.py"
+    ],
+    "tests/test_row350_job_api_durable_truth.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_teach.py",
+      "bulk_downloader/dev_tools.py",
+      "bulk_downloader/mass_import.py",
+      "tools/onboard_site_template.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

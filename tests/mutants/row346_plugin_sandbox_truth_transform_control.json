@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 346. This spec intentionally exits 1 with one valid ESCAPED mutant: it applies the exact ambient-environment regression from M1, but the catcher only imports the sandbox. The escape proves the primary CAUGHT verdict comes from observing a real child rather than a parse/import failure.",
+  "subject": "transform control -- importing the plugin sandbox does not constrain its child environment",
+  "band": [
+    "tests/test_row346_plugin_sandbox_is_truthful.py::test_transform_control_imports_the_sandbox_without_launching_a_plugin"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 ambient environment transform escapes an import-only test",
+      "file": "bulk_downloader/plugin_sandbox.py",
+      "old": "    child_env = {\n        name: os.environ[name]\n        for name in _ENV_ALLOWLIST\n        if name in os.environ\n    }",
+      "new": "    child_env = dict(os.environ)",
+      "direction": "regression",
+      "catcher": "tests/test_row346_plugin_sandbox_is_truthful.py::test_transform_control_imports_the_sandbox_without_launching_a_plugin"
+    }
+  ]
+}

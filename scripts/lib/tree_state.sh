@@ -40,8 +40,16 @@ bd_tree_state_check() {
     return 2
   fi
 
-  local changed
-  changed="$(git -C "$dir" status --porcelain --untracked-files=all 2>/dev/null)"
+  local changed status_rc=0
+  changed="$(git -C "$dir" status --porcelain --untracked-files=all 2>/dev/null)" \
+    || status_rc=$?
+
+  if [ "$status_rc" -ne 0 ]; then
+    printf 'tree state UNKNOWN: git status failed for %s (exit %s), so cleanliness\n' \
+      "$dir" "$status_rc" >&2
+    printf '  cannot be established. Refusing rather than assuming.\n' >&2
+    return 2
+  fi
 
   if [ -z "$changed" ]; then
     return 0

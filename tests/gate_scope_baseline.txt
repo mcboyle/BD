@@ -214,7 +214,6 @@ tests/test_deep_detect_redos.py
 tests/test_deep_detect_surface_lock.py
 tests/test_dependency_graph_fails_closed.py
 tests/test_dependency_graph_in_sync.py
-tests/test_deploy_script.py
 tests/test_derive_api_a6_1.py
 tests/test_dev_metrics.py
 tests/test_dev_suite.py
