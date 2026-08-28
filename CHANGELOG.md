@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1311 - every third-party import bulk_downloader makes is declared somewhere
+
+-    "werkzeug": "flask's own hard dependency; pinning it separately would le
+-                "it drift out of flask's supported range",
+-    "requests": "transitive under EXACTLY ONE declared distribution, and onl
+-                "through the posture-sensitive optional manifest: "
+-                "requirements-cloak.txt's cloakbrowser[geoip] -> geoip2>=4.0
+-                "-> requests>=2.24.0,<3.0.0 (MEASURED from installed metadat
+-                "at v3.66.848). psutil and pytest name requests only under "
+-                "their 'dev'/'testing' extras, which BD never asks for, so "
+-                "nothing in requirements.txt pulls it in and install_linux's
+-                "cloak step is NON-FATAL by design -- treat it as possibly "
+-                "absent. Every bulk_downloader importer soft-imports it "
+-                "(site_weather, webhooks, discovery, tpdb, wayback_cdx, "
+-                "selector_playground, cli_dashboard, tray_app) and returns a
+
 ## v3.66.1310 - the T3/T4 vitest budget is derived from measurement with headroom
 
 - [primary mutation battery](/home/mboyle/bd-codex-wt/row329/tests/mutants/ro

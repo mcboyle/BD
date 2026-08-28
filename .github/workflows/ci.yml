@@ -358,6 +358,7 @@ jobs:
               tests/test_cockpit_navigation_contract.py
               tests/test_import_graph_no_new_edges.py
               tests/test_v3_66_653_dep_freshness.py
+              tests/test_row331_guarded_imports_are_declared.py
               tests/test_route_index_in_sync.py
           # @1072 adds four suites here, and the last of them is THE GATE THAT
           # GUARDS THIS MATRIX. Until now it ran nowhere: it was created at

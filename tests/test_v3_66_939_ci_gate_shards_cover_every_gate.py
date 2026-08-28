@@ -414,6 +414,7 @@ _DECLARED = {
     "tests/test_failed_measurements_have_distinct_states.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
+    "tests/test_row331_guarded_imports_are_declared.py",
     # @1035. The isolation shard. These three are repo-wide despite not
     # looking it: 1034 enumerates git ls-files for the leaker ratchet, and
     # all three assert invariants about the SUITE rather than a module --
@@ -680,7 +681,10 @@ _DECLARED = {
 # declares its tree-wide census scope and runs directly in tree-gates-1.
 # 192 -> 193 at row 243 rebuild (2026-08-28). The deterministic registration
 # gate is declared once and scheduled once in toolchain-verifiers.
-_EXPECTED_DECLARED_GATE_COUNT = 196
+# 196 -> 197 at row 331 (2026-08-28). The mechanically derived application
+# dependency-declaration gate is declared once and scheduled beside the older
+# whole-tree dependency-freshness gate.
+_EXPECTED_DECLARED_GATE_COUNT = 197
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
