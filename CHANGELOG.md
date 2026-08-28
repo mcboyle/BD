@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1318 - an analyzer that did not run is UNKNOWN, not zero findings
+
+-                        "--scan", root, "--out", "/tmp/_dp.json"])
+-        d = json.load(open("/tmp/_dp.json"))
+-        print(f"  defect_patterns ingest error: {e}", file=sys.stderr)
+-        d = json.loads(out or "{}")
+-        for r in d.get("results", []):
+-        print(f"  bandit ingest error: {e} (stderr: {err[:120]})", file=sys.
+-            continue
+-        except ValueError:
+-            continue
+-    print("bd-scan: defect_patterns ...")
+-    all_f += from_defect_patterns(a.root, py)
+-    print("bd-scan: bandit ...")
+-    all_f += from_bandit(a.root, a.venv)
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 202 -> 209.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1317 - a zero release population is UNKNOWN, not a pass
 
 -    total, passed, failed, skipped = (map(int, m.groups()) if m else (0, 0, 

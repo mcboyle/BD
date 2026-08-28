@@ -14,6 +14,10 @@ Each finding: {file, line, source, code, severity, title}. Diff-aware hook
 (sorted).
 
 Usage: python3 bd-scan.py [--root TREE] [--venv ~/rev] [--out FILE] [--semgrep]
+
+Every default analyzer must produce a parseable measurement. A launch, exit, or
+ingest failure is recorded as status=UNKNOWN and exits 2; zero findings is CLEAN
+only when all three default analyzers are status=MEASURED.
 """
 import argparse
 import json
@@ -21,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 DEFAULT_ROOT = os.environ.get(
     "BD_WORK", os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -28,6 +33,10 @@ DEFAULT_ROOT = os.environ.get(
 REVIEW_ROOT = os.path.join(DEFAULT_ROOT, "review")
 
 PROD_DIRS = ["bulk_downloader", "tools"]
+
+
+class AnalyzerUnavailable(RuntimeError):
+    """A selected analyzer produced no trustworthy measurement."""
 
 
 def run(cmd, timeout=600):
@@ -38,19 +47,42 @@ def run(cmd, timeout=600):
         return -1, "", str(e)
 
 
+def _require_analyzer_run(source, rc, out, err, accepted=(0,)):
+    if rc not in accepted:
+        detail = (err or out or "no diagnostic output").strip().replace("\n", " ")
+        raise AnalyzerUnavailable(
+            f"{source} did not complete (exit {rc}): {detail[:240]}"
+        )
+    return out
+
+
 def from_defect_patterns(root, py):
+    fd, report = tempfile.mkstemp(prefix="bd-scan-defect-patterns-", suffix=".json")
+    os.close(fd)
+    os.unlink(report)
     rc, out, err = run([py, os.path.join(os.path.dirname(__file__), "defect_patterns.py"),
-                        "--scan", root, "--out", "/tmp/_dp.json"])
+                        "--scan", root, "--out", report])
     findings = []
     try:
-        d = json.load(open("/tmp/_dp.json"))
+        _require_analyzer_run("defect_patterns", rc, out, err)
+        with open(report) as stream:
+            d = json.load(stream)
+        if not isinstance(d, dict) or not isinstance(d.get("findings"), dict):
+            raise ValueError("report has no findings mapping")
         for fl, fnd in d["findings"].items():
             for f in fnd:
                 findings.append({"file": fl, "line": f["line"], "source": "defect_patterns",
                                  "code": f["dp"], "severity": f["severity"],
                                  "precision": f["precision"], "title": f["title"]})
     except Exception as e:
-        print(f"  defect_patterns ingest error: {e}", file=sys.stderr)
+        if isinstance(e, AnalyzerUnavailable):
+            raise
+        raise AnalyzerUnavailable(f"defect_patterns report is unreadable: {e}") from e
+    finally:
+        try:
+            os.unlink(report)
+        except FileNotFoundError:
+            pass
     return findings
 
 
@@ -61,15 +93,20 @@ def from_bandit(root, venv):
                         "--exclude", "*/node_modules/*,*/__pycache__/*"], timeout=900)
     findings = []
     try:
-        d = json.loads(out or "{}")
-        for r in d.get("results", []):
+        _require_analyzer_run("bandit", rc, out, err, accepted=(0, 1))
+        d = json.loads(out)
+        if not isinstance(d, dict) or not isinstance(d.get("results"), list):
+            raise ValueError("report has no results list")
+        for r in d["results"]:
             rel = os.path.relpath(r["filename"], root)
             findings.append({"file": rel, "line": r.get("line_number", 0),
                              "source": "bandit", "code": r.get("test_id", ""),
                              "severity": (r.get("issue_severity") or "low").lower(),
                              "title": r.get("issue_text", "")[:140]})
     except Exception as e:
-        print(f"  bandit ingest error: {e} (stderr: {err[:120]})", file=sys.stderr)
+        if isinstance(e, AnalyzerUnavailable):
+            raise
+        raise AnalyzerUnavailable(f"bandit report is unreadable: {e}") from e
     return findings
 
 
@@ -78,19 +115,20 @@ def from_vulture(root, venv):
     targets = [os.path.join(root, d) for d in PROD_DIRS]
     # min-confidence 90 to drop framework/dynamic-dispatch noise (calibration)
     rc, out, err = run([vulture, *targets, "--min-confidence", "90"], timeout=300)
+    _require_analyzer_run("vulture", rc, out, err)
     findings = []
     for ln in (out or "").splitlines():
         # format: path:line: unused X 'name' (NN% confidence)
         if ":" not in ln:
-            continue
+            raise AnalyzerUnavailable(f"vulture report is unreadable: {ln[:120]}")
         try:
             fpath, lineno, rest = ln.split(":", 2)
             rel = os.path.relpath(fpath, root)
             findings.append({"file": rel, "line": int(lineno), "source": "vulture",
                              "code": "dead-code", "severity": "low",
                              "title": rest.strip()[:140]})
-        except ValueError:
-            continue
+        except ValueError as e:
+            raise AnalyzerUnavailable(f"vulture report is unreadable: {ln[:120]}") from e
     return findings
 
 
@@ -199,12 +237,24 @@ def main():
     py = os.path.join(a.venv, "bin", "python")
 
     all_f = []
-    print("bd-scan: defect_patterns ...")
-    all_f += from_defect_patterns(a.root, py)
-    print("bd-scan: bandit ...")
-    all_f += from_bandit(a.root, a.venv)
-    print("bd-scan: vulture ...")
-    all_f += from_vulture(a.root, a.venv)
+    analyzers = {}
+    unknown_reasons = {}
+    default_collectors = [
+        ("defect_patterns", lambda: from_defect_patterns(a.root, py)),
+        ("bandit", lambda: from_bandit(a.root, a.venv)),
+        ("vulture", lambda: from_vulture(a.root, a.venv)),
+    ]
+    for source, collect in default_collectors:
+        print(f"bd-scan: {source} ...")
+        try:
+            measured = collect()
+        except AnalyzerUnavailable as exc:
+            analyzers[source] = {"status": "UNKNOWN", "findings": 0}
+            unknown_reasons[source] = str(exc)
+            print(f"  UNKNOWN {source}: {exc}", file=sys.stderr)
+        else:
+            analyzers[source] = {"status": "MEASURED", "findings": len(measured)}
+            all_f += measured
     if a.semgrep:
         print("bd-scan: semgrep (python) ...")
         all_f += from_semgrep(a.root, a.venv)
@@ -221,14 +271,25 @@ def main():
     for f in all_f:
         by_source[f["source"]] = by_source.get(f["source"], 0) + 1
         by_sev[f["severity"]] = by_sev.get(f["severity"], 0) + 1
-    payload = {"schema": 1, "root": a.root, "total": len(all_f),
+    status = "UNKNOWN" if unknown_reasons else ("CLEAN" if not all_f else "FINDINGS")
+    payload = {"schema": 1, "root": a.root, "status": status,
+               "analyzers": dict(sorted(analyzers.items())),
+               "unknown_reasons": dict(sorted(unknown_reasons.items())),
+               "total": len(all_f),
                "by_source": dict(sorted(by_source.items())),
                "by_severity": dict(sorted(by_sev.items())), "findings": all_f}
     json.dump(payload, open(a.out, "w"), indent=2, sort_keys=True)
-    print(f"\nbd-scan: {len(all_f)} findings -> {a.out}")
+    if unknown_reasons:
+        print(f"\nbd-scan: UNKNOWN -- {len(unknown_reasons)} analyzer(s) unavailable "
+              f"-> {a.out}")
+    elif not all_f:
+        print(f"\nbd-scan: CLEAN -- 0 findings -> {a.out}")
+    else:
+        print(f"\nbd-scan: FINDINGS -- {len(all_f)} findings -> {a.out}")
     print("  by source  :", json.dumps(dict(sorted(by_source.items()))))
     print("  by severity:", json.dumps(dict(sorted(by_sev.items()))))
+    return 2 if unknown_reasons else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

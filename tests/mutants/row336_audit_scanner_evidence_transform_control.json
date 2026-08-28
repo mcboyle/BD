@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 336 transform control. This deliberately must report one valid ESCAPED mutant: it applies M3's byte-identical warning downgrade while its catcher exercises an audit with a present, matching witness suite and never reaches the missing-suite branch. The escape proves M3's primary CAUGHT verdict comes from the missing-evidence assertion rather than invalid Python, import failure, collection failure, or unrelated verifier behavior.",
+  "subject": "transform-only control for the absent witness-suite warning downgrade",
+  "band": [
+    "tests/test_row336_audit_and_scan_evidence.py::test_a_live_sha_and_finding_with_a_matching_witness_suite_is_accepted"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the identical M3 warning downgrade under a witnessed audit",
+      "file": "tools/verify_audit.py",
+      "old": "            fails.append(\"witness: no witness suite supplied -- (3) cannot be measured\")\n",
+      "new": "            warns.append(\"no witness suite supplied -- (3) skipped\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_a_live_sha_and_finding_with_a_matching_witness_suite_is_accepted"
+    }
+  ]
+}

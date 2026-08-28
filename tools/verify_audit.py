@@ -5,12 +5,14 @@ Mechanizes the by-hand check a reviewer would otherwise run on every parallel
 session's output (which does not scale). Given an AUDIT_<BATCH>.json (+ its witness
 suite), it refuses the deliverable unless ALL of:
 
-  (1) SCHEMA   -- required top-level + per-file + per-finding fields present.
+  (1) SCHEMA   -- required top-level + per-file + per-finding fields present;
+                  files and findings are both non-empty measured populations.
   (2) SHA      -- every files[].sha256 matches the live tree (they audited the
                   pinned source, not a drifted copy).  [review_merge also checks
                   this at merge; verify_audit checks it BEFORE, with the witnesses.]
-  (3) WITNESS  -- the batch's witness suite runs and EVERY witness demonstrates
-                  (ok=True), and every finding in the JSON has a witness in the suite.
+  (3) WITNESS  -- the batch's witness suite is present, runs, and EVERY witness
+                  demonstrates (ok=True), and every finding in the JSON has a
+                  matching witness in the suite.
   (4) EMIT     -- audit_emit_gate passes (no falsifiable claim without a witness).
   (5) COMPLETE -- for any finding carrying a `signature` regex, the cited sites
                   equal ALL matches in the file (catches the F-RUN01-03 :1041
@@ -67,11 +69,19 @@ def verify(audit_path, wpath, root, sig_path, adv_path=None):
     for k in REQ_TOP:
         if k not in a:
             fails.append(f"schema: missing top-level '{k}'")
-    for frec in a.get("files", []):
+    files = a.get("files")
+    findings = a.get("findings")
+    if not isinstance(files, list) or not files:
+        fails.append("schema: 'files' must be a non-empty list")
+    if not isinstance(findings, list) or not findings:
+        fails.append("schema: 'findings' must be a non-empty list")
+    files = files if isinstance(files, list) else []
+    findings = findings if isinstance(findings, list) else []
+    for frec in files:
         for k in REQ_FILE:
             if k not in frec:
                 fails.append(f"schema: file {frec.get('path','?')} missing '{k}'")
-    for fd in a.get("findings", []):
+    for fd in findings:
         for k in REQ_FIND:
             if k not in fd:
                 fails.append(f"schema: finding {fd.get('id','?')} missing '{k}'")
@@ -79,7 +89,7 @@ def verify(audit_path, wpath, root, sig_path, adv_path=None):
             warns.append(f"finding {fd.get('id')} has no repro_test (recommended)")
 
     # (2) SHA
-    for frec in a.get("files", []):
+    for frec in files:
         p = os.path.join(root, frec["path"])
         if not os.path.exists(p):
             fails.append(f"sha: {frec['path']} not in tree at {root}")
@@ -99,14 +109,17 @@ def verify(audit_path, wpath, root, sig_path, adv_path=None):
             for cid, d in not_shown:
                 fails.append(f"witness: {cid} did NOT demonstrate -- {d[:70]}")
         # every finding must have a witness in the suite
-        for fd in a.get("findings", []):
+        for fd in findings:
             wref = str(fd.get("witness", ""))
             fid = fd.get("id")
-            if fid not in witness_ids and fid not in wref:
-                warns.append(f"finding {fid} witness ref '{wref[:40]}' not matched "
+            if fid not in witness_ids and wref not in witness_ids:
+                fails.append(f"finding {fid} witness ref '{wref[:40]}' not matched "
                              f"to a suite witness id")
     else:
-        warns.append("no witness suite supplied -- (3) skipped")
+        if wpath:
+            fails.append(f"witness: suite not found: {wpath}")
+        else:
+            fails.append("witness: no witness suite supplied -- (3) cannot be measured")
 
     # (4) EMIT -- run audit_emit_gate over BOTH the audit findings/invariants AND
     # the advanced sidecar (constraints/exceptions/drift-beliefs = claim classes
@@ -143,7 +156,7 @@ def verify(audit_path, wpath, root, sig_path, adv_path=None):
     # (5) COMPLETE
     sigs = json.load(open(sig_path)) if sig_path and os.path.exists(sig_path) else {}
     # allow inline per-finding 'signature' too
-    for fd in a.get("findings", []):
+    for fd in findings:
         sig = fd.get("signature") or sigs.get(fd.get("id"))
         lr = fd.get("line_range", "")
         cited = set(int(x) for x in re.findall(r"\d+", lr)) if lr else set()
