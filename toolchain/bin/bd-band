@@ -37,11 +37,187 @@ Exit 0 = all suites Failed:0 ; 1 = any failure/timeout/missing suite.
 """
 import argparse
 import os
+import pathlib
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import zipfile
+
+REGISTERED = "REGISTERED"
+REGISTRATION_FAILED = "REGISTRATION FAILED"
+NO_REGISTRAR = "NO REGISTRAR IN THIS TREE"
+_REGISTRATION_STATE_PREFIX = "BD-PYTEST REGISTRATION STATE: "
+_PYTEST_REGISTRATION_REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+_PYTEST_REGISTRATION_BOOTSTRAP = r'''\
+import os
+import runpy
+import shlex
+import subprocess
+import sys
+
+state, jobs, anchor, proof, purpose, *pytest_args = sys.argv[1:]
+if state == "REGISTERED":
+    command = shlex.join([sys.executable, "-m", "pytest", *pytest_args])
+    try:
+        registration = subprocess.run(
+            [sys.executable, jobs, "register", "--pid", str(os.getpid()),
+             "--purpose", purpose, "--cmd", command],
+            capture_output=True, text=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("BD-PYTEST REGISTRATION STATE: REGISTRATION FAILED: "
+              f"anchor={anchor}; registrar={jobs}; {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        raise SystemExit(3)
+    if registration.returncode:
+        detail = (registration.stdout + registration.stderr).strip()
+        print("BD-PYTEST REGISTRATION STATE: REGISTRATION FAILED: "
+              f"anchor={anchor}; registrar={jobs}; exit={registration.returncode}"
+              + (f"; {detail}" if detail else ""), file=sys.stderr)
+        raise SystemExit(3)
+    print("BD-PYTEST REGISTRATION STATE: REGISTERED: "
+          f"anchor={anchor}; registrar={jobs}", file=sys.stderr)
+elif state == "NO REGISTRAR IN THIS TREE":
+    print("BD-PYTEST REGISTRATION STATE: NO REGISTRAR IN THIS TREE: "
+          f"anchor={anchor}; {proof}", file=sys.stderr)
+else:
+    print("BD-PYTEST REGISTRATION UNKNOWN: invalid internal state "
+          f"{state!r}; anchor={anchor}; nothing ran", file=sys.stderr)
+    raise SystemExit(3)
+
+sys.argv[:] = ["pytest", *pytest_args]
+runpy.run_module("pytest", run_name="__main__", alter_sys=True)
+'''
+
+
+class PytestRegistrationRefused(RuntimeError):
+    """Owned pytest could not start because registry evidence refused."""
+
+
+def _registration_refusal(output):
+    for raw_line in str(output).splitlines():
+        line = raw_line.strip()
+        if (line.startswith(_REGISTRATION_STATE_PREFIX + REGISTRATION_FAILED + ":")
+                or line.startswith("BD-PYTEST REGISTRATION UNKNOWN:")):
+            return line
+    return None
+
+
+def _raise_if_registration_refused(output):
+    detail = _registration_refusal(output)
+    if detail:
+        raise PytestRegistrationRefused(detail)
+
+
+def _registration_unknown(anchor, detail):
+    raise PytestRegistrationRefused(
+        "BD-PYTEST REGISTRATION UNKNOWN: anchor=%s; %s; nothing ran"
+        % (anchor, detail))
+
+
+def _resolve_pytest_registrar(repository_root=None):
+    """Resolve only the explicit repository anchor; never ambient candidates."""
+    raw_anchor = (repository_root if repository_root is not None
+                  else _PYTEST_REGISTRATION_REPOSITORY_ROOT)
+    try:
+        anchor = pathlib.Path(raw_anchor).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _registration_unknown(raw_anchor, "anchor is unavailable: %s" % exc)
+    if not anchor.is_dir():
+        _registration_unknown(anchor, "anchor is not a directory")
+    registrar = anchor / "toolchain" / "bin" / "bd-jobs"
+    registrar_present = True
+    for owned_dir in (anchor / "toolchain", anchor / "toolchain" / "bin"):
+        try:
+            owned_info = owned_dir.lstat()
+        except FileNotFoundError:
+            registrar_present = False
+            break
+        except OSError as exc:
+            _registration_unknown(
+                anchor, "registrar metadata is unavailable: %s" % exc)
+        if stat.S_ISLNK(owned_info.st_mode):
+            _registration_unknown(
+                anchor, "registrar parent is a symlink: %s" % owned_dir)
+        if not stat.S_ISDIR(owned_info.st_mode):
+            _registration_unknown(
+                anchor, "registrar parent is not a directory: %s" % owned_dir)
+    if registrar_present:
+        try:
+            registrar_info = registrar.lstat()
+        except FileNotFoundError:
+            registrar_present = False
+        except OSError as exc:
+            _registration_unknown(
+                anchor, "registrar metadata is unavailable: %s" % exc)
+        else:
+            if stat.S_ISLNK(registrar_info.st_mode):
+                _registration_unknown(anchor, "registrar is a symlink: %s" % registrar)
+            if not stat.S_ISREG(registrar_info.st_mode):
+                _registration_unknown(
+                    anchor, "registrar is not a regular file: %s" % registrar)
+
+    try:
+        (anchor / ".git").lstat()
+    except FileNotFoundError:
+        if registrar_present:
+            proof = ("anchor has no .git repository metadata; untracked "
+                     "toolchain/bin/bd-jobs is not a registrar")
+        else:
+            proof = ("anchor has no .git repository metadata and no "
+                     "toolchain/bin/bd-jobs")
+        return NO_REGISTRAR, None, proof
+    except OSError as exc:
+        _registration_unknown(anchor, "repository metadata is unavailable: %s" % exc)
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(anchor), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _registration_unknown(anchor, "repository-root measurement failed: %s" % exc)
+    if top.returncode != 0 or not top.stdout.strip():
+        _registration_unknown(anchor, "repository-root measurement returned exit %d: %s"
+                              % (top.returncode, (top.stdout + top.stderr).strip()))
+    try:
+        measured_root = pathlib.Path(top.stdout.strip()).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _registration_unknown(anchor, "measured repository root is unavailable: %s" % exc)
+    if measured_root != anchor:
+        _registration_unknown(anchor, "anchor is not the measured repository root %s"
+                              % measured_root)
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(anchor), "ls-files", "--error-unmatch", "--",
+             "toolchain/bin/bd-jobs"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _registration_unknown(anchor, "tracked-registrar measurement failed: %s" % exc)
+    if tracked.returncode == 0:
+        if not registrar_present:
+            _registration_unknown(anchor,
+                                  "tracked toolchain/bin/bd-jobs is absent or not a file")
+        return REGISTERED, registrar, "tracked toolchain/bin/bd-jobs"
+    if tracked.returncode == 1:
+        proof = "Git proves toolchain/bin/bd-jobs is not tracked under this anchor"
+        if registrar_present:
+            proof += "; the untracked path is not trusted"
+        return NO_REGISTRAR, None, proof
+    _registration_unknown(anchor, "tracked-registrar measurement returned exit %d: %s"
+                          % (tracked.returncode,
+                             (tracked.stdout + tracked.stderr).strip()))
+
+
+def _registered_pytest_argv(python, purpose, *pytest_args, repository_root=None):
+    """Return a same-PID register-before-import pytest command."""
+    raw_anchor = (repository_root if repository_root is not None
+                  else _PYTEST_REGISTRATION_REPOSITORY_ROOT)
+    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)
+    anchor = pathlib.Path(raw_anchor).resolve(strict=True)
+    return [str(python), "-c", _PYTEST_REGISTRATION_BOOTSTRAP,
+            state, str(registrar or ""), str(anchor), proof, str(purpose),
+            *[str(arg) for arg in pytest_args]]
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
@@ -273,8 +449,15 @@ def main(argv=None):
         # manufactured. The shim's own docstring says it is "NOT a replacement
         # for pytest in production" and exists for environments without pytest;
         # the guard above means this is never one.
-        r = run([py, "-m", "pytest", s, "-q", "-p", "no:randomly"],
-                cwd=rundir, env=env, timeout=a.timeout)
+        try:
+            r = run(_registered_pytest_argv(
+                        py, "bd-band %s" % s, s, "-q", "-p", "no:randomly",
+                        repository_root=_PYTEST_REGISTRATION_REPOSITORY_ROOT),
+                    cwd=rundir, env=env, timeout=a.timeout)
+            _raise_if_registration_refused(r.stdout + r.stderr)
+        except PytestRegistrationRefused as exc:
+            print(f"{R}BD-BAND UNEVALUABLE{RST} {exc}", file=sys.stderr)
+            return sec.EXIT_CANNOT_EVALUATE
         blob = r.stdout + r.stderr
         tail = blob.strip().splitlines()
         line = next((l for l in reversed(tail)

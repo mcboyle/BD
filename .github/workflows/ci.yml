@@ -541,6 +541,7 @@ jobs:
           - name: toolchain-verifiers
             suites: >-
               tests/test_desandbox_tool_verifiers.py
+              tests/test_row243_registration_resolves_without_ambient_luck.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py

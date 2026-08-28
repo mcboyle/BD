@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 243: three behavioral regressions over the deterministic registrar state machine. The companion transform control applies M1 unchanged to an import-only test and must ESCAPE.",
+  "subject": "owned pytest registration resolves without ambient luck and fails closed",
+  "band": [
+    "tests/test_row243_registration_resolves_without_ambient_luck.py::test_three_named_registration_outcomes_have_exact_nonzero_counts"
+  ],
+  "mutants": [
+    {
+      "label": "M1 reintroduce interpreter-parent ambient registrar sweep",
+      "file": "toolchain/bin/bd-ladder",
+      "old": "    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)\n    anchor = pathlib.Path(raw_anchor).resolve(strict=True)\n",
+      "new": "    state, registrar, proof = _resolve_pytest_registrar(raw_anchor)\n    if state == NO_REGISTRAR:\n        for parent in pathlib.Path(python).resolve().parents:\n            ambient = parent / \"toolchain\" / \"bin\" / \"bd-jobs\"\n            if ambient.is_file():\n                state, registrar, proof = (\n                    REGISTERED, ambient, \"ambient interpreter-parent rescue\")\n                break\n    anchor = pathlib.Path(raw_anchor).resolve(strict=True)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_three_named_registration_outcomes_have_exact_nonzero_counts"
+    },
+    {
+      "label": "M2 silence the proven no-registrar branch",
+      "file": "toolchain/bin/bd-ladder",
+      "old": "    print(\"BD-PYTEST REGISTRATION STATE: NO REGISTRAR IN THIS TREE: \"\n          f\"anchor={anchor}; {proof}\", file=sys.stderr)\n",
+      "new": "    print(\"BD-PYTEST REGISTRATION OMITTED: \"\n          f\"anchor={anchor}; {proof}\", file=sys.stderr)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_three_named_registration_outcomes_have_exact_nonzero_counts"
+    },
+    {
+      "label": "M3 allow pytest work after registrar refusal",
+      "file": "toolchain/bin/bd-ladder",
+      "old": "    if registration.returncode:\n        detail = (registration.stdout + registration.stderr).strip()\n        print(\"BD-PYTEST REGISTRATION STATE: REGISTRATION FAILED: \"\n              f\"anchor={anchor}; registrar={jobs}; exit={registration.returncode}\"\n              + (f\"; {detail}\" if detail else \"\"), file=sys.stderr)\n        raise SystemExit(3)\n    print(\"BD-PYTEST REGISTRATION STATE: REGISTERED: \"\n",
+      "new": "    if registration.returncode:\n        detail = (registration.stdout + registration.stderr).strip()\n        print(\"BD-PYTEST REGISTRATION STATE: REGISTRATION FAILED: \"\n              f\"anchor={anchor}; registrar={jobs}; exit={registration.returncode}\"\n              + (f\"; {detail}\" if detail else \"\"), file=sys.stderr)\n        pass\n    print(\"BD-PYTEST REGISTRATION STATE: REGISTERED: \"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_three_named_registration_outcomes_have_exact_nonzero_counts"
+    }
+  ]
+}
