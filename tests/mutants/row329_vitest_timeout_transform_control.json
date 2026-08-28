@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 329 transform control. This applies the identical valid 10754ms-to-5000ms transform, but runs only the import-only T3/T4 nodeid. It must ESCAPE, proving that the primary CAUGHT verdict comes from exercising the configured timeout rather than from a broken TypeScript transform, config load, or Vitest collection failure.",
+  "_comment": "Row 329 transform control. This applies the identical valid 10754ms-to-5000ms transform, but runs only the import-only T3/T4 nodeid. It must ESCAPE, proving that the primary CAUGHT verdict comes from exercising the configured timeout rather than from a broken TypeScript transform, config load, or Vitest collection failure.  Regex-anchored 2026-08-28: the literal budget is RE-DERIVED FROM MEASUREMENT by row 339 and by any later re-measurement, so a literal anchor here resolves zero times and refuses an innocent cut. Uses the old_regex support added by row 353 at v3.66.1326.",
   "subject": "transform control for the valid measured-Vitest-budget regression",
   "band": [
     "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour"
@@ -9,10 +9,10 @@
     {
       "label": "M1 identical valid transform with an import-only catcher",
       "file": "frontend/vitest.config.ts",
-      "old": "    testTimeout: 10_754,",
       "new": "    testTimeout: 5_000,",
       "direction": "regression",
-      "catcher": "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour"
+      "catcher": "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour",
+      "old_regex": "    testTimeout: [0-9_]+,"
     }
   ]
 }

@@ -291,6 +291,7 @@ jobs:
               tests/test_row313_bd_job_identity.py
               tests/test_row350_job_api_durable_truth.py
               tests/test_row353_mutant_anchors_survive_a_moved_census.py
+              tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py
               tests/test_v3_66_1159_fleet_prune_is_object_bound.py
               tests/test_v3_66_1160_bridge_verifier_isolation.py
               tests/test_v3_66_1161_context_census_is_retired.py
@@ -453,6 +454,12 @@ jobs:
           - name: deploy-readiness
             suites: >-
               tests/test_deploy_script.py
+          # Row 344. This gate executes the destructive library function only
+          # against fixture-owned trees and proves its caller-selected glob
+          # cannot redirect pruning into a same-named decoy root.
+          - name: capture-prune-contract
+            suites: >-
+              tests/test_row344_capture_prune_is_target_bound.py
           - name: jobs-determinism
             suites: >-
               tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
@@ -462,6 +469,7 @@ jobs:
           - name: provider-facade
             suites: >-
               tests/test_provider_resolve_surface_lock.py
+              tests/test_v3_66_1180_band_derivation_paths.py
           - name: mutation-tools
             suites: >-
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
@@ -587,6 +595,7 @@ jobs:
               tests/test_v3_66_799_audit_tool_selftests.py
               tests/test_release_hygiene_gates.py
               tests/test_row335_release_gate_populations.py
+              tests/test_row339_measurement_noise_bounds.py
               tests/test_scan_version_pins_fixture.py
     name: gate-suites (${{ matrix.name }})
     steps:

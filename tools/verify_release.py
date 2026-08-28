@@ -56,6 +56,15 @@ _HARNESS_SIGNATURES = (
 _SUMMARY_RE = re.compile(
     r"Total:\s*(\d+)\s*\|\s*Passed:\s*(\d+)\s*\|\s*Failed:\s*(\d+)\s*\|\s*Skipped:\s*(\d+)")
 
+# Row 339, test5 loaded measurements of the exact _run_one(..., 120) path over
+# tests/test_v3_66_1184_mutation_specs_are_tracked.py (13/13 passed): 87.48s,
+# 99.06s, and 89.04s.  The worst run began at 48-core load average 9.77 and
+# ended at 16.43: ceil(99.06s * 1.5) = 149s (at least 50% headroom), still below
+# the governing 240s pytest item.  test_perf_lab.py was measured separately at
+# 8.98s, so its existing 60s wall remains independently derived and unchanged.
+_STANDARD_TEST_FILE_TIMEOUT_S = 149
+_PERF_TEST_FILE_TIMEOUT_S = 60
+
 
 def _tools_dir(root):
     return os.path.join(root, "tools")
@@ -259,7 +268,15 @@ def run_tests_criteria(root, scope, version):
     results, real_fail, harness_fail, slow, unmeasured = [], [], [], [], []
     for f in files:
         is_perf = os.path.basename(f) == "test_perf_lab.py"
-        r = _run_one(root, f, timeout=60 if is_perf else 120)
+        r = _run_one(
+            root,
+            f,
+            timeout=(
+                _PERF_TEST_FILE_TIMEOUT_S
+                if is_perf
+                else _STANDARD_TEST_FILE_TIMEOUT_S
+            ),
+        )
         results.append(r)
         if r["timeout"]:
             slow.append(f)

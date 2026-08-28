@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 344 transform control. This must report exactly one valid ESCAPED mutant: it restores M1's hard-coded /tmp implementation byte-for-byte while the selected node only sources the library. The escape proves M1's primary CAUGHT verdict is a behavioral target assertion rather than shell parse or source-load failure.",
+  "subject": "transform-only control for capture prune target binding",
+  "band": [
+    "tests/test_row344_capture_prune_is_target_bound.py::test_transform_control_only_sources_the_pruner"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 restore hard-coded /tmp under a source-only control",
+      "file": "scripts/lib/capture_run_dir.sh",
+      "old": "  \"$python\" \"$prune_tool\" \"$keep\" \"$glob\"\n",
+      "new": "  local d n=0\n  while IFS= read -r d; do\n    n=$((n + 1))\n    if [ \"$n\" -gt \"$keep\" ]; then\n      rm -rf -- \"$d\" \"${d}.tar.gz\"\n      printf 'pruned %s\\n' \"$d\"\n    fi\n  done <<EOF\n$(find /tmp -maxdepth 1 -name \"$(basename \"$glob\")\" -type d -printf '%T@ %p\\n' 2>/dev/null \\\n    | sort -rn | cut -d' ' -f2-)\nEOF\n",
+      "direction": "regression",
+      "catcher": "tests/test_row344_capture_prune_is_target_bound.py::test_transform_control_only_sources_the_pruner"
+    }
+  ]
+}

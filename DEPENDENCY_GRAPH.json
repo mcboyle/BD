@@ -2332,7 +2332,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1650,
+    "edge_count": 1651,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -5037,6 +5037,7 @@
         "tools/runner_extract_unit.py"
       ],
       "tools/safe_temp_remove.py": [
+        "tools/capture_prune.py",
         "tools/reap_orphan_tempdirs.py"
       ],
       "tools/spa_population.py": [
@@ -7377,6 +7378,9 @@
         "tools/build_template_from_wacz.py",
         "tools/workflow_diagnostic.py"
       ],
+      "tools/capture_prune.py": [
+        "tools/safe_temp_remove.py"
+      ],
       "tools/capture_quality_report.py": [
         "tools/capture_analytics.py",
         "tools/capture_statistics.py",
@@ -7848,7 +7852,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 226,
+    "total": 227,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
@@ -7890,6 +7894,7 @@
       "tools/capture_diagnostics.py",
       "tools/capture_inventory.py",
       "tools/capture_model_golden.py",
+      "tools/capture_prune.py",
       "tools/capture_quality_report.py",
       "tools/capture_session.py",
       "tools/capture_statistics.py",

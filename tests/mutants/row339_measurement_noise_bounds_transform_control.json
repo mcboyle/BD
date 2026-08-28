@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 339 transform control. Re-run against the same detached scratch copy with --spec tests/mutants/row339_measurement_noise_bounds_transform_control.json --work DETACHED_SCRATCH --timeout 120. The two valid transforms are byte-identical to the primary battery, but the band only imports the affected Vitest route subjects and verify_release module without asserting either wall. Both mutants must ESCAPE, proving the primary CAUGHT verdicts come from behavior rather than TypeScript/Python parse, config-load, import, or collection failures.",
+  "subject": "transform controls for both row 339 measured-wall regressions",
+  "band": [
+    "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour",
+    "tests/test_row339_measurement_noise_bounds.py::test_verify_release_timeout_transform_control_imports_without_judging_wall"
+  ],
+  "mutants": [
+    {
+      "label": "M1 identical Vitest-wall transform with import-only catchers",
+      "file": "frontend/vitest.config.ts",
+      "old": "    testTimeout: 13_262,",
+      "new": "    testTimeout: 10_754,",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_t3_t4_transform_control_imports_subjects_without_judging_behaviour"
+    },
+    {
+      "label": "M2 identical verify-release-wall transform with import-only catchers",
+      "file": "tools/verify_release.py",
+      "old": "_STANDARD_TEST_FILE_TIMEOUT_S = 149",
+      "new": "_STANDARD_TEST_FILE_TIMEOUT_S = 120",
+      "direction": "regression",
+      "catcher": "tests/test_row339_measurement_noise_bounds.py::test_verify_release_timeout_transform_control_imports_without_judging_wall"
+    }
+  ]
+}

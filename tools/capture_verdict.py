@@ -121,8 +121,9 @@ def assess_capture(
     expected_live_tests: int | None = None,
     tree_drift_file: str | Path | None = None,
 ) -> CaptureVerdict:
-    """Assess process statuses and artifacts; ambiguity is always a failure."""
+    """Assess process statuses and artifacts; ambiguity is never permission."""
     reasons: list[str] = []
+    graph_state: str | None = None
     unit_counts = None
     live_counts = None
     try:
@@ -146,6 +147,17 @@ def assess_capture(
     if live_exit:
         reasons.append(f"live process exit={live_exit}{_cap_note(live_exit)}")
     for name, exit_code in stage_exits:
+        if name == "graph":
+            if exit_code == 0:
+                graph_state = "MATCHES"
+                continue
+            if exit_code == 1:
+                graph_state = "DIFFERS"
+                reasons.append("graph pin=DIFFERS; graph exit=1")
+                continue
+            if exit_code == 4:
+                graph_state = "NOT-APPLICABLE"
+                continue
         if exit_code:
             reasons.append(f"{name} exit={exit_code}{_cap_note(exit_code)}")
     if unit_counts is not None and unit_counts[1]:
@@ -177,6 +189,8 @@ def assess_capture(
             f"live {live_counts[0]} pass/{live_counts[1]} warn/"
             f"{live_counts[2]} fail"
         )
+    if graph_state is not None:
+        counts.append(f"graph pin={graph_state}")
     # INVALID OUTRANKS FAIL, AND THE ORDER IS LOAD-BEARING (backlog 100).
     #
     # A run whose tree moved cannot ATTRIBUTE its own results: every count below
@@ -213,6 +227,17 @@ def assess_capture(
         suffix = f" ({'; '.join(counts)})" if counts else ""
         return CaptureVerdict(
             False, 1, f"CAPTURE VERDICT: FAIL - {'; '.join(reasons)}{suffix}"
+        )
+    if graph_state == "NOT-APPLICABLE":
+        suffix = f" ({'; '.join(counts)})" if counts else ""
+        # Exit 2 is deliberately distinct from PASS(0), FAIL(1), and INVALID(3).
+        # A caller that reads status alone therefore cannot grant permission or
+        # misreport a graph measurement that does not apply to this host/tree.
+        return CaptureVerdict(
+            False,
+            2,
+            "CAPTURE VERDICT: UNKNOWN / NOT-APPLICABLE - "
+            f"graph pin=NOT-APPLICABLE{suffix}",
         )
     return CaptureVerdict(True, 0, f"CAPTURE VERDICT: PASS - {'; '.join(counts)}")
 

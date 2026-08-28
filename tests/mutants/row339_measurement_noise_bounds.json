@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 339. Re-run from the runner repository with frontend/node_modules available in a detached scratch copy: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row339_measurement_noise_bounds.json --work DETACHED_SCRATCH --timeout 120'. M1 restores the 10754ms Vitest wall disproved by an 8840.502ms loaded 617-case census. M2 restores verify_release's 120s standard-file wall disproved by a 99.06s loaded 13/13 pass. Each catcher drives the production runtime selector; the Vitest catcher also runs a genuinely never-settling promise.",
+  "subject": "loaded per-test walls retain measured 50 percent headroom while remaining below their governing items",
+  "band": [
+    "tests/test_t3_t4_wired.py::test_the_measured_vitest_budget_still_fires_for_genuinely_hung_work",
+    "tests/test_row339_measurement_noise_bounds.py::test_verify_release_uses_the_loaded_measurement_for_each_standard_file"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the Vitest wall with only 21.6 percent loaded headroom",
+      "file": "frontend/vitest.config.ts",
+      "old": "    testTimeout: 13_262,",
+      "new": "    testTimeout: 10_754,",
+      "direction": "regression",
+      "catcher": "tests/test_t3_t4_wired.py::test_the_measured_vitest_budget_still_fires_for_genuinely_hung_work"
+    },
+    {
+      "label": "M2 restore the release verifier wall with only 21.1 percent loaded headroom",
+      "file": "tools/verify_release.py",
+      "old": "_STANDARD_TEST_FILE_TIMEOUT_S = 149",
+      "new": "_STANDARD_TEST_FILE_TIMEOUT_S = 120",
+      "direction": "regression",
+      "catcher": "tests/test_row339_measurement_noise_bounds.py::test_verify_release_uses_the_loaded_measurement_for_each_standard_file"
+    }
+  ]
+}

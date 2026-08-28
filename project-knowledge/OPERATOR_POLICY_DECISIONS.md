@@ -99,17 +99,17 @@ Two long-open "one-line decision" items, both resolving to **leave as-is with ra
 
 | Item | Choice | Rationale |
 |---|---|---|
-| **#14 graph content-pin (stash certification)** | **Require an external deployment-source pin; never ship the DB or pin** | The trust anchor is `/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256`, outside the install tree. Deployment acceptance derives it once from the exact installed source. Routine certification sets `BD_REQUIRE_GRAPH_HASH=1`, rebuilds the graph in a temporary directory, compares canonical rows, and deletes the DB. Mutable audit-state DB pins remain separate and advisory. |
+| **#14 graph content-pin (stash certification)** | **Require external deployment-source evidence; never ship the DB or pin** | The trust anchor is `/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256`, outside the install tree. Deployment acceptance derives it from the exact installed source and records that Git tree in the adjacent `.deploy-tree` file. Routine certification rebuilds the graph in a temporary directory, compares canonical rows only when that record names the capture tree, and deletes the DB. Mutable audit-state DB pins remain separate and advisory. |
 | **#15 tool-subtraction (bd-audit-gate.py)** | **KEEP the tool; budget floor stays 247** | bd-audit-gate.py is NOT a dead stub — it is a functional composite gate running defect_patterns --check + invariants --check + review_state --check. "stub" in its docstring meant "extensible" (fuzz/differential replays can be added later), not "empty". There is no clear subtraction candidate, so the 247 leaf-budget floor holds unchanged. |
 
 Decision #14 was superseded for the dependency/graph hardening release. Generate
 the external pin only after the release archive has passed its independent
 SHA/version/build gates on stash:
 
-The canonical certification invocation remains:
+The canonical certification invocation is:
 
 ```bash
-BD_REQUIRE_GRAPH_HASH=1 DISPLAY=:99 ./capture.sh --workers=60 --summary
+DISPLAY=:99 ./capture.sh --workers=60 --summary
 ```
 
 ```bash
@@ -138,9 +138,11 @@ venv/bin/python tools/graph_build.py \
   --check-hash
 ```
 
-Then run routine certification with `BD_REQUIRE_GRAPH_HASH=1`. Never write or
-refresh the pin immediately before a routine check: doing so would bless the
-very drift the gate is meant to detect. The release ZIP excludes the graph DB,
-its SQLite sidecars, and both legacy and deployment graph-pin filenames.
+The raw hash-writing recipe above does not create deployment provenance and is
+therefore insufficient on its own: use `scripts/deploy.sh`, or the fresh-host
+provisioner for initial setup, to create `<pin>.deploy-tree` from recorded state.
+Never write or refresh either file immediately before a routine check: doing so
+would bless the very drift the gate is meant to detect. The release ZIP excludes
+the graph DB, its SQLite sidecars, and both legacy and deployment pin filenames.
 
 Decision #15 remains settled; do not re-raise it without new evidence.

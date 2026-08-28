@@ -106,7 +106,7 @@ def _run_release_gate(
     assert kwargs["cwd"] == str(root)
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
-    assert kwargs["timeout"] == 120
+    assert kwargs["timeout"] == 149
     assert Path(kwargs["env"]["BD_HOME"]).is_dir()
     assert payload["tests"]["files"] == 1
     assert payload["tests"]["results"][0]["file"] == target.relative_to(root).as_posix()

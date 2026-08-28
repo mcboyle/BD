@@ -1,0 +1,20 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 347. Re-run from a detached standalone scratch tree: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row347_provider_band_delegation.json --work SCRATCH --json. The exact early-return mutant reproduced H12 as ESCAPED against the original catcher. The added independent receipt now requires the wrapper to invoke bd-band-derive exactly once with the complete four-input command, while its paired no-op control proves the assertion distinguishes missing delegation from a valid call. The companion transform-control spec applies this identical valid transform to an import-only node and must ESCAPE.",
+  "subject": "the provider band gate invokes bd-band-derive before judging its result",
+  "band": [
+    "tests/test_v3_66_1180_band_derivation_paths.py::test_provider_resolve_band_contains_only_existing_current_suites",
+    "tests/test_v3_66_1180_band_derivation_paths.py::test_provider_band_gate_requires_exact_delegation_receipt",
+    "tests/test_v3_66_1180_band_derivation_paths.py::test_provider_band_delegation_negative_control_rejects_noop"
+  ],
+  "mutants": [
+    {
+      "label": "M1 return before provider band derivation",
+      "file": "tests/test_v3_66_1180_band_derivation_paths.py",
+      "old": "def test_provider_resolve_band_contains_only_existing_current_suites():\n    result = subprocess.run(",
+      "new": "def test_provider_resolve_band_contains_only_existing_current_suites():\n    return None  # row 347 mutant: provider band delegate removed\n    result = subprocess.run(",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1180_band_derivation_paths.py::test_provider_band_gate_requires_exact_delegation_receipt"
+    }
+  ]
+}

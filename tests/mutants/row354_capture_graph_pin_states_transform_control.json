@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 354. This battery is expected to exit 1 with one valid ESCAPED mutant. It applies the identical graph-exit-4 transform caught by the behavioral battery, but its only catcher imports the verdict assessor and checks paths without assessing any graph state. A CAUGHT result here would invalidate the primary battery's behavioral evidence.",
+  "subject": "transform control -- importing capture verdict does not constrain graph-pin applicability",
+  "band": [
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_transform_control_imports_verdict_without_judging_graph_state"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL graph-exit-4 transform escapes an import-only test",
+      "file": "tools/capture_verdict.py",
+      "old": "            if exit_code == 4:\n                graph_state = \"NOT-APPLICABLE\"",
+      "new": "            if False and exit_code == 4:\n                graph_state = \"NOT-APPLICABLE\"",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_transform_control_imports_verdict_without_judging_graph_state"
+    }
+  ]
+}

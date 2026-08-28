@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1327 - two bounds are re-derived from their heaviest measurement (+3 file-disjoint row(s): 344,347,354)
+
+- RED: Vitest reported `Test timed out in 10754ms`; verifier selected `120` i
+- Final GREEN: 27/27 directly touched tests passed.
+- Broader focused floor: 24/24 passed.
+- Complete frontend census: 329/329 suites, 617/617 tests; loaded worst 7070.
+- Negative controls exercise a never-settling Vitest promise and a genuinely 
+- Mutation battery: `2 CAUGHT, 0 escaped/invalid/error`.
+- Transform control: `2 ESCAPED` as required.
+- name: artifacts-pins
+-    // Row 329, test5 loaded measurements (ms): 12 parallel T3/T4 runs put
+-    // Library at 2294.762-3137.827 and Maintenance at 1537.648-2248.980;
+-    // five same-CPU runs put them at 4554.031-4815.732 and
+-    // 3001.935-3355.211.  Two loaded 617-case censuses found the unbounded
+-    // T5 Maintenance case at 4857.209 and 5216.919, so this is config-wide.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 220 -> 224.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    capture_prune.py -> tools
+    _capture_verdict_separates_an_inapplicable_pin.py -> tools
+    _measurement_noise_bounds.py -> tools
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1326 - the declared-gate-count mutant stops rotting on every neighbouring cut (+1 file-disjoint row(s): 355)
 
 -    old     required  the exact text to replace. MUST occur exactly once.

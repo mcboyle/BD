@@ -1,0 +1,81 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 354. Run from a detached scratch repository with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row354_capture_graph_pin_states.json --work DETACHED_SCRATCH --timeout 300. The battery removes each independent state discriminator, exact-tree deploy record, verdict label, and mismatch-hash diagnostic. Its sibling row354_capture_graph_pin_states_transform_control.json applies the identical graph-exit-4 transform to an import-only test and must ESCAPE.",
+  "subject": "Row 354 -- capture distinguishes matching, differing, and deployment-inapplicable graph pins",
+  "band": [
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_matching_pin_with_matching_deploy_record_is_ok",
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_differing_pin_with_matching_deploy_record_is_loud_fail",
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_absent_pin_is_unknown_not_applicable_with_distinct_exit",
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_pin_from_a_different_deployed_tree_is_unknown_not_applicable",
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_matching_deploy_record_cannot_launder_real_hash_drift_into_unknown",
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_successful_deploy_records_its_exact_tree_beside_the_pin",
+    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_three_graph_pin_verdict_strings_are_pairwise_distinct",
+    "tests/test_provision_test_host.py::test_provisioner_arms_the_graph_content_pin"
+  ],
+  "mutants": [
+    {
+      "label": "M1 an absent pin is collapsed back into hard graph failure",
+      "file": "capture.sh",
+      "old": "  if [ ! -f \"$graph_pin\" ]; then\n    echo \"graph pin applicability: UNKNOWN / NOT-APPLICABLE -- pin is absent: $graph_pin\"\n    return \"$graph_not_applicable_exit\"\n  fi",
+      "new": "  if [ ! -f \"$graph_pin\" ]; then\n    echo \"graph pin applicability: FAIL -- pin is absent: $graph_pin\"\n    return 1\n  fi",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_absent_pin_is_unknown_not_applicable_with_distinct_exit"
+    },
+    {
+      "label": "M2 capture ignores that the deploy record belongs to another tree",
+      "file": "capture.sh",
+      "old": "  if [ \"$graph_deployed_tree\" != \"$graph_current_tree\" ]; then",
+      "new": "  if false; then",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_pin_from_a_different_deployed_tree_is_unknown_not_applicable"
+    },
+    {
+      "label": "M3 final verdict no longer identifies graph exit 1 as pin drift",
+      "file": "tools/capture_verdict.py",
+      "old": "            if exit_code == 1:\n                graph_state = \"DIFFERS\"",
+      "new": "            if False and exit_code == 1:\n                graph_state = \"DIFFERS\"",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_differing_pin_with_matching_deploy_record_is_loud_fail"
+    },
+    {
+      "label": "M4 final verdict collapses graph not-applicable back into generic failure",
+      "file": "tools/capture_verdict.py",
+      "old": "            if exit_code == 4:\n                graph_state = \"NOT-APPLICABLE\"",
+      "new": "            if False and exit_code == 4:\n                graph_state = \"NOT-APPLICABLE\"",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_absent_pin_is_unknown_not_applicable_with_distinct_exit"
+    },
+    {
+      "label": "M5 matching graph state disappears from the PASS verdict line",
+      "file": "tools/capture_verdict.py",
+      "old": "    if graph_state is not None:\n        counts.append(f\"graph pin={graph_state}\")",
+      "new": "    if False and graph_state is not None:\n        counts.append(f\"graph pin={graph_state}\")",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_matching_pin_with_matching_deploy_record_is_ok"
+    },
+    {
+      "label": "M6 deploy records the commit object instead of the exact deployed tree",
+      "file": "scripts/deploy.sh",
+      "old": "printf '%s\\n' \"$DEPLOY_TREE\" > \"$GTMP\" \\\n  || die \"could not prepare deployed tree provenance\"",
+      "new": "printf '%s\\n' \"$NEW\" > \"$GTMP\" \\\n  || die \"could not prepare deployed tree provenance\"",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_successful_deploy_records_its_exact_tree_beside_the_pin"
+    },
+    {
+      "label": "M7 loud graph mismatch hides the deployed pin hash",
+      "file": "tools/graph_build.py",
+      "old": "          f\"{want[:16]}... (graph content changed; re-pin with --write-hash if intended)\")",
+      "new": "          f\"<hidden> (graph content changed; re-pin with --write-hash if intended)\")",
+      "direction": "regression",
+      "catcher": "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py::test_differing_pin_with_matching_deploy_record_is_loud_fail"
+    },
+    {
+      "label": "M8 fresh-host provisioning writes the tree record under a path capture never reads",
+      "file": "scripts/provision_test_host.sh",
+      "old": "                GRAPH_RECORD=\"${GRAPH_PIN}.deploy-tree\"",
+      "new": "                GRAPH_RECORD=\"${GRAPH_PIN}.unused-tree\"",
+      "direction": "regression",
+      "catcher": "tests/test_provision_test_host.py::test_provisioner_arms_the_graph_content_pin"
+    }
+  ]
+}
