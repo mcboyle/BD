@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1314 - capture wall time stops being one file's serial critical path
+
+- Capture uses --dist loadfile, which pins a whole file to one worker.
+- Wall time is therefore bounded below by the slowest file, not by work/N.
+- test_v3_66_1046_gates_for_this_sessions_shapes was 494.7s of that path.
+- It is split four ways into tool_state 1040, 1043, 1044 and 1054.
+- Parent and all four shards enter the parallel lane deliberately.
+- A split left in the serial lane is the same critical path renamed.
+- test_tool_state_partition_has_five_parallel_loadfile_units asserts that.
+- Measured after: 198.3s, 64.2s, 6.4s and one below the reporting threshold.
+- The touched-file maximum falls from 494.7s to 199.7s.
+- Nothing was skipped, relaxed, xfailed or narrowed to buy the time.
+- The family grew from 26 to 28 tests because two controls were added.
+- Each shard declares repo-wide scope and is scheduled beside its parent.
+- Declared gate count moves 197 to 201; allowlist pins move 1255 to 1260.
+
 ## v3.66.1313 - the body-contract probe does not leak app singletons across runs
 
 -    result = bc.probe_fixtures(ROOT, injected)

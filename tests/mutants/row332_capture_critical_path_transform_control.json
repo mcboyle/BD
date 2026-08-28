@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 332 transform control: M1 is byte-identical to the primary mutant, but the selected test only imports the split helper and makes no denominator assertion. Exactly one valid ESCAPED result proves the primary catch is behavioural rather than a parse, import, or collection failure.",
+  "subject": "transform-only control for the tool-state shard denominator",
+  "band": [
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_tool_state_split_transform_control_imports_without_judging_partition"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 duplicate 1043 behind 1044 while importability remains green",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    \"test_v3_66_1046_tool_state_1044.py\":\n        \"tests/test_v3_66_1044_run_context_and_chains.py\",\n",
+      "new": "    \"test_v3_66_1046_tool_state_1044.py\":\n        \"tests/test_v3_66_1043_measurement_and_fleet_tools.py\",\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_tool_state_split_transform_control_imports_without_judging_partition"
+    }
+  ]
+}

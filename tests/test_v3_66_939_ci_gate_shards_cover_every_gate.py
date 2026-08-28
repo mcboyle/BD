@@ -301,6 +301,14 @@ _DECLARED = {
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
+    # Row 332. The four-way split of test_v3_66_1046: each shard declares
+    # repo-wide scope because its subject is still the whole tool-state
+    # population, and each must reach a shard in its own right or the
+    # split would have moved work out of CI rather than parallelised it.
+    "tests/test_v3_66_1046_tool_state_1040.py",
+    "tests/test_v3_66_1046_tool_state_1043.py",
+    "tests/test_v3_66_1046_tool_state_1044.py",
+    "tests/test_v3_66_1046_tool_state_1054.py",
     # Row 326. The frontend security floor was legacy-classified and named in
     # NO shard, so it never ran -- and sat RED on main at v3.66.1304 because a
     # legitimate patch upgrade tripped its exact-equality pin. Declaring it
@@ -684,7 +692,7 @@ _DECLARED = {
 # 196 -> 197 at row 331 (2026-08-28). The mechanically derived application
 # dependency-declaration gate is declared once and scheduled beside the older
 # whole-tree dependency-freshness gate.
-_EXPECTED_DECLARED_GATE_COUNT = 197
+_EXPECTED_DECLARED_GATE_COUNT = 201
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

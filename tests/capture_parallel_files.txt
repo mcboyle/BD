@@ -1362,3 +1362,14 @@ test_v3_66_1003_capture_refuses_an_inherited_install_dir.py
 # subprocess, ambient-thread and real-binary timeout mechanisms still exist.
 test_perf_lab.py
 test_t14_vpn_probe_egress.py
+# Row 332. The 1046 tool-state family, split four ways plus its parent, enters
+# the parallel lane deliberately: as one serial file it was 494.7s of capture
+# critical path that no worker count could shorten. Each file drives its own
+# tool-state directory and asserts only about its own suite, and the matched
+# per-file timings are recorded in the row. Membership here is a REVIEWED
+# decision, which is why the classifier defaults new files to serial.
+test_v3_66_1046_gates_for_this_sessions_shapes.py
+test_v3_66_1046_tool_state_1040.py
+test_v3_66_1046_tool_state_1043.py
+test_v3_66_1046_tool_state_1044.py
+test_v3_66_1046_tool_state_1054.py

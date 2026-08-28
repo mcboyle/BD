@@ -407,6 +407,10 @@ jobs:
           - name: measurement-isolation
             suites: >-
               tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
+              tests/test_v3_66_1046_tool_state_1040.py
+              tests/test_v3_66_1046_tool_state_1043.py
+              tests/test_v3_66_1046_tool_state_1044.py
+              tests/test_v3_66_1046_tool_state_1054.py
               tests/test_v3_66_1220_a_timeout_names_its_test.py
           - name: jobs-registration
             suites: >-
