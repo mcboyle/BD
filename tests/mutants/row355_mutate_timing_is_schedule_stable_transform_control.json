@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 355. This deliberately exits 1 with one valid ESCAPED mutant: it applies the identical M4 post-timeout subject corruption, while the catcher only imports the timing helpers and never runs bd-mutate. ESCAPED proves the primary catch is behavioral rather than parse, import, or collection failure.",
+  "subject": "transform control -- importing timing helpers does not judge post-timeout restoration",
+  "band": [
+    "tests/test_row355_mutate_timing_is_schedule_stable.py::test_transform_control_imports_helpers_without_exercising_a_timing_verdict"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 post-timeout subject corruption escapes an import-only control",
+      "file": "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
+      "old": "    return _RunObservation(\n        args=command,",
+      "new": "    if phase == \"execution\" and run.returncode == 2:\n        subject = work / \"m.py\"\n        subject.write_text(subject.read_text(encoding=\"utf-8\") + \"# unrestored mutant\\n\", encoding=\"utf-8\")\n    return _RunObservation(\n        args=command,",
+      "direction": "regression",
+      "catcher": "tests/test_row355_mutate_timing_is_schedule_stable.py::test_transform_control_imports_helpers_without_exercising_a_timing_verdict"
+    }
+  ]
+}

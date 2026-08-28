@@ -31,7 +31,7 @@ def _tree(tmp_path: Path) -> tuple[Path, str]:
     return tmp_path, band
 
 
-def _mutant(*, escaped: bool = False) -> dict:
+def _mutant(*, escaped: bool = False, regex: bool = False) -> dict:
     if escaped:
         old = "def value():"
         new = "UNOBSERVED = 1\ndef value():"
@@ -40,13 +40,17 @@ def _mutant(*, escaped: bool = False) -> dict:
         old = "return 1"
         new = "return 2"
         label = "return 1 becomes 2"
-    return {
+    mutant = {
         "label": label,
         "file": "m.py",
-        "old": old,
         "new": new,
         "catcher": "tests/test_m.py::test_value",
     }
+    if regex:
+        mutant["old_regex"] = r"return [0-9]+"
+    else:
+        mutant["old"] = old
+    return mutant
 
 
 def _run_emit(
@@ -106,6 +110,18 @@ def test_an_escape_still_leaves_its_rerunnable_spec(tmp_path):
     assert destination.is_file(), (
         "an escaped battery lost its spec; only green evidence would survive"
     )
+
+
+def test_emit_spec_accepts_exactly_one_regex_anchor_field(tmp_path):
+    work, band = _tree(tmp_path)
+    run = _run_emit(work, band, _mutant(regex=True))
+    assert run.returncode == 0, run.stdout + run.stderr
+    destination = work / "tests" / "mutants" / _NAME
+    document = json.loads(destination.read_text(encoding="utf-8"))
+    emitted = document["mutants"]
+    assert len(emitted) == 1
+    assert "old" not in emitted[0]
+    assert emitted[0]["old_regex"] == r"return [0-9]+"
 
 
 def test_emit_spec_refuses_to_clobber_an_existing_battery(tmp_path):

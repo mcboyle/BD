@@ -50,7 +50,9 @@ THE CONTRACT
   Each mutant object has:
     label   required  what this mutant breaks, in words, for the report
     file    required  repo-relative path to mutate
-    old     required  the exact text to replace. MUST occur exactly once.
+    old     exactly one of old/old_regex; literal text that MUST occur once
+    old_regex
+            exactly one of old/old_regex; Python regex that MUST match once
     new     required  what to replace it with
     direction         regression (default) or overcorrection
     catcher required for durable/emitted regression; optional for legacy scratch
@@ -1130,6 +1132,46 @@ def _apply(src: str, old: str, new: str) -> str:
     return after
 
 
+def _apply_regex(src: str, old_regex: str, new: str) -> str:
+    """Replace one regex-matched span with ``new`` as literal text.
+
+    ``Match.expand`` and ``Pattern.sub`` deliberately do not appear here: the
+    replacement is not a regex template, so backslashes and group-looking text
+    in ``new`` are written verbatim.  Length arithmetic uses the one matched
+    span's measured length because the pattern text is not the source text it
+    describes.
+    """
+    try:
+        pattern = re.compile(old_regex)
+    except re.error as exc:
+        raise ValueError(f"invalid regex anchor: {exc}") from exc
+    matches = list(pattern.finditer(src))
+    n = len(matches)
+    if n != 1:
+        raise ValueError(f"regex anchor occurs {n} times, must be exactly 1")
+    match = matches[0]
+    matched_length = match.end() - match.start()
+    after = src[:match.start()] + new + src[match.end():]
+    if after == src:
+        raise ValueError("replacement changed nothing")
+    if len(after) != len(src) - matched_length + len(new):
+        raise ValueError("length arithmetic failed -- the edit is not what it claims")
+    return after
+
+
+def _apply_mutant(src: str, mutant: dict) -> str:
+    """Apply either supported anchor shape through the shared refusal path."""
+    has_old = "old" in mutant
+    has_old_regex = "old_regex" in mutant
+    if has_old == has_old_regex:
+        state = "both" if has_old else "neither"
+        raise ValueError(
+            "must supply exactly one of 'old' or 'old_regex'; got %s" % state)
+    if has_old_regex:
+        return _apply_regex(src, mutant["old_regex"], mutant["new"])
+    return _apply(src, mutant["old"], mutant["new"])
+
+
 def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], list[str]]:
     """Accept durable object specs while keeping cheap scratch lists valid."""
     durable = isinstance(document, dict)
@@ -1159,9 +1201,24 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
         if not isinstance(raw, dict):
             raise ValueError(f"mutant {index} must be an object")
         mutant = dict(raw)
-        for field in ("file", "old", "new"):
+        has_old = "old" in mutant
+        has_old_regex = "old_regex" in mutant
+        if has_old == has_old_regex:
+            state = "both" if has_old else "neither"
+            raise ValueError(
+                f"mutant {index} must supply exactly one of 'old' or "
+                f"'old_regex'; got {state}")
+        anchor_field = "old_regex" if has_old_regex else "old"
+        for field in ("file", anchor_field, "new"):
             if not isinstance(mutant.get(field), str) or not mutant[field]:
                 raise ValueError(f"mutant {index} field {field!r} must be a non-empty string")
+        if has_old_regex:
+            try:
+                re.compile(mutant["old_regex"])
+            except re.error as exc:
+                raise ValueError(
+                    f"mutant {index} field 'old_regex' is not a valid Python "
+                    f"regular expression: {exc}") from exc
         for field in ("label", "catcher", "control"):
             if field in mutant and mutant[field] is not None and not isinstance(mutant[field], str):
                 raise ValueError(f"mutant {index} field {field!r} must be a string")
@@ -1273,7 +1330,12 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
             raise ValueError(f"band nodeid is not a defined test: {target}")
 
     for index, mutant in enumerate(mutants, 1):
-        required = {"label", "file", "old", "new", "direction"}
+        anchor_fields = {"old", "old_regex"} & set(mutant)
+        if len(anchor_fields) != 1:
+            raise ValueError(
+                f"emitted mutant {index} must have exactly one anchor field")
+        anchor_field = next(iter(anchor_fields))
+        required = {"label", "file", anchor_field, "new", "direction"}
         if mutant["direction"] == "regression":
             required.add("catcher")
         else:
@@ -1291,7 +1353,11 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
         owner = _PinnedSubject(subject_path)
         primary = None
         try:
-            count = owner.read_text().count(mutant["old"])
+            source = owner.read_text()
+            if anchor_field == "old_regex":
+                count = len(list(re.finditer(mutant["old_regex"], source)))
+            else:
+                count = source.count(mutant["old"])
         except BaseException as exc:
             primary = exc
             raise
@@ -1299,7 +1365,9 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
             owner.close(primary=primary)
         if count != 1:
             raise ValueError(
-                f"emitted mutant {index} anchor occurs {count} times, must be exactly 1")
+                f"emitted mutant {index} "
+                f"{'regex ' if anchor_field == 'old_regex' else ''}anchor occurs "
+                f"{count} times, must be exactly 1")
         named = (
             [mutant["catcher"]]
             if mutant["direction"] == "regression"
@@ -2435,7 +2503,7 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                 out.append(row)
                 return 2, out
             try:
-                mutated = _apply(original, m["old"], m["new"])
+                mutated = _apply_mutant(original, m)
             except (ValueError, KeyError) as exc:
                 row["verdict"] = ERROR
                 row["why"] = f"apply: {exc}"
@@ -2622,6 +2690,14 @@ def _selftest(work: Path) -> int:
         got = rows[0]["verdict"] if rows else "?"
         ok &= (got == CAUGHT)
         print(("PASS" if got == CAUGHT else "FAIL") + f"  a real mutant is CAUGHT (got {got})")
+
+        # 1b. regex replacement is exactly once and never expands groups in new
+        regex_after = _apply_regex(
+            "CENSUS = 217\n", r"CENSUS = ([0-9]+)", r"CENSUS = \1")
+        regex_ok = regex_after == "CENSUS = \\1\n"
+        ok &= regex_ok
+        print(("PASS" if regex_ok else "FAIL")
+              + "  a regex anchor writes replacement text verbatim")
 
         # 2. a non-parsing mutant is INVALID, never CAUGHT and never ESCAPED
         rc, rows = run_battery([{"label": "orphan the body", "file": "m.py",

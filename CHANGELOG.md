@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1326 - the declared-gate-count mutant stops rotting on every neighbouring cut (+1 file-disjoint row(s): 355)
+
+-    old     required  the exact text to replace. MUST occur exactly once.
+-        for field in ("file", "old", "new"):
+-        required = {"label", "file", "old", "new", "direction"}
+-            count = owner.read_text().count(mutant["old"])
+-                f"emitted mutant {index} anchor occurs {count} times, must b
+-                mutated = _apply(original, m["old"], m["new"])
+- Added mutually exclusive `old`/`old_regex` support to [bd-mutate](/home/mbo
+- Regex anchors require exactly one match; zero and multiple matches have dis
+- Updated the emitter and [mutation-spec gate](/home/mboyle/bd-codex-wt/row35
+- Re-anchored row-348 M4 in [its spec](/home/mboyle/bd-codex-wt/row353/tests/
+- Registered the test in CI and `_DECLARED`; appended CLOSED backlog row 353.
+- Regenerated `PIN_INDEX.json` and `STATIC_KB_MANIFEST.json`.
+- Declared/executed are both exactly 218 with no missing or extra paths, whil
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 218 -> 220.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1325 - three shared caches stop serving one tree's bytes to another
 
 -        global STATE_DIR, RESULTS, PROGRESS, LOGFILE
