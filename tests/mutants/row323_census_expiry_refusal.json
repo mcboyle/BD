@@ -1,0 +1,64 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 323. Re-run from a detached standalone scratch tree: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row323_census_expiry_refusal.json --work SCRATCH. The mutants cover the early refusal plus the safeguards that keep a human-review claim literal, compare dirty workers with the integration target, fail closed without parent history, include deletions, and re-check the freshly assembled integration cut before regeneration. The collection catchers assert the band-body sentinel was never written; the integration catcher asserts the first generator's sentinel was never written. The separate transform-control spec applies M1's identical valid transform under a no-pin row and must ESCAPE.",
+  "subject": "a stale whole-tree census refuses during collection before any band test body runs",
+  "band": [
+    "tests/test_row323_census_pins_declare_expiry.py::test_an_expired_census_refuses_during_collection_before_the_band_body",
+    "tests/test_row323_census_pins_declare_expiry.py::test_the_declared_version_is_compared_with_the_candidate_base",
+    "tests/test_row323_census_pins_declare_expiry.py::test_a_dirty_worker_compares_its_census_with_the_integration_target",
+    "tests/test_row323_census_pins_declare_expiry.py::test_a_clean_pin_without_parent_history_fails_closed",
+    "tests/test_row323_census_pins_declare_expiry.py::test_a_computed_version_cannot_pose_as_review_evidence",
+    "tests/test_row323_census_pins_declare_expiry.py::test_deleted_files_are_included_in_the_unreviewed_population",
+    "tests/test_row323_census_pins_declare_expiry.py::test_integration_regen_rechecks_the_fetched_target_before_any_generator"
+  ],
+  "mutants": [
+    {
+      "label": "M1 a stale census is treated like a current review",
+      "file": "tests/_row_census_pin.py",
+      "old": "    if pin.taken_at == base_version:\n        return\n",
+      "new": "    if True:  # mutant: treat every census as current\n        return\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_an_expired_census_refuses_during_collection_before_the_band_body"
+    },
+    {
+      "label": "M2 computed runtime data is accepted as human review evidence",
+      "file": "tests/_row_census_pin.py",
+      "old": "    raw = _literal_declaration(carrier)\n    if raw is None:\n",
+      "new": "    raw = namespace[_DECLARATION]  # mutant: trust computed runtime data\n    if raw is None:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_a_computed_version_cannot_pose_as_review_evidence"
+    },
+    {
+      "label": "M3 a dirty worker compares against its stale dispatch HEAD",
+      "file": "tests/_row_census_pin.py",
+      "old": "        return _git(repo, \"rev-parse\", \"--verify\", _INTEGRATION_TARGET).strip()\n",
+      "new": "        return \"HEAD\"  # mutant: compare a dirty worker to dispatch HEAD\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_a_dirty_worker_compares_its_census_with_the_integration_target"
+    },
+    {
+      "label": "M4 missing candidate parent history is treated as an inert old pin",
+      "file": "tests/_row_census_pin.py",
+      "old": "    parent = _git(repo, \"rev-parse\", \"--verify\", \"HEAD^1\").strip()\n",
+      "new": "    try:\n        parent = _git(repo, \"rev-parse\", \"--verify\", \"HEAD^1\").strip()\n    except CensusMeasurementError:\n        return None  # mutant: fail open when parent history is missing\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_a_clean_pin_without_parent_history_fails_closed"
+    },
+    {
+      "label": "M5 deleted paths disappear from the unreviewed denominator",
+      "file": "tests/_row_census_pin.py",
+      "old": "        \"--diff-filter=ACDMRT\",\n",
+      "new": "        \"--diff-filter=ACMRT\",  # mutant: omit deleted paths\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_deleted_files_are_included_in_the_unreviewed_population"
+    },
+    {
+      "label": "M6 integration ignores the stale census and starts regeneration",
+      "file": "toolchain/bin/bd-regen-order",
+      "old": "    if not census_ok:\n        print(\"%sREGEN INCOMPLETE%s -- census expiry\" % (R, RST))\n        return 1\n",
+      "new": "    if False:  # mutant: continue into generators after census refusal\n        print(\"%sREGEN INCOMPLETE%s -- census expiry\" % (R, RST))\n        return 1\n",
+      "direction": "regression",
+      "catcher": "tests/test_row323_census_pins_declare_expiry.py::test_integration_regen_rechecks_the_fetched_target_before_any_generator"
+    }
+  ]
+}

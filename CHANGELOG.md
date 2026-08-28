@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1304 - a row pinning a whole-tree census says so where the queue can read it
+
+- A row pinning a whole-tree human review now declares it as data.
+- BD_WHOLE_TREE_CENSUS_PIN names the row and the version reviewed.
+- A pytest plugin checks the pin during collection, before any test runs.
+- An expired census exits 4 instead of spending a five-minute band.
+- Unmeasurable census evidence exits 4 as UNKNOWN, never as OK.
+- A missing or unloadable checker is UNKNOWN, not a silent pass.
+- bd-regen-order runs the same checker so regeneration refuses too.
+- The module has no writer or re-pin mode; only a reviewer supplies it.
+- Historical declarations stay inert unless their carrier changes again.
+- The gate is declared repo-wide and scheduled directly in a CI shard.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 192 -> 194.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1303 - the parallel census pins the curated allowlist, not the whole-tree total (+1 file-disjoint row(s): 322)
 
 -    for path in tests_root.rglob("test*.py"):

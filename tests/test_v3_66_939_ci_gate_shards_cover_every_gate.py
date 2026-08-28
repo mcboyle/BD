@@ -279,6 +279,11 @@ _DECLARED = {
     # headings are both tree-wide authorities. A worker can edit any row, so a
     # diff-derived module band cannot provide this reconciliation.
     "tests/test_register_closed_versions_exist.py",
+    # Row 323. A human-review census expires when main moves, so this gate
+    # drives the pytest collection hook before a stale row can spend its band.
+    # It is tree-wide because the version comparison is about the row's base
+    # tree rather than about the checker module itself.
+    "tests/test_row323_census_pins_declare_expiry.py",
     "tests/test_v3_66_1165_one_agent_contract.py",
     "tests/test_v3_66_1166_historical_docs_are_adjudicated.py",
     "tests/test_v3_66_1167_safety_authorities_are_single_source.py",
@@ -664,7 +669,7 @@ _DECLARED = {
 # visual-audit identity gate to the declaration and tree-gates-3 shard.
 # 192 -> 193 at row 292 (2026-08-27). The existing capture-lane gate now
 # declares its tree-wide census scope and runs directly in tree-gates-1.
-_EXPECTED_DECLARED_GATE_COUNT = 193
+_EXPECTED_DECLARED_GATE_COUNT = 194
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

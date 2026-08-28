@@ -43,6 +43,7 @@ Read-only until it runs the generators. --dry-run prints the chain. --selftest.
 import argparse
 import json
 import hashlib
+import importlib.util
 import os
 import re
 import subprocess
@@ -72,6 +73,41 @@ def python_for(work: str) -> str:
         if os.path.isfile(python) and os.access(python, os.X_OK):
             return python
     return sys.executable
+
+
+def check_census_expiry(work: str) -> tuple[bool, str]:
+    """Run the target tree's static human-review census verifier."""
+    tests = os.path.join(work, "tests")
+    if not os.path.isdir(tests):
+        return True, "no tests population can carry a census pin"
+    checker = os.path.join(tests, "_row_census_pin.py")
+    if not os.path.isfile(checker):
+        return False, "UNKNOWN census expiry: static checker is missing"
+
+    name = "_bd_census_pin_" + hashlib.sha256(
+        os.path.realpath(checker).encode("utf-8")
+    ).hexdigest()[:12]
+    try:
+        spec = importlib.util.spec_from_file_location(name, checker)
+        if spec is None or spec.loader is None:
+            return False, "UNKNOWN census expiry: static checker cannot be loaded"
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        active = module.verify_dirty_candidate(work)
+    except Exception as exc:
+        loaded = sys.modules.get(name)
+        expired = getattr(loaded, "CensusExpired", ())
+        unavailable = getattr(loaded, "CensusMeasurementError", ())
+        if expired and isinstance(exc, expired):
+            return False, str(exc)
+        if unavailable and isinstance(exc, unavailable):
+            return False, f"UNKNOWN census expiry: {exc}"
+        return False, f"UNKNOWN census expiry: checker failed: {exc}"
+
+    if active:
+        return True, f"{active} active census pin(s) match the integration target"
+    return True, "no census pin in the integration patch"
 
 
 WORK = repo_root(__file__)
@@ -346,6 +382,15 @@ def main():
     print("%s== bd-regen-order :: %s ==%s" % (BOLD, work, RST))
     if not os.path.isdir(work):
         print("  %sXX%s %-18s work tree not found" % (R, RST, "work"))
+        return 1
+    census_ok, census_message = check_census_expiry(work)
+    print("  %s %-18s %s" % (
+        (G + "OK" + RST) if census_ok else (R + "XX" + RST),
+        "census expiry",
+        census_message,
+    ))
+    if not census_ok:
+        print("%sREGEN INCOMPLETE%s -- census expiry" % (R, RST))
         return 1
     failed = []
     for label, argv, _why in CHAIN:
