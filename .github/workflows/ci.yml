@@ -568,6 +568,7 @@ jobs:
               tests/test_settings_center_slice4.py
               tests/test_v3_66_799_audit_tool_selftests.py
               tests/test_release_hygiene_gates.py
+              tests/test_row335_release_gate_populations.py
               tests/test_scan_version_pins_fixture.py
     name: gate-suites (${{ matrix.name }})
     steps:

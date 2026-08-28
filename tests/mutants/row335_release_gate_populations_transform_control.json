@@ -1,0 +1,35 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 335 transform control. This battery must exit 1 with exactly three valid ESCAPED mutants. It applies M1-M3 byte-for-byte, but M1 is judged only by a real empty ZIP artifact that was scanned clean, while M2 and M3 are judged only by a recognized Total: 0 runner summary. Escape proves the primary catches distinguish absent evidence from measured healthy emptiness rather than rejecting every empty result or relying on parse/import breakage.",
+  "subject": "transform controls for release-gate zero-population regressions",
+  "band": [
+    "tests/test_row335_release_gate_populations.py::test_zip_audit_measured_empty_zip_is_still_clean",
+    "tests/test_row335_release_gate_populations.py::test_release_gate_accepts_a_recognized_measured_zero_summary"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 zero-population ZIP regression under a measured clean ZIP",
+      "file": "audit_release_zips.py",
+      "old": "    if scanned == 0:\n        print(\"UNKNOWN   no zips found\", file=sys.stderr)\n        return 2\n    return 1 if any_critical else 0",
+      "new": "    if scanned == 0:\n        print(\"no zips found\", file=sys.stderr)\n    return 1 if any_critical else 0",
+      "direction": "regression",
+      "catcher": "tests/test_row335_release_gate_populations.py::test_zip_audit_measured_empty_zip_is_still_clean"
+    },
+    {
+      "label": "TC2 absent-summary classifier regression under a recognized measured-zero summary",
+      "file": "tools/verify_release.py",
+      "old": "    else:\n        summary_parsed = False\n        total, passed, failed, skipped = (None, None, None, None)",
+      "new": "    else:\n        summary_parsed = True\n        total, passed, failed, skipped = (0, 0, 0, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_row335_release_gate_populations.py::test_release_gate_accepts_a_recognized_measured_zero_summary"
+    },
+    {
+      "label": "TC3 unmeasured-gate bypass under a recognized measured-zero summary",
+      "file": "tools/verify_release.py",
+      "old": "    return not agg[\"real_failures\"] and not agg[\"unmeasured\"]",
+      "new": "    return not agg[\"real_failures\"]",
+      "direction": "regression",
+      "catcher": "tests/test_row335_release_gate_populations.py::test_release_gate_accepts_a_recognized_measured_zero_summary"
+    }
+  ]
+}

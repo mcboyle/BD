@@ -21,7 +21,9 @@ Usage:
     python audit_release_zips.py <dir-or-zip> [<dir-or-zip> ...]
     python audit_release_zips.py            # defaults to CWD
 
-Exit code is non-zero if any zip is flagged CRITICAL.
+Exit 0 means at least one ZIP was measured and all were clean. Exit 1 means at
+least one measured ZIP was flagged CRITICAL. Exit 2 means no ZIP population was
+available to audit, so the result is UNKNOWN rather than clean.
 """
 from __future__ import annotations
 
@@ -80,7 +82,8 @@ def main(argv: list[str]) -> int:
             else:
                 print(f"CLEAN     {zp}")
     if scanned == 0:
-        print("no zips found", file=sys.stderr)
+        print("UNKNOWN   no zips found", file=sys.stderr)
+        return 2
     return 1 if any_critical else 0
 
 

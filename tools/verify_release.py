@@ -32,6 +32,10 @@ stdlib-only.
 
 Exit 0 = all selected gates pass. Exit 1 = a gate failed (or a real test
 regression). Exit 2 = setup/IO error.
+
+A runner process that exits zero without the recognized summary is not a
+zero-test success. Its counts are unknown, and the selected test gate fails.
+A recognized ``Total: 0`` summary remains a measured, healthy empty result.
 """
 import argparse
 import glob
@@ -234,11 +238,16 @@ def _run_one(root, relpath, timeout):
         out = (e.stdout or "") if isinstance(e.stdout, str) else ""
         rc = 124
     m = _SUMMARY_RE.search(out)
-    total, passed, failed, skipped = (map(int, m.groups()) if m else (0, 0, 0, 0))
+    if m:
+        summary_parsed = True
+        total, passed, failed, skipped = map(int, m.groups())
+    else:
+        summary_parsed = False
+        total, passed, failed, skipped = (None, None, None, None)
     harness = any(sig in out for sig in _HARNESS_SIGNATURES)
     return {"file": relpath, "rc": rc, "total": total, "passed": passed,
             "failed": failed, "skipped": skipped, "harness": harness,
-            "timeout": rc == 124}
+            "timeout": rc == 124, "summary_parsed": summary_parsed}
 
 
 def run_tests_criteria(root, scope, version):
@@ -247,27 +256,40 @@ def run_tests_criteria(root, scope, version):
                        for p in glob.glob(os.path.join(root, "tests", "test_*.py")))
     else:
         files = _gate_files(root, version)
-    results, real_fail, harness_fail, slow = [], [], [], []
+    results, real_fail, harness_fail, slow, unmeasured = [], [], [], [], []
     for f in files:
         is_perf = os.path.basename(f) == "test_perf_lab.py"
         r = _run_one(root, f, timeout=60 if is_perf else 120)
         results.append(r)
         if r["timeout"]:
             slow.append(f)
-        if r["failed"] > 0 or (r["rc"] != 0 and r["total"] == 0):
+        if r["rc"] == 0 and not r["summary_parsed"]:
+            unmeasured.append(r)
+        elif ((r["failed"] or 0) > 0
+              or (r["rc"] != 0 and (r["total"] or 0) == 0)):
             (harness_fail if r["harness"] else real_fail).append(r)
     agg = {"files": len(files),
-           "passed": sum(r["passed"] for r in results),
-           "failed": sum(r["failed"] for r in results),
-           "skipped": sum(r["skipped"] for r in results),
+           "measured_files": sum(r["summary_parsed"] for r in results),
+           "passed": sum(r["passed"] or 0 for r in results),
+           "failed": sum(r["failed"] or 0 for r in results),
+           "skipped": sum(r["skipped"] or 0 for r in results),
            "real_failures": real_fail, "harness_failures": harness_fail,
-           "timeouts": slow, "results": results}
+           "timeouts": slow, "unmeasured": unmeasured, "results": results}
     return agg
 
 
+def _tests_criteria_passed(agg):
+    """True only when every successful runner emitted measured criteria."""
+    return not agg["real_failures"] and not agg["unmeasured"]
+
+
 def _print_tests(agg):
-    print(f"  files={agg['files']} passed={agg['passed']} "
+    print(f"  files={agg['files']} measured={agg['measured_files']} "
+          f"passed={agg['passed']} "
           f"failed={agg['failed']} skipped={agg['skipped']}")
+    if agg["unmeasured"]:
+        print("  UNKNOWN (runner summary not recognized): "
+              f"{', '.join(r['file'] for r in agg['unmeasured'])}")
     if agg["harness_failures"]:
         print(f"  HARNESS/ENV (not regressions): "
               f"{', '.join(r['file'] for r in agg['harness_failures'])}")
@@ -279,7 +301,7 @@ def _print_tests(agg):
         print("  REAL REGRESSIONS:")
         for r in agg["real_failures"]:
             print(f"    !! {r['file']}  failed={r['failed']} rc={r['rc']}")
-    else:
+    elif not agg["unmeasured"]:
         print("  no real regressions")
     print("  (skip identity/reason drift: gate both complete capture JUnits with "
           "tools/check_skip_baseline.py --junit <parallel> --junit <serial>)")
@@ -324,7 +346,7 @@ def main(argv=None):
     if args.tests:
         ver = _read_version(root)
         test_agg = run_tests_criteria(root, args.tests, ver)
-        gates.append(("tests:" + args.tests, not test_agg["real_failures"]))
+        gates.append(("tests:" + args.tests, _tests_criteria_passed(test_agg)))
 
     if args.json:
         print(json.dumps({"gates": dict(gates), "detail": results,

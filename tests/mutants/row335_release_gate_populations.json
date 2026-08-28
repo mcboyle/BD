@@ -1,0 +1,36 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 335. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row335_release_gate_populations.json --work DETACHED_SCRATCH. M1 restores the real ZIP CLI's exact zero-population green. M2 restores the runner classifier's exact absent-summary shape: four zero counts marked as measured, which makes the real release gate green. M3 independently removes the unmeasured population from the top-level gate decision. Every regression has a named behavioral catcher. The companion transform-control battery applies all three transforms byte-for-byte to measured healthy/empty tests and must report three ESCAPED mutants.",
+  "subject": "release gates distinguish absent populations from measured healthy empty results",
+  "band": [
+    "tests/test_row335_release_gate_populations.py::test_zip_audit_zero_population_is_unknown_not_green",
+    "tests/test_row335_release_gate_populations.py::test_release_gate_rejects_exit_zero_without_a_summary",
+    "tests/test_row335_release_gate_populations.py::test_release_gate_rejects_exit_zero_after_summary_format_drift"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore ZIP audit green over zero discovered artifacts",
+      "file": "audit_release_zips.py",
+      "old": "    if scanned == 0:\n        print(\"UNKNOWN   no zips found\", file=sys.stderr)\n        return 2\n    return 1 if any_critical else 0",
+      "new": "    if scanned == 0:\n        print(\"no zips found\", file=sys.stderr)\n    return 1 if any_critical else 0",
+      "direction": "regression",
+      "catcher": "tests/test_row335_release_gate_populations.py::test_zip_audit_zero_population_is_unknown_not_green"
+    },
+    {
+      "label": "M2 collapse an absent runner summary into measured zero counts",
+      "file": "tools/verify_release.py",
+      "old": "    else:\n        summary_parsed = False\n        total, passed, failed, skipped = (None, None, None, None)",
+      "new": "    else:\n        summary_parsed = True\n        total, passed, failed, skipped = (0, 0, 0, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_row335_release_gate_populations.py::test_release_gate_rejects_exit_zero_without_a_summary"
+    },
+    {
+      "label": "M3 ignore unmeasured runner populations in the release gate verdict",
+      "file": "tools/verify_release.py",
+      "old": "    return not agg[\"real_failures\"] and not agg[\"unmeasured\"]",
+      "new": "    return not agg[\"real_failures\"]",
+      "direction": "regression",
+      "catcher": "tests/test_row335_release_gate_populations.py::test_release_gate_rejects_exit_zero_without_a_summary"
+    }
+  ]
+}

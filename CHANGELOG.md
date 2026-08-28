@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1317 - a zero release population is UNKNOWN, not a pass
+
+-    total, passed, failed, skipped = (map(int, m.groups()) if m else (0, 0, 
+-            "timeout": rc == 124}
+-    results, real_fail, harness_fail, slow = [], [], [], []
+-        if r["failed"] > 0 or (r["rc"] != 0 and r["total"] == 0):
+-           "passed": sum(r["passed"] for r in results),
+-           "failed": sum(r["failed"] for r in results),
+-           "skipped": sum(r["skipped"] for r in results),
+-           "timeouts": slow, "results": results}
+-    print(f"  files={agg['files']} passed={agg['passed']} "
+-        gates.append(("tests:" + args.tests, not test_agg["real_failures"]))
+- [audit_release_zips.py](/home/mboyle/bd-codex-wt/row335/audit_release_zips.
+- [verify_release.py](/home/mboyle/bd-codex-wt/row335/tools/verify_release.py
+- Added the focused [regression gate](/home/mboyle/bd-codex-wt/row335/tests/t
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 202 -> 208.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1316 - four health surfaces stop reporting ok over measurements they never took
 
 -    assert response.status_code == 200
