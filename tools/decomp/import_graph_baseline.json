@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3926,
+  "edge_count": 3934,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2867,6 +2867,14 @@
       "tools/spa_population.py"
     ],
     "tests/test_ffmpeg_capability_health.py": [
+      "bulk_downloader/account_health.py",
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app_bitrot.py",
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/circuit_breaker.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/healthcheck.py"
     ],
     "tests/test_fixture_serves_a_decodable_mp4.py": [

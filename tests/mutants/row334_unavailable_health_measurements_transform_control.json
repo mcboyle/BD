@@ -1,0 +1,61 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 334 transform controls. This battery must report six ESCAPED mutants: each byte-identical regression is applied while only the corresponding measured-empty or measured-healthy test runs. Those controls do not enter the transformed unavailable branch, proving every primary CAUGHT verdict is behavioral rather than a syntax, import, collection, or always-closed failure.",
+  "subject": "transform-only controls for unavailable health measurement regressions",
+  "band": [
+    "tests/test_ffmpeg_capability_health.py::test_measured_empty_account_census_remains_healthy",
+    "tests/test_ffmpeg_capability_health.py::test_measured_ffmpeg_capabilities_remain_healthy",
+    "tests/test_ffmpeg_capability_health.py::test_measured_empty_bitrot_issue_inventory_remains_http_200",
+    "tests/test_ffmpeg_capability_health.py::test_measured_empty_circuit_census_remains_ok"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 account report fallback transform under measured-empty census",
+      "file": "bulk_downloader/account_health.py",
+      "old": "    except Exception as e:\n        # An empty list is a valid, measured census (there may be no configured\n        # pools), so it cannot also be the exception fallback.  Let callers map\n        # the unavailable state into their own status vocabulary.\n        raise AccountHealthUnavailable(\n            f\"account pool census unavailable: {e}\"\n        ) from e\n    return out",
+      "new": "    except Exception:\n        pass\n    return out",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_measured_empty_account_census_remains_healthy"
+    },
+    {
+      "label": "TC2 account health OK transform under measured-empty census",
+      "file": "bulk_downloader/healthcheck.py",
+      "old": "    except Exception as e:\n        return {\"severity\": SEV_WARN,\n                \"message\": f\"account health measurement unknown: \"\n                           f\"{type(e).__name__}: {e}\"[:200]}\n    low =",
+      "new": "    except Exception:\n        return {\"severity\": SEV_OK, \"message\": \"account health unavailable\"}\n    low =",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_measured_empty_account_census_remains_healthy"
+    },
+    {
+      "label": "TC3 ffmpeg empty-missing transform under measured capabilities",
+      "file": "bulk_downloader/healthcheck.py",
+      "old": "        except (OSError, subprocess.SubprocessError) as e:\n            return {\n                \"available\": False,\n                \"capability_status\": \"unknown\",\n                \"error\": f\"{option} unavailable: {type(e).__name__}: {e}\",\n            }\n        if probe.returncode != 0:",
+      "new": "        except (OSError, subprocess.SubprocessError):\n            return {\"missing\": []}\n        if probe.returncode != 0:",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_measured_ffmpeg_capabilities_remain_healthy"
+    },
+    {
+      "label": "TC4 bitrot empty-list transform under measured-empty inventory",
+      "file": "bulk_downloader/bitrot.py",
+      "old": "    except Exception as e:\n        # [] is reserved for a successful query that measured no issues.\n        # Callers must surface an unreadable inventory as unavailable instead\n        # of serialising it as a clean inventory.\n        raise InventoryUnavailable(\n            f\"integrity issue inventory unavailable: {e}\"\n        ) from e\n\n\ndef stats",
+      "new": "    except Exception:\n        return []\n\n\ndef stats",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_measured_empty_bitrot_issue_inventory_remains_http_200"
+    },
+    {
+      "label": "TC5 bitrot HTTP-200 transform under measured-empty inventory",
+      "file": "bulk_downloader/app_bitrot.py",
+      "old": "    except Exception as e:\n        return jsonify({\n            \"ok\": False,\n            \"available\": False,\n            \"inventory_status\": \"unknown\",\n            \"issues\": None,\n            \"error\": str(e)[:200],\n        }), 503\n\n@bitrot_bp.route(\"/api/bitrot/stats\")",
+      "new": "    except Exception as e:\n        return jsonify({\"issues\": [], \"error\": str(e)[:200]}), 200\n\n@bitrot_bp.route(\"/api/bitrot/stats\")",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_measured_empty_bitrot_issue_inventory_remains_http_200"
+    },
+    {
+      "label": "TC6 circuit OK transform under measured-empty census",
+      "file": "bulk_downloader/healthcheck.py",
+      "old": "    except Exception as e:\n        return {\"severity\": SEV_WARN,\n                \"message\": f\"circuit breaker measurement unknown: \"\n                           f\"{type(e).__name__}: {e}\"[:200]}\n    open_hosts =",
+      "new": "    except Exception:\n        return {\"severity\": SEV_OK, \"message\": \"circuit module unavailable\"}\n    open_hosts =",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_measured_empty_circuit_census_remains_ok"
+    }
+  ]
+}

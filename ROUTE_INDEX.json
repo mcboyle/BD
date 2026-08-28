@@ -1109,7 +1109,7 @@
       "endpoint": "bitrot.api_bitrot_stats",
       "function": "api_bitrot_stats",
       "file": "bulk_downloader/app_bitrot.py",
-      "line": 48,
+      "line": 54,
       "csrf": false,
       "spa_wired": false,
       "operator_facing": false,

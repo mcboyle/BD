@@ -106,6 +106,13 @@ _DECLARED = {
     # module drives the real enqueue/start/admission and integrity seams, so it
     # is pinned into the application-safety shard on every PR.
     "tests/test_app_measurements_fail_closed.py",
+    # Row 334. Four operator health surfaces used an empty collection for both
+    # measured-empty and unavailable. This runtime gate pairs every exception
+    # probe with a measured-healthy control and is pinned into CI here.
+    "tests/test_ffmpeg_capability_health.py",
+    # Row 334. The library integrity route is a second consumer of the bitrot
+    # issue census. Its runtime gate refuses to call a locked inventory clean.
+    "tests/test_v3_57_phase9.py",
     # Backlog row 176. Verdict pins cannot detect a fixture whose recognizer
     # result is correct for the wrong site's bytes, so this gate independently
     # declares every recognizer fixture's page host and checks the payload.
@@ -700,7 +707,9 @@ _DECLARED = {
 # 196 -> 197 at row 331 (2026-08-28). The mechanically derived application
 # dependency-declaration gate is declared once and scheduled beside the older
 # whole-tree dependency-freshness gate.
-_EXPECTED_DECLARED_GATE_COUNT = 205
+# 201 -> 203 at row 334 (2026-08-28). This cut classifies exactly two legacy
+# runtime health-measurement gates and schedules both in application-safety.
+_EXPECTED_DECLARED_GATE_COUNT = 207
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",

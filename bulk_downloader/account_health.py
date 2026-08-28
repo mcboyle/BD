@@ -25,6 +25,10 @@ import time
 from typing import Optional
 
 
+class AccountHealthUnavailable(RuntimeError):
+    """The account-pool census could not be measured."""
+
+
 def _safe_get_pool(site_id: str):
     """Returns AccountPool or None. Avoids hard-importing in module
     scope so account_pool import order doesn't matter."""
@@ -124,7 +128,11 @@ def rotation_hint(site_id: str) -> Optional[int]:
 
 def report_all() -> list:
     """Return [{site_id, idx, username, score, state, ban_risk, ...}]
-    across all configured pools. Used by the operator dashboard."""
+    across all configured pools. Used by the operator dashboard.
+
+    Raises AccountHealthUnavailable when the pool census cannot be measured;
+    an empty list is reserved for a successful census with no accounts.
+    """
     out = []
     try:
         from . import account_pool as _ap
@@ -151,8 +159,13 @@ def report_all() -> list:
                     "score": score_account(duck),
                     "ban_risk": ban_risk(duck),
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        # An empty list is a valid, measured census (there may be no configured
+        # pools), so it cannot also be the exception fallback.  Let callers map
+        # the unavailable state into their own status vocabulary.
+        raise AccountHealthUnavailable(
+            f"account pool census unavailable: {e}"
+        ) from e
     return out
 
 

@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1316 - four health surfaces stop reporting ok over measurements they never took
+
+-    assert response.status_code == 200
+-    stats = body["stats"]
+-    assert body["ok"] is True
+-    assert body["count"] == 0
+-    assert stats["ok"] is False
+-    assert stats["inventory_status"] == "unknown"
+-    assert stats["available"] is False
+-    assert "locked" in stats["error"]
+-    assert stats["open_issues"] is None
+-    assert stats["open_issues"] != 0
+- Account census failures now raise `AccountHealthUnavailable`; health report
+- ffmpeg capability-list failures return explicit `available: false`, `capabi
+- Bitrot inventory failures raise `InventoryUnavailable`; both APIs return HT
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 203 -> 207.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    test_ffmpeg_capability_health.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1315 - the remaining capture poles stop bounding wall time
 
 - Row 332 removed the 494.7s pole; a different file then set the path.

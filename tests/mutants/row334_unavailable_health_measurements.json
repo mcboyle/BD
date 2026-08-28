@@ -1,0 +1,65 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 334. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row334_unavailable_health_measurements.json --work DETACHED_SCRATCH. Six exact-once regressions restore the four reproduced fail-open health surfaces and the two boundary mappings made reachable by the fix. Every named catcher drives a runtime failure and requires UNKNOWN/non-green; the band also retains one measured-empty or measured-healthy control per surface. The separate transform-control battery applies every identical valid transform under only its paired healthy control and all six must ESCAPE.",
+  "subject": "unavailable health measurements remain distinct from measured healthy or empty results",
+  "band": [
+    "tests/test_ffmpeg_capability_health.py::test_account_census_failure_is_unknown_to_both_health_consumers",
+    "tests/test_ffmpeg_capability_health.py::test_measured_empty_account_census_remains_healthy",
+    "tests/test_ffmpeg_capability_health.py::test_ffmpeg_capability_list_failure_is_unknown_not_capable",
+    "tests/test_ffmpeg_capability_health.py::test_measured_ffmpeg_capabilities_remain_healthy",
+    "tests/test_ffmpeg_capability_health.py::test_bitrot_issue_inventory_failure_is_unknown_and_not_http_200",
+    "tests/test_ffmpeg_capability_health.py::test_measured_empty_bitrot_issue_inventory_remains_http_200",
+    "tests/test_ffmpeg_capability_health.py::test_circuit_census_failure_is_warn_unknown_not_literal_ok",
+    "tests/test_ffmpeg_capability_health.py::test_measured_empty_circuit_census_remains_ok"
+  ],
+  "mutants": [
+    {
+      "label": "M1 collapse an unavailable account census into an empty measured census",
+      "file": "bulk_downloader/account_health.py",
+      "old": "    except Exception as e:\n        # An empty list is a valid, measured census (there may be no configured\n        # pools), so it cannot also be the exception fallback.  Let callers map\n        # the unavailable state into their own status vocabulary.\n        raise AccountHealthUnavailable(\n            f\"account pool census unavailable: {e}\"\n        ) from e\n    return out",
+      "new": "    except Exception:\n        pass\n    return out",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_account_census_failure_is_unknown_to_both_health_consumers"
+    },
+    {
+      "label": "M2 map an unavailable account census back to health severity OK",
+      "file": "bulk_downloader/healthcheck.py",
+      "old": "    except Exception as e:\n        return {\"severity\": SEV_WARN,\n                \"message\": f\"account health measurement unknown: \"\n                           f\"{type(e).__name__}: {e}\"[:200]}\n    low =",
+      "new": "    except Exception:\n        return {\"severity\": SEV_OK, \"message\": \"account health unavailable\"}\n    low =",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_account_census_failure_is_unknown_to_both_health_consumers"
+    },
+    {
+      "label": "M3 turn an unavailable ffmpeg capability listing into no missing capabilities",
+      "file": "bulk_downloader/healthcheck.py",
+      "old": "        except (OSError, subprocess.SubprocessError) as e:\n            return {\n                \"available\": False,\n                \"capability_status\": \"unknown\",\n                \"error\": f\"{option} unavailable: {type(e).__name__}: {e}\",\n            }\n        if probe.returncode != 0:",
+      "new": "        except (OSError, subprocess.SubprocessError):\n            return {\"missing\": []}\n        if probe.returncode != 0:",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_ffmpeg_capability_list_failure_is_unknown_not_capable"
+    },
+    {
+      "label": "M4 collapse an unreadable bitrot issue inventory into a clean empty list",
+      "file": "bulk_downloader/bitrot.py",
+      "old": "    except Exception as e:\n        # [] is reserved for a successful query that measured no issues.\n        # Callers must surface an unreadable inventory as unavailable instead\n        # of serialising it as a clean inventory.\n        raise InventoryUnavailable(\n            f\"integrity issue inventory unavailable: {e}\"\n        ) from e\n\n\ndef stats",
+      "new": "    except Exception:\n        return []\n\n\ndef stats",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_bitrot_issue_inventory_failure_is_unknown_and_not_http_200"
+    },
+    {
+      "label": "M5 serialize an unavailable bitrot issue inventory as empty HTTP 200",
+      "file": "bulk_downloader/app_bitrot.py",
+      "old": "    except Exception as e:\n        return jsonify({\n            \"ok\": False,\n            \"available\": False,\n            \"inventory_status\": \"unknown\",\n            \"issues\": None,\n            \"error\": str(e)[:200],\n        }), 503\n\n@bitrot_bp.route(\"/api/bitrot/stats\")",
+      "new": "    except Exception as e:\n        return jsonify({\"issues\": [], \"error\": str(e)[:200]}), 200\n\n@bitrot_bp.route(\"/api/bitrot/stats\")",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_bitrot_issue_inventory_failure_is_unknown_and_not_http_200"
+    },
+    {
+      "label": "M6 map an unavailable circuit census back to literal health OK",
+      "file": "bulk_downloader/healthcheck.py",
+      "old": "    except Exception as e:\n        return {\"severity\": SEV_WARN,\n                \"message\": f\"circuit breaker measurement unknown: \"\n                           f\"{type(e).__name__}: {e}\"[:200]}\n    open_hosts =",
+      "new": "    except Exception:\n        return {\"severity\": SEV_OK, \"message\": \"circuit module unavailable\"}\n    open_hosts =",
+      "direction": "regression",
+      "catcher": "tests/test_ffmpeg_capability_health.py::test_circuit_census_failure_is_warn_unknown_not_literal_ok"
+    }
+  ]
+}
