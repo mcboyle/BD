@@ -1,0 +1,102 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 336. Re-run from a detached standalone scratch tree with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row336_audit_scanner_evidence.json --work SCRATCH --timeout 300. The audit mutants restore every missing-evidence acceptance branch. The scanner mutants independently restore each default collector's launch-error swallowing, then collapse the aggregate UNKNOWN status or exit code. O1 is the required measured-empty negative control: three analyzers that ran successfully and returned zero findings must remain CLEAN. The companion transform-control spec applies M3 byte-for-byte to a valid witnessed-audit test that never takes the missing-suite branch and must ESCAPE.",
+  "subject": "the audit verifier and default scanner battery distinguish absent evidence from measured clean evidence",
+  "band": [
+    "tests/test_row336_audit_and_scan_evidence.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 an audit with zero file evidence is accepted again",
+      "file": "tools/verify_audit.py",
+      "old": "    if not isinstance(files, list) or not files:\n        fails.append(\"schema: 'files' must be a non-empty list\")\n",
+      "new": "    if not isinstance(files, list):\n        fails.append(\"schema: 'files' must be a non-empty list\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_an_empty_required_audit_population_is_rejected[files]"
+    },
+    {
+      "label": "M2 an audit with zero finding evidence is accepted again",
+      "file": "tools/verify_audit.py",
+      "old": "    if not isinstance(findings, list) or not findings:\n        fails.append(\"schema: 'findings' must be a non-empty list\")\n",
+      "new": "    if not isinstance(findings, list):\n        fails.append(\"schema: 'findings' must be a non-empty list\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_an_empty_required_audit_population_is_rejected[findings]"
+    },
+    {
+      "label": "M3 an absent witness suite is downgraded back to an advisory warning",
+      "file": "tools/verify_audit.py",
+      "old": "            fails.append(\"witness: no witness suite supplied -- (3) cannot be measured\")\n",
+      "new": "            warns.append(\"no witness suite supplied -- (3) skipped\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_a_live_sha_and_finding_without_a_witness_suite_is_rejected"
+    },
+    {
+      "label": "M4 an unmatched finding witness is downgraded back to an advisory warning",
+      "file": "tools/verify_audit.py",
+      "old": "                fails.append(f\"finding {fid} witness ref '{wref[:40]}' not matched \"\n                             f\"to a suite witness id\")\n",
+      "new": "                warns.append(f\"finding {fid} witness ref '{wref[:40]}' not matched \"\n                             f\"to a suite witness id\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_a_finding_not_matched_by_the_loaded_witness_suite_is_rejected"
+    },
+    {
+      "label": "M5 a finding ID written in witness prose substitutes for an absent suite result",
+      "file": "tools/verify_audit.py",
+      "old": "            if fid not in witness_ids and wref not in witness_ids:\n",
+      "new": "            if fid not in witness_ids and fid not in wref:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_a_finding_id_in_reference_text_does_not_replace_a_suite_result"
+    },
+    {
+      "label": "M6 defect-pattern launch failure is swallowed as an empty measured result",
+      "file": "tools/bd-scan.py",
+      "old": "        if isinstance(e, AnalyzerUnavailable):\n            raise\n        raise AnalyzerUnavailable(f\"defect_patterns report is unreadable: {e}\") from e\n",
+      "new": "        if isinstance(e, AnalyzerUnavailable):\n            return findings\n        raise AnalyzerUnavailable(f\"defect_patterns report is unreadable: {e}\") from e\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_zero_findings_from_three_unavailable_analyzers_is_unknown"
+    },
+    {
+      "label": "M7 Bandit launch failure is swallowed as an empty measured result",
+      "file": "tools/bd-scan.py",
+      "old": "        if isinstance(e, AnalyzerUnavailable):\n            raise\n        raise AnalyzerUnavailable(f\"bandit report is unreadable: {e}\") from e\n",
+      "new": "        if isinstance(e, AnalyzerUnavailable):\n            return findings\n        raise AnalyzerUnavailable(f\"bandit report is unreadable: {e}\") from e\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_zero_findings_from_three_unavailable_analyzers_is_unknown"
+    },
+    {
+      "label": "M8 Vulture launch failure is swallowed as an empty measured result",
+      "file": "tools/bd-scan.py",
+      "old": "    _require_analyzer_run(\"vulture\", rc, out, err)\n",
+      "new": "    if rc != -1:\n        _require_analyzer_run(\"vulture\", rc, out, err)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_zero_findings_from_three_unavailable_analyzers_is_unknown"
+    },
+    {
+      "label": "M9 an UNKNOWN aggregate report is relabelled CLEAN",
+      "file": "tools/bd-scan.py",
+      "old": "    status = \"UNKNOWN\" if unknown_reasons else (\"CLEAN\" if not all_f else \"FINDINGS\")\n",
+      "new": "    status = \"CLEAN\" if not all_f else \"FINDINGS\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_zero_findings_from_three_unavailable_analyzers_is_unknown"
+    },
+    {
+      "label": "M10 an UNKNOWN aggregate exits zero again",
+      "file": "tools/bd-scan.py",
+      "old": "    return 2 if unknown_reasons else 0\n",
+      "new": "    return 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_row336_audit_and_scan_evidence.py::test_zero_findings_from_three_unavailable_analyzers_is_unknown"
+    },
+    {
+      "label": "O1 OVERCORRECTION zero findings is UNKNOWN even after all analyzers measured successfully",
+      "file": "tools/bd-scan.py",
+      "old": "    status = \"UNKNOWN\" if unknown_reasons else (\"CLEAN\" if not all_f else \"FINDINGS\")\n",
+      "new": "    status = \"UNKNOWN\" if (unknown_reasons or not all_f) else \"FINDINGS\"\n",
+      "direction": "overcorrection",
+      "control": "tests/test_row336_audit_and_scan_evidence.py::test_three_measured_healthy_empty_analyzers_report_clean",
+      "preserves": [
+        "tests/test_row336_audit_and_scan_evidence.py::test_zero_findings_from_three_unavailable_analyzers_is_unknown",
+        "tests/test_row336_audit_and_scan_evidence.py::test_a_live_sha_and_finding_with_a_matching_witness_suite_is_accepted"
+      ]
+    }
+  ]
+}

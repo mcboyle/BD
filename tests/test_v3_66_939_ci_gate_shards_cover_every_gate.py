@@ -254,6 +254,10 @@ _DECLARED = {
     # launcher can appear anywhere in the measured production/tool population.
     "tests/test_child_test_install_dir_isolation.py",
     "tests/test_toolchain_534.py",
+    # Row 336. Audit promotion and the default static-analysis battery are both
+    # release-verdict boundaries: absent witness/analyzer evidence must remain
+    # UNKNOWN on every PR, independently of a diff-derived module band.
+    "tests/test_row336_audit_and_scan_evidence.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly
     # below it was a second one -- stale within five releases of being written,
@@ -715,7 +719,9 @@ _DECLARED = {
 # runtime health-measurement gates and schedules both in application-safety.
 # 201 -> 202 at row 335 (2026-08-28). Exactly one module-scoped release-gate
 # population test is declared here and scheduled once in artifacts-pins.
-_EXPECTED_DECLARED_GATE_COUNT = 208
+# 201 -> 202 at row 336 (2026-08-28). One repo-wide verifier/scanner evidence
+# gate is declared once and scheduled in toolchain-verifiers.
+_EXPECTED_DECLARED_GATE_COUNT = 209
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_home_config_stores_are_guarded.py",
