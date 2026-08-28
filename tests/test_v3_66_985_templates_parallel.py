@@ -71,9 +71,11 @@ def _corpus(root, sites=4, per_site=3):
 
 
 def _run(root, *extra, expect_rc=(0, 1), env=None):
+    # Every real helper call was measured in row 338, max 0.638027s;
+    # max(60, ceil(2 * 0.638027)) = 60s.
     r = subprocess.run([sys.executable, str(TOOL), "--root", str(root),
                         "--templates", "--json", *extra],
-                       capture_output=True, text=True, timeout=1800, env=env)
+                       capture_output=True, text=True, timeout=60, env=env)
     assert r.returncode in expect_rc, (
         "rc=%d\nstdout=%s\nstderr=%s" % (r.returncode, r.stdout[-800:], r.stderr[-1500:]))
     return r

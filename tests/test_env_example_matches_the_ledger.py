@@ -52,9 +52,10 @@ def _ledger_keys() -> set[str]:
     assert over yesterday's tree. If it cannot be generated, that is UNKNOWN --
     and unknown fails rather than silently passing.
     """
+    # Row 338 measured 1.308416s; max(60, ceil(2 * 1.308416)) = 60s.
     proc = subprocess.run(
         [str(PYTHON), str(INVENTORY_TOOL)],
-        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=300,
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60,
     )
     if proc.returncode != 0 or not INVENTORY_JSON.is_file():
         pytest.fail(

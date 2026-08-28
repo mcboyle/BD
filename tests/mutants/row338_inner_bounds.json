@@ -1,0 +1,171 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 338. Each valid mutant restores one proven inner timeout at or above the 240s item bound. The catcher joins the executable measurement table to the exact owner/callee census and therefore rejects both the restored value and removal of the literal timeout. All anchors are multi-line where repetition would otherwise make the transform ambiguous.",
+  "subject": "all twenty row-338 inner bounds remain measured, literal, and below their governing item bound",
+  "band": [
+    "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds",
+    "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_runtime_inner_bound_beats_the_item_bound"
+  ],
+  "mutants": [
+    {
+      "label": "M01 cloud find-repo restores its 300s bound",
+      "file": "tests/test_cloud_setup_truthfulness.py",
+      "old": "    proc = _run_bash(harness, cwd=cwd, env=env, timeout=60)",
+      "new": "    proc = _run_bash(harness, cwd=cwd, env=env, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M02 CSRF functional probe restores its 600s bound",
+      "file": "tests/test_csrf_tool_contracts.py",
+      "old": "        cwd=str(REPO), capture_output=True, text=True, timeout=60)",
+      "new": "        cwd=str(REPO), capture_output=True, text=True, timeout=600)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M03 env ledger restores its 300s bound",
+      "file": "tests/test_env_example_matches_the_ledger.py",
+      "old": "        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60,",
+      "new": "        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=300,",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M04 secret shard queue restores its 300s bound",
+      "file": "tests/test_secret_display_never.py",
+      "old": "                results.append(out_q.get(timeout=60))",
+      "new": "                results.append(out_q.get(timeout=300))",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M05 tool smoke restores its 600s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "    r = subprocess.run([sys.executable, tool, \"--gate\"], cwd=root,\n                       capture_output=True, text=True, timeout=87)",
+      "new": "    r = subprocess.run([sys.executable, tool, \"--gate\"], cwd=root,\n                       capture_output=True, text=True, timeout=600)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M06 equiv restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "         \"bd-plugin-chaos\", \"--inputs\", root, \"--json\", \"--work\", root],\n        cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "         \"bd-plugin-chaos\", \"--inputs\", root, \"--json\", \"--work\", root],\n        cwd=root, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M07 freshcheck restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "    r = subprocess.run([sys.executable, tool, \"--root\", root, \"--repo-only\"],\n                       cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "    r = subprocess.run([sys.executable, tool, \"--root\", root, \"--repo-only\"],\n                       cwd=root, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M08 zero-collect restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "        r = subprocess.run([sys.executable, \"run_tests.py\", \"tests/test_zero.py\"],\n                           cwd=td, capture_output=True, text=True, timeout=60)",
+      "new": "        r = subprocess.run([sys.executable, \"run_tests.py\", \"tests/test_zero.py\"],\n                           cwd=td, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M09 all-skipped restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "        r2 = subprocess.run([sys.executable, \"run_tests.py\", \"tests/test_allskip.py\"],\n                            cwd=td, capture_output=True, text=True, timeout=60)",
+      "new": "        r2 = subprocess.run([sys.executable, \"run_tests.py\", \"tests/test_allskip.py\"],\n                            cwd=td, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M10 contracts positive control restores its 600s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "    r = subprocess.run([sys.executable, \"run_tests.py\", \"tests/test_contracts.py\"],\n                       cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "    r = subprocess.run([sys.executable, \"run_tests.py\", \"tests/test_contracts.py\"],\n                       cwd=root, capture_output=True, text=True, timeout=600)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M11 missing-map derive restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "        r = subprocess.run([sys.executable, tool, \"--work\", td,\n                            \"--file\", \"bulk_downloader/__init__.py\"],\n                           cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "        r = subprocess.run([sys.executable, tool, \"--work\", td,\n                            \"--file\", \"bulk_downloader/__init__.py\"],\n                           cwd=root, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M12 band helper default restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "def _band_tool(name, args, results_path, timeout=60):",
+      "new": "def _band_tool(name, args, results_path, timeout=300):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M13 parband green restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "                       [suite, \"--work\", str(_REPO_ROOT), \"--jobs\", \"1\",\n                        \"--timeout\", \"180\"], results, timeout=60)",
+      "new": "                       [suite, \"--work\", str(_REPO_ROOT), \"--jobs\", \"1\",\n                        \"--timeout\", \"180\"], results, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M14 retest green restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "                       [\"--retries\", \"1\", \"--timeout\", \"180\",\n                        \"--work\", str(_REPO_ROOT)], results, timeout=60)",
+      "new": "                       [\"--retries\", \"1\", \"--timeout\", \"180\",\n                        \"--work\", str(_REPO_ROOT)], results, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M15 derive helper restores its 600s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "    return subprocess.run([sys.executable, tool, \"--work\", str(_REPO_ROOT)] + args,\n                          cwd=str(_REPO_ROOT), capture_output=True, text=True,\n                          timeout=60)",
+      "new": "    return subprocess.run([sys.executable, tool, \"--work\", str(_REPO_ROOT)] + args,\n                          cwd=str(_REPO_ROOT), capture_output=True, text=True,\n                          timeout=600)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M16 fullsuite helper restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "    return subprocess.run([sys.executable, tool, \"--work\", td, \"--jobs\", \"1\"] + extra,\n                          cwd=str(_REPO_ROOT), capture_output=True, text=True,\n                          timeout=60, env=env)",
+      "new": "    return subprocess.run([sys.executable, tool, \"--work\", td, \"--jobs\", \"1\"] + extra,\n                          cwd=str(_REPO_ROOT), capture_output=True, text=True,\n                          timeout=300, env=env)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M17 derived-band loop restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "        r = subprocess.run([sys.executable, derive, \"--file\", changed, \"--json\"],\n                           cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "        r = subprocess.run([sys.executable, derive, \"--file\", changed, \"--json\"],\n                           cwd=root, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M18 bd-band zero restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "        r = subprocess.run([sys.executable, band_tool, \"--work\", td,\n                            \"--skip-bandcheck\", \"tests/test_zero.py\"],\n                           cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "        r = subprocess.run([sys.executable, band_tool, \"--work\", td,\n                            \"--skip-bandcheck\", \"tests/test_zero.py\"],\n                           cwd=root, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M19 bd-band green restores its 300s bound",
+      "file": "tests/test_toolchain_534.py",
+      "old": "        ok = subprocess.run([sys.executable, band_tool, \"--work\", td,\n                             \"--skip-bandcheck\", \"tests/test_real.py\"],\n                            cwd=root, capture_output=True, text=True, timeout=60)",
+      "new": "        ok = subprocess.run([sys.executable, band_tool, \"--work\", td,\n                             \"--skip-bandcheck\", \"tests/test_real.py\"],\n                            cwd=root, capture_output=True, text=True, timeout=300)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    },
+    {
+      "label": "M20 template corpus restores its 1800s bound",
+      "file": "tests/test_v3_66_985_templates_parallel.py",
+      "old": "                       capture_output=True, text=True, timeout=60, env=env)",
+      "new": "                       capture_output=True, text=True, timeout=1800, env=env)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py::test_row_338_sites_keep_their_derived_literal_bounds"
+    }
+  ]
+}

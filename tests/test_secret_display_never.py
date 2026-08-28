@@ -342,7 +342,9 @@ def _scan_all(targets, headers):
     try:
         for _ in procs:
             try:
-                results.append(out_q.get(timeout=300))
+                # 32 real shard reads measured at most 2.334737s in row 338;
+                # max(60, ceil(2 * 2.334737)) = 60s.
+                results.append(out_q.get(timeout=60))
             except _qmod.Empty:
                 break
     except Exception as exc:
@@ -736,7 +738,7 @@ def _fake_fork_scan(monkeypatch, results):
 
         def get(self, timeout):
             fired["get"] += 1
-            assert timeout == 300
+            assert timeout == 60
             if self._results:
                 return self._results.pop(0)
             raise queue.Empty
