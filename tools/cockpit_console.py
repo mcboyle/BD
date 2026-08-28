@@ -3701,7 +3701,9 @@ PAGES.logintemplates=async()=>{
     const c=s.selector_confidence;
     const conf=`<span class="${c.band==='high'?'ok':c.band==='low'?'err':'muted'}">${c.band} (${c.score})</span>`;
     const present=s.template_present?`<span class="ok">yes</span>`:`<span class="err">missing</span>`;
-    const sess=s.session.available?(s.session.cookie_score!=null?`${s.session.band||''} (${s.session.cookie_score})`:'—'):'<span class="muted">n/a</span>';
+    const sess=s.session.suggested_action==='unknown'
+      ? `<span class="muted">unknown (${esc(s.session.measurement_status||'unmeasured')})</span>`
+      : s.session.available?(s.session.cookie_score!=null?`${s.session.band||''} (${s.session.cookie_score})`:'—'):'<span class="muted">n/a</span>';
     const rate=s.recent_success_rate!=null?(Math.round(s.recent_success_rate*100)+'%'):'—';
     const mfa=s.mfa_captcha_indicated?'<span class="muted">yes</span>':'no';
     const h=hmap[s.site]; const last=h&&h.last?`${esc(h.last.outcome)} @ ${esc(h.last.ts||'')}`:'—';

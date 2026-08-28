@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 356 transform control. This spec must report exactly one valid ESCAPED mutant: it applies the byte-identical no-runnable-check guard transform while its only node uses a genuinely fresh complete jar. The escape proves the primary CAUGHT result is the UNKNOWN-branch assertion rather than invalid Python, import failure, collection failure, or a broken transform.",
+  "subject": "transform control for the cookie-quality no-runnable-check guard",
+  "band": [
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_fresh_complete_jar_stays_well_scored_and_ok"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 no-run guard disabled under a measured-fresh control",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    if \"freshness\" not in ran:\n        if ran:\n            out[\"measurement_status\"] = \"partial\"\n        return out",
+      "new": "    if False and \"freshness\" not in ran:  # row 356 mutant: restore untouched-perfect fallthrough\n        if ran:\n            out[\"measurement_status\"] = \"partial\"\n        return out",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_fresh_complete_jar_stays_well_scored_and_ok"
+    }
+  ]
+}

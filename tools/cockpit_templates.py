@@ -326,7 +326,11 @@ def _cookie_quality(site_id: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Guarded read of the site's cookie/session quality. Read-only."""
     try:
         from bulk_downloader import cookie_quality as cq
-        return cq.score(site_id, s_cfg_entry=cfg) or {}
+        result = cq.score(site_id, s_cfg_entry=cfg) or {}
+        if (result.get("measurement_status") == "unmeasured"
+                or result.get("score") is None):
+            return {**result, "unavailable": True}
+        return result
     except Exception:
         return {"unavailable": True}
 
@@ -393,13 +397,21 @@ def login_template_health() -> Dict[str, Any]:
                 "band": cq.get("band") or cq.get("label"),
                 "expired": cq.get("expired"),
                 "available": not cq.get("unavailable", False),
+                "measurement_status": cq.get("measurement_status"),
+                "suggested_action": cq.get("suggested_action"),
             },
             "recent_success_rate": (round(rate, 2) if isinstance(rate, (int, float)) else None),
             "mfa_captcha_indicated": _captcha_in_config(cfg, lb),
             "_history_available": not drift.get("unavailable", False),
         })
-    rows.sort(key=lambda r: (r["template_present"],
-                             (r["session"]["cookie_score"] if r["session"]["cookie_score"] is not None else 999)))
+    # An unknown cookie score needs operator attention; sorting null as 999
+    # used to bury it after every measured score, recreating wrong-green at the
+    # presentation layer.
+    rows.sort(key=lambda r: (
+        r["session"]["cookie_score"] is not None,
+        r["template_present"],
+        (r["session"]["cookie_score"] or 0),
+    ))
     return {
         "sites": rows,
         "site_count": len(rows),
@@ -760,13 +772,13 @@ def drift_root_causes() -> Dict[str, Any]:
 
 def template_stability_score() -> Dict[str, Any]:
     """Per-site template STABILITY (DEFINED composite, 0–100): higher = fewer recent
-    drifts, clean selectors, fresh session. Every input shown; not an objective
-    measure. Weak on little history — sharpens as events accrue. Read-only."""
+    drifts, clean selectors, and successful recent logins. Every input shown;
+    not an objective measure. Weak on little history — sharpens as events
+    accrue. Read-only."""
     sites = _load_sites_config()
     rows = []
     for cfg in sites:
         sid = _site_id(cfg)
-        cq = _cookie_quality(sid, cfg)
         rate = _recent_login_success_rate(sid)
         dd = _drift_status(sid)
         evs = _site_drift_events(sid, cfg)

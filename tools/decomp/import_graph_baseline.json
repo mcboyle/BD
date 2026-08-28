@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3949,
+  "edge_count": 3956,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3486,6 +3486,15 @@
     ],
     "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py": [
       "tools/capture_verdict.py"
+    ],
+    "tests/test_row356_cookie_quality_reports_unknown.py": [
+      "bulk_downloader/app_cookie_quality.py",
+      "bulk_downloader/cookie_quality.py",
+      "bulk_downloader/cookie_relogin.py",
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/queue_priority.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

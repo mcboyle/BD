@@ -1,0 +1,75 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 356. Re-run from a detached standalone scratch tree: toolchain/bin/bd-mutate --spec tests/mutants/row356_cookie_quality_unknown.json --work SCRATCH --timeout 300. These mutants restore the untouched-perfect verdict, suppress each required skipped-check reason, and overcorrect every jar to UNKNOWN. The companion transform control applies the byte-identical no-run-guard transform to the fresh negative control and must ESCAPE.",
+  "subject": "cookie quality distinguishes an unmeasured session jar from perfect, fresh, and missing jars",
+  "band": [
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_session_only_jar_reports_freshness_unmeasured",
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_unconfigured_expected_cookies_records_unmeasured_check",
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_no_runnable_check_has_explicit_unknown_verdict",
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_fresh_complete_jar_stays_well_scored_and_ok",
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_missing_jar_stays_refresh_now",
+    "tests/test_row356_cookie_quality_reports_unknown.py::test_every_published_numeric_score_has_nonempty_breakdown"
+  ],
+  "mutants": [
+    {
+      "label": "M1 no runnable check falls through to perfect",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    if \"freshness\" not in ran:\n        if ran:\n            out[\"measurement_status\"] = \"partial\"\n        return out",
+      "new": "    if False and \"freshness\" not in ran:  # row 356 mutant: restore untouched-perfect fallthrough\n        if ran:\n            out[\"measurement_status\"] = \"partial\"\n        return out",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_no_runnable_check_has_explicit_unknown_verdict"
+    },
+    {
+      "label": "M2 session freshness skip is silent",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    else:\n        out[\"breakdown\"][\"freshness_unmeasured\"] = (\n            \"no expiring cookies in the jar\"\n        )\n\n    # 2. Expected cookies present?",
+      "new": "    else:\n        pass  # row 356 mutant: freshness measurement absence is silent\n\n    # 2. Expected cookies present?",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_session_only_jar_reports_freshness_unmeasured"
+    },
+    {
+      "label": "M3 expected-cookie denominator skip is silent",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    else:\n        out[\"breakdown\"][\"expected_cookies_unmeasured\"] = (\n            \"no expected_cookies configured\"\n        )\n\n    # 3. Cloudflare cookies",
+      "new": "    else:\n        pass  # row 356 mutant: expected-cookie denominator absence is silent\n\n    # 3. Cloudflare cookies",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_unconfigured_expected_cookies_records_unmeasured_check"
+    },
+    {
+      "label": "M4 inapplicable Cloudflare check is silent",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    else:\n        out[\"breakdown\"][\"cloudflare_unmeasured\"] = (\n            \"no Cloudflare cookies expected or present\"\n        )\n\n    # 4. Recent success rate",
+      "new": "    else:\n        pass  # row 356 mutant: Cloudflare applicability absence is silent\n\n    # 4. Recent success rate",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_no_runnable_check_has_explicit_unknown_verdict"
+    },
+    {
+      "label": "M5 unavailable success-rate history is silent",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    else:\n        out[\"breakdown\"][\"success_rate_unmeasured\"] = (\n            \"no measurable recent job history\"\n        )\n\n    # Freshness is the core basis",
+      "new": "    else:\n        pass  # row 356 mutant: recent-history absence is silent\n\n    # Freshness is the core basis",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_no_runnable_check_has_explicit_unknown_verdict"
+    },
+    {
+      "label": "M6 freshness applicability is not tracked",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    applicable.append(\"freshness\")\n    now = time.time()",
+      "new": "    pass  # row 356 mutant: freshness applicability is not tracked\n    now = time.time()",
+      "direction": "regression",
+      "catcher": "tests/test_row356_cookie_quality_reports_unknown.py::test_no_runnable_check_has_explicit_unknown_verdict"
+    },
+    {
+      "label": "M7 every nonempty jar becomes unmeasured",
+      "file": "bulk_downloader/cookie_quality.py",
+      "old": "    if \"freshness\" not in ran:\n        if ran:\n            out[\"measurement_status\"] = \"partial\"\n        return out",
+      "new": "    if True or \"freshness\" not in ran:  # row 356 mutant: overcorrect every jar to UNKNOWN\n        if ran:\n            out[\"measurement_status\"] = \"partial\"\n        return out",
+      "direction": "overcorrection",
+      "control": "tests/test_row356_cookie_quality_reports_unknown.py::test_fresh_complete_jar_stays_well_scored_and_ok",
+      "preserves": [
+        "tests/test_row356_cookie_quality_reports_unknown.py::test_no_runnable_check_has_explicit_unknown_verdict",
+        "tests/test_row356_cookie_quality_reports_unknown.py::test_missing_jar_stays_refresh_now"
+      ]
+    }
+  ]
+}

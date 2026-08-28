@@ -119,6 +119,11 @@ _DECLARED = {
     # measured-empty and unavailable. This runtime gate pairs every exception
     # probe with a measured-healthy control and is pinned into CI here.
     "tests/test_ffmpeg_capability_health.py",
+    # Row 356. Cookie quality must not call a session-only jar perfect when no
+    # freshness, expected-name, Cloudflare, or history check ran. This runtime
+    # gate also keeps API-adjacent relogin and queue consumers from defaulting
+    # the explicit UNKNOWN state back to a numeric 100.
+    "tests/test_row356_cookie_quality_reports_unknown.py",
     # Row 334. The library integrity route is a second consumer of the bitrot
     # issue census. Its runtime gate refuses to call a locked inventory clean.
     "tests/test_v3_57_phase9.py",
@@ -801,7 +806,7 @@ _DECLARED = {
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 349 (2026-08-28). One shared-cache identity gate is declared and
 # scheduled; on top of main's 217 that is 218.
-_EXPECTED_DECLARED_GATE_COUNT = 224
+_EXPECTED_DECLARED_GATE_COUNT = 225
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
