@@ -1,0 +1,44 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 332: the unchanged four-suite tool-state denominator occupies four physical capture files, all split files are reviewed parallel loadfile units, and concurrent registry evidence remains bound to one run marker. Re-run from a tracked-files-only detached clone carrying this candidate: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row332_capture_critical_path.json --work DETACHED_SCRATCH --timeout 300. The companion transform control applies M1 byte-for-byte to an import-only node and must ESCAPE.",
+  "subject": "capture's tool-state gate has four complete isolated loadfile shards",
+  "band": [
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_tool_state_suite_denominator_is_partitioned_across_capture_files",
+    "tests/test_capture_execution_lanes.py::test_tool_state_partition_has_five_parallel_loadfile_units",
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_only_this_inner_run"
+  ],
+  "mutants": [
+    {
+      "label": "M1 duplicate 1043 behind the 1044 shard and drop 1044 from the denominator",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "    \"test_v3_66_1046_tool_state_1044.py\":\n        \"tests/test_v3_66_1044_run_context_and_chains.py\",\n",
+      "new": "    \"test_v3_66_1046_tool_state_1044.py\":\n        \"tests/test_v3_66_1043_measurement_and_fleet_tools.py\",\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_tool_state_suite_denominator_is_partitioned_across_capture_files"
+    },
+    {
+      "label": "M2 leave the 1040 wrapper present but stop it from executing its suite",
+      "file": "tests/test_v3_66_1046_tool_state_1040.py",
+      "old": "def test_tool_suite_does_not_write_real_tool_state():\n    _run_tool_state_shard(__file__)\n",
+      "new": "def test_tool_suite_does_not_write_real_tool_state():\n    pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_tool_state_suite_denominator_is_partitioned_across_capture_files"
+    },
+    {
+      "label": "M3 return the longest 1043 shard to capture's serial lane",
+      "file": "tests/capture_parallel_files.txt",
+      "old": "test_v3_66_1046_tool_state_1043.py\n",
+      "new": "# mutant: longest row-332 shard returned to serial\n",
+      "direction": "regression",
+      "catcher": "tests/test_capture_execution_lanes.py::test_tool_state_partition_has_five_parallel_loadfile_units"
+    },
+    {
+      "label": "M4 attribute a foreign sibling worker's registry entry to this shard",
+      "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
+      "old": "        if entry.get(\"run_marker\") != run_marker:\n            continue",
+      "new": "        if False:\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_bd_jobs_diff_attributes_only_this_inner_run"
+    }
+  ]
+}

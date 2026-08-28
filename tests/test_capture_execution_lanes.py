@@ -22,9 +22,9 @@ LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 # The digest canonicalisation is sorted non-comment membership with one UTF-8
 # newline after every entry; an actual allowlist edit updates both facts and its
 # review evidence in the same commit.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1255
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1260
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "ecf4fa0705651673d2b401754ab433048cc78b2eb10954656fbf2a1e08146067"
+    "c53edbb297e639e8ac98aaa112837cdcb958eacbbd8df01007a6fdf794e39972"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -632,12 +632,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1255
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1260
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1245
+    assert _PARALLEL_RATCHET_FLOOR == 1250
     with pytest.raises(
         AssertionError,
-        match=r"down to 1244 files.*count was 1255.*margin is 10.*floor is 1245",
+        match=r"down to 1249 files.*count was 1260.*margin is 10.*floor is 1250",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 
@@ -646,3 +646,29 @@ def test_transform_control_imports_lanes_without_judging_lane_population() -> No
     """Mutation transform control: valid imports alone make no census verdict."""
     lanes = _load_lanes_module()
     assert lanes.__name__ == "bd_capture_lanes_under_test"
+
+
+def test_tool_state_partition_has_five_parallel_loadfile_units() -> None:
+    """The split is useful only when every resulting file reaches xdist.
+
+    `--dist loadfile` hands one FILE to one worker, so splitting a 494.7s module
+    buys nothing unless each piece is in the parallel allowlist -- four shards
+    left in the serial lane would be the same critical path wearing new names.
+    """
+    lanes = _load_lanes_module()
+    allowlist = lanes.parallel_allowlist()
+    partition = {
+        "test_v3_66_1046_gates_for_this_sessions_shapes.py",
+        "test_v3_66_1046_tool_state_1040.py",
+        "test_v3_66_1046_tool_state_1043.py",
+        "test_v3_66_1046_tool_state_1044.py",
+        "test_v3_66_1046_tool_state_1054.py",
+    }
+    assert len(partition) == 5
+    missing = sorted(partition - allowlist)
+    assert not missing, (
+        "row 332 split the tool-state module so loadfile could spread it, but "
+        f"these pieces are not in the parallel lane and would still serialise: {missing}"
+    )
+    for name in sorted(partition):
+        assert (REPO_ROOT / "tests" / name).is_file(), name

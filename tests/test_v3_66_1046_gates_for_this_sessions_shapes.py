@@ -409,6 +409,23 @@ _SUITE_BASELINE_S = {
     "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 7,  # 6
 }
 
+# One suite per physical file is the scheduling contract.  Capture's parallel
+# lane uses ``--dist loadfile``; putting these four suites back behind one
+# parametrised item in this module restores their sum as one worker's critical
+# path.  Keep this map independent of the wrappers so the denominator gate can
+# detect a missing file or duplicate suite instead of deriving completeness
+# from whatever happens to remain on disk.
+_TOOL_STATE_SHARDS = {
+    "test_v3_66_1046_tool_state_1043.py":
+        "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
+    "test_v3_66_1046_tool_state_1040.py":
+        "tests/test_v3_66_1040_remote_job_registry.py",
+    "test_v3_66_1046_tool_state_1044.py":
+        "tests/test_v3_66_1044_run_context_and_chains.py",
+    "test_v3_66_1046_tool_state_1054.py":
+        "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
+}
+
 # The stretch a suite may suffer from sibling workers before its budget fires.
 # NOT a guess dressed as a constant: the 2026-08-24 wedge needed only 221 -> 240,
 # a factor of 1.09, so anything at or below ~1.1 reproduces the defect. 2.0 is
@@ -450,10 +467,48 @@ def _item_timeout_s(suite):
 _A_SUITE = "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py"
 
 
-def _tool_state_suite_params():
-    return [pytest.param(s, marks=pytest.mark.timeout(_item_timeout_s(s)),
-                         id=s.rsplit("/", 1)[-1][:-3])
-            for s in _SUITE_BASELINE_S]
+def test_tool_state_suite_denominator_is_partitioned_across_capture_files():
+    """Every expensive inner suite must occupy one loadfile scheduling unit.
+
+    The capture scheduler assigns work by file.  Parametrising four nested
+    suites in this module therefore made their sum one serial critical path.
+    The partition is pinned independently of the wrapper files so deleting a
+    wrapper, duplicating a suite, or silently shrinking the denominator is RED.
+    """
+    shards = _TOOL_STATE_SHARDS
+    assert len(shards) == len(_SUITE_BASELINE_S) == 4, (
+        "the four-suite tool-state denominator changed instead of being split: "
+        f"{shards!r}")
+    assert set(shards.values()) == set(_SUITE_BASELINE_S), (
+        "tool-state capture shards do not cover the complete measured suite "
+        f"denominator: shards={shards!r}, suites={_SUITE_BASELINE_S!r}")
+    assert len(set(shards.values())) == len(shards), (
+        "two capture files run the same suite, leaving another suite outside "
+        f"the denominator: {shards!r}")
+
+    tracked = set(_tracked("tests/test_v3_66_1046_tool_state_*.py"))
+    expected = {"tests/" + name for name in shards}
+    assert tracked == expected, (
+        "tracked tool-state capture files do not match the independent shard "
+        f"map: tracked={sorted(tracked)!r}, expected={sorted(expected)!r}")
+
+    for name in shards:
+        source = (_TESTS / name).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        calls = [
+            node for node in ast.walk(tree)
+            if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_run_tool_state_shard")
+        ]
+        assert len(calls) == 1, (
+            f"{name} must call _run_tool_state_shard exactly once, got "
+            f"{len(calls)}")
+
+
+def test_tool_state_split_transform_control_imports_without_judging_partition():
+    """Mutation control: importability alone makes no partition verdict."""
+    assert callable(_run_tool_state_shard)
 
 
 def test_the_tool_state_gate_calls_the_bd_jobs_attribution_helper():
@@ -466,7 +521,7 @@ def test_the_tool_state_gate_calls_the_bd_jobs_attribution_helper():
     tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
     target = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
                   and n.name ==
-                  "test_the_tool_suites_do_not_write_the_real_tool_state_directories")
+                  "_run_tool_state_suite")
     calls = {n.func.id for n in ast.walk(target)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     assert "_bd_jobs_offenders" in calls
@@ -530,8 +585,7 @@ def test_the_tool_state_gate_rejects_a_failed_inner_run_even_with_passes(
 
     monkeypatch.setattr(subprocess, "run", mixed_result)
     with pytest.raises(AssertionError, match="inner pytest failed"):
-        test_the_tool_suites_do_not_write_the_real_tool_state_directories(
-            _A_SUITE)
+        _run_tool_state_suite(_A_SUITE)
 
 
 def test_the_tool_state_gate_propagates_and_grades_the_same_marker(
@@ -555,8 +609,7 @@ def test_the_tool_state_gate_propagates_and_grades_the_same_marker(
 
     monkeypatch.setattr(subprocess, "run", marked_leak)
     with pytest.raises(AssertionError, match="added entries to real tool state"):
-        test_the_tool_suites_do_not_write_the_real_tool_state_directories(
-            _A_SUITE)
+        _run_tool_state_suite(_A_SUITE)
 
 
 def test_every_suite_budget_is_below_the_bound_that_governs_it():
@@ -625,8 +678,22 @@ def test_the_baselines_are_measurements_not_placeholders():
         "the fix" % max(values))
 
 
-@pytest.mark.parametrize("suite", _tool_state_suite_params())
-def test_the_tool_suites_do_not_write_the_real_tool_state_directories(suite):
+def _suite_for_tool_state_shard(shard_path):
+    name = pathlib.Path(shard_path).name
+    assert name in _TOOL_STATE_SHARDS, (
+        "%s is not one of the pinned tool-state capture shards" % name)
+    return _TOOL_STATE_SHARDS[name]
+
+
+def _tool_state_shard_timeout(shard_path):
+    return _item_timeout_s(_suite_for_tool_state_shard(shard_path))
+
+
+def _run_tool_state_shard(shard_path):
+    _run_tool_state_suite(_suite_for_tool_state_shard(shard_path))
+
+
+def _run_tool_state_suite(suite):
     """410 JUNK ENTRIES, one per run per worker, in the registry whose whole
     job is telling you what is actually running.
 
@@ -640,7 +707,13 @@ def test_the_tool_suites_do_not_write_the_real_tool_state_directories(suite):
     touch the tools that own those directories. 1054 is included because it is
     the one in-band suite that really registers and reaps a job.
 
-    ONE SUITE PER ITEM, and that is a budget decision rather than a style one.
+    ONE SUITE PER FILE, and that is a scheduling decision rather than a style
+    one. Capture's parallel lane assigns whole files to workers with
+    ``--dist loadfile``; four parameters in this module still ran serially on
+    one worker. Four wrapper files let the same four-suite denominator occupy
+    four independent scheduling units.
+
+    The earlier one-suite-per-item split remains a budget decision too.
     All four in a single nested pytest measured 221s on an idle host against a
     240s item bound, which is how this gate killed an xdist worker and
     livelocked the session on 2026-08-24. Split, the worst suite is 168s under
