@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 355. Re-run from a detached standalone scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/row355_mutate_timing_is_schedule_stable.json --work SCRATCH --timeout 300. The five regressions restore the bare zero-row IndexError, replace measured timeout derivation with the old literal, falsely rewrite the successful negative control as a timeout, corrupt the restored subject after timeout, and retain JUnit residue. Every catcher drives the behavioral seam and asserts its preconditions before its verdict.",
+  "subject": "bd-mutate timeout tests diagnose zero rows and derive a schedule-stable timeout while preserving negative, restoration, and JUnit controls",
+  "band": [
+    "tests/test_row355_mutate_timing_is_schedule_stable.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 zero mutation rows leak the former IndexError",
+      "file": "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
+      "old": "    assert isinstance(rows, list) and rows, _zero_row_diagnostic(run)",
+      "new": "    assert isinstance(rows, list), _zero_row_diagnostic(run)",
+      "direction": "regression",
+      "catcher": "tests/test_row355_mutate_timing_is_schedule_stable.py::test_a_zero_row_result_is_a_diagnostic_assertion_not_an_index_error"
+    },
+    {
+      "label": "M2 timeout returns to a host-independent literal one second",
+      "file": "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
+      "old": "    derived = warmup_wall_seconds * _STARTUP_HEADROOM",
+      "new": "    derived = 1.0",
+      "direction": "regression",
+      "catcher": "tests/test_row355_mutate_timing_is_schedule_stable.py::test_the_derived_timeout_is_smaller_than_nonzero_measured_work"
+    },
+    {
+      "label": "M3 a completed fast warm-up is falsely published as a timeout",
+      "file": "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
+      "old": "        warmup_row=warmup_row,",
+      "new": "        warmup_row={**warmup_row, \"verdict\": \"UNKNOWN\", \"why\": \"pytest execution exceeded calibration\"},",
+      "direction": "regression",
+      "catcher": "tests/test_row355_mutate_timing_is_schedule_stable.py::test_a_non_overrunning_run_is_not_reported_as_a_timeout"
+    },
+    {
+      "label": "M4 the timeout helper returns a corrupted subject after the tool restored it",
+      "file": "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
+      "old": "    return _RunObservation(\n        args=command,",
+      "new": "    if phase == \"execution\" and run.returncode == 2:\n        subject = work / \"m.py\"\n        subject.write_text(subject.read_text(encoding=\"utf-8\") + \"# unrestored mutant\\n\", encoding=\"utf-8\")\n    return _RunObservation(\n        args=command,",
+      "direction": "regression",
+      "catcher": "tests/test_row355_mutate_timing_is_schedule_stable.py::test_timeout_restores_the_exact_subject_and_leaves_no_junit"
+    },
+    {
+      "label": "M5 the timeout helper retains a JUnit directory and band.xml",
+      "file": "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
+      "old": "    return _RunObservation(\n        args=command,",
+      "new": "    if phase == \"execution\" and run.returncode == 2:\n        residue = work.parent / \"bd-mutate-junit-row355-mutant\"\n        residue.mkdir()\n        (residue / \"band.xml\").write_text(\"retained mutant evidence\\n\", encoding=\"utf-8\")\n    return _RunObservation(\n        args=command,",
+      "direction": "regression",
+      "catcher": "tests/test_row355_mutate_timing_is_schedule_stable.py::test_timeout_restores_the_exact_subject_and_leaves_no_junit"
+    }
+  ]
+}

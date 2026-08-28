@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 353 transform control. This must report one valid ESCAPED mutant: the byte-identical M1 transform makes regex replacement text a template, while the named node only establishes that bd-mutate exists and deliberately exercises no replacement behavior. CAUGHT or INVALID would invalidate the primary battery's evidence.",
+  "subject": "regex template expansion remains invisible to a behavior-free existence check",
+  "band": [
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_transform_control_only_confirms_the_mutation_tool_exists"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL regex-template expansion escapes a behavior-free check",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    after = src[:match.start()] + new + src[match.end():]",
+      "new": "    after = pattern.sub(new, src, count=1)  # mutant: expand groups",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_transform_control_only_confirms_the_mutation_tool_exists"
+    }
+  ]
+}

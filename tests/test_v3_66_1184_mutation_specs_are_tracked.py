@@ -11,6 +11,7 @@ import ast
 import concurrent.futures
 import json
 import os
+import re
 import subprocess
 import sys
 from itertools import repeat
@@ -25,9 +26,9 @@ _REPO = Path(__file__).resolve().parent.parent
 _TOOL = _REPO / "toolchain" / "bin" / "bd-mutate"
 _SCHEMA = "bd-mutate-spec/1"
 _TOP_LEVEL_FIELDS = {"schema", "_comment", "subject", "band", "mutants"}
-_BASE_MUTANT_FIELDS = {"label", "file", "old", "new", "direction"}
-_REGRESSION_FIELDS = _BASE_MUTANT_FIELDS | {"catcher"}
-_OVERCORRECTION_FIELDS = _BASE_MUTANT_FIELDS | {"control", "preserves"}
+_COMMON_MUTANT_FIELDS = {"label", "file", "new", "direction"}
+_REGRESSION_FIELDS = _COMMON_MUTANT_FIELDS | {"catcher"}
+_OVERCORRECTION_FIELDS = _COMMON_MUTANT_FIELDS | {"control", "preserves"}
 
 
 def _git_paths(*pathspecs: str) -> list[str]:
@@ -52,13 +53,29 @@ def _assert_anchor_counts(root: Path, document: dict) -> int:
     checked = 0
     for mutant in mutants:
         rel = mutant.get("file")
-        old = mutant.get("old")
         assert isinstance(rel, str) and rel, f"invalid mutant file: {mutant!r}"
-        assert isinstance(old, str) and old, f"invalid old anchor: {mutant!r}"
+        anchor_fields = {"old", "old_regex"} & set(mutant)
+        assert len(anchor_fields) == 1, (
+            f"mutant must carry exactly one anchor field: {mutant!r}"
+        )
+        anchor_field = next(iter(anchor_fields))
+        anchor = mutant[anchor_field]
+        assert isinstance(anchor, str) and anchor, (
+            f"invalid {anchor_field} anchor: {mutant!r}"
+        )
         subject = root / rel
         assert subject.is_file(), f"mutant subject is absent: {rel}"
-        count = subject.read_text(encoding="utf-8").count(old)
-        assert count == 1, f"{rel}: old anchor occurs {count} times, expected exactly 1"
+        source = subject.read_text(encoding="utf-8")
+        if anchor_field == "old_regex":
+            try:
+                count = len(list(re.finditer(anchor, source)))
+            except re.error as exc:
+                raise AssertionError(f"{rel}: invalid regex anchor: {exc}") from exc
+        else:
+            count = source.count(anchor)
+        assert count == 1, (
+            f"{rel}: {anchor_field} anchor occurs {count} times, expected exactly 1"
+        )
         checked += 1
     assert checked == len(mutants), (
         f"anchor reader checked {checked} of {len(mutants)} mutants"
@@ -186,13 +203,24 @@ def _validate_one_tracked_spec(path: Path, tracked: set[str]) -> None:
             else set()
         )
         assert expected_fields, f"{path}: unsupported direction {direction!r}"
+        anchor_fields = {"old", "old_regex"} & set(mutant)
+        assert len(anchor_fields) == 1, (
+            f"{path}: mutant must carry exactly one of old/old_regex"
+        )
+        anchor_field = next(iter(anchor_fields))
+        expected_fields = expected_fields | {anchor_field}
         assert set(mutant) == expected_fields, (
             f"{path}: mutant fields {sorted(mutant)} != {sorted(expected_fields)}"
         )
-        for field in ("label", "file", "old", "new"):
+        for field in ("label", "file", anchor_field, "new"):
             assert isinstance(mutant[field], str) and mutant[field], (
                 f"{path}: {field} must be a non-empty string"
             )
+        if anchor_field == "old_regex":
+            try:
+                re.compile(mutant[anchor_field])
+            except re.error as exc:
+                raise AssertionError(f"{path}: invalid regex anchor: {exc}") from exc
         assert mutant["file"] in tracked, f"{path}: untracked subject {mutant['file']}"
         if direction == "overcorrection":
             assert isinstance(mutant["control"], str) and mutant["control"], path
@@ -364,6 +392,11 @@ def test_the_anchor_gate_rejects_zero_and_duplicate_matches(tmp_path):
         _assert_anchor_counts(
             tmp_path,
             {"mutants": [{"file": "subject.py", "old": "anchor"}]},
+        )
+    with pytest.raises(AssertionError, match="old_regex anchor occurs 2 times"):
+        _assert_anchor_counts(
+            tmp_path,
+            {"mutants": [{"file": "subject.py", "old_regex": "anchor"}]},
         )
 
 

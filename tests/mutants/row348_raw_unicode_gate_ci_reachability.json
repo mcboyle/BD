@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 348. Re-run from a detached standalone scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/row348_raw_unicode_gate_ci_reachability.json --work SCRATCH --timeout 300. The seven mutants independently sever the live gate's scope, declaration, workflow execution, exact count, legacy-baseline removal, and the two additions that complete the seven-member H15 family census. The separate transform-control spec applies M2 to an import-only node and must ESCAPE.",
+  "_comment": "Row 348. Re-run from a detached standalone scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/row348_raw_unicode_gate_ci_reachability.json --work SCRATCH --timeout 300. The seven mutants independently sever the live gate's scope, declaration, workflow execution, exact count, legacy-baseline removal, and the two additions that complete the seven-member H15 family census. M4 is regex-anchored to the census declaration's stable shape so later gates may move the mutable whole-tree count without invalidating this unchanged spec; its replacement remains nonzero so the intended exact-count comparison catches it. The separate transform-control spec applies M2 to an import-only node and must ESCAPE.",
   "subject": "the raw-Unicode TSX live-tree gate and every H15 CI-coverage sibling remain explicitly scoped, declared, counted, and scheduled",
   "band": [
     "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact",
@@ -35,8 +35,8 @@
     {
       "label": "M4 exact declared-gate count stays at the pre-row denominator",
       "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-      "old": "_EXPECTED_DECLARED_GATE_COUNT = 218",
-      "new": "_EXPECTED_DECLARED_GATE_COUNT = 217",
+      "old_regex": "_EXPECTED_DECLARED_GATE_COUNT = [0-9]+",
+      "new": "_EXPECTED_DECLARED_GATE_COUNT = 1",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
     },

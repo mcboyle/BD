@@ -276,6 +276,11 @@ _DECLARED = {
     # cached bytes.  This runtime gate forces all three two-identity seams and
     # must run directly in CI rather than depend on a changed-path band.
     "tests/test_row349_shared_caches_are_identity_bound.py",
+    # Row 355. This gate calibrates bd-mutate's timeout window from a real
+    # warm-up and proves its zero-row diagnostic, negative control, exact
+    # restore, and absent JUnit evidence under scheduling load. A diff-derived
+    # band cannot establish the host-scheduling premise, so CI runs it directly.
+    "tests/test_row355_mutate_timing_is_schedule_stable.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly
     # below it was a second one -- stale within five releases of being written,
@@ -309,6 +314,9 @@ _DECLARED = {
     # Row 350. Four lifecycle APIs must not report success when admission,
     # recovery, capture identity, or cancellation disagrees with durable state.
     "tests/test_row350_job_api_durable_truth.py",
+    # Row 353. Regex mutation anchors and the tracked row-348 regression read
+    # mutable whole-tree source/spec state, so this gate runs directly.
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py",
     "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
     "tests/test_v3_66_1160_bridge_verifier_isolation.py",
     "tests/test_v3_66_1161_context_census_is_retired.py",
@@ -777,7 +785,7 @@ _DECLARED = {
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 349 (2026-08-28). One shared-cache identity gate is declared and
 # scheduled; on top of main's 217 that is 218.
-_EXPECTED_DECLARED_GATE_COUNT = 218
+_EXPECTED_DECLARED_GATE_COUNT = 220
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

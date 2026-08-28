@@ -1,0 +1,71 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 353. Seven exact-once regressions expand replacement backreferences, weaken either side of regex uniqueness, accept both or neither anchor key, compute length from the mutable pattern text, or postpone invalid-regex refusal until application. Each is caught by the named row-353 contract. The companion transform control applies the byte-identical M1 template-expansion transform to a behavior-free node and must ESCAPE.",
+  "subject": "bd-mutate regex anchors are exclusive, exactly once, literal-replacement source rewrites",
+  "band": [
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_mutant_replaces_one_span_verbatim_with_exact_length_arithmetic",
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_anchor_matching_zero_times_refuses_with_its_own_diagnostic",
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_anchor_matching_twice_refuses_distinctly_from_zero",
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_mutant_with_both_anchor_fields_is_a_spec_error_and_writes_nothing",
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_mutant_with_neither_anchor_field_is_a_spec_error_and_writes_nothing",
+    "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_invalid_regex_is_a_spec_error_and_writes_nothing"
+  ],
+  "mutants": [
+    {
+      "label": "M1 expand regex replacement text as a backreference template",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    after = src[:match.start()] + new + src[match.end():]",
+      "new": "    after = pattern.sub(new, src, count=1)  # mutant: expand groups",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_mutant_replaces_one_span_verbatim_with_exact_length_arithmetic"
+    },
+    {
+      "label": "M2 permit a regex anchor that matches twice",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    if n != 1:\n        raise ValueError(f\"regex anchor occurs {n} times, must be exactly 1\")",
+      "new": "    if n == 0:\n        raise ValueError(f\"regex anchor occurs {n} times, must be exactly 1\")",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_anchor_matching_twice_refuses_distinctly_from_zero"
+    },
+    {
+      "label": "M3 permit a regex anchor that matches zero times",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    if n != 1:\n        raise ValueError(f\"regex anchor occurs {n} times, must be exactly 1\")",
+      "new": "    if n > 1:\n        raise ValueError(f\"regex anchor occurs {n} times, must be exactly 1\")",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_anchor_matching_zero_times_refuses_with_its_own_diagnostic"
+    },
+    {
+      "label": "M4 accept a mutant carrying both literal and regex anchors",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        if has_old == has_old_regex:\n            state = \"both\" if has_old else \"neither\"\n            raise ValueError(\n                f\"mutant {index} must supply exactly one of 'old' or \"\n                f\"'old_regex'; got {state}\")",
+      "new": "        if not has_old and not has_old_regex:\n            state = \"neither\"\n            raise ValueError(\n                f\"mutant {index} must supply exactly one of 'old' or \"\n                f\"'old_regex'; got {state}\")",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_mutant_with_both_anchor_fields_is_a_spec_error_and_writes_nothing"
+    },
+    {
+      "label": "M5 accept a mutant carrying neither anchor field",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        if has_old == has_old_regex:\n            state = \"both\" if has_old else \"neither\"\n            raise ValueError(\n                f\"mutant {index} must supply exactly one of 'old' or \"\n                f\"'old_regex'; got {state}\")",
+      "new": "        if has_old and has_old_regex:\n            state = \"both\"\n            raise ValueError(\n                f\"mutant {index} must supply exactly one of 'old' or \"\n                f\"'old_regex'; got {state}\")",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_mutant_with_neither_anchor_field_is_a_spec_error_and_writes_nothing"
+    },
+    {
+      "label": "M6 compute regex replacement length from the pattern text",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    if len(after) != len(src) - matched_length + len(new):",
+      "new": "    if len(after) != len(src) - len(old_regex) + len(new):",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_regex_mutant_replaces_one_span_verbatim_with_exact_length_arithmetic"
+    },
+    {
+      "label": "M7 postpone an invalid regex until mutant application",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "        if has_old_regex:\n            try:\n                re.compile(mutant[\"old_regex\"])\n            except re.error as exc:\n                raise ValueError(\n                    f\"mutant {index} field 'old_regex' is not a valid Python \"\n                    f\"regular expression: {exc}\") from exc",
+      "new": "        if has_old_regex:\n            pass  # mutant: malformed patterns survive spec validation",
+      "direction": "regression",
+      "catcher": "tests/test_row353_mutant_anchors_survive_a_moved_census.py::test_invalid_regex_is_a_spec_error_and_writes_nothing"
+    }
+  ]
+}
