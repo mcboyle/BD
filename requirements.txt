@@ -3,6 +3,11 @@
 # Then:    playwright install chromium
 
 flask>=3.0,<4.0
+# Direct imports, not Flask implementation details.  These exact versions are
+# the versions exercised by this repository's venv; no unmeasured range is
+# implied by declaring them explicitly.
+requests==2.34.2
+Werkzeug==3.1.8
 # Playwright pinned <2.0 because the .spec hard-codes paths under
 # playwright._impl.* — a 2.x major bump may reorganize those.
 # MOD-6 (v3.66.678): floor raised to 1.61 to unify the service venv (1.61.0) with

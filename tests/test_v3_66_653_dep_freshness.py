@@ -242,50 +242,15 @@ _REPO = Path(__file__).resolve().parent.parent
 _DIST_ALIAS_OVERRIDES = {
     "bs4": "beautifulsoup4",
     "PIL": "pillow",
+    # psycopg2-binary is optional and absent from lean environments, so
+    # installed metadata cannot derive this import/distribution alias there.
+    "psycopg2": "psycopg2-binary",
     "yt_dlp": "yt-dlp",
 }
 
-# Third-party imports in bulk_downloader/ that are deliberately declared in NO
-# requirements manifest. Each is an operator decision with a reason, not a
-# waiver of convenience: adding a name here is how you say "this stays
-# undeclared", and it must come with why. A NEW third-party import that is
-# neither declared nor listed here fails the gate, which is the whole point.
-_UNDECLARED_BY_DESIGN = {
-    "werkzeug": "flask's own hard dependency; pinning it separately would let "
-                "it drift out of flask's supported range",
-    "requests": "transitive under EXACTLY ONE declared distribution, and only "
-                "through the posture-sensitive optional manifest: "
-                "requirements-cloak.txt's cloakbrowser[geoip] -> geoip2>=4.0 "
-                "-> requests>=2.24.0,<3.0.0 (MEASURED from installed metadata "
-                "at v3.66.848). psutil and pytest name requests only under "
-                "their 'dev'/'testing' extras, which BD never asks for, so "
-                "nothing in requirements.txt pulls it in and install_linux's "
-                "cloak step is NON-FATAL by design -- treat it as possibly "
-                "absent. Every bulk_downloader importer soft-imports it "
-                "(site_weather, webhooks, discovery, tpdb, wayback_cdx, "
-                "selector_playground, cli_dashboard, tray_app) and returns a "
-                "'requests not installed' result rather than raising",
-    "rich": "cli_dashboard TUI decoration only; soft-imported, plain text "
-            "otherwise",
-    # PIL's waiver was REMOVED 2026-08-27: Pillow is declared in
-    # requirements-test.txt now (operator decision). Rows 308 and 309 gate
-    # project-knowledge/build_navigator.py and build_montage.py, so those
-    # builders stopped being "documentation scratch, run by no lane" and
-    # became CI-gated tooling. A waiver saying a name is undeclared BY DESIGN
-    # cannot stand once the design changed; leaving it would make this gate
-    # assert something the manifests contradict.
-    "pystray": "the tray itself; same reason as PIL",
-    "plexapi": "Plex library sync, opt-in per install",
-    # psycopg's waiver was REMOVED 2026-08-10: it is declared in
-    # requirements-test.txt now (operator decision -- see the comment on the
-    # pin), and the anti-rot check below correctly fails a waiver for a
-    # declared name.
-    "psycopg2": "the legacy binding for the optional Postgres backend "
-                "(plugin_kv.py's fallback import); the modern binding is a "
-                "declared test dependency, this one stays undeclared",
-    "subliminal": "subtitle fetching, opt-in",
-    "babelfish": "language-code helper reached only through subliminal",
-}
+# There is deliberately no application-package waiver list. A guarded import
+# still enables operator-visible behavior, so every third-party import root in
+# bulk_downloader/ must have an installation path in a requirements manifest.
 
 # The same decision, for the half of the tree that is NOT the application
 # package. Kept as a second dict rather than merged into the first so that a
@@ -293,10 +258,6 @@ _UNDECLARED_BY_DESIGN = {
 # imports this" -- the two questions have different consequences and different
 # manifests.
 _UNDECLARED_OUTSIDE_BY_DESIGN = {
-    "werkzeug": "flask's own hard dependency, so it arrives with the declared "
-                "flask pin; the in-process test servers and "
-                "project-knowledge/spa_serve.py reach make_server through "
-                "flask's install, not on their own",
     # PIL's waiver was REMOVED 2026-08-27: Pillow is declared in
     # requirements-test.txt now (operator decision). Rows 308 and 309 gate
     # project-knowledge/build_navigator.py and build_montage.py, so those
@@ -799,13 +760,11 @@ def test_third_party_imports_are_declared():
 
     undeclared = sorted(
         t for t in tops
-        if _canon(_DIST_ALIASES.get(t, t)) not in declared
-        and t not in _UNDECLARED_BY_DESIGN)
+        if _canon(_DIST_ALIASES.get(t, t)) not in declared)
     assert not undeclared, (
         "third-party imports in bulk_downloader/ declared in no "
-        "requirements*.txt and not recorded in _UNDECLARED_BY_DESIGN: %s\n"
-        "Declare the distribution, or add it to _UNDECLARED_BY_DESIGN WITH A "
-        "REASON. Import sites: %s\n%s\n%s\n%s" % (
+        "requirements*.txt: %s\n"
+        "Declare the distribution. Import sites: %s\n%s\n%s\n%s" % (
             undeclared, {t: sorted(tops[t]) for t in undeclared},
             _SCOPE_NOTE["app"], _PREDICATE_NOTE, _TYPE_CHECKING_NOTE))
 
@@ -1004,38 +963,6 @@ def test_shadow_report_fires_on_a_synthetic_shadow():
         _declared_names(), _installed_top_levels())
     assert quiet == {}, (
         "the shadow report fired on a genuine first-party module: %s" % quiet)
-
-
-def test_undeclared_by_design_names_are_still_imported_and_still_undeclared():
-    """The reverse direction, which keeps the exception list from rotting.
-
-    Two failure modes it closes. A name that stops being imported leaves a
-    stale waiver behind that would silence a future re-introduction. A name
-    that BECOMES declared while sitting on the waiver list means the list is
-    now lying -- and, worse, it is the shape that would let a broken
-    requirements parser (one that matched every line, say) pass the gate above
-    vacuously, because every name would read as declared.
-    """
-    tops, _parsed, _nodes = _third_party_imports("app")
-    declared = _declared_names()
-    assert _UNDECLARED_BY_DESIGN, "the waiver list is empty -- nothing to check"
-
-    stale = sorted(n for n in _UNDECLARED_BY_DESIGN if n not in tops)
-    assert not stale, (
-        "_UNDECLARED_BY_DESIGN names no longer imported by bulk_downloader/: "
-        "%s -- remove them" % stale)
-
-    now_declared = sorted(
-        n for n in _UNDECLARED_BY_DESIGN
-        if _canon(_DIST_ALIASES.get(n, n)) in declared)
-    assert not now_declared, (
-        "these are on the waiver list but ARE declared: %s (in %s) -- take "
-        "them off the list" % (
-            now_declared,
-            {n: declared[_canon(_DIST_ALIASES.get(n, n))] for n in now_declared}))
-
-    for name, reason in _UNDECLARED_BY_DESIGN.items():
-        assert reason.strip(), "%s is waived with no reason given" % name
 
 
 def test_lxml_and_cssselect_are_declared_in_the_core_manifest():

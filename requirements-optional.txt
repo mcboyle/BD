@@ -6,6 +6,28 @@
 # failure on Windows (e.g. missing VC++ for curl_cffi) doesn't block the
 # main install.
 
+# Plex alternate backend. Enables the opt-in plexapi library-sync and richer
+# Plex read operations; the built-in raw HTTP backend remains the fallback.
+plexapi
+
+# Subtitle sidecars. subliminal searches providers and writes subtitles;
+# babelfish converts operator language codes for those searches.
+subliminal
+babelfish
+
+# Desktop tray icon. Pillow supplies the image support from requirements.txt;
+# pystray supplies the platform tray/menu integration.
+pystray
+
+# Terminal dashboard. Enables the live Rich TUI; plain stdout remains the
+# fallback when this optional package is not installed.
+rich
+
+# Plugin key/value Postgres fallback. The default remains SQLite; installing
+# this distribution provides the legacy ``psycopg2`` import used for an
+# explicitly supplied Postgres DSN when the modern psycopg driver is absent.
+psycopg2-binary
+
 # Phase 15.4: TLS fingerprint impersonation. Provides a drop-in `requests`-
 # style API that mimics real Chrome's TLS handshake (JA3, ALPN, HTTP/2
 # SETTINGS) at the wire level — defeats fingerprint-based bot detection

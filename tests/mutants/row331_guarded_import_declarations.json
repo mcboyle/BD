@@ -1,0 +1,66 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 331. Seven exact-once regressions cover the declaration verdict, case-normalized distribution joining, repo-local subtraction, unreadable-manifest UNKNOWN, AST-parse UNKNOWN, git-ls-files UNKNOWN, and the explicit psycopg2/psycopg2-binary alias needed when the optional distribution is absent. The companion transform control applies M1 byte-for-byte to a census-only test and must ESCAPE.",
+  "subject": "every third-party application import has a measured requirements declaration",
+  "band": [
+    "tests/test_row331_guarded_imports_are_declared.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 an undeclared guarded import is silently accepted",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "        if _canonical_name(resolved[root]) not in requirements[\"declared\"]\n",
+      "new": "        if False  # mutant: erase every missing declaration\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_a_synthetic_ninth_guarded_import_is_caught"
+    },
+    {
+      "label": "M2 distribution-name case stops normalizing",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "    return re.sub(r\"[-_.]+\", \"-\", name).lower()\n",
+      "new": "    return re.sub(r\"[-_.]+\", \"-\", name)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_distribution_name_case_does_not_make_werkzeug_a_false_positive"
+    },
+    {
+      "label": "M3 tracked repo-local modules enter the third-party denominator",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "                if _repo_local_target(name, relative, tracked):\n                    continue\n",
+      "new": "                if False and _repo_local_target(name, relative, tracked):\n                    continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_repo_local_modules_are_subtracted_from_the_population"
+    },
+    {
+      "label": "M4 an unreadable manifest is replaced by a clean synthetic declaration",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "    except (OSError, UnicodeError) as exc:\n        _unknown(f\"cannot read {purpose} {relative}: {type(exc).__name__}: {exc}\")\n",
+      "new": "    except (OSError, UnicodeError):\n        return \"Werkzeug==3.1.8\\n\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_unreadable_requirements_manifest_is_unknown"
+    },
+    {
+      "label": "M5 an unparseable tracked source is replaced by an empty AST",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "        except SyntaxError as exc:\n            _unknown(f\"cannot parse tracked Python source {relative}: {exc}\")\n",
+      "new": "        except SyntaxError:\n            tree = ast.parse(\"pass\", filename=relative)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_unparseable_tracked_source_is_unknown"
+    },
+    {
+      "label": "M6 a failed git ls-files command is allowed to fall through",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "    if result.returncode:\n        detail = result.stderr.decode(\"utf-8\", \"replace\").strip()\n        _unknown(f\"git ls-files failed with exit {result.returncode}: {detail}\")\n",
+      "new": "    if False:\n        detail = result.stderr.decode(\"utf-8\", \"replace\").strip()\n        _unknown(f\"git ls-files failed with exit {result.returncode}: {detail}\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_git_ls_files_failure_is_unknown"
+    },
+    {
+      "label": "M7 the absent optional psycopg2 distribution loses its explicit alias",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "    \"psycopg2\": \"psycopg2-binary\",\n",
+      "new": "    \"psycopg2\": \"psycopg2\",\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_every_third_party_application_import_is_declared"
+    }
+  ]
+}

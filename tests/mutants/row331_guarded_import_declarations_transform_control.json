@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 331 transform control. This deliberately must report one valid ESCAPED mutant: it applies M1 byte-for-byte but runs only the census reconciliation test, which imports and executes the gate without asserting the missing-declaration verdict. The escape proves the primary CAUGHT result is behavioral assertion evidence rather than a parse, import, collection, or census failure.",
+  "subject": "transform-only control for the missing-declaration verdict",
+  "band": [
+    "tests/test_row331_guarded_imports_are_declared.py::test_transform_control_imports_gate_without_judging_declarations"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL M1 declaration erasure under a census-only test",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old": "        if _canonical_name(resolved[root]) not in requirements[\"declared\"]\n",
+      "new": "        if False  # mutant: erase every missing declaration\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_transform_control_imports_gate_without_judging_declarations"
+    }
+  ]
+}
