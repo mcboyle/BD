@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1111_capture_stage_cap.json",
+  "_comment": "Rescued 2026-08-13 battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1111_capture_stage_cap.json Regex-anchored by row 357 because the measured slowest capture lane re-derives the anchored value; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
   "subject": "v3.66.1111 -- wedged capture stages are bounded without changing healthy stage behavior",
   "band": [
     "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py"
@@ -60,7 +60,7 @@
     {
       "label": "the default cap drops to a value a healthy lane would trip",
       "file": "scripts/lib/heartbeat.sh",
-      "old": ": \"${CAPTURE_STAGE_CAP:=5400}\"",
+      "old_regex": "(?m)^: \"\\$\\{CAPTURE_STAGE_CAP:=[0-9]+\\}\"$",
       "new": ": \"${CAPTURE_STAGE_CAP:=200}\"",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py::test_the_default_cap_is_far_above_the_slowest_measured_lane"

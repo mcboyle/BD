@@ -2344,7 +2344,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1678,
+    "edge_count": 1680,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3845,6 +3845,7 @@
         "bulk_downloader/runner_integrations.py"
       ],
       "bulk_downloader/interstitial.py": [
+        "bulk_downloader/login_impl/manual.py",
         "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/scene_crawler.py"
@@ -4224,6 +4225,7 @@
         "bulk_downloader/extractors_dl8.py",
         "bulk_downloader/extractors_vixen.py",
         "bulk_downloader/host_enumerator.py",
+        "bulk_downloader/interstitial.py",
         "bulk_downloader/login_templates_data.py",
         "bulk_downloader/phoenix_catalog.py",
         "bulk_downloader/playlist_extractor.py",
@@ -6530,6 +6532,9 @@
       "bulk_downloader/integrity.py": [
         "bulk_downloader/ffmpeg_bin.py"
       ],
+      "bulk_downloader/interstitial.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "bulk_downloader/knowledge.py": [
         "bulk_downloader/db.py"
       ],
@@ -6586,6 +6591,7 @@
         "bulk_downloader/cloak.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/cookies.py",
+        "bulk_downloader/interstitial.py",
         "bulk_downloader/learn.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/stealth.py"

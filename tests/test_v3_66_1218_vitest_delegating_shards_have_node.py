@@ -25,6 +25,7 @@ for a reason.
 """
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 
@@ -48,11 +49,45 @@ def _shards() -> dict[str, list[str]]:
     return {e["name"]: str(e.get("suites", "")).split() for e in include}
 
 
-def _delegates_to_vitest(rel: str) -> bool:
-    path = ROOT / rel
+def _delegates_to_vitest(rel: str, root: pathlib.Path | None = None) -> bool:
+    """Does this suite RUN the Vitest bridge, or only name it?
+
+    The substring scan this started as could not tell the two apart, and the
+    difference is the whole point: a gate that merely NAMES
+    ``tests/frontend_vitest.py`` -- in prose, or as a path string inside a data
+    table -- never launches node, and provisioning a shard for it pays ``npm
+    ci`` for nothing.  This file's own docstring was inside that denominator,
+    so the scan counted this gate as a Vitest delegator.  Parse instead, per
+    CLAUDE.md A7: delegation means the module reaches the file's CODE, as an
+    import or as an identifier.  Text remains the outer net -- a file that
+    never mentions the bridge cannot delegate to it -- and unparseable source
+    keeps the conservative text answer rather than dropping silently out of the
+    denominator.
+    """
+    path = (root or ROOT) / rel
     if not path.is_file():
         return False
-    return "frontend_vitest" in path.read_text(encoding="utf-8", errors="replace")
+    source = path.read_text(encoding="utf-8", errors="replace")
+    if "frontend_vitest" not in source:
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name.split(".")[-1] == "frontend_vitest" for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[-1] == "frontend_vitest":
+                return True
+            if any(a.name == "frontend_vitest" for a in node.names):
+                return True
+        elif isinstance(node, ast.Name) and node.id == "frontend_vitest":
+            return True
+        elif isinstance(node, ast.Attribute) and node.attr == "frontend_vitest":
+            return True
+    return False
 
 
 def _node_provisioned_shards() -> set[str]:
@@ -86,6 +121,37 @@ def test_the_bridge_still_fails_closed_rather_than_skipping():
     assert "pytest.skip" not in source, (
         "the Vitest bridge acquired a skip; a gate that skips when its tool is "
         "missing is a gate that does not exist")
+
+
+def test_delegation_is_read_from_code_and_not_from_prose(tmp_path):
+    """Both directions of the parse refinement, including its fail-closed edge.
+
+    Without the first case the gate refuses shards that never launch node;
+    without the rest it could quietly stop seeing a real delegator, which is
+    the failure the whole file exists to prevent.
+    """
+    cases = {
+        "names_only.py": ('"""Uses tests/frontend_vitest.py."""\nP = "tests/frontend_vitest.py"\n', False),
+        "imports_from.py": ("from tests.frontend_vitest import run_vitest\n", True),
+        "imports_module.py": ("from tests import frontend_vitest\n", True),
+        "plain_import.py": ("import tests.frontend_vitest\n", True),
+        "attribute_use.py": ("import tests\ntests.frontend_vitest.run_vitest()\n", True),
+        "unparseable.py": ("from tests.frontend_vitest import (\n", True),
+        "silent.py": ("x = 1\n", False),
+    }
+    for name, (source, expected) in cases.items():
+        (tmp_path / name).write_text(source, encoding="utf-8")
+        assert _delegates_to_vitest(name, tmp_path) is expected, name
+    assert _delegates_to_vitest("absent.py", tmp_path) is False
+
+    # And the live tree still has real delegators, so the refinement did not
+    # empty the population it is meant to classify.
+    live = [
+        rel
+        for suites in _shards().values()
+        for rel in suites
+    ]
+    assert sum(_delegates_to_vitest(rel) for rel in live) >= 5
 
 
 def test_every_shard_that_delegates_to_vitest_gets_node():

@@ -3184,6 +3184,42 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
+    def _dismiss_page_gates(self, page, url):
+        """Clear configured/generic gates and publish every observed action."""
+        actions = _interstitial.dismiss_gates(
+            page,
+            self.config.get("dismiss_selectors", ""),
+            destination_url=url,
+        )
+        for action in actions:
+            message = action.get("reason", "page gate outcome UNKNOWN")
+            if action.get("destination_re_requested"):
+                message += "; destination re-requested"
+            self.log_event(
+                "page_gate", message, url=url, extra=action)
+        return actions
+
+    def _page_gates_are_safe(self, page, url):
+        """Run/report page gates and hold the job on any UNKNOWN verdict."""
+        actions = self._dismiss_page_gates(page, url)
+        unknown = _interstitial.first_safety_unknown(actions)
+        if unknown is not None:
+            message = _interstitial.safety_unknown_diagnostic(unknown)
+            self._update_job(url, "needs_review", message)
+            return False
+        # A re-requested destination is a NEW navigation: the render budget
+        # already paid was spent on the upsell page that replaced it. Pay it
+        # once more, and only then -- an ordinary URL whose banner was cleared
+        # without navigating must not pay a second full render wait.
+        if any(action.get("destination_re_requested") for action in actions):
+            for _ in range(int(float(self.config.get("wait", 4)) * 2)):
+                self._pause.wait()
+                if self._stop.is_set():
+                    self._update_job(url, "stopped", "Stopped")
+                    return False
+                time.sleep(0.5)
+        return True
+
     def _process_one(self,browser,url,persistent_ctx=None):  # INV-002
         """Process a single URL.
 

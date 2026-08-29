@@ -316,10 +316,47 @@ class ManualLoginSession:
             pass
         except Exception as e:
             sys.stderr.write(f"  manual_login: navigation failed (browser still open): {e}\n")
+
+        # Row 371: the direct manual window sees the same stacked gates as the
+        # automatic login path. Declared site selectors run first, followed by
+        # the conservative generic tiers; every outcome is visible to the
+        # operator and cross-origin clicks are recovered before autofill.
+        from ..interstitial import (
+            dismiss_gates as _dismiss_page_gates,
+            first_safety_unknown as _first_gate_unknown,
+            safety_unknown_diagnostic as _gate_unknown_diagnostic,
+        )
+        _gate_actions = _dismiss_page_gates(
+            page,
+            config.get("dismiss_selectors", ""),
+            destination_url=url,
+        )
+        for _gate_action in _gate_actions:
+            _outcome = _gate_action.get("outcome", "unknown")
+            _tier = _gate_action.get("tier", "unknown")
+            _label = _gate_action.get("label", "")
+            _reason = _gate_action.get("reason", "")
+            if _outcome == "cleared":
+                sys.stderr.write(f"  manual_login: {_reason}\n")
+            elif _outcome == "refused":
+                sys.stderr.write(
+                    f"  manual_login: refused {_tier} gate via {_label!r} — "
+                    f"{_reason}\n")
+            else:
+                sys.stderr.write(
+                    f"  manual_login: {_outcome} for {_tier} gate via "
+                    f"{_label!r} — {_reason}\n")
+        _gate_unknown = _first_gate_unknown(_gate_actions)
         try: page.evaluate(RECORDER_JS)
         except Exception: pass
         try: page.evaluate(self._banner_js)
         except Exception: pass
+        if _gate_unknown:
+            sys.stderr.write(
+                "  manual_login: credential autofill withheld — "
+                f"{_gate_unknown_diagnostic(_gate_unknown)}\n"
+            )
+            return browser, ctx, page, used_pw
         # v3.43.14: pre-fill the saved credentials so the user doesn't
         # have to retype them. The password is resolved through the
         # vault (so encrypted-storage backends work transparently).

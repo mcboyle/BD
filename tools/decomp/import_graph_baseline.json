@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4035,
+  "edge_count": 4044,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1404,6 +1404,9 @@
     "bulk_downloader/integrity.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
+    "bulk_downloader/interstitial.py": [
+      "bulk_downloader/registrable_domain.py"
+    ],
     "bulk_downloader/knowledge.py": [
       "bulk_downloader/db.py"
     ],
@@ -1460,6 +1463,7 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
+      "bulk_downloader/interstitial.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/stealth.py"
@@ -3573,6 +3577,15 @@
       "bulk_downloader/app_health.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row371_manual_window_gates.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/stealth.py",
+      "bulk_downloader/templates.py"
     ],
     "tests/test_row372_gate_dismissal.py": [
       "bulk_downloader/interstitial.py"

@@ -337,7 +337,7 @@ def main(argv=None):
     # budget of 600s inside a 240s bound, and a subprocess inheriting the
     # ambient LC_ALL. None was a missing gate. Every one was a gate that exists
     # and did not RUN, because `bd-band-derive` derives an affected band from
-    # CHANGED PATHS and these four judge the TREE, so no diff ever reaches them.
+    # CHANGED PATHS and these gates judge the TREE, so no diff ever reaches them.
     # Two were caught by GitHub CI after a push, each costing a re-run and a
     # force-push; the other two were caught by a battery that only ran because
     # someone remembered.
@@ -347,6 +347,8 @@ def main(argv=None):
     _UNDERIVED_GATES = [
         ("tests/test_v3_66_1184_mutation_specs_are_tracked.py",
          "every tracked mutant anchor occurs exactly once"),
+        ("tests/test_row357_mutant_anchors_are_not_fragile.py",
+         "no literal mutation anchor freezes a re-derived value"),
         ("tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
          "no inner budget is at or above the bound governing its item"),
         ("tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
@@ -357,7 +359,7 @@ def main(argv=None):
         # sys.modules leak RATCHET: it censuses EVERY tracked tests/*.py for a
         # file that drops `bulk_downloader.*` and never restores it, then
         # compares the count to a fixed budget. Its subject is the whole tree, so
-        # bd-band-derive can never select it -- exactly the shape the four above
+        # bd-band-derive can never select it -- exactly the shape above
         # are here for -- yet it was missing from this list.
         #
         # MEASURED: on 2026-08-27 a candidate returned PRECUT_RC=0 and a GREEN
@@ -371,7 +373,7 @@ def main(argv=None):
     present = [(rel, why) for rel, why in _UNDERIVED_GATES
                if os.path.isfile(os.path.join(root, rel))]
     if not present:
-        unknown.append("underived gates (none of the four are present in this tree)")
+        unknown.append("underived gates (none of the six are present in this tree)")
     else:
         # ASSERT THE POPULATION BEFORE THE VERDICT. A list that silently shrank
         # to one would still print a green line, which is the shape these gates

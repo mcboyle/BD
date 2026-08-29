@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1230 row-231 battery, PARTS A AND C ONLY. The row-231 SPLIT is held pending a concurrency diagnosis, so the two mutants that judged it -- the sibling file losing the autouse budget fixture, and a moved test losing the stdlib import that binds a name it uses -- are not here; they belong with the split and the follow-up row names them. Everything else is a statement about a RULE or a COUNT, which is what the gates in the band judge. M2 and M3 are the escapes v3.66.1226 predicted for this shape and they are hardened for BEFORE the first run rather than after it: the two derivation terms are read separately, and the recorded settlement cost is compared to the CLOCK by a real SIGINT in test_runner_cancellation_closes_gate_and_does_not_start_workload rather than only to itself. That comparison uses the deadline's own 6.0x margin and not the tighter 3.0x warning factor, because v3.66.1226 measured a 4.13x RIGHT-CENSORED contention stretch and a 3x bound would fire on correct work under -n 24. RENUMBERED to v3.66.1231 by the integrator: 1230 went to the row-197 installer-population cut while this one was reduced to parts A and C.",
+  "_comment": "v3.66.1230 row-231 battery, PARTS A AND C ONLY. The row-231 SPLIT is held pending a concurrency diagnosis, so the two mutants that judged it -- the sibling file losing the autouse budget fixture, and a moved test losing the stdlib import that binds a name it uses -- are not here; they belong with the split and the follow-up row names them. Everything else is a statement about a RULE or a COUNT, which is what the gates in the band judge. M2 and M3 are the escapes v3.66.1226 predicted for this shape and they are hardened for BEFORE the first run rather than after it: the two derivation terms are read separately, and the recorded settlement cost is compared to the CLOCK by a real SIGINT in test_runner_cancellation_closes_gate_and_does_not_start_workload rather than only to itself. That comparison uses the deadline's own 6.0x margin and not the tighter 3.0x warning factor, because v3.66.1226 measured a 4.13x RIGHT-CENSORED contention stretch and a 3x bound would fire on correct work under -n 24. RENUMBERED to v3.66.1231 by the integrator: 1230 went to the row-197 installer-population cut while this one was reduced to parts A and C. Regex-anchored by row 357 because the measured settlement derivation re-derives the anchored value; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
   "subject": "v3.66.1231 -- a settlement deadline is not a gate deadline, and a census is not a walk",
   "band": [
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_no_settlement_path_is_bounded_by_the_forward_deadline",
@@ -19,7 +19,7 @@
     {
       "label": "M1 the settlement deadline is the forward one again -- the defect this cut fixes",
       "file": "toolchain/bin/bd-wedge-hunt",
-      "old": "W1_CLEANUP_SECONDS=15",
+      "old_regex": "(?m)^W1_CLEANUP_SECONDS=[0-9]+(?:\\.[0-9]+)?$",
       "new": "W1_CLEANUP_SECONDS=$W1_GATE_SECONDS",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_shipped_settlement_deadline_clears_both_hazards"
@@ -27,7 +27,7 @@
     {
       "label": "M2 the runner contention factor collapses to 1.0, so a deadline equals its measured cost",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_W1_RUNNER_STRETCH_FACTOR = 6.0",
+      "old_regex": "(?m)^_W1_RUNNER_STRETCH_FACTOR = [0-9]+(?:\\.[0-9]+)?$",
       "new": "_W1_RUNNER_STRETCH_FACTOR = 1.0",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_shipped_settlement_deadline_clears_both_hazards"
@@ -35,7 +35,7 @@
     {
       "label": "M3 the measured settlement cost is restated 25x too low -- the v3.66.1219 vacuity shape",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_W1_SETTLEMENT_MEASURED_S = 2.4737",
+      "old_regex": "(?m)^_W1_SETTLEMENT_MEASURED_S = [0-9]+(?:\\.[0-9]+)?$",
       "new": "_W1_SETTLEMENT_MEASURED_S = 0.1",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_runner_cancellation_closes_gate_and_does_not_start_workload"
@@ -43,7 +43,7 @@
     {
       "label": "M4 the ceiling reserve goes to zero, so a deadline may sit flush against its cap",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_W1_RUNNER_RESERVE_S = 5.0",
+      "old_regex": "(?m)^_W1_RUNNER_RESERVE_S = [0-9]+(?:\\.[0-9]+)?$",
       "new": "_W1_RUNNER_RESERVE_S = 0.0",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_shipped_settlement_deadline_clears_both_hazards"

@@ -129,6 +129,11 @@ ITEMS = [
         "config_defaults": {
             "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
+            # Measured scene-request upsell: dismissal lands on members home;
+            # the runtime therefore re-requests the original scene afterward.
+            "dismiss_selectors": (
+                "button:text-is('No Thanks'), a:text-is('No Thanks')"
+            ),
         },
     },
 {
@@ -148,6 +153,10 @@ ITEMS = [
         },
         "config_defaults": {
             "quality_preference": "2160,1080,720",
+            # Same measured Gamma/Kosmos scene upsell as Adult Time.
+            "dismiss_selectors": (
+                "button:text-is('No Thanks'), a:text-is('No Thanks')"
+            ),
         },
     },
 {
@@ -170,6 +179,16 @@ ITEMS = [
         },
         "config_defaults": {
             "quality_preference": "2160,1080,720",
+            # Encounter order measured on Kink: CookieYes banner, adult-entry
+            # overlay, then the header control that renders the login modal.
+            # The unsafe sibling ("I Disagree, Exit Here") is deliberately
+            # absent and is independently refused by the runtime denylist.
+            "dismiss_selectors": (
+                "button[data-cky-tag='accept-button'], button.cky-btn-accept\n"
+                "button:text-is('I Agree, Enter Here'), "
+                "a:text-is('I Agree, Enter Here')\n"
+                "button:text-is('LOG IN'), a:text-is('LOG IN')"
+            ),
         },
     },
 {
