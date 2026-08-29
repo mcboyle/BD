@@ -307,6 +307,15 @@ _DECLARED = {
     # restore, and absent JUnit evidence under scheduling load. A diff-derived
     # band cannot establish the host-scheduling premise, so CI runs it directly.
     "tests/test_row355_mutate_timing_is_schedule_stable.py",
+    # Row 386. Nothing in the suite downloaded a file: a 623-file, 8,528-test
+    # band was green while the deployed app could not complete a download on
+    # two of its 32 sites, and green again while it downloaded the wrong scene.
+    # This gate runs the whole chain -- page DOM, candidate discovery, ranking,
+    # direct-URL resolution, filename, a real loopback transfer, history row,
+    # library title -- against recorded fixtures. Its subject is the tree's
+    # ability to complete a download at all, which no changed path implies, so
+    # it is declared here and scheduled in the download-chain shard.
+    "tests/test_row386_the_download_chain_is_gated.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly
     # below it was a second one -- stale within five releases of being written,
@@ -829,7 +838,10 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # scheduled; on top of main's 217 that is 218.
 # Row 377 (2026-08-29). One installed-layout selftest-state gate is declared
 # and scheduled; on top of main's 228 that is 229.
-_EXPECTED_DECLARED_GATE_COUNT = 230
+# Row 386 (2026-08-29). One end-to-end download-chain gate is declared and
+# scheduled in its own browser-bearing shard; on top of main's 230 that is 231.
+# The integrator re-pins this if a concurrent cut also lands a gate.
+_EXPECTED_DECLARED_GATE_COUNT = 231
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
