@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 112,
+    "total": 119,
     "version": 1,
-    "count_dict": 111,
-    "test_files_scanned": 1490,
+    "count_dict": 118,
+    "test_files_scanned": 1491,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -33,6 +33,7 @@
       "tests/test_daily_digest.py": 2,
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dom_analyzer.py": 1,
+      "tests/test_history_records_the_website_title.py": 7,
       "tests/test_kb_golden_questions.py": 1,
       "tests/test_row308_visual_audit_identity.py": 2,
       "tests/test_row346_plugin_sandbox_is_truthful.py": 1,
@@ -111,7 +112,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_census_file_size_drift.py",
-      "line": 861,
+      "line": 865,
       "value": {
         "ambiguous": 1,
         "absent": 4
@@ -251,6 +252,89 @@
         "jwt": 2
       },
       "gates_what": "test_gate_fails_closed_on_residual — If the scan reports a residual, the gate must withhold tree+html and"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 205,
+      "value": {
+        "total": 1,
+        "titled": 1,
+        "og_sourced": 1
+      },
+      "gates_what": "test_completed_download_records_ultrafilms_og_title_and_source"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 219,
+      "value": {
+        "written": 1,
+        "skipped": 0,
+        "missing_files": 0,
+        "errors": 0,
+        "ambiguous": 0,
+        "unknown": 0
+      },
+      "gates_what": "test_completed_download_records_ultrafilms_og_title_and_source"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 287,
+      "value": {
+        "total": 1,
+        "normalized": 1,
+        "og_sourced": 1
+      },
+      "gates_what": "test_new_repeated_template_retroactively_normalizes_first_completed_scene"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 333,
+      "value": {
+        "total": 1,
+        "titled": 0,
+        "sourced": 0
+      },
+      "gates_what": "test_page_with_no_title_keeps_empty_storage_and_uses_nfo_fallback"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 341,
+      "value": {
+        "written": 1,
+        "skipped": 0,
+        "missing_files": 0,
+        "errors": 0,
+        "ambiguous": 0,
+        "unknown": 0
+      },
+      "gates_what": "test_page_with_no_title_keeps_empty_storage_and_uses_nfo_fallback"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 581,
+      "value": {
+        "total": 1,
+        "distinct_names": 1,
+        "listing_sourced": 1
+      },
+      "gates_what": "test_plugin_download_without_detail_page_uses_listing_fallback"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_history_records_the_website_title.py",
+      "line": 629,
+      "value": {
+        "total": 2,
+        "titled": 1,
+        "sourced": 0
+      },
+      "gates_what": "test_v9_library_upgrade_adds_source_without_backfilling_titles"
     },
     {
       "form": "count_dict",
@@ -396,7 +480,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1338",
+      "value": "3.66.1339",
       "gates_what": "test_containment_routes_and_version"
     },
     {

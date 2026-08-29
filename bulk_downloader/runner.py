@@ -66,6 +66,10 @@ from .detect import (
     disk_free_gb, safe_dest,
 )
 from .fname import resolve_filename_template, format_duration_for_filename
+from .website_title import (
+    harvest_page_title,
+    strip_repeated_title_template,
+)
 from .integrity import verify_media_integrity
 from .login import do_login
 # v3.66.144: reviewed-template runtime bridge. Soft import so the runner
@@ -77,7 +81,7 @@ except Exception:  # pragma: no cover - defensive
     def merge_template_download_hints(page, learned_dl):
         return (learned_dl or {}), None
 from .db import (
-    db_log,
+    db_log, db_normalize_history_title,
     queue_load, queue_upsert, queue_bulk_upsert, queue_delete,
     queue_delete_status, queue_bulk_delete, queue_bulk_update,
     queue_reorder, queue_set_priority,
@@ -527,6 +531,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self.site_id=site_id; self.config=config
         self.cookies=[]; self.cookie_saved_at=0.0
         self.urls=[]; self.jobs={}
+        # Raw observations are retained only in memory to learn a repeated
+        # per-site title template. The normalized value and winning source are
+        # carried per URL to the history completion path.
+        self._website_title_observations={}
+        self._website_titles={}
+        self._listing_titles={}
         self._lock=threading.Lock()
         self._stop=threading.Event()
         # P3-A: one-shot flag for rate-limit auto-resume. Set in
@@ -1720,6 +1730,103 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             return True
         return self._worker_generation_is_current(run_generation)
 
+    def _capture_website_title(self, page, url):
+        """Harvest a settled detail page once and retain its provenance."""
+        page_identity = id(page)
+        with self._lock:
+            existing = self._website_titles.get(url)
+            if (existing is not None
+                    and existing.get("page_identity") == page_identity):
+                return existing["title"], existing["source"]
+            job = self.jobs.get(url) or {}
+            listing_title = (
+                job.get("listing_title")
+                or self._listing_titles.get(url, "")
+                or ""
+            )
+
+        raw_title, source = harvest_page_title(
+            page, listing_title=listing_title)
+        retroactive = []
+        with self._lock:
+            # Evaluation happens outside the lock. Re-read observations here
+            # so two concurrent scene pages cannot both miss each other.
+            if raw_title:
+                self._website_title_observations[url] = raw_title
+            record = {
+                "title": raw_title,
+                "source": source,
+                "raw": raw_title,
+                "page_identity": page_identity,
+            }
+            self._website_titles[url] = record
+            # A template is knowable only after another distinct scene repeats
+            # it. Re-normalize all cached observations when that happens, and
+            # remember any already-completed row that needs safe enrichment.
+            for observed_url, observed_raw in (
+                    self._website_title_observations.items()):
+                observed = self._website_titles.get(observed_url)
+                if observed is None:
+                    continue
+                normalized = strip_repeated_title_template(
+                    observed_raw, self._website_title_observations)
+                previous = observed.get("title", "")
+                observed["title"] = normalized
+                if observed_url in self.jobs:
+                    self.jobs[observed_url].update({
+                        "website_title": normalized,
+                        "website_title_source": observed.get("source", ""),
+                        "website_title_raw": observed_raw,
+                    })
+                if previous and normalized != previous:
+                    retroactive.append((
+                        observed_url,
+                        observed_raw,
+                        normalized,
+                        observed.get("source", ""),
+                    ))
+            title = record["title"]
+        # Never hold the runner lock across SQLite I/O. The helper updates only
+        # rows whose title still equals the raw harvested value, so an operator
+        # edit wins over late template learning.
+        for observed_url, observed_raw, normalized, observed_source in retroactive:
+            db_normalize_history_title(
+                self.site_id, observed_url, observed_raw,
+                normalized, observed_source,
+            )
+        return title, source
+
+    def _history_title_fields(self, url):
+        """Return db_log kwargs without inventing a title from a filename."""
+        with self._lock:
+            record = self._website_titles.get(url)
+            if record is not None and record.get("raw"):
+                title = strip_repeated_title_template(
+                    record.get("raw", ""), self._website_title_observations)
+                record["title"] = title
+                return {
+                    "title": title,
+                    "title_source": record.get("source", ""),
+                }
+            job = self.jobs.get(url) or {}
+            listing_title = (
+                job.get("listing_title")
+                or self._listing_titles.get(url, "")
+                or ""
+            )
+            title = strip_repeated_title_template(
+                listing_title, self._website_title_observations)
+            if listing_title:
+                self._website_title_observations[url] = listing_title
+            source = "listing_card" if title else ""
+            self._website_titles[url] = {
+                "title": title,
+                "source": source,
+                "raw": listing_title,
+                "page_identity": None,
+            }
+            return {"title": title, "title_source": source}
+
     def _update_job(self,url,status,message,**extra):
         """Serialize worker-originated publication against stop/start."""
         explicit_generation = extra.pop("_run_generation", None)
@@ -2318,7 +2425,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     template=self.config,
                     max_pages=max_pages,
                 )
-            return list(result.urls) if result.ok else []
+            if not result.ok:
+                return []
+            with self._lock:
+                self._listing_titles.update(result.titles or {})
+            return list(result.urls)
         except Exception as e:
             sys.stderr.write(
                 f"  playlist_expand: raised {type(e).__name__}: {e}\n")
@@ -3790,7 +3901,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # browser assumed responsible. Measured on the box 2026-07-29
                 # producing done rows with an empty filename and no file.
                 db_log(self.site_id,self.config.get("name","?"),url,"done","",0,"",
-                       bytes_fetched=0)
+                       bytes_fetched=0,
+                       **self._history_title_fields(url))
                 return
             # Phase 20.6: auto-spillover. If `spillover_dirs` is configured,
             # pick the first dir (primary OR spillover) with enough free

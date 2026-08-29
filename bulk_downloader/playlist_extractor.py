@@ -213,6 +213,7 @@ class PlaylistResult:
     """Outcome of extract_playlist_urls()."""
     ok: bool = False
     urls: list = field(default_factory=list)   # scene URLs in DOM order
+    titles: dict = field(default_factory=dict)  # scene URL -> listing-card title
     page_count: int = 0
     base_url: str = ""
     error: str = ""
@@ -220,13 +221,37 @@ class PlaylistResult:
 
 def _normalize_links(
     page, listing_url: str, selector: Optional[str] = None,
+    *, include_titles: bool = False,
 ) -> list:
     """Run document.querySelectorAll, normalize hrefs relative to the
     listing URL, return a list of absolute URLs.
 
     `selector` if set is used; otherwise we scan all <a href> elements.
     """
-    if selector:
+    if include_titles and selector:
+        js = f"""() => {{
+            const els = document.querySelectorAll({selector!r});
+            return Array.from(els).map(el => {{
+                const a = el.tagName === 'A' ? el : el.querySelector('a');
+                if (!a || !a.href) return null;
+                const title = a.getAttribute('aria-label')
+                           || a.getAttribute('title')
+                           || (a.textContent || '').trim();
+                return {{url: a.href, title: title.replace(/\\s+/g, ' ').slice(0, 1000)}};
+            }}).filter(Boolean);
+        }}"""
+    elif include_titles:
+        js = """() => {
+            const links = document.querySelectorAll('a[href]');
+            return Array.from(links).map(a => {
+                const title = a.getAttribute('aria-label')
+                           || a.getAttribute('title')
+                           || (a.textContent || '').trim();
+                return {url: a.href || '',
+                        title: title.replace(/\\s+/g, ' ').slice(0, 1000)};
+            }).filter(x => x.url);
+        }"""
+    elif selector:
         js = f"""() => {{
             const els = document.querySelectorAll({selector!r});
             return Array.from(els).map(el => {{
@@ -249,7 +274,15 @@ def _normalize_links(
     if not isinstance(raw, list):
         return []
     out: list = []
-    for href in raw:
+    for item in raw:
+        if include_titles and isinstance(item, dict):
+            href = item.get("url") or ""
+            title = item.get("title") or ""
+        else:
+            # Compatibility for direct callers and old fixture fakes that
+            # return URL strings even when metadata was requested.
+            href = item
+            title = ""
         if not isinstance(href, str) or not href:
             continue
         try:
@@ -258,7 +291,13 @@ def _normalize_links(
             # same scene dedupe correctly
             parsed = urlparse(absolute)
             absolute = urlunparse(parsed._replace(fragment=""))
-            out.append(absolute)
+            if include_titles:
+                out.append({
+                    "url": absolute,
+                    "title": " ".join(str(title).split())[:1000],
+                })
+            else:
+                out.append(absolute)
         except Exception:
             continue
     return out
@@ -306,6 +345,7 @@ def extract_playlist_urls(
             scene_selector = sel
 
     all_urls: list = []
+    all_titles: dict = {}
     page_count = 0
     current_url = listing_url
 
@@ -324,14 +364,21 @@ def extract_playlist_urls(
 
         page_count += 1
         # Extract candidate links
-        candidates = _normalize_links(page, current_url, scene_selector)
+        candidates = _normalize_links(
+            page, current_url, scene_selector, include_titles=True)
         # Filter to plausible scene URLs (same-site, looks-like-scene)
-        for u in candidates:
+        for candidate in candidates:
+            u = (candidate.get("url", "")
+                 if isinstance(candidate, dict) else candidate)
+            title = (candidate.get("title", "")
+                     if isinstance(candidate, dict) else "")
             if not _is_same_etld1(u, listing_url):
                 continue
             if not _looks_like_scene_url(u, template=template):
                 continue
             all_urls.append(u)
+            if title and u not in all_titles:
+                all_titles[u] = title
 
         # Pagination: bail if we have enough or no more pages
         if page_idx + 1 >= max_pages:
@@ -346,6 +393,7 @@ def extract_playlist_urls(
     return PlaylistResult(
         ok=(len(final) > 0),
         urls=final,
+        titles={url: all_titles[url] for url in final if url in all_titles},
         page_count=page_count,
         base_url=listing_url,
     )

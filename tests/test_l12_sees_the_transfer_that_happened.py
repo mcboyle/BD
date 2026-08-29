@@ -54,12 +54,10 @@ job's transport to another.
 
 THE DENOMINATOR IS DERIVED, NOT LISTED. Six call sites reach hls_downloader
 (AST, not grep): _do_download plus four extractors that log their own `done`
-row, plus _try_plugin_extractor, which returns a bool and logs no row at all --
-so its transport cannot be recorded without changing that return contract, and
-it stays NULL. That is a real hole and it is why the PASS is sound (count > 0 is
-a lower bound) while the N/A must NOT claim no stream was fetched. The test
-below derives the six from the AST and pins the unrecordable one by name, so a
-seventh segmented path added without a marker fails rather than joins it.
+row. Row 375 closes the former _try_plugin_extractor hole by recording its own
+completed HLS/HTTP rows before its bool success return. The test below derives
+the paths from the AST and now pins the unrecordable set to empty, so a future
+segmented path added without a marker fails rather than becoming a silent hole.
 
 RED-first: every assertion below fails on pristine source.
 """
@@ -443,13 +441,9 @@ def _kwarg(call, name):
     return None
 
 
-# The one segmented path whose transport CANNOT be recorded on its own row:
-# _try_plugin_extractor calls _hls.download and then `return True`, logging no
-# history row of its own (runner.py:2993 just returns on success). Recording it
-# would mean changing that bool return contract, which is a different cut; a
-# `self.` handoff is ruled out for the same reason bytes_fetched is not one --
-# runner.py:1120 shares one runner instance across worker threads.
-_UNRECORDABLE = {("runner_extractors.py", "_try_plugin_extractor")}
+# Every segmented producer now records its own completion row. Keep this exact
+# empty-set ratchet so a future silent path cannot join a permanent exemption.
+_UNRECORDABLE = set()
 
 
 def test_the_scan_finds_the_segmented_paths_at_all():
@@ -546,10 +540,8 @@ def test_a_converging_path_forwards_a_variable_rather_than_a_literal():
 
 
 def test_the_unrecordable_path_is_exactly_the_one_we_know_about():
-    """A RATCHET, not an exemption. The plugin path logs no row and so cannot
-    carry its transport; that is a known hole. If a SEVENTH segmented path
-    appears with no `done` row of its own, it must fail here rather than
-    quietly join the hole.
+    """A RATCHET, not an exemption. Every segmented path must write a `done`
+    row of its own; a new silent path must fail here rather than become a hole.
     """
     found = _hls_download_functions()
     silent = {k for k, fn in found.items() if not _done_db_logs(fn)}

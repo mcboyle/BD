@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1339 - 84 library rows, 0 titles, one call site
+
+- 84 library rows, 0 titles, one call site
+- application: 13 file(s) in bulk_downloader/ changed
+- frontend: 4 file(s) changed
+- test: test_census_file_size_drift.py
+- test: test_history_records_the_website_title.py
+- test: test_l12_sees_the_transfer_that_happened.py
+- 25 file(s), 1365 insertion(s) in the worker diff
+
 ## v3.66.1338 - the Turnstile bypass stops being advertised while absent
 
 - the Turnstile bypass stops being advertised while absent

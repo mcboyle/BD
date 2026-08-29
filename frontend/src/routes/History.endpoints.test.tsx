@@ -87,7 +87,30 @@ const SAVED = [
 ];
 
 const FIXTURES: Record<string, unknown> = {
-  "/api/history?limit=200": [],
+  "/api/history?limit=200": [
+    {
+      id: 1,
+      ts: "2026-08-29T00:00:00",
+      site_name: "UltraFilms",
+      status: "done",
+      title: "With Leo In Bed",
+      title_source: "og:title",
+      filename: "download-server-name.mp4",
+      file_size: 15,
+      message: "",
+    },
+    {
+      id: 2,
+      ts: "2026-08-29T00:01:00",
+      site_name: "Untitled",
+      status: "done",
+      title: "",
+      title_source: "",
+      filename: "untitled-file.mp4",
+      file_size: 20,
+      message: "",
+    },
+  ],
   "/api/session_history?limit=100": { events: [] },
   "/api/events_all?limit=200": { events: [] },
   "/api/logs/tail?lines=200": { lines: ["boot"], file_size: 12, current_level: "INFO" },
@@ -221,6 +244,33 @@ describe("T2 endpoint consumption", () => {
     expect(mounted).toContain("/api/ui_events");
     expect(mounted).not.toContain("/api/search");
     expect(mounted).not.toContain("/api/search/facets");
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(3); // one exact header + two fixture rows
+    const headers = within(rows[0]).getAllByRole("columnheader");
+    expect(headers).toHaveLength(8);
+    expect(headers.map((cell) => cell.textContent)).toEqual([
+      "When",
+      "Site",
+      "Status",
+      "Website name",
+      "Source",
+      "File",
+      "Size",
+      "Message",
+    ]);
+    const harvestedCells = within(rows[1]).getAllByRole("cell");
+    const untitledCells = within(rows[2]).getAllByRole("cell");
+    expect(untitledCells).toHaveLength(8);
+    expect(harvestedCells).toHaveLength(8);
+    expect(harvestedCells[3]).toHaveTextContent("With Leo In Bed");
+    expect(harvestedCells[4]).toHaveTextContent("og:title");
+    expect(harvestedCells[5]).toHaveTextContent("download-server-name.mp4");
+    expect(untitledCells[3].textContent).toBe("");
+    expect(untitledCells[4].textContent).toBe("");
+    expect(untitledCells[5]).toHaveTextContent("untitled-file.mp4");
+    expect(screen.getAllByText("untitled-file.mp4")).toHaveLength(1);
   });
 
   it("a full drive of all four tabs observes exactly the declared families", async () => {

@@ -113,6 +113,7 @@ class QueueMixin:
                 "retry_after": r.get("retry_after",0),
                 "screenshot": r.get("screenshot",""),
                 "filename": r.get("filename",""),
+                "listing_title": r.get("listing_title", ""),
                 "file_size": r.get("file_size",0),
                 # v3.49 (#127b): badge flag — frontend renders a small
                 # "recovered" pill on these rows for a few minutes after
@@ -141,6 +142,12 @@ class QueueMixin:
         sites where a specific Referer or one-shot cookie is required."""
         added=dupes=skipped_on_disk=0
         new_urls=[]
+        # QueueMixin also has lightweight/direct hosts that predate website
+        # title capture. Preserve their enqueue contract with an empty metadata
+        # map while SiteRunner supplies the real shared dict.
+        listing_titles = getattr(self, "_listing_titles", {})
+        if not isinstance(listing_titles, dict):
+            listing_titles = {}
         # Phase 68: separate URL strings into (url, extra_headers) tuples
         parsed_urls = []
         for raw in urls:
@@ -334,6 +341,9 @@ class QueueMixin:
                               # immediately flag as stuck. Updated by _update_job on every
                               # state change or byte advance.
                               "last_progress_at": time.time()}
+                listing_title = listing_titles.get(u, "")
+                if listing_title:
+                    self.jobs[u]["listing_title"] = listing_title
                 if hdrs:
                     self.jobs[u]["custom_headers"] = hdrs
                 self.urls.append(u); new_urls.append(u)
@@ -343,7 +353,13 @@ class QueueMixin:
                 mark_status_changed()
         # Phase 4.2: bulk-insert into queue table outside the lock
         if new_urls:
-            try: queue_bulk_upsert(self.site_id, new_urls, ord_start=ord_start)
+            try:
+                queue_bulk_upsert(
+                    self.site_id, new_urls, ord_start=ord_start,
+                    listing_titles={
+                        u: listing_titles.get(u, "") for u in new_urls
+                    },
+                )
             except Exception as e: self.log.error("bulk persist failed: %s", e)
             # Persist done-state for folder-scan pre-marked URLs in ONE
             # bulk update (they all carry the same "already on disk"

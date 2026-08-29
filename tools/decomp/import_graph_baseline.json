@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4002,
+  "edge_count": 4017,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1716,6 +1716,7 @@
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/vpn_stats.py",
       "bulk_downloader/webhooks.py",
+      "bulk_downloader/website_title.py",
       "bulk_downloader/yt_dlp_archive.py",
       "bulk_downloader/ytdlp_extractor.py"
     ],
@@ -1753,7 +1754,8 @@
     "bulk_downloader/runner_challenge.py": [
       "bulk_downloader/captcha_resolver.py",
       "bulk_downloader/constants.py",
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/website_title.py"
     ],
     "bulk_downloader/runner_extractors.py": [
       "bulk_downloader/db.py",
@@ -1773,6 +1775,7 @@
       "bulk_downloader/runner_util.py",
       "bulk_downloader/tier_probe.py",
       "bulk_downloader/vpn_runtime.py",
+      "bulk_downloader/website_title.py",
       "bulk_downloader/ytdlp_updater.py"
     ],
     "bulk_downloader/runner_integrations.py": [
@@ -1784,7 +1787,8 @@
       "bulk_downloader/library.py",
       "bulk_downloader/plex_deep.py",
       "bulk_downloader/qb_bridge.py",
-      "bulk_downloader/stash_deep.py"
+      "bulk_downloader/stash_deep.py",
+      "bulk_downloader/website_title.py"
     ],
     "bulk_downloader/runner_integrity.py": [
       "bulk_downloader/db.py",
@@ -1858,7 +1862,8 @@
       "bulk_downloader/runner_util.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/stash_deep.py",
-      "bulk_downloader/vpn_runtime.py"
+      "bulk_downloader/vpn_runtime.py",
+      "bulk_downloader/website_title.py"
     ],
     "bulk_downloader/runner_util.py": [
       "bulk_downloader/candidate_filter.py",
@@ -2963,6 +2968,18 @@
       "bulk_downloader/db.py",
       "bulk_downloader/mp4_metadata.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_history_records_the_website_title.py": [
+      "bulk_downloader/app_history.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/library_final.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/website_title.py"
     ],
     "tests/test_history_records_whether_bytes_were_fetched.py": [
       "bulk_downloader/db.py",

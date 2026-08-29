@@ -494,7 +494,11 @@ def test_the_docstring_does_not_claim_the_per_site_figures_match_the_panel():
 
 
 def test_the_update_history_figure_is_re_derived_not_quoted():
-    """The shipped docstring said 8; the executable count is 7.
+    """The stated figure must follow the executable count, now 8.
+
+    Row 375 added the eighth legitimate site: when a scanner-created library
+    row is linked to a newly completed history record, the history back-link
+    must be populated without altering its recorded file size.
 
     INSTRUMENT: AST (`ast.Constant` string nodes plus the literal parts of
     `ast.JoinedStr`) over `git ls-files -- bulk_downloader/*.py`, with
@@ -508,7 +512,7 @@ def test_the_update_history_figure_is_re_derived_not_quoted():
 
     THE file_size CHECK'S OWN DENOMINATOR. It used to read only
     ``splitlines()[node.lineno - 1]``. ``ast.Constant.lineno`` is the START
-    line of a multi-line string, and two of the seven live sites already span
+    line of a multi-line string, and two of the eight live sites already span
     more than one line (batch_ops.py's triple-quoted statement and
     retention.py's implicit concatenation), so an ``UPDATE history SET ...
     file_size`` whose column name landed on the second line was invisible:

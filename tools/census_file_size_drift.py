@@ -2,7 +2,7 @@
 """Census the Library doctor's size-drift population, split by SIGN.
 
 WHY THIS EXISTS. `history.file_size` is written once by `db_log()` and never
-UPDATEd anywhere (7 `UPDATE history` sites, none touches the column), so rows
+UPDATEd anywhere (8 `UPDATE history` sites, none touches the column), so rows
 written before v3.66.820 recorded a PRE-tag size. Once basename resolution
 works (v3.66.825, cut25b) those rows surface as POSITIVE drift deltas. The
 operator's question is how much of the panel's drift count is that residue
