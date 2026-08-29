@@ -7,7 +7,7 @@
     {
       "bytes": 1200,
       "key": "tests/test_capture_step4_waits_for_serving.py::test_a_readiness_failure_cannot_be_erased_by_a_later_success::body[helper_start:helper_start + 1200]::1",
-      "sha256": "61c21973df7a37b56a687682e792831cf82052ab457c61da7ac42cf11ce95945"
+      "sha256": "69ea18c15911e691a445fa157ba6d700e317a1cb99a9a670af31067ab8d59973"
     },
     {
       "bytes": 1204,

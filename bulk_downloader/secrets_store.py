@@ -447,7 +447,9 @@ class MasterPasswordBackend(_BackendBase):
         - unlocked: _key is set, get/set/delete work normally
 
     The master password isn't stored anywhere — only the salt is on
-    disk. If the user forgets the password there's no recovery path.
+    disk. The derived key is process-local by design, so this backend requires
+    a human unlock after every restart, crash, deploy, or reboot. If the user
+    forgets the password there's no recovery path.
     """
     name = "master_password"
 
@@ -857,6 +859,104 @@ def site_password_key(site_id: str) -> str:
 
 # ─── Plaintext-reference resolution ──────────────────────────────────
 
+def password_reference_keys(sites_config: dict | None) -> list[str]:
+    """Return every configured ``@cred:`` password key, including accounts.
+
+    The list is occurrence-based rather than deduplicated: health denominators
+    describe configured credential consumers, while ``backend.list_keys()``
+    separately describes stored entries. Values are names only; this function
+    never reads secret material.
+    """
+    references: list[str] = []
+    for cfg in (sites_config or {}).values():
+        if not isinstance(cfg, dict):
+            continue
+        values = [cfg.get("password")]
+        accounts = cfg.get("accounts")
+        if isinstance(accounts, list):
+            values.extend(
+                account.get("password")
+                for account in accounts
+                if isinstance(account, dict)
+            )
+        for value in values:
+            if isinstance(value, str) and value.startswith(CRED_PREFIX):
+                references.append(value[len(CRED_PREFIX):])
+    return references
+
+
+def _warn_invalid_password_value(value) -> None:
+    try:
+        import logging
+        logging.getLogger("bulk_downloader.secrets_store").warning(
+            "resolve_password: expected str, got %s — treating as None",
+            type(value).__name__,
+        )
+    except Exception:
+        pass
+
+
+def resolve_password_state(value: str | None) -> tuple[str | None, str]:
+    """Resolve a password and preserve why no value was returned.
+
+    State is one of ``empty``, ``invalid``, ``plaintext``, ``resolved``,
+    ``locked``, ``missing``, ``unavailable``, or ``unknown``. The legacy
+    :func:`resolve_password` API intentionally still returns only the value;
+    callers that must distinguish a restart-locked vault from deletion use
+    this richer result.
+    """
+    if not value:
+        return None, "empty"
+    if not isinstance(value, str):
+        _warn_invalid_password_value(value)
+        return None, "invalid"
+    if not value.startswith(CRED_PREFIX):
+        return value, "plaintext"
+
+    ref = value[len(CRED_PREFIX):]
+    if not ref:
+        return None, "missing"
+
+    try:
+        backend = get_backend()
+        try:
+            unlocked = bool(backend.is_unlocked())
+        except Exception:
+            return None, "unknown"
+
+        if not unlocked:
+            try:
+                initialized_fn = getattr(backend, "is_initialized", None)
+                initialized = (
+                    bool(initialized_fn())
+                    if callable(initialized_fn)
+                    else bool(backend.list_keys())
+                )
+            except Exception:
+                return None, "unknown"
+            if initialized:
+                # None from a locked backend is not evidence that this
+                # particular reference was deleted.
+                return None, "locked"
+
+        try:
+            resolved = backend.get(ref)
+        except Exception:
+            return None, "unknown"
+        if resolved is not None:
+            return resolved, "resolved"
+
+        try:
+            stored_keys = backend.list_keys()
+        except Exception:
+            return None, "unknown"
+        # A named entry that cannot be read is not "missing"; it may be
+        # corrupted or its backing keyring may be unavailable.
+        return None, ("unavailable" if ref in stored_keys else "missing")
+    except Exception:
+        return None, "unknown"
+
+
 def resolve_password(value: str | None) -> str | None:  # INV-006
     """Take whatever's in cfg["password"] and return the real password.
 
@@ -872,22 +972,8 @@ def resolve_password(value: str | None) -> str | None:  # INV-006
     non-string as "no password" rather than crashing — matches the
     empty-string branch and avoids cascading failures during startup.
     """
-    if not value: return None
-    if not isinstance(value, str):
-        # Defensive: log once and treat as no password
-        try:
-            import logging
-            logging.getLogger("bulk_downloader.secrets_store").warning(
-                "resolve_password: expected str, got %s — treating as None",
-                type(value).__name__,
-            )
-        except Exception:
-            pass
-        return None
-    if value.startswith(CRED_PREFIX):
-        ref = value[len(CRED_PREFIX):]
-        return get_backend().get(ref)
-    return value
+    resolved, _state = resolve_password_state(value)
+    return resolved
 
 
 def make_password_reference(site_id: str) -> str:

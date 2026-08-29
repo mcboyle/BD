@@ -620,7 +620,8 @@ def _probe_script(tmp_path: Path, call: str, vault: str) -> Path:
 def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
                curl_exit: int = 7, timeout: int = 45,
                lock_override: Path | None = None,
-               expected_returncode: int = 0):
+               expected_returncode: int = 0,
+               http_503_is_serving: bool = False):
     """Run `call` out of capture.sh's own head with the world stubbed out.
 
     sleep is a no-op stub, so a bounded wait finishes instantly while an
@@ -641,8 +642,24 @@ def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
     else:
         lock_path = lock_override
     log = tmp_path / "calls.log"
-    _stub(stub_bin / "curl",
-          f'#!/usr/bin/env bash\necho "curl" >> "{log}"\nexit {curl_exit}\n')
+    if http_503_is_serving:
+        # Model a reachable HTTP server returning 503: curl succeeds unless
+        # the caller asks --fail/-f to collapse that response into exit 22.
+        curl_body = (
+            '#!/usr/bin/env bash\n'
+            f'echo "curl" >> "{log}"\n'
+            'for arg in "$@"; do\n'
+            '  case "$arg" in -*f*|--fail*) exit 22 ;; esac\n'
+            'done\n'
+            'exit 0\n'
+        )
+    else:
+        curl_body = (
+            '#!/usr/bin/env bash\n'
+            f'echo "curl" >> "{log}"\n'
+            f'exit {curl_exit}\n'
+        )
+    _stub(stub_bin / "curl", curl_body)
     _stub(stub_bin / "sleep",
           f'#!/usr/bin/env bash\necho "sleep ${{1:-0}}" >> "{log}"\nexit 0\n')
     _stub(stub_bin / "sudo",
@@ -783,6 +800,26 @@ def test_the_readiness_wait_returns_as_soon_as_the_app_answers(tmp_path):
         f"{sleeps}. That is a fixed delay wearing a poll's clothes.\n"
         f"{completed.stdout}"
     )
+
+
+def test_http_503_is_still_serving_for_the_pre_unlock_transport_gate(tmp_path):
+    """Locked health must not prevent the POST that can unlock that health."""
+    name, _text = _readiness_wait(_capture_body())
+
+    # PRECONDITION: this synthetic curl returns exit 22 only when the subject
+    # uses -f/--fail to erase an HTTP 503; without that flag the same reachable
+    # server returns success. This is an HTTP response, not a closed socket.
+    completed, calls = _run_probe(
+        tmp_path,
+        call=name,
+        http_503_is_serving=True,
+    )
+
+    attempts = [line for line in calls if line == "curl"]
+    sleeps = [line for line in calls if line.startswith("sleep")]
+    assert len(attempts) == 1, calls
+    assert len(sleeps) == 0, calls
+    assert "service serving after" in _said_by_the_wait(completed)
 
 
 def test_the_readiness_probe_owns_its_singleton_inside_a_parent_capture(

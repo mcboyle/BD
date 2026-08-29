@@ -514,9 +514,13 @@ def do_login(config, allow_manual_takeover=False):
     # a "@cred:" reference, looks up via the active backend (keychain
     # or master-password); otherwise returns it verbatim (plaintext
     # legacy mode). Transparent to the rest of the function.
+    password_state = "empty"
     try:
-        from ..secrets_store import resolve_password
-        password = resolve_password(config.get("password","")) or ""
+        from ..secrets_store import resolve_password_state
+        password, password_state = resolve_password_state(
+            config.get("password", "")
+        )
+        password = password or ""
     except Exception:
         password = config.get("password","") or ""
     success=config.get("success_url","")
@@ -526,6 +530,24 @@ def do_login(config, allow_manual_takeover=False):
     # since v3.43.11) the user never sees a window and can't tell what's
     # wrong. Log loudly so the terminal makes it obvious which field is
     # missing.
+    if password_state == "locked":
+        sys.stderr.write(
+            f"  login: SKIPPED — site {config.get('name','?')!r}: credential "
+            f"vault is LOCKED; the stored password cannot be decrypted. "
+            f"Unlock it in Settings -> Secrets after every service restart.\n")
+        return False, "Credential vault locked: password", []
+    if password_state == "missing":
+        sys.stderr.write(
+            f"  login: SKIPPED — site {config.get('name','?')!r}: stored "
+            f"credential is MISSING for the password reference. Repair it in "
+            f"Settings -> Secrets.\n")
+        return False, "Stored credential missing: password", []
+    if password_state in ("unavailable", "unknown"):
+        sys.stderr.write(
+            f"  login: SKIPPED — site {config.get('name','?')!r}: credential "
+            f"availability is UNKNOWN; the stored password could not be read. "
+            f"Check Settings -> Secrets and the service logs.\n")
+        return False, "Credential state unknown: password", []
     if not url or not username or not password:
         missing = []
         if not url: missing.append("login_url")
@@ -533,9 +555,8 @@ def do_login(config, allow_manual_takeover=False):
         if not password: missing.append("password")
         sys.stderr.write(
             f"  login: SKIPPED — site {config.get('name','?')!r} is missing "
-            f"{', '.join(missing)}. Open the site's Edit form and fill them "
-            f"in. Stored credentials may have been wiped by a save with the "
-            f"fields blank in a pre-v3.43.14 build.\n")
+            f"{', '.join(missing)} in its configuration. Open the site's Edit "
+            f"form and configure only the fields listed here.\n")
         return False, f"Missing credentials: {', '.join(missing)}", []
 
     user_uf=(config.get("user_field") or "").strip()
