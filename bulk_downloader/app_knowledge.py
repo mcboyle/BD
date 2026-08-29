@@ -27,6 +27,26 @@ def _app_s_cfg():
     return getattr(importlib.import_module("bulk_downloader.app_state"), "s_cfg", {})
 
 
+def _turnstile_bypass_state() -> dict:
+    """Measure recipe advice; probe failures stay UNKNOWN."""
+    try:
+        from . import scrapling_adapter
+        state = scrapling_adapter.capability_status()["turnstile_bypass"]
+    except Exception as exc:
+        return {
+            "available": False,
+            "status": "unknown",
+            "reason": f"capability_probe_failed:{type(exc).__name__}",
+        }
+    if not isinstance(state, dict):
+        return {
+            "available": False,
+            "status": "unknown",
+            "reason": "capability_probe_returned_invalid_state",
+        }
+    return dict(state)
+
+
 @knowledge_bp.route("/api/knowledge/runbook/<sid>")
 def api_knowledge_runbook(sid):
     try:
@@ -85,9 +105,12 @@ def api_knowledge_recipes():
     try:
         from . import knowledge as _kn
         msg = request.args.get("message", "")
+        turnstile_bypass = _turnstile_bypass_state()
         if msg:
-            return jsonify({"recipes": _kn.diagnostic_recipes_for(msg)})
-        return jsonify({"recipes": _kn.all_recipes()})
+            return jsonify({"recipes": _kn.diagnostic_recipes_for(
+                msg, turnstile_bypass=turnstile_bypass)})
+        return jsonify({"recipes": _kn.all_recipes(
+            turnstile_bypass=turnstile_bypass)})
     except Exception as e:
         return jsonify({"recipes": [], "error": str(e)[:200]}), 500
 

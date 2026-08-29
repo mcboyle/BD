@@ -22,7 +22,7 @@
     {
       "bytes": 2502,
       "key": "tests/test_macro_replay.py::test_runner_uses_failopen_pattern::runner_src[idx:idx + 2500]::1",
-      "sha256": "c96127f01fe7c8e0e9d255745402bf1b8ebf521363554755312dcb7b76752982"
+      "sha256": "179700974bb1e75c331c0da40f833b91bbd30ede8fae7ea79b5076f31465aed2"
     },
     {
       "bytes": 3002,

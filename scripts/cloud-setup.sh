@@ -127,6 +127,27 @@ fi
 
 row(){ printf '| %s | %s | %s |\n' "$1" "$2" "$3" >> "$REPORT"; }
 
+probe_scrapling_turnstile(){
+  local detail rc
+  detail=""
+  rc=0
+  detail="$(./venv/bin/python -m bulk_downloader.scrapling_adapter --probe-turnstile 2>/dev/null)" || rc=$?
+  if [ "$rc" -eq 0 ] && [[ "$detail" = available:* ]]; then
+    printf '%s\n' "$detail"
+    return 0
+  fi
+  if [ "$rc" -eq 1 ] && [[ "$detail" = unavailable:* ]]; then
+    printf '%s\n' "$detail"
+    return 1
+  fi
+  if [ "$rc" -eq 2 ] && [[ "$detail" = unknown:* ]]; then
+    printf '%s\n' "$detail"
+    return 2
+  fi
+  printf 'unknown:probe_exit_%s:%s\n' "$rc" "${detail:-no_detail}"
+  return 2
+}
+
 step(){                       # step <label> <core|optional> <command...>
   local label="$1" kind="$2"; shift 2
   local log; log="$(mktemp)"
@@ -802,8 +823,24 @@ if [ "$HAVE_REPO" = 1 ]; then
     CAP_RC=0
     CAP_MISSING="$(./venv/bin/python tools/check_requirements.py "$CAP_FILE" 2>/dev/null)" || CAP_RC=$?
     if [ "$CAP_RC" -eq 0 ]; then
-      row "capability ($CAP_FILE)" "OK" "every entry resolves in the venv"
-      echo "[ ok ] capability resolves ($CAP_FILE)"
+      if [ "$CAP_FILE" = "requirements-optional.txt" ]; then
+        SCRAPLING_PROBE=""
+        SCRAPLING_RC=0
+        SCRAPLING_PROBE="$(probe_scrapling_turnstile)" || SCRAPLING_RC=$?
+        if [ "$SCRAPLING_RC" -eq 0 ]; then
+          row "capability ($CAP_FILE)" "OK" "every entry resolves; Scrapling Turnstile bypass AVAILABLE ($SCRAPLING_PROBE)"
+          echo "[ ok ] capability resolves and Turnstile bypass is available ($CAP_FILE)"
+        elif [ "$SCRAPLING_RC" -eq 1 ]; then
+          row "capability ($CAP_FILE)" "WARN" "Scrapling Turnstile bypass UNAVAILABLE: $(echo "$SCRAPLING_PROBE" | cut -c1-70)"
+          echo "[warn] Scrapling Turnstile bypass unavailable ($CAP_FILE): $SCRAPLING_PROBE"
+        else
+          row "capability ($CAP_FILE)" "WARN" "Scrapling Turnstile bypass UNKNOWN: $(echo "$SCRAPLING_PROBE" | cut -c1-70)"
+          echo "[warn] Scrapling Turnstile bypass unknown ($CAP_FILE): $SCRAPLING_PROBE"
+        fi
+      else
+        row "capability ($CAP_FILE)" "OK" "every entry resolves in the venv"
+        echo "[ ok ] capability resolves ($CAP_FILE)"
+      fi
     elif [ "$CAP_RC" -eq 2 ]; then
       row "capability ($CAP_FILE)" "WARN" "could not evaluate -- capability state UNKNOWN, which is not the same as absent"
       echo "[warn] capability unevaluable ($CAP_FILE)"

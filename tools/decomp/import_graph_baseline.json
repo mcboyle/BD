@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3993,
+  "edge_count": 4002,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -559,7 +559,8 @@
       "bulk_downloader/extractors_jsonapi.py"
     ],
     "bulk_downloader/app_knowledge.py": [
-      "bulk_downloader/knowledge.py"
+      "bulk_downloader/knowledge.py",
+      "bulk_downloader/scrapling_adapter.py"
     ],
     "bulk_downloader/app_library.py": [
       "bulk_downloader/bitrot.py",
@@ -1261,6 +1262,7 @@
       "bulk_downloader/llm_exec.py"
     ],
     "bulk_downloader/doctor.py": [
+      "bulk_downloader/scrapling_adapter.py",
       "bulk_downloader/selftest.py"
     ],
     "bulk_downloader/dom_analyzer.py": [
@@ -3510,6 +3512,15 @@
       "bulk_downloader/queue_priority.py",
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_row360_turnstile_bypass_is_installed.py": [
+      "bulk_downloader/app_knowledge.py",
+      "bulk_downloader/app_scrapling.py",
+      "bulk_downloader/doctor.py",
+      "bulk_downloader/friendly_error.py",
+      "bulk_downloader/knowledge.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/scrapling_adapter.py"
     ],
     "tests/test_row362_templates_are_resolvable.py": [
       "bulk_downloader/detect.py"

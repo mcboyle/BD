@@ -271,15 +271,56 @@ _RECIPES: list = [
 ]
 
 
-def diagnostic_recipes_for(message: str) -> list:
+def _turnstile_recipe_step(turnstile_bypass: Optional[dict]) -> str:
+    """Render capability-aware advice without inventing a measurement."""
+    state = turnstile_bypass if isinstance(turnstile_bypass, dict) else {
+        "available": False,
+        "status": "unknown",
+        "reason": "measurement_not_supplied",
+    }
+    status = state.get("status")
+    available = state.get("available")
+    reason = state.get("reason") or "measurement_not_supplied"
+    if status == "available" and available is True:
+        return (
+            "If repeated, the site enabled stricter ruleset — try nodriver "
+            "via Scrapling adapter"
+        )
+    if status == "unavailable" and available is False:
+        return (
+            f"Scrapling bypass unavailable ({reason}); "
+            "use Take Over or FlareSolverr"
+        )
+    return (
+        f"Scrapling bypass availability unknown ({reason}); "
+        "use Take Over or FlareSolverr"
+    )
+
+
+def _recipes_with_capability(turnstile_bypass: Optional[dict]) -> list:
+    recipes = []
+    for recipe in _RECIPES:
+        rendered = dict(recipe)
+        rendered["steps"] = list(recipe["steps"])
+        if recipe["pattern"] == "cloudflare":
+            rendered["steps"][-1] = _turnstile_recipe_step(turnstile_bypass)
+        recipes.append(rendered)
+    return recipes
+
+
+def diagnostic_recipes_for(
+        message: str, *, turnstile_bypass: Optional[dict] = None) -> list:
     """Return all recipes whose pattern matches the given failure
     message. Multiple may match for complex errors."""
     if not message:
         return []
     msg = message.lower()
-    return [r for r in _RECIPES if r["pattern"].lower() in msg]
+    return [
+        recipe for recipe in _recipes_with_capability(turnstile_bypass)
+        if recipe["pattern"].lower() in msg
+    ]
 
 
-def all_recipes() -> list:
+def all_recipes(*, turnstile_bypass: Optional[dict] = None) -> list:
     """Full catalog. Used by the UI to render a docs page."""
-    return list(_RECIPES)
+    return _recipes_with_capability(turnstile_bypass)
