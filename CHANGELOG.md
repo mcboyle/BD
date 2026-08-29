@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1331 - committed template selectors are resolved against the live page
+
+-        "bd-plugin-audit", "bd-template-safety", "bd-log-sanitize", "bd-scru
+- committed template selectors are resolved against the live page
+- application: 3 file(s) in bulk_downloader/ changed
+- frontend: 1 file(s) changed
+- test: test_v3_66_939_ci_gate_shards_cover_every_gate.py
+- test: row362_gamma_dropdown.html
+- test: row362_gamma_options_present.html
+- 17 file(s), 46 insertion(s) in the worker diff
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 226 -> 227.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _templates_are_resolvable.py -> bulk_downloader
+    template_selector_verifier.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1330 - the workflow learns a site download controls from the live page
 
 - Setup exposes the existing `quality_preference`, `min_resolution`, and `log

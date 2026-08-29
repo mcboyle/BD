@@ -222,6 +222,7 @@ ITEMS = [
                     "input[autocomplete='current-password']",
                 ],
                 "submit_btn": [
+                    "#submit",
                     "button[type='submit'].Button",
                     "form button[type='submit']",
                     "button:has-text('Sign In')",
@@ -231,12 +232,14 @@ ITEMS = [
             },
             "download": {
                 "trigger_selectors": [
+                    "[class*='ScenePlayerHeaderPlus-IconItem']:has([class*='Icon-Download'])",
                     "button[aria-label*='download' i]",
                     "button:has-text('Download')",
                     ".VideoJSPlayer-DownloadButton",
                     "[class*='DownloadButton']",
                 ],
                 "row_selectors": [
+                    "a[class*='DownloadOption'][href*='/movieaction/download/']",
                     # The most specific selector — Gamma's React class
                     # name. Hashed suffix classes change per build but
                     # the semantic class stays stable.
