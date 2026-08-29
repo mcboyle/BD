@@ -282,6 +282,114 @@ def _t_site(title, seq0):
                     seq0=seq0)
 
 
+# ── row 120: signed JWPlayer behind a CDN, and the no-CDN control ───────
+# SHAPE SOURCE. Both builders reproduce the TOPOLOGY measured from two recorded
+# captures, not invented markup: the akamai case from a JWPlayer 8.30.1 news
+# page whose player script, entitlement call and HLS manifest/segments each sit
+# on a different host tier, and the control from a JWPlayer 8 page whose player
+# and progressive mp4 both come from the site's own origin tiers. The recorded
+# files are private capture evidence and are never committed
+# (project-knowledge/CAPTURE_SHARING_POLICY.md); the committed artifacts below
+# carry the same host suffixes, header tells, content types and path shapes with
+# zero-entropy stand-ins, so tests/test_row120_jwplayer_cdn_topology.py RUNS in
+# CI and still runs against the recorded originals when a private root is set.
+#
+# THE CONTROL IS THE POINT. A CDN recognizer that answers yes to everything is
+# not a recognizer, so `_jw_plain` is JWPlayer-bearing with a real media asset
+# and NO cdn host suffix and NO cdn response header anywhere.
+JW_ENTITLEMENT_ID = "E" * 22               # opaque jwplayer media id, zero entropy
+JW_AKAMAI_TOKEN = "exp=1700000000~hmac=" + "0" * 40   # hdnts shape, zero entropy
+JW_CF_ID = "F" * 40                        # x-amz-cf-id shape, zero entropy
+
+
+def _har_headers(**kv):
+    """Response headers in the HAR list-of-{name,value} form a REAL capture
+    records. `_entry`'s default is a bare dict and so is `_boilerplate`'s, which
+    `extraction_core` cannot iterate (it calls .get on each element, and
+    iterating a dict yields its string keys) -- so `build_template()` raises on
+    any capture carrying them. These two captures exist precisely to be driven
+    through `build_template()` and to be judged on a RESPONSE HEADER, so they
+    use the real shape AND skip the dict-shaped boilerplate. Skipping it costs
+    nothing here: the boilerplate exists to plant redaction hazards for the
+    posture tests, and neither of these two is one -- they carry no secret-shaped
+    material at all. Fixing `_entry`'s default corpus-wide would rewrite all 20
+    committed artifacts and is a separate change.
+    """
+    return [{"name": k.replace("_", "-"), "value": v} for k, v in kv.items()]
+
+
+def _jw_akamai(seq0=0):
+    """JWPlayer whose player asset, entitlement call and signed HLS media are
+    each fronted by a different CDN tier: akamai by host suffix AND by response
+    header, cloudfront by response header only (the entitlement host publishes
+    no cdn-shaped suffix). Media carries an akamai-style `hdnts` token so the
+    signed-AND-cdn-fronted combination is exercised on one asset."""
+    med = "jwmedia.akamaized.net"
+    q = "?hdnts=" + JW_AKAMAI_TOKEN
+    return _capture(
+        "jwnews.example", "jwakamai",
+        [
+            # player script on an akamai-fronted host (suffix AND header tell)
+            _entry(seq0 + 10,
+                   "https://jwassets.akamaized.net/jwplayer/jwplayer-8.30.1/jwplayer.js",
+                   etype="script",
+                   resp_headers=_har_headers(
+                       content_type="application/javascript",
+                       akamai_grn="0." + "0" * 8)),
+            # jwplayer's own cdn -- JWPlayer-bearing, but NOT a fronting cdn
+            _entry(seq0 + 11,
+                   "https://ssl.p.jwpcdn.com/player/v/8.30.1/jwpsrv.js",
+                   etype="script",
+                   resp_headers=_har_headers(
+                       content_type="application/javascript")),
+            # entitlement call, cloudfront-fronted by HEADER only
+            _entry(seq0 + 12,
+                   "https://entitlements.jwplayer.com/%s.json" % JW_ENTITLEMENT_ID,
+                   etype="xhr",
+                   resp_headers=_har_headers(
+                       content_type="application/json",
+                       x_amz_cf_id=JW_CF_ID, x_amz_cf_pop="IAD00-C1")),
+            # signed HLS manifest + segment on the akamai media host
+            _entry(seq0 + 13,
+                   "https://%s/out/v1/%s/abs/index.m3u8%s" % (med, PATH_SIGN, q),
+                   etype="xhr",
+                   resp_headers=_har_headers(
+                       content_type="application/x-mpegURL",
+                       akamai_mon_iucid_del="1")),
+            _entry(seq0 + 14,
+                   "https://%s/out/v1/%s/abs/seg1.ts%s" % (med, PATH_SIGN, q),
+                   etype="xhr",
+                   resp_headers=_har_headers(
+                       content_type="video/MP2T",
+                       akamai_mon_iucid_del="1")),
+            # caption from the same media host -- tracked, never sufficient alone
+            _entry(seq0 + 15, "https://%s/captions/jwakamai.vtt" % med,
+                   etype="xhr", resp_headers=_har_headers(content_type="text/vtt")),
+        ],
+        boilerplate=False, seq0=seq0)
+
+
+def _jw_plain(seq0=0):
+    """NEGATIVE CONTROL. JWPlayer 8 player asset and a progressive mp4, both on
+    the site's own origin tiers. No akamai/cloudflare/cloudfront host suffix and
+    no cdn response header anywhere, so `cdn_fronted` must be False while
+    `jwplayer_present` stays True."""
+    return _capture(
+        "jwplain.example", "jwplain",
+        [
+            _entry(seq0 + 10,
+                   "https://av.jwplain.example/jw/8/jwplayer.core.controls.html5.js",
+                   etype="script",
+                   resp_headers=_har_headers(
+                       content_type="application/javascript")),
+            _entry(seq0 + 11,
+                   "https://dn1.jwplain.example/items/jwplain/movie.mp4",
+                   etype="media",
+                   resp_headers=_har_headers(content_type="video/mp4")),
+        ],
+        boilerplate=False, seq0=seq0)
+
+
 # ── DOM node helpers (rrweb serialized-node form) ────────────────────────────
 def _el(tag, attrs=None, kids=None):
     return {"type": 2, "tagName": tag, "attributes": attrs or {},
@@ -487,6 +595,9 @@ def _plan():
         # miruro vidstack DOM captures (also written under tests/fixtures/vidstack)
         "miruro.redacted.wacz":  ("wacz", _vidstack("www.miruro.tv")),
         "mirurow.redacted.wacz": ("wacz", _vidstack("www.miruro.tv")),
+        # row 120: signed JWPlayer behind a cdn, and its no-cdn control
+        "jw_akamai_fronted.wacz": ("wacz", _jw_akamai(0)),
+        "jw_no_cdn_control.wacz": ("wacz", _jw_plain(0)),
         # aylo strict-corpus captures
         "wow247_redacted_strict.wacz":  ("wacz", _aylo_wow()),
         "bang247_redacted_strict.wacz": ("wacz", _aylo_bang()),

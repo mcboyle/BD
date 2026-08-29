@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1355 - the auto-template recognises signed JWPlayer fronted by akamai or cloudflare
+
+- Row 120 (JW-TMPL): the auto-template now measures whether JWPlayer delivery
+- CDN fronting is judged on player and media assets only, from host suffix AN
+- An unmeasurable network log returns cdn_topology status unknown with cdn_fr
+- Added two committed synthetic captures reproducing the topology measured fr
+- frontend: 1 file(s) changed
+- test: capture_model.golden.json
+- test: jw_akamai_fronted.wacz
+- test: jw_no_cdn_control.wacz
+- 10 file(s), 492 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _jwplayer_cdn_topology.py -> tools
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1354 - recognizers claim a player family on evidence from two guided captures
 
 - Row 124 FR-A6.2: the recognizers now claim a real non-Cloudflare, non-video
