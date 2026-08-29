@@ -488,6 +488,7 @@ jobs:
             suites: >-
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
+              tests/test_row357_mutant_anchors_are_not_fragile.py
               tests/test_v3_66_1186_bd_mutate_named_controls.py
               tests/test_v3_66_1187_bd_mutate_band_is_bounded.py
               tests/test_row355_mutate_timing_is_schedule_stable.py

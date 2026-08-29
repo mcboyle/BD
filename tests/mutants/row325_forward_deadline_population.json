@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 325. A vanished procfs row reported as ESRCH is absence, not system-wide census uncertainty. Ordinary fixtures use the shipped forward deadline; only four declared expiry controls may shorten it, and the partial-frame control is derived from its loaded wait. The battery covers the procfs classifier, central clamp in both directions, complete AST population, loaded bound, and an accidental opt-in on a historically flaky node. The separate transform-control spec applies the byte-identical procfs transform to an import-only precondition and must ESCAPE.",
+  "_comment": "Row 325. A vanished procfs row reported as ESRCH is absence, not system-wide census uncertainty. Ordinary fixtures use the shipped forward deadline; only four declared expiry controls may shorten it, and the partial-frame control is derived from its loaded wait. The battery covers the procfs classifier, central clamp in both directions, complete AST population, loaded bound, and an accidental opt-in on a historically flaky node. The separate transform-control spec applies the byte-identical procfs transform to an import-only precondition and must ESCAPE. Regex-anchored by row 357 because the loaded partial-frame arrival measurement re-derives the anchored value; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
   "subject": "vanished procfs rows do not poison group absence and ordinary hunt/reap fixtures cannot shorten the shipped forward deadline",
   "band": [
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_probe_treats_processlookup_during_census_as_vanished",
@@ -54,7 +54,7 @@
     {
       "label": "M5 restore the partial-frame expiry below its measured loaded arrival",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
-      "old": "        reap_seconds=9, forward_expiry_is_subject=True,\n",
+      "old_regex": "(?m)^        reap_seconds=[0-9]+(?:\\.[0-9]+)?, forward_expiry_is_subject=True,\\n",
       "new": "        reap_seconds=3, forward_expiry_is_subject=True,\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_only_a_declared_subject_shortens_the_forward_deadline"

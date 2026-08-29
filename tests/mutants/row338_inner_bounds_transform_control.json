@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 338 transform control. This applies the identical valid tool-smoke 87s-to-600s regression but runs only an import/load control in the mutated test module. It must ESCAPE, proving the primary battery is caught by the bound assertions rather than syntax, import, or collection failure.",
+  "_comment": "Row 338 transform control. This applies the identical valid tool-smoke 87s-to-600s regression but runs only an import/load control in the mutated test module. It must ESCAPE, proving the primary battery is caught by the bound assertions rather than syntax, import, or collection failure. Regex-anchored by row 357 because the row-338 per-call-site measurement table re-derives the anchored value; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
   "subject": "transform control for a valid row-338 timeout regression",
   "band": [
     "tests/test_toolchain_534.py::test_fullsuite_timeout_transform_control_loads_the_tool"
@@ -9,7 +9,7 @@
     {
       "label": "CONTROL tool smoke restores 600s while an unrelated import control stays green",
       "file": "tests/test_toolchain_534.py",
-      "old": "    r = subprocess.run([sys.executable, tool, \"--gate\"], cwd=root,\n                       capture_output=True, text=True, timeout=87)",
+      "old_regex": "\\ \\ \\ \\ r\\ =\\ subprocess\\.run\\(\\[sys\\.executable,\\ tool,\\ \"\\-\\-gate\"\\],\\ cwd=root,\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ capture_output=True,\\ text=True,\\ timeout=[0-9]+(?:\\.[0-9]+)?\\)",
       "new": "    r = subprocess.run([sys.executable, tool, \"--gate\"], cwd=root,\n                       capture_output=True, text=True, timeout=600)",
       "direction": "regression",
       "catcher": "tests/test_toolchain_534.py::test_fullsuite_timeout_transform_control_loads_the_tool"

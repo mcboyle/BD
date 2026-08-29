@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1241 row-237 battery. The subject is a two-sided deadline in the PRODUCT: an owner OBSERVATION -- the fd observer, the process observer, the group observer and the descendant census registration_owner_collect runs after every owned helper -- must have a bound of its own rather than whatever the active FORWARD deadline happens to have left. Expiry on a forward wait is some test's subject; expiry on an observation is a FALSE VERDICT, and the runner then settles a correct run into retained uncertainty. Both halves of the constant are pinned separately, because v3.66.1226's first battery lost two mutants to gates that read one combined max(...) and either input could hide the loss of the other: M4 moves the shipped floor and M5 moves the measurement the floor is derived from, and they have different catchers on purpose. M2 exists because the lifecycle CEILING is not reachable from any whole-runner test inside a sane budget -- the seam test drives the shell function directly with planted clock state, which is the only place every branch is reachable. M6 is the overcorrection: applying the floor to every spawn, including the *-deadline timers whose expiry IS the mechanism, and its preserves name two pure source gates that never execute the runner at all.",
+  "_comment": "v3.66.1241 row-237 battery. The subject is a two-sided deadline in the PRODUCT: an owner OBSERVATION -- the fd observer, the process observer, the group observer and the descendant census registration_owner_collect runs after every owned helper -- must have a bound of its own rather than whatever the active FORWARD deadline happens to have left. Expiry on a forward wait is some test's subject; expiry on an observation is a FALSE VERDICT, and the runner then settles a correct run into retained uncertainty. Both halves of the constant are pinned separately, because v3.66.1226's first battery lost two mutants to gates that read one combined max(...) and either input could hide the loss of the other: M4 moves the shipped floor and M5 moves the measurement the floor is derived from, and they have different catchers on purpose. M2 exists because the lifecycle CEILING is not reachable from any whole-runner test inside a sane budget -- the seam test drives the shell function directly with planted clock state, which is the only place every branch is reachable. M6 is the overcorrection: applying the floor to every spawn, including the *-deadline timers whose expiry IS the mechanism, and its preserves name two pure source gates that never execute the runner at all. Regex-anchored by row 357 because the measured owner-observation derivation re-derives the anchored value; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
   "subject": "v3.66.1241 -- an owner observation is bounded by its own floor, not by what the forward phase left",
   "band": [
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_no_owner_observation_is_bounded_by_the_forward_deadline",
@@ -46,7 +46,7 @@
     {
       "label": "M4 SHIPPED-FLOOR-BELOW-ITS-MEASURED-COST -- 1s does not clear 0.3000s x 6.0 and does not clear the 1.51s remainder observed producing a false UNKNOWN",
       "file": "toolchain/bin/bd-wedge-hunt",
-      "old": "W1_OWNER_OBSERVATION_SECONDS=3\n",
+      "old_regex": "(?m)^W1_OWNER_OBSERVATION_SECONDS=[0-9]+(?:\\.[0-9]+)?\\n",
       "new": "W1_OWNER_OBSERVATION_SECONDS=1\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_shipped_observation_floor_clears_both_hazards"
@@ -54,7 +54,7 @@
     {
       "label": "M5 MEASUREMENT-RESTATED-10x-TOO-LOW -- the floor rule gets EASIER as its only empirical input shrinks, which is v3.66.1219's vacuity shape",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_W1_OBSERVATION_MEASURED_S = 0.3000\n",
+      "old_regex": "(?m)^_W1_OBSERVATION_MEASURED_S = [0-9]+(?:\\.[0-9]+)?\\n",
       "new": "_W1_OBSERVATION_MEASURED_S = 0.0300\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_recorded_observation_cost_matches_a_real_observation"

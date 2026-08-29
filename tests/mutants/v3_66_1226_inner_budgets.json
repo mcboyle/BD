@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "v3.66.1226 row-230 battery. The nine gates this cut adds are the subject: a budget rule nobody can violate silently is worth nothing if the gates that police it can be switched off without a failure. M3 is the one that matters -- v3.66.1219's first over-sensitivity control was VACUOUS because it compared baselines only to each other, so restating 168s as 7s stayed green. This restates a MEASURED 6.89s as 0.5s and expects a failure. BAND NARROWED to the nine gates this cut adds: the whole file is 411s serially, and these mutants are all statements about the RULE, which is exactly what those nine judge. The file's own 150 tests ran green separately at 411.60s on a quiet box (load 1.15 -> 1.32). FIRST RUN: 1 caught, 4 ESCAPED, and that result is why two of these gates exist. M1 and M4 escaped because _CONTENTION_FACTOR and _MIN_BUDGET_S mask each other inside `max(...)` -- every gate read the COMBINED value, so neither knob was pinned by anything. M5 escaped because no site is near the ceiling, so the hand-out assertion could be deleted with no observable effect. M3's catcher was simply MIS-ASSIGNED by the integrator: restating a measurement DOWNWARD raises the ratio, so a tightness gate cannot see it; only the runtime self-policing assertion in the real test can, and that test is now in the band.",
+  "_comment": "v3.66.1226 row-230 battery. The nine gates this cut adds are the subject: a budget rule nobody can violate silently is worth nothing if the gates that police it can be switched off without a failure. M3 is the one that matters -- v3.66.1219's first over-sensitivity control was VACUOUS because it compared baselines only to each other, so restating 168s as 7s stayed green. This restates a MEASURED 6.89s as 0.5s and expects a failure. BAND NARROWED to the nine gates this cut adds: the whole file is 411s serially, and these mutants are all statements about the RULE, which is exactly what those nine judge. The file's own 150 tests ran green separately at 411.60s on a quiet box (load 1.15 -> 1.32). FIRST RUN: 1 caught, 4 ESCAPED, and that result is why two of these gates exist. M1 and M4 escaped because _CONTENTION_FACTOR and _MIN_BUDGET_S mask each other inside `max(...)` -- every gate read the COMBINED value, so neither knob was pinned by anything. M5 escaped because no site is near the ceiling, so the hand-out assertion could be deleted with no observable effect. M3's catcher was simply MIS-ASSIGNED by the integrator: restating a measurement DOWNWARD raises the ratio, so a tightness gate cannot see it; only the runtime self-policing assertion in the real test can, and that test is now in the band. Regex-anchored by row 357 because the measured contention/budget derivation re-derives the anchored value; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
   "subject": "v3.66.1226 -- every inner budget clears both hazards",
   "band": [
     "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_every_wall_clock_budget_in_this_file_is_derived",
@@ -20,7 +20,7 @@
     {
       "label": "M1 the contention factor collapses to 1.0, so a budget equals its measured cost",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_CONTENTION_FACTOR = 6.0",
+      "old_regex": "(?m)^_CONTENTION_FACTOR = [0-9]+(?:\\.[0-9]+)?$",
       "new": "_CONTENTION_FACTOR = 1.0",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_each_knob_is_constrained_independently_of_the_other"
@@ -28,7 +28,7 @@
     {
       "label": "M2 the governing bound is restated as 600s, so nothing is subordinate to anything",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_GOVERNING_BOUND_S = 240.0",
+      "old_regex": "(?m)^_GOVERNING_BOUND_S = [0-9]+(?:\\.[0-9]+)?$",
       "new": "_GOVERNING_BOUND_S = 600.0",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_the_governing_bound_agrees_with_the_frozen_one"
@@ -36,7 +36,7 @@
     {
       "label": "M3 a measured cost is restated 14x too low -- the v3.66.1219 vacuity shape",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "\"registration_receipt_drift_before_go_refuses_release/wait\":                 (6.8905, 7),",
+      "old_regex": "(?m)^    \"registration_receipt_drift_before_go_refuses_release/wait\":[ \\t]+\\([0-9]+(?:\\.[0-9]+)?, [0-9]+(?:\\.[0-9]+)?\\),$",
       "new": "\"registration_receipt_drift_before_go_refuses_release/wait\":                 (0.5, 7),",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py::test_registration_receipt_drift_before_go_refuses_release[pgrp]"
@@ -44,7 +44,7 @@
     {
       "label": "M4 the absolute floor is removed, so a 1.5s-cost site keeps a tight budget",
       "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-      "old": "_MIN_BUDGET_S = 30.0",
+      "old_regex": "(?m)^_MIN_BUDGET_S = [0-9]+(?:\\.[0-9]+)?$",
       "new": "_MIN_BUDGET_S = 0.0",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_each_knob_is_constrained_independently_of_the_other"

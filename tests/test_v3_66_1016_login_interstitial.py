@@ -301,10 +301,12 @@ PAGE_KEY = "dismiss_selectors"
 def test_the_per_url_path_reads_the_per_page_key_and_never_the_login_one():
     """If ``_process_one`` fired the login-wall block it would pay for it on
     every URL -- which is the cost this cut removes."""
-    keys = [k for k, _ in _get_string_args(
-        _fn_named("bulk_downloader/runner.py", "_process_one"))]
-    assert PAGE_KEY in keys, "the per-URL dismissal stopped reading %r" % PAGE_KEY
-    assert LOGIN_KEY not in keys, (
+    helper = _fn_named("bulk_downloader/runner.py", "_dismiss_page_gates")
+    keys = [k for k, _ in _get_string_args(helper)]
+    assert keys.count(PAGE_KEY) == 1, (
+        "the per-URL seam must read %r exactly once; got %r"
+        % (PAGE_KEY, keys))
+    assert keys.count(LOGIN_KEY) == 0, (
         "_process_one reads %r -- the login wall would be retried on every "
         "URL, at 3s per selector line" % LOGIN_KEY)
 
@@ -327,17 +329,26 @@ def test_do_login_reads_the_login_key_BEFORE_it_checks_the_success_url():
         "at line %d: the check still reads the wall's URL" % (min(reads), min(checks)))
 
 
-def test_do_login_does_not_pay_for_sites_that_declare_no_wall():
-    """Guarded on the value being non-empty. Without the guard every login on
-    every site imports the helper and calls into it for nothing."""
+def test_do_login_runs_the_safe_generic_pass_even_without_a_declared_wall():
+    """Row 371's operator ruling makes the semantic pass always-on. The site
+    declaration remains the first argument source; an empty declaration is
+    not authority to skip an unknown site's measured wall."""
     fn = _fn_named("bulk_downloader/login_impl/submit.py", "do_login")
-    src = ast.unparse(fn)
-    assert LOGIN_KEY in src
-    # the read is bound to a name, and that name gates the dismissal
-    assert any(isinstance(n, ast.If) and LOGIN_KEY not in ast.unparse(n.test)
-               and "dismiss" in ast.unparse(n).lower()
-               for n in ast.walk(fn)), (
-        "the dismissal is not gated on the site declaring a wall")
+    reads = [ln for key, ln in _get_string_args(fn) if key == LOGIN_KEY]
+    assert len(reads) == 1, (
+        "the declared wall must be read exactly once; got %d reads"
+        % len(reads))
+    calls = [n for n in ast.walk(fn)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "_dismiss_interstitials"]
+    assert len(calls) == 2, (
+        "the always-on pass must cover auto-submit and normal submit exactly "
+        "once each; got %d calls" % len(calls))
+    assert all(len(call.args) >= 2
+               and isinstance(call.args[1], ast.Name)
+               and call.args[1].id == "_wall"
+               for call in calls), (
+        "both passes must try the per-site wall value before generic controls")
 
 
 # ── the config surface ────────────────────────────────────────────
@@ -502,22 +513,28 @@ def _login_against(base_url, wall_value):
 
 
 @pytest.mark.capture_serial
-def test_the_wall_blocks_the_success_url_check_until_it_is_dismissed(monkeypatch):
-    """THE DEFECT, end to end. Same server, same login, same success_url --
-    the only variable is whether the site declares its login wall."""
+def test_declared_and_unknown_sites_both_clear_the_wall_before_success_check(
+        monkeypatch):
+    """End to end: a measured declaration wins when present, while the
+    conservative generic tier clears the same wall for an unknown site."""
     _require_playwright()
     _headless_launch(monkeypatch)
+
+    # PRECONDITION: the wall has no login form/password field and exactly one
+    # safe interstitial control. A fixture with a hidden form would pass for a
+    # different reason and recreate the original false diagnosis.
+    assert _WALL_HTML.count(b"<input") == 0
+    assert _WALL_HTML.count(b"SkipPageButton-ButtonLink") == 1
+    assert _WALL_HTML.count(b"No Thanks. Continue") == 1
+
     with _serving(_wall_server()) as base:
-        undeclared_ok, undeclared_why, _ = _login_against(base, None)
+        unknown_ok, unknown_why, _ = _login_against(base, None)
         declared_ok, declared_why, _ = _login_against(
             base, "a.SkipPageButton-ButtonLink")
 
-    # the control: with no wall declared the login is thrown away on the wall's
-    # own URL. If this ever passes, the fixture stopped reproducing the defect.
-    assert undeclared_ok is False, (
-        "the fixture no longer reproduces the wall: %r" % (undeclared_why,))
-    assert "/interstitial" in undeclared_why, undeclared_why
-
+    assert unknown_ok is True, (
+        "the always-on generic pass did not clear the unknown site's wall: %r"
+        % (unknown_why,))
     assert declared_ok is True, (
         "the declared login wall was not dismissed before the success_url "
         "check: %r" % (declared_why,))

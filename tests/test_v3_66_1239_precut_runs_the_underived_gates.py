@@ -36,6 +36,7 @@ PRECUT = REPO / "toolchain" / "bin" / "bd-precut"
 #: FAILURE rather than a silently smaller expectation. Deriving the expected set
 #: from the artifact under test is how a dropped entry passes (CLAUDE.md A7).
 EXPECTED_GATES = {
+    "tests/test_row357_mutant_anchors_are_not_fragile.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
@@ -78,7 +79,7 @@ def _declared_gates() -> set[str]:
 
 
 def test_every_underived_gate_is_named_by_the_tool():
-    """The four are RUN, not merely mentioned in a comment."""
+    """The whole-tree population is RUN, not merely mentioned in a comment."""
     named = _declared_gates()
     assert named == EXPECTED_GATES, (
         "bd-precut runs %r but this contract pins %r. A gate removed from that "
@@ -104,7 +105,7 @@ def test_none_of_them_is_derivable_from_a_changed_path():
     If bd-band-derive DID select these, running them here would be redundant.
     It does not: they judge the tree, so no set of changed paths reaches them.
     This drives the real deriver over each gate's own path -- the most generous
-    possible input -- and asserts it still does not select the other three.
+    possible input -- and asserts it still does not select its peers.
     """
     derive = REPO / "toolchain" / "bin" / "bd-band-derive"
     assert derive.is_file(), derive
@@ -119,7 +120,7 @@ def test_none_of_them_is_derivable_from_a_changed_path():
             # bound -- the fifth instance of that defect in one session, and
             # the check this cut ADDS is what caught it, before the push.
             # MEASURED: one bd-band-derive call takes ~6s on an idle test5.
-            # max(30, 6 x 6) = 36; 60 leaves room for four calls under load
+            # max(30, 6 x 6) = 36; 60 leaves room for all six calls under load
             # and clears the 240 - 30 ceiling with margin.
             cwd=str(REPO), capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
@@ -150,12 +151,12 @@ def test_the_tool_treats_a_failing_underived_gate_as_BLOCKING():
 
 
 def test_an_absent_population_is_UNKNOWN_and_not_OK():
-    """The fail-open this repository keeps meeting. If none of the four is
+    """The fail-open this repository keeps meeting. If none of the population is
     present, the honest answer is UNKNOWN -- not a clean bill of health."""
     src = _precut_source()
     assert re.search(r"if not present:\s*\n\s*unknown\.append\(", src), (
         "bd-precut no longer reports an absent gate population as UNKNOWN; a "
         "zero-length list would then read as nothing to report")
     assert "len(present) < len(_UNDERIVED_GATES)" in src, (
-        "a PARTIALLY present population is no longer reported, so three gates "
-        "vanishing would still print a green line")
+        "a PARTIALLY present population is no longer reported, so part of the "
+        "population vanishing would still print a green line")

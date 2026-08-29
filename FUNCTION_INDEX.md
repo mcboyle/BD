@@ -170,7 +170,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (49 entries)
+## `bulk_downloader/runner.py` (51 entries)
 
 ```
 - L0219 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
@@ -221,7 +221,9 @@ Schema version: 2
   - L2742 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
   - L2763 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
   - L2845 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L3187 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L3187 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L3202 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L3223 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -678,14 +680,14 @@ Schema version: 2
   - L0182 `ManualLoginSession.ready`
   - L0186 `ManualLoginSession.error`
   - L0189 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0394 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0529 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0548 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0565 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0593 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0607 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0632 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0661 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+  - L0431 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0566 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0585 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0602 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0630 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0644 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0669 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0698 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 
@@ -745,4 +747,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 569 across 22 files._
+_Total entries: 571 across 22 files._

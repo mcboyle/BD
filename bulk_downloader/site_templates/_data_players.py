@@ -274,12 +274,16 @@ ITEMS = [
                 "a:has-text('No Thanks. Continue'), "
                 "a:has-text('Continue to Members Area')"
             ),
-            # These two stay per-URL on purpose: a consent gate or a close
-            # button can appear on ANY content page, so they are not
-            # login-wall selectors and moving them would lose real coverage.
+            # These stay per-URL on purpose: consent/close controls can appear
+            # on any content page, and AdultTime/EvilAngel scene requests can
+            # land on the measured "No Thanks" upsell before the destination is
+            # re-requested. Keep one comma-group so absent controls cost one
+            # measured-selector timeout rather than one timeout each.
             "dismiss_selectors": (
                 "button:has-text('I Agree'), "
-                "button[aria-label*='close' i]"
+                "button[aria-label*='close' i], "
+                "button:text-is('No Thanks'), "
+                "a:text-is('No Thanks')"
             ),
         },
     },

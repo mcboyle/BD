@@ -1,6 +1,6 @@
 {
  "schema": "bd-mutate-spec/1",
- "_comment": "v3.66.1204 shared-state attribution battery: 17 behavioral/data-flow mutants plus four explicitly structural mutants (M3-M6). The behavioral controls distinguish this run's unique marker/PID from foreign, pre-existing, torn, and outside-registry evidence and prove the complete inner denominator, zero-exit precondition, marker propagation, helper call, and failing assertion as one data flow. M3-M6 pin function-body, module-scope, definition-time decorator, and nested-default Path.write_text JSON-writer surfaces; they are not counted as runtime behavior. Re-run: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1204_shared_state_attribution.json --work . M15 was RE-ANCHORED at v3.66.1219: the tool-state gate was split one suite per item, so its suite list moved out of the test body into the module-level _SUITE_BASELINE_S. Same property, same catcher, proven still CAUGHT after the move.",
+ "_comment": "v3.66.1204 shared-state attribution battery: 17 behavioral/data-flow mutants plus four explicitly structural mutants (M3-M6). The behavioral controls distinguish this run's unique marker/PID from foreign, pre-existing, torn, and outside-registry evidence and prove the complete inner denominator, zero-exit precondition, marker propagation, helper call, and failing assertion as one data flow. M3-M6 pin function-body, module-scope, definition-time decorator, and nested-default Path.write_text JSON-writer surfaces; they are not counted as runtime behavior. Re-run: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1204_shared_state_attribution.json --work . M15 was RE-ANCHORED at v3.66.1219: the tool-state gate was split one suite per item, so its suite list moved out of the test body into the module-level _SUITE_BASELINE_S. Same property, same catcher, proven still CAUGHT after the move. Regex-anchored by row 357 because the live per-suite duration and test census re-derive the anchored values; each narrow old_regex remains exact-once while literal new preserves the original mutant intent.",
  "subject": "v3.66.1204 -- attribute shared bd-jobs evidence only to the named run",
  "band": [
   "tests/test_v3_66_1043_measurement_and_fleet_tools.py::test_bd_jobs_register_stamps_only_an_explicit_run_marker",
@@ -158,7 +158,7 @@
   {
    "label": "M15 omit the one in-band suite that writes the real registry",
    "file": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
-   "old": "    \"tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py\": 7,  # 6\n",
+   "old_regex": "(?m)^    \"tests/test_v3_66_1054_launched_work_is_bounded_and_reapable\\.py\": [0-9]+,  # [0-9]+\\n",
    "new": "    # 1054 omitted from the denominator\n",
    "direction": "regression",
    "catcher": "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py::test_the_tool_state_gate_denominator_includes_the_real_bd_jobs_writer"

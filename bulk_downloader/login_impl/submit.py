@@ -728,6 +728,63 @@ def do_login(config, allow_manual_takeover=False):
             install_recorder(page)
         except Exception: pass
 
+        # Row 371: a missing login form has several visually identical causes.
+        # Clear declared per-site gates FIRST, then the conservative generic
+        # consent/age/interstitial tiers, before selector probing can mislabel
+        # the page as stale.  The helper verifies origin after every click and
+        # returns structured outcomes; none of this is allowed to be silent.
+        from ..interstitial import (
+            dismiss_gates as _dismiss_page_gates,
+            first_safety_unknown as _first_gate_unknown,
+            safety_unknown_diagnostic as _gate_unknown_diagnostic,
+        )
+
+        def _report_gate_actions(actions):
+            for action in actions:
+                outcome = action.get("outcome", "unknown")
+                tier = action.get("tier", "unknown")
+                label = action.get("label", "")
+                reason = action.get("reason", "")
+                if outcome == "cleared":
+                    sys.stderr.write(f"  login: {reason}\n")
+                elif outcome == "refused":
+                    sys.stderr.write(
+                        f"  login: refused {tier} gate via {label!r} — "
+                        f"{reason}\n")
+                else:
+                    sys.stderr.write(
+                        f"  login: {outcome} for {tier} gate via "
+                        f"{label!r} — {reason}\n")
+
+        _pre_form_gate_actions = _dismiss_page_gates(
+            page,
+            config.get("dismiss_selectors", ""),
+            destination_url=url,
+        )
+        _report_gate_actions(_pre_form_gate_actions)
+        _pre_form_unknown = _first_gate_unknown(_pre_form_gate_actions)
+        if _pre_form_unknown:
+            _reason = _gate_unknown_diagnostic(_pre_form_unknown)
+            _hard_close()
+            return False, _reason, []
+
+        _gate_blocker = next((
+            action for action in _pre_form_gate_actions
+            if action.get("outcome") in {"refused", "label_unknown"}
+        ), None)
+
+        def _with_gate_blocker(reason):
+            if not _gate_blocker:
+                return reason
+            outcome = _gate_blocker.get("outcome")
+            label = _gate_blocker.get("label", "")
+            detail = _gate_blocker.get("reason", "")
+            if outcome == "refused":
+                return (f"Page gate refused {label!r}: {detail}. "
+                        f"{reason}")
+            return (f"Page gate safety UNKNOWN for {label!r}: {detail}. "
+                    f"{reason}")
+
         # v3.66.302: cross-origin N-step login flow. If the operator captured a
         # multi-step (possibly cross-origin) login for this site, drive it
         # (type/click/await_url across origins) before the single-form selector
@@ -870,7 +927,8 @@ def do_login(config, allow_manual_takeover=False):
             if allow_manual_takeover:
                 if trigger_needed:
                     return _hand_off(info)
-                return _hand_off(f"Couldn't find username field: {info}")
+                return _hand_off(_with_gate_blocker(
+                    f"Couldn't find username field: {info}"))
             _hard_close(); return False,info,[]
         sys.stderr.write(f"  login: filled username via [{info}]\n")
 
@@ -894,7 +952,8 @@ def do_login(config, allow_manual_takeover=False):
                 ok,info=True,s_info
             else:
                 if allow_manual_takeover:
-                    return _hand_off(f"Couldn't find password field: {info}")
+                    return _hand_off(_with_gate_blocker(
+                        f"Couldn't find password field: {info}"))
                 _hard_close(); return False,info,[]
         sys.stderr.write(f"  login: filled password via [{info}]\n")
 
@@ -907,36 +966,45 @@ def do_login(config, allow_manual_takeover=False):
         # auto-submit branch below needs it too. @1016 read it only after
         # _submit_login, which is too late for a form that submits on fill.
         _wall=config.get("dismiss_selectors_login","") or ""
+        # A form that auto-submits on fill can land on the WALL rather than
+        # on success_url -- and a wall carries no login form, so a success
+        # check made first does not fire and _submit_login below then flails
+        # its whole selector list against a page that can never satisfy it.
+        # Measured on pristine source: a stall, not a clean failure.
+        #
+        # Row 371 makes the semantic fallback always-on AND moves it in front
+        # of the success comparison: reaching success_url is not evidence that
+        # no gate is standing on the page, and a gate left standing here is
+        # the page the operator is handed.
+        from ..interstitial import dismiss_gates as _dismiss_interstitials
+        _fill_gate_actions = _dismiss_interstitials(page, _wall)
+        _report_gate_actions(_fill_gate_actions)
+        _fill_unknown = _first_gate_unknown(_fill_gate_actions)
+        if _fill_unknown:
+            _reason = _gate_unknown_diagnostic(_fill_unknown)
+            _hard_close()
+            return False, _reason, []
+        _fill_wall_cleared = any(action.get("outcome") == "cleared"
+                                 for action in _fill_gate_actions)
+        if _fill_wall_cleared:
+            sys.stderr.write("  login: dismissed a post-login interstitial "
+                             "reached by auto-submit-on-fill\n")
+            try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+            except Exception: pass
         try:
             cur_after_fill=page.url
-            if success and success in cur_after_fill:
-                sys.stderr.write(f"  login: page already at success URL after fill ({cur_after_fill[:80]})\n")
-                cookies=pw_to_json(ctx.cookies()); _hard_close()
-                return True,f"OK — {len(cookies)} cookies (auto-submitted on fill)",cookies
-            # A form that auto-submits on fill can land on the WALL rather than
-            # on success_url -- and a wall carries no login form, so the check
-            # above does not fire and _submit_login below then flails its whole
-            # selector list against a page that can never satisfy it. Measured
-            # on pristine source: a stall, not a clean failure.
-            #
-            # GATED ON A DECLARED WALL, so a site that declares none takes a
-            # byte-identical path and pays nothing -- not even the import.
-            if _wall:
-                from ..interstitial import dismiss as _dismiss_interstitials
-                if _dismiss_interstitials(page,_wall):
-                    sys.stderr.write("  login: dismissed a post-login interstitial "
-                                     "reached by auto-submit-on-fill\n")
-                    try: page.wait_for_load_state("domcontentloaded",timeout=10000)
-                    except Exception: pass
-                    cur_after_fill=page.url
-                    if success and success in cur_after_fill:
-                        sys.stderr.write(f"  login: at success URL after dismissing the wall "
-                                         f"({cur_after_fill[:80]})\n")
-                        cookies=pw_to_json(ctx.cookies()); _hard_close()
-                        return True,(f"OK — {len(cookies)} cookies "
-                                     f"(auto-submitted on fill; wall dismissed)"),cookies
         except Exception:
-            pass
+            cur_after_fill=""
+        if success and success in cur_after_fill:
+            if _fill_wall_cleared:
+                sys.stderr.write(f"  login: at success URL after dismissing the wall "
+                                 f"({cur_after_fill[:80]})\n")
+                cookies=pw_to_json(ctx.cookies()); _hard_close()
+                return True,(f"OK — {len(cookies)} cookies "
+                             f"(auto-submitted on fill; wall dismissed)"),cookies
+            sys.stderr.write(f"  login: page already at success URL after fill ({cur_after_fill[:80]})\n")
+            cookies=pw_to_json(ctx.cookies()); _hard_close()
+            return True,f"OK — {len(cookies)} cookies (auto-submitted on fill)",cookies
 
         tok,waited=_wait_captcha_tokens(page,deadline=30)
         if tok:
@@ -1019,20 +1087,28 @@ def do_login(config, allow_manual_takeover=False):
         # (cookie / age / consent) are a different scope and stay in
         # `dismiss_selectors`, which _process_one still runs per URL.
         #
-        # Guarded on the site declaring a wall, so a site without one pays
-        # nothing at all -- not even the import.
-        if _wall:
-            from ..interstitial import dismiss as _dismiss_interstitials
-            _clicked=_dismiss_interstitials(page,_wall)
-            if _clicked:
-                sys.stderr.write(f"  login: dismissed post-login interstitial "
-                                 f"({len(_clicked)} of {len(_wall.splitlines())} "
-                                 f"selector line(s))\n")
-                # A dismissal is usually a navigation. Without this the url
-                # read below can still be the wall's, which would make the
-                # dismissal look like it had not happened.
-                try: page.wait_for_load_state("domcontentloaded",timeout=10000)
-                except Exception: pass
+        # The measured per-site block remains first. The generic pass follows
+        # even when that block is blank, because unknown sites encounter the
+        # same wall and its absence from config is not evidence that it is safe
+        # to ignore.
+        from ..interstitial import dismiss_gates as _dismiss_interstitials
+        _post_gate_actions = _dismiss_interstitials(page, _wall)
+        _report_gate_actions(_post_gate_actions)
+        _post_unknown = _first_gate_unknown(_post_gate_actions)
+        if _post_unknown:
+            _reason = _gate_unknown_diagnostic(_post_unknown)
+            _hard_close()
+            return False, _reason, []
+        _clicked = [action for action in _post_gate_actions
+                    if action.get("outcome") == "cleared"]
+        if _clicked:
+            sys.stderr.write(f"  login: dismissed post-login interstitial "
+                             f"({len(_clicked)} cleared action(s))\n")
+            # A dismissal is usually a navigation. Without this the url
+            # read below can still be the wall's, which would make the
+            # dismissal look like it had not happened.
+            try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+            except Exception: pass
         try: cur=page.url
         except Exception:
             # Page closed AFTER reported successful submit — same recovery

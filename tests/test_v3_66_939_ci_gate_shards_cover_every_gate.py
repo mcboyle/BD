@@ -424,6 +424,10 @@ _DECLARED = {
     "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
+    # Row 357. Anchor fragility is a whole-population property: no changed
+    # subject path can make a diff router select the gate that audits every
+    # tracked mutation spec and its independently recorded producer evidence.
+    "tests/test_row357_mutant_anchors_are_not_fragile.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",
     "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
     "tests/test_v3_66_1188_bd_mutate_review_controls.py",
@@ -825,7 +829,7 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # scheduled; on top of main's 217 that is 218.
 # Row 377 (2026-08-29). One installed-layout selftest-state gate is declared
 # and scheduled; on top of main's 228 that is 229.
-_EXPECTED_DECLARED_GATE_COUNT = 229
+_EXPECTED_DECLARED_GATE_COUNT = 230
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
