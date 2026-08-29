@@ -1,0 +1,100 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 362. The battery independently corrupts malformed-vs-miss classification, exact counts, unavailable and empty-denominator verdicts, the one-click flow, and all three measured Gamma template additions. Its transform-control sibling applies the byte-identical HIT/MISS reversal to an import-only test and must ESCAPE.",
+  "subject": "template selector verification preserves syntax, counts, interaction, and unavailable states",
+  "band": [
+    "tests/test_row362_templates_are_resolvable.py::test_malformed_miss_and_hit_are_three_distinct_measured_states",
+    "tests/test_row362_templates_are_resolvable.py::test_the_exact_committed_evilangel_literal_is_valid_and_resolves",
+    "tests/test_row362_templates_are_resolvable.py::test_the_complete_committed_corpus_parses_with_a_reconciled_denominator",
+    "tests/test_row362_templates_are_resolvable.py::test_unreachable_subject_is_unknown_and_never_ok",
+    "tests/test_row362_templates_are_resolvable.py::test_selectorless_template_is_unknown_over_an_empty_denominator",
+    "tests/test_row362_templates_are_resolvable.py::test_dropdown_fixture_is_opened_once_before_rows_are_counted",
+    "tests/test_row362_templates_are_resolvable.py::test_blocked_trigger_makes_hidden_rows_unknown_not_ok",
+    "tests/test_row362_templates_are_resolvable.py::test_absent_direct_link_row_is_a_measured_miss_not_unknown",
+    "tests/test_row362_templates_are_resolvable.py::test_negative_control_known_to_match_does_not_report_miss",
+    "tests/test_row362_templates_are_resolvable.py::test_compound_trigger_excludes_the_six_sibling_controls",
+    "tests/test_row362_templates_are_resolvable.py::test_gamma_login_uses_the_measured_input_submit_control"
+  ],
+  "mutants": [
+    {
+      "label": "M1 syntactically malformed selectors are collapsed into zero-count misses",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "    verdict = _verdict(rows)\n    return {",
+      "new": "    for row in rows:\n        if row[\"status\"] == \"MALFORMED\":\n            row[\"status\"] = \"MISS\"\n            row[\"count\"] = 0\n            row[\"error\"] = \"\"\n    verdict = _verdict(rows)\n    return {",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_malformed_miss_and_hit_are_three_distinct_measured_states"
+    },
+    {
+      "label": "M2 nonzero counts are labelled MISS and zero counts HIT",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "        row[\"status\"] = \"HIT\" if count else \"MISS\"",
+      "new": "        row[\"status\"] = \"MISS\" if count else \"HIT\"",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_negative_control_known_to_match_does_not_report_miss"
+    },
+    {
+      "label": "M3 an unreachable subject is reported as a successful hit",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "        \"verdict\": \"UNKNOWN\",\n        \"ok\": False,\n        \"subject\": {",
+      "new": "        \"verdict\": \"HIT\",\n        \"ok\": True,\n        \"subject\": {",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_unreachable_subject_is_unknown_and_never_ok"
+    },
+    {
+      "label": "M4 the only uniquely resolved download trigger is never clicked",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "        if row.get(\"initial_count\") == 1",
+      "new": "        if row.get(\"initial_count\") == -1",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_dropdown_fixture_is_opened_once_before_rows_are_counted"
+    },
+    {
+      "label": "M5 exact multi-row counts are collapsed to a boolean",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "            count = page.locator(row[\"selector\"]).count()",
+      "new": "            count = int(page.locator(row[\"selector\"]).count() > 0)",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_malformed_miss_and_hit_are_three_distinct_measured_states"
+    },
+    {
+      "label": "M6 the icon-qualified Gamma trigger is syntactically broken",
+      "file": "bulk_downloader/site_templates/_data_players.py",
+      "old": "                    \"[class*='ScenePlayerHeaderPlus-IconItem']:has([class*='Icon-Download'])\",",
+      "new": "                    \"[class*='ScenePlayerHeaderPlus-IconItem']:has([class*='Icon-Download']\",",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_the_complete_committed_corpus_parses_with_a_reconciled_denominator"
+    },
+    {
+      "label": "M7 the measured Gamma option-row substring is replaced by an absent class",
+      "file": "bulk_downloader/site_templates/_data_players.py",
+      "old": "                    \"a[class*='DownloadOption'][href*='/movieaction/download/']\",",
+      "new": "                    \"a[class*='MissingOption'][href*='/movieaction/download/']\",",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_negative_control_known_to_match_does_not_report_miss"
+    },
+    {
+      "label": "M8 the measured input submit control is replaced by an absent id",
+      "file": "bulk_downloader/site_templates/_data_players.py",
+      "old": "                    \"#submit\",",
+      "new": "                    \"#submit-missing\",",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_gamma_login_uses_the_measured_input_submit_control"
+    },
+    {
+      "label": "M9 a failed trigger interaction still permits a confident verdict",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "            if interaction[\"error\"]:\n                for row in rows:",
+      "new": "            if False and interaction[\"error\"]:\n                for row in rows:",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_blocked_trigger_makes_hidden_rows_unknown_not_ok"
+    },
+    {
+      "label": "M10 a direct-link template invents a missing reveal interaction",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "    if not trigger_controls:\n        # Direct-link templates require no reveal interaction; zero is a real",
+      "new": "    if False and not trigger_controls:\n        # Direct-link templates require no reveal interaction; zero is a real",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_absent_direct_link_row_is_a_measured_miss_not_unknown"
+    }
+  ]
+}

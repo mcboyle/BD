@@ -4449,7 +4449,7 @@ def _create_site(data, actor="api"):
     # to strings; reject obviously-bad collection types.
     for str_field in ("name","login_url","username","password","cookie_file",
                       "download_dir","trigger_selector","dl_selector",
-                      "user_field","pass_field","submit_btn","success_url",
+                      "user_field","pass_field","submit_btn","login_trigger","success_url",
                       "filename_template","sched_time","min_resolution"):
         if str_field in data:
             v = data[str_field]

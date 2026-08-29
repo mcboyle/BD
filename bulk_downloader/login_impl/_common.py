@@ -3,6 +3,73 @@
 import time
 
 
+def _selector_text(raw):
+    """Return the CSS selector carried by a plain or structured chain step."""
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, dict):
+        return str(raw.get("selector") or "").strip()
+    return ""
+
+
+def _first_positive_size_match(page, selector):
+    """Return the first visible, positive-size match for ``selector``.
+
+    Login pages often keep desktop and mobile controls in the DOM together.
+    Resolving ``.first`` can therefore select a hidden mobile control even
+    though a later desktop match is clickable.  Presence alone is also not a
+    useful signal for modal login fields: a complete ``display:none`` form is
+    present but has no usable box.
+    """
+    try:
+        matches = page.locator(selector)
+        count = matches.count()
+    except Exception:
+        return None
+    for index in range(count):
+        try:
+            match = matches.nth(index)
+            if not match.is_visible():
+                continue
+            box = match.bounding_box()
+            if (box and box.get("width", 0) > 0
+                    and box.get("height", 0) > 0):
+                return match
+        except Exception:
+            continue
+    return None
+
+
+def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
+    """Reveal a configured modal login form when no username field is usable.
+
+    Returns ``(needed, fired, detail)``.  Empty/missing/non-string trigger
+    values return immediately without touching the page, preserving the
+    historical path for sites that do not opt in.
+    """
+    if not isinstance(login_trigger, str):
+        return False, False, ""
+    trigger = login_trigger.strip()
+    if not trigger:
+        return False, False, ""
+
+    for raw_selector in username_selectors:
+        selector = _selector_text(raw_selector)
+        if selector and _first_positive_size_match(page, selector) is not None:
+            return False, False, "username field is already visible"
+
+    visible_trigger = _first_positive_size_match(page, trigger)
+    if visible_trigger is None:
+        return True, False, f"configured trigger [{trigger}] has no visible match"
+    try:
+        visible_trigger.click(timeout=2500)
+        return True, True, f"clicked visible trigger [{trigger}]"
+    except Exception as exc:
+        return True, False, (
+            f"could not click visible trigger [{trigger}]: {str(exc)[:120]}"
+        )
+
+
 def _all_visible(page,selectors):
     """Return the first visible match from the candidate list. Tries each
     selector with a short wait_for; fast-fails so we can move on. None

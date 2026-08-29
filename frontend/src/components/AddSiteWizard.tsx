@@ -86,9 +86,13 @@ const EMPTY_DRAFT: SiteConfigDraft = {
   user_field: "",
   pass_field: "",
   submit_btn: "",
+<<<<<<< Updated upstream
   quality_preference: DEFAULT_SITE_QUALITY_PREFERENCE,
   min_resolution: DEFAULT_SITE_MIN_RESOLUTION,
   log_network: false,
+=======
+  login_trigger: "",
+>>>>>>> Stashed changes
 };
 
 interface SiteTemplate {
@@ -488,6 +492,17 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
                     value={draft.submit_btn ?? ""}
                     onChange={(e) => setField("submit_btn", e.target.value)}
                     placeholder={'button[type="submit"]'}
+                  />
+                </Field>
+                <Field
+                  label="Login trigger"
+                  hint="CSS selector for the control that reveals a hidden login form"
+                >
+                  <Input
+                    aria-label="Login trigger selector"
+                    value={draft.login_trigger ?? ""}
+                    onChange={(e) => setField("login_trigger", e.target.value)}
+                    placeholder={'a[data-open-login]'}
                   />
                 </Field>
               </Collapsible>

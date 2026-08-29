@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3971,
+  "edge_count": 3978,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2016,6 +2016,10 @@
       "bulk_downloader/pattern_hygiene.py",
       "bulk_downloader/selector_lint.py"
     ],
+    "bulk_downloader/template_selector_verifier.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/selector_playground.py"
+    ],
     "bulk_downloader/temporal_benchmark.py": [
       "bulk_downloader/capture_synth.py",
       "bulk_downloader/capture_template.py",
@@ -3504,6 +3508,9 @@
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
     ],
+    "tests/test_row362_templates_are_resolvable.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_row363_affordance_learning.py": [
       "bulk_downloader/app_captures.py",
       "bulk_downloader/dom_recorder.py",
@@ -3512,6 +3519,14 @@
       "bulk_downloader/template_manager.py",
       "tools/capture_session.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_row372_gate_dismissal.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row373_login_trigger.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/selector_chains.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

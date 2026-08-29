@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Row 362 options-present fixture</title></head>
+  <body>
+    <main data-fixture-shape="options-already-present">
+      <form id="loginForm">
+        <input id="username" name="username" autocomplete="username">
+        <input id="password" name="password" type="password" autocomplete="current-password">
+        <input id="submit" name="submit" type="submit" value="Click here to login">
+      </form>
+      <button class="ScenePlayerHeaderPlus-IconItem-Button styles_like"><span class="Icon-Like"></span>Like</button>
+      <button class="ScenePlayerHeaderPlus-IconItem-Button styles_dislike"><span class="Icon-Dislike"></span>Dislike</button>
+      <button class="ScenePlayerHeaderPlus-IconItem-Button styles_favorite"><span class="Icon-Favorite"></span>Favorite</button>
+      <button class="ScenePlayerHeaderPlus-IconItem-Button styles_save"><span class="Icon-Save"></span>Save</button>
+      <button id="download-control" class="ScenePlayerHeaderPlus-IconItem-Button styles_download">
+        <span class="Icon-DownloadRevamp styles_icon"></span>Download
+      </button>
+      <button class="ScenePlayerHeaderPlus-IconItem-Button styles_picture"><span class="Icon-Picture"></span>Pictures</button>
+      <button class="ScenePlayerHeaderPlus-IconItem-Button styles_report"><span class="Icon-Report"></span>Report</button>
+      <output id="click-count">0</output>
+      <section class="DownloadOptionPanel decoy-without-an-href">
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/160p/mp4">Low 160p 91.23 MB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/240p/mp4">Small 240p 147.56 MB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/360p/mp4">Medium 360p 222.34 MB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/480p/mp4">High 480p 256.56 MB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/540p/mp4">Web HD 540p 415.13 MB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/720p/mp4">HD 720p 644.65 MB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/1080p/mp4">Full HD 1080p 1.27 GB</a>
+        <a class="Link Kosmos-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/2160p/mp4">4K 2160p 3.77 GB</a>
+      </section>
+      <a class="download-link" href="/offline-control.mp4">Legacy syntax control</a>
+    </main>
+    <script>
+      document.querySelector("#download-control").addEventListener("click", () => {
+        const counter = document.querySelector("#click-count");
+        counter.value = String(Number(counter.value) + 1);
+      });
+    </script>
+  </body>
+</html>
