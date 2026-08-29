@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1335 - open the modal, do not fall back to a human
+
+-    assert body["unique_fields"] == 238, body["unique_fields"]  # v3.66.702:
+-    "login_url": ["user_field", "pass_field", "submit_btn", "success_url", "
+-    "user_field": ["login_url", "pass_field", "submit_btn"],
+-    "pass_field": ["login_url", "user_field", "submit_btn"],
+-    "submit_btn": ["login_url", "user_field", "pass_field"],
+- open the modal, do not fall back to a human
+- application: 8 file(s) in bulk_downloader/ changed
+- frontend: 4 file(s) changed
+- test: source_window_hashes.json
+- test: test_row373_login_trigger.py
+- test: test_settings_center_wiring.py
+- 20 file(s), 707 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _login_trigger.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1334 - four gates, one symptom, and a control that must never be clicked
 
 -            # Dismiss PER-PAGE interstitials (cookie banners, age gates,

@@ -190,19 +190,19 @@
       "sha256": "221b24de44da61ca69a77e7ae0ca1561faacc13b4f7d5e18889aade7b29ec781"
     },
     {
-      "bytes": 1010,
+      "bytes": 1008,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_captcha_short_circuits_to_manual::src[pos:pos + 1000]::1",
-      "sha256": "b5e6744f070ddc17ba0b6139d87c9bd88f55e482a03eef5e957af0dba3fcfd44"
+      "sha256": "19553a8ce2b32ecf3df082007f5b291eefde95c70b38607d44582c5518f37da7"
     },
     {
-      "bytes": 6018,
+      "bytes": 6016,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_failure_falls_back_silently::src[pos:pos + 6000]::1",
-      "sha256": "8af2b77702cc80a10846a474e42a14704a24d073a47289178601d2bcfa3207b1"
+      "sha256": "f780a580c16d0f78686a421766ada04f124112ae2c2a679202c96293a5df1bc9"
     },
     {
       "bytes": 500,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_path_prepends_not_replaces_candidates::src[pos:pos + 500]::1",
-      "sha256": "60414203cda91367b7a6029537291fba661596b812041fe4605a8760720cced3"
+      "sha256": "07dae0336c28bd18ce775daa8364dd4b389c3075d86ce2a5d8f1da299317ef61"
     },
     {
       "bytes": 500,

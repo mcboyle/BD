@@ -267,6 +267,7 @@
     "live_max_active_recordings": "full",
     "live_poll_interval_s": "full",
     "log_network": "full",
+    "login_trigger": "full",
     "login_url": "full",
     "max_concurrent": "full",
     "max_mbps": "full",

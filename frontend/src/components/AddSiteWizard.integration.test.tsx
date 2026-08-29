@@ -41,7 +41,7 @@ describe("AddSiteWizard shared-primitive adoption (Slice 4c.4 / 4d)", () => {
 });
 
 // 3b (v3.66.512) — quick-add can now set login selectors (user_field /
-// pass_field / submit_btn) under an Advanced disclosure, so a host with no
+// pass_field / submit_btn / login_trigger) under an Advanced disclosure, so a host with no
 // curated login template can self-drive login from the quick flow. The
 // backend already accepts these as cfg keys (app.py do_login + CFG_FIELDS);
 // this is the FE gap. Collapsed by default; the whole draft is POSTed, so a
@@ -54,6 +54,7 @@ describe("AddSiteWizard advanced login selectors (3b)", () => {
     expect(screen.getByLabelText("Username field selector")).toBeInTheDocument();
     expect(screen.getByLabelText("Password field selector")).toBeInTheDocument();
     expect(screen.getByLabelText("Submit button selector")).toBeInTheDocument();
+    expect(screen.getByLabelText("Login trigger selector")).toBeInTheDocument();
   });
 
   it("wires the username selector into the draft (controlled input)", () => {
@@ -62,6 +63,14 @@ describe("AddSiteWizard advanced login selectors (3b)", () => {
     const uf = screen.getByLabelText("Username field selector") as HTMLInputElement;
     fireEvent.change(uf, { target: { value: 'input[name="email"]' } });
     expect(uf.value).toBe('input[name="email"]');
+  });
+
+  it("wires the login trigger selector into the draft (controlled input)", () => {
+    open();
+    fireEvent.click(screen.getByRole("button", { name: /advanced.*login selectors/i }));
+    const trigger = screen.getByLabelText("Login trigger selector") as HTMLInputElement;
+    fireEvent.change(trigger, { target: { value: "[data-open-login]" } });
+    expect(trigger.value).toBe("[data-open-login]");
   });
 });
 
