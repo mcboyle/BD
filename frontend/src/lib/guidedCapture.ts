@@ -10,6 +10,102 @@
 
 import { apiGet, apiPost } from "@/lib/api-client";
 
+export type SceneCrawlState =
+  | "IDLE"
+  | "RUNNING"
+  | "COMPLETED"
+  | "NOT_LOGGED_IN"
+  | "FAILED";
+
+export interface SceneCrawlDefaults {
+  listing_url: string;
+  newest_n: number;
+  max_pages?: number;
+  max_scrolls?: number;
+  delay_s?: number;
+  title_fetch_limit?: number;
+}
+
+export interface SceneCrawlStatus {
+  ok?: boolean;
+  run_id?: string;
+  site_id?: string;
+  state: SceneCrawlState;
+  discovered: number;
+  queued: number;
+  pages_walked: number;
+  zero_scenes_found: boolean;
+  error?: string;
+  defaults?: SceneCrawlDefaults;
+}
+
+export interface SceneCrawlView {
+  tone: "neutral" | "info" | "success" | "warning" | "danger";
+  label: string;
+}
+
+/** Fail-closed crawler copy: logged out is never rendered as an empty library. */
+export function sceneCrawlView(status: SceneCrawlStatus): SceneCrawlView {
+  if (status.state === "NOT_LOGGED_IN") {
+    return {
+      tone: "warning",
+      label: "Not logged in — refresh this site's authenticated session before discovery.",
+    };
+  }
+  if (status.state === "FAILED") {
+    return {
+      tone: "danger",
+      label: status.error ? `Discovery failed: ${status.error}` : "Discovery failed.",
+    };
+  }
+  if (status.state === "RUNNING") {
+    return { tone: "info", label: "Discovering scenes… scrolling and walking pages." };
+  }
+  if (status.state === "COMPLETED") {
+    if (status.zero_scenes_found) {
+      return {
+        tone: "neutral",
+        label: `No scenes found after ${status.pages_walked} ${status.pages_walked === 1 ? "page" : "pages"}.`,
+      };
+    }
+    return {
+      tone: "success",
+      label: `${status.discovered} discovered · ${status.queued} queued · ${status.pages_walked} ${status.pages_walked === 1 ? "page" : "pages"}`,
+    };
+  }
+  return { tone: "neutral", label: "Ready to discover the newest scenes." };
+}
+
+export interface StartSceneCrawlRequest {
+  site_id: string;
+  listing_url: string;
+  newest_n: number;
+  max_pages: number;
+  max_scrolls: number;
+  delay_s: number;
+  title_fetch_limit: number;
+}
+
+export interface SceneCrawlStartResponse {
+  ok: boolean;
+  run_id: string;
+  site_id: string;
+  state: "RUNNING";
+}
+
+export async function startSceneCrawl(
+  request: StartSceneCrawlRequest,
+): Promise<SceneCrawlStartResponse> {
+  return apiPost<SceneCrawlStartResponse>("/api/discovery/scenes/start", request);
+}
+
+export async function fetchSceneCrawlStatus(
+  siteId: string,
+): Promise<SceneCrawlStatus> {
+  const query = new URLSearchParams({ site_id: siteId });
+  return apiGet<SceneCrawlStatus>(`/api/discovery/scenes/status?${query.toString()}`);
+}
+
 export type StepKey =
   | "setup"
   | "capture"

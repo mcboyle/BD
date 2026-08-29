@@ -303,6 +303,50 @@ def test_the_fixture_gate_can_actually_fail():
         % (res[0]["verdict"], res[0]["why"]))
 
 
+def test_scene_crawler_payload_has_semantic_fixture_values():
+    """Row 374 URLs/ranges are resolved, never replayed as placeholder ``x``."""
+    from tools.body_contract_fixtures import Fixtures
+
+    fx = object.__new__(Fixtures)
+    fx.site_id = "fx_site"
+    fx.task_id = "fx_task"
+    fx.file_rel = "fixture.mp4"
+    fx.download_dir = "/tmp/fx"
+    fx.values = {}
+    fx._value_map()
+    sample = {
+        "site_id": "x",
+        "listing_url": "x",
+        "newest_n": 1,
+        "max_pages": 1,
+        "max_scrolls": 1,
+        "delay_s": 1,
+        "title_fetch_limit": 1,
+    }
+    body, missing = fx.resolve(
+        sample, path="/api/discovery/scenes/start",
+    )
+    assert missing == set()
+    assert body == {
+        "site_id": "fx_site",
+        "listing_url": "https://example.com/gallery",
+        "newest_n": 1,
+        "max_pages": 1,
+        "max_scrolls": 1,
+        "delay_s": 0.1,
+        "title_fetch_limit": 1,
+    }
+    site_body, site_missing = fx.resolve({
+        "crawler_listing_url": "x",
+        "crawler_newest_n": 1,
+    }, path="/api/sites")
+    assert site_missing == set()
+    assert site_body == {
+        "crawler_listing_url": "https://example.com/gallery",
+        "crawler_newest_n": 1,
+    }
+
+
 def test_template_onboard_probe_never_launches_a_capture(monkeypatch):
     """Contract probes are inert even when generated input asks to run."""
     from tools import body_contract as bc
