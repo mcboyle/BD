@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head><title>Evil Angel Members / Latest Videos</title></head>
+  <body>
+    <button id="enter-members" type="button" onclick="enterMembers()">
+      Continue to Members Area
+    </button>
+    <main id="library"></main>
+    <div id="spacer" style="height: 1800px"></div>
+    <script>
+      let entered = false;
+      let expanded = false;
+      const card = (slug, number, title) =>
+        `<article class="scene-card"><a href="/evilangel/en/${slug}/view/${slug}/${number}"><img alt="${title}" src="/thumb/${number}.jpg">${title}</a></article>`;
+      function enterMembers() {
+        if (entered) return;
+        entered = true;
+        document.querySelector("#enter-members").remove();
+        document.querySelector("#library").innerHTML =
+          `<a href="/account/logout">Logout</a>` +
+          card("scarlet-chase", 1, "Scarlet Chase") +
+          card("amber-moon", 2, "Amber Moon") +
+          card("violet-storm", 3, "Violet Storm") +
+          card("ruby-rain", 4, "Ruby Rain") +
+          `<nav><a class="PageLink-Link" href="/evilangel/en/videos/sort/latest/page/2">2</a></nav>`;
+      }
+      addEventListener("scroll", () => {
+        if (!entered || expanded) return;
+        expanded = true;
+        document.querySelector("#library").insertAdjacentHTML(
+          "beforeend",
+          card("silver-sky", 5, "Silver Sky") + card("golden-hour", 6, "Golden Hour"),
+        );
+        document.querySelector("#spacer").style.height = "2400px";
+      });
+    </script>
+  </body>
+</html>

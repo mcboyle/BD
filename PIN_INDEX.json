@@ -20,7 +20,7 @@
     "total": 119,
     "version": 1,
     "count_dict": 118,
-    "test_files_scanned": 1491,
+    "test_files_scanned": 1492,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -480,7 +480,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1339",
+      "value": "3.66.1340",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -1046,7 +1046,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_227_api_tokens.py",
-      "line": 279,
+      "line": 287,
       "value": {
         "read": 1,
         "enqueue": 2,
@@ -1057,18 +1057,18 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_227_api_tokens.py",
-      "line": 294,
+      "line": 302,
       "value": {
-        "read": 8,
-        "enqueue": 10,
-        "admin": 16
+        "read": 10,
+        "enqueue": 13,
+        "admin": 19
       },
       "gates_what": "test_each_scope_has_the_exact_permitted_action_set — Exercise every declared route/method through the real auth hook."
     },
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_227_api_tokens.py",
-      "line": 407,
+      "line": 415,
       "value": {
         "read": 1,
         "enqueue": 2,
@@ -1079,7 +1079,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_227_api_tokens.py",
-      "line": 449,
+      "line": 457,
       "value": {
         "read": 1,
         "enqueue": 2,

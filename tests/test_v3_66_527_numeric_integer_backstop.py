@@ -7,7 +7,7 @@ runtime consumer reads it with bare ``int(...)`` (runner.py:2962,
 runner_extractors.py:116). ``int("1080.5")`` then raises mid-download.
 
 Fix (cut 527): ``site_editor.validate_numeric_updates`` rejects a non-integer value
-for the 8 integer-typed fields, while leaving the 6 float-typed fields and every
+for integer-typed fields, while leaving float-typed fields and every
 existing accept/reject verdict unchanged.
 
 RED-first signature on PRISTINE source:
@@ -22,7 +22,7 @@ After the fix: all GREEN.
 
 Fixture is embedded inline so the gate owns its fixtures (durable lesson: a
 release-gate test must never depend on accumulated runtime state). It mirrors
-/home/claude/fixture_numeric_sites.json (the 8-int x 6-float case matrix).
+/home/claude/fixture_numeric_sites.json, extended for Row 374 crawler controls.
 
 Runner notes: the pure-helper tests (part a) only import site_editor — no app boot.
 The e2e test (part b) boots the app via the test_put_numeric_range_backstop pattern
@@ -38,12 +38,16 @@ import pytest
 INT_TYPED = {
     "max_concurrent", "max_retries", "no_button_threshold", "min_resolution",
     "chunk_size_mb", "prelogin_minutes", "parallel_chunks", "warmup_every",
+    "crawler_newest_n", "crawler_max_pages", "crawler_max_scrolls",
+    "crawler_title_fetch_limit",
 }
 FLOAT_TYPED = {
     "wait", "delay", "disk_threshold_gb", "parallel_min_size_mb",
     "auto_relogin_interval_hours", "min_size_pct",
     # v3.66.810 (MOD-1 F1.4): 0..1 fraction of the learned-lifetime median.
     "predictive_relogin_fraction",
+    # Row 374: politeness delay is intentionally fractional.
+    "crawler_delay_s",
 }
 
 # ── Embedded fixture matrix (mirrors fixture_numeric_sites.json) ───────────────
@@ -51,9 +55,11 @@ FLOAT_TYPED = {
 FRACTIONAL_INT_FLOATS = [        # int field given a fractional float -> Opt1 REJECT
     ("max_concurrent", 4.5), ("min_resolution", 1080.5),
     ("chunk_size_mb", 8.25), ("parallel_chunks", 2.5),
+    ("crawler_newest_n", 4.5), ("crawler_max_pages", 2.5),
 ]
 FRACTIONAL_INT_STRINGS = [       # int field given a fractional string -> Opt1 REJECT
     ("max_concurrent", "4.5"), ("min_resolution", "1080.5"), ("warmup_every", "1800.9"),
+    ("crawler_max_scrolls", "2.5"), ("crawler_title_fetch_limit", "9.5"),
 ]
 CLEAN_INTS = [                   # in-range whole numbers -> accept (both)
     ("max_concurrent", 4), ("max_retries", 3), ("no_button_threshold", 5),
@@ -72,6 +78,7 @@ FLOAT_FRACTIONAL = [            # float field, fractional value -> accept (both)
     ("wait", 2.5), ("delay", 3.5), ("parallel_min_size_mb", 100.5),
     ("auto_relogin_interval_hours", 12.5), ("disk_threshold_gb", 2.0),
     ("min_size_pct", 5.0),
+    ("crawler_delay_s", 0.5),
 ]
 FLOAT_STRINGS = [              # float field as string -> accept (both)
     ("wait", "2.5"), ("delay", "3.5"), ("min_size_pct", "5.0"),
@@ -79,9 +86,13 @@ FLOAT_STRINGS = [              # float field as string -> accept (both)
 OUT_OF_RANGE = [              # pre-existing range reject -> reject (both)
     ("max_concurrent", 9999), ("min_resolution", 99999),
     ("parallel_chunks", 999), ("wait", 999), ("min_size_pct", 250),
+    ("crawler_newest_n", 10001), ("crawler_max_pages", 0),
+    ("crawler_max_scrolls", 51), ("crawler_delay_s", 0),
+    ("crawler_title_fetch_limit", 1001),
 ]
 NONNUMERIC = [               # pre-existing non-numeric reject -> reject (both)
     ("max_concurrent", "abc"), ("min_resolution", "lots"), ("wait", "fast"),
+    ("crawler_newest_n", "many"), ("crawler_delay_s", "later"),
 ]
 
 

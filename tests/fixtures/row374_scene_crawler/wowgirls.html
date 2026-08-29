@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head><title>WOW Girls Members / Updates</title></head>
+  <body>
+    <a href="/account/logout">Logout</a>
+    <nav id="genres"></nav>
+    <main>
+      <article><a class="icon" title="Title Attribute" href="/wowgirls/film/title-attribute/title-attribute"><img alt="Ignored Alt" src="/thumb/w1.jpg"></a></article>
+      <article><a class="icon" aria-label="ARIA Scene" href="/wowgirls/film/aria-scene/aria-scene"><img alt="Ignored Alt Two" src="/thumb/w2.jpg"></a></article>
+      <article><a class="icon" href="/wowgirls/film/image-alt/image-alt"><img alt="Image Alt Scene" src="/thumb/w3.jpg"></a></article>
+      <article><h3>Nearest Heading Scene</h3><a class="icon" href="/wowgirls/film/nearest-heading/nearest-heading"></a></article>
+    </main>
+    <script>
+      const genres = document.querySelector("#genres");
+      for (let i = 1; i <= 20; i += 1) {
+        genres.insertAdjacentHTML("beforeend", `<a href="/wowgirls/updates/genre/${i}">${i % 2 ? "4K" : "60 Frames"}</a>`);
+      }
+    </script>
+  </body>
+</html>

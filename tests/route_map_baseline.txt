@@ -299,6 +299,8 @@
 /api/discovery/disco/runs	GET	api_discovery_disco_runs
 /api/discovery/history	GET	api_discovery_history
 /api/discovery/run	POST	api_discovery_run
+/api/discovery/scenes/start	POST	api_discovery_scenes_start
+/api/discovery/scenes/status	GET	api_discovery_scenes_status
 /api/doctor	GET	api_doctor
 /api/doctor/diagnose	POST	api_doctor_diagnose
 /api/edge_deploy/all	POST	api_edge_all

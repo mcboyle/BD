@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head><title>Evil Angel Members / Latest Videos / Page 2</title></head>
+  <body>
+    <button id="enter-members" type="button" onclick="enterMembers()">
+      Continue to Members Area
+    </button>
+    <main id="library"></main>
+    <script>
+      function enterMembers() {
+        document.querySelector("#enter-members").remove();
+        document.querySelector("#library").innerHTML = `
+          <a href="/account/logout">Logout</a>
+          <article class="scene-card"><a href="/evilangel/en/crimson-night/view/crimson-night/7"><img alt="Crimson Night" src="/thumb/7.jpg">Crimson Night</a></article>
+          <article class="scene-card"><a href="/evilangel/en/blue-horizon/view/blue-horizon/8"><img alt="Blue Horizon" src="/thumb/8.jpg">Blue Horizon</a></article>
+          <nav><a class="PageLink-Link" href="/evilangel/en/videos">1</a></nav>`;
+      }
+    </script>
+  </body>
+</html>

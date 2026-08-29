@@ -111,6 +111,13 @@ NUMERIC_RANGES = {
     # MOD-1 F1.4 (v3.66.810): predictive-relogin fraction is a 0..1 multiplier of
     # the learned-lifetime median. Float-consumed (NOT in INT_TYPED_FIELDS).
     "predictive_relogin_fraction": (0.0, 1.0),
+    # Row 374: authenticated scene discovery is bounded and polite.  Keep the
+    # persisted GUI values inside the same limits enforced by the start API.
+    "crawler_newest_n":       (0, 10000),
+    "crawler_max_pages":      (1, 500),
+    "crawler_max_scrolls":    (0, 50),
+    "crawler_delay_s":        (0.1, 30.0),
+    "crawler_title_fetch_limit": (0, 1000),
 }
 
 # v3.66.527 (VR-P11 redirected): the subset of NUMERIC_RANGES whose runtime
@@ -124,6 +131,8 @@ NUMERIC_RANGES = {
 INT_TYPED_FIELDS = frozenset({
     "max_concurrent", "max_retries", "no_button_threshold", "min_resolution",
     "chunk_size_mb", "prelogin_minutes", "parallel_chunks", "warmup_every",
+    "crawler_newest_n", "crawler_max_pages", "crawler_max_scrolls",
+    "crawler_title_fetch_limit",
 })
 
 
@@ -206,7 +215,7 @@ def validate_config(cfg: dict) -> dict:
             errors.append(f"'{field}' is required and cannot be empty.")
 
     # ── URL fields ─────────────────────────────────────────────────
-    for url_field in ("login_url", "success_url"):
+    for url_field in ("login_url", "success_url", "crawler_listing_url"):
         val = cfg.get(url_field)
         if not _is_blank(val) and not _looks_like_url(str(val)):
             errors.append(
@@ -590,6 +599,14 @@ _FIELD_TYPES = {
     # documented-default probe path. A per-build override for JD2's deprecated
     # Remote API, which has no single documented supported-hosts endpoint.
     "jd_supported_hosts_path": ("string", "JDownloader supported-hosts endpoint path (blank = default)"),
+    # Row 374: the crawler controls are schema-driven fields in the existing
+    # site editor, not opaque strings.  Descriptions become inline GUI help.
+    "crawler_listing_url": ("string", "Authenticated library listing URL"),
+    "crawler_newest_n": ("integer", "Newest scenes to queue (0 = whole library)"),
+    "crawler_max_pages": ("integer", "Maximum listing pages per run"),
+    "crawler_max_scrolls": ("integer", "Maximum infinite-scroll growth steps per page"),
+    "crawler_delay_s": ("number", "Polite delay between page requests in seconds"),
+    "crawler_title_fetch_limit": ("integer", "Maximum scene pages fetched for authoritative titles"),
 }
 
 # v3.66.468 WS4b: explicit choices for enum-typed fields. Surfaced in each

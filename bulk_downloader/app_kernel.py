@@ -422,6 +422,16 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # model pages, playlists) auto-expand into all scene URLs.
             "use_playlist_extractor",
             "playlist_max_pages",
+            # ROW 374: authenticated GUI scene discovery.  The listing URL
+            # and bounded/polite controls persist per site so the operator can
+            # resume a whole library, while the default action remains cheap
+            # newest-N discovery.
+            "crawler_listing_url",
+            "crawler_newest_n",
+            "crawler_max_pages",
+            "crawler_max_scrolls",
+            "crawler_delay_s",
+            "crawler_title_fetch_limit",
             # yt-dlp download_archive interop — read/write the archive
             # file so BD coexists with yt-dlp on the same library.
             "use_ytdlp_archive",
@@ -799,6 +809,14 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # controls pagination walking (1 = first page only).
           "use_playlist_extractor": False,
           "playlist_max_pages": 1,
+          # ROW 374: GUI discovery defaults.  Zero newest_n is the explicit
+          # whole-library mode; 50 is the intentionally cheap default.
+          "crawler_listing_url": "",
+          "crawler_newest_n": 50,
+          "crawler_max_pages": 5,
+          "crawler_max_scrolls": 8,
+          "crawler_delay_s": 1.0,
+          "crawler_title_fetch_limit": 50,
           # v3.43.75: yt-dlp download_archive interop. Default OFF;
           # opt-in per site with the path to the user's archive.
           "use_ytdlp_archive": False,

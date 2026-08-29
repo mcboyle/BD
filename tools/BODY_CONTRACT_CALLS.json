@@ -33,6 +33,8 @@
   "path": "/api/sites",
   "sample": {
    "cookie_file": "x",
+   "crawler_listing_url": "x",
+   "crawler_newest_n": 1,
    "download_dir": "x",
    "filename_template": "x",
    "log_network": false,
@@ -83,6 +85,8 @@
   "path": "/api/sites/validate",
   "sample": {
    "cookie_file": "x",
+   "crawler_listing_url": "x",
+   "crawler_newest_n": 1,
    "download_dir": "x",
    "filename_template": "x",
    "log_network": false,
@@ -1792,6 +1796,30 @@
   "sample": {
    "confirm": false,
    "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/guidedCapture.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "listing_url",
+   "newest_n",
+   "max_pages",
+   "max_scrolls",
+   "delay_s",
+   "title_fetch_limit"
+  ],
+  "path": "/api/discovery/scenes/start",
+  "sample": {
+   "delay_s": 1,
+   "listing_url": "x",
+   "max_pages": 1,
+   "max_scrolls": 1,
+   "newest_n": 1,
+   "site_id": "x",
+   "title_fetch_limit": 1
   },
   "unknownType": false
  },

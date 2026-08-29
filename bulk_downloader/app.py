@@ -552,9 +552,11 @@ _API_TOKEN_ROUTE_POLICY = {
     "/api/dashboard":               ({"GET", "HEAD"}, "read"),
     "/api/queue/v2":                ({"GET", "HEAD"}, "read"),
     "/api/history":                 ({"GET", "HEAD"}, "read"),
+    "/api/discovery/scenes/status": ({"GET", "HEAD"}, "read"),
     # enqueue surface (add to the download queue)
     "/api/queue/v2/add_url":        ({"POST"}, "enqueue"),
     "/api/sites/<sid>/queue_url":   ({"POST"}, "enqueue"),
+    "/api/discovery/scenes/start":  ({"POST"}, "enqueue"),
     # admin surface (destructive retention + token management).
     # preview discloses deletion candidates (paths/sizes) so it is admin.
     "/api/retention/preview/<sid>": ({"GET", "HEAD"}, "admin"),

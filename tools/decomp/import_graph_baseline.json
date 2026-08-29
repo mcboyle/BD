@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4017,
+  "edge_count": 4029,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -483,8 +483,11 @@
       "bulk_downloader/diagnostics_bundle.py"
     ],
     "bulk_downloader/app_discovery.py": [
+      "bulk_downloader/app_queue.py",
+      "bulk_downloader/audit.py",
       "bulk_downloader/disco_runner.py",
-      "bulk_downloader/discovery.py"
+      "bulk_downloader/discovery.py",
+      "bulk_downloader/scene_crawler.py"
     ],
     "bulk_downloader/app_doctor.py": [
       "bulk_downloader/db.py",
@@ -1875,6 +1878,12 @@
     "bulk_downloader/saved_searches.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/notify_apprise.py"
+    ],
+    "bulk_downloader/scene_crawler.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "bulk_downloader/scene_scoring.py": [
       "bulk_downloader/db.py"
@@ -3567,6 +3576,13 @@
       "bulk_downloader/app.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/selector_chains.py"
+    ],
+    "tests/test_row374_scene_crawler.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_discovery.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/scene_crawler.py",
+      "bulk_downloader/site_editor.py"
     ],
     "tests/test_row376_daily_budget_batching.py": [
       "bulk_downloader/constants.py",

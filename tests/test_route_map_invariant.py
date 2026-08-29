@@ -28,11 +28,18 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # sha256 of the F5.1-OPEN baseline (v3.66.392). If you intentionally re-freeze the
 # baseline at F5.1-open/close, update this too -- it guards against an accidental
 # baseline edit.
+# v3.66.1340: re-frozen for row 374 (the crawler finds the scenes in the GUI).
+# TWO routes were ADDED, none removed or re-pathed: POST /api/discovery/scenes/start
+# and GET /api/discovery/scenes/status -- the in-GUI crawler's start/poll pair. The
+# baseline went 1003 -> 1005 lines with exactly those two additions. This is an
+# INTENTIONAL surface change, so the pin is re-cut and stated here; the companion
+# test_route_surface_unchanged_since_f51_open still diffs the live surface against
+# the file, so an unstated route can still not slip through.
 # v3.66.716: re-frozen. The /api/sched_exports family (4 routes) was REMOVED by operator
 # decision -- a shadow blueprint nothing called, superseded by /api/scheduled_exports. This
 # is an INTENTIONAL surface change, so the contract is re-cut; the SHA pin exists to make an
 # ACCIDENTAL baseline edit impossible, and it did its job (it blocked until stated).
-_BASELINE_SHA = "24221c4dc4a7e32f10bda615cd5a86543c4d064ebc366e14070fa575711655c5"
+_BASELINE_SHA = "d97c9fb2b868201b097760fc62b18b9e8fa9c1546a904779c93bb57543ee3326"
 
 
 def _live_snapshot() -> str:

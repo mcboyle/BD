@@ -629,15 +629,20 @@
     "discovery": {
       "module": "app_discovery.py",
       "providers": [
+        "bulk_downloader/app_queue.py",
+        "bulk_downloader/audit.py",
         "bulk_downloader/disco_runner.py",
-        "bulk_downloader/discovery.py"
+        "bulk_downloader/discovery.py",
+        "bulk_downloader/scene_crawler.py"
       ],
-      "route_count": 4,
+      "route_count": 6,
       "routes": [
         "ROUTE /api/discovery/disco/run",
         "ROUTE /api/discovery/disco/runs",
         "ROUTE /api/discovery/history",
-        "ROUTE /api/discovery/run"
+        "ROUTE /api/discovery/run",
+        "ROUTE /api/discovery/scenes/start",
+        "ROUTE /api/discovery/scenes/status"
       ],
       "var": "discovery_bp"
     },
@@ -2339,7 +2344,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1671,
+    "edge_count": 1678,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2774,7 +2779,8 @@
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_queue.py": [
-        "bulk_downloader/app.py"
+        "bulk_downloader/app.py",
+        "bulk_downloader/app_discovery.py"
       ],
       "bulk_downloader/app_queue_templates.py": [
         "bulk_downloader/app.py"
@@ -3022,6 +3028,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_audit.py",
         "bulk_downloader/app_captures.py",
+        "bulk_downloader/app_discovery.py",
         "bulk_downloader/app_sites_collection.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/captcha_relay.py"
@@ -3282,6 +3289,7 @@
         "bulk_downloader/runner_challenge.py",
         "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/runner_transport.py",
+        "bulk_downloader/scene_crawler.py",
         "bulk_downloader/scheduling.py",
         "bulk_downloader/synthetic_tests.py"
       ],
@@ -3454,6 +3462,7 @@
         "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/saved_searches.py",
+        "bulk_downloader/scene_crawler.py",
         "bulk_downloader/scene_scoring.py",
         "bulk_downloader/scheduled_exports.py",
         "bulk_downloader/scheduling.py",
@@ -3837,7 +3846,8 @@
       ],
       "bulk_downloader/interstitial.py": [
         "bulk_downloader/login_impl/submit.py",
-        "bulk_downloader/runner.py"
+        "bulk_downloader/runner.py",
+        "bulk_downloader/scene_crawler.py"
       ],
       "bulk_downloader/jd_bridge.py": [
         "bulk_downloader/app_sites_queue.py",
@@ -4331,6 +4341,9 @@
         "bulk_downloader/bg_scheduler.py",
         "bulk_downloader/scheduled_exports.py"
       ],
+      "bulk_downloader/scene_crawler.py": [
+        "bulk_downloader/app_discovery.py"
+      ],
       "bulk_downloader/scene_scoring.py": [
         "bulk_downloader/app_scene_score.py"
       ],
@@ -4430,6 +4443,7 @@
         "bulk_downloader/profile_sync.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_auth.py",
+        "bulk_downloader/scene_crawler.py",
         "tools/cockpit_console.py"
       ],
       "bulk_downloader/shares.py": [
@@ -5595,8 +5609,11 @@
         "bulk_downloader/diagnostics_bundle.py"
       ],
       "bulk_downloader/app_discovery.py": [
+        "bulk_downloader/app_queue.py",
+        "bulk_downloader/audit.py",
         "bulk_downloader/disco_runner.py",
-        "bulk_downloader/discovery.py"
+        "bulk_downloader/discovery.py",
+        "bulk_downloader/scene_crawler.py"
       ],
       "bulk_downloader/app_doctor.py": [
         "bulk_downloader/db.py",
@@ -6987,6 +7004,12 @@
       "bulk_downloader/saved_searches.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/notify_apprise.py"
+      ],
+      "bulk_downloader/scene_crawler.py": [
+        "bulk_downloader/constants.py",
+        "bulk_downloader/db.py",
+        "bulk_downloader/interstitial.py",
+        "bulk_downloader/session_keeper.py"
       ],
       "bulk_downloader/scene_scoring.py": [
         "bulk_downloader/db.py"
