@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1348 - BD saved a related video and recorded it under this page's title
+
+- A download candidate whose URL names a different work than the page can no 
+- work_affinity() is a pure function over the page URL and a candidate URL, r
+- 0 means UNKNOWN and never refuses: with no identity derivable the ordering 
+- An explicit quality preference now chooses among same-work candidates whene
+- Measured on test6 at v3.66.1346: the page carried 159 media links, its top 
+
 ## v3.66.1347 - a rendered page is evidence; a candidate list is a claim about it
 
 - CLAUDE.md A7 gains "a rendered page is evidence; a candidate list is a clai

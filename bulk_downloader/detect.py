@@ -236,6 +236,136 @@ def codec_label(score):
         if score==sc: return lbl
     return "" if score<=0 else "unknown"
 
+# ─── SAME-WORK IDENTITY ───────────────────────────────────────────────────────
+# v3.66.x row 388 -- THE THIRD ROUTING DECISION, AS A PURE FUNCTION, in the
+# shape of runner_transport's _stream_route / _direct_media_route: two strings
+# in, a verdict out, nothing browser-coupled, so it can be checked directly.
+#
+# MEASURED on test6 2026-08-29 at v3.66.1346, live and read-only, on
+# https://members.nubilefilms.com/video/watch/254796/seeing-red-s50e30 . The
+# page carries 159 media links, SIX of which are the requested work: below the
+# scene's own six download tiers sit a Related Videos grid of ~25 scenes, then
+# Related Photos and Related Shorts, and EVERY related card publishes its own
+# full tier menu with the identical label '3840x2160 4K MP4 (5 GB)'.
+# find_best_download's top ten candidates were all related scenes at
+# score=2160 size=5368709120; the requested scene's own 4K tier scored the
+# same 2160 with size=3221225472 and did not make the top ten. So the score
+# TIED and `size` resolved the tie toward whichever scene on the page happened
+# to have the biggest file. History row 121 read `done`, library row 103 read
+# the requested title, and 5,102,802,950 bytes of a different scene were on
+# disk. Nothing in the ranking ever asked whether the candidate and the page
+# name the same work.
+#
+# RANK, DO NOT DELETE. This returns 1 or 0 and is used as the LEADING sort
+# key, never as a filter. 0 means "no identity could be derived", not "wrong":
+# sites legitimately name files unlike their page (teenmegaworld's
+# after-shower-satisfaction correctly saves TeenSexMania_Adell_3840x2160.mp4 --
+# studio_performer_resolution). When nothing on a page derives an identity every
+# candidate scores 0 and the ordering is byte-identical to the old
+# (score, size). Refusing every candidate would turn one wrong file into a
+# total outage; an audit that assumed otherwise called three innocent rows
+# damage.
+#
+# KNOWN RESIDUAL, deliberately not solved: a page slug that is a PERFORMER
+# name rather than a scene title (e.g. .../octavia-red-returns) would mark
+# every card featuring that performer as same-work, and run length does not
+# break that tie. Unobserved on either measured page -- the incident slug's
+# only overlap with the related cards is the single token 'red', which is
+# below the threshold. Stemming or fuzzy matching would add false-judgment
+# surface no measurement asks for.
+_CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_WORK_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+_PAGE_EXT_RE = re.compile(r"\.(?:html?|php|aspx?|jsp|jspx)$", re.I)
+# A run of ONE token is coincidence: both related hrefs above carry
+# 'octavia_red' and would match the page's 'red'. Two tokens and six joined
+# characters is what separates 'seeing red' (9) from 'red' (3), and admits
+# wowgirls' 'dreamingofjapan' (15) via the camelCase split.
+_WORK_MIN_TOKENS = 2
+_WORK_MIN_CHARS = 6
+# Bounds, so a hostile URL cannot turn the O(n*m) scan below into a stall.
+_WORK_MAX_PAGE_TOKENS = 40
+_WORK_MAX_CAND_TOKENS = 120
+
+def work_tokens(text):
+    """Normalize *text* into identity tokens: lowercase, camelCase split, then
+    split on every non-alphanumeric. 'DreamingOfJapan' and 'dreaming-of-japan'
+    both become ('dreaming','of','japan'); 'seeing_red_with_octavia_red'
+    becomes ('seeing','red','with','octavia','red')."""
+    if not text or not isinstance(text, str): return ()
+    try:
+        s = _CAMEL_SPLIT_RE.sub(" ", text)
+        return tuple(t for t in _WORK_SPLIT_RE.split(s.lower()) if t)
+    except Exception:
+        return ()
+
+def page_work_tokens(page_url):
+    """Identity tokens for the work named by *page_url*, or () when none.
+
+    Only http(s) URLs carry a path slug worth reading. about:blank, data: and
+    file: return () -- which is what every `set_content` fixture in this repo
+    produces, so those pages provably keep the old ordering.
+
+    The identifying segment is the last path segment that is not purely
+    numeric: `/video/watch/254796/seeing-red-s50e30` -> the slug, and
+    `/scene/seeing-red/254796` -> the slug one step back past the id.
+    """
+    if not page_url or not isinstance(page_url, str): return ()
+    if not page_url.lower().startswith(("http://", "https://")): return ()
+    try:
+        from urllib.parse import urlparse, unquote
+        path = unquote(urlparse(page_url).path or "")
+    except Exception:
+        return ()
+    for seg in reversed([s for s in path.split("/") if s]):
+        toks = work_tokens(_PAGE_EXT_RE.sub("", seg))
+        if any(not t.isdigit() for t in toks):
+            return toks
+    return ()
+
+def _longest_common_run(a, b):
+    """(token_count, joined_char_count) of the longest CONTIGUOUS token run
+    common to sequences *a* and *b*.
+
+    Contiguity is the whole point. A bag-of-words overlap would score the
+    related card `new_years_with_my_ex_with_octavia_red` a match against the
+    page slug `seeing-red-s50e30` on the shared token 'red'."""
+    if not a or not b: return (0, 0)
+    best_n = best_c = 0
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        ai = a[i - 1]
+        for j in range(1, len(b) + 1):
+            if ai == b[j - 1]:
+                n = prev[j - 1] + 1
+                cur[j] = n
+                if n >= best_n:
+                    c = sum(len(t) for t in a[i - n:i])
+                    if n > best_n or c > best_c:
+                        best_n, best_c = n, c
+        prev = cur
+    return (best_n, best_c)
+
+def work_affinity(page_url, candidate_url):
+    """1 when *candidate_url* provably names the same work as *page_url*, else 0.
+
+    0 is UNKNOWN, never a refusal -- see the section comment above. Used as the
+    leading key of the candidate sort so a candidate that cannot be shown to
+    belong to this page can never outrank one that can.
+
+    Deliberately reads the candidate's URL and not its harvested text: an
+    ancestor-walk candidate inherits its descendants' inner_text, which on a
+    scene page includes the page's own title, and that would manufacture an
+    identity for a control that has none.
+    """
+    page = page_work_tokens(page_url)
+    if not page: return 0
+    cand = work_tokens(candidate_url if isinstance(candidate_url, str) else "")
+    if not cand: return 0
+    n, c = _longest_common_run(page[:_WORK_MAX_PAGE_TOKENS],
+                               cand[:_WORK_MAX_CAND_TOKENS])
+    return 1 if (n >= _WORK_MIN_TOKENS and c >= _WORK_MIN_CHARS) else 0
+
 # ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
 def find_best_download(page,custom="",learned=None,runner=None):
     """Locate the best download candidate on the page — defensively.
@@ -371,6 +501,40 @@ def find_best_download(page,custom="",learned=None,runner=None):
                     "data-title","data-tooltip","data-original-title",
                     "data-signed-url-key","data-download")
 
+    # v3.66.x row 388: the page's OWN identity, read once. A stub page or a
+    # `set_content` fixture has no usable url; page_work_tokens then derives
+    # nothing and every candidate scores work=0, which is byte-identical to the
+    # pre-388 (score,size) ordering.
+    try:
+        _page_url=page.url or ""
+    except Exception:
+        _page_url=""
+    if not isinstance(_page_url,str): _page_url=""
+
+    # Only URL-bearing attributes decide the work. NOT the harvested text: an
+    # ancestor-walk candidate inherits its descendants' inner_text, which on a
+    # scene page includes the page's own title, and that would manufacture an
+    # identity for a control that has none.
+    _URL_ATTRS=("href","data-href","data-url","data-src","data-download",
+                "data-signed-url-key")
+
+    def gather_work(el):
+        """1 when any URL this element carries names the page's work, else 0.
+
+        Fails to 0 (unknown, rank unchanged) on any error -- never to a
+        refusal, and never to a claim of identity it could not measure."""
+        if not _page_url: return 0
+        for a in _URL_ATTRS:
+            try:
+                v=el.get_attribute(a)
+            except Exception:
+                continue
+            try:
+                if v and work_affinity(_page_url,v): return 1
+            except Exception:
+                continue
+        return 0
+
     def gather_text(el):
         parts=[]
         try: parts.append(el.inner_text() or "")
@@ -453,7 +617,8 @@ def find_best_download(page,custom="",learned=None,runner=None):
         if s<0 and not dl_re.search(t): return
         seen.add(t)
         candidates.append({"locator":el,"text":t[:160],
-                           "score":max(0,s),"size":parse_size_bytes(t)})
+                           "score":max(0,s),"size":parse_size_bytes(t),
+                           "work":gather_work(el)})
 
     # ── 1. Direct download links / explicit media extensions ──────────────
     for sel in ["a[download]",
@@ -567,7 +732,13 @@ def find_best_download(page,custom="",learned=None,runner=None):
         return None
     # P5-3 operator log — one event summarizing dropped candidates.
     _emit_filter_summary(all_dropped=False)
-    candidates.sort(key=lambda c:(c["score"],c["size"]),reverse=True)
+    # v3.66.x row 388: SAME WORK FIRST, then score, then size. `work` is the
+    # LEADING key and only ever 1 or 0, so this reorders exactly one thing --
+    # a candidate that provably belongs to this page now outranks one that
+    # cannot be shown to. Nothing is dropped, and on a page where no identity
+    # is derivable every work is 0 and this is the old (score,size) sort.
+    candidates.sort(key=lambda c:(c.get("work",0),c["score"],c["size"]),
+                    reverse=True)
     winner=candidates[0]
     # v3.65.2: include `locator` so _apply_quality_preference can return
     # a candidate other than `best`. Without it, the guard at the end of
@@ -576,7 +747,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # this path too. Same bug class as the learned-fast-path fix above.
     winner["_all_candidates"]=[
         {"text":c["text"],"score":c["score"],"size":c["size"],
-         "locator":c["locator"]}
+         "locator":c["locator"],"work":c.get("work",0)}
         for c in candidates[:10]
     ]
     return winner
