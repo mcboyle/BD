@@ -9,6 +9,8 @@ Indexes on both keep filtering sub-millisecond at any size."""
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
 import sqlite3
 import os as _os
+import threading as _threading
+import weakref as _weakref
 from contextlib import contextmanager
 from pathlib import Path as _Path_top
 from .constants import DB_PATH
@@ -533,6 +535,107 @@ class _DualWriteCursor:
         return iter(self._cur)
 
 
+class _HistoryCursor(sqlite3.Cursor):
+    """Cursor whose owning history connection can finalize a logical lease."""
+
+    def close(self):
+        owner = getattr(self, "_history_owner", None)
+        try:
+            return super().close()
+        finally:
+            if owner is not None:
+                owner._lease_cursors.discard(self)
+
+
+class _HistoryConnection(sqlite3.Connection):
+    """SQLite connection that tracks cursors created during a logical lease.
+
+    A physical connection now survives multiple ``db_conn`` blocks. Closing
+    its outstanding cursors at each block boundary preserves the old close()
+    behaviour: a partially-consumed SELECT cannot retain a read snapshot and
+    pin the WAL after its logical owner has left the context manager.
+
+    Pooling also has to preserve what open-per-call gave away for free: the
+    borrower's reference DIED at the end of its ``with`` block, so a reference
+    that escaped the block could not touch the database. Now the object
+    outlives the block, so the lease is tracked explicitly. Outside its lease
+    the handle belongs to the pool, and every statement, commit, and rollback
+    on it raises ``sqlite3.ProgrammingError`` rather than silently injecting
+    work into the NEXT borrower's transaction. ``close()`` is the deliberate
+    exception -- a stale borrower closing what it thinks it owns must not
+    close the pool's live handle, so it becomes a harmless no-op. The pool
+    itself closes through ``_force_close``, which is not guarded.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._lease_cursors = _weakref.WeakSet()
+        self._slow_query_trace = None
+        self._slow_query_config_token = None
+        # Open-and-configure in _open_history_conn runs its PRAGMAs before any
+        # lease exists, and a caller holding _open_history_conn's return value
+        # directly never had a lease to begin with; both must work.
+        self._lease_active = True
+
+    def _begin_lease(self):
+        self._lease_active = True
+
+    def _end_lease(self):
+        self._lease_active = False
+
+    def _require_lease(self):
+        if not self._lease_active:
+            raise sqlite3.ProgrammingError(
+                "Cannot operate on a pooled history connection outside its "
+                "db_conn() lease. This reference escaped its context manager; "
+                "the handle now belongs to the connection pool.")
+
+    def cursor(self, factory=_HistoryCursor):
+        # First statement: the refusal must land before any SQLite work, or
+        # the escaped reference has already touched a later transaction.
+        self._require_lease()
+        cur = super().cursor(factory)
+        self._lease_cursors.add(cur)
+        if isinstance(cur, _HistoryCursor):
+            cur._history_owner = self
+        return cur
+
+    def execute(self, sql, parameters=(), /):
+        return self.cursor().execute(sql, parameters)
+
+    def executemany(self, sql, parameters, /):
+        return self.cursor().executemany(sql, parameters)
+
+    def executescript(self, sql_script, /):
+        return self.cursor().executescript(sql_script)
+
+    def commit(self):
+        self._require_lease()
+        return super().commit()
+
+    def rollback(self):
+        self._require_lease()
+        return super().rollback()
+
+    def _close_lease_cursors(self):
+        for cur in tuple(self._lease_cursors):
+            cur.close()
+        self._lease_cursors.clear()
+
+    def _force_close(self):
+        """Physically close. The pool's path; never guarded by the lease."""
+        try:
+            self._close_lease_cursors()
+        finally:
+            super().close()
+
+    def close(self):
+        if not self._lease_active:
+            # A stale borrower must not close the pool's idle handle.
+            return
+        self._force_close()
+
+
 def _open_history_conn(path=None):
     """v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
 
@@ -558,7 +661,8 @@ def _open_history_conn(path=None):
     sqlite3.connect in this module fails test_v3_66_795_mod3_seam.py, and would
     escape dual-write when the Postgres migration lands.
     """
-    cx = sqlite3.connect(path or _resolve_db_path(), timeout=10.0)
+    cx = sqlite3.connect(
+        path or _resolve_db_path(), timeout=10.0, factory=_HistoryConnection)
     cx.row_factory = sqlite3.Row
     # v3.43.13 / v3.47.1: SQLite contention fix.
     #
@@ -601,8 +705,11 @@ def _open_history_conn(path=None):
     # statement; we time the gap between successive callbacks to derive
     # per-statement duration. Threshold + logger configurable via env to
     # support production (high threshold, sample) and dev (low threshold).
-    if _slow_query_log_enabled():
-        cx.set_trace_callback(_make_slow_query_trace())
+    # Resolve enabled (and only then the threshold) once here and bind the
+    # result to this physical connection. The trace callback is on the
+    # every-statement path; a global-config lookup there stats the config file
+    # even when its parsed contents are already cached.
+    _bind_slow_query_trace(cx)
     # v3.66.800 (MOD-3 cut 2): dual-write is OFF unless MOD3_PG_DSN is set, in
     # which case the seam -- the single interception point cut 1 exists to
     # provide -- hands back a mirroring proxy instead of the bare connection.
@@ -611,11 +718,255 @@ def _open_history_conn(path=None):
     return cx
 
 
+_DB_CONN_LOCAL = _threading.local()
+
+
+def _close_history_conn(cx):
+    """Physically close a handle the POOL owns.
+
+    Must not go through ``close()``: that is guarded so a stale borrower
+    cannot close the pool's idle handle, and routing eviction through it would
+    silently leak every connection the pool retires.
+    """
+    try:
+        force = getattr(cx, "_force_close", None)
+        if force is not None:
+            force()
+        else:
+            cx.close()
+    except Exception:
+        pass
+
+
+def _begin_history_lease(cx):
+    begin = getattr(cx, "_begin_lease", None)
+    if begin is not None:
+        begin()
+
+
+def _end_history_lease(cx):
+    end = getattr(cx, "_end_lease", None)
+    if end is not None:
+        end()
+
+
+def _finish_history_lease(cx):
+    """Finalize cursors before an otherwise-clean connection is cached."""
+    try:
+        close_cursors = getattr(cx, "_close_lease_cursors", None)
+        if close_cursors is not None:
+            close_cursors()
+        return True
+    except Exception:
+        return False
+
+
+def _reset_slow_query_trace(cx):
+    trace = getattr(cx, "_slow_query_trace", None)
+    reset = getattr(trace, "reset", None)
+    if reset is not None:
+        reset()
+
+
+_UNBOUND_CONFIG_TOKEN = object()
+
+
+def _slow_query_config_token():
+    """Cheap in-process marker for "the parsed global config was replaced".
+
+    ``global_config`` rebinds its ``_cached`` dict on a ``set_config`` write
+    and on any reload its mtime check triggers; an unchanged config returns
+    the SAME object from ``get_config`` without rebinding. Comparing object
+    identity therefore detects a Settings write with no stat at all, which is
+    what keeps a reused connection off the per-lease config-file path. A
+    strong reference is held alongside it, so the identity cannot be recycled
+    onto a different dict while we are still comparing against it.
+    """
+    try:
+        from bulk_downloader import global_config as _gc
+        return _gc._cached
+    except Exception:
+        return None
+
+
+def _bind_slow_query_trace(cx):
+    """(Re)configure this physical connection's slow-query tracer.
+
+    Costs exactly one config lookup when tracing is off and two when it is on
+    -- what the pre-pooling open paid every time -- and is called only on a
+    physical open or when the config token says the parsed config changed.
+    """
+    trace = None
+    if _slow_query_log_enabled():
+        trace = _make_slow_query_trace(_slow_query_threshold_ms())
+    previous = getattr(cx, "_slow_query_trace", None)
+    if trace is not None or previous is not None:
+        # Install ours, or retire ours. When tracing is off and BD never
+        # installed a tracer on this handle, the callback is NOT ours to
+        # clear: sqlite3 has one trace slot per connection, and a diagnostic
+        # harness that wrapped sqlite3.connect owns whatever sits in it.
+        # Clearing unconditionally silently blinded such a recorder.
+        try:
+            cx.set_trace_callback(trace)
+        except Exception:
+            pass
+    cx._slow_query_trace = trace
+    # Captured AFTER the lookups: if the lookup itself reloaded the config,
+    # the bound decision is the one that new dict describes.
+    cx._slow_query_config_token = _slow_query_config_token()
+
+
+def _refresh_slow_query_trace(cx):
+    """Apply a Settings write to a POOLED connection without polling.
+
+    A physical handle now outlives the lease that configured it, so a
+    slow-query toggle written after the open would otherwise never reach it
+    short of a reconnect or a stat on every statement. Neither is acceptable,
+    so the identity check below decides -- and it costs nothing when nothing
+    changed.
+    """
+    token = _slow_query_config_token()
+    current = getattr(cx, "_slow_query_config_token", _UNBOUND_CONFIG_TOKEN)
+    if current is not _UNBOUND_CONFIG_TOKEN and current is token:
+        return
+    _bind_slow_query_trace(cx)
+
+
+def _history_file_identity(path):
+    """Return the named database inode, or None before first creation."""
+    try:
+        st = _os.stat(path)
+        return st.st_dev, st.st_ino
+    except OSError:
+        return None
+
+
+_IDENTITY_BIND_ATTEMPTS = 3
+
+
+def _open_history_conn_bound(target, cache_path):
+    """Open the history database and bind the handle to a PROVEN inode.
+
+    ``db_conn`` caches an idle handle under the identity of the file its path
+    named, so that a same-path atomic restore retires the stale handle instead
+    of serving the replaced database forever. That identity has to be the one
+    the handle actually opened. A restore landing between the pre-open stat
+    and the open itself would file a handle on the unlinked PRE-restore inode
+    under the REPLACEMENT's identity -- and every later lease would then hit
+    in the cache precisely because the wrong identity was recorded.
+
+    So stat, open, and stat again. A changed identity means this open lost the
+    race: discard the handle and retry. ``None`` before the open is creation,
+    not replacement -- SQLite makes the file itself on first use -- so it must
+    not be read as a lost race, or every first open would reopen once.
+
+    Returns ``(connection, identity)``; the identity is the proven one, and
+    the caller must key the cache on it rather than statting again.
+    """
+    if cache_path is None:
+        return _open_history_conn(target), None
+    for attempt in range(_IDENTITY_BIND_ATTEMPTS):
+        before = _history_file_identity(cache_path)
+        cx = _open_history_conn(target)
+        identity = _history_file_identity(cache_path)
+        if (before is None or identity == before
+                or attempt == _IDENTITY_BIND_ATTEMPTS - 1):
+            return cx, identity
+        _close_history_conn(cx)
+
+
 @contextmanager
 def db_conn(path=None):
-    cx = _open_history_conn(path)
-    try: yield cx; cx.commit()
-    finally: cx.close()
+    """Lease a thread-affine history connection and preserve commit boundaries.
+
+    One idle physical connection is retained per thread. Nested leases open a
+    second handle, so an inner context cannot observe or commit its outer
+    context's transaction. Path, process, dual-write-mode, or database-file
+    identity changes retire the idle handle before reuse; ``:memory:`` retains
+    its create-per-call semantics and is never cached.
+
+    Three things open-per-call gave away for free are now explicit, because a
+    handle outliving its block no longer provides them:
+
+    * the yielded reference stops working at the end of the block
+      (``_HistoryConnection._require_lease``), so an escaped borrower cannot
+      inject a statement into the NEXT lease's transaction;
+    * the cached identity is the one proven across the open
+      (``_open_history_conn_bound``), so a same-path restore racing the open
+      cannot be filed under the replacement's inode; and
+    * a slow-query settings write reaches the live handle on the next lease
+      (``_refresh_slow_query_trace``) instead of waiting for a reconnect,
+      without statting the config file when nothing changed.
+    """
+    target = path or _resolve_db_path()
+    target_fs = _os.fspath(target)
+    # Explicit paths belong to one-shot integrity work whose captured target
+    # must be physically opened and independently observed. Pool the ordinary
+    # implicit history path only; :memory: likewise keeps create-per-call
+    # semantics.
+    cacheable = path is None and target_fs not in (":memory:", b":memory:")
+    cache_path = _os.path.abspath(target_fs) if cacheable else None
+    cache_key = None
+    if cacheable:
+        cache_key = (
+            _os.getpid(),
+            cache_path,
+            pg_backend.dual_write_enabled(),
+            _history_file_identity(cache_path),
+        )
+
+    idle = getattr(_DB_CONN_LOCAL, "idle", None)
+    cx = None
+    if cacheable and idle is not None:
+        _DB_CONN_LOCAL.idle = None
+        idle_key, idle_cx = idle
+        if idle_key == cache_key:
+            cx = idle_cx
+        else:
+            _close_history_conn(idle_cx)
+    if cx is None:
+        cx, bound_identity = _open_history_conn_bound(target, cache_path)
+        if cacheable:
+            # Key on the identity proven stable ACROSS the open. Statting
+            # again here would reopen the very window the bound open closes.
+            cache_key = (
+                _os.getpid(),
+                cache_path,
+                pg_backend.dual_write_enabled(),
+                bound_identity,
+            )
+
+    _begin_history_lease(cx)
+    _refresh_slow_query_trace(cx)
+    _reset_slow_query_trace(cx)
+    reusable = cacheable
+    try:
+        try:
+            yield cx
+        except BaseException:
+            try:
+                cx.rollback()
+            except Exception:
+                reusable = False
+            raise
+        else:
+            try:
+                cx.commit()
+            except BaseException:
+                reusable = False
+                raise
+    finally:
+        # Cursors are finalized while the lease is still live, then the
+        # cache-or-close decision runs, and only then does the handle stop
+        # answering to the borrower. Ending the lease any earlier would make
+        # this block's own cleanup refuse itself.
+        if not _finish_history_lease(cx):
+            reusable = False
+        if reusable and getattr(_DB_CONN_LOCAL, "idle", None) is None:
+            _DB_CONN_LOCAL.idle = (cache_key, cx)
+        else:
+            _close_history_conn(cx)
+        _end_history_lease(cx)
 
 
 # ── v3.48 (#22): Slow-query log ─────────────────────────────────────────
@@ -676,13 +1027,17 @@ def _slow_query_threshold_ms() -> int:
         return _SLOW_QUERY_DEFAULTS["threshold_ms"]
 
 
-def _make_slow_query_trace():
+def _make_slow_query_trace(threshold):
     """Build a fresh tracer closure per connection. Each connection has its
     own 'last statement started at' state; we can't share it because
     multiple connections may be open concurrently (pooled in WAL mode).
     """
     import time as _t
     state = {"last_ts": None, "last_sql": None}
+
+    def reset():
+        state["last_ts"] = None
+        state["last_sql"] = None
 
     def tracer(sql_str):
         # set_trace_callback fires AFTER each statement completes. The
@@ -698,7 +1053,6 @@ def _make_slow_query_trace():
         if prior_sql is None or prior_start is None:
             return
         elapsed_ms = (now - prior_start) * 1000.0
-        threshold = _slow_query_threshold_ms()
         if elapsed_ms < threshold:
             return
         # Try to log. We avoid importing the logger at module-load time
@@ -718,6 +1072,7 @@ def _make_slow_query_trace():
             # Slow-query log failure must never affect the actual query
             pass
 
+    tracer.reset = reset
     return tracer
 
 
@@ -2074,7 +2429,6 @@ def db_session_failure_clusters(lookback_days=7):
 # catches "subtly broken" on a daily cadence.
 import os as _os
 import time as _time
-import threading as _threading
 from pathlib import Path as _Path
 
 _INTEGRITY_STATE_FILE = ".integrity_last_run"

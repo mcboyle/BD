@@ -534,95 +534,121 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/db.py` (86 entries)
+## `bulk_downloader/db.py` (112 entries)
 
 ```
-- L0021 `_resolve_db_path` `[private]` — v3.66.9: pick the right DB path at call time, not import time.
-- L0042 `db_init`
-- L0212 `_ensure_captures_table` `[private]` — Idempotently create the `captures` table + indices on the given connection.
-- L0234 `db_captures_upsert` — Bulk-upsert capture index rows keyed on rel_path (the PK). Each row is a
-- L0272 `db_captures_all` — Return capture index rows as plain dicts, newest first (captured_at DESC),
-- L0307 `db_captures_prune_missing` — Delete every capture row whose rel_path is NOT in `seen_rel_paths` — how a
-- L0338 `db_integrity_check` — Run PRAGMA integrity_check if it hasn't run in the last 24 hours.
-- L0376 `_PgResultCursor` `[private]` — v3.66.804: cursor-shaped view over Postgres rows for a cut-over read.
-  - L0387 `_PgResultCursor.__init__` `[dunder]`
-  - L0392 `_PgResultCursor.fetchall`
-  - L0396 `_PgResultCursor.fetchone`
-  - L0403 `_PgResultCursor.fetchmany`
-  - L0408 `_PgResultCursor.__iter__` `[dunder]`
-  - L0411 `_PgResultCursor.__getattr__` `[dunder]`
-- L0415 `_DualWriteConn` `[private]` — v3.66.800 (MOD-3 cut 2): SQLite connection wrapper that MIRRORS writes
-  - L0439 `_DualWriteConn.__init__` `[dunder]`
-  - L0442 `_DualWriteConn.execute`
-  - L0459 `_DualWriteConn._shadow` `[private]` — v3.66.801 (MOD-3 cut 3): compare this SELECT against the shadow
-  - L0473 `_DualWriteConn.executemany`
-  - L0481 `_DualWriteConn.cursor`
-  - L0485 `_DualWriteConn.__getattr__` `[dunder]`
-  - L0488 `_DualWriteConn.__setattr__` `[dunder]`
-  - L0491 `_DualWriteConn.__enter__` `[dunder]`
-  - L0495 `_DualWriteConn.__exit__` `[dunder]`
-- L0499 `_DualWriteCursor` `[private]` — Cursor half of the dual-write proxy (see `_DualWriteConn`).
-  - L0502 `_DualWriteCursor.__init__` `[dunder]`
-  - L0505 `_DualWriteCursor.execute`
-  - L0518 `_DualWriteCursor.executemany`
-  - L0526 `_DualWriteCursor.__getattr__` `[dunder]`
-  - L0529 `_DualWriteCursor.__setattr__` `[dunder]`
-  - L0532 `_DualWriteCursor.__iter__` `[dunder]`
-- L0536 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
-- L0615 `db_conn`
-- L0638 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
-- L0659 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
-- L0679 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
-- L0724 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
-- L0734 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
-- L0777 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
-- L0807 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
-- L0828 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
-- L0867 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
-- L0949 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
-- L0975 `db_log` — Append one row to the history table. Called on every job-level
-- L1111 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
-- L1141 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
-- L1179 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
-- L1255 `db_search` — Read recent history rows with optional filters. `query` substring-
-- L1272 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
-- L1314 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent
-- L1342 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
-- L1381 `db_stats` — Aggregate history counts and total downloaded bytes for the
-- L1399 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
-- L1445 `db_prune` — Delete history rows older than `days` days. Returns the count
-- L1470 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
-- L1490 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
-- L1519 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
-- L1557 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
-- L1571 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
-- L1621 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L1665 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L1676 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L1682 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L1688 `queue_delete_site` — Called when a site is removed.
-- L1703 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L1725 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L1749 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L1771 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L1796 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L1847 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L1859 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L1873 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L1886 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L1899 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L1912 `session_event_record` — Append one row to session_history. event_type is one of:
-- L1932 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L1945 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L1992 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L2083 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L2090 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L2101 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L2113 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L2213 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L2226 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L2237 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L2257 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L0023 `_resolve_db_path` `[private]` — v3.66.9: pick the right DB path at call time, not import time.
+- L0044 `db_init`
+- L0214 `_ensure_captures_table` `[private]` — Idempotently create the `captures` table + indices on the given connection.
+- L0236 `db_captures_upsert` — Bulk-upsert capture index rows keyed on rel_path (the PK). Each row is a
+- L0274 `db_captures_all` — Return capture index rows as plain dicts, newest first (captured_at DESC),
+- L0309 `db_captures_prune_missing` — Delete every capture row whose rel_path is NOT in `seen_rel_paths` — how a
+- L0340 `db_integrity_check` — Run PRAGMA integrity_check if it hasn't run in the last 24 hours.
+- L0378 `_PgResultCursor` `[private]` — v3.66.804: cursor-shaped view over Postgres rows for a cut-over read.
+  - L0389 `_PgResultCursor.__init__` `[dunder]`
+  - L0394 `_PgResultCursor.fetchall`
+  - L0398 `_PgResultCursor.fetchone`
+  - L0405 `_PgResultCursor.fetchmany`
+  - L0410 `_PgResultCursor.__iter__` `[dunder]`
+  - L0413 `_PgResultCursor.__getattr__` `[dunder]`
+- L0417 `_DualWriteConn` `[private]` — v3.66.800 (MOD-3 cut 2): SQLite connection wrapper that MIRRORS writes
+  - L0441 `_DualWriteConn.__init__` `[dunder]`
+  - L0444 `_DualWriteConn.execute`
+  - L0461 `_DualWriteConn._shadow` `[private]` — v3.66.801 (MOD-3 cut 3): compare this SELECT against the shadow
+  - L0475 `_DualWriteConn.executemany`
+  - L0483 `_DualWriteConn.cursor`
+  - L0487 `_DualWriteConn.__getattr__` `[dunder]`
+  - L0490 `_DualWriteConn.__setattr__` `[dunder]`
+  - L0493 `_DualWriteConn.__enter__` `[dunder]`
+  - L0497 `_DualWriteConn.__exit__` `[dunder]`
+- L0501 `_DualWriteCursor` `[private]` — Cursor half of the dual-write proxy (see `_DualWriteConn`).
+  - L0504 `_DualWriteCursor.__init__` `[dunder]`
+  - L0507 `_DualWriteCursor.execute`
+  - L0520 `_DualWriteCursor.executemany`
+  - L0528 `_DualWriteCursor.__getattr__` `[dunder]`
+  - L0531 `_DualWriteCursor.__setattr__` `[dunder]`
+  - L0534 `_DualWriteCursor.__iter__` `[dunder]`
+- L0538 `_HistoryCursor` `[private]` — Cursor whose owning history connection can finalize a logical lease.
+  - L0541 `_HistoryCursor.close`
+- L0550 `_HistoryConnection` `[private]` — SQLite connection that tracks cursors created during a logical lease.
+  - L0570 `_HistoryConnection.__init__` `[dunder]`
+  - L0580 `_HistoryConnection._begin_lease` `[private]`
+  - L0583 `_HistoryConnection._end_lease` `[private]`
+  - L0586 `_HistoryConnection._require_lease` `[private]`
+  - L0593 `_HistoryConnection.cursor`
+  - L0603 `_HistoryConnection.execute`
+  - L0606 `_HistoryConnection.executemany`
+  - L0609 `_HistoryConnection.executescript`
+  - L0612 `_HistoryConnection.commit`
+  - L0616 `_HistoryConnection.rollback`
+  - L0620 `_HistoryConnection._close_lease_cursors` `[private]`
+  - L0625 `_HistoryConnection._force_close` `[private]` — Physically close. The pool's path; never guarded by the lease.
+  - L0632 `_HistoryConnection.close`
+- L0639 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
+- L0724 `_close_history_conn` `[private]` — Physically close a handle the POOL owns.
+- L0741 `_begin_history_lease` `[private]`
+- L0747 `_end_history_lease` `[private]`
+- L0753 `_finish_history_lease` `[private]` — Finalize cursors before an otherwise-clean connection is cached.
+- L0764 `_reset_slow_query_trace` `[private]`
+- L0774 `_slow_query_config_token` `[private]` — Cheap in-process marker for "the parsed global config was replaced".
+- L0792 `_bind_slow_query_trace` `[private]` — (Re)configure this physical connection's slow-query tracer.
+- L0819 `_refresh_slow_query_trace` `[private]` — Apply a Settings write to a POOLED connection without polling.
+- L0835 `_history_file_identity` `[private]` — Return the named database inode, or None before first creation.
+- L0847 `_open_history_conn_bound` `[private]` — Open the history database and bind the handle to a PROVEN inode.
+- L0879 `db_conn` — Lease a thread-affine history connection and preserve commit boundaries.
+- L0989 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
+- L1010 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
+- L1030 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
+- L1079 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
+- L1089 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
+- L1132 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
+- L1162 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
+- L1183 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
+- L1222 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
+- L1304 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
+- L1330 `db_log` — Append one row to the history table. Called on every job-level
+- L1466 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
+- L1496 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
+- L1534 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
+- L1610 `db_search` — Read recent history rows with optional filters. `query` substring-
+- L1627 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
+- L1669 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent
+- L1697 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
+- L1736 `db_stats` — Aggregate history counts and total downloaded bytes for the
+- L1754 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
+- L1800 `db_prune` — Delete history rows older than `days` days. Returns the count
+- L1825 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
+- L1845 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
+- L1874 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
+- L1912 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
+- L1926 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
+- L1976 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L2020 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L2031 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L2037 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L2043 `queue_delete_site` — Called when a site is removed.
+- L2058 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L2080 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L2104 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L2126 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L2151 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L2202 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L2214 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L2228 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L2241 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L2254 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L2267 `session_event_record` — Append one row to session_history. event_type is one of:
+- L2287 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L2300 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L2347 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L2437 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L2444 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L2455 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L2467 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L2567 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L2580 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L2591 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L2611 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 
@@ -719,4 +745,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 543 across 22 files._
+_Total entries: 569 across 22 files._

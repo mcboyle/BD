@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1344 - the root beneath row 376
+
+- the root beneath row 376
+- application: 1 file(s) in bulk_downloader/ changed
+- frontend: 1 file(s) changed
+- test: test_db_connection_open_contract.py
+- 6 file(s), 634 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    test_db_connection_open_contract.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1343 - a gate that cannot measure must not crash
 
 - a gate that cannot measure must not crash
