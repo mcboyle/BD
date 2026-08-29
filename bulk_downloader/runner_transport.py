@@ -15,7 +15,7 @@ MRO dispatch and is impossible in the staticmethod contexts anyway).
 The 4 adapter soft-import blocks are DUPLICATED here (the core dispatch in
 runner.py still references the same flags); flat-sibling imports are idempotent.
 """
-import contextlib, json, math, os, shutil, sqlite3, sys, time
+import contextlib, json, math, os, shutil, sqlite3, sys, threading, time
 from datetime import datetime
 from pathlib import Path
 
@@ -98,7 +98,133 @@ def _closeable_response_context(response):
     return contextlib.closing(response)
 
 
+_DAILY_ACCUMULATOR_REGISTRY_BOOTSTRAP_LOCK = threading.Lock()
+
+
+class _ParallelDailyByteAccounting:
+    """Shared accumulator plus exact worker-lifecycle ownership."""
+
+    def __init__(self, runner, workers):
+        self.runner = runner
+        self.accumulator = runner._start_daily_byte_accumulator()
+        self.remaining = workers
+        self.lock = threading.Lock()
+
+    def add(self, n_bytes):
+        if self.accumulator is not None:
+            self.accumulator.add(n_bytes)
+
+    def flush(self):
+        if self.accumulator is not None:
+            self.accumulator.flush()
+
+    def worker_finished(self, count=1):
+        with self.lock:
+            self.remaining -= count
+            final_worker = self.remaining == 0
+        if final_worker:
+            self.runner._finish_daily_byte_accumulator(self.accumulator)
+
+
 class TransportMixin:
+    def _register_daily_byte_accumulator(self, accumulator):
+        """Expose an active transfer's pending accounting to pause/stop."""
+        if accumulator is None:
+            return
+        registry_lock = getattr(
+            self, "_daily_byte_accumulators_lock", None
+        )
+        if registry_lock is None:
+            # SiteRunner initializes these fields. Keep the mixin usable by
+            # lightweight adapters and tests that construct it without
+            # SiteRunner.__init__.
+            with _DAILY_ACCUMULATOR_REGISTRY_BOOTSTRAP_LOCK:
+                registry_lock = getattr(
+                    self, "_daily_byte_accumulators_lock", None
+                )
+                if registry_lock is None:
+                    # Publish the lock last so another thread can never see a
+                    # registry lock before its corresponding set exists.
+                    self._daily_byte_accumulators = set()
+                    registry_lock = threading.Lock()
+                    self._daily_byte_accumulators_lock = registry_lock
+        with registry_lock:
+            self._daily_byte_accumulators.add(accumulator)
+
+    def _unregister_daily_byte_accumulator(self, accumulator):
+        if accumulator is None:
+            return
+        registry_lock = getattr(
+            self, "_daily_byte_accumulators_lock", None
+        )
+        if registry_lock is None:
+            return
+        with registry_lock:
+            self._daily_byte_accumulators.discard(accumulator)
+
+    def _flush_daily_byte_accumulators(self):
+        """Synchronously persist pending bytes for every active transfer."""
+        registry_lock = getattr(
+            self, "_daily_byte_accumulators_lock", None
+        )
+        if registry_lock is None:
+            return
+        with registry_lock:
+            accumulators = tuple(self._daily_byte_accumulators)
+        for accumulator in accumulators:
+            try:
+                accumulator.flush()
+            except Exception:
+                # Pause/stop must retain their historical fail-silent behavior;
+                # DailyByteAccumulator itself keeps a failed delta pending.
+                pass
+
+    def _start_daily_byte_accumulator(self):
+        try:
+            from . import daily_budget
+            accumulator = daily_budget.DailyByteAccumulator(self.site_id)
+        except Exception:
+            accumulator = None
+        self._register_daily_byte_accumulator(accumulator)
+        return accumulator
+
+    def _finish_daily_byte_accumulator(self, accumulator):
+        try:
+            if accumulator is not None:
+                accumulator.flush()
+        except Exception:
+            pass
+        finally:
+            self._unregister_daily_byte_accumulator(accumulator)
+
+    def _transfer_gate_open(self, accumulator, local_stop=None):
+        """Wait through pause and flush either side of an interrupt race."""
+        stopped = self._stop.is_set() or (
+            local_stop is not None and local_stop.is_set()
+        )
+        if stopped:
+            return False
+        if not self._pause.is_set() and accumulator is not None:
+            accumulator.flush()
+        while not self._pause.wait(timeout=1.0):
+            if accumulator is not None:
+                accumulator.flush()
+            if self._stop.is_set() or (
+                local_stop is not None and local_stop.is_set()
+            ):
+                return False
+        return not self._stop.is_set() and not (
+            local_stop is not None and local_stop.is_set()
+        )
+
+    def _flush_after_interrupted_write(self, accumulator, local_stop=None):
+        stopped = self._stop.is_set() or (
+            local_stop is not None and local_stop.is_set()
+        )
+        if (stopped or not self._pause.is_set()) and accumulator is not None:
+            accumulator.flush()
+        return not stopped
+
     def _download_proxy_url(self):
         """Effective proxy URL for this site's in-process payload downloads.
 
@@ -1513,6 +1639,7 @@ class TransportMixin:
                 cffi_streamer = (cffi_requests, "chrome124")
             except ImportError:
                 cffi_streamer = None
+        _daily_bytes = self._start_daily_byte_accumulator()
         try:
             if cffi_streamer is not None:
                 cffi_requests, impersonate = cffi_streamer
@@ -1612,8 +1739,10 @@ class TransportMixin:
                 with open(tmp_path,mode) as f:
                     # Phase 15.4: pick the iterator name based on which
                     # client we're using. httpx uses iter_bytes, curl_cffi
-                    # uses iter_content. Both yield bytes objects of
-                    # roughly chunk_size each.
+                    # uses iter_content. ``chunk_size`` is advisory: notably,
+                    # curl_cffi may yield much smaller transport buffers, so
+                    # hot-loop work must not assume one yield per requested
+                    # chunk.
                     iterator = (resp.iter_content(chunk_size=chunk)
                                 if cffi_streamer is not None
                                 else resp.iter_bytes(chunk_size=chunk))
@@ -1637,9 +1766,8 @@ class TransportMixin:
                         except Exception:
                             _bucket = None
                     for buf in iterator:
-                        if self._stop.is_set():
+                        if not self._transfer_gate_open(_daily_bytes):
                             raise _HTTPDownloadFailed("stopped")
-                        self._pause.wait()
                         if _bucket is not None:
                             # Acquire from token bucket — bounded wait
                             # so we never deadlock on a misconfigured
@@ -1652,15 +1780,16 @@ class TransportMixin:
                         f.write(buf)
                         downloaded+=len(buf)
                         window_bytes+=len(buf)
+                        if _daily_bytes is not None:
+                            _daily_bytes.add(len(buf))
                         # Phase 8.3: feed the rolling bandwidth tracker
                         record_bandwidth(len(buf))
-                        # Phase 196: per-site daily byte budget tracker
-                        try:
-                            from . import daily_budget as _db_budget
-                            _db_budget.record_site_bytes(
-                                self.site_id, len(buf))
-                        except Exception:
-                            pass  # never let budget bookkeeping break a download
+                        # Pause/stop may race after the pre-write gate. The
+                        # operator-side registry flush handles actions before
+                        # this add; this post-add check handles actions that
+                        # landed while the file write was in flight.
+                        if not self._flush_after_interrupted_write(_daily_bytes):
+                            raise _HTTPDownloadFailed("stopped")
                         # Phase 6.1: throttle if exceeding cap. When
                         # the token bucket is active this is a no-op
                         # most of the time (bucket already paced us);
@@ -1716,6 +1845,9 @@ class TransportMixin:
         except Exception as e:
             raise _HTTPDownloadFailed(f"unexpected: {e}")
         finally:
+            # Completion, stop, iterator/write failure, and every other exit
+            # from the response loop must persist the exact pending delta.
+            self._finish_daily_byte_accumulator(_daily_bytes)
             # v3.43.31: always release the rate-limit slot, whether we
             # succeed, fail, or get stopped. Without finally, a worker
             # that crashed in the middle of streaming would leak its
@@ -1990,23 +2122,17 @@ class TransportMixin:
                                      [{"done_bytes": 0}] * n_chunks)]
         worker_errors = [None] * n_chunks
         local_stop = _t.Event()
+        _daily_bytes = _ParallelDailyByteAccounting(self, n_chunks)
 
         def worker(idx, byte_start, byte_end):
-            # Each thread gets its own file handle and seeks to its slice
-            # start. Since slices don't overlap, this is safe across threads
-            # without any locking. Cross-platform: works on Windows too
-            # (unlike os.pwrite which is POSIX-only).
-            #
-            # v3.43.27: resume support. resume_offset[idx] is how many
-            # bytes of this chunk were already written in a previous
-            # run. We seek past them and Range-request the remainder.
-            # progress[idx] counts only THIS-RUN bytes; the absolute
-            # done count is resume_offset[idx] + progress[idx].
+            # Non-overlapping per-worker handles need no file lock. Resume
+            # advances both seek and Range start; progress is this-run only.
             effective_start = byte_start + resume_offset[idx]
             if effective_start > byte_end:
                 # Chunk was already complete in a previous run. Nothing
                 # to do; mark progress as the full slice and return.
                 progress[idx] = (byte_end - byte_start + 1) - resume_offset[idx]
+                _daily_bytes.worker_finished()
                 return
             f = None  # [SAST 3:13pm 13 may] pre-bind so the except can close on seek-failure
             try:
@@ -2016,7 +2142,9 @@ class TransportMixin:
                 if f is not None:  # [SAST 3:13pm 13 may] open() succeeded but seek() raised — close handle
                     try: f.close()  # [SAST 3:13pm 13 may]
                     except Exception: pass  # [SAST 3:13pm 13 may]
-                worker_errors[idx] = f"open failed: {e}"; return
+                worker_errors[idx] = f"open failed: {e}"
+                _daily_bytes.worker_finished()
+                return
             try:
                 req_headers = dict(headers_base)
                 req_headers["Range"] = f"bytes={effective_start}-{byte_end}"
@@ -2055,11 +2183,18 @@ class TransportMixin:
                         chunk_iter = (resp.iter_content(chunk_size=1024*1024) if _cffi
                                       else resp.iter_bytes(chunk_size=1024*1024))
                         for buf in chunk_iter:
-                            if self._stop.is_set() or local_stop.is_set():
-                                worker_errors[idx] = "stopped"; return
-                            self._pause.wait()
+                            if not self._transfer_gate_open(
+                                    _daily_bytes.accumulator, local_stop):
+                                worker_errors[idx] = "stopped"
+                                return
                             f.write(buf)
                             progress[idx] += len(buf)
+                            _daily_bytes.add(len(buf))
+                            record_bandwidth(len(buf))
+                            if not self._flush_after_interrupted_write(
+                                    _daily_bytes.accumulator, local_stop):
+                                worker_errors[idx] = "stopped"
+                                return
                 except Exception as e:
                     worker_errors[idx] = f"chunk {idx}: {str(e)[:80]}"
                 finally:
@@ -2073,12 +2208,22 @@ class TransportMixin:
             finally:
                 try: f.close()
                 except Exception: pass
+                _daily_bytes.worker_finished()
 
         threads = []
         start_time = time.time()
         for i, (s, e) in enumerate(slices):
-            t = _t.Thread(target=worker, args=(i, s, e), daemon=True)
-            t.start()
+            try:
+                t = _t.Thread(target=worker, args=(i, s, e), daemon=True)
+                t.start()
+            except Exception:
+                # Started workers own their slot; abandon this and later slots.
+                _daily_bytes.worker_finished(n_chunks - i)
+                local_stop.set()
+                for started_thread in threads:
+                    started_thread.join(timeout=3)
+                _daily_bytes.flush()
+                raise
             threads.append(t)
 
         # Monitor — aggregate progress, apply cap, update UI
@@ -2095,6 +2240,9 @@ class TransportMixin:
         pre_resume_total = sum(resume_offset)
         while True:
             alive = [t for t in threads if t.is_alive()]
+            # Total bytes = prior checkpoint baseline + this-run progress.
+            this_run = sum(progress)
+            total_bytes = pre_resume_total + this_run
             if any(worker_errors):
                 # One failed → abort all
                 local_stop.set()
@@ -2111,11 +2259,9 @@ class TransportMixin:
                 # Don't unlink the .part anymore — leave it for resume.
                 # The checkpoint is the source of truth for what's
                 # downloaded; .part is the data behind it.
+                _daily_bytes.flush()
                 raise _HTTPDownloadFailed(f"parallel: {err}")
             now = time.time()
-            # Total bytes = sum of (per-run progress) + pre-resume baseline
-            this_run = sum(progress)
-            total_bytes = pre_resume_total + this_run
             if now - last_update >= 1.0:
                 # Throttle (apply cap to total throughput across all workers)
                 if cap_mbps > 0:
@@ -2160,6 +2306,7 @@ class TransportMixin:
                     _resume.update_chunk_progress(checkpoint, i,
                         resume_offset[i] + progress[i])
                 _resume.save(final_path, checkpoint)
+            _daily_bytes.flush()
             raise _HTTPDownloadFailed(f"parallel: {err}")
         # v3.43.27: absolute completion check = pre-resume + this run
         absolute_total = pre_resume_total + sum(progress)
@@ -2170,12 +2317,15 @@ class TransportMixin:
                     _resume.update_chunk_progress(checkpoint, i,
                         resume_offset[i] + progress[i])
                 _resume.save(final_path, checkpoint)
+            _daily_bytes.flush()
             raise _HTTPDownloadFailed(
                 f"parallel: short read ({absolute_total}/{total})")
 
         # Atomic rename
         try: tmp_path.rename(final_path)
-        except Exception as e: raise _HTTPDownloadFailed(f"rename failed: {e}")
+        except Exception as e:
+            _daily_bytes.flush()
+            raise _HTTPDownloadFailed(f"rename failed: {e}")
         # v3.43.27: file is complete; clean up the checkpoint sidecar.
         _resume.cleanup(final_path)
         # (size_on_disk, bytes_transferred_this_call) -- `progress` holds the
@@ -2185,6 +2335,7 @@ class TransportMixin:
             _transferred = sum(progress)
         except Exception:
             _transferred = 0
+        _daily_bytes.flush()
         return final_path.stat().st_size, max(0, _transferred)
     def _current_cap_mbps(self):
         """Return the current effective speed cap in MB/s.

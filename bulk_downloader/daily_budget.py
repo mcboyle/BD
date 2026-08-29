@@ -9,10 +9,11 @@ Use cases:
   • Politeness — don't hammer a single source
   • Quota-aware paywalled sites where the operator pays per GB
 
-Storage: a single SQL table tracking `(site_id, ymd, bytes)`. Cheap
-to write: every download chunk fires a single UPSERT-style INCREMENT
-via record_site_bytes(). Read on every worker pickup to check
-"would taking this URL push us over?"
+Storage: a single SQL table tracking `(site_id, ymd, bytes)`. Download
+transports accumulate newly written bytes in memory and pass bounded deltas
+to record_site_bytes(); response-buffer boundaries are deliberately not
+database-write boundaries. Read on every worker pickup to check "would taking
+this URL push us over?"
 
 Config: per-site `daily_byte_budget` (integer, bytes). 0/unset = no cap.
 
@@ -22,6 +23,7 @@ plumbing needed since BD already runs in operator's local TZ.
 """
 from __future__ import annotations
 
+import threading
 import time
 from typing import Optional
 
@@ -29,6 +31,13 @@ from . import db as _db
 
 
 _TABLE_READY = False
+_ACCOUNTING_STATE_LOCK = threading.Lock()
+_SITE_ACCOUNTING_LOCKS: dict[str, threading.RLock] = {}
+_SITE_ACCOUNTING_EPOCHS: dict[tuple[str, str], int] = {}
+_RETRY_CONDITION = threading.Condition()
+_RETRY_DELTAS: dict[tuple[str, str, int], int] = {}
+_RETRY_WORKER: Optional[threading.Thread] = None
+_RETRY_MAX_BACKOFF = 60.0
 
 
 def _ensure_table():
@@ -60,32 +69,236 @@ def _today_ymd() -> str:
     return time.strftime("%Y-%m-%d", time.localtime())
 
 
-def record_site_bytes(site_id: str, n_bytes: int):
-    """Increment today's counter for this site. Called from the runner's
-    httpx chunk loop alongside record_bandwidth(). Cheap: one UPSERT
-    on a small indexed table.
+def record_site_bytes(
+    site_id: str,
+    n_bytes: int,
+    *,
+    ymd: Optional[str] = None,
+) -> bool:
+    """Durably increment one day's counter for this site.
 
-    Fail-silent: a transient DB lock shouldn't block a download chunk."""
+    This is a database boundary, not a per-response-buffer primitive. Streaming
+    callers batch byte deltas before invoking it; each invocation still ensures
+    the lazily-created schema and opens a database connection.
+
+    ``ymd`` lets a delayed batch retain the date on which its bytes were
+    written. Callers that omit it retain the historical "today" behavior.
+
+    Fail-silent: a transient DB lock shouldn't abort a download. The Boolean
+    result lets a batching caller retain and retry an uncommitted delta."""
     if not site_id or n_bytes <= 0:
-        return
+        return True
     _ensure_table()
     try:
-        ymd = _today_ymd()
+        accounting_ymd = ymd or _today_ymd()
         with _db.db_conn() as cx:
-            # SQLite upsert: INSERT OR IGNORE creates the row, then
-            # UPDATE adds the delta. Cheaper than reading first.
+            now = time.time()
             cx.execute("""
                 INSERT INTO daily_site_bytes (site_id, ymd, bytes, last_update_ts)
-                VALUES (?, ?, 0, ?)
-                ON CONFLICT(site_id, ymd) DO NOTHING
-            """, (site_id, ymd, time.time()))
-            cx.execute("""
-                UPDATE daily_site_bytes
-                SET bytes = bytes + ?, last_update_ts = ?
-                WHERE site_id = ? AND ymd = ?
-            """, (n_bytes, time.time(), site_id, ymd))
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(site_id, ymd) DO UPDATE SET
+                    bytes = daily_site_bytes.bytes + excluded.bytes,
+                    last_update_ts = excluded.last_update_ts
+            """, (site_id, accounting_ymd, n_bytes, now))
+        return True
     except Exception:
-        pass  # fail-silent
+        return False  # fail-silent
+
+
+def _site_accounting_lock(site_id: str) -> threading.RLock:
+    with _ACCOUNTING_STATE_LOCK:
+        lock = _SITE_ACCOUNTING_LOCKS.get(site_id)
+        if lock is None:
+            lock = threading.RLock()
+            _SITE_ACCOUNTING_LOCKS[site_id] = lock
+        return lock
+
+
+def _accounting_period(site_id: str) -> tuple[str, int]:
+    """Capture date and reset generation at the byte-accounting boundary."""
+    accounting_ymd = _today_ymd()
+    with _ACCOUNTING_STATE_LOCK:
+        epoch = _SITE_ACCOUNTING_EPOCHS.get((site_id, accounting_ymd), 0)
+    return accounting_ymd, epoch
+
+
+def _record_dated_delta(
+    site_id: str, accounting_ymd: str, epoch: int, n_bytes: int
+) -> bool:
+    """Write only if an operator reset has not invalidated this delta."""
+    lock = _site_accounting_lock(site_id)
+    with lock:
+        with _ACCOUNTING_STATE_LOCK:
+            current_epoch = _SITE_ACCOUNTING_EPOCHS.get(
+                (site_id, accounting_ymd), 0
+            )
+        if epoch != current_epoch:
+            return True
+        try:
+            result = record_site_bytes(
+                site_id, n_bytes, ymd=accounting_ymd
+            )
+            return result is not False
+        except Exception:
+            return False
+
+
+def _ensure_retry_worker_locked() -> None:
+    """Start the sole retry worker; retain queued deltas if start fails."""
+    global _RETRY_WORKER
+    if _RETRY_WORKER is not None or not _RETRY_DELTAS:
+        return
+    worker = None
+    try:
+        worker = threading.Thread(
+            target=_retry_worker_main,
+            daemon=True,
+            name="daily-byte-retry",
+        )
+        _RETRY_WORKER = worker
+        worker.start()
+    except Exception:
+        if _RETRY_WORKER is worker:
+            _RETRY_WORKER = None
+
+
+def _enqueue_retry_delta(
+    site_id: str, accounting_ymd: str, epoch: int, n_bytes: int
+) -> bool:
+    """Transfer a failed delta to one merged, process-wide retry owner."""
+    if not site_id or n_bytes <= 0:
+        return True
+    key = (site_id, accounting_ymd, epoch)
+    try:
+        with _RETRY_CONDITION:
+            _RETRY_DELTAS[key] = _RETRY_DELTAS.get(key, 0) + n_bytes
+            _ensure_retry_worker_locked()
+        return True
+    except Exception:
+        return False
+
+
+def _kick_retry_worker() -> None:
+    """Best-effort recovery when a prior worker could not be started."""
+    try:
+        with _RETRY_CONDITION:
+            _ensure_retry_worker_locked()
+    except Exception:
+        pass
+
+
+def _retry_wait_locked(timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while _RETRY_DELTAS:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        _RETRY_CONDITION.wait(timeout=remaining)
+
+
+def _retry_worker_main() -> None:
+    """Drain merged failed deltas with one globally bounded backoff loop."""
+    global _RETRY_WORKER
+    backoff = 1.0
+    while True:
+        with _RETRY_CONDITION:
+            if not _RETRY_DELTAS:
+                _RETRY_WORKER = None
+                return
+            _retry_wait_locked(backoff)
+            if not _RETRY_DELTAS:
+                _RETRY_WORKER = None
+                return
+            batch = list(_RETRY_DELTAS.items())
+
+        any_failed = False
+        for key, n_bytes in batch:
+            site_id, accounting_ymd, epoch = key
+            if _record_dated_delta(
+                    site_id, accounting_ymd, epoch, n_bytes):
+                with _RETRY_CONDITION:
+                    remaining = _RETRY_DELTAS.get(key, 0) - n_bytes
+                    if remaining > 0:
+                        _RETRY_DELTAS[key] = remaining
+                    else:
+                        _RETRY_DELTAS.pop(key, None)
+            else:
+                any_failed = True
+
+        backoff = (
+            min(_RETRY_MAX_BACKOFF, backoff * 2.0)
+            if any_failed else 1.0
+        )
+
+
+class DailyByteAccumulator:
+    """Thread-safe, per-transfer batching for daily byte accounting.
+
+    ``add`` is safe on response-buffer hot paths. It performs a durable flush
+    no more than once per ``flush_interval``; transports call ``flush`` at
+    lifecycle boundaries (completion, pause, stop, and failure) so a short or
+    interrupted transfer cannot strand an in-memory remainder.
+    """
+
+    def __init__(self, site_id: str, *, flush_interval: float = 1.0):
+        self.site_id = site_id
+        self.flush_interval = max(1.0, float(flush_interval))
+        self._pending_by_period: dict[tuple[str, int], int] = {}
+        self._lock = threading.Lock()
+        self._last_flush = time.monotonic()
+
+    def add(self, n_bytes: int) -> None:
+        try:
+            delta = int(n_bytes)
+        except (TypeError, ValueError):
+            return
+        if delta <= 0:
+            return
+
+        accounting_period = _accounting_period(self.site_id)
+        with self._lock:
+            self._pending_by_period[accounting_period] = (
+                self._pending_by_period.get(accounting_period, 0) + delta
+            )
+            now = time.monotonic()
+            if now - self._last_flush >= self.flush_interval:
+                self._flush_locked(now)
+
+    def flush(self) -> bool:
+        """Write pending deltas or transfer failures to the retry broker."""
+        _kick_retry_worker()
+        with self._lock:
+            return self._flush_locked(time.monotonic())
+
+    def _flush_locked(self, now: float) -> bool:
+        """Flush while holding ``_lock`` so concurrent adds cannot race."""
+        if not self._pending_by_period:
+            return True
+
+        all_recorded = True
+        for period, n_bytes in list(self._pending_by_period.items()):
+            accounting_ymd, epoch = period
+            if self._record(accounting_ymd, epoch, n_bytes):
+                del self._pending_by_period[period]
+            elif _enqueue_retry_delta(
+                    self.site_id, accounting_ymd, epoch, n_bytes):
+                # Ownership moves atomically to the merged retry broker. The
+                # transfer may now unregister without losing this delta.
+                del self._pending_by_period[period]
+                all_recorded = False
+            else:
+                all_recorded = False
+        # A locked database must not turn the hot path back into one attempted
+        # write per response buffer. Failed deltas share one bounded broker.
+        self._last_flush = now
+        return all_recorded
+
+    def _record(self, accounting_ymd: str, epoch: int, n_bytes: int) -> bool:
+        if n_bytes <= 0:
+            return True
+        return _record_dated_delta(
+            self.site_id, accounting_ymd, epoch, n_bytes
+        )
 
 
 def bytes_today(site_id: str) -> Optional[int]:
@@ -221,17 +434,36 @@ def reset_today(site_id: str) -> bool:
     """Operator override — zero out today's counter so the site can
     keep downloading. Useful for testing or in emergencies. Returns
     True if a row existed and was reset."""
-    _ensure_table()
-    try:
-        with _db.db_conn() as cx:
-            cur = cx.execute("""
-                UPDATE daily_site_bytes
-                SET bytes = 0, last_update_ts = ?
-                WHERE site_id = ? AND ymd = ?
-            """, (time.time(), site_id, _today_ymd()))
-            return cur.rowcount > 0
-    except Exception:
-        return False
+    lock = _site_accounting_lock(site_id)
+    with lock:
+        _ensure_table()
+        try:
+            accounting_ymd = _today_ymd()
+            with _db.db_conn() as cx:
+                cur = cx.execute("""
+                    UPDATE daily_site_bytes
+                    SET bytes = 0, last_update_ts = ?
+                    WHERE site_id = ? AND ymd = ?
+                """, (time.time(), site_id, accounting_ymd))
+            # Linearization point: all adds after this generation bump count
+            # from zero; buffered/retry deltas from the old generation become
+            # stale and are discarded instead of undoing the operator reset.
+            epoch_key = (site_id, accounting_ymd)
+            with _ACCOUNTING_STATE_LOCK:
+                new_epoch = _SITE_ACCOUNTING_EPOCHS.get(epoch_key, 0) + 1
+                _SITE_ACCOUNTING_EPOCHS[epoch_key] = new_epoch
+            row_existed = cur.rowcount > 0
+        except Exception:
+            return False
+
+    with _RETRY_CONDITION:
+        for key in list(_RETRY_DELTAS):
+            queued_site, queued_ymd, epoch = key
+            if (queued_site == site_id
+                    and queued_ymd == accounting_ymd
+                    and epoch < new_epoch):
+                _RETRY_DELTAS.pop(key, None)
+    return row_existed
 
 
 def history(site_id: str, *, days: int = 30) -> list:

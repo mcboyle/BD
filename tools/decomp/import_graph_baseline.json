@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3986,
+  "edge_count": 3993,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3539,6 +3539,15 @@
       "bulk_downloader/app.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/selector_chains.py"
+    ],
+    "tests/test_row376_daily_budget_batching.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/rate_limit.py",
+      "bulk_downloader/resume.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
