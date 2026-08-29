@@ -32,6 +32,11 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+
+_TURNSTILE_AVAILABLE_MESSAGE = (
+    "Cloudflare Turnstile. Scrapling/nodriver bypass usually works."
+)
+
 # Pattern → (friendly_message, hint). Patterns are matched with
 # re.search() (substring match, not anchored). First match wins.
 # Order matters: put specific patterns above general ones.
@@ -99,7 +104,7 @@ _PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"hcaptcha|recaptcha", re.I),
      "Captcha required. 2Captcha/Capmonster will solve if configured."),
     (re.compile(r"turnstile", re.I),
-     "Cloudflare Turnstile. Scrapling/nodriver bypass usually works."),
+     _TURNSTILE_AVAILABLE_MESSAGE),
     # ── FFmpeg / media ─────────────────────────────────────────────────
     (re.compile(r"ffmpeg.*?exited with code", re.I),
      "FFmpeg failed. Check the source file isn't corrupt; will be retried."),
@@ -116,9 +121,9 @@ def friendly_error(err: Any, context: Optional[dict] = None) -> str:
     """Translate `err` into a short, operator-readable message.
 
     `err` can be an Exception, a string, or any object with __str__.
-    `context` is currently unused but accepted so call sites can pass
-    {"site": "...", "url": "...", "stage": "..."} for future enhancement
-    without breaking signature.
+    `context` may include a measured ``turnstile_bypass`` capability state.
+    Without that measurement, Turnstile advice is UNKNOWN rather than an
+    availability claim.
     """
     raw = str(err) if err is not None else ""
     if not raw:
@@ -126,6 +131,27 @@ def friendly_error(err: Any, context: Optional[dict] = None) -> str:
     for pattern, friendly in _PATTERNS:
         m = pattern.search(raw)
         if m:
+            if friendly == _TURNSTILE_AVAILABLE_MESSAGE:
+                supplied = (context or {}).get("turnstile_bypass")
+                state = supplied if isinstance(supplied, dict) else {
+                    "available": False,
+                    "status": "unknown",
+                    "reason": "measurement_not_supplied",
+                }
+                status = state.get("status")
+                available = state.get("available")
+                reason = state.get("reason") or "measurement_not_supplied"
+                if status == "available" and available is True:
+                    return friendly
+                if status != "unavailable" or available is not False:
+                    return (
+                        "Cloudflare Turnstile. Bypass availability unknown "
+                        f"({reason}). Use Take Over."
+                    )
+                return (
+                    "Cloudflare Turnstile. Bypass unavailable "
+                    f"({reason}). Use Take Over."
+                )
             try:
                 return friendly.format(*m.groups())
             except (IndexError, KeyError):

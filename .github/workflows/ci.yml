@@ -398,6 +398,7 @@ jobs:
               tests/test_ffmpeg_capability_health.py
               tests/test_row363_affordance_learning.py
               tests/test_row356_cookie_quality_reports_unknown.py
+              tests/test_row360_turnstile_bypass_is_installed.py
               tests/test_row346_plugin_sandbox_is_truthful.py
               tests/test_row311_app_config_writers_are_serialized.py
               tests/test_v3_66_261_contended_lifecycle_lock.py

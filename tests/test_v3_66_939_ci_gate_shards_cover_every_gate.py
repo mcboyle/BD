@@ -129,6 +129,10 @@ _DECLARED = {
     # one-click DROPDOWN discovery, policy refusal, network disagreement,
     # pagination/scroll enumeration, and selector-only Review staging.
     "tests/test_row363_affordance_learning.py",
+    # Row 360. A declared Scrapling package is not a usable Turnstile bypass
+    # unless its fetcher capability imports. This runtime gate proves the
+    # absent, probe-unknown, recovery-only, and fully available states.
+    "tests/test_row360_turnstile_bypass_is_installed.py",
     # Row 334. The library integrity route is a second consumer of the bitrot
     # issue census. Its runtime gate refuses to call a locked inventory clean.
     "tests/test_v3_57_phase9.py",
@@ -811,7 +815,7 @@ _DECLARED = {
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 349 (2026-08-28). One shared-cache identity gate is declared and
 # scheduled; on top of main's 217 that is 218.
-_EXPECTED_DECLARED_GATE_COUNT = 226
+_EXPECTED_DECLARED_GATE_COUNT = 227
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
