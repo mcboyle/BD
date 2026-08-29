@@ -50,6 +50,11 @@ from .constants import (
     BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE, _HTTPDownloadFailed,
     _DownloadTruncated,
 )
+# Row 390: imported at module scope ON PURPOSE. A safety gate reached through a
+# lazy `try: from . import ...` inside start() would fail OPEN on an import
+# error -- the exact shape this row exists to remove. download_hold imports only
+# the standard library at module scope, so there is no cycle to dodge.
+from . import download_hold as _download_hold
 
 # A0 / BEH-1 + BEH-2 (v3.66.322): canonical creation-time defaults. These are the
 # values the legacy Add-Site form stored at create time; the SPA wizard stores no
@@ -1064,6 +1069,29 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         except Exception as e:
             sys.stderr.write(
                 f"[{self.site_id}] admission check failed, allowing start: {e}\n")
+        # Row 390: the DURABLE download hold. Every gate above this line fails
+        # OPEN on error, because each is a convenience gate. This one does NOT.
+        # An operator hold placed with /api/pause_all lived only in process
+        # memory, so deploy.sh -- which restarts the app on every deployment --
+        # silently re-armed unattended downloading on exactly the hosts that
+        # restart most. start() is the only path into a worker pool, so this is
+        # where the hold is re-applied after a restart, before any download can
+        # begin. downloads_allowed() returns False for BOTH a recorded hold and
+        # an unmeasurable one (CLAUDE.md A7: UNKNOWN never resolves to "no hold,
+        # carry on"), and never raises, so there is no fail-open branch to add.
+        _hold_allowed, _hold_state = _download_hold.downloads_allowed()
+        if not _hold_allowed:
+            _token = _download_hold.runner_state_token(_hold_state)
+            if self._state != _token:
+                self._state = _token
+                self.log_event(
+                    "download_hold",
+                    "Downloads are held; refusing to start workers "
+                    f"({_hold_state.get('state')}: {_hold_state.get('reason')})",
+                    extra={"hold_state": _hold_state.get("state"),
+                           "hold_reason": _hold_state.get("reason"),
+                           "hold_detail": _hold_state.get("detail")})
+            return
         dl_dir=self.config.get("download_dir","")
         threshold=_finite_config_float(self.config.get("disk_threshold_gb",2.0), 2.0)
         if dl_dir:
@@ -1426,8 +1454,23 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         Idempotent — no-op if already running. Added in v3.43.19 to match
         the UI's separate Resume button (the /api/sites/<sid>/resume
         endpoint had previously been failing with 400 because this method
-        didn't exist)."""
+        didn't exist).
+
+        Row 390: gated by the durable download hold. resume() flips paused ->
+        running WITHOUT passing through start(), so leaving it ungated would let
+        /api/resume_all defeat a hold that start() honours. Same fail-closed
+        contract: an unmeasurable hold refuses."""
         if self._state in ("paused", "low_disk", "paused_no_button"):
+            _hold_allowed, _hold_state = _download_hold.downloads_allowed()
+            if not _hold_allowed:
+                self._state = _download_hold.runner_state_token(_hold_state)
+                self.log_event(
+                    "download_hold",
+                    "Downloads are held; refusing to resume workers "
+                    f"({_hold_state.get('state')}: {_hold_state.get('reason')})",
+                    extra={"hold_state": _hold_state.get("state"),
+                           "hold_reason": _hold_state.get("reason")})
+                return
             self._state = "running"
             self._pause.set()
 

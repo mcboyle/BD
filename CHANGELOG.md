@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1353 - the stop is a runtime call and deploy.sh restarts the service
+
+- A download hold is now durable: recorded in app_config.json and re-applied 
+- The hold fails CLOSED: an unreadable store, corrupt JSON, a malformed recor
+- /api/health and /api/health/v2 carry a download_hold block that tells a hel
+- New /api/download_hold GET and POST plus /api/download_hold/lift record and
+- the stop is a runtime call and deploy.sh restarts the service
+- application: 5 file(s) in bulk_downloader/ changed
+- frontend: 1 file(s) changed
+- test: route_map_baseline.txt
+- test: test_route_map_invariant.py
+- test: test_row390_download_hold_survives_restart.py
+- 18 file(s), 1016 insertion(s) in the worker diff
+
 ## v3.66.1352 - sibling of row 385, deliberately not folded in
 
 - Scene crawler scroll walk now stops on observed stability, not on a fixed c

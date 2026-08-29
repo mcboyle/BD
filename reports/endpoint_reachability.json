@@ -49,6 +49,8 @@
     "/api/dev/window_simulate": "dev-surface: gated by _dev_mode_guard (app_dev*.py). Intentionally uncontrolled.",
     "/api/discovery/run": "INTERNAL [triaged @720]: lifecycle/telemetry-internal; no operator action",
     "/api/doctor/diagnose": "CONTROL [reclassified @752]: was phantom-wired by five GET */diagnose callers' shared tail; no operator caller exists; a control is plausible (future cut)",
+    "/api/download_hold": "CONTROL [row 390]: durable download hold (set/lift). Operator + CLI surface for an incident stop that must survive a restart; no SPA control yet (future cut).",
+    "/api/download_hold/lift": "CONTROL [row 390]: durable download hold (set/lift). Operator + CLI surface for an incident stop that must survive a restart; no SPA control yet (future cut).",
     "/api/eol/export": "CLI-ONLY [triaged @720]: maintenance/updater; CLI or dev surface",
     "/api/fed/announce": "machine-to-machine: peer nodes / rate coordinator, not a human.",
     "/api/fed/claim_url": "machine-to-machine: peer nodes / rate coordinator, not a human.",
@@ -177,6 +179,8 @@
     "/api/dev/window_simulate",
     "/api/discovery/run",
     "/api/doctor/diagnose",
+    "/api/download_hold",
+    "/api/download_hold/lift",
     "/api/eol/export",
     "/api/fed/announce",
     "/api/fed/claim_url",
@@ -236,5 +240,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 97
+  "dark_count": 99
 }

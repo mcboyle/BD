@@ -241,6 +241,28 @@ def _attach_credential_health(payload: dict, sites_config: dict | None) -> None:
     payload.setdefault("degraded", degraded)
 
 
+def _attach_download_hold(payload: dict) -> None:
+    """Row 390: make a held host SAY SO, distinctly from idle / empty queue.
+
+    A deliberate hold keeps ``ok`` true. /api/health is what scripts/deploy.sh
+    verifies after a restart, and the fleet is deliberately held right now -- a
+    hold that turned every held host 503 would report the correct state as a
+    failed deploy. UNKNOWN is a genuine degradation (the hold state could not be
+    measured, so downloads are refused without an operator knowing why) and
+    follows the credential-health precedent: ok=False plus a degraded marker.
+    """
+    from . import download_hold as _dh
+    try:
+        state = _dh.hold_state()
+    except Exception:  # pragma: no cover - hold_state never raises
+        state = {"state": _dh.UNKNOWN, "reason": "health_probe_failed",
+                 "detail": "", "since": None, "note": "", "by": ""}
+    payload["download_hold"] = _dh.health_block(state)
+    if state.get("state") == _dh.UNKNOWN:
+        payload["ok"] = False
+        payload.setdefault("degraded", "download_hold_unknown")
+
+
 @health_bp.route("/api/health")
 def api_health():
     _app_boot_time = _app__app_boot_time()
@@ -286,6 +308,7 @@ def api_health():
         payload["db_ok"] = False
         payload["degraded"] = f"db_error: {type(e).__name__}"
     _attach_credential_health(payload, s_cfg)
+    _attach_download_hold(payload)
     # B1.3 (post-365): build identity. Read build_info.json from the install
     # dir so the Dashboard can compare the FE-loaded VITE_BUILD_STAMP against
     # the backend build sha. Absent file -> no `build` key (graceful: dev tree
@@ -355,6 +378,7 @@ def api_health_v2():
         payload["degraded"] = f"db_error: {type(e).__name__}"
         payload["db_journal_mode"] = "unknown"
     _attach_credential_health(payload, s_cfg)
+    _attach_download_hold(payload)
     # Disk free per download dir — first 5 only (mockup shows
     # aggregate, not per-dir; this is for the Settings → Health pane).
     disks = []

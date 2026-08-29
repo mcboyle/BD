@@ -303,6 +303,9 @@
 /api/discovery/scenes/status	GET	api_discovery_scenes_status
 /api/doctor	GET	api_doctor
 /api/doctor/diagnose	POST	api_doctor_diagnose
+/api/download_hold	GET	api_download_hold_get
+/api/download_hold	POST	api_download_hold_set
+/api/download_hold/lift	POST	api_download_hold_lift
 /api/edge_deploy/all	POST	api_edge_all
 /api/edge_deploy/compose	POST	api_edge_compose
 /api/eol/export	POST	api_eol_export

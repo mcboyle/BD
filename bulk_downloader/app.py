@@ -6632,6 +6632,16 @@ except Exception as _reg_pause_all_err:
     import sys as _sys
     _sys.stderr.write(f"[app] pause_all routes not registered: {_reg_pause_all_err}\n")
 
+# Row 390: the DURABLE counterpart to pause_all. /api/pause_all is a runtime
+# call that a restart erases; these routes record and lift the hold in
+# app_config.json, where runner.start()/resume() re-apply it after a restart.
+try:
+    from . import app_download_hold
+    app_download_hold.register_routes(app)
+except Exception as _reg_download_hold_err:
+    import sys as _sys
+    _sys.stderr.write(f"[app] download_hold routes not registered: {_reg_download_hold_err}\n")
+
 try:
     from . import app_palette
     app_palette.register_routes(app)

@@ -10,14 +10,14 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1680**
+- internal import edges: **1685**
 - tools: 227 · with internal edge: 132 · with tool→package edge: 73
-- blueprints: 160 · config stores: 5
+- blueprints: 161 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
 - `bulk_downloader/db.py`: 113
-- `bulk_downloader/global_config.py`: 54
+- `bulk_downloader/global_config.py`: 55
 - `bulk_downloader/constants.py`: 32
 - `bulk_downloader/app.py`: 24
 - `bulk_downloader/plugins.py`: 23
@@ -86,6 +86,7 @@ Graph version: 1
 - **diagnostics_bundle** (`app_diagnostics_bundle.py`) — routes 2, providers 1
 - **discovery** (`app_discovery.py`) — routes 6, providers 5
 - **doctor** (`app_doctor.py`) — routes 2, providers 2
+- **download_hold** (`app_download_hold.py`) — routes 2, providers 1
 - **edge_deploy** (`app_edge_deploy.py`) — routes 2, providers 1
 - **envfile_editor** (`app_envfile_editor.py`) — routes 1, providers 1
 - **eol** (`app_eol.py`) — routes 2, providers 1
@@ -100,7 +101,7 @@ Graph version: 1
 - **gallerydl_update** (`app_gallerydl_update.py`) — routes 1, providers 1
 - **gamification** (`app_gamification.py`) — routes 1, providers 1
 - **global_config** (`app_global_config.py`) — routes 3, providers 7
-- **health** (`app_health.py`) — routes 3, providers 3
+- **health** (`app_health.py`) — routes 3, providers 4
 - **history** (`app_history.py`) — routes 3, providers 1
 - **hourly_stats** (`app_hourly_stats.py`) — routes 1, providers 1
 - **i18n** (`app_i18n.py`) — routes 4, providers 1
@@ -203,7 +204,7 @@ Graph version: 1
 ## Config stores → reader / writer modules
 
 - **app_settings_center** — readers 7, writers 0
-- **global_config** — readers 70, writers 1
+- **global_config** — readers 71, writers 2
 - **site_editor** — readers 23, writers 0
 - **vpn_config** — readers 17, writers 1
 - **widgets_config** — readers 4, writers 1
