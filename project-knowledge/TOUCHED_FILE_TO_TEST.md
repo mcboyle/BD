@@ -29,6 +29,7 @@ the floor, not the ceiling. The on-stash full suite remains the binding gate.
 | `capture.sh` | `test_u45_capture_sh_shipped`; re-run `verify_release --zip` (banner gate) |
 | `toolchain/bin/bd-writerec` | `test_v3_66_1194_write_recorder` |
 | `toolchain/bin/bd-fleet` | `test_v3_66_1043_measurement_and_fleet_tools`, `test_v3_66_1255_bd_fleet_measurements_fail_closed` |
+| `bulk_downloader/template_selector_verifier.py`, `bulk_downloader/site_templates/_data_players.py`, `bulk_downloader/cloak.py`, `toolchain/bin/bd-template-verify`, `toolchain/bin/bd-sweep` (template-selector verification and installed selftest verdicts) | `test_row362_templates_are_resolvable`, `test_row377_installed_template_selftest_states` |
 | VPN / killswitch transport | `test_u46_vpn_kill_switch_probe`, `test_t14_vpn_probe_egress` (binding validation is stash) |
 | Settings Center routes/secrets | `test_settings_center_slice4/5`, `test_settings_center_wiring`, `test_settings_center_secret_classifier`, `test_put_numeric_range_backstop` |
 

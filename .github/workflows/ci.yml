@@ -407,9 +407,13 @@ jobs:
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
           # compiles the complete corpus with Playwright's selector parser.
+          # Row 377 adds the installed-layout selftest-state gate here: the
+          # same shard must also prove an unavailable verifier reads UNKNOWN
+          # rather than as a template defect.
           - name: template-selectors
             suites: >-
               tests/test_row362_templates_are_resolvable.py
+              tests/test_row377_installed_template_selftest_states.py
           # F31. A service-owned BD_INSTALL_DIR must not cross any child-test
           # boundary. This shard runs the real nested-pytest and sacrificial-DB
           # probes on every PR instead of relying on a diff-derived band.

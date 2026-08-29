@@ -48,6 +48,9 @@ if (venv_python.is_file() and os.access(venv_python, os.X_OK)
 
 sys.path.insert(0, str(WORK))
 
+# The verifier compiles selectors with Playwright's own parser bundle, so
+# an interpreter that cannot import it cannot MEASURE the corpus at all.
+_DEPENDENCY = "playwright"
 _IMPORT_ERROR: ImportError | None = None
 audit_committed_selector_syntax: Callable[[], dict[str, Any]]
 parse_selectors: Callable[[list[Any]], list[dict[str, Any]]]
@@ -100,44 +103,131 @@ def _print_human(report: dict[str, Any]) -> None:
             print(f"          {row['error']}")
 
 
-def _selftest_unknown(detail: str) -> int:
+_STATE_EXIT = {"PASS": 0, "FAIL": 1, "UNKNOWN": 2}
+_CONTROL_CENSUS = "controls=2 unknown=0 missing_subject=1"
+
+
+def _selftest_verdict(state: str, detail: str) -> int:
+    """Emit the ONE machine-readable terminal verdict line and its exit code.
+
+    A consumer reads a VERDICT, never a traceback: an instrument that cannot
+    measure is UNKNOWN and must be distinguishable from the subject failing.
+    The detail is flattened to a single physical line because the verdict is
+    parsed line-wise; an embedded newline would split it in half and hide it.
+    """
+    stream = sys.stdout if state == "PASS" else sys.stderr
+    print(f"SELFTEST {state}: {' '.join(str(detail).split())}", file=stream)
+    return _STATE_EXIT[state]
+
+
+def _dependency_clause() -> str:
+    """Name the verifier dependency this interpreter cannot import, or ''."""
+    try:
+        importlib.import_module(_DEPENDENCY)
+    except (Exception, SystemExit) as exc:
+        return f"import={_DEPENDENCY} reason={type(exc).__name__}: {exc}"
+    return ""
+
+
+def _selftest_unknown(detail: str, clause: str = "") -> int:
+    """The instrument could not measure: keep the diagnostic AND the verdict."""
     print(
         "BD-TEMPLATE-VERIFY-SELFTEST-UNKNOWN: controls=2 unknown=2; "
         f"{detail}",
         file=sys.stderr,
     )
-    return 2
+    named = clause or _dependency_clause() or f"reason={detail}"
+    return _selftest_verdict("UNKNOWN", f"interpreter={sys.executable} {named}")
 
 
-def _selftest() -> int:
-    if venv_python.is_file():
-        assert Path(sys.prefix).resolve() == (WORK / "venv").resolve(), (
-            f"tool did not re-exec the checkout interpreter: {sys.prefix}"
+def _selftest_body() -> int:
+    if venv_python.is_file() and Path(sys.prefix).resolve() != (WORK / "venv").resolve():
+        return _selftest_verdict(
+            "UNKNOWN",
+            f"interpreter={sys.executable} reason=tool did not re-exec the "
+            f"checkout interpreter {venv_python}",
         )
     if _IMPORT_ERROR is not None:
         return _selftest_unknown(
             "verifier import unavailable: "
-            f"{type(_IMPORT_ERROR).__name__}: {_IMPORT_ERROR}"
+            f"{type(_IMPORT_ERROR).__name__}: {_IMPORT_ERROR}",
+            _dependency_clause()
+            or f"import=bulk_downloader.template_selector_verifier "
+               f"reason={type(_IMPORT_ERROR).__name__}: {_IMPORT_ERROR}",
         )
 
     controls = parse_selectors(["a[href]", "a[href*='.mp4'"])
-    assert len(controls) == 2, (
-        f"selftest selector denominator is not exactly two: {controls}"
-    )
+    if len(controls) != 2:
+        return _selftest_verdict(
+            "UNKNOWN",
+            f"interpreter={sys.executable} reason=selftest selector denominator "
+            f"is not exactly two: {controls}",
+        )
     unknown = [item for item in controls if item["status"] == "UNKNOWN"]
     if unknown:
         detail = str(unknown[0].get("error") or "selector measurement unavailable")
         return _selftest_unknown(detail)
-    assert [item["status"] for item in controls] == ["VALID", "MALFORMED"], controls
+    if [item["status"] for item in controls] != ["VALID", "MALFORMED"]:
+        return _selftest_verdict(
+            "UNKNOWN",
+            f"interpreter={sys.executable} reason=controls did not resolve "
+            f"VALID/MALFORMED: {controls}",
+        )
 
     missing = verify_template_source(
         {"id": "selftest", "learned": {"download": {"row_selectors": ["a[href]"]}}},
         WORK / "toolchain" / "fixtures" / "bd-template-verify-intentionally-absent.html",
     )
-    assert missing["selector_count"] == 1, missing
-    assert missing["verdict"] == "UNKNOWN" and missing["ok"] is False, missing
-    print("SELFTEST PASS: controls=2 unknown=0 missing_subject=1")
-    return 0
+    if (missing["selector_count"] != 1 or missing["verdict"] != "UNKNOWN"
+            or missing["ok"] is not False):
+        return _selftest_verdict(
+            "UNKNOWN",
+            f"interpreter={sys.executable} reason=absent-subject control did not "
+            f"report UNKNOWN: {missing}",
+        )
+
+    # The committed corpus is the SUBJECT; the controls above are the instrument.
+    # Reporting them separately is the whole point of this verdict grammar.
+    corpus = audit_committed_selector_syntax()
+    templates = int(corpus["template_count"])
+    selectors = int(corpus["selector_count"])
+    census = (f"{_CONTROL_CENSUS} interpreter={sys.executable} "
+              f"templates={templates} selectors={selectors}")
+    if templates <= 0 or selectors <= 0:
+        return _selftest_verdict(
+            "UNKNOWN", f"{census} reason=committed corpus denominator is empty"
+        )
+    if corpus["verdict"] == "UNKNOWN":
+        first = next(
+            (row for row in corpus["selectors"] if row["status"] == "UNKNOWN"), {}
+        )
+        return _selftest_verdict(
+            "UNKNOWN",
+            f"{census} unknown={corpus['unknown_count']} "
+            f"{_dependency_clause() or 'reason=' + str(first.get('error') or 'corpus measurement unavailable')}",
+        )
+    if corpus["verdict"] != "OK":
+        broken = [row for row in corpus["selectors"] if row["status"] == "MALFORMED"]
+        named = "; ".join(
+            f"template={row['template_id']} path={row['path']} "
+            f"selector={row['selector']}"
+            for row in broken[:5]
+        )
+        return _selftest_verdict(
+            "FAIL", f"{census} malformed={corpus['malformed_count']} {named}"
+        )
+    return _selftest_verdict("PASS", census)
+
+
+def _selftest() -> int:
+    """No selftest path may raise: a crashing instrument still owes a verdict."""
+    try:
+        return _selftest_body()
+    except (Exception, SystemExit) as exc:
+        return _selftest_verdict(
+            "UNKNOWN",
+            f"interpreter={sys.executable} reason={type(exc).__name__}: {exc}",
+        )
 
 
 def _dependency_unknown() -> int:
