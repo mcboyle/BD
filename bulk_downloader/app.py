@@ -719,7 +719,8 @@ def _check_token():
                         res.get("scope", ""), False, _ip,
                         f"insufficient scope (<{min_scope})")
                     return jsonify({"error": "insufficient token scope",
-                                    "required_scope": min_scope}), 403
+                                    "required_scope": min_scope}), 403, {
+                                        "X-BD-Required-Scope": min_scope}
                 _apitok.record_decision(
                     res["token_id"], path, request.method,
                     res.get("scope", ""), True, _ip, "ok")

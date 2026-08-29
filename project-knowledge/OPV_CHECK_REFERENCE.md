@@ -14,7 +14,7 @@ checks need `bd-sbcap` provisioned first.*
 | **OPV-METRICS** | sandbox | BD's /metrics endpoint serves valid Prometheus exposition format. Boots the app, GETs /metrics (documented-unauthenticated), and parses the body with the OFFICIAL prometheus_c… |
 | **OPV-BASE** | sandbox | OPV-BASE: baselines_snapshot writes a valid JSON baseline (CLI). Needs a populated DB; in-sandbox with no live DB this SKIPs (precondition), it does not FAIL. |
 | **OPV-SOAK** | sandbox | a bounded in-process soak proves the app has no pathological per-request memory growth under sustained load, and freezegun time-warp drives the admission-window clock. Fires N… |
-| **OPV-F4.3** | sandbox | OPV-F4.3: an enqueue-scoped token is 403 on an admin route; admin is reserved (DEC-2). Fully API -- runs against the test client. |
+| **OPV-F4.3** | sandbox | OPV-F4.3: enqueue is denied with required_scope=admin, while an admin token can issue exactly one child token. Fully API -- test client only. |
 | **OPV-CSRF** | sandbox | a state-changing API call without a CSRF token is refused; with one it is accepted. Confirms the global CSRF guard. API-only. |
 | **OPV-FLOOR** | sandbox | the capture redaction FLOOR holds and the secrets-store status surface is value-free. scan_floor_secrets returns [] for a clean capture, FLAGS a raw JWT credential, and -- the… |
 | **OPV-VPNKILL** | sandbox | the VPN egress-fails-closed behavior, proven end-to-end. TWO layers: (A) the real vpn_kill_switch state machine -- fresh kill sets killed, callback fires exactly once on idemp… |

@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 106,
+    "total": 110,
     "version": 1,
-    "count_dict": 105,
+    "count_dict": 109,
     "test_files_scanned": 1484,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -57,6 +57,7 @@
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
+      "tests/test_v3_66_227_api_tokens.py": 4,
       "tests/test_v3_66_261_contended_lifecycle_lock.py": 1,
       "tests/test_v3_66_283_bd_claim_transactions.py": 2,
       "tests/test_v3_66_295_bd_claim_atomic_union.py": 7,
@@ -368,7 +369,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1331",
+      "value": "3.66.1332",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -930,6 +931,50 @@
         "jwplayer_resolved_dash": 1
       },
       "gates_what": "test_multi_entry_feed_flattens_with_indices"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_227_api_tokens.py",
+      "line": 279,
+      "value": {
+        "read": 1,
+        "enqueue": 2,
+        "admin": 3
+      },
+      "gates_what": "test_each_scope_has_the_exact_permitted_action_set — Exercise every declared route/method through the real auth hook."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_227_api_tokens.py",
+      "line": 294,
+      "value": {
+        "read": 8,
+        "enqueue": 10,
+        "admin": 16
+      },
+      "gates_what": "test_each_scope_has_the_exact_permitted_action_set — Exercise every declared route/method through the real auth hook."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_227_api_tokens.py",
+      "line": 407,
+      "value": {
+        "read": 1,
+        "enqueue": 2,
+        "admin": 3
+      },
+      "gates_what": "test_lesser_scope_refusal_names_admin_and_never_calls_handler — Negative control: a valid enqueue token reaches the scope decision,"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_227_api_tokens.py",
+      "line": 449,
+      "value": {
+        "read": 1,
+        "enqueue": 2,
+        "admin": 3
+      },
+      "gates_what": "test_admin_token_can_issue_exactly_one_child_token"
     },
     {
       "form": "count_dict",

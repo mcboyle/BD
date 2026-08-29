@@ -15,11 +15,10 @@ Scope hierarchy (a token carries exactly one level; higher includes lower):
   enqueue (2)  — read + add URLs to the download queue
   admin   (3)  — enqueue + destructive/management endpoints
 
-DEC-2 (taxonomy v2): ``admin`` is DEFINED (for level/ordering + the route
-policy) but RESERVED — ``create_token`` refuses to mint it in v1, so no
-admin-capable token exists. Admin-scope routes are therefore reachable ONLY by
-the operator (master bearer / session), never by an API token. Defining the
-bound now keeps a future admin mint from being a breaking change.
+All three defined scopes are mintable.  ``admin`` is deliberately bounded by
+the same explicit route policy as lower scopes; it reaches the listed
+destructive/management endpoints, including token issue/list/revoke, but does
+not turn an API token into an unrestricted operator session.
 
 ENFORCEMENT IS FAIL-CLOSED and lives in ``app._check_token``: a valid API
 token may reach ONLY the (route, method) pairs explicitly enumerated in
@@ -50,13 +49,11 @@ PREFIX = "bdapi_"
 # Single source of truth for the scope taxonomy + ordering.
 SCOPES = {"read": 1, "enqueue": 2, "admin": 3}
 
-# DEC-2 (taxonomy v2): ``admin`` is DEFINED (level/ordering + route policy) but
-# RESERVED — no admin-capable token is mintable in v1. Keeping the bound here
-# means adding a real admin mint later is NOT a breaking change, and nothing
-# admin-capable can be minted prematurely (no new attack surface). The set of
-# scopes that may actually be minted today:
-MINTABLE_SCOPES = {"read", "enqueue"}
-RESERVED_SCOPES = set(SCOPES) - MINTABLE_SCOPES  # {"admin"}
+# Every named capability can be issued.  Keep the derived reserved set as the
+# compatibility surface for callers that inspect it and as an explicit future
+# extension point; it is empty while every SCOPES entry is mintable.
+MINTABLE_SCOPES = set(SCOPES)
+RESERVED_SCOPES = set(SCOPES) - MINTABLE_SCOPES
 
 # Per-token rate limit is intentionally NOT implemented here; the surface is
 # a trusted-LAN operator tool and the master bearer / session paths are
@@ -147,7 +144,6 @@ def create_token(*, scope: str, label: str = "",
         return {"ok": False,
                 "error": "scope must be one of: read, enqueue, admin"}
     if scope in RESERVED_SCOPES:
-        # DEC-2: defined but not mintable in v1.
         return {"ok": False,
                 "error": f"scope '{scope}' is reserved and cannot be minted"}
     try:
