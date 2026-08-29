@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1349 - pages_walked is 1 under load and 2 serially, in merged code
+
+- Fix a scene-crawler depth stop that only fired when another candidate scene
+- The crawler now checkpoints the listing page whenever the newest-N budget i
+- Add a deterministic max_scrolls=0 regression test with a negative control, 
+- Proved mechanism by reproduction rather than inference: 224 pinned-core att
+
 ## v3.66.1348 - BD saved a related video and recorded it under this page's title
 
 - A download candidate whose URL names a different work than the page can no 

@@ -415,6 +415,87 @@ def test_newest_n_checkpoint_resumes_an_unfinished_page_before_its_pager(
     )) == 4
 
 
+def test_depth_budget_that_fills_on_a_pages_last_visible_scene_still_stops(
+    page, fixture_origin, tmp_path,
+):
+    """The depth stop must not need a further candidate scene to fire.
+
+    ``max_scrolls=0`` takes wall-clock out of the causal path: the gate reveals
+    exactly four scenes plus a pager link and no scroll growth is possible, so
+    the second run's newest-N budget fills on the LAST scene the page shows.
+    A loaded host reaches the same shape with ``max_scrolls=4`` because the
+    scroll event may not have been dispatched before the crawler re-reads the
+    DOM, which is what made the sibling checkpoint test schedule-sensitive.
+    """
+    crawler = _crawler()
+    listing = fixture_origin + "/evilangel/en/videos"
+    pager = fixture_origin + "/evilangel/en/videos/sort/latest/page/2"
+
+    # Precondition and negative control.  Without a depth budget the very same
+    # max_scrolls=0 walk really does reach the pager, so a pages_walked of 1
+    # below cannot be a vacuous "there was nowhere left to go".
+    control_queued = []
+    control = crawler.crawl_with_page(
+        page,
+        site_id="evil-depth-control",
+        listing_url=listing,
+        site_config={"dismiss_selectors": "button#enter-members"},
+        newest_n=0,
+        max_pages=5,
+        max_scrolls=0,
+        delay_s=0,
+        title_fetch_limit=0,
+        db_path=str(tmp_path / "depth-control.sqlite"),
+        enqueue_fn=lambda sid, url: control_queued.append((sid, url)) or {
+            "added": 1, "dupes": 0, "skipped": 0,
+        },
+    )
+    assert control["state"] == "COMPLETED", control
+    assert control["scroll_growth_steps"] == 0, control
+    assert control["discovered"] == 6, control
+    assert control["page_urls"] == [listing, pager], control
+
+    db_path = str(tmp_path / "depth-boundary.sqlite")
+    queued = []
+    kwargs = dict(
+        page=page,
+        site_id="evil-depth-boundary",
+        listing_url=listing,
+        site_config={"dismiss_selectors": "button#enter-members"},
+        newest_n=2,
+        max_pages=5,
+        max_scrolls=0,
+        delay_s=0,
+        title_fetch_limit=0,
+        db_path=db_path,
+        enqueue_fn=lambda sid, url: queued.append((sid, url)) or {
+            "added": 1, "dupes": 0, "skipped": 0,
+        },
+    )
+
+    first = crawler.crawl_with_page(**kwargs)
+    second = crawler.crawl_with_page(**kwargs)
+    third = crawler.crawl_with_page(**kwargs)
+
+    # Run 1 fills the budget mid-page; run 2 fills it on the page's last
+    # visible scene.  Both are depth stops and neither may spend a request on
+    # the pager, and run 3 proves the checkpoint was left on the listing page
+    # rather than on the pager the first two runs never earned.
+    assert first["scroll_growth_steps"] == second["scroll_growth_steps"] == 0
+    assert first["discovered"] == first["queued"] == 2, first
+    assert second["discovered"] == second["queued"] == 2, second
+    assert first["pages_walked"] == 1, first
+    assert second["pages_walked"] == 1, second
+    assert first["page_urls"] == [listing], first
+    assert second["page_urls"] == [listing], second
+    assert third["page_urls"] == [listing], third
+    assert third["discovered"] == 0, third
+    assert len(queued) == 4
+    assert len(crawler.discovery_history(
+        "evil-depth-boundary", db_path=db_path, limit=20,
+    )) == 4
+
+
 def test_logged_out_tour_is_not_laundered_into_zero_scenes(
     page, fixture_origin, tmp_path,
 ):
