@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4052,
+  "edge_count": 4056,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3631,6 +3631,12 @@
     "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_row402_vault_unlock_state_coherence.py": [
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

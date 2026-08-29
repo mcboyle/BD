@@ -83,12 +83,12 @@ def _resolve_vault_paths() -> tuple[Path, Path]:
 
     TWO KEYS, DELIBERATELY. Every other BD_* path override in the tree takes a
     single variable; this one does not, because none of the others can silently
-    produce a working-looking empty vault. unlock() accepts ANY password when a
-    vault holds no ciphertexts, stamping it as the verifier on the first set().
-    So a stray BD_SECRETS_FILE that redirected the vault would not error -- it
-    would hand back an empty, trivially-unlockable credential store that reports
-    healthy. Requiring an explicit BD_CAPTURE_VAULT=1 alongside the path means a
-    single misplaced variable is inert.
+    produce a working-looking empty vault. unlock() COMMITS whatever password it
+    is first given on a vault that has never been created (row 402), so a stray
+    BD_SECRETS_FILE that redirected the vault would not error -- it would hand
+    back an empty credential store that the first unlock opens. Requiring an
+    explicit BD_CAPTURE_VAULT=1 alongside the path means a single misplaced
+    variable is inert.
 
     The password itself is never read here and never defaulted anywhere in the
     tree: capture.sh supplies it at runtime via /api/secrets/unlock. A constant
@@ -443,8 +443,16 @@ class MasterPasswordBackend(_BackendBase):
     A single corrupted entry doesn't affect the others.
 
     State:
+        - uninitialised: no verifier and no ciphertexts; no master password
+          has ever been committed, so there is nothing to unlock (row 402)
         - locked: _key is None, all get() calls return None
         - unlocked: _key is set, get/set/delete work normally
+
+    A `verifier` field holds a fixed public sentinel encrypted under the
+    derived key. It is stamped by the first unlock, which is what commits the
+    master password, and re-stamped by change_password. It carries no secret
+    material -- its only job is to let a wrong password be refused on a vault
+    that holds zero credentials (row 402).
 
     The master password isn't stored anywhere — only the salt is on
     disk. The derived key is process-local by design, so this backend requires
@@ -545,30 +553,76 @@ class MasterPasswordBackend(_BackendBase):
     def _derive_key(self, password: str) -> bytes:
         return self._derive_key_with_salt(self._data["salt"], password)
 
+    # Row 402: a fixed, deliberately public sentinel. It is the PLAINTEXT
+    # that the verifier encrypts, never a key or a password, so its value is
+    # zero-entropy by design and safe to read in source.
+    _VERIFIER_PLAINTEXT = b"bd-vault-verifier-v1"
+
+    def _verify_with(self, entry, key: bytes) -> bool:
+        """True iff `key` decrypts `entry`. Never raises, never logs."""
+        try:
+            nonce = base64.b64decode(entry["nonce"])
+            ct = base64.b64decode(entry["ct"])
+            AESGCM(key).decrypt(nonce, ct, None)
+            return True
+        except Exception:
+            return False
+
+    def _seal_verifier(self, key: bytes) -> dict[str, str]:
+        """Encrypt the sentinel under `key` (row 402 commitment marker)."""
+        nonce = _stdlib_secrets.token_bytes(12)
+        ct = AESGCM(key).encrypt(nonce, self._VERIFIER_PLAINTEXT, None)
+        return {
+            "nonce": base64.b64encode(nonce).decode(),
+            "ct": base64.b64encode(ct).decode(),
+        }
+
     def unlock(self, password: str) -> bool:
-        """Try to unlock with the given password. Returns True on
-        success. Verifies by attempting to decrypt one existing
-        ciphertext; if there are none, accepts any password (first use)
-        and stamps the verifier on the first set()."""
+        """Unlock with the given password, committing it if the vault is new.
+
+        Row 402: a vault carrying neither a verifier nor a ciphertext has
+        never been created, so there is nothing to unlock. The old code
+        accepted ANY password there, derived a key against no stored material
+        and returned True — leaving every surface reporting is_unlocked=True
+        while is_initialized stayed False, a pair no caller can act on. The
+        first unlock now INITIALISES the vault instead: it stamps the verifier
+        under the derived key and persists it, so is_initialized() is True
+        from that moment and every LATER wrong password is refused even while
+        the vault holds zero secrets. A commitment that cannot be written is
+        not a commitment, so a failed save leaves the backend locked and
+        uninitialised and returns False.
+
+        On an existing vault the key is verified against the stamped verifier,
+        falling back to one stored ciphertext — which both keeps pre-row-402
+        vaults (no verifier) working and stops a damaged verifier from
+        bricking a vault whose credentials are intact.
+        """
         with self._lock:
             key = self._derive_key(password)
+            verifier = self._data.get("verifier")
             cts = self._data.get("ciphertexts") or {}
-            if cts:
-                # Try decrypting any one entry to verify the key
-                try:
-                    k = next(iter(cts.keys()))
-                    entry = cts[k]
-                    nonce = base64.b64decode(entry["nonce"])
-                    ct = base64.b64decode(entry["ct"])
-                    AESGCM(key).decrypt(nonce, ct, None)
-                except Exception:
-                    # B6 (v3.66.43): a failed verify must LEAVE THE BACKEND
-                    # LOCKED. Without this, a wrong-password unlock after a
-                    # prior good unlock returns False but self._key still
-                    # holds the prior key — is_unlocked() stays True and
-                    # get() keeps working. Explicit reset closes that.
+            verified = None
+            if isinstance(verifier, dict):
+                verified = self._verify_with(verifier, key)
+            if verified is not True and cts:
+                verified = self._verify_with(cts[next(iter(cts.keys()))], key)
+            if verified is None:
+                # Uninitialised: commit this password before reporting open.
+                self._data["verifier"] = self._seal_verifier(key)
+                if not self._save():
+                    self._data.pop("verifier", None)
                     self._key = None
                     return False
+                self._key = key
+                return True
+            if not verified:
+                # B6 (v3.66.43): a failed verify must LEAVE THE BACKEND
+                # LOCKED. Without this, a wrong-password unlock after a
+                # prior good unlock returns False but self._key still
+                # holds the prior key — is_unlocked() stays True and
+                # get() keeps working. Explicit reset closes that.
+                self._key = None
+                return False
             self._key = key
             return True
 
@@ -614,6 +668,11 @@ class MasterPasswordBackend(_BackendBase):
             # self._data, so a failure here leaves the vault untouched.
             new_salt = base64.b64encode(_stdlib_secrets.token_bytes(16)).decode()
             new_key = self._derive_key_with_salt(new_salt, new_password)
+            # Row 402: the verifier is keyed material too. Leaving the old one
+            # in place would make the rotated vault unopenable by EITHER
+            # password on a zero-secret vault, which is the same defect this
+            # cut removes wearing the opposite sign.
+            new_verifier = self._seal_verifier(new_key)
             new_cts = {}
             for k, pt in plaintexts.items():
                 nonce = _stdlib_secrets.token_bytes(12)
@@ -626,12 +685,21 @@ class MasterPasswordBackend(_BackendBase):
             # failure so memory always matches disk.
             old_salt = self._data["salt"]
             old_cts = self._data.get("ciphertexts")
+            had_verifier = "verifier" in self._data
+            old_verifier = self._data.get("verifier")
             self._data["salt"] = new_salt
             self._data["ciphertexts"] = new_cts
+            self._data["verifier"] = new_verifier
             self._key = new_key
             if not self._save():
                 self._data["salt"] = old_salt
                 self._data["ciphertexts"] = old_cts
+                # Restore ABSENCE as faithfully as a value: a pre-row-402
+                # vault must stay verifier-free after a rolled-back rotation.
+                if had_verifier:
+                    self._data["verifier"] = old_verifier
+                else:
+                    self._data.pop("verifier", None)
                 self._key = old_key
                 raise SecretsPersistError(
                     "change_password: could not persist rotated vault; "
@@ -696,10 +764,16 @@ class MasterPasswordBackend(_BackendBase):
         return sorted((self._data.get("ciphertexts") or {}).keys())
 
     def is_initialized(self) -> bool:
-        """True if at least one secret has been stored (meaning the
-        master password is committed). False on a fresh init where any
-        password would be accepted."""
-        return bool(self._data.get("ciphertexts"))
+        """True once a master password has been committed to this vault.
+
+        Row 402: commitment is the stamped verifier (written by the first
+        unlock) OR any stored ciphertext (a vault written before the verifier
+        existed). False only on a vault that has never been created — the one
+        state in which unlock() may still choose the password. Deleting the
+        last secret therefore no longer un-commits the master password.
+        """
+        return bool(self._data.get("ciphertexts")
+                    or self._data.get("verifier"))
 
 
 # ─── Module state + auto-detect ──────────────────────────────────────

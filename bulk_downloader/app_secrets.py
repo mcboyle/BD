@@ -115,7 +115,15 @@ def api_secrets_configure():
 def api_secrets_unlock():
     """Unlock the master-password backend. Body: {"password": "..."}.
     No-op (returns ok:True) for backends that don't need unlocking
-    (Windows Credential Manager, plaintext)."""
+    (Windows Credential Manager, plaintext).
+
+    Row 402: a bare ok:True could not distinguish opening a real vault from
+    deriving a key against a vault that had never been created, which is how a
+    host came to report is_unlocked=True over is_initialized=False. The
+    success body now NAMES what happened -- "initialized" when this call
+    committed the master password, "unlocked" when it opened an existing
+    vault -- and always carries the resulting is_initialized/is_unlocked pair.
+    """
     from . import secrets_store as ss
     backend = ss.get_backend()
     if not hasattr(backend, "unlock"):
@@ -123,6 +131,9 @@ def api_secrets_unlock():
     password = (request.json or {}).get("password", "")
     if not password:
         return jsonify({"ok": False, "error": "password required"}), 400
+    # Read the commitment state BEFORE the attempt: afterwards a freshly
+    # initialised vault is indistinguishable from one that already existed.
+    was_initialized = bool(getattr(backend, "is_initialized", lambda: True)())
     # NEW-9: shared escalating back-off with change_password (same secret).
     from . import auth_throttle as _at
     allowed, retry = _at.check(_at.LABEL_MASTER_PASSWORD)
@@ -133,9 +144,31 @@ def api_secrets_unlock():
         return resp, 429
     if backend.unlock(password):
         _at.record_success(_at.LABEL_MASTER_PASSWORD)
-        return jsonify({"ok": True})
+        now_initialized = bool(getattr(backend, "is_initialized", lambda: True)())
+        initialized_now = (not was_initialized) and now_initialized
+        return jsonify({
+            "ok": True,
+            "state": "initialized" if initialized_now else "unlocked",
+            "initialized_now": initialized_now,
+            "is_initialized": now_initialized,
+            "is_unlocked": (backend.is_unlocked()
+                            if hasattr(backend, "is_unlocked") else True),
+        })
+    if not was_initialized:
+        # Row 402: an uninitialised vault commits whatever password it is
+        # given, so a refusal here is a failed WRITE, not a wrong password.
+        # Saying "incorrect password" would send the operator hunting for a
+        # typo, and recording a throttle failure would lock them out of the
+        # broken disk they need to fix.
+        return jsonify({
+            "ok": False,
+            "state": "uninitialized",
+            "error": "vault is uninitialised and could not be initialised; "
+                     "the master password was not committed",
+        }), 500
     _at.record_failure(_at.LABEL_MASTER_PASSWORD)
-    return jsonify({"ok": False, "error": "incorrect password"}), 401
+    return jsonify({"ok": False, "state": "locked",
+                    "error": "incorrect password"}), 401
 @secrets_bp.route("/api/secrets/lock", methods=["POST"])
 def api_secrets_lock():
     """Lock the master-password backend (forget the derived key)."""

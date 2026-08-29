@@ -166,6 +166,18 @@ def credential_health(sites_config: dict | None) -> dict:
             references=references,
         )
 
+    if unlocked and not initialized:
+        # Row 402: unlocked over uninitialised is not a state. A key was
+        # derived against material that was never committed, so nothing about
+        # this vault has been measured -- A7 says report UNKNOWN, not a
+        # zero-shaped OK, and never let is_unlocked alone read as usable.
+        return _unknown_credential_health(
+            backend=backend_name,
+            initialized=initialized,
+            unlocked=unlocked,
+            references=references,
+        )
+
     base = {
         "backend": backend_name,
         "is_initialized": initialized,
@@ -173,7 +185,20 @@ def credential_health(sites_config: dict | None) -> dict:
         "reference_count": len(references),
         "stored_count": len(stored_keys),
     }
-    if initialized and not unlocked:
+    if not initialized:
+        # A vault that was never created cannot be missing its credentials:
+        # calling this "credential_missing" (as the host at v3.66.1349 did)
+        # sends the operator looking for deleted secrets instead of an
+        # unconfigured vault. ok only while nothing references it.
+        return {
+            **base,
+            "missing_count": len(references),
+            "ok": not references,
+            "resolved_count": 0,
+            "state": "uninitialized",
+            "unavailable_count": 0,
+        }
+    if not unlocked:
         return {
             **base,
             "missing_count": 0,
@@ -211,11 +236,15 @@ def credential_health(sites_config: dict | None) -> dict:
     elif missing_count:
         state = "missing_credentials"
         ok = False
-    elif not initialized and not references:
-        state = "uninitialized"
+    elif resolved_count:
+        state = "unlocked"
         ok = True
     else:
-        state = "unlocked"
+        # Open, and proving nothing: no configured reference was decrypted, so
+        # "unlocked" would be a claim about a measurement never taken. Not a
+        # failure (there is nothing to fail), but it must not wear the name
+        # earned by a vault that actually resolved a credential.
+        state = "unlocked_unverified"
         ok = True
     return {
         **base,
@@ -236,6 +265,7 @@ def _attach_credential_health(payload: dict, sites_config: dict | None) -> None:
     degraded = {
         "locked": "credential_vault_locked",
         "missing_credentials": "credential_missing",
+        "uninitialized": "credential_vault_uninitialized",
         "unknown": "credential_state_unknown",
     }.get(credentials["state"], "credential_state_unknown")
     payload.setdefault("degraded", degraded)
