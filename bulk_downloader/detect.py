@@ -132,7 +132,18 @@ def res_score(text):
         try: n=int(m.group(1))
         except Exception: continue
         if 100<=n<=9999: digit_best=max(digit_best,n)
-    for m in re.finditer(r"(\d{3,4})\s*[x×]\s*(\d{3,4})",t):
+    # v3.66.1342: a PHOTO-SET dimension is not a video resolution.
+    # nubilefilms captions its stills "Large 6000x4000px" / "Large
+    # 8192x5464px"; group 2 was read as a pixel HEIGHT, scoring 4000 and
+    # 5464, so a 3:2 photo outranked the real 2160p anchor and the wide
+    # sweep clicked the photo control -- history rows 111 and 112.
+    # The (?!\d) is load-bearing and \b is NOT a substitute for it. A bare
+    # (?!\s*px) BACKTRACKS to a shorter first alternative and matches
+    # ("6000", "400") -- a height absent from the text. \b blocks that too,
+    # but "_" is a WORD character, so \b also killed "1280x720_60FPS.mp4"
+    # and broke the 60fps tiebreaker in test_v3_43_65_cascade.py. Measured
+    # all three ways; both regressions pinned in test_row381_*.
+    for m in re.finditer(r"(\d{3,4})\s*[x×]\s*(\d{3,4})(?!\d)(?!\s*px)",t):
         try: h=int(m.group(2))
         except Exception: continue
         if 100<=h<=9999: digit_best=max(digit_best,h)

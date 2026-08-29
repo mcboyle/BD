@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4030,
+  "edge_count": 4032,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3594,6 +3594,10 @@
       "bulk_downloader/runner_transport.py"
     ],
     "tests/test_row380_wrapper_never_outranks_leaf.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_row381_photo_pixels_are_not_a_resolution.py": [
+      "bulk_downloader/constants.py",
       "bulk_downloader/detect.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
