@@ -487,10 +487,29 @@ def _advance_origin(fx, subject, rel="docs/NOTE.txt", text=None):
     return _head(fx.seed)
 
 
+def _expect_commit_args(fx, args):
+    """Declare the commit this invocation intends to land, as the script now
+    requires of every host whose `origin` is not the official origin.
+
+    THE FIXTURE ORIGIN IS A LOCAL BARE REPO, which is structurally the shape of
+    the two fleet hosts that clone from /home/mboyle/bd.git on themselves: a
+    fetch succeeds whether or not anything was pushed into it. Since row 391 the
+    script refuses to invent an intended commit for such a remote, so the
+    harness states it -- `fx.seed`'s HEAD is by construction exactly what was
+    last pushed to `fx.origin`, so this names what the fetch will find and
+    changes nothing any test here measures. A caller that passes its own
+    --expect-commit is left alone: several tests are about that flag.
+    """
+    if "--expect-commit" in args:
+        return []
+    return ["--expect-commit", _head(fx.seed)]
+
+
 def _deploy(fx, *args, timeout=120):
     argv = [BASH, str(SCRIPT), "--dir", fx.clone,
             "--health-url", "http://deploy-test.invalid/api/health",
-            "--timeout", "5", "--interval", "1", *args]
+            "--timeout", "5", "--interval", "1",
+            *_expect_commit_args(fx, args), *args]
     return subprocess.run(argv, env=fx.env, cwd=fx.work,
                           capture_output=True, text=True, timeout=timeout)
 
