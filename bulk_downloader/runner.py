@@ -440,6 +440,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # only re-resumes if it's still set (so an operator stop cancels it).
         self._rl_autostart=False
         self._pause=threading.Event(); self._pause.set()
+        # Active HTTP transfers register their bounded daily-byte batches here
+        # so operator pause/stop can persist already-written bytes even when a
+        # transport iterator is blocked waiting for its next response buffer.
+        self._daily_byte_accumulators_lock=threading.Lock()
+        self._daily_byte_accumulators=set()
         # Phase 3: persistent worker threads pull from this queue.
         self._url_queue=queue.Queue()
         self._worker_threads=[]
@@ -1307,6 +1312,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         if self._state == "running":
             self._pause.clear()
             self._state = "paused"
+            _flush_pending = getattr(
+                self, "_flush_daily_byte_accumulators", None)
+            if _flush_pending:
+                _flush_pending()
 
     def resume(self):
         """Resume from paused / paused_no_button / low_disk states.
@@ -1322,6 +1331,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     def stop(self):
         self._rl_autostart=False  # P3-A: operator stop cancels a pending rate-limit resume
         self._stop.set(); self._pause.set()
+        _flush_pending = getattr(self, "_flush_daily_byte_accumulators", None)
+        if _flush_pending:
+            _flush_pending()
         # Invalidate the generation before changing job state. An in-flight
         # worker may return from Playwright after stop(), but it no longer owns
         # status, failure, progress, or heartbeat publication for this runner.
@@ -3627,6 +3639,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 threshold=int(self.config.get("no_button_threshold",5))
                 if self._consec_no_btn>=threshold:
                     self._state="paused_no_button"; self._pause.clear()
+                    self._flush_daily_byte_accumulators()
                 # Phase 198: record this 0-match against the drift counter
                 # so the Review tab can flag persistent template breakage.
                 # Only when no redirect classification matched — auth/rate-

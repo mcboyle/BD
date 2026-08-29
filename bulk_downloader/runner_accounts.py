@@ -68,6 +68,9 @@ class AccountsMixin:
                 "duration_seconds": 86400,
             })
         self._stop.set(); self._pause.set()
+        _flush_pending = getattr(self, "_flush_daily_byte_accumulators", None)
+        if _flush_pending:
+            _flush_pending()
         # v3.36.8 audit: removed dead `if self._exec: ...` block.
         # _exec/_futures were pre-v3.0 ThreadPoolExecutor state, never
         # initialized after the worker-threads refactor — this would have
