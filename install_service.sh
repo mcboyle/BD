@@ -340,6 +340,7 @@ done
 # app itself. Failure here is reported, never fatal: the installer's job is
 # to tell the truth about the service, not to gate on it.
 SERVING="unknown"
+PROBE_HTTP_CODE="000"
 if [ "$SERVICE_STATE" = "active" ]; then
     # BD_PORT is a GUI-editable key delivered via EnvironmentFile=-${APP_DIR}/.env,
     # so honour the environment first and that file second before the default.
@@ -350,15 +351,31 @@ if [ "$SERVICE_STATE" = "active" ]; then
     fi
     [ -n "$PROBE_PORT" ] || PROBE_PORT=5555
     if command -v curl >/dev/null 2>&1; then
+        PROBE_BODY_FILE="$(mktemp)"
         for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-            if curl -sSf --max-time 2 \
-                 "http://127.0.0.1:${PROBE_PORT}/api/health" >/dev/null 2>&1; then
+            PROBE_HTTP_CODE="$(curl -sS --max-time 2 -o "$PROBE_BODY_FILE" \
+                 -w '%{http_code}' \
+                 "http://127.0.0.1:${PROBE_PORT}/api/health" 2>/dev/null || true)"
+            if [ "$PROBE_HTTP_CODE" = "200" ]; then
                 SERVING="yes"
                 break
             fi
+            # A non-2xx health response still proves the HTTP app is serving.
+            # An initialized master vault deliberately returns 503 after a
+            # restart until a human supplies its process-local key.
+            if [ "$PROBE_HTTP_CODE" = "503" ] && \
+               grep -Eq '"degraded"[[:space:]]*:[[:space:]]*"credential_vault_locked"|"state"[[:space:]]*:[[:space:]]*"locked"' \
+                    "$PROBE_BODY_FILE"; then
+                SERVING="vault_locked"
+                break
+            fi
+            case "$PROBE_HTTP_CODE" in
+                [1-5][0-9][0-9]) SERVING="unhealthy"; break ;;
+            esac
             sleep 1
         done
-        [ "$SERVING" = "yes" ] || SERVING="no"
+        rm -f "$PROBE_BODY_FILE"
+        [ "$SERVING" != "unknown" ] || SERVING="no"
     fi
 fi
 
@@ -367,6 +384,15 @@ echo " ================================================================"
 if [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "yes" ]; then
     echo "  ${SERVICE_NAME} is RUNNING and enabled on boot."
     echo "  (serving on 127.0.0.1:${PROBE_PORT})"
+elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "vault_locked" ]; then
+    echo "  WARNING: Credential vault is LOCKED after the service restart."
+    echo "  The app is serving, but stored credentials cannot run. This"
+    echo "  deployment requires a human unlock after every service restart:"
+    echo "    open BulkDownloader -> Settings -> Secrets -> Unlock"
+elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "unhealthy" ]; then
+    echo "  WARNING: ${SERVICE_NAME} is SERVING, but its health check failed"
+    echo "  with HTTP ${PROBE_HTTP_CODE}. Inspect the distinct health state:"
+    echo "    curl -sS http://127.0.0.1:${PROBE_PORT}/api/health"
 elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "unknown" ]; then
     echo "  WARNING: ${SERVICE_NAME} is active, but whether it is SERVING is"
     echo "  unverified -- curl is not installed, so the health endpoint could"

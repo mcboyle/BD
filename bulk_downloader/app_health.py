@@ -124,10 +124,128 @@ def _runner_queue_counts(status: dict) -> tuple[int, int]:
     )
 
 
+def _unknown_credential_health(*, backend, initialized, unlocked, references):
+    """A7: unavailable measurements are UNKNOWN, never zero-shaped OK."""
+    return {
+        "backend": backend,
+        "is_initialized": initialized,
+        "is_unlocked": unlocked,
+        "missing_count": None,
+        "ok": False,
+        "reference_count": (len(references) if references is not None else None),
+        "resolved_count": None,
+        "state": "unknown",
+        "stored_count": None,
+        "unavailable_count": None,
+    }
+
+
+def credential_health(sites_config: dict | None) -> dict:
+    """Measure password-reference availability without exposing values."""
+    from . import secrets_store as ss
+
+    backend_name = None
+    initialized = None
+    unlocked = None
+    references = None
+    try:
+        references = ss.password_reference_keys(sites_config)
+        backend = ss.get_backend()
+        backend_name = getattr(backend, "name", "unknown")
+        initialized_fn = getattr(backend, "is_initialized", None)
+        initialized = bool(initialized_fn()) if callable(initialized_fn) else True
+        unlocked = bool(backend.is_unlocked())
+        # Enumeration is independently required: without it, None from get()
+        # cannot be classified as missing versus unreadable.
+        stored_keys = list(backend.list_keys())
+    except Exception:
+        return _unknown_credential_health(
+            backend=backend_name,
+            initialized=initialized,
+            unlocked=unlocked,
+            references=references,
+        )
+
+    base = {
+        "backend": backend_name,
+        "is_initialized": initialized,
+        "is_unlocked": unlocked,
+        "reference_count": len(references),
+        "stored_count": len(stored_keys),
+    }
+    if initialized and not unlocked:
+        return {
+            **base,
+            "missing_count": 0,
+            "ok": False,
+            "resolved_count": 0,
+            "state": "locked",
+            "unavailable_count": len(references),
+        }
+
+    stored = set(stored_keys)
+    resolved_count = 0
+    missing_count = 0
+    unavailable_count = 0
+    for ref in references:
+        if ref not in stored:
+            missing_count += 1
+            continue
+        try:
+            value = backend.get(ref)
+        except Exception:
+            return _unknown_credential_health(
+                backend=backend_name,
+                initialized=initialized,
+                unlocked=unlocked,
+                references=references,
+            )
+        if value is None:
+            unavailable_count += 1
+        else:
+            resolved_count += 1
+
+    if unavailable_count:
+        state = "unknown"
+        ok = False
+    elif missing_count:
+        state = "missing_credentials"
+        ok = False
+    elif not initialized and not references:
+        state = "uninitialized"
+        ok = True
+    else:
+        state = "unlocked"
+        ok = True
+    return {
+        **base,
+        "missing_count": missing_count,
+        "ok": ok,
+        "resolved_count": resolved_count,
+        "state": state,
+        "unavailable_count": unavailable_count,
+    }
+
+
+def _attach_credential_health(payload: dict, sites_config: dict | None) -> None:
+    credentials = credential_health(sites_config)
+    payload["credentials"] = credentials
+    if credentials["ok"]:
+        return
+    payload["ok"] = False
+    degraded = {
+        "locked": "credential_vault_locked",
+        "missing_credentials": "credential_missing",
+        "unknown": "credential_state_unknown",
+    }.get(credentials["state"], "credential_state_unknown")
+    payload.setdefault("degraded", degraded)
+
+
 @health_bp.route("/api/health")
 def api_health():
     _app_boot_time = _app__app_boot_time()
     runners = _app_runners()
+    s_cfg = _app_s_cfg()
     import sqlite3 as _sqlite3
     from . import __version__ as _bd_version
     payload = {
@@ -167,6 +285,7 @@ def api_health():
         payload["ok"] = False
         payload["db_ok"] = False
         payload["degraded"] = f"db_error: {type(e).__name__}"
+    _attach_credential_health(payload, s_cfg)
     # B1.3 (post-365): build identity. Read build_info.json from the install
     # dir so the Dashboard can compare the FE-loaded VITE_BUILD_STAMP against
     # the backend build sha. Absent file -> no `build` key (graceful: dev tree
@@ -235,6 +354,7 @@ def api_health_v2():
         payload["db_ok"] = False
         payload["degraded"] = f"db_error: {type(e).__name__}"
         payload["db_journal_mode"] = "unknown"
+    _attach_credential_health(payload, s_cfg)
     # Disk free per download dir — first 5 only (mockup shows
     # aggregate, not per-dir; this is for the Settings → Health pane).
     disks = []

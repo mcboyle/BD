@@ -630,14 +630,14 @@ Schema version: 2
   - L0182 `ManualLoginSession.ready`
   - L0186 `ManualLoginSession.error`
   - L0189 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0371 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0506 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0525 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0542 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0570 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0584 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0609 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0638 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+  - L0394 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0529 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0548 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0565 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0593 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0607 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0632 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0661 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 
