@@ -371,10 +371,53 @@ def find_best_download(page,custom="",learned=None,runner=None):
             except Exception: pass
         return " ".join(parts)
 
+    # v3.66.1340: a LAYOUT WRAPPER is not a download control.
+    # gather_text reads inner_text, so an ancestor inherits every
+    # descendant's label. Measured on the live wowgirls scene page
+    # (test6, 2026-08-29): div.content_download.video_downloads -- 88
+    # descendants, 9 child a.ct_dl_button -- scores 4325 from its
+    # "7680 x 4320" child (TYING the real 8K anchor) and parses a size
+    # of 1.99GB from the 1080p child's caption, while the real 8K anchor
+    # keeps its size in a SIBLING caption and parses 0. The
+    # (score,size) sort then ranks the wrapper first, and clicking a
+    # <div> fires no Playwright download event -- five wowgirls history
+    # rows read "no dl event; scored ok but no download fired".
+    # Drop a candidate ONLY when it carries no affordance of its own AND
+    # contains one that does. Every element the ancestor walk below is
+    # willing to promote satisfies the own-affordance test, so this can
+    # never delete a real control -- including wowgirls' own learned
+    # `div.download-button[data-href]` shape (negative control in
+    # tests/test_row380_wrapper_never_outranks_leaf.py).
+    _OWN_AFFORDANCE_ATTRS = ("href", "onclick", "data-href", "data-url",
+                             "data-src", "data-download",
+                             "data-signed-url-key")
+    _CONTROL_DESCENDANT_SEL = (
+        "a[href],button,[onclick],[data-href],[data-url],[data-src],"
+        "[data-download],[data-signed-url-key],[role='button'],[role='link']")
+
+    def is_wrapper_not_control(el):
+        """True when *el* only WRAPS controls and carries none of its own.
+
+        Deliberately built from get_attribute/locator rather than a page
+        evaluate: a stub page that lacks either raises, and the except below
+        fails OPEN (keeps the candidate). Silently deleting the operator's
+        real download is the one outcome this guard must never produce.
+        """
+        try:
+            for _a in _OWN_AFFORDANCE_ATTRS:
+                if el.get_attribute(_a): return False
+            if (el.get_attribute("role") or "") in ("button", "link"):
+                return False
+            return el.locator(_CONTROL_DESCENDANT_SEL).count() > 0
+        except Exception:
+            return False
+
     def add(el,text):
         t=(text or "").strip()
         if not t or t in seen: return
         if NON_VIDEO_RE.search(t): return  # skip Zip/Photos/Trailer/etc.
+        # v3.66.1340: a pure layout wrapper is not clickable-as-a-download.
+        if is_wrapper_not_control(el): return
         # P5-3 DOM-honeypot filter at candidate-construction time.
         # Filter here (not at scoring) so invisible candidates don't
         # pollute the scoring list. Off by default — env var unset →
