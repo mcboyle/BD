@@ -26,7 +26,9 @@ from .runner_util import (
     resolve_url_attribute,
 )
 from .db import db_log
-from .detect import res_label, fmt_bytes, safe_dest
+from .detect import (res_label, fmt_bytes, safe_dest,
+                     page_media_verdict, NO_VIDEO_STATE,
+                     CONTROL_DID_NOT_FIRE_STATE)
 from .fname import resolve_filename_template
 from .website_title import history_title_kwargs
 from .constants import _HTTPDownloadFailed, _DownloadTruncated
@@ -1114,16 +1116,35 @@ class TransportMixin:
                         streaming = _hls.is_streaming_url(href)
                     except Exception:
                         streaming = False
+                # v3.66.x row 399 -- and SAY WHICH OF THE TWO STATES it is.
+                # "scored ok but no download fired" describes a video page whose
+                # control failed. On venus.wowgirls.com/gallery/... (test6,
+                # 2026-08-29, history row 125) it described a PHOTO SET with no
+                # video on it at all: bd-shoot.py measured ANCHORS 136,
+                # AFFORDANCES 143, MEDIA AFFORDANCES 0, and the clicked
+                # "candidate" was the site-navigation link `/films-6K/`. The
+                # census is only consulted off the streaming path, and UNKNOWN
+                # (unmeasurable, or zero affordances of any kind) leaves the
+                # existing hint exactly as it was.
+                _no_video,_aff,_med=(None,-1,-1)
+                if not streaming:
+                    _no_video,_aff,_med=page_media_verdict(page)
                 if streaming:
                     hint=(f"the link is a streaming manifest ({href[:80]}) — a "
                           f"browser NAVIGATES those rather than downloading "
                           f"them, so no download event can fire. This needs the "
                           f"segmented downloader (ffmpeg via hls_downloader); "
                           f"it is not a selector problem")
+                elif _no_video is True:
+                    hint=(f"{NO_VIDEO_STATE} — {_med} media affordances of "
+                          f"{_aff} on the page, so what was clicked is site "
+                          f"chrome and not a download. There is no video here; "
+                          f"it is not a selector problem")
                 elif best["score"]==0:
                     hint="looks like a modal-trigger button — set Trigger Selector"
                 else:
-                    hint="scored ok but no download fired"
+                    hint=(f"{CONTROL_DID_NOT_FIRE_STATE}; scored ok but no "
+                          f"download fired")
                 self._update_job(page_url,"needs_review",
                                  f"Clicked but no download started — {hint}. Saw: {seen}",
                                  screenshot=ss)
