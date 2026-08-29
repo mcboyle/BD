@@ -8,10 +8,39 @@ import {
   promoteGateWarnings,
   readinessAllGreen,
   readinessBoard,
+  sceneCrawlView,
   stepReady,
   stepStatus,
   triggerMatchCountFromSandbox,
 } from "@/lib/guidedCapture";
+
+describe("sceneCrawlView", () => {
+  it("keeps NOT_LOGGED_IN distinct from a completed zero-scene crawl", () => {
+    const view = sceneCrawlView({
+      state: "NOT_LOGGED_IN",
+      discovered: 0,
+      queued: 0,
+      pages_walked: 1,
+      zero_scenes_found: false,
+    });
+    expect(view.tone).toBe("warning");
+    expect(view.label).toMatch(/not logged in/i);
+    expect(view.label).not.toMatch(/no scenes/i);
+  });
+
+  it("reports exact discovered, queued and page counts for a completed run", () => {
+    const view = sceneCrawlView({
+      state: "COMPLETED",
+      discovered: 9,
+      queued: 8,
+      pages_walked: 3,
+      zero_scenes_found: false,
+    });
+    expect(view.label).toContain("9 discovered");
+    expect(view.label).toContain("8 queued");
+    expect(view.label).toContain("3 pages");
+  });
+});
 
 function ctx(over: Partial<GuidedCtx> = {}): GuidedCtx {
   return {

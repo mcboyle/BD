@@ -458,6 +458,34 @@ def api_queue_v2_bulk_cancel():
         "total": len(seen),
         "errors": results["errors"],
     })
+def enqueue_one_url(site_id, url, *, runners=None):
+    """Put one URL through the canonical per-site queue operation.
+
+    Both the public ``POST /api/queue/v2/add_url`` route and the authenticated
+    scene crawler call this function, so crawler discoveries cannot drift onto
+    a parallel queue implementation.
+    """
+    if runners is None:
+        runners = _app_runners()
+    sid = str(site_id or "").strip()
+    target = str(url or "").strip()
+    if not sid:
+        raise ValueError("site_id required")
+    if not target:
+        raise ValueError("url required")
+    if sid not in runners or not runners[sid]:
+        raise KeyError(f"unknown site_id {sid!r}")
+    added, dupes, skipped = runners[sid].load_urls([target])
+    return {
+        "ok": True,
+        "site_id": sid,
+        "url": target,
+        "added": int(added),
+        "dupes": int(dupes),
+        "skipped": int(skipped),
+    }
+
+
 @queue_bp.route("/api/queue/v2/add_url", methods=["POST"])
 def api_queue_v2_add_url():
     """v3.66.8 — enqueue a single URL on a configured site.
@@ -497,27 +525,16 @@ def api_queue_v2_add_url():
         return jsonify({"ok": False, "error": "site_id required"}), 400
     if not url:
         return jsonify({"ok": False, "error": "url required"}), 400
-    if sid not in runners or not runners[sid]:
-        return jsonify({
-            "ok": False,
-            "error": f"unknown site_id {sid!r}",
-        }), 400
-    runner = runners[sid]
     try:
-        added, dupes, skipped = runner.load_urls([url])
+        result = enqueue_one_url(sid, url, runners=runners)
+    except (ValueError, KeyError) as e:
+        return jsonify({"ok": False, "error": str(e).strip("'")}), 400
     except Exception as e:
         return jsonify({
             "ok": False,
             "error": f"{type(e).__name__}: {str(e)[:200]}",
         }), 500
-    return jsonify({
-        "ok": True,
-        "site_id": sid,
-        "url": url,
-        "added": int(added),
-        "dupes": int(dupes),
-        "skipped": int(skipped),
-    })
+    return jsonify(result)
 
 @queue_bp.route("/api/queue/dead_letter")
 def api_queue_dead_letter_list():

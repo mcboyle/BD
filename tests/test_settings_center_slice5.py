@@ -29,7 +29,7 @@ _CFG = {"sites": {"demo": {
 
 # Golden invariants captured from Slice 4 (behavior must not change in a presentation slice).
 # v3.66.468: +1 (chromium_extensions joined CFG_FIELDS as a gui-safe editable field).
-_EDITABLE_COUNT = 208  # v3.66.702: +1 (jd_supported_hosts_path promoted to a gui-safe editable field, JD-3)
+_EDITABLE_COUNT = 214  # Row 374: +6 authenticated scene-crawler controls.
 _SAMPLE = {"max_concurrent": 999, "wait": 200, "delay": 3.5, "headless": "true",
            "skip_if_exists": "no", "password": "x", "username": "u",
            "cookie_max_age_hours": 12, "nope": 1, "chunk_size_mb": 2}

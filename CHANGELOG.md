@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1340 - scroll, paginate, navigate and queue without the operator
+
+- scroll, paginate, navigate and queue without the operator
+- application: 6 file(s) in bulk_downloader/ changed
+- frontend: 6 file(s) changed
+- test: evilangel_page1.html
+- test: evilangel_page2.html
+- test: logged_out.html
+- 32 file(s), 2572 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    app_discovery.py -> bulk_downloader
+    _scene_crawler.py -> bulk_downloader
+    scene_crawler.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1339 - 84 library rows, 0 titles, one call site
 
 - 84 library rows, 0 titles, one call site
