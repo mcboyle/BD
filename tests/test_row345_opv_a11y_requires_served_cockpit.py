@@ -201,7 +201,8 @@ def test_f43_then_a11y_restores_auth_and_grades_the_served_cockpit() -> None:
     navigation = result["navigations"][0]
     assert result["f43"] == [
         "PASS",
-        "enqueue token 403 on admin route; admin mint reserved (DEC-2)",
+        "enqueue token denied with required_scope=admin; "
+        "admin token issued one child token",
     ]
     assert (
         result["auth_after"] is None
@@ -217,6 +218,103 @@ def test_f43_then_a11y_restores_auth_and_grades_the_served_cockpit() -> None:
     assert result["axe_injections"] == 1
     assert result["axe_runs"] == 1
     assert result["browser_closes"] == 1
+
+
+def test_f43_internal_subject_failures_are_not_precondition_skips(
+        monkeypatch) -> None:
+    spec = importlib.util.spec_from_loader(
+        "row367_bd_opv_f43_failure_probe",
+        importlib.machinery.SourceFileLoader(
+            "row367_bd_opv_f43_failure_probe", str(_TOOL)
+        ),
+    )
+    assert spec is not None and spec.loader is not None
+    opv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(opv)
+    assert any(check_id == "OPV-F4.3" for check_id, _, _ in opv.REGISTRY)
+
+    class Response:
+        def __init__(self, status, body):
+            self.status_code = status
+            self._body = body
+
+        def get_json(self):
+            return self._body
+
+    class Client:
+        def __init__(self, scenario):
+            self.scenario = scenario
+            self.calls = []
+
+        def get(self, path, **_kwargs):
+            self.calls.append(("GET", path))
+            if path == "/api/api_tokens":
+                status = 200 if self.scenario == "auth-bypass" else 401
+                return Response(status, {"ok": status == 200})
+            if path == "/api/csrf":
+                return Response(200, {"csrf_token": "row367-csrf"})
+            raise AssertionError(f"unexpected GET {path}")
+
+        def post(self, path, **_kwargs):
+            self.calls.append(("POST", path))
+            assert path == "/api/api_tokens"
+            if self.scenario == "enqueue-mint-failed":
+                return Response(500, {"error": "fixture enqueue mint broke"})
+            if self.scenario == "enqueue-token-missing":
+                return Response(200, {"ok": True})
+            raise AssertionError(f"unexpected POST for {self.scenario}")
+
+    class ClientContext:
+        def __init__(self, client):
+            self.client = client
+
+        def __enter__(self):
+            return self.client, object()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    scenarios = (
+        "auth-bypass",
+        "enqueue-mint-failed",
+        "enqueue-token-missing",
+    )
+    clients = []
+    auth_tokens = []
+    outcomes = []
+    for scenario in scenarios:
+        client = Client(scenario)
+        clients.append(client)
+
+        def authenticated_client(token, *, _client=client):
+            auth_tokens.append(token)
+            return ClientContext(_client)
+
+        monkeypatch.setattr(opv, "_authenticated_client", authenticated_client)
+        outcomes.append(opv.chk_f43())
+
+    assert auth_tokens == ["opv-master", "opv-master", "opv-master"]
+    assert [client.calls for client in clients] == [
+        [("GET", "/api/api_tokens")],
+        [
+            ("GET", "/api/api_tokens"),
+            ("GET", "/api/csrf"),
+            ("POST", "/api/api_tokens"),
+        ],
+        [
+            ("GET", "/api/api_tokens"),
+            ("GET", "/api/csrf"),
+            ("POST", "/api/api_tokens"),
+        ],
+    ]
+    assert outcomes == [
+        (
+            "FAIL",
+            "auth not enforced (got 200 not 401) -- scoping bypassed by design",
+        ),
+        ("FAIL", "could not mint enqueue token (500)"),
+        ("FAIL", "mint returned no token field"),
+    ]
 
 
 def test_a11y_refuses_a_real_401_before_running_axe() -> None:

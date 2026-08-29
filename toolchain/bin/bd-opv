@@ -249,35 +249,82 @@ def chk_base():
 
 
 def chk_f43():
-    """OPV-F4.3: an enqueue-scoped token is 403 on an admin route; admin is
-    reserved (DEC-2). Fully API -- runs against the test client."""
+    """OPV-F4.3: enqueue is denied with required_scope=admin, while an admin
+    token can issue exactly one child token. Fully API -- test client only."""
     with _authenticated_client("opv-master") as (c, _):
         # (0) auth ON?
         r0 = c.get("/api/api_tokens")
         if r0.status_code != 401:
-            return SKIP, f"auth not enforced (got {r0.status_code} not 401) -- scoping bypassed by design"
+            return FAIL, f"auth not enforced (got {r0.status_code} not 401) -- scoping bypassed by design"
         csrf = _csrf(c)
         h = {"Authorization": "Bearer opv-master", "X-CSRF-Token": csrf,
              "Content-Type": "application/json"}
         mint = c.post("/api/api_tokens", headers=h,
                       data=json.dumps({"scope": "enqueue", "label": "opv"}))
         if mint.status_code >= 300:
-            return SKIP, f"could not mint enqueue token ({mint.status_code})"
+            return FAIL, f"could not mint enqueue token ({mint.status_code})"
         tok = (mint.get_json() or {}).get("token")
         if not tok:
-            return SKIP, "mint returned no token field"
+            return FAIL, "mint returned no token field"
         r2 = c.post("/api/retention/apply",
                     headers={"Authorization": f"Bearer {tok}",
                              "Content-Type": "application/json"},
                     data=json.dumps({"dry_run": True}))
-        admin_mint = c.post("/api/api_tokens", headers=h,
-                            data=json.dumps({"scope": "admin"}))
-        reserved = "reserved" in json.dumps(admin_mint.get_json() or {})
-        if r2.status_code == 403 and reserved:
-            return PASS, "enqueue token 403 on admin route; admin mint reserved (DEC-2)"
+        denied = r2.get_json() or {}
         if r2.status_code != 403:
             return FAIL, f"enqueue token got {r2.status_code} on admin route (expected 403)"
-        return FAIL, "admin scope was NOT rejected as reserved (DEC-2 regression)"
+        if denied.get("required_scope") != "admin":
+            return FAIL, ("enqueue denial did not name required_scope=admin "
+                          f"(body={denied!r})")
+        if denied.get("error") != "insufficient token scope":
+            return FAIL, ("enqueue denial took the wrong refusal path "
+                          f"(body={denied!r})")
+
+        admin_mint = c.post("/api/api_tokens", headers=h,
+                            data=json.dumps({"scope": "admin",
+                                             "label": "opv-f43-admin"}))
+        admin_body = admin_mint.get_json() or {}
+        if admin_mint.status_code >= 300 or admin_body.get("ok") is not True:
+            return FAIL, ("could not mint admin token "
+                          f"(status={admin_mint.status_code}, body={admin_body!r})")
+        admin_token = admin_body.get("token")
+        if not isinstance(admin_token, str) or not admin_token.startswith("bdapi_"):
+            return FAIL, "admin mint returned no bdapi_ token"
+
+        admin_headers = {
+            "Authorization": f"Bearer {admin_token}",
+            "Content-Type": "application/json",
+        }
+        child_mint = c.post(
+            "/api/api_tokens",
+            headers=admin_headers,
+            data=json.dumps({"scope": "read", "label": "opv-f43-child"}),
+        )
+        child_body = child_mint.get_json() or {}
+        if child_mint.status_code >= 300 or child_body.get("ok") is not True:
+            return FAIL, ("admin token could not issue a child token "
+                          f"(status={child_mint.status_code}, body={child_body!r})")
+        child_token = child_body.get("token")
+        if (child_body.get("scope") != "read"
+                or not isinstance(child_token, str)
+                or not child_token.startswith("bdapi_")
+                or child_token == admin_token):
+            return FAIL, f"admin-issued child token was malformed (body={child_body!r})"
+
+        listed = c.get("/api/api_tokens", headers=admin_headers)
+        listed_body = listed.get_json() or {}
+        if listed.status_code != 200 or listed_body.get("ok") is not True:
+            return FAIL, ("admin token could not list issued tokens "
+                          f"(status={listed.status_code}, body={listed_body!r})")
+        child_rows = [
+            row for row in listed_body.get("tokens", [])
+            if row.get("token_id") == child_body.get("token_id")
+        ]
+        if len(child_rows) != 1:
+            return FAIL, ("admin issuance did not produce exactly one listed child "
+                          f"(count={len(child_rows)})")
+        return PASS, ("enqueue token denied with required_scope=admin; "
+                      "admin token issued one child token")
 
 
 def chk_csrf_gate():

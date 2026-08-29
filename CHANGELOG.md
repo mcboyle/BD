@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1332 - the capture path dismisses upsell interstitials and says it did
+
+-    """DEC-2: admin is reserved/unmintable, so NO API token can reach a
+-    can. The enqueue token (highest mintable scope) is 403 on both. (Replaces
+-    the pre-DEC-2 ``test_admin_token_allowed_on_destructive_and_mgmt``, whose
+-        assert t.create_token(scope="admin")["ok"] is False   # cannot mint
+-        tok = _mint("enqueue")
+-        r1 = c.post("/api/retention/apply", headers=_hdr(tok),
+-                    json={"dry_run": True})
+-        assert r1.status_code == 403
+-        assert r1.get_json().get("required_scope") == "admin"
+-        r2 = c.get("/api/api_tokens", headers=_hdr(tok))
+-        assert r2.status_code == 403
+-        assert r2.get_json().get("required_scope") == "admin"
+-        r3 = c.get("/api/api_tokens", headers=_hdr(_MASTER))
+
 ## v3.66.1331 - committed template selectors are resolved against the live page
 
 -        "bd-plugin-audit", "bd-template-safety", "bd-log-sanitize", "bd-scru
