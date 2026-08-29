@@ -428,6 +428,11 @@ export function Secrets() {
       {isMaster && (
         <Card className="mb-3 p-4">
           <div className="mb-2 text-sm font-medium text-ink">Unlock / lock</div>
+          <p className="mb-3 text-xs text-ink-3">
+            The master key is held only in this app process. This deployment
+            requires a human unlock after every service restart, crash, deploy,
+            or host reboot.
+          </p>
           <div className="flex items-center gap-2">
             <SecretField
               value={unlockPw}

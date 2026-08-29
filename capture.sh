@@ -577,7 +577,12 @@ wait_for_service_ready() {
   local started
   started=$(date +%s)
   while [ "$tries" -lt "$CAPTURE_READY_TRIES" ]; do
-    if curl -sSf -o /dev/null --max-time 2 "$CAPTURE_READY_URL" 2>/dev/null
+    # This is a TRANSPORT gate for the unlock POST and later probes. Do not use
+    # curl -f here: an initialized vault correctly returns HTTP 503 while the
+    # app is serving, and treating that response as a closed socket would block
+    # the very POST that can unlock it. Health correctness remains a separate
+    # captured verdict; this wait answers only whether HTTP can answer.
+    if curl -sS -o /dev/null --max-time 2 "$CAPTURE_READY_URL" 2>/dev/null
     then
       # Deliberately does NOT reset to 0. SERVICE_READY_EXIT is plumbed to
       # the capture verdict as a stage exit, and this helper now has two call

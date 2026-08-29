@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { apiGet } from "@/lib/api-client";
 import type { QueueV2Full } from "@/lib/api-types";
@@ -71,6 +71,13 @@ export interface AppShellProps {
   breadcrumb?: React.ReactNode;
 }
 
+interface SecretsStatus {
+  backend: string;
+  is_initialized: boolean;
+  is_unlocked: boolean;
+  stored_keys: string[];
+}
+
 export function AppShell({
   title,
   subtitle,
@@ -89,6 +96,14 @@ export function AppShell({
     queryFn: ({ signal }) => apiGet<QueueV2Full>("/api/queue/v2", signal),
     refetchInterval: 15_000,
     refetchOnWindowFocus: false,
+    retry: 0,
+  });
+  const { data: secretsStatus } = useQuery<SecretsStatus>({
+    queryKey: ["secrets-status"],
+    queryFn: ({ signal }) =>
+      apiGet<SecretsStatus>("/api/secrets/status", signal),
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
     retry: 0,
   });
 
@@ -129,6 +144,27 @@ export function AppShell({
   // page load — preferable to a useLayoutEffect that would block
   // first paint.
   const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const vaultLocked =
+    secretsStatus?.is_initialized === true &&
+    secretsStatus.is_unlocked === false;
+  const vaultAlert = vaultLocked ? (
+    <div
+      role="alert"
+      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-amber-500/50 bg-amber-950/40 px-4 py-3 text-sm text-amber-100"
+    >
+      <strong>Credential vault locked:</strong>
+      <span className="flex-1">
+        stored credentials cannot run. This deployment requires a human unlock
+        after every service restart.
+      </span>
+      <Link
+        to="/secrets"
+        className="rounded-md bg-amber-300 px-3 py-1.5 font-semibold text-amber-950 hover:bg-amber-200"
+      >
+        Unlock vault
+      </Link>
+    </div>
+  ) : null;
 
   if (isDesktop) {
     return (
@@ -151,6 +187,7 @@ export function AppShell({
           backTo={backTo}
           breadcrumb={breadcrumb}
         >
+          {vaultAlert}
           {children}
         </DesktopShell>
         <CommandPalette />
@@ -176,6 +213,7 @@ export function AppShell({
        * bar wrapper) and add scroll-padding so a focused field / anchored
        * scroll never tucks under the floating bar on notched devices. */}
       <main className="mx-auto max-w-2xl px-4 pt-3 pb-[calc(7rem+env(safe-area-inset-bottom))] scroll-pb-[calc(7rem+env(safe-area-inset-bottom))]">
+        {vaultAlert}
         {children}
       </main>
       <BottomTabBar

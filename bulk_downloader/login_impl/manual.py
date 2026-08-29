@@ -327,9 +327,24 @@ class ManualLoginSession:
         # takeover. The injected JS uses common selectors and tolerates
         # missing fields gracefully.
         try:
-            from ..secrets_store import resolve_password as _resolve_pw
+            from ..secrets_store import resolve_password_state as _resolve_pw_state
             username = config.get("username") or ""
-            password = _resolve_pw(config.get("password") or "") or ""
+            password, password_state = _resolve_pw_state(
+                config.get("password") or ""
+            )
+            password = password or ""
+            if password_state == "locked":
+                sys.stderr.write(
+                    "  manual_login: credential vault is LOCKED; password was "
+                    "not autofilled. Unlock it in Settings -> Secrets.\n")
+            elif password_state == "missing":
+                sys.stderr.write(
+                    "  manual_login: stored credential is MISSING; password "
+                    "was not autofilled. Repair it in Settings -> Secrets.\n")
+            elif password_state in ("unavailable", "unknown"):
+                sys.stderr.write(
+                    "  manual_login: credential availability is UNKNOWN; "
+                    "password was not autofilled. Check Settings -> Secrets.\n")
             if username or password:
                 # Build a small autofill script that finds the most-likely
                 # username/password fields and fills them. Doesn't submit
@@ -363,7 +378,15 @@ class ManualLoginSession:
                 # Run once after load; SPA sites that lazy-mount the form
                 # are out of scope for this best-effort autofill.
                 page.evaluate(autofill_js)
-                sys.stderr.write(f"  manual_login: autofilled credentials for {config.get('name','?')}\n")
+                if username and password:
+                    filled = "credentials"
+                elif password:
+                    filled = "password"
+                else:
+                    filled = "username"
+                sys.stderr.write(
+                    f"  manual_login: autofilled {filled} for "
+                    f"{config.get('name','?')}\n")
         except Exception as e:
             sys.stderr.write(f"  manual_login: autofill failed: {e}\n")
         return browser, ctx, page, used_pw

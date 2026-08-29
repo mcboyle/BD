@@ -38,6 +38,7 @@ the script down the `active` path.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -110,9 +111,12 @@ def _free_port() -> int:
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
+    status_code = 200
+    payload = b'{"ok": true}'
+
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
-        payload = b'{"ok": true}'
-        self.send_response(200)
+        payload = self.payload
+        self.send_response(self.status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -343,3 +347,59 @@ def test_the_probe_actually_reached_the_health_endpoint(tail, tmp_path):
         f"bulk_downloader/app.py:439-440); a probe of anything else may need a "
         f"session token and would report a healthy service as down."
     )
+
+
+def test_locked_vault_is_serving_but_requires_explicit_restart_unlock(tail, tmp_path):
+    """HTTP 503 + locked diagnostic is not a closed socket or failed app."""
+    locked_payload = {
+        "ok": False,
+        "degraded": "credential_vault_locked",
+        "credentials": {
+            "backend": "master_password",
+            "is_initialized": True,
+            "is_unlocked": False,
+            "missing_count": 0,
+            "ok": False,
+            "reference_count": 2,
+            "resolved_count": 0,
+            "state": "locked",
+            "stored_count": 2,
+            "unavailable_count": 2,
+        },
+    }
+
+    # PRECONDITION: the synthetic app is serving a fully observed, nonempty
+    # locked-vault response.  It is neither a transport failure nor a missing
+    # credential, and all nonzero denominators are exact.
+    assert locked_payload["degraded"] == "credential_vault_locked"
+    assert locked_payload["credentials"]["reference_count"] == 2
+    assert locked_payload["credentials"]["stored_count"] == 2
+    assert locked_payload["credentials"]["unavailable_count"] == 2
+    assert locked_payload["credentials"]["missing_count"] == 0
+
+    hits: list[str] = []
+
+    class _LockedVaultHealth(_HealthHandler):
+        status_code = 503
+        payload = json.dumps(locked_payload, separators=(",", ":")).encode()
+
+        def do_GET(self):  # noqa: N802
+            hits.append(self.path)
+            super().do_GET()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _LockedVaultHealth)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        proc = _run_tail(tail, tmp_path, port)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    out = proc.stdout + proc.stderr
+    assert out.count("Credential vault is LOCKED") == 1, out
+    assert out.count("Settings -> Secrets") == 1, out
+    assert out.count("after every service restart") == 1, out
+    assert "nothing answered" not in out
+    assert hits == ["/api/health"]

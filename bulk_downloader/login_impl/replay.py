@@ -519,11 +519,21 @@ def _attempt_headless_fill_submit(page, config, timeout=15.0, runner=None):
     from .. import selector_chains as _sc
 
     username = config.get("username", "") or ""
+    password_state = "empty"
     try:
-        from ..secrets_store import resolve_password
-        password = resolve_password(config.get("password", "")) or ""
+        from ..secrets_store import resolve_password_state
+        password, password_state = resolve_password_state(
+            config.get("password", "")
+        )
+        password = password or ""
     except Exception:
         password = config.get("password", "") or ""
+    if password_state == "locked":
+        return False, "credential vault locked; unlock in Settings -> Secrets"
+    if password_state == "missing":
+        return False, "stored credential missing; repair in Settings -> Secrets"
+    if password_state in ("unavailable", "unknown"):
+        return False, "credential state unknown; check Settings -> Secrets"
     if not username or not password:
         return False, "no credentials in config (wizard didn't capture them?)"
 
