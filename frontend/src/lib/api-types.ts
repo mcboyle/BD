@@ -172,7 +172,7 @@ export interface SiteConfigDraft {
   cookie_file?: string;
   download_dir?: string;
   filename_template?: string;
-  // 3b (v3.66.512): optional login-form CSS selectors so the quick-add wizard
+  // Optional login-form CSS selectors so the quick-add wizard
   // can self-drive login on a host with no curated login template. Backend
   // accepts these as cfg keys (CFG_FIELDS + app.py do_login).
   user_field?: string;
@@ -182,6 +182,7 @@ export interface SiteConfigDraft {
   quality_preference?: string;
   min_resolution?: number;
   log_network?: boolean;
+  login_trigger?: string;
 }
 
 /** Canonical app_kernel.DEFAULTS values used before a site record exists. */

@@ -161,6 +161,7 @@ _STRING_FIELD_META = {
     "user_field": ("auth/session", "high", "Selector for the username field", "selector", "Site editor → Login"),
     "pass_field": ("auth/session", "high", "Selector for the password field", "selector", "Site editor → Login"),
     "submit_btn": ("auth/session", "high", "Selector for the login submit button", "selector", "Site editor → Login"),
+    "login_trigger": ("auth/session", "high", "Selector that reveals the login form", "selector", "Site editor → Login"),
     "username": ("auth/session", "high", "Stored login username for this site", "string", "Site editor → Login"),
     "dl_selector": ("acquisition", "medium", "Selector for the download control", "selector", "Site editor → Selectors"),
     "trigger_selector": ("acquisition", "medium", "Selector that triggers the download", "selector", "Site editor → Selectors"),
@@ -173,10 +174,11 @@ _STRING_FIELD_META = {
     "sched_repeat": ("scheduling", "low", "Schedule repeat interval", "enum/interval", "Site editor → Schedule"),
 }
 _RELATED = {
-    "login_url": ["user_field", "pass_field", "submit_btn", "success_url", "username"],
-    "user_field": ["login_url", "pass_field", "submit_btn"],
-    "pass_field": ["login_url", "user_field", "submit_btn"],
-    "submit_btn": ["login_url", "user_field", "pass_field"],
+    "login_url": ["login_trigger", "user_field", "pass_field", "submit_btn", "success_url", "username"],
+    "login_trigger": ["login_url", "user_field", "pass_field", "submit_btn"],
+    "user_field": ["login_url", "login_trigger", "pass_field", "submit_btn"],
+    "pass_field": ["login_url", "login_trigger", "user_field", "submit_btn"],
+    "submit_btn": ["login_url", "login_trigger", "user_field", "pass_field"],
     "success_url": ["login_url"],
     "username": ["login_url", "auth_token"],
     "dl_selector": ["trigger_selector", "dismiss_selectors"],
