@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3978,
+  "edge_count": 3979,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3525,6 +3525,9 @@
       "bulk_downloader/app_health.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row372_gate_dismissal.py": [
+      "bulk_downloader/interstitial.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

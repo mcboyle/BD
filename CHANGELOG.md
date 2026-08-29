@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1334 - four gates, one symptom, and a control that must never be clicked
+
+-            # Dismiss PER-PAGE interstitials (cookie banners, age gates,
+-            # One CSS selector per line; each is tried with a short timeout 
+-            # a miss is silent, because a popup that didn't show up must nev
+-            # fail a URL. v3.66.1016: the loop moved to bulk_downloader.
+-            # interstitial so do_login shares it; the POST-LOGIN wall is a
+-            # different scope and lives in `dismiss_selectors_login`, fired
+-            # once there rather than re-tried here at 3s per line per URL.
+-            _interstitial.dismiss(page, self.config.get("dismiss_selectors",
+-             and n.func.attr == "dismiss"]
+-    assert calls, "_process_one no longer dismisses anything per URL"
+- four gates, one symptom, and a control that must never be clicked
+- application: 2 file(s) in bulk_downloader/ changed
+- frontend: 1 file(s) changed
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _gate_dismissal.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1333 - an admin token administers, or says which scope would
 
 - an admin token administers, or says which scope would

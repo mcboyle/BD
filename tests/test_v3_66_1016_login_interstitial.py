@@ -247,7 +247,7 @@ def test_no_hand_rolled_dismissal_loop_survives_outside_the_helper():
         "bulk_downloader.interstitial.dismiss: %r" % found)
 
 
-def test_the_per_url_path_still_DELEGATES_rather_than_having_dropped_it():
+def test_the_per_url_path_delegates_to_the_gate_orchestrator_with_reporting():
     """The half a census cannot see. Deleting the dismissal outright satisfies
     'no hand-rolled loop survives' perfectly, and silently stops dismissing
     cookie banners on every site -- the fix reproducing the shape of the
@@ -255,8 +255,18 @@ def test_the_per_url_path_still_DELEGATES_rather_than_having_dropped_it():
     fn = _fn_named("bulk_downloader/runner.py", "_process_one")
     calls = [n for n in ast.walk(fn)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "dismiss"]
-    assert calls, "_process_one no longer dismisses anything per URL"
+             and n.func.attr == "clear_gates"]
+    assert len(calls) == 1, (
+        "_process_one must clear content gates through exactly one orchestrator: "
+        "%r" % [ast.unparse(call) for call in calls])
+    call = calls[0]
+    rendered = ast.unparse(call)
+    keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
+    assert PAGE_KEY in rendered, "the configured per-site gates were not passed"
+    assert ("url" in keywords and isinstance(keywords["url"], ast.Name)
+            and keywords["url"].id == "url"), (
+        "the original destination is required for origin checks and re-request")
+    assert "log" in keywords, "cleared gates would be silent to the operator"
 
 
 # ── which consumer reads which key, and in what order ─────────────
