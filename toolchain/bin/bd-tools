@@ -68,7 +68,7 @@ CATEGORY = {
         "bd-json-schema-check", "bd-json-roundtrip", "bd-store-check",
         "bd-schema-oracle", "bd-config-lineage", "bd-api-contract"],
     "Plugin / capture / template hardening (Wave 8)": ["bd-plugin-manifest",
-        "bd-plugin-audit", "bd-template-safety", "bd-log-sanitize", "bd-scrub-proof",
+        "bd-plugin-audit", "bd-template-safety", "bd-template-verify", "bd-log-sanitize", "bd-scrub-proof",
         "bd-share-safe", "bd-plugin-threatmodel", "bd-plugin-containment",
         "bd-plugin-sandbox-check", "bd-capture-risk", "bd-wacz-scrub",
         "bd-artifact-quarantine", "bd-plugin-permission-diff", "bd-plugin-diff",

@@ -402,6 +402,13 @@ jobs:
               tests/test_row311_app_config_writers_are_serialized.py
               tests/test_v3_66_261_contended_lifecycle_lock.py
               tests/test_v3_57_phase9.py
+          # Row 362. This is the executable contract for every selector entry
+          # in all 91 committed templates. It uses only tracked HTML fixtures
+          # in CI, including a post-click dropdown shape, while the static arm
+          # compiles the complete corpus with Playwright's selector parser.
+          - name: template-selectors
+            suites: >-
+              tests/test_row362_templates_are_resolvable.py
           # F31. A service-owned BD_INSTALL_DIR must not cross any child-test
           # boundary. This shard runs the real nested-pytest and sacrificial-DB
           # probes on every PR instead of relying on a diff-derived band.
@@ -680,6 +687,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-test.txt
+
+      # The row-362 fixture gate executes real Playwright locator semantics;
+      # missing Chromium is unavailable evidence, never grounds for a skip.
+      - name: Install Chromium for template selector fixtures
+        if: matrix.name == 'template-selectors'
+        run: python -m playwright install --with-deps chromium
 
       - name: ${{ matrix.name }} gates
         run: >-
