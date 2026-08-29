@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
@@ -55,7 +56,9 @@ function mount() {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <CaptureBrowser />
+      <MemoryRouter>
+        <CaptureBrowser />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -100,5 +103,12 @@ describe("CaptureBrowser (Item 3 read-only scan + browse)", () => {
     expect(await screen.findByText("wacz")).toBeInTheDocument();
     // a non-redacted capture is badged "raw"
     expect(await screen.findByText("raw")).toBeInTheDocument();
+  });
+
+  it("routes operators from stored captures into the existing live workflow", async () => {
+    apiGetMock.mockResolvedValue({ ...EMPTY });
+    mount();
+    const link = await screen.findByRole("link", { name: /learn from a live page/i });
+    expect(link).toHaveAttribute("href", "/capture");
   });
 });

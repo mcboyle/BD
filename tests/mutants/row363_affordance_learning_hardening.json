@@ -1,0 +1,203 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 363 final A7/live-page hardening. This focused sibling covers the safety findings discovered after the primary learner battery: ordered best semantics, reversible click/listing guards, page-local load-time evidence, authoritative empty proof, credential-shaped selectors, and collision-free Review drafts. Run from the same detached final-tree scratch as the primary spec.",
+  "subject": "the GUI learner leaves the held page usable, attributes load-time evidence to the active page, and never overwrites a Review draft",
+  "band": [
+    "tests/test_row363_affordance_learning.py::test_learning_refuses_without_click_when_dom_guard_cannot_arm",
+    "tests/test_row363_affordance_learning.py::test_learning_and_crawl_refuse_when_dom_guard_release_is_unproven",
+    "tests/test_row363_affordance_learning.py::test_live_planning_refuses_when_guard_setup_fails",
+    "tests/test_row363_affordance_learning.py::test_live_planning_refuses_when_guard_cleanup_fails",
+    "tests/test_row363_affordance_learning.py::test_policy_honors_leading_best_in_the_existing_ordered_cascade",
+    "tests/test_row363_affordance_learning.py::test_listing_traversal_blocks_requests_and_downloads_without_breaking_crawl",
+    "tests/test_row363_affordance_learning.py::test_cosmetic_empty_marker_is_not_authoritative",
+    "tests/test_row363_affordance_learning.py::test_authoritative_empty_total_cannot_mask_pagination_failure",
+    "tests/test_row363_affordance_learning.py::test_capture_recorders_populate_redacted_page_local_load_buffer",
+    "tests/test_row363_affordance_learning.py::test_live_bridge_includes_only_active_page_load_time_media_evidence",
+    "tests/test_row363_affordance_learning.py::test_live_bridge_prefers_the_operator_focused_popup_over_the_launch_tab",
+    "tests/test_row363_affordance_learning.py::test_standalone_network_action_uses_only_the_focused_page_buffer",
+    "tests/test_row363_affordance_learning.py::test_page_network_buffer_excludes_an_earlier_document_in_the_same_tab",
+    "tests/test_row363_affordance_learning.py::test_page_network_buffer_survives_same_document_spa_navigation",
+    "tests/test_row363_affordance_learning.py::test_missing_page_network_recorder_is_failed_not_found_nothing[network]",
+    "tests/test_row363_affordance_learning.py::test_missing_page_network_recorder_is_failed_not_found_nothing[learn]",
+    "tests/test_row363_affordance_learning.py::test_same_host_drafts_are_digest_named_and_never_overwritten",
+    "tests/test_row363_affordance_learning.py::test_template_rejects_key_and_signature_credential_selectors"
+  ],
+  "mutants": [
+    {
+      "label": "H1 a leading best token is skipped for a later numeric ceiling",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        if token in {\"best\", \"highest\", \"max\"}:\n            ceilings.append(math.inf)\n            continue",
+      "new": "        if False and token in {\"best\", \"highest\", \"max\"}:  # row 363 mutant: skip leading best\n            ceilings.append(math.inf)\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_policy_honors_leading_best_in_the_existing_ordered_cascade"
+    },
+    {
+      "label": "H2 media-shaped listing fetches and XHR escape the planning guard",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            and (resource_type == \"media\" or _MEDIA_PATH.search(url))",
+      "new": "            and resource_type == \"media\"  # row 363 mutant: media URL fetch/xhr escapes",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_listing_traversal_blocks_requests_and_downloads_without_breaking_crawl"
+    },
+    {
+      "label": "H3 every listing fetch is blocked so infinite scroll cannot expand",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            and (resource_type == \"media\" or _MEDIA_PATH.search(url))",
+      "new": "            and (resource_type in {\"media\", \"xhr\", \"fetch\"} or _MEDIA_PATH.search(url))  # row 363 mutant: block listing APIs",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_listing_traversal_blocks_requests_and_downloads_without_breaking_crawl"
+    },
+    {
+      "label": "H4 a cosmetic empty marker is called authoritative",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "  return !!total && /^\\d+$/.test(total) && Number(total) === 0;",
+      "new": "  return !!document.querySelector('[data-empty-list=\"true\"]') || (!!total && /^\\d+$/.test(total) && Number(total) === 0);  // row 363 mutant: trust cosmetic marker",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_cosmetic_empty_marker_is_not_authoritative"
+    },
+    {
+      "label": "H5 pagination and completion errors are ignored before EMPTY",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if not scenes and empty_integrity_error:\n        return {\n            \"status\": \"FAILURE\",",
+      "new": "    if False and not scenes and empty_integrity_error:  # row 363 mutant: allow error to be laundered as EMPTY\n        return {\n            \"status\": \"FAILURE\",",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_authoritative_empty_total_cannot_mask_pagination_failure"
+    },
+    {
+      "label": "H6 key signature and CSRF selector attributes are admitted",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "_CONCRETE_SELECTOR_PATH = re.compile(\n    r\"(?:https?://|[?&](?:token|auth|session|sig|key)=|\"\n    r\"/\\d{5,}(?:/|['\\\"]|$)|\"\n    r\"\\[\\s*(?:(?:data|x)[-_])?(?:api[-_]?)?\"\n    r\"(?:key|sig(?:nature)?|csrf|xsrf|nonce|jwt|bearer)\\b)\",\n    re.I,\n)",
+      "new": "_CONCRETE_SELECTOR_PATH = re.compile(\n    r\"(?:https?://|[?&](?:token|auth|session|sig|key)=|/\\d{5,}(?:/|['\\\"]|$))\",\n    re.I,\n)  # row 363 mutant: admit key/signature selector attributes",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_template_rejects_key_and_signature_credential_selectors[data-key]"
+    },
+    {
+      "label": "H7 Capture never wires the per-page load-time response buffer",
+      "file": "tools/capture_session.py",
+      "old": "            attach_page_network_buffer(pg, capture)",
+      "new": "            pass  # row 363 mutant: omit page-local load-time evidence wiring",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_capture_recorders_populate_redacted_page_local_load_buffer"
+    },
+    {
+      "label": "H8 Learn discards the active page load-time evidence baseline",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            page_baseline = _active_page_network(capture, page)",
+      "new": "            page_baseline = []  # row 363 mutant: discard active-page load evidence",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_bridge_includes_only_active_page_load_time_media_evidence"
+    },
+    {
+      "label": "H9 page-local evidence stores the raw credential-bearing URL",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        safe_url = redact_media_url(str(url or \"\"))[:1000]",
+      "new": "        safe_url = str(url or \"\")[:1000]  # row 363 mutant: retain raw signed URL",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_capture_recorders_populate_redacted_page_local_load_buffer"
+    },
+    {
+      "label": "H10 Review draft filenames omit the proof identity",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        + f\".{proof_digest[:12]}.template-draft.json\"",
+      "new": "        + \".template-draft.json\"  # row 363 mutant: same-host drafts collide",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_same_host_drafts_are_digest_named_and_never_overwritten"
+    },
+    {
+      "label": "H11 a foreign draft at the digest path is treated as idempotent",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            return not path.is_symlink() and path.is_file() and path.read_bytes() == encoded",
+      "new": "            return not path.is_symlink() and path.is_file()  # row 363 mutant: foreign bytes count as the same draft",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_same_host_drafts_are_digest_named_and_never_overwritten"
+    },
+    {
+      "label": "H12 the dropdown is clicked without an armed DOM guard",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                if not dom_guard_armed:\n                    guard_unavailable = True",
+      "new": "                if False and not dom_guard_armed:  # row 363 mutant: click without prevention\n                    guard_unavailable = True",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_learning_refuses_without_click_when_dom_guard_cannot_arm"
+    },
+    {
+      "label": "H13 an unproven DOM-guard release is ignored by Learn",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                    guard_cleanup_failed = not released",
+      "new": "                    guard_cleanup_failed = False  # row 363 mutant: ignore unproven restoration",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_learning_and_crawl_refuse_when_dom_guard_release_is_unproven"
+    },
+    {
+      "label": "H14 an unproven DOM-guard release is ignored by crawl",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            if not released:\n                listing_guard_error = (\n                    \"Could not prove the listing download guard was restored; \"",
+      "new": "            if False and not released:  # row 363 mutant: crawl claims cleanup without proof\n                listing_guard_error = (\n                    \"Could not prove the listing download guard was restored; \"",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_learning_and_crawl_refuse_when_dom_guard_release_is_unproven"
+    },
+    {
+      "label": "H15 Learn swallows a request-route cleanup failure",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                if interaction_route_installed:\n                    try:\n                        page.unroute(\"**/*\", _block_interaction_request)\n                    except Exception:\n                        guard_cleanup_failed = True",
+      "new": "                if interaction_route_installed:\n                    try:\n                        page.unroute(\"**/*\", _block_interaction_request)\n                    except Exception:\n                        pass  # row 363 mutant: leave route installed without refusing",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_planning_refuses_when_guard_cleanup_fails[unroute-learn]"
+    },
+    {
+      "label": "H16 Learn swallows a download-listener setup failure",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                except Exception as exc:\n                    guard_setup_failed = True\n                    raise RuntimeError(\n                        \"download-listener guard setup failed\"\n                    ) from exc",
+      "new": "                except Exception as exc:\n                    raise RuntimeError(\n                        \"download-listener guard setup failed\"\n                    ) from exc  # row 363 mutant: setup failure is not terminal",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_planning_refuses_when_guard_setup_fails[on-learn]"
+    },
+    {
+      "label": "H17 live actions fall back to the stale launch tab despite newer operator activity",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if with_activity:\n        return max(with_activity, key=lambda row: (row[2], row[3]))[0]",
+      "new": "    if with_activity:\n        return candidates[-1][0]  # row 363 mutant: stale launch-page ordering wins",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_bridge_prefers_the_operator_focused_popup_over_the_launch_tab"
+    },
+    {
+      "label": "H18 the standalone Network action reads all-tab history",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            evidence = media_network_evidence(_active_page_network(capture, page))",
+      "new": "            evidence = media_network_evidence(list(getattr(capture, \"network_log\", []) or []))  # row 363 mutant: mix background tabs",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_standalone_network_action_uses_only_the_focused_page_buffer"
+    },
+    {
+      "label": "H19 Capture omits the trusted-activity marker from wired pages",
+      "file": "tools/capture_session.py",
+      "old": "            attach_page_activity_marker(pg)",
+      "new": "            pass  # row 363 mutant: popup/tab activity is not tracked",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_capture_recorders_populate_redacted_page_local_load_buffer"
+    },
+    {
+      "label": "H20 same-tab navigation keeps media evidence from the prior document",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        generation[0] += 1\n        rows.clear()",
+      "new": "        generation[0] += 1\n        pass  # row 363 mutant: retain prior document evidence",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_page_network_buffer_excludes_an_earlier_document_in_the_same_tab"
+    },
+    {
+      "label": "H21 a same-document SPA route change erases current evidence",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        if not pending_main_navigations:\n            return\n        # Page objects survive both full and same-URL navigations.",
+      "new": "        if False and not pending_main_navigations:  # row 363 mutant: treat pushState as a new document\n            return\n        # Page objects survive both full and same-URL navigations.",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_page_network_buffer_survives_same_document_spa_navigation"
+    },
+    {
+      "label": "H22 unavailable held-page recorder is laundered into found nothing",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if not isinstance(by_page, dict) or page not in by_page:\n        raise RuntimeError(\n            \"Held-page network capture is unavailable; retry the Capture session.\"\n        )",
+      "new": "    if not isinstance(by_page, dict) or page not in by_page:\n        return []  # row 363 mutant: unavailable measurement becomes empty success",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_missing_page_network_recorder_is_failed_not_found_nothing[network]"
+    }
+  ]
+}

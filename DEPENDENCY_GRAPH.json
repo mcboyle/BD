@@ -294,20 +294,25 @@
     "captures": {
       "module": "app_captures.py",
       "providers": [
+        "bulk_downloader/affordance_learning.py",
+        "bulk_downloader/app_kernel.py",
         "bulk_downloader/audit.py",
         "bulk_downloader/db.py",
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/secrets_store.py",
+        "bulk_downloader/template_manager.py",
         "tools/cockpit_core.py"
       ],
-      "route_count": 8,
+      "route_count": 10,
       "routes": [
         "ROUTE /api/captures",
         "ROUTE /api/captures/allowlist_add",
         "ROUTE /api/captures/build_draft",
+        "ROUTE /api/captures/live_learning",
         "ROUTE /api/captures/scan",
         "ROUTE /api/captures/scrub",
         "ROUTE /api/captures/setup_site",
+        "ROUTE /api/captures/stage_learning",
         "ROUTE /api/captures/suggest_rows",
         "ROUTE /api/captures/validate_download_dir"
       ],
@@ -2332,7 +2337,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1651,
+    "edge_count": 1659,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2372,6 +2377,12 @@
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_auth.py",
         "bulk_downloader/runner_telemetry.py"
+      ],
+      "bulk_downloader/affordance_learning.py": [
+        "bulk_downloader/app_captures.py",
+        "bulk_downloader/template_manager.py",
+        "tools/capture_session.py",
+        "tools/cockpit_core.py"
       ],
       "bulk_downloader/ai_boot_status.py": [
         "bulk_downloader/ai_boot_observation.py",
@@ -2696,7 +2707,8 @@
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_kernel.py": [
-        "bulk_downloader/app.py"
+        "bulk_downloader/app.py",
+        "bulk_downloader/app_captures.py"
       ],
       "bulk_downloader/app_knowledge.py": [
         "bulk_downloader/app.py"
@@ -3139,6 +3151,7 @@
         "bulk_downloader/app_template.py"
       ],
       "bulk_downloader/capture_redact.py": [
+        "bulk_downloader/affordance_learning.py",
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/capture_bodies.py",
         "bulk_downloader/capture_ingest.py",
@@ -3146,6 +3159,7 @@
         "bulk_downloader/capture_synth.py",
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/inspect_pick.py",
+        "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/temporal_harness.py",
         "tools/gen_frontend_secret_keys.py",
         "tools/scrub_recon.py"
@@ -4535,6 +4549,7 @@
       ],
       "bulk_downloader/template_manager.py": [
         "bulk_downloader/app_analyzer.py",
+        "bulk_downloader/app_captures.py",
         "bulk_downloader/app_template_manager.py",
         "bulk_downloader/app_template_manager_ui.py",
         "bulk_downloader/auto_promote.py",
@@ -5094,6 +5109,9 @@
         "bulk_downloader/download_window.py",
         "bulk_downloader/runner.py"
       ],
+      "bulk_downloader/affordance_learning.py": [
+        "bulk_downloader/capture_redact.py"
+      ],
       "bulk_downloader/ai_boot_observation.py": [
         "bulk_downloader/ai_boot_status.py"
       ],
@@ -5424,10 +5442,13 @@
         "bulk_downloader/captcha_relay.py"
       ],
       "bulk_downloader/app_captures.py": [
+        "bulk_downloader/affordance_learning.py",
+        "bulk_downloader/app_kernel.py",
         "bulk_downloader/audit.py",
         "bulk_downloader/db.py",
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/secrets_store.py",
+        "bulk_downloader/template_manager.py",
         "tools/cockpit_core.py"
       ],
       "bulk_downloader/app_changelog.py": [
@@ -6897,6 +6918,7 @@
       ],
       "bulk_downloader/runner_telemetry.py": [
         "bulk_downloader/admission.py",
+        "bulk_downloader/capture_redact.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/hooks.py",
@@ -7070,6 +7092,7 @@
         "tools/template_drift_report.py"
       ],
       "bulk_downloader/template_manager.py": [
+        "bulk_downloader/affordance_learning.py",
         "bulk_downloader/bad_terms.py",
         "bulk_downloader/dry_run.py",
         "bulk_downloader/lifecycle_drift.py",
@@ -7387,6 +7410,7 @@
         "tools/report_core.py"
       ],
       "tools/capture_session.py": [
+        "bulk_downloader/affordance_learning.py",
         "bulk_downloader/challenge_handling.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/dom_capture.py",
@@ -7452,6 +7476,7 @@
       ],
       "tools/cockpit_core.py": [
         "bulk_downloader/__init__.py",
+        "bulk_downloader/affordance_learning.py",
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/capture_ingest.py",
         "bulk_downloader/capture_scrub_hook.py",

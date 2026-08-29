@@ -21,6 +21,8 @@ function ctx(over: Partial<GuidedCtx> = {}): GuidedCtx {
     sessionLive: true,
     loggedIn: true,
     contentPageVisited: true,
+    liveLearningAttempted: true,
+    resolutionPolicySatisfied: true,
     draftBuilt: true,
     requiredSelectorsResolved: true,
     verdictState: "DONE",
@@ -112,6 +114,18 @@ describe("step readiness + status map", () => {
     expect(stepReady("test", ctx({ verdictState: "NEEDS_REVIEW" }))).toBe(true);
     expect(stepReady("test", ctx({ verdictState: "PENDING" }))).toBe(false);
     expect(stepReady("test", ctx({ verdictState: "FAILED" }))).toBe(false);
+  });
+
+  it("build stays blocked until live affordance learning has been attempted", () => {
+    const c = ctx({ liveLearningAttempted: false });
+    expect(stepReady("build", c)).toBe(false);
+    expect(firstBlocker("build", c)).toContain("live download affordance");
+  });
+
+  it("build refuses to advance when every learned option violates min_resolution", () => {
+    const c = ctx({ resolutionPolicySatisfied: false });
+    expect(stepReady("build", c)).toBe(false);
+    expect(firstBlocker("build", c)).toContain("min_resolution");
   });
 
   it("promote is blocked until preflight is green", () => {

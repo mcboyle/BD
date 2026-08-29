@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><title>Rendered infinite scene listing</title>
+    <style>#scroll-space { height: 2400px; }</style>
+  </head>
+  <body data-total-scenes="5" data-site-host="members.example.invalid">
+    <section class="SceneGrid" id="scene-grid">
+      <article class="SceneCard"><a href="https://members.example.invalid/video/one">One</a></article>
+      <article class="SceneCard"><a href="https://members.example.invalid/video/two">Two</a></article>
+    </section>
+    <div id="scroll-space"></div>
+    <script>
+      const batches = [
+        [
+          ["https://members.example.invalid/video/two#duplicate", "Two duplicate"],
+          ["https://members.example.invalid/video/three", "Three"],
+          ["https://members.example.invalid/video/four", "Four"]
+        ],
+        [["https://members.example.invalid/video/five", "Five"]]
+      ];
+      let loaded = 0;
+      window.addEventListener("scroll", () => {
+        if (loaded >= batches.length) return;
+        const grid = document.getElementById("scene-grid");
+        for (const [href, label] of batches[loaded++]) {
+          const card = document.createElement("article");
+          card.className = "SceneCard";
+          const link = document.createElement("a");
+          link.href = href;
+          link.textContent = label;
+          card.appendChild(link);
+          grid.appendChild(card);
+        }
+        document.getElementById("scroll-space").style.height = `${2400 + loaded * 1000}px`;
+      });
+    </script>
+  </body>
+</html>

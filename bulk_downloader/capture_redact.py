@@ -22,7 +22,7 @@ removes secrets; it never reconstructs, replays, or evades.
 from __future__ import annotations
 
 import re
-from urllib.parse import unquote, quote
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 PLACEHOLDER = "<scrubbed>"
 
@@ -42,7 +42,7 @@ SENSITIVE_HEADER = re.compile(
 # Query-param keys whose values are secrets — redact the value.
 SENSITIVE_QS_KEY = re.compile(
     r"(token|key|sig|signature|secret|auth|session|sid|hash|expires|"
-    r"policy|credential|x-amz-|apikey|password|pwd|jwt|"
+    r"policy|credential|x-amz-|apikey|password|pwd|jwt|hdnea|hdnts|__gda__|"
     # P3-T12: challenge-RESPONSE tokens. Cloudflare cf_challenge_response /
     # __cf_chl_tk match via 'challenge' / 'cf_chl'; hCaptcha & reCaptcha
     # *-response tokens match via 'captcha'. These are "challenge passed"
@@ -92,6 +92,69 @@ def redact_query(url: str, _depth: int = 0) -> str:
         else:
             parts.append(pair)
     return f"{base}?{'&'.join(parts)}"
+
+
+_OPAQUE_PATH_SEGMENT = re.compile(
+    r"(?:^eyJ[A-Za-z0-9._~-]{12,}$|"
+    r"^(?=.{32,}$)(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9._~-]+$)"
+)
+_SENSITIVE_PATH_LABEL = re.compile(
+    r"^(?:token|auth|authorization|session|signature|sig|secret|credential)$",
+    re.I,
+)
+
+
+def redact_media_url(url: str) -> str:
+    """Redact query, userinfo, and credential-like media path segments.
+
+    Media evidence is operator-visible, unlike most internal capture records.
+    Signed services also place short-lived credentials in URL paths, so query
+    redaction alone is not an adequate display boundary.
+    """
+    if not isinstance(url, str) or not url:
+        return url
+    safe = redact_query(url)
+    try:
+        parsed = urlsplit(safe)
+        host = parsed.hostname or ""
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        netloc = f"{host}:{port}" if host and port is not None else host
+
+        segments = parsed.path.split("/")
+        history_download = False
+        lowered = [unquote(segment).lower() for segment in segments]
+        for index in range(max(0, len(lowered) - 3)):
+            if (
+                lowered[index:index + 2] == ["user", "history"]
+                and lowered[index + 2] in {"download", "streaming"}
+            ):
+                history_download = True
+                break
+        previous = ""
+        for index, segment in enumerate(segments):
+            decoded = unquote(segment)
+            if (
+                decoded
+                and (
+                    _SENSITIVE_PATH_LABEL.match(previous)
+                    or _OPAQUE_PATH_SEGMENT.match(decoded)
+                    or (history_download and index == len(segments) - 1)
+                )
+            ):
+                segments[index] = PLACEHOLDER
+            previous = decoded
+        return urlunsplit(parsed._replace(
+            netloc=netloc,
+            path="/".join(segments),
+        ))
+    except Exception:
+        # Query redaction already completed; never fall back to the raw input.
+        return safe
 
 
 def _redact_nested_value(value: str, depth: int) -> str:

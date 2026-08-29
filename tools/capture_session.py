@@ -500,6 +500,10 @@ def _attach_recorders(ctx, initial_page, capture, *, redact: bool = True):
     """
     from bulk_downloader.session_capture import capture_via_cdp
     from bulk_downloader.dom_recorder import attach_dom_recorder
+    from bulk_downloader.affordance_learning import (
+        attach_page_activity_marker,
+        attach_page_network_buffer,
+    )
 
     wired = set()
 
@@ -507,6 +511,19 @@ def _attach_recorders(ctx, initial_page, capture, *, redact: bool = True):
         if pg in wired:
             return
         wired.add(pg)
+        try:
+            # Live actions follow the tab the operator most recently used,
+            # including playback/listing popups instead of the stale launch tab.
+            attach_page_activity_marker(pg)
+        except Exception:
+            pass
+        try:
+            # Row 363: exact-Page, bounded/redacted response metadata survives
+            # the initial navigation, unlike listeners attached when Learn is
+            # clicked later.  It stays separate from the all-tab CDP log.
+            attach_page_network_buffer(pg, capture)
+        except Exception:
+            pass
         try:
             capture_via_cdp(pg, capture, redact=redact)
         except Exception:
@@ -957,6 +974,25 @@ def run(argv=None) -> int:
                 # cross-process way (DOM_REQUEST -> scrubbed outerHTML excerpt
                 # -> DOM_RESULT.json). Best-effort: must never disturb capture.
                 _ep.maybe_collect_dom(list(wired), Path(args.out).parent)
+            except Exception:
+                pass
+
+            # Row 363: service GUI learning/corroboration/crawl requests on the
+            # same held-open authenticated page.  The request is nonce-bound;
+            # the capture side writes a terminal result on success/failure or
+            # suppresses it when a cancellation tombstone wins the race.
+            # Best-effort here: discovery must never take down the operator's
+            # Capture session.
+            try:
+                from bulk_downloader import affordance_learning as _al
+                # ``wired`` is a set and therefore has no recency ordering.
+                # Put the capture's authoritative current page last because
+                # the learner deliberately chooses the last usable page.
+                _current = cur[0]
+                _learning_pages = [p for p in wired if p is not _current]
+                _learning_pages.append(_current)
+                _al.maybe_service_live_request(
+                    _learning_pages, capture, Path(args.out).parent)
             except Exception:
                 pass
 
