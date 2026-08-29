@@ -607,15 +607,18 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/_common.py` (6 entries)
+## `bulk_downloader/login_impl/_common.py` (9 entries)
 
 ```
-- L0006 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
-- L0020 `_try_fill` `[private]` — Walk the candidate list; fill the first visible element, return
-- L0067 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0107 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0166 `_css_escape_for_id` `[private]`
-- L0175 `_ms_since` `[private]`
+- L0006 `_selector_text` `[private]` — Return the CSS selector carried by a plain or structured chain step.
+- L0015 `_first_positive_size_match` `[private]` — Return the first visible, positive-size match for ``selector``.
+- L0043 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
+- L0073 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
+- L0087 `_try_fill` `[private]` — Walk the candidate list; fill the first visible element, return
+- L0134 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0174 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0233 `_css_escape_for_id` `[private]`
+- L0242 `_ms_since` `[private]`
 ```
 
 
@@ -658,12 +661,12 @@ Schema version: 2
 ## `bulk_downloader/login_impl/submit.py` (6 entries)
 
 ```
-- L0013 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0052 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0127 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0188 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0421 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0491 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0018 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0057 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0132 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0193 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0426 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L0496 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -697,4 +700,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 521 across 22 files._
+_Total entries: 524 across 22 files._

@@ -59,7 +59,7 @@ def test_apis_return_ok_json():
 def test_schema_is_authoritative_225():
     app, _ = _app()
     body = json.loads(app.test_client().get("/api/settings/schema").data)
-    assert body["unique_fields"] == 238, body["unique_fields"]  # v3.66.702: +1 jd_supported_hosts_path (JD-3); v3.66.810: +2 predictive_relogin_{enabled,fraction} (MOD-1 F1.4); v3.66.1016: +1 dismiss_selectors_login (item E)
+    assert body["unique_fields"] == 239, body["unique_fields"]  # v3.66.702: +1 jd_supported_hosts_path (JD-3); v3.66.810: +2 predictive_relogin_{enabled,fraction} (MOD-1 F1.4); v3.66.1016: +1 dismiss_selectors_login (item E); row 373: +1 login_trigger
     assert len(body["secret_fields"]) >= 8, body["secret_fields"]
     assert body["read_only"] is True
 

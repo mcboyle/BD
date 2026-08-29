@@ -556,6 +556,7 @@ _FIELD_TYPES = {
                           "Pause downloads below this free space"),
     "chunk_size_mb": ("number", "HTTP download chunk size in MB"),
     "prelogin_minutes": ("number", "Pre-login this many minutes early"),
+    "login_trigger": ("string", "Selector that reveals the login form"),
     "auto_relogin_interval_hours": ("number",
                                     "Hours between auto-relogins"),
     "warmup_every": ("number", "Seconds between warmup visits"),
