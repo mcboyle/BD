@@ -604,7 +604,7 @@ Filename: {filename}
 Return JSON only:
 {{
   "resolution": "1080p|720p|2160p|...",
-  "label": "1080|720|4K|8K|HD|SD|...",
+  "label": "1080p|720p|4K|8K|480p|...",
   "width": 1920,
   "height": 1080,
   "confidence": 0-100
@@ -839,30 +839,125 @@ def classify_role(element_desc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ── Public API: normalize_resolution ──────────────────────────────────
-# Rule-based fast path for common patterns; falls back to the LLM for
-# weird cases. Returns the SAME shape either way so callers don't care
-# which path produced the answer.
+# The AI surface used to carry a fourth hand-maintained resolution table. Its
+# labels ("2K", "1080", "720", "SD") disagreed with the detector's public
+# labels ("1440p", "1080p", "720p", "480p"), and it missed detector tiers such
+# as 5K/1200p/900p entirely. Recognition and label publication now go through
+# detect.res_score/res_label. This table contains geometry only; it cannot
+# create a second label vocabulary.
+_RESOLUTION_GEOMETRY = {
+    "8K": ("4320p", 7680, 4320),
+    "6K": ("3240p", 5760, 3240),
+    "5K": ("2880p", 5120, 2880),
+    "4K": ("2160p", 3840, 2160),
+    "1440p": ("1440p", 2560, 1440),
+    "1200p": ("1200p", 1920, 1200),
+    "1080p": ("1080p", 1920, 1080),
+    "900p": ("900p", 1600, 900),
+    "720p": ("720p", 1280, 720),
+    "540p": ("540p", 960, 540),
+    "480p": ("480p", 854, 480),
+    "360p": ("360p", 640, 360),
+    "353p (preview)": ("353p", 640, 353),
+    "240p": ("240p", 426, 240),
+}
+_RESOLUTION_DIMENSIONS_RE = re.compile(
+    r"(?<!\d)(\d{3,5})\s*[x×]\s*(\d{3,5})(?!\d)", re.I
+)
 
-_RES_LABELS = [
-    (re.compile(r"7680\s*[x×]\s*4320|\b8k\b", re.I), {"resolution":"4320p", "label":"8K",   "width":7680, "height":4320}),
-    (re.compile(r"5760\s*[x×]\s*3240|\b6k\b", re.I), {"resolution":"3240p", "label":"6K",   "width":5760, "height":3240}),
-    (re.compile(r"3840\s*[x×]\s*2160|\b4k\b|\b2160p?\b|\buhd\b", re.I), {"resolution":"2160p", "label":"4K",   "width":3840, "height":2160}),
-    (re.compile(r"2560\s*[x×]\s*1440|\b2k\b|\b1440p?\b|\bqhd\b", re.I), {"resolution":"1440p", "label":"2K",   "width":2560, "height":1440}),
-    (re.compile(r"1920\s*[x×]\s*1080|\b1080p?\b|\bfhd\b", re.I), {"resolution":"1080p", "label":"1080", "width":1920, "height":1080}),
-    (re.compile(r"1280\s*[x×]\s*720|\b720p?\b|\bhd\b", re.I), {"resolution":"720p",  "label":"720",  "width":1280, "height":720}),
-    (re.compile(r"\b480p?\b|\bsd\b", re.I), {"resolution":"480p", "label":"SD", "width":854, "height":480}),
-]
 
-def normalize_resolution(filename: str) -> Dict[str, Any]:
-    """Best-effort extraction. Fast path: regex. Fallback: LLM."""
+def _resolution_info_from_detection(text: Any) -> Optional[Dict[str, Any]]:
+    """Read one label through the canonical detector and attach geometry.
+
+    A missing signal returns ``None``. It never turns ``res_label(-1)`` into
+    the concrete-looking label ``auto``: no measurement remains unmeasured.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    try:
+        from . import detect as _resolution_detect
+        score = _resolution_detect.res_score(text)
+    except Exception:
+        return None
+    if not isinstance(score, int) or isinstance(score, bool) or score <= 0:
+        return None
+    try:
+        label = _resolution_detect.res_label(score)
+    except Exception:
+        return None
+    if not isinstance(label, str) or not label or label == "auto":
+        return None
+
+    dimensions = []
+    for match in _RESOLUTION_DIMENSIONS_RE.finditer(text):
+        width, height = int(match.group(1)), int(match.group(2))
+        if 100 <= width <= 99999 and 100 <= height <= 99999:
+            dimensions.append((width, height))
+    if dimensions:
+        width, height = max(dimensions, key=lambda item: item[1])
+        try:
+            dimension_label = _resolution_detect.res_label(height)
+        except Exception:
+            return None
+        if dimension_label == label:
+            return {
+                "resolution": f"{height}p", "label": label,
+                "width": width, "height": height,
+            }
+
+    geometry = _RESOLUTION_GEOMETRY.get(label)
+    if geometry is not None:
+        resolution, width, height = geometry
+        return {
+            "resolution": resolution, "label": label,
+            "width": width, "height": height,
+        }
+
+    match = re.match(r"(\d{1,5})p\b", label)
+    height = int(match.group(1)) if match else score
+    return {
+        "resolution": f"{height}p", "label": label,
+        "width": 0, "height": height,
+    }
+
+
+def _canonicalize_resolution_fields(*, resolution: Any, label: Any,
+                                    width: int, height: int
+                                    ) -> Optional[Dict[str, Any]]:
+    """Canonicalize model fields without trusting its free-form label.
+
+    Measured height wins over model prose. Otherwise the structured
+    resolution, then the raw label, is read through the same detector used by
+    the non-AI path. If none is measurable, no label is published.
+    """
+    evidence = ""
+    if height > 0:
+        evidence = f"{height}p"
+    elif isinstance(resolution, str) and resolution.strip():
+        evidence = resolution
+    elif isinstance(label, str) and label.strip():
+        evidence = label
+    info = _resolution_info_from_detection(evidence)
+    if info is None:
+        return None
+    if height > 0:
+        info["height"] = height
+        info["resolution"] = f"{height}p"
+    if width > 0:
+        info["width"] = width
+    return info
+
+
+def normalize_resolution(filename: str, *, allow_model: bool = True) -> Dict[str, Any]:
+    """Best-effort extraction. Detector fast path; optional LLM fallback."""
     if not filename:
         return {"ok": True, "resolution": None, "label": None,
                 "width": 0, "height": 0, "confidence": 0,
                 "via": "empty"}
-    for rx, info in _RES_LABELS:
-        if rx.search(filename):
-            return {"ok": True, **info, "confidence": 95, "via": "regex"}
-    if not _config["enabled"]:
+    info = _resolution_info_from_detection(filename)
+    if info is not None:
+        return {"ok": True, **info, "confidence": 95, "via": "regex"}
+    if not allow_model or not _config["enabled"]:
         return {"ok": True, "resolution": None, "label": None,
                 "width": 0, "height": 0, "confidence": 0,
                 "via": "no-match"}
@@ -887,11 +982,16 @@ def normalize_resolution(filename: str) -> Dict[str, Any]:
     except Exception: height = 0
     try: conf = int(parsed.get("confidence", 0))
     except Exception: conf = 0
+    canonical = _canonicalize_resolution_fields(
+        resolution=parsed.get("resolution"), label=parsed.get("label"),
+        width=width, height=height,
+    )
     _record_call("res", ms, True)
     return {"ok": True,
-            "resolution": parsed.get("resolution"),
-            "label": parsed.get("label"),
-            "width": width, "height": height,
+            "resolution": (canonical or {}).get("resolution"),
+            "label": (canonical or {}).get("label"),
+            "width": (canonical or {}).get("width", 0),
+            "height": (canonical or {}).get("height", 0),
             "confidence": max(0, min(100, conf)),
             "via": "ai", "latency_ms": ms,
             "provider": result.provider}
@@ -916,7 +1016,7 @@ Return JSON only:
   "episode": 0,
   "codec": "h264|h265|av1|vp9|null",
   "resolution": "1080p|720p|2160p|null",
-  "label": "1080|720|4K|null",
+  "label": "1080p|720p|4K|null",
   "width": 1920,
   "height": 1080,
   "confidence": 0-100
@@ -996,11 +1096,7 @@ def normalize_filename(filename: str, *, _call=None) -> Dict[str, Any]:
         except Exception:
             season = episode = None
 
-    res = None
-    for rx, info in _RES_LABELS:
-        if rx.search(filename):
-            res = info
-            break
+    res = _resolution_info_from_detection(filename)
 
     # A structured signal (codec/episode/resolution) means we trust regex.
     if codec or episode is not None or res is not None:
@@ -1050,16 +1146,22 @@ def normalize_filename(filename: str, *, _call=None) -> Dict[str, Any]:
         conf = int(parsed.get("confidence", 0))
     except Exception:
         conf = 0
+    parsed_width = _opt_int(parsed.get("width")) or 0
+    parsed_height = _opt_int(parsed.get("height")) or 0
+    canonical = _canonicalize_resolution_fields(
+        resolution=parsed.get("resolution"), label=parsed.get("label"),
+        width=parsed_width, height=parsed_height,
+    )
     out = {
         "ok": True,
         "title": parsed.get("title") or None,
         "season": _opt_int(parsed.get("season")),
         "episode": _opt_int(parsed.get("episode")),
         "codec": parsed.get("codec") or None,
-        "resolution": parsed.get("resolution") or None,
-        "label": parsed.get("label") or None,
-        "width": (_opt_int(parsed.get("width")) or 0),
-        "height": (_opt_int(parsed.get("height")) or 0),
+        "resolution": (canonical or {}).get("resolution"),
+        "label": (canonical or {}).get("label"),
+        "width": (canonical or {}).get("width", 0),
+        "height": (canonical or {}).get("height", 0),
         "confidence": max(0, min(100, conf)),
         "via": "ai", "latency_ms": ms,
         "provider": getattr(result, "provider", "?"),

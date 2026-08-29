@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1336 - the AI and detection paths read a quality label the same way
+
+-    assert out["label"] == "1080"
+-        ("Episode.S01E03.1080p.WEB-DL.mp4","1080p","1080",1920),
+-        ("untitled.720p.mp4",            "720p",  "720",  1280),
+-        ("Movie.2K.QHD.1440p.mkv",       "1440p", "2K",   2560),
+-        ("weird.480p.mp4",               "480p",  "SD",   854),
+- Both deterministic and model-backed AI paths now canonicalize labels throug
+- All 14 canonical tiers are covered.
+- The diagnostic evaluates 20 fixed probes and any requested ad-hoc probe.
+- Unavailable measurements return `UNKNOWN`, never `OK`.
+- Detector failures fail open as `no-match` without escaping the AI module.
+- Distinct diagnostics cover `OK`, one-label `FAIL`, and unavailable-reader `
+- Positive reader denominator: 14 cases, 14 rows, all 14 canonical labels.
+- Positive diagnostic: 20 fixed/total probes, 20 measured, 0 unmeasured, 0 mi
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    aiassist.py -> bulk_downloader
+    capture_diag.py -> bulk_downloader
+    _resolution_readers_agree.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1335 - open the modal, do not fall back to a human
 
 -    assert body["unique_fields"] == 238, body["unique_fields"]  # v3.66.702:

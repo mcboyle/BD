@@ -2338,7 +2338,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1662,
+    "edge_count": 1664,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2410,6 +2410,7 @@
         "bulk_downloader/app_global_config.py",
         "bulk_downloader/app_integrations.py",
         "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/integrations_diag.py",
         "bulk_downloader/drift_repair.py",
         "bulk_downloader/llm_exec.py",
@@ -3489,6 +3490,7 @@
         "bulk_downloader/runner_integrity.py"
       ],
       "bulk_downloader/detect.py": [
+        "bulk_downloader/aiassist.py",
         "bulk_downloader/app.py",
         "bulk_downloader/app_widgets_api.py",
         "bulk_downloader/auto_detect.py",
@@ -5143,6 +5145,7 @@
       ],
       "bulk_downloader/aiassist.py": [
         "bulk_downloader/ai_provider.py",
+        "bulk_downloader/detect.py",
         "bulk_downloader/secrets_store.py"
       ],
       "bulk_downloader/alerts_engine.py": [
@@ -6249,6 +6252,7 @@
         "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/dev_suite/capture_diag.py": [
+        "bulk_downloader/aiassist.py",
         "bulk_downloader/app.py",
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/constants.py",

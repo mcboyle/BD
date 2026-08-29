@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3982,
+  "edge_count": 3986,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -43,6 +43,7 @@
     ],
     "bulk_downloader/aiassist.py": [
       "bulk_downloader/ai_provider.py",
+      "bulk_downloader/detect.py",
       "bulk_downloader/secrets_store.py"
     ],
     "bulk_downloader/alerts_engine.py": [
@@ -1149,6 +1150,7 @@
       "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/dev_suite/capture_diag.py": [
+      "bulk_downloader/aiassist.py",
       "bulk_downloader/app.py",
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/constants.py",
@@ -3520,6 +3522,10 @@
       "bulk_downloader/template_manager.py",
       "tools/capture_session.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_row366_resolution_readers_agree.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_row368_vault_restart_state.py": [
       "bulk_downloader/app_health.py",

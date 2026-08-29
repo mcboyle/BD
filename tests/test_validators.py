@@ -96,10 +96,10 @@ class TestResolutionNormalization:
     @pytest.mark.parametrize("filename,exp_resolution,exp_label,exp_width", [
         ("Movie.4K.2160p.x265.mkv",     "2160p", "4K",   3840),
         ("whatever_7680x4320_master.mp4","4320p","8K",   7680),
-        ("Episode.S01E03.1080p.WEB-DL.mp4","1080p","1080",1920),
-        ("untitled.720p.mp4",            "720p",  "720",  1280),
-        ("Movie.2K.QHD.1440p.mkv",       "1440p", "2K",   2560),
-        ("weird.480p.mp4",               "480p",  "SD",   854),
+        ("Episode.S01E03.1080p.WEB-DL.mp4","1080p","1080p",1920),
+        ("untitled.720p.mp4",            "720p",  "720p", 1280),
+        ("Movie.2K.QHD.1440p.mkv",       "1440p", "1440p",2560),
+        ("weird.480p.mp4",               "480p",  "480p", 854),
         ("no_resolution_here.mp4",       None,    None,   0),
     ])
     def test_regex_fast_path(self, aiassist_module, filename, exp_resolution,
