@@ -79,9 +79,11 @@
 /api/captures	GET	api_captures_list
 /api/captures/allowlist_add	POST	api_captures_allowlist_add
 /api/captures/build_draft	POST	api_captures_build_draft
+/api/captures/live_learning	POST	api_captures_live_learning
 /api/captures/scan	POST	api_captures_scan
 /api/captures/scrub	POST	api_captures_scrub
 /api/captures/setup_site	POST	api_setup_site
+/api/captures/stage_learning	POST	api_captures_stage_learning
 /api/captures/suggest_rows	POST	api_captures_suggest_rows
 /api/captures/validate_download_dir	GET	api_captures_validate_download_dir
 /api/changelog	GET	api_changelog_all

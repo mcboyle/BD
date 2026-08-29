@@ -60,11 +60,11 @@ export const STEP_COPY: Record<StepKey, StepCopy> = {
   },
   build: {
     purpose:
-      "Derive the draft template (selector ladder, observed API host, " +
-      "resolution ladder) from what the session saw.",
-    doThis: "Navigate to a video/listing page in the canvas, then build the draft.",
-    success: "Draft built · ladder + selector groups summarized.",
-    primary: "Build draft & continue",
+      "Prove the live download affordance, enumerate its resolution ladder, " +
+      "and compare DOM findings with captured requests.",
+    doThis: "Navigate to a scene, click Learn from live page, then optionally crawl its listing.",
+    success: "BAR/DROPDOWN shape recorded · selector proven · policy applied.",
+    primary: "Affordance learned — continue",
   },
   inspect: {
     purpose:
@@ -112,6 +112,8 @@ export interface GuidedCtx {
   sessionLive: boolean;
   loggedIn: boolean;
   contentPageVisited: boolean;
+  liveLearningAttempted: boolean;
+  resolutionPolicySatisfied: boolean;
   draftBuilt: boolean;
   requiredSelectorsResolved: boolean;
   verdictState: VerdictState;
@@ -142,6 +144,14 @@ export function stepChecklist(step: StepKey, c: GuidedCtx): ChecklistItem[] {
       return [
         { ok: c.sessionLive, label: "Session is open" },
         { ok: c.contentPageVisited, label: "A content page has been visited" },
+        {
+          ok: c.liveLearningAttempted,
+          label: "Learn the live download affordance (FOUND or UNKNOWN)",
+        },
+        {
+          ok: c.resolutionPolicySatisfied,
+          label: "Learned options satisfy quality_preference and min_resolution",
+        },
       ];
     case "inspect":
       return [
@@ -327,7 +337,7 @@ export function failureHint(reason: string | null | undefined): FailureHint {
   if (r.includes("resolution") || r.includes("threshold")) {
     return {
       sentence: "The media came back below the resolution threshold.",
-      fix: "Adjust the ladder, or approve it in Needs review.",
+      fix: "Change quality_preference or min_resolution, then learn and plan again. Excluded media cannot be overridden silently.",
     };
   }
   if (r.includes("no verdict") || r.includes("timed out") || r.includes("timeout")) {

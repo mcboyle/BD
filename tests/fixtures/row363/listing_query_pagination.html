@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Rendered query pagination listing</title></head>
+  <body data-site-host="members.example.invalid" data-total-scenes="2">
+    <section class="SceneGrid" id="scene-grid"></section>
+    <nav class="Pagination" id="pagination"></nav>
+    <script>
+      const page = new URLSearchParams(window.location.search).get("page") || "1";
+      const grid = document.getElementById("scene-grid");
+      if (page === "2") {
+        grid.innerHTML = '<article class="SceneCard"><a href="https://members.example.invalid/scene/query-two">Scene two</a><a href="https://members.example.invalid/performer/not-a-scene">Performer</a></article>';
+      } else {
+        grid.innerHTML = '<article class="SceneCard"><a href="https://members.example.invalid/scene/query-one">Scene one</a></article>';
+        document.getElementById("pagination").innerHTML = '<a rel="next" href="?page=2">Next</a>';
+      }
+    </script>
+  </body>
+</html>

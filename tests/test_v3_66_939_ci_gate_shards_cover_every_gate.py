@@ -124,6 +124,11 @@ _DECLARED = {
     # gate also keeps API-adjacent relogin and queue consumers from defaulting
     # the explicit UNKNOWN state back to a numeric 100.
     "tests/test_row356_cookie_quality_reports_unknown.py",
+    # Row 363. The held-open Capture page is the only authoritative subject for
+    # live affordance learning. This offline Chromium gate proves BAR-first and
+    # one-click DROPDOWN discovery, policy refusal, network disagreement,
+    # pagination/scroll enumeration, and selector-only Review staging.
+    "tests/test_row363_affordance_learning.py",
     # Row 334. The library integrity route is a second consumer of the bitrot
     # issue census. Its runtime gate refuses to call a locked inventory clean.
     "tests/test_v3_57_phase9.py",
@@ -806,7 +811,7 @@ _DECLARED = {
 _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 349 (2026-08-28). One shared-cache identity gate is declared and
 # scheduled; on top of main's 217 that is 218.
-_EXPECTED_DECLARED_GATE_COUNT = 225
+_EXPECTED_DECLARED_GATE_COUNT = 226
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

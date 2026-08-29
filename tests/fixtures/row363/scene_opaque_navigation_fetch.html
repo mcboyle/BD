@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Scene with opaque navigation fetch</title></head>
+  <body>
+    <main class="ScenePage">
+      <div class="ScenePlayer-DownloadBar">
+        <a class="ScenePlayer-DownloadOption"
+           href="/movieaction/download/fixture-scene/1080p/mp4">Full HD 1080p 1.96 GB</a>
+      </div>
+    </main>
+    <script>
+      window.__row363OpaqueFetchStarted = 1;
+      fetch("https://cdn.example.invalid/opaque-resource");
+    </script>
+  </body>
+</html>

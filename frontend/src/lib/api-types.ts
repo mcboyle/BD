@@ -178,7 +178,15 @@ export interface SiteConfigDraft {
   user_field?: string;
   pass_field?: string;
   submit_btn?: string;
+  /** Existing runner settings surfaced by row 363's GUI workflow. */
+  quality_preference?: string;
+  min_resolution?: number;
+  log_network?: boolean;
 }
+
+/** Canonical app_kernel.DEFAULTS values used before a site record exists. */
+export const DEFAULT_SITE_QUALITY_PREFERENCE = "4320,3160,2880,2160,1440,1080,720";
+export const DEFAULT_SITE_MIN_RESOLUTION = 1080;
 
 // ── U5 types: Queue tab ──────────────────────────────────────────────
 

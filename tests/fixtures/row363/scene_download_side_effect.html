@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Rendered trigger with download side effect</title></head>
+  <body>
+    <button class="ScenePlayerHeaderPlus-IconItem-Button" id="download-trigger" type="button">
+      <span class="Icon-DownloadRevamp"></span><span>Download</span>
+    </button>
+    <div id="options"></div>
+    <script>
+      document.getElementById("download-trigger").addEventListener("click", () => {
+        document.getElementById("options").innerHTML =
+          '<a class="ScenePlayer-DownloadOption" href="/movieaction/download/fixture-scene/1080p/mp4">Full HD 1080p 1.96 GB</a>';
+        window.setTimeout(() => {
+          const direct = document.createElement("a");
+          direct.href = URL.createObjectURL(new Blob(["offline regression bytes"], { type: "video/mp4" }));
+          direct.download = "must-be-cancelled.mp4";
+          document.body.appendChild(direct);
+          direct.click();
+        }, 250);
+      });
+    </script>
+  </body>
+</html>
