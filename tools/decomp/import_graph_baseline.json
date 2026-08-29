@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4029,
+  "edge_count": 4030,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3592,6 +3592,9 @@
       "bulk_downloader/resume.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row380_wrapper_never_outranks_leaf.py": [
+      "bulk_downloader/detect.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
