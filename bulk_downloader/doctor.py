@@ -126,7 +126,8 @@ _OPTIONAL_DEPS = [
     ("apprise",     "apprise",     "notifications (80+ services)"),
     ("m3u8",        "m3u8",        "HLS playlist parsing"),
     ("videohash",   "videohash",   "perceptual video dedup"),
-    ("scrapling",   "scrapling",   "adaptive scraping recovery"),
+    ("scrapling",   "scrapling",
+     "adaptive scraping recovery and Turnstile bypass"),
     ("psutil",      "psutil",      "CPU/RAM dashboard widgets"),
     ("yt_dlp",      "yt-dlp",      "yt-dlp CDN fallback"),
 ]
@@ -134,11 +135,57 @@ _OPTIONAL_DEPS = [
 
 def dependency_checks() -> list[dict]:
     """Report every optional dependency as installed / not-installed
-    with a friendly description. Not-installed is INFO-level (rendered
-    as OK with a note) — these are genuinely optional."""
+    with a friendly description. Most missing optional packages are rendered
+    OK-with-note; Scrapling is WARN when its advertised runtime bypass is not
+    usable or cannot be measured."""
     import importlib
     checks: list[dict] = []
     for import_name, pip_name, unlocks in _OPTIONAL_DEPS:
+        if import_name == "scrapling":
+            try:
+                from . import scrapling_adapter
+                state = scrapling_adapter.capability_status()[
+                    "turnstile_bypass"]
+            except Exception as exc:
+                state = {
+                    "available": False,
+                    "status": "unknown",
+                    "reason": f"capability_probe_failed:{type(exc).__name__}",
+                }
+            if not isinstance(state, dict):
+                state = {
+                    "available": False,
+                    "status": "unknown",
+                    "reason": "capability_probe_returned_invalid_state",
+                }
+            status = state.get("status")
+            available = state.get("available")
+            reason = state.get("reason") or "measurement_not_supplied"
+            installed = reason != "scrapling_not_installed"
+            detail = {
+                "unlocks": unlocks,
+                "installed": installed,
+                "available": status == "available" and available is True,
+                "capability_status": status or "unknown",
+                "reason": reason,
+                "hint": "pip install 'scrapling[fetchers]'",
+            }
+            if status == "available" and available is True:
+                checks.append(_result(
+                    OK, "dep:scrapling", "installed; Turnstile bypass usable",
+                    **detail))
+            elif status == "unavailable" and available is False:
+                checks.append(_result(
+                    WARN, "dep:scrapling",
+                    f"installed without usable Turnstile bypass ({reason})"
+                    if installed else f"not installed ({reason})",
+                    **detail))
+            else:
+                checks.append(_result(
+                    WARN, "dep:scrapling",
+                    f"Turnstile bypass availability unknown ({reason})",
+                    **detail))
+            continue
         try:
             importlib.import_module(import_name)
             checks.append(_result(

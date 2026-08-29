@@ -211,6 +211,100 @@ except Exception as _e:
     _scrap = None
     _SCRAPLING_AVAILABLE = False
 
+
+def _turnstile_bypass_state() -> dict:
+    """Measure the exact Scrapling capability used by the runner."""
+    if not (_SCRAPLING_AVAILABLE and _scrap is not None):
+        return {
+            "available": False,
+            "status": "unknown",
+            "reason": "scrapling_adapter_unavailable",
+        }
+    try:
+        state = _scrap.capability_status()["turnstile_bypass"]
+    except Exception as exc:
+        return {
+            "available": False,
+            "status": "unknown",
+            "reason": f"capability_probe_failed:{type(exc).__name__}",
+        }
+    if not isinstance(state, dict):
+        return {
+            "available": False,
+            "status": "unknown",
+            "reason": "capability_probe_returned_invalid_state",
+        }
+    return dict(state)
+
+
+def _translate_failed_message(message) -> str:
+    """Translate a failed-job message with any required live measurement."""
+    from .friendly_error import friendly_error
+    context = None
+    if "turnstile" in str(message).lower():
+        context = {"turnstile_bypass": _turnstile_bypass_state()}
+    return friendly_error(message, context=context)
+
+
+def _try_scrapling_turnstile(owner, page, ctx, url: str) -> str:
+    """Run the Turnstile seam only after measuring a usable fetcher.
+
+    The string result is intentionally diagnostic: callers currently continue
+    fail-open, while tests and future telemetry can distinguish disabled,
+    unavailable, unknown, not-detected, failed, and bypassed outcomes.
+    """
+    config = getattr(owner, "config", {}) or {}
+    if not bool(config.get("use_scrapling_turnstile", False)):
+        return "disabled"
+    state = _turnstile_bypass_state()
+    if not (state.get("status") == "available"
+            and state.get("available") is True):
+        status = state.get("status")
+        return status if status in {"unavailable", "unknown"} else "unknown"
+
+    try:
+        html_now = page.content()
+    except Exception:
+        html_now = ""
+    if not html_now or not _scrap.is_turnstile_page(html_now):
+        return "not_detected"
+
+    _scrap.note_turnstile_detected()
+    owner.log_event(
+        "turnstile_detected",
+        "Cloudflare Turnstile challenge — invoking bypass",
+        url=url,
+    )
+    try:
+        ua = page.evaluate("() => navigator.userAgent")
+    except Exception:
+        ua = config.get("user_agent", "")
+    bypass = _scrap.bypass_turnstile(url, user_agent=ua, timeout_s=60.0)
+    if not (bypass.ok and bypass.cookies):
+        owner.log_event(
+            "turnstile_bypass_failed",
+            f"bypass failed: {bypass.error}",
+            url=url,
+        )
+        return "failed"
+    try:
+        ctx.add_cookies(bypass.cookies)
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        owner.log_event(
+            "turnstile_bypassed",
+            f"bypass ok ({bypass.elapsed_s:.1f}s); "
+            f"injected {len(bypass.cookies)} cookies",
+            url=url,
+        )
+        return "bypassed"
+    except Exception as exc:
+        owner.log_event(
+            "turnstile_inject_failed",
+            f"cookies received but inject raised: {exc}",
+            url=url,
+        )
+        return "inject_failed"
+
 # v3.43.74: FlareSolverr client — soft import. Alternative to
 # Scrapling's StealthyFetcher for Cloudflare-challenge handling;
 # external service over HTTP instead of in-process Chromium spawn.
@@ -1663,8 +1757,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # v3.43.80 Phase 86: friendly_error translates raw failure msgs.
         if status == "failed" and message:
             try:
-                from .friendly_error import friendly_error
-                message = friendly_error(message)
+                message = _translate_failed_message(message)
             except Exception:
                 pass  # translator failure must never block queue update
         byte_advanced = False
@@ -3234,51 +3327,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # post-challenge cookies. Inject those into the live
             # context and reload — subsequent requests skip the
             # challenge.
-            if (_SCRAPLING_AVAILABLE and _scrap is not None
-                    and self.config.get("use_scrapling_turnstile", False)):
-                try:
-                    html_now = page.content()
-                except Exception:
-                    html_now = ""
-                if html_now and _scrap.is_turnstile_page(html_now):
-                    _scrap.note_turnstile_detected()
-                    self.log_event(
-                        "turnstile_detected",
-                        "Cloudflare Turnstile challenge — invoking bypass",
-                        url=url,
-                    )
-                    try:
-                        ua = page.evaluate("() => navigator.userAgent")
-                    except Exception:
-                        ua = self.config.get("user_agent", "")
-                    bypass = _scrap.bypass_turnstile(
-                        url, user_agent=ua, timeout_s=60.0,
-                    )
-                    if bypass.ok and bypass.cookies:
-                        try:
-                            # Inject the cookies into the live context
-                            ctx.add_cookies(bypass.cookies)
-                            # Reload to use the fresh cf_clearance cookie
-                            page.goto(url, wait_until="domcontentloaded",
-                                      timeout=30000)
-                            self.log_event(
-                                "turnstile_bypassed",
-                                f"bypass ok ({bypass.elapsed_s:.1f}s); "
-                                f"injected {len(bypass.cookies)} cookies",
-                                url=url,
-                            )
-                        except Exception as e:
-                            self.log_event(
-                                "turnstile_inject_failed",
-                                f"cookies received but inject raised: {e}",
-                                url=url,
-                            )
-                    else:
-                        self.log_event(
-                            "turnstile_bypass_failed",
-                            f"bypass failed: {bypass.error}",
-                            url=url,
-                        )
+            _try_scrapling_turnstile(self, page, ctx, url)
             # v3.43.74: FlareSolverr fallback. If the page still looks
             # like a Cloudflare challenge AND `use_flaresolverr` is
             # configured AND an endpoint is set, POST to the external

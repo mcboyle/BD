@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1338 - the Turnstile bypass stops being advertised while absent
+
+- the Turnstile bypass stops being advertised while absent
+- application: 7 file(s) in bulk_downloader/ changed
+- frontend: 1 file(s) changed
+- test: test_row360_turnstile_bypass_is_installed.py
+- test: test_v3_66_939_ci_gate_shards_cover_every_gate.py
+- 18 file(s), 1139 insertion(s) in the worker diff
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 227 -> 228.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    app_knowledge.py -> bulk_downloader
+    doctor.py -> bulk_downloader
+    _turnstile_bypass_is_installed.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1337 - the app's core function, measured
 
 - the app's core function, measured
