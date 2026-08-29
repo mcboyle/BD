@@ -160,7 +160,8 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
                    site_id: str = "", file_size: int = 0,
                    performer: str = "", studio: str = "",
                    year: Optional[int] = None,
-                   title: str = "", duration_s: Optional[float] = None,
+                   title: str = "", title_source: str = "",
+                   duration_s: Optional[float] = None,
                    resolution: str = "", codec: str = "",
                    cover_thumb: str = "") -> Optional[int]:
     """Insert (or update) a library row. Returns the row id.
@@ -201,6 +202,7 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
                 "  studio     = CASE WHEN ?<>'' THEN ? ELSE studio END, "
                 "  year       = COALESCE(?, year), "
                 "  title      = CASE WHEN ?<>'' THEN ? ELSE title END, "
+                "  title_source = CASE WHEN ?<>'' THEN ? ELSE title_source END, "
                 "  duration_s = COALESCE(?, duration_s), "
                 "  resolution = CASE WHEN ?<>'' THEN ? ELSE resolution END, "
                 "  codec      = CASE WHEN ?<>'' THEN ? ELSE codec END, "
@@ -213,6 +215,7 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
                  studio, studio,
                  year,
                  title, title,
+                 title, title_source,
                  duration_s,
                  resolution, resolution,
                  codec, codec,
@@ -223,18 +226,26 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
                 r = cx.execute(
                     "SELECT id FROM library WHERE file_path=?",
                     (file_path,)).fetchone()
+                if r and history_id:
+                    try:
+                        cx.execute(
+                            "UPDATE history SET library_id=? WHERE id=?",
+                            (r["id"], history_id))
+                    except Exception:
+                        pass
                 return r["id"] if r else None
             # Insert path
             cur = cx.execute(
                 "INSERT INTO library("
                 "  history_id, site_id, file_path, file_exists, file_size,"
                 "  file_mtime, last_scanned, performer, studio, year,"
-                "  title, duration_s, resolution, codec, cover_thumb,"
+                "  title, title_source, duration_s, resolution, codec, cover_thumb,"
                 "  added_at"
-                ") VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?)",
+                ") VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?, ?)",
                 (history_id, site_id, file_path, file_exists, file_size,
                  file_mtime, now, performer, studio, year,
-                 title, duration_s, resolution, codec, cover_thumb,
+                 title, title_source if title else "", duration_s,
+                 resolution, codec, cover_thumb,
                  now))
             new_id = cur.lastrowid
             # Backfill history.library_id if we have a history_id

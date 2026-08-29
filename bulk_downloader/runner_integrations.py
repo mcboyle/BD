@@ -11,6 +11,8 @@ NEVER `from .runner import X` (would cycle).
 """
 import time
 
+from .website_title import history_title_kwargs
+
 
 class IntegrationsMixin:
     def _get_stash_client(self):
@@ -79,7 +81,8 @@ class IntegrationsMixin:
             db_log(self.site_id, self.config.get("name", "?"),
                    url, "done", path, 0,
                    f"Skipped (in Stash as scene {scene_id})",
-                   bytes_fetched=0)  # dedup hit: the file was already in Stash
+                   bytes_fetched=0,
+                   **history_title_kwargs(self, url))  # no bytes fetched
         except Exception:
             pass
         return True
@@ -587,7 +590,8 @@ class IntegrationsMixin:
                            # backend reports the count. bytes_done is what was
                            # transferred; bytes_total can be the advertised size.
                            bytes_fetched=st["bytes_done"],
-                           file_path=_lib_path)
+                           file_path=_lib_path,
+                           **history_title_kwargs(self, url))
                 except Exception:
                     pass
                 return True, ""
@@ -839,7 +843,8 @@ class IntegrationsMixin:
                            # backend reports the count. bytes_done is what was
                            # transferred; bytes_total can be the advertised size.
                            bytes_fetched=st["bytes_done"],
-                           file_path=_lib_path)
+                           file_path=_lib_path,
+                           **history_title_kwargs(self, url))
                 except Exception:
                     pass
                 return True, ""

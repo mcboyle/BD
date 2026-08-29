@@ -64,6 +64,7 @@ def db_init():
             priority TEXT DEFAULT '',
             ord INTEGER DEFAULT 0,
             filename TEXT DEFAULT '',
+            listing_title TEXT DEFAULT '',
             file_size INTEGER DEFAULT 0,
             lane TEXT DEFAULT 'default',
             depends_on TEXT DEFAULT '',
@@ -83,6 +84,8 @@ def db_init():
             cx.execute("ALTER TABLE queue ADD COLUMN lane TEXT DEFAULT 'default'")
         if "depends_on" not in _qcols:
             cx.execute("ALTER TABLE queue ADD COLUMN depends_on TEXT DEFAULT ''")
+        if "listing_title" not in _qcols:
+            cx.execute("ALTER TABLE queue ADD COLUMN listing_title TEXT DEFAULT ''")
         # history schema changes belong to bulk_downloader/migrations.py, which
         # is a versioned framework with a schema_migrations ledger and is
         # applied at app.py:1814. #63 added bytes_fetched here as a bespoke
@@ -969,7 +972,7 @@ def db_queue_recovery_summary() -> dict:
     return out
 
 
-def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None, transfer_mode=None, file_path=None):
+def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None, transfer_mode=None, file_path=None, title="", title_source=""):
     """Append one row to the history table. Called on every job-level
     state transition (done/failed/needs_review). Append-only — the row
     is never updated or deleted by application code.
@@ -1099,9 +1102,79 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
                 from . import library as _library
                 _library.library_record(
                     str(_lib_path), history_id=history_id, site_id=site_id,
-                    file_size=file_size)
+                    file_size=file_size, title=title,
+                    title_source=title_source)
         except Exception:
             pass
+
+
+def _history_title_projection(cx, alias="h"):
+    """Return a title-enriched SELECT projection and optional library JOIN.
+
+    Some direct callers create only the base history table with ``db_init``.
+    Read paths must keep working in that pre-migration shape, while still
+    publishing explicit empty fields instead of omitting them.
+    """
+    try:
+        history_cols = {
+            row[1] for row in cx.execute("PRAGMA table_info(history)").fetchall()
+        }
+        library_cols = {
+            row[1] for row in cx.execute("PRAGMA table_info(library)").fetchall()
+        }
+    except sqlite3.Error:
+        history_cols = set()
+        library_cols = set()
+    if "library_id" in history_cols and "title" in library_cols:
+        source = (
+            "COALESCE(l.title_source, '')"
+            if "title_source" in library_cols else "''"
+        )
+        projection = (
+            f"{alias}.*, COALESCE(l.title, '') AS title, "
+            f"{source} AS title_source"
+        )
+        return projection, f" LEFT JOIN library l ON l.id = {alias}.library_id"
+    return f"{alias}.*, '' AS title, '' AS title_source", ""
+
+
+def db_normalize_history_title(site_id: str, url: str, raw_title: str,
+                               title: str, title_source: str) -> int:
+    """Retroactively strip a template once another scene proves it repeats.
+
+    The compare against ``raw_title`` is deliberate: library metadata is
+    editable, so a title the operator has already changed must not be replaced
+    by the template learner. Returns the exact number of library rows enriched.
+    """
+    if not site_id or not url or not raw_title or not title:
+        return 0
+    if raw_title == title:
+        return 0
+    try:
+        with db_conn() as cx:
+            history_cols = {
+                row[1]
+                for row in cx.execute("PRAGMA table_info(history)").fetchall()
+            }
+            library_cols = {
+                row[1]
+                for row in cx.execute("PRAGMA table_info(library)").fetchall()
+            }
+            if "library_id" not in history_cols or not {
+                "title", "title_source"
+            }.issubset(library_cols):
+                return 0
+            cur = cx.execute(
+                "UPDATE library SET title=?, title_source=? "
+                "WHERE title=? AND id IN ("
+                "SELECT library_id FROM history "
+                "WHERE site_id=? AND url=? AND library_id IS NOT NULL)",
+                (title, title_source, raw_title, site_id, url),
+            )
+            return max(0, int(cur.rowcount or 0))
+    except Exception:
+        return 0
+
 
 def db_search_fts(query: str, *, site_id=None, status=None, limit: int = 100):
     """v3.43.80 Phase 92: full-text search over history via FTS5.
@@ -1132,25 +1205,6 @@ def db_search_fts(query: str, *, site_id=None, status=None, limit: int = 100):
     # appear in URLs, filenames, or event messages.
     _M_OPEN  = "\x02"
     _M_CLOSE = "\x03"
-    sql = """SELECT h.*,
-                    snippet(history_fts, 1, ?, ?, '…', 16) AS snippet_url,
-                    snippet(history_fts, 2, ?, ?, '…', 16) AS snippet_filename,
-                    snippet(history_fts, 3, ?, ?, '…', 16) AS snippet_message
-             FROM history_fts
-             JOIN history h ON h.id = history_fts.rowid
-             WHERE history_fts MATCH ?"""
-    params = [_M_OPEN, _M_CLOSE,
-              _M_OPEN, _M_CLOSE,
-              _M_OPEN, _M_CLOSE,
-              query.strip()]
-    if site_id:
-        sql += " AND h.site_id = ?"
-        params.append(site_id)
-    if status:
-        sql += " AND h.status = ?"
-        params.append(status)
-    sql += " ORDER BY bm25(history_fts) LIMIT ?"
-    params.append(int(limit))
     def _safe_snippet(s):
         if not s: return s or ""
         # Escape HTML metacharacters in the indexed text, THEN swap our
@@ -1165,6 +1219,27 @@ def db_search_fts(query: str, *, site_id=None, status=None, limit: int = 100):
         return s.replace(_M_OPEN, "<mark>").replace(_M_CLOSE, "</mark>")
     try:
         with db_conn() as cx:
+            projection, library_join = _history_title_projection(cx, "h")
+            sql = f"""SELECT {projection},
+                    snippet(history_fts, 1, ?, ?, '…', 16) AS snippet_url,
+                    snippet(history_fts, 2, ?, ?, '…', 16) AS snippet_filename,
+                    snippet(history_fts, 3, ?, ?, '…', 16) AS snippet_message
+             FROM history_fts
+             JOIN history h ON h.id = history_fts.rowid
+             {library_join}
+             WHERE history_fts MATCH ?"""
+            params = [_M_OPEN, _M_CLOSE,
+                      _M_OPEN, _M_CLOSE,
+                      _M_OPEN, _M_CLOSE,
+                      query.strip()]
+            if site_id:
+                sql += " AND h.site_id = ?"
+                params.append(site_id)
+            if status:
+                sql += " AND h.status = ?"
+                params.append(status)
+            sql += " ORDER BY bm25(history_fts) LIMIT ?"
+            params.append(int(limit))
             rows = [dict(r) for r in cx.execute(sql, params).fetchall()]
         for row in rows:
             for k in ("snippet_url", "snippet_filename", "snippet_message"):
@@ -1182,13 +1257,15 @@ def db_search(site_id=None, status=None, query=None, limit=200):
     matches url/filename/message. Returns a list of dicts ordered newest
     first, capped at `limit`. Used by the Logs tab and the Recent panel."""
     with db_conn() as cx:
-        sql = "SELECT * FROM history WHERE 1=1"; params = []
-        if site_id: sql += " AND site_id=?"; params.append(site_id)
-        if status:  sql += " AND status=?";  params.append(status)
+        projection, library_join = _history_title_projection(cx, "h")
+        sql = f"SELECT {projection} FROM history h{library_join} WHERE 1=1"
+        params = []
+        if site_id: sql += " AND h.site_id=?"; params.append(site_id)
+        if status:  sql += " AND h.status=?";  params.append(status)
         if query:
-            sql += " AND (url LIKE ? OR filename LIKE ? OR message LIKE ?)"
+            sql += " AND (h.url LIKE ? OR h.filename LIKE ? OR h.message LIKE ?)"
             params += [f"%{query}%"] * 3
-        sql += " ORDER BY id DESC LIMIT ?"; params.append(limit)
+        sql += " ORDER BY h.id DESC LIMIT ?"; params.append(limit)
         return [dict(r) for r in cx.execute(sql, params).fetchall()]
 
 
@@ -1212,19 +1289,21 @@ def db_search_cursor(site_id=None, status=None, query=None,
     `ts` (the row with id=N was inserted before the row with id=N+1).
     """
     with db_conn() as cx:
-        sql = "SELECT * FROM history WHERE 1=1"; params = []
-        if site_id: sql += " AND site_id=?"; params.append(site_id)
-        if status:  sql += " AND status=?";  params.append(status)
+        projection, library_join = _history_title_projection(cx, "h")
+        sql = f"SELECT {projection} FROM history h{library_join} WHERE 1=1"
+        params = []
+        if site_id: sql += " AND h.site_id=?"; params.append(site_id)
+        if status:  sql += " AND h.status=?";  params.append(status)
         if query:
-            sql += " AND (url LIKE ? OR filename LIKE ? OR message LIKE ?)"
+            sql += " AND (h.url LIKE ? OR h.filename LIKE ? OR h.message LIKE ?)"
             params += [f"%{query}%"] * 3
         if after_id is not None:
             # Strict less-than because `id` is unique. This is what makes
             # cursor pagination work — no risk of duplicate rows across
             # pages from offset-style INSERT-in-flight races.
-            sql += " AND id < ?"
+            sql += " AND h.id < ?"
             params.append(int(after_id))
-        sql += " ORDER BY id DESC LIMIT ?"
+        sql += " ORDER BY h.id DESC LIMIT ?"
         params.append(int(limit))
         rows = [dict(r) for r in cx.execute(sql, params).fetchall()]
         next_cursor = rows[-1]["id"] if len(rows) == int(limit) else None
@@ -1536,7 +1615,7 @@ def queue_group_by(site_id, group_by: str = "host", *, limit=2000) -> dict:
 _QUEUE_COLUMNS = frozenset({
     "status", "message", "retries", "retry_after", "screenshot",
     "force_download", "priority", "ord", "filename", "file_size",
-    "lane", "depends_on",
+    "listing_title", "lane", "depends_on",
 })
 
 def queue_upsert(site_id, url, **fields):
@@ -1570,25 +1649,29 @@ def queue_upsert(site_id, url, **fields):
         # Fall through to insert
         defaults = {"status":"pending","message":"","retries":0,"retry_after":0,
                     "screenshot":"","force_download":0,"priority":"","ord":0,
-                    "filename":"","file_size":0,"lane":"default","depends_on":""}
+                    "filename":"","listing_title":"","file_size":0,
+                    "lane":"default","depends_on":""}
         defaults.update({k: v for k, v in fields.items() if k != "ts_updated"})
         cx.execute("""INSERT OR REPLACE INTO queue
             (site_id,url,status,message,retries,retry_after,screenshot,
-             force_download,priority,ord,filename,file_size,lane,depends_on)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             force_download,priority,ord,filename,listing_title,file_size,lane,depends_on)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (site_id, url, defaults["status"], defaults["message"],
              defaults["retries"], defaults["retry_after"], defaults["screenshot"],
              defaults["force_download"], defaults["priority"], defaults["ord"],
-             defaults["filename"], defaults["file_size"],
+             defaults["filename"], defaults["listing_title"], defaults["file_size"],
              defaults["lane"], defaults["depends_on"]))
 
-def queue_bulk_upsert(site_id, urls, ord_start=0):
+def queue_bulk_upsert(site_id, urls, ord_start=0, listing_titles=None):
     """Bulk-insert URLs in one transaction. Massively faster than per-URL
     upserts for large lists (one transaction vs N)."""
+    title_map = listing_titles if isinstance(listing_titles, dict) else {}
     with db_conn() as cx:
         cx.executemany(
-            "INSERT OR IGNORE INTO queue(site_id,url,status,ord) VALUES(?,?,'pending',?)",
-            [(site_id, u, ord_start + i) for i, u in enumerate(urls)])
+            "INSERT OR IGNORE INTO queue(site_id,url,status,ord,listing_title) "
+            "VALUES(?,?,'pending',?,?)",
+            [(site_id, u, ord_start + i, title_map.get(u, ""))
+             for i, u in enumerate(urls)])
 
 def queue_delete(site_id, url):
     """Remove one URL from the queue table. Used when a user deletes

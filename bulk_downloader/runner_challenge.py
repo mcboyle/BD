@@ -8,6 +8,7 @@ imports only). Cycle rule: imports nothing from .runner.
 import collections, sys, threading, time
 
 from .db import db_log
+from .website_title import history_title_kwargs
 
 
 class ChallengeMixin:
@@ -68,7 +69,8 @@ class ChallengeMixin:
         if ok:
             self._update_job(url, "done", msg, filename=fn or "", file_size=sz)
             db_log(self.site_id, self.config.get("name","?"), url, "done", fn or "", sz, msg,
-                   bytes_fetched=fetched)
+                   bytes_fetched=fetched,
+                   **history_title_kwargs(self, url))
             return False
         # C6 (8.4): gallery-dl fallback after yt-dlp -- covers sites gallery-dl
         # handles that yt-dlp doesn't. Opt-in per site (use_gallerydl_fallback).
@@ -76,7 +78,8 @@ class ChallengeMixin:
         if ok:
             self._update_job(url, "done", msg, filename=fn or "", file_size=sz)
             db_log(self.site_id, self.config.get("name","?"), url, "done", fn or "", sz, msg,
-                   bytes_fetched=fetched)
+                   bytes_fetched=fetched,
+                   **history_title_kwargs(self, url))
             return False
         ss = self._screenshot(page, url)
         # v3.43.39: include the detected captcha type so the queue UI

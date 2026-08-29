@@ -2339,7 +2339,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1666,
+    "edge_count": 1671,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4745,6 +4745,13 @@
         "bulk_downloader/maintenance.py",
         "bulk_downloader/runner.py"
       ],
+      "bulk_downloader/website_title.py": [
+        "bulk_downloader/runner.py",
+        "bulk_downloader/runner_challenge.py",
+        "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/runner_integrations.py",
+        "bulk_downloader/runner_transport.py"
+      ],
       "bulk_downloader/widgets_config.py": [
         "bulk_downloader/app_store_raw_editor.py",
         "bulk_downloader/app_widgets_api.py"
@@ -6821,6 +6828,7 @@
         "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/vpn_stats.py",
         "bulk_downloader/webhooks.py",
+        "bulk_downloader/website_title.py",
         "bulk_downloader/yt_dlp_archive.py",
         "bulk_downloader/ytdlp_extractor.py"
       ],
@@ -6858,7 +6866,8 @@
       "bulk_downloader/runner_challenge.py": [
         "bulk_downloader/captcha_resolver.py",
         "bulk_downloader/constants.py",
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/website_title.py"
       ],
       "bulk_downloader/runner_extractors.py": [
         "bulk_downloader/db.py",
@@ -6878,6 +6887,7 @@
         "bulk_downloader/runner_util.py",
         "bulk_downloader/tier_probe.py",
         "bulk_downloader/vpn_runtime.py",
+        "bulk_downloader/website_title.py",
         "bulk_downloader/ytdlp_updater.py"
       ],
       "bulk_downloader/runner_integrations.py": [
@@ -6889,7 +6899,8 @@
         "bulk_downloader/library.py",
         "bulk_downloader/plex_deep.py",
         "bulk_downloader/qb_bridge.py",
-        "bulk_downloader/stash_deep.py"
+        "bulk_downloader/stash_deep.py",
+        "bulk_downloader/website_title.py"
       ],
       "bulk_downloader/runner_integrity.py": [
         "bulk_downloader/db.py",
@@ -6963,7 +6974,8 @@
         "bulk_downloader/runner_util.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stash_deep.py",
-        "bulk_downloader/vpn_runtime.py"
+        "bulk_downloader/vpn_runtime.py",
+        "bulk_downloader/website_title.py"
       ],
       "bulk_downloader/runner_util.py": [
         "bulk_downloader/candidate_filter.py",

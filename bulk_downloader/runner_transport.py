@@ -28,6 +28,7 @@ from .runner_util import (
 from .db import db_log
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template
+from .website_title import history_title_kwargs
 from .constants import _HTTPDownloadFailed, _DownloadTruncated
 from .download_egress import effective_download_proxy
 from . import proxy_pool
@@ -837,7 +838,8 @@ class TransportMixin:
             # transfer count -- a consumer wanting "a file was produced" must
             # also require one, since this path saves nothing.
             db_log(self.site_id,self.config.get("name","?"),page_url,
-                   "done",suggested,recv,note,bytes_fetched=recv)
+                   "done",suggested,recv,note,bytes_fetched=recv,
+                   **history_title_kwargs(self, page_url))
         elif outcome == "streaming":
             # v3.66.819. Without this branch a `streaming` outcome falls to the
             # else below and is reported "probe failed: status=200" -- false, and
@@ -880,6 +882,17 @@ class TransportMixin:
         URL straight off the element. Skips Playwright's expect_download
         entirely — saves 5-10 seconds per URL and dodges signed-URL race
         conditions on sites with short-lived URLs."""
+        # Normally captured in _process_one before page-specific extractors.
+        # Keep this idempotent call at the transport boundary for direct
+        # callers and for any future path that enters with an already-open page.
+        capture_title = getattr(self, "_capture_website_title", None)
+        if callable(capture_title):
+            try:
+                capture_title(page, page_url)
+            except Exception:
+                # Title harvesting is metadata enrichment; it must never turn
+                # a valid lightweight TransportMixin download into a failure.
+                pass
         learned_dl=(self.config.get("learned",{}) or {}).get("download",{}) if isinstance(self.config.get("learned"),dict) else {}
         # AUDIT/v3.42.4: see resolve_url_attribute() for the three accepted
         # shapes (str / list / dict). Lets a single site config cover
@@ -1099,7 +1112,8 @@ class TransportMixin:
                    final_path.name,existing_size,"already on disk",
                    honeypot_score=best.get("_honeypot_score"),  # P5-2b
                    bytes_fetched=0,  # skip_if_exists: dl.cancel(), nothing fetched
-                   file_path=str(final_path))
+                   file_path=str(final_path),
+                   **history_title_kwargs(self, page_url))
             try: dl.cancel()
             except Exception: pass
             return
@@ -1338,7 +1352,8 @@ class TransportMixin:
                honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
                bytes_fetched=bytes_fetched,
                transfer_mode=transfer_mode,  # which arm of the chain above ran
-               file_path=str(final_path))
+               file_path=str(final_path),
+               **history_title_kwargs(self, page_url))
         # Phase 66 (v3.41.0): cross-site filename duplicate detection.
         # Look back through history for a successful download with the
         # same filename + similar size. If found, log + emit event so

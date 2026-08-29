@@ -170,56 +170,58 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (47 entries)
+## `bulk_downloader/runner.py` (49 entries)
 
 ```
-- L0215 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
-- L0240 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
-- L0249 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
-- L0414 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
-- L0424 `get_global_concurrent_cap`
-- L0461 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0485 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
-- L0497 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
-- L0515 `SiteRunner` `[class]`
-  - L0520 `SiteRunner.__init__` `[dunder]`
-  - L0734 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L0826 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L0834 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L0847 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L0856 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L0894 `SiteRunner.start`
-  - L0946 `SiteRunner._start_serialized` `[private]`
-  - L1246 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1256 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1317 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L1395 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L1414 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L1425 `SiteRunner.stop`
-  - L1528 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L1552 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L1654 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L1671 `SiteRunner.state`
-  - L1673 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L1709 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L1716 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L1723 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L1738 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L2255 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L2284 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L2331 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L2389 `SiteRunner._worker_generation_is_current` `[private]`
-  - L2393 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L2454 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L2514 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L2546 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L2577 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L2597 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L2606 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L2631 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L2652 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L2734 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L3076 `SiteRunner._process_one` `[private]` — Process a single URL.
+- L0219 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
+- L0244 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
+- L0253 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
+- L0418 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
+- L0428 `get_global_concurrent_cap`
+- L0465 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0489 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
+- L0501 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
+- L0519 `SiteRunner` `[class]`
+  - L0524 `SiteRunner.__init__` `[dunder]`
+  - L0744 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L0836 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L0844 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L0857 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L0866 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L0904 `SiteRunner.start`
+  - L0956 `SiteRunner._start_serialized` `[private]`
+  - L1256 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1266 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L1327 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L1405 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L1424 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L1435 `SiteRunner.stop`
+  - L1538 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L1562 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L1664 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L1681 `SiteRunner.state`
+  - L1683 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L1719 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L1726 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L1733 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L1799 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L1830 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L1845 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L2362 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L2391 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L2442 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L2500 `SiteRunner._worker_generation_is_current` `[private]`
+  - L2504 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L2565 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L2625 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L2657 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L2688 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L2708 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L2717 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L2742 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L2763 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L2845 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L3187 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -244,24 +246,24 @@ Schema version: 2
 ## `bulk_downloader/runner_integrations.py` (18 entries)
 
 ```
-- L0015 `IntegrationsMixin` `[class]`
-  - L0016 `IntegrationsMixin._get_stash_client` `[private]` — Lazy Stash client constructor. Returns None when Stash
-  - L0025 `IntegrationsMixin._stash_dedup_check` `[private]` — Check if `url` is already in Stash's library. If so, mark
-  - L0086 `IntegrationsMixin._stash_scrape_preview` `[private]` — Pre-download metadata preview. Surfaces what Stash would
-  - L0107 `IntegrationsMixin._stash_enrich_after_scan` `[private]` — Post-download enrichment. Called after the Stash scan
-  - L0204 `IntegrationsMixin._get_plex_client` `[private]` — Lazy Plex client constructor. Returns None when Plex isn't
-  - L0213 `IntegrationsMixin._plex_enrich_after_scan` `[private]` — Post-download Plex enrichment. Runs in a background thread
-  - L0315 `IntegrationsMixin._get_jellyfin_client` `[private]` — Lazy Jellyfin client constructor. None when not configured.
-  - L0323 `IntegrationsMixin._jellyfin_enrich_after_scan` `[private]` — Post-download Jellyfin enrichment. Background thread after
-  - L0412 `IntegrationsMixin._get_qb_client` `[private]` — Lazy qB client constructor. Returns None when httpx isn't
-  - L0423 `IntegrationsMixin._record_qb_outcome` `[private]` — Append a qB outcome to the rolling window. The ratio drives
-  - L0427 `IntegrationsMixin.qb_health` — Return current qB bridge health for the site. Surfaces in
-  - L0451 `IntegrationsMixin._try_qb_download` `[private]` — Attempt a qB-backed download. Returns (succeeded, reason).
-  - L0605 `IntegrationsMixin._get_jd_client` `[private]` — Lazy JD client constructor. Returns None when JD is not
-  - L0616 `IntegrationsMixin._read_cookies_for_jd` `[private]` — Read the latest cookies for this site and convert to JD's
-  - L0639 `IntegrationsMixin._record_jd_outcome` `[private]` — Append a JD outcome to the rolling window. Triggered by the
-  - L0645 `IntegrationsMixin.jd_health` — Return current JD bridge health for the site. Called from
-  - L0669 `IntegrationsMixin._try_jd_download` `[private]` — Attempt a JD-backed download for `url`. Returns
+- L0017 `IntegrationsMixin` `[class]`
+  - L0018 `IntegrationsMixin._get_stash_client` `[private]` — Lazy Stash client constructor. Returns None when Stash
+  - L0027 `IntegrationsMixin._stash_dedup_check` `[private]` — Check if `url` is already in Stash's library. If so, mark
+  - L0089 `IntegrationsMixin._stash_scrape_preview` `[private]` — Pre-download metadata preview. Surfaces what Stash would
+  - L0110 `IntegrationsMixin._stash_enrich_after_scan` `[private]` — Post-download enrichment. Called after the Stash scan
+  - L0207 `IntegrationsMixin._get_plex_client` `[private]` — Lazy Plex client constructor. Returns None when Plex isn't
+  - L0216 `IntegrationsMixin._plex_enrich_after_scan` `[private]` — Post-download Plex enrichment. Runs in a background thread
+  - L0318 `IntegrationsMixin._get_jellyfin_client` `[private]` — Lazy Jellyfin client constructor. None when not configured.
+  - L0326 `IntegrationsMixin._jellyfin_enrich_after_scan` `[private]` — Post-download Jellyfin enrichment. Background thread after
+  - L0415 `IntegrationsMixin._get_qb_client` `[private]` — Lazy qB client constructor. Returns None when httpx isn't
+  - L0426 `IntegrationsMixin._record_qb_outcome` `[private]` — Append a qB outcome to the rolling window. The ratio drives
+  - L0430 `IntegrationsMixin.qb_health` — Return current qB bridge health for the site. Surfaces in
+  - L0454 `IntegrationsMixin._try_qb_download` `[private]` — Attempt a qB-backed download. Returns (succeeded, reason).
+  - L0609 `IntegrationsMixin._get_jd_client` `[private]` — Lazy JD client constructor. Returns None when JD is not
+  - L0620 `IntegrationsMixin._read_cookies_for_jd` `[private]` — Read the latest cookies for this site and convert to JD's
+  - L0643 `IntegrationsMixin._record_jd_outcome` `[private]` — Append a JD outcome to the rolling window. Triggered by the
+  - L0649 `IntegrationsMixin.jd_health` — Return current JD bridge health for the site. Called from
+  - L0673 `IntegrationsMixin._try_jd_download` `[private]` — Attempt a JD-backed download for `url`. Returns
 ```
 
 
@@ -293,13 +295,13 @@ Schema version: 2
 ## `bulk_downloader/runner_challenge.py` (7 entries)
 
 ```
-- L0013 `ChallengeMixin` `[class]`
-  - L0014 `ChallengeMixin._record_captcha_encounter` `[private]` — Record one detected challenge and retain exactly 24 hours.
-  - L0031 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
-  - L0092 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
-  - L0106 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
-  - L0112 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
-  - L0210 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
+- L0014 `ChallengeMixin` `[class]`
+  - L0015 `ChallengeMixin._record_captcha_encounter` `[private]` — Record one detected challenge and retain exactly 24 hours.
+  - L0032 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
+  - L0095 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
+  - L0109 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
+  - L0115 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
+  - L0213 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
 ```
 
 
@@ -416,23 +418,23 @@ Schema version: 2
 - L0071 `QueueMixin` `[class]`
   - L0072 `QueueMixin._job_status_writer` `[private]`
   - L0075 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
-  - L0128 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0384 `QueueMixin.reorder_urls`
-  - L0396 `QueueMixin.set_priority`
-  - L0406 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0424 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0455 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0483 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0508 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0529 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0551 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0575 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0621 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0635 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0651 `QueueMixin.retry`
-  - L0653 `QueueMixin.clear`
-  - L0655 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0661 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0129 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
+  - L0400 `QueueMixin.reorder_urls`
+  - L0412 `QueueMixin.set_priority`
+  - L0422 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0440 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0471 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0499 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0524 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0545 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0567 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0591 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0637 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0651 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0667 `QueueMixin.retry`
+  - L0669 `QueueMixin.clear`
+  - L0671 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0677 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
 ```
 
 
@@ -440,24 +442,24 @@ Schema version: 2
 
 ```
 - L0015 `_dest_in_dir` `[private]` — v3.66.840: collision-safe ABSOLUTE destination for a rendered name.
-- L0105 `_socks_remote_dns` `[private]` — Track-K (A1): rewrite a bare ``socks5://`` proxy to ``socks5h://`` so a
-- L0116 `_ssrf_guarded_http_get` `[private]` — v3.66.765 (SSRF-REM, defense-in-depth): wrap an INJECTED http_get with the
-- L0146 `_permitted_plugin_dirs` `[private]` — INTEROP-GH-1 (v3.66.655): resolve the external plugin dirs for ``kind``
-- L0182 `_build_ytdlp_cmd` `[private]` — Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
-- L0238 `_build_gallerydl_cmd` `[private]` — Pure builder for the gallery-dl fallback CLI (unit-testable, no side
-- L0279 `ExtractorsMixin` `[class]`
-  - L0280 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
-  - L0391 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
-  - L0492 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
-  - L0845 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
-  - L0881 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
-  - L1134 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L1379 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L1601 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L1868 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L1964 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L2030 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L2129 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+- L0106 `_socks_remote_dns` `[private]` — Track-K (A1): rewrite a bare ``socks5://`` proxy to ``socks5h://`` so a
+- L0117 `_ssrf_guarded_http_get` `[private]` — v3.66.765 (SSRF-REM, defense-in-depth): wrap an INJECTED http_get with the
+- L0147 `_permitted_plugin_dirs` `[private]` — INTEROP-GH-1 (v3.66.655): resolve the external plugin dirs for ``kind``
+- L0183 `_build_ytdlp_cmd` `[private]` — Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
+- L0239 `_build_gallerydl_cmd` `[private]` — Pure builder for the gallery-dl fallback CLI (unit-testable, no side
+- L0280 `ExtractorsMixin` `[class]`
+  - L0281 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
+  - L0392 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
+  - L0493 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
+  - L0846 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
+  - L0882 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
+  - L1136 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L1382 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L1605 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L1873 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L1969 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L2035 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L2170 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 
@@ -497,128 +499,130 @@ Schema version: 2
 ## `bulk_downloader/runner_transport.py` (32 entries)
 
 ```
-- L0069 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0089 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
-- L0104 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
-  - L0107 `_ParallelDailyByteAccounting.__init__` `[dunder]`
-  - L0113 `_ParallelDailyByteAccounting.add`
-  - L0117 `_ParallelDailyByteAccounting.flush`
-  - L0121 `_ParallelDailyByteAccounting.worker_finished`
-- L0129 `TransportMixin` `[class]`
-  - L0130 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L0154 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L0165 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L0182 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L0191 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L0200 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L0220 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L0228 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L0270 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L0397 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L0582 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L0615 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L0638 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L0693 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L0718 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L0728 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L0752 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L0873 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1481 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L1929 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L1976 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L2340 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L2373 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L2397 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+- L0070 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0090 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0105 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
+  - L0108 `_ParallelDailyByteAccounting.__init__` `[dunder]`
+  - L0114 `_ParallelDailyByteAccounting.add`
+  - L0118 `_ParallelDailyByteAccounting.flush`
+  - L0122 `_ParallelDailyByteAccounting.worker_finished`
+- L0130 `TransportMixin` `[class]`
+  - L0131 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L0155 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L0166 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L0183 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L0192 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L0201 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L0221 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L0229 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L0271 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L0398 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L0583 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L0616 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L0639 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L0694 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L0719 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L0729 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L0753 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L0875 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L1496 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L1944 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L1991 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L2355 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L2388 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L2412 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 
-## `bulk_downloader/db.py` (84 entries)
+## `bulk_downloader/db.py` (86 entries)
 
 ```
 - L0021 `_resolve_db_path` `[private]` — v3.66.9: pick the right DB path at call time, not import time.
 - L0042 `db_init`
-- L0209 `_ensure_captures_table` `[private]` — Idempotently create the `captures` table + indices on the given connection.
-- L0231 `db_captures_upsert` — Bulk-upsert capture index rows keyed on rel_path (the PK). Each row is a
-- L0269 `db_captures_all` — Return capture index rows as plain dicts, newest first (captured_at DESC),
-- L0304 `db_captures_prune_missing` — Delete every capture row whose rel_path is NOT in `seen_rel_paths` — how a
-- L0335 `db_integrity_check` — Run PRAGMA integrity_check if it hasn't run in the last 24 hours.
-- L0373 `_PgResultCursor` `[private]` — v3.66.804: cursor-shaped view over Postgres rows for a cut-over read.
-  - L0384 `_PgResultCursor.__init__` `[dunder]`
-  - L0389 `_PgResultCursor.fetchall`
-  - L0393 `_PgResultCursor.fetchone`
-  - L0400 `_PgResultCursor.fetchmany`
-  - L0405 `_PgResultCursor.__iter__` `[dunder]`
-  - L0408 `_PgResultCursor.__getattr__` `[dunder]`
-- L0412 `_DualWriteConn` `[private]` — v3.66.800 (MOD-3 cut 2): SQLite connection wrapper that MIRRORS writes
-  - L0436 `_DualWriteConn.__init__` `[dunder]`
-  - L0439 `_DualWriteConn.execute`
-  - L0456 `_DualWriteConn._shadow` `[private]` — v3.66.801 (MOD-3 cut 3): compare this SELECT against the shadow
-  - L0470 `_DualWriteConn.executemany`
-  - L0478 `_DualWriteConn.cursor`
-  - L0482 `_DualWriteConn.__getattr__` `[dunder]`
-  - L0485 `_DualWriteConn.__setattr__` `[dunder]`
-  - L0488 `_DualWriteConn.__enter__` `[dunder]`
-  - L0492 `_DualWriteConn.__exit__` `[dunder]`
-- L0496 `_DualWriteCursor` `[private]` — Cursor half of the dual-write proxy (see `_DualWriteConn`).
-  - L0499 `_DualWriteCursor.__init__` `[dunder]`
-  - L0502 `_DualWriteCursor.execute`
-  - L0515 `_DualWriteCursor.executemany`
-  - L0523 `_DualWriteCursor.__getattr__` `[dunder]`
-  - L0526 `_DualWriteCursor.__setattr__` `[dunder]`
-  - L0529 `_DualWriteCursor.__iter__` `[dunder]`
-- L0533 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
-- L0612 `db_conn`
-- L0635 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
-- L0656 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
-- L0676 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
-- L0721 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
-- L0731 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
-- L0774 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
-- L0804 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
-- L0825 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
-- L0864 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
-- L0946 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
-- L0972 `db_log` — Append one row to the history table. Called on every job-level
-- L1106 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
-- L1180 `db_search` — Read recent history rows with optional filters. `query` substring-
-- L1195 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
-- L1235 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent
-- L1263 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
-- L1302 `db_stats` — Aggregate history counts and total downloaded bytes for the
-- L1320 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
-- L1366 `db_prune` — Delete history rows older than `days` days. Returns the count
-- L1391 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
-- L1411 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
-- L1440 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
-- L1478 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
-- L1492 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
-- L1542 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L1585 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L1593 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L1599 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L1605 `queue_delete_site` — Called when a site is removed.
-- L1620 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L1642 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L1666 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L1688 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L1713 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L1764 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L1776 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L1790 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L1803 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L1816 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L1829 `session_event_record` — Append one row to session_history. event_type is one of:
-- L1849 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L1862 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L1909 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L2000 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L2007 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L2018 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L2030 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L2130 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L2143 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L2154 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L2174 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L0212 `_ensure_captures_table` `[private]` — Idempotently create the `captures` table + indices on the given connection.
+- L0234 `db_captures_upsert` — Bulk-upsert capture index rows keyed on rel_path (the PK). Each row is a
+- L0272 `db_captures_all` — Return capture index rows as plain dicts, newest first (captured_at DESC),
+- L0307 `db_captures_prune_missing` — Delete every capture row whose rel_path is NOT in `seen_rel_paths` — how a
+- L0338 `db_integrity_check` — Run PRAGMA integrity_check if it hasn't run in the last 24 hours.
+- L0376 `_PgResultCursor` `[private]` — v3.66.804: cursor-shaped view over Postgres rows for a cut-over read.
+  - L0387 `_PgResultCursor.__init__` `[dunder]`
+  - L0392 `_PgResultCursor.fetchall`
+  - L0396 `_PgResultCursor.fetchone`
+  - L0403 `_PgResultCursor.fetchmany`
+  - L0408 `_PgResultCursor.__iter__` `[dunder]`
+  - L0411 `_PgResultCursor.__getattr__` `[dunder]`
+- L0415 `_DualWriteConn` `[private]` — v3.66.800 (MOD-3 cut 2): SQLite connection wrapper that MIRRORS writes
+  - L0439 `_DualWriteConn.__init__` `[dunder]`
+  - L0442 `_DualWriteConn.execute`
+  - L0459 `_DualWriteConn._shadow` `[private]` — v3.66.801 (MOD-3 cut 3): compare this SELECT against the shadow
+  - L0473 `_DualWriteConn.executemany`
+  - L0481 `_DualWriteConn.cursor`
+  - L0485 `_DualWriteConn.__getattr__` `[dunder]`
+  - L0488 `_DualWriteConn.__setattr__` `[dunder]`
+  - L0491 `_DualWriteConn.__enter__` `[dunder]`
+  - L0495 `_DualWriteConn.__exit__` `[dunder]`
+- L0499 `_DualWriteCursor` `[private]` — Cursor half of the dual-write proxy (see `_DualWriteConn`).
+  - L0502 `_DualWriteCursor.__init__` `[dunder]`
+  - L0505 `_DualWriteCursor.execute`
+  - L0518 `_DualWriteCursor.executemany`
+  - L0526 `_DualWriteCursor.__getattr__` `[dunder]`
+  - L0529 `_DualWriteCursor.__setattr__` `[dunder]`
+  - L0532 `_DualWriteCursor.__iter__` `[dunder]`
+- L0536 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
+- L0615 `db_conn`
+- L0638 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
+- L0659 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
+- L0679 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
+- L0724 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
+- L0734 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
+- L0777 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
+- L0807 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
+- L0828 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
+- L0867 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
+- L0949 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
+- L0975 `db_log` — Append one row to the history table. Called on every job-level
+- L1111 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
+- L1141 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
+- L1179 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
+- L1255 `db_search` — Read recent history rows with optional filters. `query` substring-
+- L1272 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
+- L1314 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent
+- L1342 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
+- L1381 `db_stats` — Aggregate history counts and total downloaded bytes for the
+- L1399 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
+- L1445 `db_prune` — Delete history rows older than `days` days. Returns the count
+- L1470 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
+- L1490 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
+- L1519 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
+- L1557 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
+- L1571 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
+- L1621 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L1665 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L1676 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L1682 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L1688 `queue_delete_site` — Called when a site is removed.
+- L1703 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L1725 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L1749 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L1771 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L1796 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L1847 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L1859 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L1873 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L1886 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L1899 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L1912 `session_event_record` — Append one row to session_history. event_type is one of:
+- L1932 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L1945 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L1992 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L2083 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L2090 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L2101 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L2113 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L2213 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L2226 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L2237 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L2257 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 
@@ -715,4 +719,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 539 across 22 files._
+_Total entries: 543 across 22 files._

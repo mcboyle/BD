@@ -7,8 +7,8 @@ authoritative; this file is only a deterministic locality view.
 ## INV-001 — live source tags
 
 - `bulk_downloader/dev_suite/introspection.py:211` — `try:                                            # INV-001`
-- `bulk_downloader/runner.py:2311` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner.py:2369` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner.py:2418` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner.py:2480` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:252` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:427` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:508` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
@@ -18,7 +18,7 @@ authoritative; this file is only a deterministic locality view.
 ## INV-002 — live source tags
 
 - `bulk_downloader/dev_suite/audit_security.py:146` — `_DISPATCH_CHAIN = [  # INV-002`
-- `bulk_downloader/runner.py:3076` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
+- `bulk_downloader/runner.py:3187` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
 
 ## INV-003 — live source tags
 
@@ -27,9 +27,9 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-004 — live source tags
 
-- `bulk_downloader/db.py:589` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
-- `bulk_downloader/db.py:590` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
-- `bulk_downloader/db.py:594` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
+- `bulk_downloader/db.py:592` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
+- `bulk_downloader/db.py:593` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
+- `bulk_downloader/db.py:597` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
 - `bulk_downloader/dev_suite/introspection.py:203` — `try:                                            # INV-004`
 
 ## INV-005 — live source tags

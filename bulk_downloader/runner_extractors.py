@@ -43,6 +43,7 @@ from .runner_util import DEFAULT_MIN_RESOLUTION
 from .db import db_log
 from .detect import find_best_download, fmt_bytes, safe_dest
 from .fname import resolve_filename_template, format_duration_for_filename
+from .website_title import history_title_kwargs
 # F5 (v3.66.689): per-capture netns isolation for the subprocess download
 # fallbacks. The engine shipped @686; this routes yt-dlp/gallery-dl launches
 # through it (capture_netns bracket + netns_exec_argv wrap).
@@ -1122,7 +1123,8 @@ class ExtractorsMixin:
                output_filename, file_size_on_disk,
                f"jsonapi={result.protocol} tier={src.height} "
                f"avail={result.available_heights}", bytes_fetched=downloaded_size,
-               transfer_mode=transfer_mode, file_path=output_path)
+               transfer_mode=transfer_mode, file_path=output_path,
+               **history_title_kwargs(self, url))
         self.log_event(
             "jsonapi_done",
             f"{src.height}p via {result.protocol} "
@@ -1368,7 +1370,8 @@ class ExtractorsMixin:
                output_filename, file_size_on_disk,
                f"vixen={result.via} tier={upgraded_tier} "
                f"avail={result.available_tiers}", bytes_fetched=downloaded_size,
-               transfer_mode=transfer_mode, file_path=output_path)
+               transfer_mode=transfer_mode, file_path=output_path,
+               **history_title_kwargs(self, url))
         self.log_event(
             "vixen_done",
             f"{upgraded_tier}p via {result.via} "
@@ -1590,7 +1593,8 @@ class ExtractorsMixin:
                output_filename, file_size_on_disk,
                f"dl8={result.via} tier={chosen_tier} "
                f"avail={result.available_tiers}", bytes_fetched=downloaded_size,
-               file_path=output_path)
+               file_path=output_path,
+               **history_title_kwargs(self, url))
         self.log_event(
             "dl8_done",
             f"{chosen_tier}p via {result.via} "
@@ -1857,7 +1861,8 @@ class ExtractorsMixin:
                f"aylo={variant.format} quality={variant.quality}p "
                f"avail=[{','.join(result.available_qualities[:5])}]",
                bytes_fetched=downloaded_size,
-               transfer_mode=transfer_mode, file_path=output_path)
+               transfer_mode=transfer_mode, file_path=output_path,
+               **history_title_kwargs(self, url))
         self.log_event(
             "aylo_done",
             f"{variant.quality}p {variant.format} via flashvars "
@@ -2116,6 +2121,23 @@ class ExtractorsMixin:
                 except Exception:
                     pass
                 return False
+            try:
+                file_size_on_disk = os.path.getsize(output_path)
+            except OSError:
+                file_size_on_disk = int(dl_result.bytes_written or 0)
+            output_filename = _Path(output_path).name
+            message = f"plugin={self.site_id} transport=segmented"
+            self._update_job(
+                url, "done", f"Saved: {output_filename}",
+                filename=output_filename, file_size=file_size_on_disk,
+            )
+            db_log(
+                self.site_id, self.config.get("name", "?"), url, "done",
+                output_filename, file_size_on_disk, message,
+                bytes_fetched=dl_result.bytes_written,
+                transfer_mode="segmented", file_path=output_path,
+                **history_title_kwargs(self, url),
+            )
             return True
         self._update_job(url, "running", f"Extracting via plugin [{self.site_id}]...")
         try:
@@ -2124,7 +2146,26 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  plugin_extractor: http path raised {e}\n")
             return False
-        return bool(ok)
+        if not ok:
+            return False
+        try:
+            file_size_on_disk = os.path.getsize(output_path)
+        except OSError:
+            file_size_on_disk = 0
+        output_filename = _Path(output_path).name
+        message = f"plugin={self.site_id} transport=http"
+        self._update_job(
+            url, "done", f"Saved: {output_filename}",
+            filename=output_filename, file_size=file_size_on_disk,
+        )
+        db_log(
+            self.site_id, self.config.get("name", "?"), url, "done",
+            output_filename, file_size_on_disk, message,
+            bytes_fetched=file_size_on_disk,
+            transfer_mode="http", file_path=output_path,
+            **history_title_kwargs(self, url),
+        )
+        return True
 
     def _try_library_extractor(self, url: str) -> bool:
         """v3.43.63: attempt a library-extractor download for `url`.
@@ -2340,7 +2381,8 @@ class ExtractorsMixin:
                    # A literal is right here, unlike jsonapi/vixen/aylo: this
                    # arm has its OWN db_log and returns, so the constant cannot
                    # leak onto the direct-URL row below.
-                   transfer_mode="segmented", file_path=output_path)
+                   transfer_mode="segmented", file_path=output_path,
+                   **history_title_kwargs(self, url))
             return True
 
         # Direct URL path: reuse the existing _http_download path. It
@@ -2402,5 +2444,6 @@ class ExtractorsMixin:
                bytes_fetched=None,
                # The COUNT is unknown here; the TRANSPORT is not. Two separate
                # facts, and the bool return only loses the first one.
-               transfer_mode="http", file_path=output_path)
+               transfer_mode="http", file_path=output_path,
+               **history_title_kwargs(self, url))
         return True

@@ -108,6 +108,7 @@ function HistorySearchTab() {
       when: (r) => r.ts ?? "",
       site: (r) => r.site_name || r.site_id || "",
       status: (r) => r.status ?? "",
+      title: (r) => r.title ?? "",
       file: (r) => r.filename ?? "",
       size: (r) => r.file_size ?? null,
     },
@@ -156,6 +157,8 @@ function HistorySearchTab() {
                 <SortHeader sortKey="when" active={sortKey} dir={sortDir} onToggle={toggle} className="py-1 pr-3">When</SortHeader>
                 <SortHeader sortKey="site" active={sortKey} dir={sortDir} onToggle={toggle} className="py-1 pr-3">Site</SortHeader>
                 <SortHeader sortKey="status" active={sortKey} dir={sortDir} onToggle={toggle} className="py-1 pr-3">Status</SortHeader>
+                <SortHeader sortKey="title" active={sortKey} dir={sortDir} onToggle={toggle} className="py-1 pr-3">Website name</SortHeader>
+                <th className="py-1 pr-3 font-medium text-ink-3">Source</th>
                 <SortHeader sortKey="file" active={sortKey} dir={sortDir} onToggle={toggle} className="py-1 pr-3">File</SortHeader>
                 <SortHeader sortKey="size" active={sortKey} dir={sortDir} onToggle={toggle} className="py-1 pr-3">Size</SortHeader>
                 <th className="py-1 font-medium text-ink-3">Message</th>
@@ -170,6 +173,12 @@ function HistorySearchTab() {
                   <td className={`pr-3 ${cellPad}`}>{r.site_name || r.site_id || ""}</td>
                   <td className={`pr-3 ${cellPad}`}>
                     <StatusBadge status={r.status} />
+                  </td>
+                  <td className={`max-w-[260px] truncate pr-3 ${cellPad}`}>
+                    {r.title || ""}
+                  </td>
+                  <td className={`pr-3 whitespace-nowrap text-xs text-ink-3 ${cellPad}`}>
+                    {r.title_source || ""}
                   </td>
                   <td className={`max-w-[260px] truncate pr-3 ${cellPad}`}>
                     {searching

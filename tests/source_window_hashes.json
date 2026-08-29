@@ -127,7 +127,7 @@
     {
       "bytes": 3010,
       "key": "tests/test_v3_43_28_stash_deep.py::test_dedup_check_fails_open::src[method_pos:method_pos + 3000]::1",
-      "sha256": "b1edd0fb22b346c9f8a048c1165499af1d5effd52e3f95d28be32e6e558df3e0"
+      "sha256": "0e6215cef66fe8951999b340b162456a0e7a6584e65796e03db74bb43952d21e"
     },
     {
       "bytes": 0,

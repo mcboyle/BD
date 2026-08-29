@@ -977,6 +977,8 @@ export interface HistoryRow {
   site_name?: string;
   url?: string;
   status?: string;
+  title?: string;
+  title_source?: string;
   filename?: string;
   file_size?: number;
   message?: string;

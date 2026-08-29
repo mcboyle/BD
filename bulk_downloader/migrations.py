@@ -396,6 +396,7 @@ def _m3(cx):
         studio TEXT DEFAULT '',
         year INTEGER DEFAULT NULL,
         title TEXT DEFAULT '',
+        title_source TEXT DEFAULT '',
         notes TEXT DEFAULT '',
         rating INTEGER DEFAULT NULL,  /* 1-5, NULL=unrated */
         added_at REAL NOT NULL DEFAULT 0,
@@ -544,3 +545,16 @@ def _m9(cx):
         cx.execute(
             "ALTER TABLE history ADD COLUMN transfer_mode TEXT DEFAULT NULL")
 
+
+@migration(version=10, name="add_library_title_source")
+def _m10(cx):
+    """Record which page surface supplied ``library.title``.
+
+    Existing rows stay empty deliberately: guessing provenance for an old blank
+    title would erase the distinction between unharvested and harvested data.
+    """
+    cols = {r[1] for r in cx.execute(
+        "PRAGMA table_info(library)").fetchall()}
+    if "title_source" not in cols:
+        cx.execute(
+            "ALTER TABLE library ADD COLUMN title_source TEXT DEFAULT ''")

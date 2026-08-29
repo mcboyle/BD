@@ -708,7 +708,8 @@ def migration_status():
 _QUEUE_EXPECTED_COLUMNS = [
     "site_id", "url", "status", "message", "retries", "retry_after",
     "screenshot", "force_download", "priority", "ord", "filename",
-    "file_size", "lane", "depends_on", "ts_added", "ts_updated",
+    "listing_title", "file_size", "lane", "depends_on", "ts_added",
+    "ts_updated",
 ]
 
 

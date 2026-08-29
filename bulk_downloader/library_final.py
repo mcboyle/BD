@@ -646,14 +646,18 @@ def regen_nfos_from_history(
            "ambiguous": 0, "unknown": 0}
     try:
         from . import db as _db
-        sql = "SELECT * FROM history WHERE status='done' AND filename != ''"
-        params: list = []
-        if site_id:
-            sql += " AND site_id = ?"
-            params.append(site_id)
-        sql += " ORDER BY id DESC LIMIT ?"
-        params.append(int(max_files))
         with _db.db_conn() as cx:
+            projection, library_join = _db._history_title_projection(cx, "h")
+            sql = (
+                f"SELECT {projection} FROM history h{library_join} "
+                "WHERE h.status='done' AND h.filename != ''"
+            )
+            params: list = []
+            if site_id:
+                sql += " AND h.site_id = ?"
+                params.append(site_id)
+            sql += " ORDER BY h.id DESC LIMIT ?"
+            params.append(int(max_files))
             rows = [dict(r) for r in cx.execute(sql, params).fetchall()]
     except Exception:
         return out
@@ -676,9 +680,11 @@ def regen_nfos_from_history(
         if nfo_path.exists() and not overwrite:
             out["skipped"] += 1
             continue
+        stored_title = str(r.get("title") or "").strip()
+        display_title = stored_title or Path(fn).stem
         meta = {
-            "title": Path(fn).stem,
-            "sorttitle": Path(fn).stem,
+            "title": display_title,
+            "sorttitle": display_title,
             "plot": r.get("message", ""),
             "studio": r.get("site_name", ""),
             "source_url": r.get("url", ""),
