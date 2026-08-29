@@ -1,0 +1,40 @@
+{
+  "capture_host": "app.reptyle.com",
+  "capture_url": "https://app.reptyle.com/",
+  "captured_at": "2026-06-15T21:06:27.583157+00:00",
+  "dom_log_count": 1092,
+  "full_snapshot_indexes": [
+    1,
+    54
+  ],
+  "generator": "tools/build_recorded_dom_fixture.py",
+  "output": "reptyle_quality_menu.html",
+  "output_bytes": 250691,
+  "output_sha256": "436d50388db9e6265309f79b50fda38f13d1d959d0e3918babf291c4882a55a3",
+  "pruned_inert_nodes": 45,
+  "replay": {
+    "adds_applied": 16408,
+    "adds_dangling": 0,
+    "adds_requested": 16408,
+    "attributes_applied": 196,
+    "attributes_missing": 0,
+    "attributes_requested": 196,
+    "events_applied": 186,
+    "nodes_after_replay": 16513,
+    "nodes_in_snapshot": 852,
+    "removes_applied": 439,
+    "removes_missing": 0,
+    "removes_requested": 439,
+    "snapshot_index": 54,
+    "snapshot_seq": 54,
+    "stop_seq": 285,
+    "texts_applied": 1,
+    "texts_missing": 0,
+    "texts_requested": 1
+  },
+  "source_bytes": 676147,
+  "source_capture": "Reptyle-2.redacted.scrubbed.wacz",
+  "source_sha256": "0f9809fc07c40ecf4eb324f3ba555b1911bbe5208931dcc52bea7d4550254552",
+  "stripped_css_attributes": 19,
+  "stripped_css_bytes": 20405
+}

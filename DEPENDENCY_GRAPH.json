@@ -2359,7 +2359,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1685,
+    "edge_count": 1686,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3597,7 +3597,8 @@
         "tools/cockpit_console.py"
       ],
       "bulk_downloader/dom_serialize.py": [
-        "bulk_downloader/dom_analyzer.py"
+        "bulk_downloader/dom_analyzer.py",
+        "tools/build_recorded_dom_fixture.py"
       ],
       "bulk_downloader/download_egress.py": [
         "bulk_downloader/runner.py",
@@ -7448,6 +7449,9 @@
       "tools/build_recognizer_corpus.py": [
         "tools/build_template_from_wacz.py"
       ],
+      "tools/build_recorded_dom_fixture.py": [
+        "bulk_downloader/dom_serialize.py"
+      ],
       "tools/build_release.py": [
         "bulk_downloader/global_config.py"
       ],
@@ -7908,6 +7912,7 @@
       "tools/body_contract_fixtures.py",
       "tools/build_endpoint_catalog.py",
       "tools/build_openapi.py",
+      "tools/build_recorded_dom_fixture.py",
       "tools/build_release.py",
       "tools/build_template_from_wacz.py",
       "tools/builder_gap_report.py",
@@ -7969,7 +7974,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 227,
+    "total": 228,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
@@ -8002,6 +8007,7 @@
       "tools/build_nuitka.py",
       "tools/build_openapi.py",
       "tools/build_recognizer_corpus.py",
+      "tools/build_recorded_dom_fixture.py",
       "tools/build_release.py",
       "tools/build_route_index.py",
       "tools/build_template_from_wacz.py",

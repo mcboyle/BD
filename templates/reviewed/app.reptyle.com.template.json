@@ -27,18 +27,10 @@
     "download": {
       "trigger": "button[data-tooltip=\"Download Full Movie\"], button:has([aria-label=\"download\"]), [data-tooltip*=\"Download\" i]",
       "row_selectors": [
-        "[role=\"dialog\"] a[href*=\"download\" i]",
-        "[role=\"dialog\"] a[href*=\"download-resolution\" i]",
-        "[role=\"dialog\"] button:has-text(\"2160\")",
-        "[role=\"dialog\"] button:has-text(\"1440\")",
-        "[role=\"dialog\"] button:has-text(\"1080\")",
-        "[role=\"dialog\"] button:has-text(\"720\")",
-        ".ant-modal a[href*=\"download\" i]",
-        ".ant-modal a[href*=\"download-resolution\" i]",
-        ".ant-modal button:has-text(\"2160\")",
-        ".ant-modal button:has-text(\"1440\")",
-        ".ant-modal button:has-text(\"1080\")",
-        ".ant-modal button:has-text(\"720\")"
+        ".ant-modal.download-modal .ant-space-horizontal:has(div:text-is(\"2160p\")) button.modal-download-button",
+        ".ant-modal.download-modal .ant-space-horizontal:has(div:text-is(\"1080p\")) button.modal-download-button",
+        ".ant-modal.download-modal .ant-space-horizontal:has(div:text-is(\"720p\")) button.modal-download-button",
+        ".ant-modal.download-modal button.modal-download-button"
       ]
     }
   },
@@ -68,7 +60,10 @@
     "download-resolution path uses {resolution}, not {id}.",
     "Review before enabling. Do not store signed URLs, cookies, tokens, or challenge artifacts.",
     "Reclassified Download Full Movie button as trigger selector because it opens a modal/menu.",
-    "Added modal-scoped row selectors for final resolution/download options."
+    "Added modal-scoped row selectors for final resolution/download options.",
+    "Row 126: the twelve previous row selectors were valid CSS that resolved ZERO elements on the recorded download modal (Reptyle-2.redacted.scrubbed.wacz, dom_seq 226). The modal rows are button.modal-download-button inside .ant-modal.download-modal, not anchors, and each button's own text is Standard/High/Ultra -- the height label 720p/1080p/2160p lives in a SIBLING div, so button:has-text(\"1080\") could never match.",
+    "Row 126: the replacement selectors are measured on that recorded DOM -- 2160p, 1080p and 720p resolve exactly 1 each and the unqualified family resolves exactly 3. No 1440p tier was offered by the recorded modal, so no 1440 row selector is claimed.",
+    "Row 126: [role=\"dialog\"] matches 3 elements on that page while .ant-modal.download-modal matches 1, so the qualified modal scope is used."
   ],
   "api": {
     "base": "https://api2.reptyle.com/api/v1",

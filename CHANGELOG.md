@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1355 - five reptyle selector kinds reviewed and tested against recorded DOM
+
+- Twelve reptyle download row selectors were valid CSS that resolved zero on 
+- New row 126 gate resolves all five reptyle selector kinds against recorded 
+- New tools/build_recorded_dom_fixture.py replays a capture's rrweb log into 
+- frontend: 1 file(s) changed
+- test: reptyle_download_modal.html
+- test: reptyle_download_modal.provenance.json
+- test: reptyle_login_page.html
+- 19 file(s), 47 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    build_recorded_dom_fixture.py -> bulk_downloader
+    _reptyle_selectors_resolve_on_recorded_dom.py -> bulk_downloader
+    _reptyle_selectors_resolve_on_recorded_dom.py -> tools
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1354 - recognizers claim a player family on evidence from two guided captures
 
 - Row 124 FR-A6.2: the recognizers now claim a real non-Cloudflare, non-video

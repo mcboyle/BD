@@ -245,21 +245,16 @@ reptyle):
 }
 ```
 
-`selectors.download.row_selectors` (12 modal-scoped):
+`selectors.download.row_selectors` (4 modal-scoped, measured at row 126 against
+recorded DOM -- the twelve that stood here before resolved ZERO elements on the
+recorded download modal; see
+`tests/test_row126_reptyle_selectors_resolve_on_recorded_dom.py`):
 ```json
 [
-  "[role=\"dialog\"] a[href*=\"download\" i]",
-  "[role=\"dialog\"] a[href*=\"download-resolution\" i]",
-  "[role=\"dialog\"] button:has-text(\"2160\")",
-  "[role=\"dialog\"] button:has-text(\"1440\")",
-  "[role=\"dialog\"] button:has-text(\"1080\")",
-  "[role=\"dialog\"] button:has-text(\"720\")",
-  ".ant-modal a[href*=\"download\" i]",
-  ".ant-modal a[href*=\"download-resolution\" i]",
-  ".ant-modal button:has-text(\"2160\")",
-  ".ant-modal button:has-text(\"1440\")",
-  ".ant-modal button:has-text(\"1080\")",
-  ".ant-modal button:has-text(\"720\")"
+  ".ant-modal.download-modal .ant-space-horizontal:has(div:text-is(\"2160p\")) button.modal-download-button",
+  ".ant-modal.download-modal .ant-space-horizontal:has(div:text-is(\"1080p\")) button.modal-download-button",
+  ".ant-modal.download-modal .ant-space-horizontal:has(div:text-is(\"720p\")) button.modal-download-button",
+  ".ant-modal.download-modal button.modal-download-button"
 ]
 ```
 
