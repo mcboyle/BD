@@ -528,31 +528,59 @@ def ffmpeg_command_preview(url, output_name="preview.mp4",
 
 
 def resolution_scoring_test(text=None):
-    """D-34 — exercise BOTH resolution code paths and show their
-    output side by side. detect.res_score/res_label and heuristic_
-    scoring.detect_resolution_tier are two separate, hand-maintained
-    tables (INV-005); this makes them inspectable together so a desync
-    is visible. Runs a fixed probe battery; an optional `text` adds
-    one ad-hoc comparison. Read-only."""
+    """D-34 — grade the AI and detection resolution-label readers.
+
+    The heuristic fields remain in each row for the existing INV-005
+    inspection surface.  The verdict, however, is now about the product paths
+    named by the gate: ``aiassist.normalize_resolution`` and
+    ``detect.res_score/res_label``.  A missing reader measurement is UNKNOWN,
+    never an empty value laundered into OK.  Read-only; the fixed probes all
+    use AI's deterministic path and cannot contact a model.
+    """
     try:
         from bulk_downloader import detect as _d
+        from bulk_downloader import aiassist as _ai
         from bulk_downloader import heuristic_scoring as _hs
     except Exception as e:
         return {"tool": "resolution_scoring_test", "ok": False,
+                "verdict": "UNKNOWN",
+                "diagnostic": f"UNKNOWN: resolution readers unavailable: {e}",
                 "error": f"resolution modules unavailable: {e}"}
 
     def _probe(s):
+        detect_error = None
         try:
             score = _d.res_score(s)
-        except Exception:
+        except Exception as exc:
             score = -1
-        detect_found = isinstance(score, int) and score >= 0
+            detect_error = str(exc) or type(exc).__name__
+        detect_found = (isinstance(score, int) and not isinstance(score, bool)
+                        and score > 0)
         detect_label = ""
         if detect_found:
             try:
                 detect_label = _d.res_label(score)
-            except Exception:
+            except Exception as exc:
                 detect_label = ""
+                detect_error = str(exc) or type(exc).__name__
+        if not detect_label and detect_error is None:
+            detect_error = "no measured label"
+
+        ai_error = None
+        ai_result = {}
+        try:
+            ai_result = _ai.normalize_resolution(s, allow_model=False)
+        except Exception as exc:
+            ai_error = str(exc) or type(exc).__name__
+        ai_label = ai_result.get("label") if isinstance(ai_result, dict) else None
+        ai_found = bool(
+            isinstance(ai_result, dict) and ai_result.get("ok") is True
+            and isinstance(ai_label, str) and ai_label
+        )
+        if not ai_found and ai_error is None:
+            ai_error = str(ai_result.get("error") or "no measured label") \
+                if isinstance(ai_result, dict) else "invalid reader result"
+
         try:
             tier, hs_label = _hs.detect_resolution_tier(s)
         except Exception:
@@ -562,32 +590,139 @@ def resolution_scoring_test(text=None):
             "input": s,
             "detect_res_score": score,
             "detect_res_label": detect_label,
+            "detect_error": detect_error,
+            "ai_resolution": (ai_result.get("resolution")
+                              if isinstance(ai_result, dict) else None),
+            "ai_label": ai_label,
+            "ai_via": (ai_result.get("via")
+                       if isinstance(ai_result, dict) else None),
+            "ai_error": ai_error,
+            "both_readers_measured": detect_found and bool(detect_label) and ai_found,
+            "labels_agree": ((detect_label == ai_label)
+                             if detect_found and detect_label and ai_found else None),
             "heuristic_tier": tier,
             "heuristic_label": hs_label,
             "both_paths_detect": detect_found and hs_found,
             "only_one_path_detects": detect_found != hs_found,
         }
 
-    probes = ["8K", "4K UHD", "2160p", "1440p", "1200p", "1080p",
-              "Full HD", "720p", "HD", "480p", "SD", "1920x1080",
-              "/mp4_2160/", "360p medium", "240p mobile"]
+    canonical_labels = [
+        "8K", "6K", "5K", "4K", "1440p", "1200p", "1080p",
+        "900p", "720p", "540p", "480p", "360p",
+        "353p (preview)", "240p",
+    ]
+    # The first occurrence of each tier spans the detector's complete public
+    # label vocabulary.  The remaining aliases preserve D-34's existing
+    # named/dimension/CDN-path coverage instead of trading breadth for parity.
+    probes = ["8K", "6K", "5K", "4K UHD", "2160p", "1440p", "1200p",
+              "1080p", "900p", "Full HD", "720p", "HD", "540p", "480p",
+              "SD", "1920x1080", "/mp4_2160/", "360p medium", "353p",
+              "240p mobile"]
     rows = [_probe(s) for s in probes]
+    ad_hoc = _probe(text) if text else None
+    verdict_rows = rows + ([ad_hoc] if ad_hoc is not None else [])
     divergent = [r["input"] for r in rows if r["only_one_path_detects"]]
+    measured = [r for r in verdict_rows if r["both_readers_measured"]]
+    unmeasured_rows = [r for r in verdict_rows if not r["both_readers_measured"]]
+    unmeasured_inputs = []
+    for row in unmeasured_rows:
+        if row["ai_error"]:
+            unmeasured_inputs.append({
+                "input": row["input"], "reader": "ai",
+                "error": row["ai_error"],
+            })
+        if row["detect_error"]:
+            unmeasured_inputs.append({
+                "input": row["input"], "reader": "detection",
+                "error": row["detect_error"],
+            })
+    mismatches = [
+        {"input": row["input"], "ai_label": row["ai_label"],
+         "detect_label": row["detect_res_label"]}
+        for row in measured if not row["labels_agree"]
+    ]
+    canonical_labels_measured = [
+        label for label in canonical_labels
+        if any(row["both_readers_measured"] and row["labels_agree"]
+               and row["detect_res_label"] == label for row in rows)
+    ]
+    unexpected_canonical_labels = sorted({
+        row["detect_res_label"] for row in rows
+        if row["both_readers_measured"] and row["labels_agree"]
+        and row["detect_res_label"] not in canonical_labels
+    })
+    missing_canonical_labels = [
+        label for label in canonical_labels
+        if label not in canonical_labels_measured
+    ]
+    canonical_coverage_complete = (
+        not missing_canonical_labels and not unexpected_canonical_labels
+    )
+
+    if mismatches:
+        verdict = "FAIL"
+        details = "; ".join(
+            f"{row['input']} (AI={row['ai_label']!r}, "
+            f"detection={row['detect_label']!r})"
+            for row in mismatches
+        )
+        diagnostic = (
+            f"FAIL: resolution label disagreement on {len(mismatches)} of "
+            f"{len(measured)} measured probes: {details}"
+        )
+    elif unmeasured_rows:
+        verdict = "UNKNOWN"
+        details = "; ".join(
+            f"{row['input']} ({row['reader']}: {row['error']})"
+            for row in unmeasured_inputs
+        )
+        diagnostic = (
+            f"UNKNOWN: {len(unmeasured_rows)} of {len(verdict_rows)} resolution "
+            f"probes could not measure both readers: {details}"
+        )
+    elif not canonical_coverage_complete:
+        verdict = "UNKNOWN"
+        diagnostic = (
+            "UNKNOWN: canonical resolution-label coverage incomplete: "
+            f"missing={missing_canonical_labels!r}; "
+            f"unexpected={unexpected_canonical_labels!r}"
+        )
+    else:
+        verdict = "OK"
+        diagnostic = (
+            f"OK: both resolution readers agreed on all {len(measured)} "
+            f"measured probes covering all {len(canonical_labels_measured)} "
+            "canonical labels"
+        )
+
     return {
         "tool": "resolution_scoring_test",
-        "ok": True,
-        "probe_count": len(rows),
+        "ok": verdict == "OK",
+        "verdict": verdict,
+        "diagnostic": diagnostic,
+        "fixed_probe_count": len(rows),
+        "probe_count": len(verdict_rows),
+        "measured_probe_count": len(measured),
+        "unmeasured_probe_count": len(unmeasured_rows),
+        "unmeasured_inputs": unmeasured_inputs,
+        "label_mismatch_count": len(mismatches),
+        "label_mismatches": mismatches,
+        "expected_canonical_label_count": len(canonical_labels),
+        "canonical_label_count": len(canonical_labels_measured),
+        "canonical_labels_measured": canonical_labels_measured,
+        "missing_canonical_labels": missing_canonical_labels,
+        "unexpected_canonical_labels": unexpected_canonical_labels,
+        "canonical_label_coverage_complete": canonical_coverage_complete,
         "probes_both_paths_detect":
             sum(1 for r in rows if r["both_paths_detect"]),
         "probes_one_path_only": len(divergent),
         "divergent_inputs": divergent,
         "probes": rows,
-        "ad_hoc": _probe(text) if text else None,
-        "note": ("INV-005: detect.res_score/res_label and heuristic_"
-                 "scoring.detect_resolution_tier are two separate "
-                 "hand-maintained tables. Different label vocabularies "
-                 "between the two are expected; an input that only ONE "
-                 "path detects is a likely table desync worth a look."),
+        "ad_hoc": ad_hoc,
+        "note": ("Row 366: AI normalization and deterministic detection "
+                 "publish one label vocabulary. Heuristic fields remain "
+                 "side-by-side for INV-005 inspection; missing measurements "
+                 "produce UNKNOWN."),
     }
 
 

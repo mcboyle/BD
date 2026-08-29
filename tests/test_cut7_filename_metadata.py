@@ -56,7 +56,7 @@ def test_regex_fast_path_full():
     assert out["episode"] == 2
     assert out["codec"] == "h265"
     assert out["resolution"] == "1080p"
-    assert out["label"] == "1080"
+    assert out["label"] == "1080p"
     # title is best-effort but should recover the human-readable stem
     assert "show" in (out["title"] or "").lower()
     assert out["confidence"] >= 90
