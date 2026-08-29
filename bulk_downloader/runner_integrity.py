@@ -107,9 +107,25 @@ class IntegrityMixin:
         loose at the bottom (a 540p preview slipped past 480 + 50). Now
         `max(50, target * 0.05)` so 8K gets ±216, 4K gets ±108, 1440
         gets ±72, 1080p stays at ±54, 480p stays at ±50.
+
+        v3.66.x row 388: the preference is the SECOND consumer of the candidate
+        ranking, and it had the same blind spot as the sort. detect.py now
+        stamps each candidate with `work` -- 1 when its URL provably names the
+        work the page names, 0 when no identity could be derived. When ANY
+        candidate is same-work, the preference chooses only among those; a
+        1080 preference on a nubilefilms scene page would otherwise have
+        matched a related card's 1080 tier just as happily as the page's own.
+        The subset is only applied when it is NONEMPTY, so this can never empty
+        the list: a preference that finds no same-work match falls through to
+        `best`, which is itself the same-work winner. Candidates built without
+        a `work` key (every existing caller and test) read 0 and behave exactly
+        as before.
         """
         preferences = [p.strip() for p in qpref.split(",") if p.strip()]
         candidates = best.get("_all_candidates", [])
+        same_work = [c for c in candidates if c.get("work", 0) > 0]
+        if same_work:
+            candidates = same_work
         chosen = None
         for pref in preferences:
             if pref.lower() == "best":
