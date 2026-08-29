@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (807)
+## /api/* routes (809)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -102,9 +102,11 @@ POST    /api/captcha/start_solve                               CSRF: yes
 GET     /api/captures                                          CSRF: no   — Item 3: serve the cached recursive capture inventory -- paginated +
 POST    /api/captures/allowlist_add                            CSRF: yes  — GCW guided-mode: add a root to the path allowlist -- the CONFIRM-GATED,
 POST    /api/captures/build_draft                              CSRF: yes  — Item 3 follow-on: build a REVIEW-ONLY template draft from one stored
+POST    /api/captures/live_learning                            CSRF: yes  — Arm/poll a learner action in the existing held-open Capture process.
 POST    /api/captures/scan                                     CSRF: yes  — Item 3: explicit operator-triggered recursive capture scan. Walks the
 POST    /api/captures/scrub                                    CSRF: yes  — Item 3 follow-on: scrub a raw ``.wacz`` capture (resolved by ``token``)
 POST    /api/captures/setup_site                               CSRF: yes  — GCW-3 "Setup site" wizard step: create a site and (optionally) store
+POST    /api/captures/stage_learning                           CSRF: yes  — Stage only the nonce-bound result proven by the Capture subprocess.
 POST    /api/captures/suggest_rows                             CSRF: yes  — Auto-detect repeating row groups on a running interactive capture.
 GET     /api/captures/validate_download_dir                    CSRF: no   — GCW guided-mode READ-ONLY download-root check. Query: ``?path=<abs>``.
 GET     /api/changelog                                         CSRF: no   — Per-site changelog: success-rate deltas, new failure patterns,

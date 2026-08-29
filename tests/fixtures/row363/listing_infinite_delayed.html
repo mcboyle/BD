@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Rendered delayed infinite-scroll listing</title></head>
+  <body data-site-host="members.example.invalid" data-total-scenes="3">
+    <section class="SceneGrid" id="scene-grid">
+      <article class="SceneCard"><a href="https://members.example.invalid/scene/delayed-alpha">Alpha</a></article>
+    </section>
+    <script>
+      let scheduled = false;
+      window.addEventListener("scroll", () => {
+        if (scheduled) return;
+        scheduled = true;
+        window.setTimeout(() => {
+          document.getElementById("scene-grid").insertAdjacentHTML("beforeend",
+            '<article class="SceneCard"><a href="https://members.example.invalid/scene/delayed-bravo">Bravo</a></article>' +
+            '<article class="SceneCard"><a href="https://members.example.invalid/scene/delayed-charlie">Charlie</a></article>');
+        }, 850);
+      });
+      document.body.style.minHeight = "2400px";
+    </script>
+  </body>
+</html>

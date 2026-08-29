@@ -35,6 +35,7 @@ import os
 import re
 import sys
 import json
+import copy
 import time
 import uuid
 import shlex
@@ -495,6 +496,10 @@ def posture_clean(text: str) -> List[str]:
 
 _REG_LOCK = threading.Lock()
 _REGISTRY: Dict[str, Dict[str, Any]] = {}
+_LIVE_LEARNING_LOCK = threading.Lock()
+_LIVE_LEARNING_ACTIVE: Dict[str, str] = {}
+_LIVE_LEARNING_DEADLINES: Dict[str, float] = {}
+_LIVE_LEARNING_PROOFS: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
 
 def _new_task_id() -> str:
@@ -675,6 +680,148 @@ def suggest_rows_capture(task_id: str, action: str = "arm") -> Dict[str, Any]:
         groups = ep.consume_autorows(out_dir)
         return {"task_id": task_id, "action": "poll", "groups": groups}
     raise ValidationError(f"unknown suggest_rows action: {action!r}")
+
+
+def live_learning_capture(task_id: str, action: str = "arm", *,
+                          mode: str = "learn", request_id: str = "",
+                          payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Drive row-363 learning against a running, held-open Capture page.
+
+    The request/result files carry a server-generated nonce.  Polling with a
+    stale or foreign nonce can therefore never consume a prior learning result.
+    This follows the existing element-pick subprocess seam while making each
+    learner operation end in an explicit running/found/nothing/failed state.
+    """
+    from bulk_downloader import affordance_learning as al
+    t = get_task(task_id)
+    if not t:
+        raise ValidationError(f"no such task: {task_id!r}")
+    if t.get("category") != "capture":
+        raise ValidationError(f"task {task_id!r} is not a capture task")
+    out_dir = t.get("out_dir")
+    if not out_dir:
+        raise ValidationError(f"task {task_id!r} has no output dir")
+    if action == "arm":
+        with _LIVE_LEARNING_LOCK:
+            active = _LIVE_LEARNING_ACTIVE.get(task_id)
+            if active:
+                abandoned = al.consume_live_result(out_dir, active)
+                if abandoned is not None:
+                    _LIVE_LEARNING_ACTIVE.pop(task_id, None)
+                    _LIVE_LEARNING_DEADLINES.pop(task_id, None)
+                    active = None
+                elif time.time() >= _LIVE_LEARNING_DEADLINES.get(
+                    task_id, float("inf")
+                ):
+                    al.cancel_live_action(out_dir, active)
+                    _LIVE_LEARNING_ACTIVE.pop(task_id, None)
+                    _LIVE_LEARNING_DEADLINES.pop(task_id, None)
+                    active = None
+            if active:
+                raise ValidationError(
+                    "another live learning/network/listing action is already running")
+            try:
+                armed = al.request_live_action(out_dir, mode, payload or {})
+            except ValueError as e:
+                raise ValidationError(str(e)) from e
+            _LIVE_LEARNING_ACTIVE[task_id] = str(armed["request_id"])
+            _LIVE_LEARNING_DEADLINES[task_id] = time.time() + (
+                2760 if mode == "crawl" else 420
+            )
+        return {"task_id": task_id, "action": "arm", **armed}
+    if action == "cancel":
+        if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise ValidationError("valid live-learning request_id required")
+        with _LIVE_LEARNING_LOCK:
+            active = _LIVE_LEARNING_ACTIVE.get(task_id)
+            if active and active != request_id:
+                raise ValidationError("request_id does not own the active live action")
+            al.cancel_live_action(out_dir, request_id)
+            if active == request_id:
+                _LIVE_LEARNING_ACTIVE.pop(task_id, None)
+                _LIVE_LEARNING_DEADLINES.pop(task_id, None)
+        return {
+            "task_id": task_id,
+            "action": "cancel",
+            "request_id": request_id,
+            "state": "cancelled",
+        }
+    if action == "poll":
+        if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise ValidationError("valid live-learning request_id required")
+        expired = False
+        with _LIVE_LEARNING_LOCK:
+            active = _LIVE_LEARNING_ACTIVE.get(task_id)
+            if (
+                active == request_id
+                and time.time() >= _LIVE_LEARNING_DEADLINES.get(
+                    task_id, float("inf")
+                )
+            ):
+                _LIVE_LEARNING_ACTIVE.pop(task_id, None)
+                _LIVE_LEARNING_DEADLINES.pop(task_id, None)
+                expired = True
+                active = None
+        if active and active != request_id:
+            raise ValidationError("request_id does not own the active live action")
+        if expired:
+            al.cancel_live_action(out_dir, request_id)
+            result = {
+                "request_id": request_id,
+                "mode": mode,
+                "state": "failed",
+                "error": "Live learning action expired; retry against the held page.",
+            }
+        else:
+            result = al.consume_live_result(out_dir, request_id)
+        if result is not None:
+            with _LIVE_LEARNING_LOCK:
+                if _LIVE_LEARNING_ACTIVE.get(task_id) == request_id:
+                    _LIVE_LEARNING_ACTIVE.pop(task_id, None)
+                    _LIVE_LEARNING_DEADLINES.pop(task_id, None)
+                if (
+                    result.get("mode") == "learn"
+                    and isinstance(result.get("result"), dict)
+                ):
+                    _LIVE_LEARNING_PROOFS[(task_id, request_id)] = {
+                        "created": time.time(),
+                        "result": copy.deepcopy(result["result"]),
+                    }
+                    # Bound abandoned proofs without weakening nonce ownership.
+                    oldest = sorted(
+                        _LIVE_LEARNING_PROOFS,
+                        key=lambda key: _LIVE_LEARNING_PROOFS[key]["created"],
+                    )
+                    for stale in oldest[:-32]:
+                        _LIVE_LEARNING_PROOFS.pop(stale, None)
+        return {
+            "task_id": task_id,
+            "action": "poll",
+            "request_id": request_id,
+            "state": (result or {}).get("state", "running"),
+            "response": result,
+        }
+    raise ValidationError(f"unknown live-learning action: {action!r}")
+
+
+def get_live_learning_proof(task_id: str, request_id: str) -> Dict[str, Any]:
+    """Return the server-retained, nonce-bound learner result for staging."""
+    if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValidationError("valid live-learning request_id required")
+    with _LIVE_LEARNING_LOCK:
+        proof = _LIVE_LEARNING_PROOFS.get((task_id, request_id))
+        if not proof:
+            raise ValidationError("no server-proven learning result for this task/request")
+        if time.time() - float(proof.get("created") or 0) > 3600:
+            _LIVE_LEARNING_PROOFS.pop((task_id, request_id), None)
+            raise ValidationError("server-proven learning result expired; learn again")
+        return copy.deepcopy(proof["result"])
+
+
+def discard_live_learning_proof(task_id: str, request_id: str) -> None:
+    """Consume a proof only after its selector-only Review draft was written."""
+    with _LIVE_LEARNING_LOCK:
+        _LIVE_LEARNING_PROOFS.pop((task_id, request_id), None)
 
 
 def start_task(category: str, name: str, params: Dict[str, Any]) -> Dict[str, Any]:

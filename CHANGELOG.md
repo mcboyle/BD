@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1330 - the workflow learns a site download controls from the live page
+
+- Setup exposes the existing `quality_preference`, `min_resolution`, and `log
+- The learner tries BAR before DROPDOWN, makes at most one guarded click, rec
+- Resolution policy chooses the highest option permitted by the ordered prefe
+- Network evidence is bounded, path/query-redacted, page/document-local, and 
+- Listing planning covers pagination and infinite scroll, deduplicates scenes
+- Row 363 is registered exactly `OPEN` in [IMPROVEMENT_BACKLOG.md](/home/mboy
+- BAR, DROPDOWN, UNKNOWN/blob-only, AdultTime sibling, unsafe download, and o
+- Pagination, query pagination, infinite scroll, delayed scroll, non-terminat
+- Required row command: `61 passed` in 146.05s.
+- Focused frontend: `52/52` tests.
+- Full frontend: `637/637` tests; TypeScript build clean.
+- Existing capture/redaction/telemetry/promotion compatibility sweep: `146 pa
+- Generated/import/backlog gate bundle: `73 passed`.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 225 -> 226.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1329 - the contract states three defect shapes it kept catching
 
 - A8 now states that the tool denominator includes the operator harness outsi

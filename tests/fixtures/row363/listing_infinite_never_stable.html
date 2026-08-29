@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><title>Rendered non-terminating infinite scene listing</title>
+    <style>#scroll-space { height: 2400px; }</style>
+  </head>
+  <body data-site-host="members.example.invalid">
+    <section class="SceneGrid" id="scene-grid">
+      <article class="SceneCard"><a href="https://members.example.invalid/video/seed">Seed</a></article>
+    </section>
+    <div id="scroll-space"></div>
+    <script>
+      let loaded = 0;
+      window.addEventListener("scroll", () => {
+        loaded += 1;
+        const card = document.createElement("article");
+        card.className = "SceneCard";
+        const link = document.createElement("a");
+        link.href = `https://members.example.invalid/video/continued-${loaded}`;
+        link.textContent = `Continued ${loaded}`;
+        card.appendChild(link);
+        document.getElementById("scene-grid").appendChild(card);
+        document.getElementById("scroll-space").style.height = `${2400 + loaded * 1000}px`;
+      });
+    </script>
+  </body>
+</html>

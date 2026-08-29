@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Rendered dropdown download affordance</title></head>
+  <body>
+    <!-- Redacted, credential-free rendered fragment matching the measured
+         Evil Angel div trigger.  Options are a detached template fragment and
+         therefore do not exist in the document DOM until the one real click. -->
+    <main class="ScenePage styles_Lr0nX2">
+      <video src="blob:https://members.example.invalid/zero-entropy-fixture"></video>
+      <div class="styles_nudXOleN_r download">
+        <div class="styles_other ScenePlayerHeaderPlus-IconItem" id="play-trigger" role="button" tabindex="0">
+          <span class="Icon Icon-Play styles_other_icon"></span>
+          <span class="Text">Play</span>
+        </div>
+        <div class="styles_u2zrLnZQm3 ScenePlayerHeaderPlus-IconItem" id="download-trigger" role="button" tabindex="0">
+          <span class="Icon Icon-Download styles_S79BDZo_Lj"></span>
+          <span class="Text">Download</span>
+        </div>
+      </div>
+      <div id="download-options"></div>
+      <template id="download-options-template">
+        <div class="ScenePlayer-DownloadMenu styles_p9Z">
+          <a class="Link ScenePlayer-DownloadOption styles_b1" href="/movieaction/download/291403/160p/mp4?codec=h264">Low 160p 137.18 MB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b2" href="/movieaction/download/291403/240p/mp4?codec=h264">Low 240p 214.40 MB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b3" href="/movieaction/download/291403/360p/mp4?codec=h264">SD 360p 336.61 MB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b4" href="/movieaction/download/291403/480p/mp4?codec=h264">SD 480p 521.93 MB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b5" href="/movieaction/download/291403/540p/mp4?codec=h264">Web HD 540p 692.70 MB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b6" href="/movieaction/download/291403/720p/mp4?codec=h264">HD 720p 1.08 GB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b7" href="/movieaction/download/291403/1080p/mp4?codec=h264">Full HD 1080p 1.96 GB</a>
+          <a class="Link ScenePlayer-DownloadOption styles_b8" href="/movieaction/download/291403/2160p/mp4?codec=h264">4K 2160p 3.77 GB</a>
+        </div>
+      </template>
+    </main>
+    <script>
+      window.__row363PlayClicks = 0;
+      window.__row363DownloadClicks = 0;
+      document.getElementById("play-trigger").addEventListener("click", () => {
+        window.__row363PlayClicks += 1;
+      });
+      document.getElementById("download-trigger").addEventListener("click", () => {
+        window.__row363DownloadClicks += 1;
+        const mount = document.getElementById("download-options");
+        const template = document.getElementById("download-options-template");
+        mount.replaceChildren(template.content.cloneNode(true));
+      }, { once: true });
+    </script>
+  </body>
+</html>

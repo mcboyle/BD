@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Rendered sibling dropdown with hidden rows</title></head>
+  <body>
+    <!-- Credential-free rendered regression fragment derived from
+         tests/fixtures/recon_corpus/bd-recon_members_adulttime_com_2026-05-14T00-28-04-267Z_SUMMARY.json
+         (own_outer_html for the saved player header). -->
+    <main class="ScenePage">
+      <button class="Button ScenePlayerHeaderPlus-IconItem-Button styles_crHBXyeHJB" type="button">
+        <span class="Icon Icon-Play styles_S79BDZo_Lj"></span><span class="Text">Play</span>
+      </button>
+      <button class="Button ScenePlayerHeaderPlus-IconItem-Button styles_crHBXyeHJB" id="download-trigger" type="button">
+        <span class="Icon Icon-DownloadRevamp styles_S79BDZo_Lj"></span><span class="Text">Download</span>
+      </button>
+      <div id="download-menu" style="display:none">
+        <a class="ScenePlayer-DownloadOption" href="/movieaction/download/fixture-scene/540p/mp4?codec=h264">Web HD 540p 692.70 MB</a>
+        <a class="ScenePlayer-DownloadOption" href="/movieaction/download/fixture-scene/720p/mp4?codec=h264">HD 720p 1.08 GB</a>
+        <a class="ScenePlayer-DownloadOption" href="/movieaction/download/fixture-scene/1080p/mp4?codec=h264">Full HD 1080p 1.96 GB</a>
+      </div>
+    </main>
+    <script>
+      window.__row363AdulttimeClicks = 0;
+      document.getElementById("download-trigger").addEventListener("click", () => {
+        window.__row363AdulttimeClicks += 1;
+        document.getElementById("download-menu").style.display = "block";
+      });
+    </script>
+  </body>
+</html>

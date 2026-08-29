@@ -27,7 +27,12 @@ import { WorkflowSteps } from "@/components/ui/WorkflowSteps";
 import { SecretField } from "@/components/SecretField";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { apiGet, apiPost, apiPut } from "@/lib/api-client";
-import type { SiteConfigDraft, ValidationResult } from "@/lib/api-types";
+import {
+  DEFAULT_SITE_MIN_RESOLUTION,
+  DEFAULT_SITE_QUALITY_PREFERENCE,
+  type SiteConfigDraft,
+  type ValidationResult,
+} from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 
 // Add Site wizard (V3 visual redesign).
@@ -81,6 +86,9 @@ const EMPTY_DRAFT: SiteConfigDraft = {
   user_field: "",
   pass_field: "",
   submit_btn: "",
+  quality_preference: DEFAULT_SITE_QUALITY_PREFERENCE,
+  min_resolution: DEFAULT_SITE_MIN_RESOLUTION,
+  log_network: false,
 };
 
 interface SiteTemplate {
@@ -151,8 +159,11 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
 
   useEffect(() => {
     if (!open) return;
-    const hasAnyValue = Object.values(debounced).some(
-      (v) => v && String(v).trim() !== "",
+    const policyDefaults = new Set(["quality_preference", "min_resolution", "log_network"]);
+    const hasAnyValue = Object.entries(debounced).some(
+      ([key, value]) =>
+        !policyDefaults.has(key) && value !== undefined && value !== null &&
+        String(value).trim() !== "",
     );
     if (!hasAnyValue) {
       setValidation(null);
@@ -412,6 +423,38 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
                   placeholder="/path/to/downloads/"
                 />
               </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="quality_preference" hint="Highest acceptable resolution, e.g. 2160,1080,720">
+                  <Input
+                    aria-label="quality_preference"
+                    value={draft.quality_preference ?? DEFAULT_SITE_QUALITY_PREFERENCE}
+                    onChange={(e) => setField("quality_preference", e.target.value)}
+                  />
+                </Field>
+                <Field label="min_resolution" hint="Refuse lower options during planning">
+                  <Input
+                    aria-label="min_resolution"
+                    type="number"
+                    min={0}
+                    value={draft.min_resolution ?? DEFAULT_SITE_MIN_RESOLUTION}
+                    onChange={(e) => setField("min_resolution", Math.max(0, Number(e.target.value) || 0))}
+                  />
+                </Field>
+              </div>
+              <label className="flex items-start gap-2 text-[12px] text-ink-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={draft.log_network ?? false}
+                  onChange={(e) => setField("log_network", e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">Record network responses</span>
+                  <span className="block text-[11px] text-ink-3">
+                    Enables log_network so later runs can find media URLs when markup only exposes a blob source.
+                  </span>
+                </span>
+              </label>
               <Collapsible
                 title="Advanced — login selectors"
                 className="pt-1"

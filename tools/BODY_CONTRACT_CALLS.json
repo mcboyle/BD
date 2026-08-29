@@ -25,17 +25,23 @@
    "filename_template",
    "user_field",
    "pass_field",
-   "submit_btn"
+   "submit_btn",
+   "quality_preference",
+   "min_resolution",
+   "log_network"
   ],
   "path": "/api/sites",
   "sample": {
    "cookie_file": "x",
    "download_dir": "x",
    "filename_template": "x",
+   "log_network": false,
    "login_url": "x",
+   "min_resolution": 1,
    "name": "x",
    "pass_field": "x",
    "password": "x",
+   "quality_preference": "x",
    "start_url": "x",
    "submit_btn": "x",
    "user_field": "x",
@@ -69,17 +75,23 @@
    "filename_template",
    "user_field",
    "pass_field",
-   "submit_btn"
+   "submit_btn",
+   "quality_preference",
+   "min_resolution",
+   "log_network"
   ],
   "path": "/api/sites/validate",
   "sample": {
    "cookie_file": "x",
    "download_dir": "x",
    "filename_template": "x",
+   "log_network": false,
    "login_url": "x",
+   "min_resolution": 1,
    "name": "x",
    "pass_field": "x",
    "password": "x",
+   "quality_preference": "x",
    "start_url": "x",
    "submit_btn": "x",
    "user_field": "x",
@@ -2047,19 +2059,61 @@
   "file": "src/routes/CaptureWorkflow.tsx",
   "fn": "apiPost",
   "keys": [
+   "task_id",
+   "site_id",
+   "action",
+   "mode",
+   "payload"
+  ],
+  "path": "/api/captures/live_learning",
+  "sample": {
+   "action": "x",
+   "mode": "learn",
+   "payload": {},
+   "site_id": "x",
+   "task_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
    "name",
    "login_url",
    "username",
    "password",
-   "download_dir"
+   "download_dir",
+   "quality_preference",
+   "min_resolution",
+   "log_network"
   ],
   "path": "/api/captures/setup_site",
   "sample": {
    "download_dir": "x",
+   "log_network": false,
    "login_url": "x",
+   "min_resolution": 1,
    "name": "x",
    "password": "x",
+   "quality_preference": "x",
    "username": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "task_id",
+   "request_id",
+   "site_id"
+  ],
+  "path": "/api/captures/stage_learning",
+  "sample": {
+   "request_id": "x",
+   "site_id": "x",
+   "task_id": "x"
   },
   "unknownType": false
  },
@@ -2178,6 +2232,22 @@
    "params": {
     "url": "x"
    }
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPut",
+  "keys": [
+   "quality_preference",
+   "min_resolution",
+   "log_network"
+  ],
+  "path": "/api/sites/${}",
+  "sample": {
+   "log_network": false,
+   "min_resolution": 1,
+   "quality_preference": "x"
   },
   "unknownType": false
  },
@@ -3090,6 +3160,9 @@
    "captcha_takeover_enabled",
    "captcha_takeover_max_concurrent",
    "captcha_takeover_idle_timeout_s",
+   "captcha_vnc_display",
+   "captcha_vnc_websocket_port",
+   "netns_isolation",
    "automation.master_off_switch",
    "automation.drift_sweep_enabled",
    "automation.validation_gate_enabled",
@@ -3167,6 +3240,8 @@
    "captcha_takeover_idle_timeout_s": "x",
    "captcha_takeover_max_concurrent": "x",
    "captcha_takeover_mode": "x",
+   "captcha_vnc_display": "x",
+   "captcha_vnc_websocket_port": "x",
    "capture_bodies": false,
    "capture_raw": false,
    "capture_wait_until": "x",
@@ -3193,6 +3268,7 @@
    "live_max_active_recordings": "x",
    "live_poll_interval_s": "x",
    "log_level": "x",
+   "netns_isolation": false,
    "novnc_url": "x",
    "oidc_client_id": "x",
    "oidc_client_secret": "x",

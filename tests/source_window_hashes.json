@@ -505,9 +505,9 @@
       "sha256": "8d4cc1cbc02cc2df8870aeae7142fced0c24dd7799cc29b3c02a3faad16e7931"
     },
     {
-      "bytes": 802,
+      "bytes": 800,
       "key": "tests/test_v3_66_270_promote_suffix.py::_promote_block::src[start:start + 800]::1",
-      "sha256": "fc9027f3c753b3244ad1e18f371afdbaa6a66981fb72492a3b8fd87a447df629"
+      "sha256": "32baff0c03573b4fc9bd7ef8c04d783535a77b118eefffc1bcad5d581d869a83"
     },
     {
       "bytes": 1200,

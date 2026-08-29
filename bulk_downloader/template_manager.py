@@ -175,7 +175,17 @@ def promote_gate_errors(t: Dict[str, Any]) -> List[str]:
         return errors
 
     patterns = t.get("network_patterns") or []
-    if not patterns:
+    selector_only_dom_proven = bool(
+        schema == "row363.learned-template.v1"
+        and isinstance(t.get("learning_evidence"), dict)
+        and t["learning_evidence"].get("dom_options_proven") is True
+    )
+    if selector_only_dom_proven:
+        from .affordance_learning import learned_template_gate_errors
+        learned_errors = learned_template_gate_errors(t)
+        errors.extend(learned_errors)
+        selector_only_dom_proven = not learned_errors
+    if not patterns and not selector_only_dom_proven:
         errors.append("network_patterns must be a non-empty list")
 
     api_values = ([str(v) for v in (t.get("api") or {}).values()]

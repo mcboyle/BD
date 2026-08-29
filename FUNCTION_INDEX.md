@@ -389,20 +389,20 @@ Schema version: 2
 ## `bulk_downloader/runner_telemetry.py` (14 entries)
 
 ```
-- L0022 `TelemetryMixin` `[class]`
-  - L0023 `TelemetryMixin._fmt_dur` `[private]` — Format seconds as a short human-readable duration string.
-  - L0032 `TelemetryMixin.log_event` — Append a structured event to the in-memory log. Mirrored to
-  - L0113 `TelemetryMixin.get_events` — Return events with seq > after_seq, optionally filtered by URL
-  - L0128 `TelemetryMixin._install_event_listeners` `[private]` — Phase 13.5/13.6: hook page-level Playwright events to capture
-  - L0207 `TelemetryMixin._flush_fingerprint_observation` `[private]` — Read back which fingerprinting APIs the page invoked (set by the
-  - L0225 `TelemetryMixin._parse_hm` `[private]` — Parse 'HH:MM' to minutes-since-midnight. On error, return default.
-  - L0232 `TelemetryMixin._extract_host` `[private]` — Return just the hostname for log messages.
-  - L0239 `TelemetryMixin._pick_fastest_mirror` `[private]` — Phase 69 (v3.41.0): speculative mirror failover. Fire concurrent
-  - L0318 `TelemetryMixin._build_mirror_urls` `[private]` — Generate alternate URLs to try when the primary CDN fails.
-  - L0359 `TelemetryMixin._classify_error` `[private]` — Phase 6.3: classify a failure message into a retry category.
-  - L0382 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
-  - L0406 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
-  - L0453 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
+- L0023 `TelemetryMixin` `[class]`
+  - L0024 `TelemetryMixin._fmt_dur` `[private]` — Format seconds as a short human-readable duration string.
+  - L0033 `TelemetryMixin.log_event` — Append a structured event to the in-memory log. Mirrored to
+  - L0114 `TelemetryMixin.get_events` — Return events with seq > after_seq, optionally filtered by URL
+  - L0129 `TelemetryMixin._install_event_listeners` `[private]` — Phase 13.5/13.6: hook page-level Playwright events to capture
+  - L0212 `TelemetryMixin._flush_fingerprint_observation` `[private]` — Read back which fingerprinting APIs the page invoked (set by the
+  - L0230 `TelemetryMixin._parse_hm` `[private]` — Parse 'HH:MM' to minutes-since-midnight. On error, return default.
+  - L0237 `TelemetryMixin._extract_host` `[private]` — Return just the hostname for log messages.
+  - L0244 `TelemetryMixin._pick_fastest_mirror` `[private]` — Phase 69 (v3.41.0): speculative mirror failover. Fire concurrent
+  - L0323 `TelemetryMixin._build_mirror_urls` `[private]` — Generate alternate URLs to try when the primary CDN fails.
+  - L0364 `TelemetryMixin._classify_error` `[private]` — Phase 6.3: classify a failure message into a retry category.
+  - L0387 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
+  - L0411 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
+  - L0458 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
 ```
 
 

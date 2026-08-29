@@ -112,7 +112,15 @@ if ROOT not in sys.path:
 # exactly this endpoint. Raising it by 1 with that attribution is the sanctioned
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
-UNKNOWN_BASELINE = 134  # v3.66.757: +1 for /cockpit/api/takeover/<sid>/input
+UNKNOWN_BASELINE = 136  # v3.66.757: +1 for /cockpit/api/takeover/<sid>/input
+# v3.66.1330: +2, NAMED -- /api/captures/live_learning and
+# /api/captures/stage_learning, both new apiPost call sites in
+# CaptureWorkflow.tsx introduced by the affordance-learning feature. The two
+# were identified by enumerating the tool's verdicts on this tree AND on main
+# and diffing the UNKNOWN sets keyed by (file, fn, path) -- not by reading the
+# gate's failure text, which prints nothing on the passing tree and so would
+# have made the added set look like all twelve. The ratchet still holds: it
+# now refuses 137.
 # v3.66.789: +1 for /api/discovery/disco/run -- the A-DISCO operator run-now, a
 # no-body action POST (apiPost(url, {})), the identical judgeability-neutral pattern
 # already carried by the vpn empty-body actions (771) and cockpit input (757): an

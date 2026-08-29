@@ -1,0 +1,293 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 363. Replay from a detached standalone scratch with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row363_affordance_learning.json --work <scratch> --timeout 900 --json. These regressions cover height precedence, policy refusal, broken versus authoritatively empty listings, incomplete crawl pages, malformed selectors, secret/member material, BAR-first ordering, dropdown interaction, hidden rows, download side effects, nonce-bound staging, non-fabricated network proof, click-time evidence, and bridge serialization. Each exact anchor occurs once and every catcher drives offline rendered-page behavior.",
+  "subject": "the GUI learner proves a live DOM affordance, applies fail-closed resolution policy, crawls listings, and stages selector-only drafts",
+  "band": [
+    "tests/test_row363_affordance_learning.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 named HD tier outranks the explicit 540p URL",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    match = _URL_HEIGHT.search(str(href or \"\"))\n    if match:\n        return int(match.group(1))\n    match = _LABEL_HEIGHT.search(str(label or \"\"))",
+      "new": "    if re.search(r\"\\bHD\\b\", str(label or \"\"), re.I):\n        return 1080  # row 363 mutant: collapse named HD before explicit URL height\n    match = _URL_HEIGHT.search(str(href or \"\"))\n    if match:\n        return int(match.group(1))\n    match = _LABEL_HEIGHT.search(str(label or \"\"))",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_explicit_url_height_outranks_named_hd_tier"
+    },
+    {
+      "label": "M2 below-minimum option is silently selected",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if int(best[\"height\"]) < minimum:\n        return {\n            \"status\": \"BELOW_MIN_RESOLUTION\","
+      ,"new": "    if int(best[\"height\"]) < 0:  # row 363 mutant: disabled minimum gate\n        return {\n            \"status\": \"BELOW_MIN_RESOLUTION\","
+      ,"direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_policy_picks_highest_at_or_below_preference_and_refuses_below_minimum"
+    },
+    {
+      "label": "M3 zero-scene listing is reported as found",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if not scenes:\n        return {\n            \"status\": \"FAILURE\",\n            \"state\": \"failed\"," ,
+      "new": "    if not scenes:\n        return {\n            \"status\": \"FOUND\",\n            \"state\": \"found\",  # row 363 mutant: empty success\n",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_empty_rendered_listing_is_failure_not_empty_success"
+    },
+    {
+      "label": "M4 malformed CSS is conflated with a valid miss",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                \"status\": \"MALFORMED\",\n                \"count\": 0,\n                \"error\": f\"{type(exc).__name__}: {exc}\"[:500],",
+      "new": "                \"status\": \"MISS\",  # row 363 mutant: malformed is a miss\n                \"count\": 0,\n                \"error\": f\"{type(exc).__name__}: {exc}\"[:500],",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_malformed_selector_is_distinct_from_a_valid_miss"
+    },
+    {
+      "label": "M5 credential-shaped template fields pass the safety gate",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            if _FORBIDDEN_KEY.search(normalized_key):\n                findings.append(f\"{child_path}: credential/cookie/secret-shaped field\")",
+      "new": "            if False and _FORBIDDEN_KEY.search(normalized_key):  # row 363 mutant: admit secret keys\n                findings.append(f\"{child_path}: credential/cookie/secret-shaped field\")",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_saved_template_is_selector_only_and_tainted_negative_control_is_caught"
+    },
+    {
+      "label": "M6 BAR-first ordering clicks an available trigger anyway",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if not proven_row:\n        trigger_probes = probe_page_selectors(page, triggers)",
+      "new": "    if True:  # row 363 mutant: interact even though BAR rows already exist\n        trigger_probes = probe_page_selectors(page, triggers)",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_bar_fixture_learns_every_option_without_clicking"
+    },
+    {
+      "label": "M7 every eligible option is overcorrected to below-minimum",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if int(best[\"height\"]) < minimum:\n        return {\n            \"status\": \"BELOW_MIN_RESOLUTION\"," ,
+      "new": "    if True:  # row 363 mutant: refuse every policy result\n        return {\n            \"status\": \"BELOW_MIN_RESOLUTION\"," ,
+      "direction": "overcorrection",
+      "control": "tests/test_row363_affordance_learning.py::test_policy_picks_highest_at_or_below_preference_and_refuses_below_minimum",
+      "preserves": [
+        "tests/test_row363_affordance_learning.py::test_legitimate_no_affordance_returns_unknown"
+      ]
+    },
+    {
+      "label": "M8 dropdown trigger is never clicked",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                target.click(timeout=5000)\n                interaction_count = 1",
+      "new": "                pass  # row 363 mutant: suppress the required dropdown interaction\n                interaction_count = 1",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_dropdown_fixture_is_empty_before_one_click_and_full_after"
+    },
+    {
+      "label": "M9 hidden pre-rendered rows are mistaken for a BAR",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            if not bool(row.is_visible()):\n                continue",
+      "new": "            if False and not bool(row.is_visible()):  # row 363 mutant: hidden rows count as BAR\n                continue",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_saved_gamma_trigger_replays_on_adulttime_sibling_and_ignores_hidden_rows"
+    },
+    {
+      "label": "M10 crawler ignores an observed download side effect",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                if blocked or guarded_attempts:\n                    downloads_blocked += (\n                        len(blocked) + guarded_attempts\n                    )",
+      "new": "                if False and (blocked or guarded_attempts):  # row 363 mutant: side effect silently accepted\n                    downloads_blocked += (\n                        len(blocked) + guarded_attempts\n                    )",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_production_scene_planning_cancels_download_side_effects"
+    },
+    {
+      "label": "M11 staging trusts the client payload instead of the nonce proof",
+      "file": "bulk_downloader/app_captures.py",
+      "old": "        learned = _cc.get_live_learning_proof(task_id, request_id)",
+      "new": "        learned = body.get(\"learned\") or {}  # row 363 mutant: client guesses can be staged",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_stage_route_ignores_client_learned_payload_and_uses_nonce_proof"
+    },
+    {
+      "label": "M12 selector-only draft fabricates a network pattern",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        \"network_patterns\": [],",
+      "new": "        \"network_patterns\": [\"/download/\"],  # row 363 mutant: invented network proof",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_saved_template_is_selector_only_and_tainted_negative_control_is_caught"
+    },
+    {
+      "label": "M13 click-time network evidence is dropped",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            result[\"network_evidence\"] = evidence",
+      "new": "            result[\"network_evidence\"] = []  # row 363 mutant: discard click-time evidence",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_bridge_includes_request_emitted_by_the_learning_click"
+    },
+    {
+      "label": "M14 bridge permits concurrent request-file overwrite",
+      "file": "tools/cockpit_core.py",
+      "old": "            if active:\n                raise ValidationError(",
+      "new": "            if False and active:  # row 363 mutant: concurrent action overwrites request\n                raise ValidationError(",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_bridge_serializes_actions_and_retains_nonce_bound_proof"
+    },
+    {
+      "label": "M15 concrete member path is admitted into a selector",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    text = str(selector or \"\")\n    if _CONCRETE_SELECTOR_PATH.search(text):\n        return [f\"{path}: concrete member URL/id/token is not allowed in a reusable selector\"]\n    if re.search(\n        r\"\\[[^\\]]*(?:auth|token|cookie|session|credential|password|secret)[^\\]]*\\]\",\n        text,\n        re.I,\n    ):\n        return [f\"{path}: credential-shaped selector attribute is not allowed\"]\n    for literal in _SELECTOR_LITERAL.findall(text):\n        if \"/\" in literal and literal.lower() not in _GENERIC_SELECTOR_PATHS:\n            return [f\"{path}: concrete member URL/path is not allowed in a reusable selector\"]\n    return []",
+      "new": "    text = str(selector or \"\")\n    return []  # row 363 mutant: admit concrete member selector material",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_saved_template_is_selector_only_and_tainted_negative_control_is_caught"
+    },
+    {
+      "label": "M16 infinite-scroll safety exhaustion is claimed complete",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    return rounds, stable >= 3",
+      "new": "    return rounds, True  # row 363 mutant: bounded partial crawl is called complete",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_infinite_scroll_safety_bound_is_failure_not_partial_success"
+    },
+    {
+      "label": "M17 a narrow selector truncates the available resolutions",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        score = (numeric, media_shaped, -unknown, len(options))\n        if score > best_score:\n            best_selector, best_options = selector, options",
+      "new": "        score = (len(options), 0, 0, 0)  # row 363 mutant: broad history links outrank real options\n        if score > best_score:\n            best_selector, best_options = selector, options",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_learning_uses_the_proven_selector_with_the_complete_option_set"
+    },
+    {
+      "label": "M18 a currently unique Gamma trigger is saved too broadly",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        needs_semantic_refinement = (\n            \"ScenePlayerHeaderPlus-IconItem\" in selector\n            and \":has(\" not in selector\n        )",
+      "new": "        needs_semantic_refinement = (\n            count > 1  # row 363 mutant: unique today is assumed unique forever\n            and \"ScenePlayerHeaderPlus-IconItem\" in selector\n            and \":has(\" not in selector\n        )",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_unique_gamma_trigger_is_refined_before_it_is_saved_and_replays"
+    },
+    {
+      "label": "M19 learning reuses media evidence from before the action",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                media_network_evidence(page_network),",
+      "new": "                media_network_evidence(list(getattr(capture, \"network_log\", []) or [])),  # row 363 mutant: use every tab's stale history",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_bridge_includes_request_emitted_by_the_learning_click"
+    },
+    {
+      "label": "M20 runner network UI leaks credentials carried in URL paths",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old": "                        safe_response_url = redact_media_url(str(response.url))",
+      "new": "                        safe_response_url = str(response.url)  # row 363 mutant: leak path credentials",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_runner_network_log_uses_the_same_path_aware_redaction_boundary"
+    },
+    {
+      "label": "M21 promotion accepts selectors changed after proof was issued",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    elif claimed != learned_template_digest(template):",
+      "new": "    elif False and claimed != learned_template_digest(template):  # row 363 mutant: ignore proof mismatch",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_saved_template_is_selector_only_and_tainted_negative_control_is_caught"
+    },
+    {
+      "label": "M22 learning observes and cancels a download instead of preventing it",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            dom_guard_armed = _arm_dom_download_guard(page)",
+      "new": "            dom_guard_armed = False  # row 363 mutant: allow the browser download event to start",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_learning_refuses_a_trigger_download_without_starting_one"
+    },
+    {
+      "label": "M23 delayed infinite scroll is declared stable before content arrives",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            page.wait_for_timeout(1000)",
+      "new": "            page.wait_for_timeout(250)  # row 363 mutant: premature stability window",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_infinite_scroll_waits_for_delayed_rendered_scenes"
+    },
+    {
+      "label": "M24 opaque interaction fetches are allowed to escape",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                if parsed.scheme in {\"http\", \"https\"}:",
+      "new": "                if _DIRECT_MEDIA_REQUEST.search(url):  # row 363 mutant: fetch opaque media to learn its type",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_learning_blocks_an_opaque_fetch_instead_of_discovering_media_by_downloading_it"
+    },
+    {
+      "label": "M25 dropdown guards are removed before asynchronous rows and effects settle",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "_LEARN_SETTLE_MS = 1500",
+      "new": "_LEARN_SETTLE_MS = 100  # row 363 mutant: stop before delayed DOM work",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_dropdown_polls_for_rows_rendered_after_the_click"
+    },
+    {
+      "label": "M26 pagination identity drops query-string page state",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "        current = _canonical_page_url(str(page.url))",
+      "new": "        current = _canonical_scene_url(str(page.url))  # row 363 mutant: page=2 aliases page=1",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_query_pagination_and_card_taxonomy_links_do_not_lose_or_invent_scenes"
+    },
+    {
+      "label": "M27 a scrollable listing without an observable end is called complete",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    completion_unproven = (\n        page_completion_unproven\n        or not _listing_completion_proven(page, len(scenes))\n    )",
+      "new": "    completion_unproven = False  # row 363 mutant: stable silence is treated as proof",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_scrollable_listing_without_end_evidence_fails_closed"
+    },
+    {
+      "label": "M28 unproved top-level template fields bypass the artifact allowlist",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    errors = learned_template_shape_errors(template)\n    errors.extend(template_safety_findings(template))",
+      "new": "    errors = []  # row 363 mutant: unknown artifact fields are admitted\n    errors.extend(template_safety_findings(template))",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_saved_template_is_selector_only_and_tainted_negative_control_is_caught"
+    },
+    {
+      "label": "M29 an expired bridge request blocks every later GUI action",
+      "file": "tools/cockpit_core.py",
+      "old": "                elif time.time() >= _LIVE_LEARNING_DEADLINES.get(\n                    task_id, float(\"inf\")\n                ):",
+      "new": "                elif False and time.time() >= _LIVE_LEARNING_DEADLINES.get(  # row 363 mutant: never expire\n                    task_id, float(\"inf\")\n                ):",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_live_bridge_serializes_actions_and_retains_nonce_bound_proof"
+    },
+    {
+      "label": "M30 common CDN hdnea credentials are shown in network evidence",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "r\"policy|credential|x-amz-|apikey|password|pwd|jwt|hdnea|hdnts|__gda__|\"",
+      "new": "r\"policy|credential|x-amz-|apikey|password|pwd|jwt|\"  # row 363 mutant: omit CDN token schemes",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_network_evidence_keeps_the_newest_hundred_and_redacts_path_credentials"
+    },
+    {
+      "label": "M31 every taxonomy link inside a scene card becomes a scene",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if (primary) found.push(primary.href);",
+      "new": "    for (const anchor of anchors) found.push(anchor.href);  // row 363 mutant: include performer links",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_query_pagination_and_card_taxonomy_links_do_not_lose_or_invent_scenes"
+    },
+    {
+      "label": "M32 opaque fetches escape during scene-page navigation",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "                        resource_type in {\n                            \"media\", \"xhr\", \"fetch\", \"eventsource\", \"websocket\",\n                        }\n                        or _MEDIA_PATH.search(url)",
+      "new": "                        resource_type == \"media\"  # row 363 mutant: opaque fetch/xhr escapes\n                        or _MEDIA_PATH.search(url)",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_scene_planning_blocks_opaque_navigation_fetch_without_refusing_plan"
+    },
+    {
+      "label": "M33 only the final pagination page must prove scroll completion",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "            page_completion_unproven = (\n                page_completion_unproven\n                or not _listing_completion_proven(page, len(scenes))\n            )",
+      "new": "            page_completion_unproven = page_completion_unproven  # row 363 mutant: discard this page's incomplete-scroll evidence",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_scroll_completion_is_proven_for_every_pagination_page"
+    },
+    {
+      "label": "M34 cancelled consumed bridge work can publish a late result",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "def _is_cancelled(out_dir: str | Path, request_id: str) -> bool:\n    return _cancel_path(out_dir, request_id).is_file()",
+      "new": "def _is_cancelled(out_dir: str | Path, request_id: str) -> bool:\n    return False  # row 363 mutant: ignore the cross-process cancellation tombstone",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_cancelled_consumed_request_cannot_poison_a_new_bridge_action"
+    },
+    {
+      "label": "M35 an authoritatively empty catalog is mislabeled as a crawl failure",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    if not scenes and pagination_pages == 1 and _listing_explicitly_empty(page):",
+      "new": "    if False and not scenes and pagination_pages == 1 and _listing_explicitly_empty(page):  # row 363 mutant: erase found-nothing",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_authoritatively_empty_listing_reports_found_nothing"
+    }
+  ]
+}

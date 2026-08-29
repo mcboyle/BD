@@ -10,6 +10,7 @@ import re, sys, threading, time
 from .runner_util import _BD_TO_APPRISE_EVENT
 from .db import db_log
 from .constants import RETRY_DELAYS
+from .capture_redact import redact_media_url
 
 # httpx soft import (moved verbatim from runner.py; flat sibling).
 try:
@@ -151,9 +152,13 @@ class TelemetryMixin:
                         if rt in ("image", "font", "stylesheet"): return
                         ct = response.headers.get("content-type", "")
                         size = response.headers.get("content-length", "")
+                        # log_network is operator-visible in row 363. Keep the
+                        # useful media path while never placing signed/token
+                        # query values in the event buffer, SSE, or stderr.
+                        safe_response_url = redact_media_url(str(response.url))
                         self.log_event("network",
-                            f"{response.status} {response.request.method} {response.url[:120]}",
-                            url=url,
+                            f"{response.status} {response.request.method} {safe_response_url[:120]}",
+                            url=redact_media_url(str(url)),
                             extra={"status": response.status, "ct": ct[:60],
                                    "size": size, "rt": rt})
                     except Exception: pass
