@@ -173,57 +173,57 @@ Schema version: 2
 ## `bulk_downloader/runner.py` (51 entries)
 
 ```
-- L0224 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
-- L0249 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
-- L0258 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
-- L0423 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
-- L0433 `get_global_concurrent_cap`
-- L0470 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0494 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
-- L0506 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
-- L0524 `SiteRunner` `[class]`
-  - L0529 `SiteRunner.__init__` `[dunder]`
-  - L0749 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L0841 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L0849 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L0862 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L0871 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L0909 `SiteRunner.start`
-  - L0961 `SiteRunner._start_serialized` `[private]`
-  - L1284 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1294 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1355 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L1433 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L1452 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L1478 `SiteRunner.stop`
-  - L1581 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L1605 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L1707 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L1724 `SiteRunner.state`
-  - L1726 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L1762 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L1769 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L1776 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L1842 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L1873 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L1888 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L2405 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L2434 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L2485 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L2543 `SiteRunner._worker_generation_is_current` `[private]`
-  - L2547 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L2608 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L2668 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L2700 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L2731 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L2751 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L2760 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L2785 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L2806 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L2888 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L3230 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L3245 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L3266 `SiteRunner._process_one` `[private]` — Process a single URL.
+- L0220 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
+- L0245 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
+- L0254 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
+- L0419 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
+- L0429 `get_global_concurrent_cap`
+- L0466 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0490 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
+- L0502 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
+- L0520 `SiteRunner` `[class]`
+  - L0525 `SiteRunner.__init__` `[dunder]`
+  - L0745 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L0837 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L0845 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L0858 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L0867 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L0905 `SiteRunner.start`
+  - L0957 `SiteRunner._start_serialized` `[private]`
+  - L1257 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1267 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L1328 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L1406 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L1425 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L1436 `SiteRunner.stop`
+  - L1539 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L1563 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L1665 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L1682 `SiteRunner.state`
+  - L1684 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L1720 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L1727 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L1734 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L1800 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L1831 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L1846 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L2363 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L2392 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L2443 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L2501 `SiteRunner._worker_generation_is_current` `[private]`
+  - L2505 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L2566 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L2626 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L2658 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L2689 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L2709 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L2718 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L2743 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L2764 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L2846 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L3188 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L3203 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L3224 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -501,39 +501,39 @@ Schema version: 2
 ## `bulk_downloader/runner_transport.py` (33 entries)
 
 ```
-- L0070 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0090 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
-- L0105 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
-  - L0108 `_ParallelDailyByteAccounting.__init__` `[dunder]`
-  - L0114 `_ParallelDailyByteAccounting.add`
-  - L0118 `_ParallelDailyByteAccounting.flush`
-  - L0122 `_ParallelDailyByteAccounting.worker_finished`
-- L0130 `TransportMixin` `[class]`
-  - L0131 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L0155 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L0166 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L0183 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L0192 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L0201 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L0221 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L0229 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L0271 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L0398 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L0583 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L0616 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L0640 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L0713 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L0768 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L0793 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L0803 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L0827 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L0949 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1581 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L2029 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L2076 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L2440 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L2473 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L2497 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+- L0072 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0092 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0107 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
+  - L0110 `_ParallelDailyByteAccounting.__init__` `[dunder]`
+  - L0116 `_ParallelDailyByteAccounting.add`
+  - L0120 `_ParallelDailyByteAccounting.flush`
+  - L0124 `_ParallelDailyByteAccounting.worker_finished`
+- L0132 `TransportMixin` `[class]`
+  - L0133 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L0157 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L0168 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L0185 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L0194 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L0203 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L0223 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L0231 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L0273 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L0400 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L0585 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L0618 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L0642 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L0715 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L0770 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L0795 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L0805 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L0829 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L0951 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L1602 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L2050 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L2097 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L2461 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L2494 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L2518 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 

@@ -366,6 +366,210 @@ def work_affinity(page_url, candidate_url):
                                cand[:_WORK_MAX_CAND_TOKENS])
     return 1 if (n >= _WORK_MIN_TOKENS and c >= _WORK_MIN_CHARS) else 0
 
+# ─── SITE CHROME AND THE PAGE MEDIA CENSUS ─────────────────────────
+# v3.66.x row 399 -- A PHOTO GALLERY IS NOT A FAILED VIDEO PAGE.
+#
+# MEASURED on test6 2026-08-29 at v3.66.1348, history row 125, the FIRST
+# download attempted after the row-388 hold was lifted:
+#
+#   url     https://venus.wowgirls.com/gallery/x15b9ab4/stunned-by-each-other
+#   status  needs_review   filename ""   file_size 0   bytes_fetched null
+#   message no dl event; scored ok but no download fired; saw: 6K(?):6K /films-6K/
+#
+# THE REFUSAL WAS CORRECT -- nothing wrong was written, which is the fail-closed
+# behaviour rows 380/381/384/388 were built to produce. THE DIAGNOSIS WAS NOT.
+# bd-shoot.py against that live page reported ANCHORS 136, AFFORDANCES 143,
+# MEDIA AFFORDANCES 0: `/gallery/` is a PHOTO SET and there is no video on the
+# page at all. "scored ok but no download fired" describes a video page whose
+# control failed, so the operator goes hunting a broken selector on a page with
+# nothing to select.
+#
+# THE 6K WAS A GHOST. The only candidate scored was the site-navigation link
+# `<a href="/films-6K/">6K</a>` -- a menu item, not a download -- and its size
+# parsed unknown, which is what the `(?)` records. Row 381 stopped photo PIXEL
+# DIMENSIONS being read as a video resolution; this is the sibling shape, a
+# NAMED TIER INSIDE A NAVIGATION HREF.
+#
+# Reproduced exactly on a fixture of that page's shape at 9626b7e: winner text
+# '6K /films-6K/', score 3160, size 0. It is admitted by the ANCESTOR WALK, not
+# by the wide sweep -- the walk's `[24568]K` text-matcher accepts '6K' while the
+# sweep's own res_re does not list 6k at all -- and `add()` is the one choke
+# point both populations pass through.
+
+# A SUPERSET of every digit pattern res_score reads, so "this score came from a
+# named LABEL rather than from an explicit pixel height" can be decided without
+# duplicating (and then drifting from) res_score's own regexes. Superset is the
+# SAFE direction here: a false match only KEEPS a candidate.
+_EXPLICIT_HEIGHT_RE = re.compile(r"\d{3,4}\s*[pP]|\d{3,4}\s*[x×]\s*\d{3,4}|mp4_\d{3,4}")
+
+# The word set that ADMITS a candidate to the wide sweep, hoisted to module
+# scope so the admission test and the chrome exemption below cannot drift apart.
+_DL_WORD_RE = re.compile(r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",re.I)
+
+# Carrying any of these means the element is an affordance in its own right, not
+# a menu item, whatever its href looks like.
+_CHROME_DISQUALIFYING_ATTRS = ("download", "onclick", "data-href", "data-url",
+                               "data-src", "data-download",
+                               "data-signed-url-key", "data-link")
+# A site SECTION is shallow and unnumbered: `/films-6K/`. A work is deep or
+# id-bearing: `/video/watch/254796/seeing-red-s50e30`.
+_CHROME_MAX_PATH_SEGMENTS = 2
+_SEG_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,5}$")
+
+
+def _is_chrome_href(href, page_url=""):
+    """True when *href* has the shape of a SITE-SECTION path -- a menu item.
+
+    Pure string work, so it is checkable without a browser. Every clause is a
+    reason to KEEP the candidate when it does not hold, and anything undecidable
+    returns False (not chrome).
+    """
+    if not href or not isinstance(href, str): return False
+    h = href.strip()
+    if not h or h.startswith(("#", "javascript:", "mailto:", "tel:", "data:")):
+        return False
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(h)
+    except Exception:
+        return False
+    # A signed or parametrised URL is a download endpoint, never a menu item.
+    if u.query or u.params: return False
+    if u.scheme and u.scheme.lower() not in ("http", "https"): return False
+    if u.netloc:
+        # An off-site or CDN host cannot be shown to be THIS site's chrome.
+        try:
+            page_host = urlparse(page_url or "").netloc.lower()
+        except Exception:
+            page_host = ""
+        if not page_host or u.netloc.lower() != page_host: return False
+    segs = [s for s in (u.path or "").split("/") if s]
+    if not segs or len(segs) > _CHROME_MAX_PATH_SEGMENTS: return False
+    if any(s.isdigit() for s in segs): return False   # an id names a work
+    if _SEG_EXT_RE.search(segs[-1]): return False     # names a FILE, not a section
+    return True
+
+
+def is_site_chrome_link(el, text, page_url=""):
+    """True when *el* is a NAVIGATION link that scored only because a named
+    resolution tier appears in its label or in its section path.
+
+    Every clause below is a reason to KEEP the candidate, and anything that
+    raises keeps it too: silently deleting the operator's real download is the
+    one outcome this filter must never produce. A real download control fails at
+    least one clause -- it carries a parsed size, an explicit pixel height, a
+    download word, a media file name, a query/signed URL, a data-* affordance,
+    a foreign host, a deep or id-bearing path, or a URL naming the page's work.
+
+    Scoped to the wide-sweep / ancestor-walk population only. The learned
+    row_selectors and the operator's custom selector keep full authority above:
+    the operator taught those, and this function is not entitled to overrule
+    them.
+    """
+    t = text or ""
+    try:
+        # 1. an ANCHOR whose only affordance is a plain href.
+        if el.locator("xpath=self::a").count() != 1: return False
+        for a in _CHROME_DISQUALIFYING_ATTRS:
+            if el.get_attribute(a): return False
+        if (el.get_attribute("role") or "") in ("button", "link"): return False
+        href = el.get_attribute("href") or ""
+    except Exception:
+        return False
+    # 2. a section path -- not a file, a signed URL, or a foreign host.
+    if not _is_chrome_href(href, page_url): return False
+    # 3. it was admitted by the resolution matcher ALONE: no download word.
+    if _DL_WORD_RE.search(t): return False
+    # 4. row 381's sibling shape: the score is a LABEL, never an explicit height.
+    if _EXPLICIT_HEIGHT_RE.search(t): return False
+    # 5. only an UNPARSEABLE size can be a ghost; a stated size is evidence of
+    #    a real file and outranks this whole rule.
+    if parse_size_bytes(t): return False
+    # 6. a link that names this page's own work is never chrome.
+    try:
+        if work_affinity(page_url, href): return False
+    except Exception:
+        return False
+    return True
+
+
+# THE CENSUS IS bd-shoot.py's, VERBATIM. That operator instrument is what
+# measured `MEDIA AFFORDANCES 0` on the incident page, and a repository
+# classifier that counts differently cannot be compared against the measurement
+# that motivated it. ATTRS and the media regex below are copied unchanged; the
+# only addition is a count of real media ELEMENTS (<video>/<audio>/<source>),
+# which is strictly conservative -- it can only make the no-video verdict fire
+# LESS often, never more.
+_AFFORDANCE_ATTRS = ("href", "data-href", "data-url", "data-src",
+                     "data-download", "data-signed-url-key", "data-link",
+                     "onclick")
+_MEDIA_AFFORDANCE_RE = re.compile(
+    r"content2a|\.mp4|\.m3u8|\.mkv|\d{3,4}x\d{3,4}|signed", re.I)
+_MEDIA_ELEMENT_SEL = "video, audio, source"
+_MEDIA_CENSUS_JS = """(args) => {
+  const rows = [];
+  for (const e of document.querySelectorAll('*')) {
+    for (const a of args.attrs) {
+      const v = e.getAttribute && e.getAttribute(a);
+      if (v) rows.push([a, String(v), (e.innerText || '').trim().slice(0, 70)]);
+    }
+  }
+  return {rows: rows, players: document.querySelectorAll(args.sel).length};
+}"""
+
+# The two states the operator has to be able to tell apart. Named here so the
+# runner and the transport cannot spell them differently.
+NO_VIDEO_STATE = "no-video-on-page"
+CONTROL_DID_NOT_FIRE_STATE = "a control existed and did not fire"
+
+
+def page_media_census(page):
+    """``(affordances, media)`` counted the way bd-shoot.py counts them, or
+    ``None`` when the page cannot be measured at all.
+
+    ``affordances`` is the DENOMINATOR: every (element, attribute) pair
+    carrying one of _AFFORDANCE_ATTRS. ``media`` is the subset whose value or
+    visible text is media-shaped, plus any <video>/<audio>/<source> element.
+    """
+    try:
+        raw = page.evaluate(_MEDIA_CENSUS_JS,
+                            {"attrs": list(_AFFORDANCE_ATTRS),
+                             "sel": _MEDIA_ELEMENT_SEL})
+        rows = raw["rows"]
+        players = int(raw["players"])
+    except Exception:
+        return None                      # UNKNOWN, never OK
+    if not isinstance(rows, list): return None
+    seen, media = set(), 0
+    for r in rows:
+        try:
+            attr, val, txt = r[0], r[1], r[2]
+        except Exception:
+            continue
+        k = (attr, val)
+        if k in seen: continue
+        seen.add(k)
+        if _MEDIA_AFFORDANCE_RE.search(val) or _MEDIA_AFFORDANCE_RE.search(txt):
+            media += 1
+    return (len(rows), media + players)
+
+
+def page_media_verdict(page):
+    """``(no_video, affordances, media)``.
+
+    ``no_video`` is True only when a NONZERO affordance denominator carried
+    ZERO media of any kind; False when media was found; None (UNKNOWN) when the
+    census could not be taken OR when the page carried no affordance of any
+    kind -- bd-shoot's own rule, because a page that did not render or a session
+    that is not authenticated must never be read as 'there is no video here'.
+    """
+    c = page_media_census(page)
+    if c is None: return (None, -1, -1)
+    affordances, media = c
+    if affordances <= 0: return (None, affordances, media)
+    return (media == 0, affordances, media)
+
+
 # ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
 def find_best_download(page,custom="",learned=None,runner=None):
     """Locate the best download candidate on the page — defensively.
@@ -487,7 +691,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # (single env lookup); avoids per-candidate overhead in the hot loop.
     _dom_hp_mode=_dom_honeypot_mode()
     _dom_hp_filtered=[]   # accumulates dropped (locator, reason) for log emission
-    dl_re=re.compile(r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",re.I)
+    dl_re=_DL_WORD_RE   # row 399: one denominator for admission and exemption
     res_re=re.compile(r"\d{3,4}\s*p|\d{3,4}\s*[x×]\s*\d{3,4}"
                       r"|\b(?:4k|2k|8k|hd|fhd|uhd|qhd|sd|lq|ultra|standard|"
                       r"mobile|low|medium|tiny|web\s*hd|full\s*hd)\b",re.I)
@@ -593,6 +797,10 @@ def find_best_download(page,custom="",learned=None,runner=None):
         if NON_VIDEO_RE.search(t): return  # skip Zip/Photos/Trailer/etc.
         # v3.66.1340: a pure layout wrapper is not clickable-as-a-download.
         if is_wrapper_not_control(el): return
+        # v3.66.x row 399: a SITE-NAVIGATION link is not a download either.
+        # `<a href="/films-6K/">6K</a>` scored 3160 and won a photo-gallery
+        # page that has no video on it at all.
+        if is_site_chrome_link(el, t, _page_url): return
         # P5-3 DOM-honeypot filter at candidate-construction time.
         # Filter here (not at scoring) so invisible candidates don't
         # pollute the scoring list. Off by default — env var unset →
