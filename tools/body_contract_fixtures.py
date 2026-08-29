@@ -396,6 +396,11 @@ class Fixtures:
             "urls": [u],
             "action_url": u,
             "login_url": "https://example.com/login",
+            # Row 374: these two fields ride the general site-create/update
+            # surface.  A bare string placeholder is no longer semantic once
+            # the listing URL is validated as an absolute members-area URL.
+            "crawler_listing_url": "https://example.com/gallery",
+            "crawler_newest_n": 1,
             # SEMANTIC, not merely typed: these are URL-bearing text blobs.
             "text": u + "\n" + "https://example.com/gallery/item/2",
             "html": '<a href="%s">x</a>' % u,
@@ -447,6 +452,17 @@ class Fixtures:
             "pattern": "cloudflare challenge",
             "resolution": "rotate the fingerprint and retry",
             "kind": "failure",
+        },
+        # Row 374: one bounded crawl request.  These values exercise body
+        # acceptance without launching an unbounded traversal or using an
+        # invalid placeholder URL.
+        "/api/discovery/scenes/start": {
+            "listing_url": "https://example.com/gallery",
+            "newest_n": 1,
+            "max_pages": 1,
+            "max_scrolls": 1,
+            "delay_s": 0.1,
+            "title_fetch_limit": 1,
         },
     }
 

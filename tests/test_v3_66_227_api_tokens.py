@@ -45,6 +45,8 @@ _EXPECTED_ACTIONS_BY_SCOPE = {
         ("HEAD", "/api/queue/v2"),
         ("GET", "/api/history"),
         ("HEAD", "/api/history"),
+        ("GET", "/api/discovery/scenes/status"),
+        ("HEAD", "/api/discovery/scenes/status"),
     },
     "enqueue": {
         ("GET", "/api/capacity"),
@@ -55,8 +57,11 @@ _EXPECTED_ACTIONS_BY_SCOPE = {
         ("HEAD", "/api/queue/v2"),
         ("GET", "/api/history"),
         ("HEAD", "/api/history"),
+        ("GET", "/api/discovery/scenes/status"),
+        ("HEAD", "/api/discovery/scenes/status"),
         ("POST", "/api/queue/v2/add_url"),
         ("POST", "/api/sites/<sid>/queue_url"),
+        ("POST", "/api/discovery/scenes/start"),
     },
     "admin": {
         ("GET", "/api/capacity"),
@@ -67,8 +72,11 @@ _EXPECTED_ACTIONS_BY_SCOPE = {
         ("HEAD", "/api/queue/v2"),
         ("GET", "/api/history"),
         ("HEAD", "/api/history"),
+        ("GET", "/api/discovery/scenes/status"),
+        ("HEAD", "/api/discovery/scenes/status"),
         ("POST", "/api/queue/v2/add_url"),
         ("POST", "/api/sites/<sid>/queue_url"),
+        ("POST", "/api/discovery/scenes/start"),
         ("GET", "/api/retention/preview/<sid>"),
         ("HEAD", "/api/retention/preview/<sid>"),
         ("POST", "/api/retention/apply"),
@@ -277,9 +285,9 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
     from bulk_downloader import app as a, api_tokens as t
 
     assert t.SCOPES == {"read": 1, "enqueue": 2, "admin": 3}
-    assert len(a._API_TOKEN_ROUTE_POLICY) == 10
+    assert len(a._API_TOKEN_ROUTE_POLICY) == 12
     assert sum(len(methods) for methods, _ in
-               a._API_TOKEN_ROUTE_POLICY.values()) == 16
+               a._API_TOKEN_ROUTE_POLICY.values()) == 19
 
     actual_actions = {}
     for scope in ("read", "enqueue", "admin"):
@@ -292,9 +300,9 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
         }
     assert actual_actions == _EXPECTED_ACTIONS_BY_SCOPE
     assert {scope: len(actions) for scope, actions in actual_actions.items()} == {
-        "read": 8,
-        "enqueue": 10,
-        "admin": 16,
+        "read": 10,
+        "enqueue": 13,
+        "admin": 19,
     }
 
     registered_actions = {
@@ -305,7 +313,7 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
         for method in rule.methods
         if (method, rule.rule) in _EXPECTED_ACTIONS_BY_SCOPE["admin"]
     }
-    assert len(registered_actions) == 16
+    assert len(registered_actions) == 19
     assert registered_actions == _EXPECTED_ACTIONS_BY_SCOPE["admin"]
 
     minted = {}
@@ -345,9 +353,9 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
     client = a.app.test_client()
     all_actions = _EXPECTED_ACTIONS_BY_SCOPE["admin"]
     expected_counts = {
-        "read": {"allowed": 8, "denied": 8},
-        "enqueue": {"allowed": 10, "denied": 6},
-        "admin": {"allowed": 16, "denied": 0},
+        "read": {"allowed": 10, "denied": 9},
+        "enqueue": {"allowed": 13, "denied": 6},
+        "admin": {"allowed": 19, "denied": 0},
     }
     for scope in ("read", "enqueue", "admin"):
         handler_calls.clear()

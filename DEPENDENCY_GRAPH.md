@@ -10,15 +10,15 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1671**
+- internal import edges: **1678**
 - tools: 227 · with internal edge: 132 · with tool→package edge: 73
 - blueprints: 160 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
-- `bulk_downloader/db.py`: 112
+- `bulk_downloader/db.py`: 113
 - `bulk_downloader/global_config.py`: 54
-- `bulk_downloader/constants.py`: 31
+- `bulk_downloader/constants.py`: 32
 - `bulk_downloader/app.py`: 24
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 19
@@ -84,7 +84,7 @@ Graph version: 1
 - **dev** (`app_dev.py`) — routes 0, providers 11
 - **diagnostics** (`app_diagnostics.py`) — routes 2, providers 1
 - **diagnostics_bundle** (`app_diagnostics_bundle.py`) — routes 2, providers 1
-- **discovery** (`app_discovery.py`) — routes 4, providers 2
+- **discovery** (`app_discovery.py`) — routes 6, providers 5
 - **doctor** (`app_doctor.py`) — routes 2, providers 2
 - **edge_deploy** (`app_edge_deploy.py`) — routes 2, providers 1
 - **envfile_editor** (`app_envfile_editor.py`) — routes 1, providers 1

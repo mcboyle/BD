@@ -377,10 +377,38 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
               </Field>
               <Field label="Start URL" error={urlAdvisory(draft.start_url)}>
                 <Input
+                  aria-label="Library listing URL"
                   type="url"
                   value={draft.start_url ?? ""}
                   onChange={(e) => setField("start_url", e.target.value)}
                   placeholder="https://example.com/library"
+                />
+              </Field>
+              <Field
+                label="Library listing URL"
+                hint="Authenticated videos/updates page used by Discover scenes"
+                error={urlAdvisory(draft.crawler_listing_url)}
+              >
+                <Input
+                  type="url"
+                  value={draft.crawler_listing_url ?? ""}
+                  onChange={(e) => setField("crawler_listing_url", e.target.value)}
+                  placeholder="https://example.com/members/videos"
+                />
+              </Field>
+              <Field
+                label="Newest scenes to discover"
+                hint="Default 50. Use 0 only when intentionally walking the whole library."
+              >
+                <Input
+                  aria-label="Newest scenes to discover"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={draft.crawler_newest_n ?? 50}
+                  onChange={(e) =>
+                    setField("crawler_newest_n", Math.max(0, Number(e.target.value) || 0))
+                  }
                 />
               </Field>
               <Field label="Login URL" error={urlAdvisory(draft.login_url)}>
