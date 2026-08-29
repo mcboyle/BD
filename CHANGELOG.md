@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1350 - 8528 tests judged the tree while the app could not complete a download
+
+- The download chain is gated end to end: DOM, ranking, direct-URL resolution
+- Five recorded fixtures drive the gate over an ephemeral loopback port with 
+- The gate runs on a new download-chain CI shard on every PR, and asserts its
+- The case denominator is pinned at five and reconciled against the manifest,
+- 8528 tests judged the tree while the app could not complete a download
+- frontend: 1 file(s) changed
+- test: manifest.json
+- test: nubilefilms_scene.html
+- test: related_grid_scene.html
+- 12 file(s), 853 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _the_download_chain_is_gated.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1349 - pages_walked is 1 under load and 2 serially, in merged code
 
 - Fix a scene-crawler depth stop that only fired when another candidate scene

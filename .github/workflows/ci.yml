@@ -414,6 +414,18 @@ jobs:
             suites: >-
               tests/test_row362_templates_are_resolvable.py
               tests/test_row377_installed_template_selftest_states.py
+          # Row 386. The download chain end to end -- page DOM, candidate
+          # discovery, ranking, direct-URL resolution, filename, a real
+          # loopback transfer, and the history/library rows a completion
+          # produces -- against recorded fixtures. The measured failure it
+          # exists for was invisible to a 623-file affected band, so it runs on
+          # every PR rather than on a changed path. It drives real Chromium, so
+          # the install step's condition below names this shard too; its own
+          # test_this_gate_is_scheduled_in_ci_on_a_shard_that_has_chromium
+          # asserts that pairing, because nothing else did.
+          - name: download-chain
+            suites: >-
+              tests/test_row386_the_download_chain_is_gated.py
           # F31. A service-owned BD_INSTALL_DIR must not cross any child-test
           # boundary. This shard runs the real nested-pytest and sacrificial-DB
           # probes on every PR instead of relying on a diff-derived band.
@@ -694,10 +706,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-test.txt
 
-      # The row-362 fixture gate executes real Playwright locator semantics;
-      # missing Chromium is unavailable evidence, never grounds for a skip.
-      - name: Install Chromium for template selector fixtures
-        if: matrix.name == 'template-selectors'
+      # The row-362 fixture gate executes real Playwright locator semantics, and
+      # the row-386 download-chain gate renders its recorded pages in a real
+      # browser; missing Chromium is unavailable evidence, never grounds for a
+      # skip. Both shards are named here rather than installing everywhere: the
+      # pairing is asserted by tests/test_row386_the_download_chain_is_gated.py,
+      # so a shard that gains a browser-driven gate cannot silently lose it.
+      - name: Install Chromium for browser-driven fixture gates
+        if: matrix.name == 'template-selectors' || matrix.name == 'download-chain'
         run: python -m playwright install --with-deps chromium
 
       - name: ${{ matrix.name }} gates

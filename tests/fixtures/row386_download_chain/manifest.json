@@ -1,0 +1,106 @@
+{
+  "_why": [
+    "Row 386. Hand-written expectations for the download chain, kept INDEPENDENT",
+    "of bulk_downloader so the gate cannot derive its denominator from the",
+    "artifact under test (CLAUDE.md A7). Every value below was written from the",
+    "measurements recorded in rows 380/381/384 and from the three ultrafilms",
+    "completions on the deployed binary (3,355,129,815 / 7,279,729,298 /",
+    "7,288,076,829 bytes), not read back off a run.",
+    "hrefs are loopback-relative on purpose: the fixture server serves both the",
+    "page and the media, so the chain resolves a relative href exactly as the",
+    "live signed-URL case does and never leaves 127.0.0.1."
+  ],
+  "media_bytes": 8192,
+  "cases": [
+    {
+      "id": "wowgirls_wrapper_vs_leaf",
+      "guards_defect": 1,
+      "fixture": "row386_download_chain/wowgirls_scene.html",
+      "page_path": "/wowgirls/film/morning-light",
+      "expect_winner": true,
+      "winner_tag": "A",
+      "winner_href": "/dl/wowgirls_morning_light_7680x4320_60FPS.mp4",
+      "min_candidates": 4,
+      "must_harvest_href": [
+        "/dl/wowgirls_morning_light_1920x1080_60FPS.mp4",
+        "/dl/wowgirls_morning_light_1280x720_60FPS.mp4",
+        "/dl/wowgirls_morning_light_3840x2160_60FPS.mp4",
+        "/dl/wowgirls_morning_light_7680x4320_60FPS.mp4"
+      ],
+      "wrapper_selector": "div.content_download.video_downloads",
+      "suggested_filename": "wowgirls_morning_light_7680x4320_60FPS.mp4",
+      "expected_title": "WOW Girls / Film / Morning Light",
+      "expected_title_source": "og:title",
+      "xfail_row": null
+    },
+    {
+      "id": "nubilefilms_photo_vs_video",
+      "guards_defect": 2,
+      "fixture": "row386_download_chain/nubilefilms_scene.html",
+      "page_path": "/nubile/video/watch/254257/we-should-share-s51e1",
+      "expect_winner": true,
+      "winner_tag": "A",
+      "winner_href": "/dl/nubilefilms_we_should_share_3840.mp4?st=lv7YZL_HGs5mufahnkjtpw&e=1788026400&dl=nubilefilms_we_should_share_3840.mp4",
+      "min_candidates": 4,
+      "must_harvest_href": [
+        "/dl/nubilefilms_we_should_share_stills_large.jpg",
+        "/dl/nubilefilms_we_should_share_stills_xlarge.jpg",
+        "/dl/nubilefilms_we_should_share_3840.mp4?st=lv7YZL_HGs5mufahnkjtpw&e=1788026400&dl=nubilefilms_we_should_share_3840.mp4"
+      ],
+      "outranked_href": [
+        "/dl/nubilefilms_we_should_share_stills_large.jpg",
+        "/dl/nubilefilms_we_should_share_stills_xlarge.jpg"
+      ],
+      "suggested_filename": "nubilefilms_we_should_share_3840.mp4",
+      "expected_title": "NubileFilms / Video / We Should Share S51E1",
+      "expected_title_source": "og:title",
+      "xfail_row": null
+    },
+    {
+      "id": "ultrafilms_known_good",
+      "guards_defect": 3,
+      "fixture": "row386_download_chain/ultrafilms_scene.html",
+      "page_path": "/ultrafilms/members/content/item/4f338e1e-with-leo-in-bed",
+      "expect_winner": true,
+      "winner_tag": "A",
+      "winner_href": "/dl/ultrafilms_with_leo_in_bed_2160p.mp4",
+      "min_candidates": 2,
+      "must_harvest_href": [
+        "/dl/ultrafilms_with_leo_in_bed_2160p.mp4",
+        "/dl/ultrafilms_with_leo_in_bed_1080p.mp4"
+      ],
+      "suggested_filename": "ultrafilms_with_leo_in_bed_2160p.mp4",
+      "expected_title": "UltraFilms / Members / Movie / With Leo In Bed",
+      "expected_title_source": "og:title",
+      "xfail_row": null
+    },
+    {
+      "id": "related_grid_belongs_to_another_scene",
+      "guards_defect": 4,
+      "fixture": "row386_download_chain/related_grid_scene.html",
+      "page_path": "/ultrafilms/members/content/item/9c-quiet-hours",
+      "expect_winner": true,
+      "winner_tag": "A",
+      "winner_href": "/dl/main_scene_quiet_hours_1080p.mp4",
+      "min_candidates": 1,
+      "must_harvest_href": [
+        "/dl/main_scene_quiet_hours_1080p.mp4"
+      ],
+      "suggested_filename": "main_scene_quiet_hours_1080p.mp4",
+      "expected_title": "UltraFilms / Members / Movie / Quiet Hours",
+      "expected_title_source": "og:title",
+      "xfail_row": 388
+    },
+    {
+      "id": "logged_out_is_not_a_download",
+      "guards_defect": 0,
+      "fixture": "row374_scene_crawler/logged_out.html",
+      "page_path": "/logged-out",
+      "expect_winner": false,
+      "min_candidates": 0,
+      "expected_title": "Welcome to the Premium Experience",
+      "expected_title_source": "document.title",
+      "xfail_row": null
+    }
+  ]
+}

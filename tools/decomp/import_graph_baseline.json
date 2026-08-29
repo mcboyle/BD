@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4047,
+  "edge_count": 4052,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3620,6 +3620,13 @@
     ],
     "tests/test_row384_a_direct_media_href_is_fetched.py": [
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row386_the_download_chain_is_gated.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/website_title.py"
     ],
     "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py": [
       "bulk_downloader/detect.py",
