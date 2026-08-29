@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 363 transform control. This must exit 1 with exactly one valid ESCAPED mutant. It applies the byte-identical named-HD-before-URL regression from M1 while the only catcher imports the parser without judging its precedence. Escape proves the primary catch is behavioral rather than a malformed transform or import failure.",
+  "subject": "transform-only control for the explicit URL height priority mutant",
+  "band": [
+    "tests/test_row363_affordance_learning.py::test_transform_control_imports_parser_without_judging_height_priority"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 wrong named-HD priority remains importable",
+      "file": "bulk_downloader/affordance_learning.py",
+      "old": "    match = _URL_HEIGHT.search(str(href or \"\"))\n    if match:\n        return int(match.group(1))\n    match = _LABEL_HEIGHT.search(str(label or \"\"))",
+      "new": "    if re.search(r\"\\bHD\\b\", str(label or \"\"), re.I):\n        return 1080  # row 363 mutant: collapse named HD before explicit URL height\n    match = _URL_HEIGHT.search(str(href or \"\"))\n    if match:\n        return int(match.group(1))\n    match = _LABEL_HEIGHT.search(str(label or \"\"))",
+      "direction": "regression",
+      "catcher": "tests/test_row363_affordance_learning.py::test_transform_control_imports_parser_without_judging_height_priority"
+    }
+  ]
+}

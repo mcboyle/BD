@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3956,
+  "edge_count": 3971,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -12,6 +12,9 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/runner.py"
+    ],
+    "bulk_downloader/affordance_learning.py": [
+      "bulk_downloader/capture_redact.py"
     ],
     "bulk_downloader/ai_boot_observation.py": [
       "bulk_downloader/ai_boot_status.py"
@@ -343,10 +346,13 @@
       "bulk_downloader/captcha_relay.py"
     ],
     "bulk_downloader/app_captures.py": [
+      "bulk_downloader/affordance_learning.py",
+      "bulk_downloader/app_kernel.py",
       "bulk_downloader/audit.py",
       "bulk_downloader/db.py",
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/secrets_store.py",
+      "bulk_downloader/template_manager.py",
       "tools/cockpit_core.py"
     ],
     "bulk_downloader/app_changelog.py": [
@@ -1816,6 +1822,7 @@
     ],
     "bulk_downloader/runner_telemetry.py": [
       "bulk_downloader/admission.py",
+      "bulk_downloader/capture_redact.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/hooks.py",
@@ -1989,6 +1996,7 @@
       "tools/template_drift_report.py"
     ],
     "bulk_downloader/template_manager.py": [
+      "bulk_downloader/affordance_learning.py",
       "bulk_downloader/bad_terms.py",
       "bulk_downloader/dry_run.py",
       "bulk_downloader/lifecycle_drift.py",
@@ -3495,6 +3503,15 @@
       "bulk_downloader/queue_priority.py",
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_row363_affordance_learning.py": [
+      "bulk_downloader/app_captures.py",
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/session_capture.py",
+      "bulk_downloader/template_manager.py",
+      "tools/capture_session.py",
+      "tools/cockpit_core.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
@@ -6705,6 +6722,7 @@
       "tools/report_core.py"
     ],
     "tools/capture_session.py": [
+      "bulk_downloader/affordance_learning.py",
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/dom_capture.py",
@@ -6770,6 +6788,7 @@
     ],
     "tools/cockpit_core.py": [
       "bulk_downloader/__init__.py",
+      "bulk_downloader/affordance_learning.py",
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/capture_ingest.py",
       "bulk_downloader/capture_scrub_hook.py",

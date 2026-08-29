@@ -224,6 +224,89 @@ def api_captures_suggest_rows():
         return jsonify({"error": str(e)}), 400
     return jsonify(res)
 
+
+@captures_bp.route("/api/captures/live_learning", methods=["POST"])
+def api_captures_live_learning():
+    """Arm/poll a learner action in the existing held-open Capture process.
+
+    ``learn``, ``network``, and ``crawl`` remain separate modes so the GUI can
+    show independent lifecycle states.  Existing site policy/selectors are
+    supplied server-side where available; the browser cannot invent a second
+    quality setting behind the operator's back.
+    """
+    from tools import cockpit_core as _cc
+    body = request.get_json(silent=True) or {}
+    tid = str(body.get("task_id") or "")
+    action = str(body.get("action") or "arm")
+    mode = str(body.get("mode") or "learn")
+    request_id = str(body.get("request_id") or "")
+    payload = dict(body.get("payload") or {}) if isinstance(body.get("payload"), dict) else {}
+    site_id = str(body.get("site_id") or "")
+    cfg = (_app_s_cfg().get(site_id) or {}) if site_id else {}
+    if action == "arm":
+        from .app_kernel import DEFAULTS as _SITE_DEFAULTS
+        if cfg:
+            # Existing site config is authoritative. The GUI persists its two
+            # policy fields before arming; arbitrary clients cannot smuggle a
+            # second policy into the learner payload.
+            payload["quality_preference"] = cfg.get(
+                "quality_preference", _SITE_DEFAULTS["quality_preference"])
+            payload["min_resolution"] = cfg.get(
+                "min_resolution", _SITE_DEFAULTS["min_resolution"])
+        else:
+            payload.setdefault(
+                "quality_preference", _SITE_DEFAULTS["quality_preference"])
+            payload.setdefault("min_resolution", _SITE_DEFAULTS["min_resolution"])
+        learned = cfg.get("learned") if isinstance(cfg.get("learned"), dict) else {}
+        download = learned.get("download") if isinstance(learned.get("download"), dict) else {}
+        payload.setdefault("row_selectors", download.get("row_selectors") or cfg.get("row_selectors") or [])
+        payload.setdefault("trigger_selectors", download.get("trigger_selectors") or [])
+    try:
+        result = _cc.live_learning_capture(
+            tid,
+            action=action,
+            mode=mode,
+            request_id=request_id,
+            payload=payload,
+        )
+    except _cc.ValidationError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, **result})
+
+
+@captures_bp.route("/api/captures/stage_learning", methods=["POST"])
+def api_captures_stage_learning():
+    """Stage only the nonce-bound result proven by the Capture subprocess."""
+    from . import affordance_learning as _al
+    from . import template_manager as _tm
+    from .app_kernel import DEFAULTS as _SITE_DEFAULTS
+    from tools import cockpit_core as _cc
+    body = request.get_json(silent=True) or {}
+    task_id = str(body.get("task_id") or "")
+    request_id = str(body.get("request_id") or "")
+    site_id = str(body.get("site_id") or "")
+    cfg = (_app_s_cfg().get(site_id) or {}) if site_id else {}
+    if not cfg:
+        return jsonify({"ok": False, "error": "existing site_id is required"}), 400
+    try:
+        learned = _cc.get_live_learning_proof(task_id, request_id)
+        host = str(learned.get("page_host") or "")
+        if not host:
+            raise ValueError("proven live page did not have an HTTP(S) host")
+        result = _al.stage_learned_template(
+            learned,
+            host=host,
+            quality_preference=cfg.get(
+                "quality_preference", _SITE_DEFAULTS["quality_preference"]),
+            min_resolution=cfg.get(
+                "min_resolution", _SITE_DEFAULTS["min_resolution"]),
+            drafts_dir=_tm.DRAFTS_DIR,
+        )
+    except (_cc.ValidationError, OSError, TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    _cc.discard_live_learning_proof(task_id, request_id)
+    return jsonify({"ok": True, **result})
+
 _SCAN_CACHE = {"rows": [], "summary": None, "built_at": None}
 
 
@@ -333,4 +416,3 @@ def register_routes(app) -> int:
     app.register_blueprint(captures_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("captures."))
-

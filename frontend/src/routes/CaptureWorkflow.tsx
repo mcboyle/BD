@@ -27,13 +27,21 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import {
+  AffordanceLearningPanel,
+  selectOptionForPolicy,
+  type AffordanceResult,
+  type CrawlState,
+  type LearningState,
+  type NetworkState,
+} from "@/components/AffordanceLearningPanel";
 import { SecretField } from "@/components/SecretField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Callout } from "@/components/ui/Callout";
 import { Input } from "@/components/ui/input";
-import { apiGet, apiPost } from "@/lib/api-client";
+import { apiGet, apiPost, apiPut } from "@/lib/api-client";
 import { useGuidedDraft, useGuidedMode } from "@/hooks/useGuidedMode";
 import {
   allowlistAdd,
@@ -65,6 +73,10 @@ import {
   useCaptureRailWidth,
   CAPTURE_RAIL_DEFAULT,
 } from "@/hooks/useUiLayout";
+import {
+  DEFAULT_SITE_MIN_RESOLUTION,
+  DEFAULT_SITE_QUALITY_PREFERENCE,
+} from "@/lib/api-types";
 
 // ── API response shapes ──────────────────────────────────────────────────────
 interface NovncResult {
@@ -217,6 +229,54 @@ interface ReviewCandidatesResponse {
   candidates: ReviewCandidate[];
   dir?: string;
 }
+interface LiveLearningArmResponse {
+  ok: boolean;
+  request_id: string;
+  state: string;
+  error?: string;
+}
+interface LiveLearningPollResponse {
+  ok: boolean;
+  state: string;
+  response?: {
+    state: string;
+    result?: Record<string, unknown>;
+    error?: string;
+  } | null;
+  error?: string;
+}
+interface StageLearningResponse {
+  ok: boolean;
+  file?: string;
+  status?: string;
+  error?: string;
+  template?: {
+    patterns?: string[];
+    learned?: {
+      download?: {
+        trigger_selectors?: string[];
+        row_selectors?: string[];
+        url_attribute?: string;
+      };
+    };
+    config_defaults?: {
+      quality_preference?: string;
+      min_resolution?: number;
+    };
+    resolutions?: number[];
+    network_patterns?: string[];
+    learning_evidence?: {
+      shape?: string;
+      option_count?: number;
+      corroboration?: string;
+      dom_options_proven?: boolean;
+    };
+  };
+}
+interface RunnerNetworkEventsResponse {
+  ok: boolean;
+  events?: Array<{ message?: string; kind?: string; seq?: number }>;
+}
 
 // A draft field the operator can pick / edit / remove. `key` is the draft slot.
 // Single-pick fields (login_*) carry a single `value`. A `multi` field
@@ -279,6 +339,9 @@ export function CaptureWorkflow() {
   const [setupUsername, setSetupUsername] = useState("");
   const [setupPassword, setSetupPassword] = useState("");
   const [setupDownloadDir, setSetupDownloadDir] = useState("");
+  const [qualityPreference, setQualityPreference] = useState(DEFAULT_SITE_QUALITY_PREFERENCE);
+  const [minResolution, setMinResolution] = useState(DEFAULT_SITE_MIN_RESOLUTION);
+  const [logNetwork, setLogNetwork] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
 
   // Pick mode: which field is awaiting a live click (null = Interact mode).
@@ -363,6 +426,92 @@ export function CaptureWorkflow() {
   const [triggerLiveCount, setTriggerLiveCount] = useState<number | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewCands, setReviewCands] = useState<ReviewCandidate[] | null>(null);
+  const [learningState, setLearningState] = useState<LearningState>({ state: "idle" });
+  const [networkState, setNetworkState] = useState<NetworkState>({ state: "idle" });
+  const [crawlState, setCrawlState] = useState<CrawlState>({ state: "idle" });
+  const [stagedDraftFile, setStagedDraftFile] = useState<string | null>(null);
+  const [learningRequestId, setLearningRequestId] = useState<string | null>(null);
+  const [stagedTemplate, setStagedTemplate] = useState<StageLearningResponse["template"] | null>(null);
+  const sessionEpochRef = useRef(0);
+  const candidateEpochRef = useRef(0);
+
+  const currentLearningSelection = learningState.state === "found"
+    ? selectOptionForPolicy(
+        learningState.result.options,
+        qualityPreference,
+        minResolution,
+      )
+    : null;
+  const resolutionPolicySatisfied = learningState.state !== "found"
+    || currentLearningSelection?.status === "SELECTED";
+  const draftFileForGate = stagedDraftFile
+    || `${host.trim().toLowerCase()}.template-draft.json`;
+
+  function clearCandidateState() {
+    candidateEpochRef.current += 1;
+    setStagedDraftFile(null);
+    setStagedTemplate(null);
+    setBuildResult(null);
+    setReviewCands(null);
+    setNetworkState({ state: "idle" });
+    setCrawlState({ state: "idle" });
+    setTriggerLiveCount(null);
+    setPromotePreflight(null);
+    setPreflightBusy(false);
+    setPromoteConfirm(false);
+    setE2ePass(null);
+    setVerdict(null);
+    setOverrideE2e(false);
+    setVerifyState("idle");
+    setTesting(false);
+    setWatching(false);
+    setWatchProgress("");
+  }
+
+  function dropCurrentLearnedRow() {
+    if (learningState.state !== "found" || !learningState.result.row_selector) return;
+    const learnedRow = learningState.result.row_selector;
+    setFields((previous) => previous.map((field) =>
+      field.key === "row_selectors"
+        ? {
+            ...field,
+            entries: (field.entries || []).filter((entry) => entry !== learnedRow),
+          }
+        : field));
+  }
+
+  function changeQualityPreference(value: string) {
+    if (learningState.state === "running") {
+      setLearningState({ state: "idle" });
+      setLearningRequestId(null);
+    }
+    if (stagedTemplate) {
+      dropCurrentLearnedRow();
+      setLearningState({ state: "idle" });
+      setLearningRequestId(null);
+    }
+    clearCandidateState();
+    setQualityPreference(value);
+  }
+
+  function changeMinResolution(value: number) {
+    if (learningState.state === "running") {
+      setLearningState({ state: "idle" });
+      setLearningRequestId(null);
+    }
+    if (stagedTemplate) {
+      dropCurrentLearnedRow();
+      setLearningState({ state: "idle" });
+      setLearningRequestId(null);
+    }
+    clearCandidateState();
+    setMinResolution(Math.max(0, value || 0));
+  }
+
+  useEffect(() => {
+    setPromotePreflight(null);
+    setPromoteConfirm(false);
+  }, [stagedDraftFile, learningRequestId, qualityPreference, minResolution]);
 
   const novnc = useQuery<NovncResult>({
     queryKey: ["novnc-url"],
@@ -376,6 +525,10 @@ export function CaptureWorkflow() {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [startedAt]);
+
+  useEffect(() => () => {
+    sessionEpochRef.current += 1;
+  }, []);
 
   // v3.66.276 (a): when the live session is up on the Capture step and the
   // operator hasn't picked any rows yet, run auto-detect ONCE to pre-fill the
@@ -501,6 +654,9 @@ export function CaptureWorkflow() {
           username: setupUsername.trim(),
           password: setupPassword,
           download_dir: setupDownloadDir.trim(),
+          quality_preference: qualityPreference,
+          min_resolution: minResolution,
+          log_network: logNetwork,
         },
       );
       if (!created.ok || !created.id) {
@@ -549,6 +705,7 @@ export function CaptureWorkflow() {
         return;
       }
       setTaskId(tid);
+      sessionEpochRef.current += 1;
       setStartedAt(Date.now());
       // BUG-5: a new capture must start from a clean slate. Suggestion state
       // (auto-detected row_selectors entries + the AI suggestions panel) is
@@ -560,13 +717,18 @@ export function CaptureWorkflow() {
       setFields(INITIAL_FIELDS.map((f) => ({ ...f, entries: f.entries ? [] : f.entries })));
       setAi(null);
       setArmedField(null);
+      setLearningState({ state: "idle" });
+      setNetworkState({ state: "idle" });
+      setCrawlState({ state: "idle" });
+      setLearningRequestId(null);
+      clearCandidateState();
       try {
         setHost(new URL(startUrl.trim()).host);
       } catch {
         setHost(startUrl.trim());
       }
-      setStep("inspect");
-      toast.success("Session held open — drive it in the canvas, then inspect");
+      setStep("build");
+      toast.success("Session held open — navigate to a scene, then learn it in Build");
     } catch (e) {
       toast.error(`Could not start capture: ${String(e)}`);
     }
@@ -731,10 +893,26 @@ export function CaptureWorkflow() {
     if (get("login_password")) login.password = get("login_password");
     if (get("login_submit")) login.submit = get("login_submit");
     if (Object.keys(login).length) draft.login = login;
+    if (learningState.state === "found") {
+      const learned = learningState.result;
+      draft.learned = {
+        download: {
+          trigger_selectors: learned.trigger_selector
+            ? [learned.trigger_selector]
+            : [],
+          row_selectors: learned.row_selector ? [learned.row_selector] : [],
+          url_attribute: learned.url_attribute || "href",
+        },
+      };
+    }
     return draft;
   }
 
   async function runTest() {
+    if (learningState.state === "found" && currentLearningSelection?.status !== "SELECTED") {
+      toast.error(currentLearningSelection?.reason || "Learned options violate the configured quality policy");
+      return;
+    }
     if (!siteId.trim()) {
       toast.error("Enter the target site id");
       return;
@@ -743,6 +921,11 @@ export function CaptureWorkflow() {
       toast.error("Enter a URL to test against");
       return;
     }
+    const ownerSessionEpoch = sessionEpochRef.current;
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
     setTesting(true);
     setVerdict(null);
     setE2ePass(null);
@@ -756,6 +939,7 @@ export function CaptureWorkflow() {
         probe,
         force_download: force,
       });
+      if (!isCurrentCandidate()) return;
       if (!r.ok) {
         toast.error(r.error || "Test extract failed");
         return;
@@ -767,8 +951,14 @@ export function CaptureWorkflow() {
       const _trigSel = inspectState?.verify?.trigger_selector;
       if (_trigSel && testUrl.trim()) {
         void templateSandbox(testUrl.trim(), { trigger_selector: _trigSel }, "http")
-          .then((resp) => setTriggerLiveCount(triggerMatchCountFromSandbox(resp)))
-          .catch(() => setTriggerLiveCount(null));
+          .then((resp) => {
+            if (isCurrentCandidate()) {
+              setTriggerLiveCount(triggerMatchCountFromSandbox(resp));
+            }
+          })
+          .catch(() => {
+            if (isCurrentCandidate()) setTriggerLiveCount(null);
+          });
       }
       // WATCH the run for the real verdict: a /api/history row for this URL with
       // a real file. A `done` with 0 bytes (runner's "no dl dir" click-but-save-
@@ -776,7 +966,13 @@ export function CaptureWorkflow() {
       toast.message("Test started — watching for a real download…");
       setWatchProgress("");
       setWatching(true);
-      const row = await watchForVerdict(siteId.trim(), testUrl.trim(), since);
+      const row = await watchForVerdict(
+        siteId.trim(),
+        testUrl.trim(),
+        since,
+        isCurrentCandidate,
+      );
+      if (!isCurrentCandidate()) return;
       if (!row) {
         setE2ePass(false);
         toast.error(
@@ -801,11 +997,15 @@ export function CaptureWorkflow() {
         toast.error(row.message || `Test did not download (status: ${row.status || "?"})`);
       }
     } catch (e) {
-      setE2ePass(false);
-      toast.error(`Test failed: ${String(e)}`);
+      if (isCurrentCandidate()) {
+        setE2ePass(false);
+        toast.error(`Test failed: ${String(e)}`);
+      }
     } finally {
-      setTesting(false);
-      setWatching(false);
+      if (isCurrentCandidate()) {
+        setTesting(false);
+        setWatching(false);
+      }
     }
   }
 
@@ -822,6 +1022,7 @@ export function CaptureWorkflow() {
     sid: string,
     url: string,
     since: number,
+    isCurrent: () => boolean = () => true,
   ): Promise<HistoryRow | null> {
     const MAX_WALL = 45 * 60_000; // absolute cap (large files can be slow)
     const STALL_MS = 8 * 60_000; // running but no byte progress this long = stalled
@@ -838,11 +1039,13 @@ export function CaptureWorkflow() {
     let lastBytes = -1;
     let lastProgressAt = t0;
     while (Date.now() < deadline) {
+      if (!isCurrent()) return null;
       // 1) authoritative terminal row
       try {
         const rows = await apiGet<HistoryRow[]>(
           `/api/history?site_id=${encodeURIComponent(sid)}&limit=25`,
         );
+        if (!isCurrent()) return null;
         const hit = (rows || []).find((r) => {
           if (r.url !== url || !terminal.has(r.status || "")) return false;
           const t = Date.parse((r.ts || "").replace(" ", "T") + "Z");
@@ -852,6 +1055,7 @@ export function CaptureWorkflow() {
       } catch {
         /* transient — keep polling */
       }
+      if (!isCurrent()) return null;
       // 2) live in-flight job — so we keep waiting through a long download
       let live:
         | { status?: string; file_size?: number; message?: string }
@@ -863,10 +1067,12 @@ export function CaptureWorkflow() {
             { jobs?: Record<string, { status?: string; file_size?: number; message?: string }> }
           >
         >("/api/status");
+        if (!isCurrent()) return null;
         live = st?.[sid]?.jobs?.[url] ?? null;
       } catch {
         /* transient — keep polling */
       }
+      if (!isCurrent()) return null;
       if (live && terminal.has(live.status || "")) {
         // BP-VH2: the in-flight job reached a terminal status (e.g.
         // skipped_duplicate / stopped) — resolve now, don't wait for the row.
@@ -966,6 +1172,301 @@ export function CaptureWorkflow() {
     toast.success("Applied — review before promote");
   }
 
+  async function runLiveLearningAction<T extends Record<string, unknown>>(
+    mode: "learn" | "network" | "crawl",
+    payload: Record<string, unknown> = {},
+  ): Promise<{ result: T; requestId: string }> {
+    if (!taskId) throw new Error("Start a held-open Capture session first");
+    const ownerSessionEpoch = sessionEpochRef.current;
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
+    const armed = await apiPost<LiveLearningArmResponse>(
+      "/api/captures/live_learning",
+      { task_id: taskId, site_id: siteId, action: "arm", mode, payload },
+    );
+    if (!armed.ok || !armed.request_id) {
+      throw new Error(armed.error || "learning request was not armed");
+    }
+    const cancelOwned = async () => {
+      try {
+        await apiPost("/api/captures/live_learning", {
+          task_id: taskId,
+          action: "cancel",
+          mode,
+          request_id: armed.request_id,
+        });
+      } catch {
+        // The server-side deadline remains the fallback if cancellation races
+        // with Capture completion or session shutdown.
+      }
+    };
+    if (!isCurrentCandidate()) {
+      await cancelOwned();
+      throw new Error("Capture candidate changed while the action was arming");
+    }
+    // Learning is normally one Capture tick; a per-scene listing plan can take
+    // longer because it opens each scene in the same authenticated context.
+    const maxPolls = mode === "crawl" ? 2700 : 360;
+    for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const polled = await apiPost<LiveLearningPollResponse>(
+        "/api/captures/live_learning",
+        {
+          task_id: taskId,
+          action: "poll",
+          mode,
+          request_id: armed.request_id,
+        },
+      );
+      if (!isCurrentCandidate()) {
+        await cancelOwned();
+        throw new Error("Capture candidate changed; stale learning result ignored");
+      }
+      if (polled.response?.state === "failed") {
+        throw new Error(polled.response.error || `${mode} failed in the Capture page`);
+      }
+      if (polled.response?.result) {
+        return { result: polled.response.result as T, requestId: armed.request_id };
+      }
+    }
+    await cancelOwned();
+    throw new Error(`${mode} timed out while the Capture session was open`);
+  }
+
+  async function learnAffordance() {
+    const ownerSessionEpoch = sessionEpochRef.current;
+    dropCurrentLearnedRow();
+    clearCandidateState();
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
+    setLearningState({ state: "running" });
+    setLearningRequestId(null);
+    try {
+      if (siteId.trim()) await persistLearningPolicy(true);
+      if (!isCurrentCandidate()) return;
+      const { result, requestId } = await runLiveLearningAction<AffordanceResult & Record<string, unknown>>(
+        "learn",
+        { quality_preference: qualityPreference, min_resolution: minResolution },
+      );
+      if (!isCurrentCandidate()) return;
+      if (result.status === "FOUND" && Array.isArray(result.options)) {
+        setLearningState({ state: "found", result });
+        setLearningRequestId(requestId);
+        if (result.row_selector) {
+          setFields((previous) =>
+            previous.map((field) => {
+              if (field.key !== "row_selectors") return field;
+              const entries = field.entries || [];
+              return entries.includes(result.row_selector as string)
+                ? field
+                : { ...field, entries: [...entries, result.row_selector as string] };
+            }),
+          );
+        }
+        toast.success(
+          `Found ${result.options.length} options via ${result.shape} · ${result.row_selector}`,
+        );
+      } else if (result.status === "UNKNOWN" && Array.isArray(result.options)) {
+        setLearningState({ state: "nothing", result });
+        setLearningRequestId(requestId);
+        toast.message("UNKNOWN — no download affordance found on this rendered page");
+      } else {
+        throw new Error("learner returned a malformed result without an options list");
+      }
+    } catch (error) {
+      if (isCurrentCandidate()) {
+        setLearningState({ state: "failed", error: String(error) });
+      }
+    }
+  }
+
+  async function captureNetworkEvidence() {
+    const ownerSessionEpoch = sessionEpochRef.current;
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
+    setNetworkState({ state: "running" });
+    try {
+      const { result } = await runLiveLearningAction<{
+        status: string;
+        count: number;
+        network_evidence?: AffordanceResult["network_evidence"];
+      } & Record<string, unknown>>("network");
+      if (!isCurrentCandidate()) return;
+      const evidence = [...(result.network_evidence || [])];
+      const runnerEvidence: NonNullable<AffordanceResult["network_evidence"]> = [];
+      // log_network controls the normal runner, whose bounded event buffer is
+      // exposed by the existing per-site events endpoint. Keep that historical
+      // stream visibly separate: it must never corroborate DOM from the current
+      // held page or create a stale/background-tab AGREE result.
+      if (siteId.trim()) {
+        try {
+          const runner = await apiGet<RunnerNetworkEventsResponse>(
+            `/api/sites/${encodeURIComponent(siteId.trim())}/events?kind=network&limit=100`,
+          );
+          for (const event of runner.events || []) {
+            const message = String(event.message || "").trim();
+            if (message && !runnerEvidence.some((row) => row.url === message)) {
+              runnerEvidence.push({ url: message, kind: "runner_network" });
+            }
+          }
+        } catch {
+          // A newly-created or idle runner can have no buffer yet. The live
+          // Capture evidence remains a complete, separately labelled result.
+        }
+      }
+      if (!isCurrentCandidate()) return;
+      const totalEvidence = evidence.length + runnerEvidence.length;
+      if (totalEvidence > 0) {
+        setNetworkState({
+          state: "found",
+          count: totalEvidence,
+          evidence,
+          runnerEvidence,
+        });
+      } else {
+        setNetworkState({ state: "nothing", count: 0 });
+      }
+    } catch (error) {
+      if (isCurrentCandidate()) {
+        setNetworkState({ state: "failed", error: String(error) });
+      }
+    }
+  }
+
+  async function crawlListing() {
+    const ownerSessionEpoch = sessionEpochRef.current;
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
+    setCrawlState({ state: "running" });
+    try {
+      if (siteId.trim()) await persistLearningPolicy(true);
+      if (!isCurrentCandidate()) return;
+      const learned = learningState.state === "found" ? learningState.result : null;
+      const options = learned?.options || [];
+      const { result } = await runLiveLearningAction<{
+        status: string;
+        scene_count: number;
+        plans: Extract<CrawlState, { state: "found" }>["plans"];
+        error?: string;
+        reason?: string;
+      } & Record<string, unknown>>("crawl", {
+        options,
+        row_selectors: learned?.row_selector ? [learned.row_selector] : [],
+        trigger_selectors: learned?.trigger_selector ? [learned.trigger_selector] : [],
+        quality_preference: qualityPreference,
+        min_resolution: minResolution,
+      });
+      if (!isCurrentCandidate()) return;
+      if (
+        result.status === "EMPTY"
+        && result.scene_count === 0
+        && Array.isArray(result.plans)
+        && result.plans.length === 0
+      ) {
+        setCrawlState({
+          state: "nothing",
+          count: 0,
+          reason: result.reason || "Rendered listing explicitly declares zero scenes.",
+        });
+        return;
+      }
+      if (result.status !== "FOUND" || result.scene_count < 1) {
+        setCrawlState({
+          state: "failed",
+          error: result.error || "Zero scenes found on the rendered listing",
+        });
+        return;
+      }
+      setCrawlState({
+        state: "found",
+        count: result.scene_count,
+        plans: result.plans,
+      });
+    } catch (error) {
+      if (isCurrentCandidate()) {
+        setCrawlState({ state: "failed", error: String(error) });
+      }
+    }
+  }
+
+  async function persistLearningPolicy(silent = false) {
+    if (!siteId.trim()) throw new Error("Create the site in Setup before saving its policy");
+    await apiPut(`/api/sites/${encodeURIComponent(siteId.trim())}`, {
+      quality_preference: qualityPreference,
+      min_resolution: minResolution,
+      log_network: logNetwork,
+    });
+    if (!silent) toast.success("Saved quality_preference, min_resolution, and log_network");
+  }
+
+  async function saveLearningPolicy() {
+    if (!siteId.trim()) {
+      toast.error("Create the site in Setup before saving its policy");
+      return;
+    }
+    try {
+      await persistLearningPolicy();
+    } catch (error) {
+      toast.error(`Could not save policy: ${String(error)}`);
+    }
+  }
+
+  async function stageLearnedTemplate() {
+    if (learningState.state !== "found" || !learningRequestId || !taskId) return;
+    const ownerSessionEpoch = sessionEpochRef.current;
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
+    try {
+      await persistLearningPolicy(true);
+      if (!isCurrentCandidate()) return;
+      const staged = await apiPost<StageLearningResponse>(
+        "/api/captures/stage_learning",
+        {
+          task_id: taskId,
+          request_id: learningRequestId,
+          site_id: siteId,
+        },
+      );
+      if (!isCurrentCandidate()) return;
+      if (!staged.ok || !staged.file) throw new Error(staged.error || "draft was not staged");
+      setStagedDraftFile(staged.file);
+      setStagedTemplate(staged.template || null);
+      setLearningRequestId(null);
+      setReviewCands([
+        {
+          file: staged.file,
+          host,
+          status: staged.status || "draft_review_required",
+          resolutions: learningState.result.options
+            .map((option) => option.height)
+            .filter((height): height is number => typeof height === "number")
+            .map(String),
+          has_download_trigger: !!learningState.result.trigger_selector,
+          has_row_selectors: !!learningState.result.row_selector,
+          network_patterns: staged.template?.network_patterns?.length || 0,
+        },
+      ]);
+      setPromotePreflight(null);
+      setPromoteConfirm(false);
+      setStep("inspect");
+      toast.success(`Staged ${staged.file}; continue through Inspect and Test before Review`);
+    } catch (error) {
+      if (isCurrentCandidate()) {
+        toast.error(`Could not stage learned template: ${String(error)}`);
+      }
+    }
+  }
+
   // F2.7b: Build → the real builder/normalizer (build_template_from_wacz +
   // normalize → review candidate). Needs a saved .wacz; if the session isn't
   // finished yet the backend returns "finish the capture first" (surfaced).
@@ -981,6 +1482,10 @@ export function CaptureWorkflow() {
         task_id: taskId,
       });
       setBuildResult(r);
+      if (r.candidate_path) {
+        const candidateFile = r.candidate_path.split(/[\\/]/).pop();
+        if (candidateFile) setStagedDraftFile(candidateFile);
+      }
       toast.success(
         `Built ${r.host || "draft"} — ${r.status || "candidate"}${
           r.has_download_trigger ? "" : " · no download trigger derived"
@@ -1001,9 +1506,19 @@ export function CaptureWorkflow() {
       const r = await apiGet<ReviewCandidatesResponse>("/cockpit/api/review-candidates");
       const cands = r.candidates || [];
       const h = host.trim().toLowerCase();
-      setReviewCands(
-        h ? cands.filter((c) => (c.host || "").toLowerCase() === h) : cands,
-      );
+      const filtered = h ? cands.filter((c) => (c.host || "").toLowerCase() === h) : cands;
+      if (stagedDraftFile && !filtered.some((candidate) => candidate.file === stagedDraftFile)) {
+        filtered.unshift({
+          file: stagedDraftFile,
+          host,
+          status: "draft_review_required",
+          has_row_selectors: learningState.state === "found",
+          has_download_trigger:
+            learningState.state === "found" && !!learningState.result.trigger_selector,
+          network_patterns: stagedTemplate?.network_patterns?.length || 0,
+        });
+      }
+      setReviewCands(filtered);
     } catch (e) {
       toast.error(`Could not load review candidates: ${String(e)}`);
       setReviewCands([]);
@@ -1013,13 +1528,20 @@ export function CaptureWorkflow() {
   }
 
   async function promote() {
+    if (!resolutionPolicySatisfied) {
+      toast.error(
+        currentLearningSelection?.reason
+          || "Learned options violate the configured quality policy",
+      );
+      return;
+    }
     if (!siteId.trim()) {
       toast.error("Enter the target site id first");
       return;
     }
     try {
       await apiPost("/api/template_manager/promote", {
-        file: `${siteId.trim()}.template-draft.json`,
+        file: draftFileForGate,
         enable: true,
       });
       toast.success("Promoted and enabled");
@@ -1035,6 +1557,7 @@ export function CaptureWorkflow() {
   // the wizard resets to a clean Setup. This is the missing "complete the
   // process" action — the flow previously had Promote/Enable + Discard only.
   async function finishSession(discard: boolean) {
+    sessionEpochRef.current += 1;
     if (taskId) {
       try {
         await apiPost("/cockpit/api/captures/finish", {
@@ -1052,6 +1575,11 @@ export function CaptureWorkflow() {
     setVerdict(null);
     setWatchProgress("");
     setOverrideE2e(false);
+    setLearningState({ state: "idle" });
+    setNetworkState({ state: "idle" });
+    setCrawlState({ state: "idle" });
+    setLearningRequestId(null);
+    clearCandidateState();
     setStep("setup");
     toast.message(
       discard
@@ -1107,10 +1635,13 @@ export function CaptureWorkflow() {
     sessionLive,
     loggedIn: sessionLive, // cross-origin: can't introspect; soft nudge
     contentPageVisited: sessionLive,
-    draftBuilt: !!buildResult,
+    liveLearningAttempted:
+      learningState.state === "found" || learningState.state === "nothing",
+    resolutionPolicySatisfied,
+    draftBuilt: !!buildResult || !!stagedDraftFile,
     requiredSelectorsResolved,
     verdictState,
-    candidateAssembled: !!reviewCands,
+    candidateAssembled: (reviewCands?.length || 0) > 0,
     unreviewedAiEdits: 0, // per-item accept tracking is a later refinement
     promotePreflightOk: promotePreflight?.ok === true,
   };
@@ -1160,14 +1691,21 @@ export function CaptureWorkflow() {
   // confirm, so the operator sees green or a precise blocker, not a raw refusal.
   async function runPromotePreflight(file: string, triggerMatchCount?: number) {
     if (!file) return;
+    const ownerSessionEpoch = sessionEpochRef.current;
+    const ownerCandidateEpoch = candidateEpochRef.current;
+    const isCurrentCandidate = () =>
+      sessionEpochRef.current === ownerSessionEpoch
+      && candidateEpochRef.current === ownerCandidateEpoch;
     setPreflightBusy(true);
     try {
       const r = await promoteCheck(file, triggerMatchCount);
-      setPromotePreflight(r);
+      if (isCurrentCandidate()) setPromotePreflight(r);
     } catch {
-      setPromotePreflight({ ok: false, error: "preflight failed" });
+      if (isCurrentCandidate()) {
+        setPromotePreflight({ ok: false, error: "preflight failed" });
+      }
     } finally {
-      setPreflightBusy(false);
+      if (isCurrentCandidate()) setPreflightBusy(false);
     }
   }
 
@@ -1210,6 +1748,10 @@ export function CaptureWorkflow() {
   // just-enabled template and watch it land. Reuses test_extract + the history
   // watch (no new route). The real runner download is operator-verified.
   async function runPostPromoteVerify() {
+    if (learningState.state === "found" && currentLearningSelection?.status !== "SELECTED") {
+      toast.error(currentLearningSelection?.reason || "Learned options violate the configured quality policy");
+      return;
+    }
     if (!siteId.trim() || !testUrl.trim()) {
       toast.error("Need the enabled site id and a content URL to verify live");
       return;
@@ -1358,6 +1900,7 @@ export function CaptureWorkflow() {
               <button
                 key={s.key}
                 onClick={() => setStep(s.key)}
+                disabled={guided && st === "locked"}
                 title={title}
                 className={cn(
                   "rounded-full px-3 py-1 text-[12px] transition-colors",
@@ -1659,6 +2202,44 @@ export function CaptureWorkflow() {
                     ✓ Download root is under an allowed root.
                   </div>
                 )}
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-[12px] text-ink-3">
+                    quality_preference
+                    <Input
+                      aria-label="quality_preference"
+                      value={qualityPreference}
+                      onChange={(e) => changeQualityPreference(e.target.value)}
+                      placeholder="2160,1080,720"
+                      className="mt-1"
+                    />
+                  </label>
+                  <label className="block text-[12px] text-ink-3">
+                    min_resolution
+                    <Input
+                      aria-label="min_resolution"
+                      type="number"
+                      min={0}
+                      value={minResolution}
+                      onChange={(e) => changeMinResolution(Number(e.target.value))}
+                      className="mt-1"
+                    />
+                  </label>
+                </div>
+                <label className="flex items-start gap-2 text-[12px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={logNetwork}
+                    onChange={(e) => setLogNetwork(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Record network responses</span>
+                    <span className="block text-[11px] text-ink-3">
+                      Enables the existing log_network runner setting. Build also
+                      has a separate live evidence action for this Capture session.
+                    </span>
+                  </span>
+                </label>
                 <label className="block text-[12px] text-ink-3">
                   Username <span className="text-ink-3">(optional)</span>
                   <Input
@@ -1716,12 +2297,38 @@ export function CaptureWorkflow() {
               <Card className="space-y-3 p-4">
                 <div className="text-[13px] font-medium text-ink">Build draft</div>
                 <p className="text-[12px] text-ink-3">
-                  Build the draft from the capture with{" "}
-                  <code>build_template_from_wacz</code> + normalize into a review
-                  candidate. Drive the session (log in, play, open the download)
-                  and <strong>finish</strong> the capture first — the builder
-                  reads the saved WACZ. Then refine in Inspect.
+                  Navigate the held-open session to a scene or listing, then learn
+                  the selector that works on today&apos;s rendered page. BAR is tried
+                  before a one-click DROPDOWN. Network evidence and listing crawl
+                  keep their own visible state.
                 </p>
+                <AffordanceLearningPanel
+                  learning={learningState}
+                  network={networkState}
+                  crawl={crawlState}
+                  qualityPreference={qualityPreference}
+                  minResolution={minResolution}
+                  logNetwork={logNetwork}
+                  onQualityPreferenceChange={changeQualityPreference}
+                  onMinResolutionChange={changeMinResolution}
+                  onLogNetworkChange={setLogNetwork}
+                  onSavePolicy={saveLearningPolicy}
+                  saveAvailable={!!learningRequestId}
+                  onLearn={learnAffordance}
+                  onCaptureNetwork={captureNetworkEvidence}
+                  onCrawl={crawlListing}
+                  onSave={stageLearnedTemplate}
+                />
+                <div className="border-t border-hairline pt-3">
+                  <div className="text-[12px] font-medium text-ink">
+                    Saved-capture normalization
+                  </div>
+                  <p className="text-[11px] text-ink-3">
+                    Optional legacy evidence path: after Finish &amp; save, normalize
+                    the WACZ into a review candidate. Live learning above works
+                    before the session is finished.
+                  </p>
+                </div>
                 <Button size="sm" variant="outline" onClick={buildDraft} disabled={building || !taskId}>
                   {building ? "Building…" : "Build draft"}
                 </Button>
@@ -1965,7 +2572,11 @@ export function CaptureWorkflow() {
                   />
                   Force re-download — re-test even if already downloaded
                 </label>
-                <Button onClick={runTest} disabled={testing}>
+                <Button
+                  onClick={runTest}
+                  disabled={testing || !resolutionPolicySatisfied}
+                  title={!resolutionPolicySatisfied ? currentLearningSelection?.reason : undefined}
+                >
                   {testing
                     ? "Running…"
                     : probe
@@ -2080,6 +2691,62 @@ export function CaptureWorkflow() {
                     Open DOM analyzer / workbench →
                   </Link>
                 </div>
+                {stagedDraftFile && stagedTemplate ? (
+                  <Card className="space-y-2 hairline p-3 text-[12px]">
+                    <div className="font-medium text-ink">
+                      Exact staged artifact · <code>{stagedDraftFile}</code>
+                    </div>
+                    <div>
+                      {stagedTemplate.learning_evidence?.shape || "UNKNOWN"} · pattern{" "}
+                      <code>{stagedTemplate.patterns?.join(", ") || "—"}</code>
+                    </div>
+                    <div>
+                      row selector{" "}
+                      <code>
+                        {stagedTemplate.learned?.download?.row_selectors?.join(", ") || "—"}
+                      </code>
+                    </div>
+                    <div>
+                      trigger selector{" "}
+                      <code>
+                        {stagedTemplate.learned?.download?.trigger_selectors?.join(", ") || "BAR (none)"}
+                      </code>{" "}
+                      · URL attribute{" "}
+                      <code>{stagedTemplate.learned?.download?.url_attribute || "href"}</code>
+                    </div>
+                    <div>
+                      resolutions: {(stagedTemplate.resolutions || []).map((height) => `${height}p`).join(", ") || "—"}
+                    </div>
+                    <div>
+                      quality_preference {stagedTemplate.config_defaults?.quality_preference || "—"} · min_resolution{" "}
+                      {stagedTemplate.config_defaults?.min_resolution ?? "—"}p
+                    </div>
+                    <div className={currentLearningSelection?.status === "SELECTED" ? "text-green" : "text-red"}>
+                      policy: {currentLearningSelection?.status || "UNKNOWN"}
+                      {currentLearningSelection?.option?.height
+                        ? ` · planned ${currentLearningSelection.option.height}p`
+                        : currentLearningSelection?.reason
+                          ? ` · ${currentLearningSelection.reason}`
+                          : ""}
+                    </div>
+                    <div>
+                      DOM/network: {learningState.state === "found"
+                        ? learningState.result.corroboration?.status || "NONE"
+                        : "NONE"}
+                    </div>
+                    {learningState.state === "found"
+                      ? (learningState.result.network_evidence || []).map((row, index) => (
+                          <div key={`review-network-${row.url}-${index}`} className="truncate font-mono text-[11px] text-ink-3">
+                            {row.kind || "media"}: {row.url}
+                          </div>
+                        ))
+                      : null}
+                    <div className="text-ink-3">
+                      network patterns: {stagedTemplate.network_patterns?.length || 0} · DOM options proven:{" "}
+                      {stagedTemplate.learning_evidence?.dom_options_proven ? "yes" : "no"}
+                    </div>
+                  </Card>
+                ) : null}
                 {reviewCands !== null ? (
                   reviewCands.length === 0 ? (
                     <div className="text-[12px] text-ink-3">
@@ -2236,7 +2903,7 @@ export function CaptureWorkflow() {
                         disabled={preflightBusy || !host}
                         onClick={() =>
                           runPromotePreflight(
-                            `${host}.template-draft.json`,
+                            draftFileForGate,
                             triggerLiveCount ?? undefined,
                           )
                         }
@@ -2316,7 +2983,16 @@ export function CaptureWorkflow() {
                 {!promoteConfirm ? (
                   <Button
                     variant="outline"
-                    disabled={!(e2ePass === true || overrideE2e)}
+                    disabled={
+                      !(e2ePass === true || overrideE2e)
+                      || !resolutionPolicySatisfied
+                      || (guided && promotePreflight?.ok !== true)
+                    }
+                    title={
+                      !resolutionPolicySatisfied
+                        ? currentLearningSelection?.reason
+                        : undefined
+                    }
                     onClick={() => setPromoteConfirm(true)}
                   >
                     Promote &amp; enable…

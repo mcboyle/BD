@@ -10,6 +10,7 @@
 //   GET  /api/captures        — cached inventory, paginated + filterable
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -155,6 +156,14 @@ export function CaptureBrowser() {
         >
           {scan.isPending ? "Scanning…" : "Scan for captures"}
         </Button>
+      </div>
+
+      <div className="rounded-md hairline bg-primary/5 p-2 text-[12px] text-ink-2">
+        Need to discover today&apos;s download control?{" "}
+        <Link to="/capture" className="font-medium text-accent underline-offset-2 hover:underline">
+          Learn from a live page
+        </Link>{" "}
+        in the existing Capture workflow.
       </div>
 
       {data && !data.scanned && (

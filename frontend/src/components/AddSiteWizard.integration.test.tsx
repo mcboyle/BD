@@ -64,3 +64,18 @@ describe("AddSiteWizard advanced login selectors (3b)", () => {
     expect(uf.value).toBe('input[name="email"]');
   });
 });
+
+describe("AddSiteWizard network learning setup (row 363)", () => {
+  it("exposes the real log_network site setting in the quick-add workflow", () => {
+    open();
+    expect(screen.getByLabelText("quality_preference")).toHaveValue(
+      "4320,3160,2880,2160,1440,1080,720",
+    );
+    expect(screen.getByLabelText("min_resolution")).toHaveValue(1080);
+    const field = screen.getByRole("checkbox", { name: /record network responses/i });
+    expect(field).not.toBeChecked();
+    fireEvent.click(field);
+    expect(field).toBeChecked();
+    expect(screen.getByText(/find media URLs/i)).toBeInTheDocument();
+  });
+});

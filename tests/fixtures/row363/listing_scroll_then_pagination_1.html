@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><title>Scrollable first pagination page</title>
+    <style>body { min-height: 2400px; }</style>
+  </head>
+  <body>
+    <section class="SceneGrid" id="scene-grid">
+      <article class="SceneCard"><a href="scene/scroll-page-one">Page one</a></article>
+    </section>
+    <nav class="Pagination">
+      <a rel="next" href="listing_scroll_then_pagination_2.html">Next</a>
+    </nav>
+    <script>
+      let scheduled = false;
+      window.__row363LateSceneInserted = false;
+      window.addEventListener("scroll", () => {
+        if (scheduled) return;
+        scheduled = true;
+        window.setTimeout(() => {
+          document.getElementById("scene-grid").insertAdjacentHTML(
+            "beforeend",
+            '<article class="SceneCard"><a href="scene/late-page-one">Late page one</a></article>'
+          );
+          window.__row363LateSceneInserted = true;
+        }, 4200);
+      });
+    </script>
+  </body>
+</html>
