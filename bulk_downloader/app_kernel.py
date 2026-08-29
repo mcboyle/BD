@@ -11,7 +11,7 @@ still resolve to THESE objects (same identity).
 SESSION_IDLE_TTL = 8 * 3600     # 8 hours sliding
 PAIRING_TTL = 5 * 60            # 5 min from generation
 RATE_LIMIT_WINDOW = 5.0    # seconds
-CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","submit_btn",
+CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","submit_btn","login_trigger",
             "success_url","cookie_file","trigger_selector","dl_selector","download_dir",
             "wait","delay","max_concurrent","max_retries","no_button_threshold","disk_threshold_gb","headless",
             "sched_enabled","sched_time","sched_repeat",
