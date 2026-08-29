@@ -164,6 +164,342 @@ def _jwplayer_player_markers(html: str) -> dict:
     return out
 
 
+# ── R6: CDN-fronting topology for JWPlayer delivery (row 120 / JW-TMPL) ────
+# THE TOPOLOGY IS THE SUBJECT, NOT A DESCRIPTION. R5 above already recognises
+# the signed / JWPlayer media SHAPE, but it cannot answer the question row 120
+# actually asks -- is the player or the media served from an akamai, cloudflare
+# or cloudfront-fronted host? Measured over the 21 ultrafilms captures (14
+# sessions) that question read 0 of 21: every one was JWPlayer-bearing with a
+# member-only entitlement call and signed renditions, and NONE served a player
+# or media asset from such a host. The only CDN host anywhere was
+# `cdn.jsdelivr.net`, a JS-library CDN, and the row's ruling does not count it.
+# `_LIBRARY_CDN_SUFFIXES` below encodes that ruling so the same input keeps
+# reading 0 rather than drifting to 1 the day jsdelivr answers with a `cf-ray`.
+#
+# TWO INDEPENDENT TELLS, BECAUSE ONE IS NOT ENOUGH. Akamai and cloudfront are
+# usually visible in the HOST (`*.akamaized.net`, `*.cloudfront.net`), but
+# cloudflare fronting is host-invisible by design -- a site behind cloudflare
+# keeps its own name -- so host matching alone would report cloudflare as absent
+# on every site that uses it. Response headers carry the second tell
+# (`cf-ray`, `akamai-grn`, `x-amz-cf-id`, `server:`). Both are recorded in
+# `cdn_evidence` so a reader can tell which one fired.
+#
+# SCOPED TO PLAYER AND MEDIA ASSETS, WHICH IS THE WHOLE DIFFERENCE BETWEEN A
+# RECOGNISER AND A YES-MACHINE. A news page carries dozens of ad-tech and
+# consent requests on cloudflare and cloudfront; "some request touched a CDN" is
+# true of nearly every page on the web and answers nothing. `cdn_fronted` means
+# one thing only: at least one JWPlayer PLAYER asset or one VIDEO/AUDIO/MANIFEST
+# asset was served from a CDN-fronted host. Captions are counted separately and
+# are never sufficient alone; tracker hosts are excluded via the same
+# subdomain-boundary matcher `reject_noise` uses.
+#
+# A7: an input that cannot be measured returns status "unknown" with
+# `cdn_fronted` / `jwplayer_present` as None. It never returns False, because a
+# False here would read as a measured absence of CDN fronting -- which is
+# exactly the false zero this row was parked on.
+_CDN_HOST_SUFFIXES = (
+    ("akamai", (".akamaized.net", ".akamaihd.net", ".akamai.net",
+                ".akamaiedge.net", ".akamaistream.net", ".edgesuite.net",
+                ".edgekey.net", ".akamaitechnologies.com")),
+    ("cloudfront", (".cloudfront.net",)),
+    ("cloudflare", (".cloudflarestream.com", ".cdn.cloudflare.net")),
+)
+# Library CDNs deliver third-party JS, not the site's own player/media tier.
+# The row's ruling names jsdelivr explicitly; the neighbours share its shape.
+_LIBRARY_CDN_SUFFIXES = (
+    ".jsdelivr.net", ".unpkg.com", "cdnjs.cloudflare.com", ".jquery.com",
+    ".bootstrapcdn.com", ".googleapis.com", ".gstatic.com",
+)
+_CDN_HEADER_NAMES = (
+    ("cloudflare", ("cf-ray", "cf-cache-status", "cf-request-id", "cf-apo-via")),
+    ("cloudfront", ("x-amz-cf-id", "x-amz-cf-pop")),
+)
+_CDN_SERVER_VALUES = (
+    ("cloudfront", "cloudfront"),
+    ("cloudflare", "cloudflare"),
+    ("akamai", "akamai"),
+)
+# JWPlayer PLAYER assets: the bundle/module scripts and the versioned dirs that
+# carry them. Distinct from `_is_jwplayer_target`, which R5 uses to pick media
+# and whose output is pinned by the recognizer corpus -- this one is additive
+# and feeds only the topology block.
+_JW_PLAYER_PATH_RE = re.compile(
+    r"/jwplayer(?:[.\-][^/]*)?\.js(?:$|[?#])"     # jwplayer.js, jwplayer.core.controls.js
+    r"|/jwpsrv\.js(?:$|[?#])"
+    r"|/jwplayer[/\-]"                            # /jwplayer/jwplayer-8.30.1/...
+    r"|/jw/\d+/",                                 # /jw/8/...
+    re.I)
+_JW_ENTITLEMENT_HOST_RE = re.compile(
+    r"(?:^|\.)entitlements\.(?:jwplayer|jwplatform)\.com$", re.I)
+_MEDIA_CT_RE = re.compile(
+    r"^(?:video|audio)/|mpegurl|dash\+xml|/x-mpegurl", re.I)
+_MEDIA_EXT_RE = re.compile(
+    r"\.(?:m3u8|mpd|mp4|m4s|m4v|ts|webm|ogv|mov|mkv|f4m|f4v|flv)(?:$|[?#])", re.I)
+_CAPTION_CT_RE = re.compile(r"^text/vtt|^application/x-subrip|^text/srt", re.I)
+_CAPTION_EXT_RE = re.compile(r"\.(?:vtt|srt|ttml)(?:$|[?#])", re.I)
+
+
+def _hdr_value(headers, name: str):
+    """Case-insensitive header lookup that tolerates every shape a capture has
+    carried: the HAR list of {"name","value"} dicts, a plain {name: value} dict,
+    and the list-of-pairs form used by some fixtures. `_har_get` above handles
+    only the first, and silently returns None for the other two -- which would
+    make every header-derived CDN tell read as absent."""
+    nl = name.lower()
+    if isinstance(headers, dict):
+        for k, v in headers.items():
+            if str(k).lower() == nl:
+                return v
+        return None
+    if isinstance(headers, list):
+        for h in headers:
+            if isinstance(h, dict):
+                if str(h.get("name", "")).lower() == nl:
+                    return h.get("value")
+            elif isinstance(h, (list, tuple)) and len(h) == 2:
+                if str(h[0]).lower() == nl:
+                    return h[1]
+    return None
+
+
+def _hdr_names(headers):
+    """Every response-header NAME, lowercased. Names only -- never values."""
+    if isinstance(headers, dict):
+        return [str(k).lower() for k in headers]
+    if isinstance(headers, list):
+        out = []
+        for h in headers:
+            if isinstance(h, dict):
+                out.append(str(h.get("name", "")).lower())
+            elif isinstance(h, (list, tuple)) and len(h) == 2:
+                out.append(str(h[0]).lower())
+        return out
+    return []
+
+
+def _is_library_cdn(host: str) -> bool:
+    h = (host or "").lower()
+    return any(h == s.lstrip(".") or h.endswith(s) for s in _LIBRARY_CDN_SUFFIXES)
+
+
+def _cdn_vendor_from_host(host: str):
+    """Suffix-ANCHORED vendor match. A substring test would call
+    `notakamaized.net.evil.example` an akamai host."""
+    h = (host or "").lower().split(":")[0]
+    if not h or _is_library_cdn(h):
+        return None
+    for vendor, suffixes in _CDN_HOST_SUFFIXES:
+        for s in suffixes:
+            if h == s.lstrip(".") or h.endswith(s):
+                return vendor
+    return None
+
+
+def _cdn_vendor_from_headers(headers, host: str = ""):
+    """Vendor from response-header tells. Required for cloudflare, whose
+    fronting leaves the hostname untouched."""
+    if _is_library_cdn(host):
+        return None
+    names = _hdr_names(headers)
+    if not names:
+        return None
+    for name in names:
+        if name.startswith("akamai-") or name.startswith("x-akamai-"):
+            return "akamai"
+    for vendor, tells in _CDN_HEADER_NAMES:
+        if any(t in names for t in tells):
+            return vendor
+    server = str(_hdr_value(headers, "server") or "").lower()
+    if server:
+        for vendor, needle in _CDN_SERVER_VALUES:
+            if needle in server:
+                return vendor
+    return None
+
+
+def _is_jwplayer_player_asset(host, path) -> bool:
+    """A JWPlayer PLAYER asset -- the script/bundle that renders the player."""
+    h = (host or "").lower()
+    pp = (path or "")
+    if _JW_ENTITLEMENT_HOST_RE.search(h):
+        return False                      # classified as the entitlement call
+    if any(m in h for m in _JWPLAYER_HOST_MARKERS):
+        return True
+    return bool(_JW_PLAYER_PATH_RE.search(pp))
+
+
+def _is_jwplayer_entitlement(host, path) -> bool:
+    """The JWPlayer entitlement/authorization call."""
+    h = (host or "").lower()
+    if _JW_ENTITLEMENT_HOST_RE.search(h):
+        return True
+    return (any(m in h for m in _JWPLAYER_HOST_MARKERS)
+            and "entitlement" in (path or "").lower())
+
+
+def _asset_kind(path: str, content_type: str) -> str:
+    """"media" (video/audio/manifest), "caption", or "".
+
+    THE CONTENT TYPE DECIDES, AND THE EXTENSION ONLY ARBITRATES WHAT IT LEAVES
+    OPEN. Both halves of that rule were measured, not assumed. The akamai
+    `/out/v1/<ids>/<ids>/...` segment path carries NO extension at all, so an
+    extension-only rule reads a real HLS segment as nothing. And an extension
+    checked FIRST -- or checked after an `octet-stream` match -- over-reads in
+    the other direction: on one recorded page it called `/ramen-overrides.js`
+    and an `iconfont.woff2` media, because both are served as octet-stream, and
+    `.ts` is TypeScript far more often than it is an MPEG transport stream. So a
+    server that named a definite type is believed, and only a missing or
+    deliberately ambiguous `octet-stream` type falls through to the extension.
+    """
+    ct = (content_type or "").strip().lower()
+    if ct and "octet-stream" not in ct:
+        if _CAPTION_CT_RE.search(ct):
+            return "caption"
+        return "media" if _MEDIA_CT_RE.search(ct) else ""
+    if _CAPTION_EXT_RE.search(path or ""):
+        return "caption"
+    if _MEDIA_EXT_RE.search(path or ""):
+        return "media"
+    return ""
+
+
+def jwplayer_cdn_topology(network_log) -> dict:
+    """Row 120's acceptance criterion, measured: is signed JWPlayer delivery
+    fronted by akamai / cloudflare / cloudfront?
+
+    Returns a review-only block. Hosts, counts and vendor names only -- no
+    signed value, no query string, no header value is ever carried out (F2).
+    ``status`` is "measured" or "unknown"; on "unknown" the two verdict fields
+    stay None so an unread archive can never present as a measured absence.
+    """
+    out = {
+        "status": "unknown",
+        "unknown_reason": None,
+        "entries_total": 0,
+        "entries_examined": 0,
+        "tracker_filter": "unavailable",
+        "jwplayer_present": None,
+        "cdn_fronted": None,
+        "jwplayer_player_assets": 0,
+        "jwplayer_player_hosts": [],
+        "jwplayer_entitlement_calls": 0,
+        "jwplayer_entitlement_hosts": [],
+        "media_assets": 0,
+        "media_hosts": [],
+        "caption_assets": 0,
+        "signed_media_assets": 0,
+        "signed_and_cdn_fronted_media_assets": 0,
+        "cdn_vendors": [],
+        "cdn_fronted_hosts": [],
+        "cdn_fronted_player_assets": 0,
+        "cdn_fronted_media_assets": 0,
+        "cdn_fronted_caption_assets": 0,
+        "cdn_evidence": [],
+        "excluded_tracker_hosts": [],
+    }
+    if not isinstance(network_log, list):
+        out["unknown_reason"] = (
+            "network_log is %s, not a list" % type(network_log).__name__)
+        return out
+    entries = [e for e in network_log if isinstance(e, dict)]
+    if not entries:
+        out["unknown_reason"] = (
+            "network_log carried zero request entries; a zero read out of an "
+            "unread or wrongly-parsed archive is not a measured absence")
+        return out
+
+    out["entries_total"] = len(entries)
+    # An unavailable tracker filter is RECORDED, not silently skipped: without
+    # it an ad video on a cloudflare host could read as CDN-fronted media, so a
+    # reader has to be able to see that the filter did not run.
+    try:
+        from bulk_downloader import honeypot_score as _hp
+        out["tracker_filter"] = "honeypot_score"
+    except Exception:
+        _hp = None
+
+    player_hosts, ent_hosts, media_hosts = set(), set(), set()
+    vendors, fronted_hosts, evidence, trackers = set(), set(), set(), set()
+    for e in entries:
+        url = e.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        try:
+            p = urlparse(url)
+        except Exception:
+            continue
+        host, path = (p.netloc or ""), (p.path or "")
+        if not host:
+            continue
+        if _hp is not None:
+            try:
+                if _hp._host_matches_tracker(host):
+                    trackers.add(host)
+                    continue
+            except Exception:
+                pass
+        rh = e.get("response_headers")
+        ct = str(_hdr_value(rh, "content-type") or "")
+        kind = _asset_kind(path, ct)
+        is_ent = _is_jwplayer_entitlement(host, path)
+        is_player = (not is_ent) and _is_jwplayer_player_asset(host, path)
+        if not (is_ent or is_player or kind):
+            continue
+
+        out["entries_examined"] += 1
+        if is_ent:
+            out["jwplayer_entitlement_calls"] += 1
+            ent_hosts.add(host)
+        if is_player:
+            out["jwplayer_player_assets"] += 1
+            player_hosts.add(host)
+        signed = _has_signing_query(p.query or "")
+        if kind == "media":
+            out["media_assets"] += 1
+            media_hosts.add(host)
+            if signed:
+                out["signed_media_assets"] += 1
+        elif kind == "caption":
+            out["caption_assets"] += 1
+
+        by_host = _cdn_vendor_from_host(host)
+        by_hdr = _cdn_vendor_from_headers(rh, host)
+        vendor = by_host or by_hdr
+        if not vendor:
+            continue
+        # An entitlement call is a JWPlayer control-plane call, not the player
+        # or the media, so it records the vendor but never satisfies the
+        # criterion on its own -- same rule as a caption.
+        vendors.add(vendor)
+        fronted_hosts.add(host)
+        if by_host:
+            evidence.add("host_suffix")
+        if by_hdr:
+            evidence.add("response_header")
+        if is_player:
+            out["cdn_fronted_player_assets"] += 1
+        if kind == "media":
+            out["cdn_fronted_media_assets"] += 1
+            if signed:
+                out["signed_and_cdn_fronted_media_assets"] += 1
+        elif kind == "caption":
+            out["cdn_fronted_caption_assets"] += 1
+
+    out["status"] = "measured"
+    out["jwplayer_player_hosts"] = sorted(player_hosts)
+    out["jwplayer_entitlement_hosts"] = sorted(ent_hosts)
+    out["media_hosts"] = sorted(media_hosts)
+    out["cdn_vendors"] = sorted(vendors)
+    out["cdn_fronted_hosts"] = sorted(fronted_hosts)
+    out["cdn_evidence"] = sorted(evidence)
+    out["excluded_tracker_hosts"] = sorted(trackers)
+    out["jwplayer_present"] = bool(
+        out["jwplayer_player_assets"] or out["jwplayer_entitlement_calls"])
+    out["cdn_fronted"] = bool(
+        out["cdn_fronted_player_assets"] or out["cdn_fronted_media_assets"])
+    return out
+
+
 def _supplemental_media_patterns(network_log: list) -> dict:
     """Recognize the download target via site-agnostic SIGNALS the core misses.
 
@@ -1883,6 +2219,18 @@ def build_template(path: Path) -> dict:
     # derive modal-scoped row-selector candidates (validated by the normalizer).
     network = _merge_supplemental_media(network, network_log)
     network = _merge_supplemental_api(network, network_log)
+    # Row 120: the CDN-fronting topology of JWPlayer delivery. Review-only, and
+    # deliberately a SEPARATE block rather than a change to R5's signals -- the
+    # recognizer corpus pins R5's verdicts and this must not move them. The
+    # verdict is additionally folded into download_signals (where a template
+    # consumer already looks) ONLY when a player or media asset is actually
+    # CDN-fronted, so a page that merely loads a library from a CDN adds nothing.
+    _cdn_topology = jwplayer_cdn_topology(network_log)
+    if _cdn_topology.get("cdn_fronted"):
+        _sig = set(network.get("download_signals") or [])
+        _sig.add("cdn-fronted")
+        _sig.update("cdn:%s" % v for v in _cdn_topology.get("cdn_vendors") or [])
+        network["download_signals"] = sorted(_sig)
     _modal_rows = _modal_row_selectors_from_dom(dom_log)
     if _modal_rows:
         _dl = selectors.get("download") if isinstance(selectors.get("download"), dict) else {}
@@ -2155,6 +2503,7 @@ def build_template(path: Path) -> dict:
         },
         "selectors": selectors,
         "network_discovery": network,
+        "cdn_topology": _cdn_topology,
         "resolution_priority": [
             r for r in [4320, 2160, 1440, 1080, 720, 540, 480, 360, 240]
             if r in set(network["resolutions_seen"]) or r in set(selectors.get("quality", {}).get("available_resolutions", []))
