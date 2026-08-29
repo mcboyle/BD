@@ -64,6 +64,7 @@ from .cookies import (
 from .detect import (
     find_best_download, res_label, fmt_bytes,
     disk_free_gb, safe_dest,
+    page_media_verdict, NO_VIDEO_STATE,
 )
 from .fname import resolve_filename_template, format_duration_for_filename
 from .website_title import (
@@ -3831,6 +3832,38 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     # `best` as the live result).
             if not best:
                 ss=self._screenshot(page,url)
+                # ── v3.66.x row 399: A PHOTO GALLERY IS NOT A FAILED VIDEO PAGE ──
+                #
+                # MEASURED on test6 2026-08-29 at v3.66.1348, history row 125:
+                # venus.wowgirls.com/gallery/x15b9ab4/stunned-by-each-other went
+                # needs_review with `scored ok but no download fired; saw:
+                # 6K(?):6K /films-6K/`, and bd-shoot.py against that live page
+                # reported ANCHORS 136 AFFORDANCES 143 MEDIA AFFORDANCES 0.
+                # There was no video on the page at all -- /gallery/ is a photo
+                # set -- so both that message and "No download button found"
+                # send the operator hunting a broken selector on a page with
+                # nothing to select, and the drift counter below records it as
+                # template breakage that would pause the whole site after five.
+                #
+                # So SAY WHICH OF THE TWO IT IS. This is not a selector failure
+                # and must not be counted as one. UNKNOWN (an unmeasurable page,
+                # or zero affordances of ANY kind -- an unrendered page or an
+                # unauthenticated session) falls through unchanged: it is never
+                # read as "there is no video here".
+                _no_video,_aff,_med=page_media_verdict(page)
+                if _no_video is True:
+                    _nv_msg=(f"No video on this page ({NO_VIDEO_STATE}) — "
+                             f"{_med} media affordances of {_aff}. There is "
+                             f"nothing here to download; no control was missed.")
+                    sys.stderr.write(
+                        f"  download: {NO_VIDEO_STATE} {url[-40:]} — "
+                        f"{_med} media affordances of {_aff}\n")
+                    self._update_job(url,"needs_review",_nv_msg,screenshot=ss)
+                    db_log(self.site_id,self.config.get("name","?"),url,
+                           "needs_review","",0,
+                           f"{NO_VIDEO_STATE}; {_med} media affordances "
+                           f"of {_aff}",ss)
+                    return
                 self._consec_no_btn+=1
                 threshold=int(self.config.get("no_button_threshold",5))
                 if self._consec_no_btn>=threshold:
