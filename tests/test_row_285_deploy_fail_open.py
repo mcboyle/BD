@@ -49,6 +49,9 @@ def _installed_deploy(fx) -> subprocess.CompletedProcess[str]:
         "5",
         "--interval",
         "1",
+        # Row 391: the fixture origin is a local bare repo, so the intended
+        # commit must be stated rather than inferred from a mirror's main.
+        *deploy_support._expect_commit_args(fx, ()),
     ]
     return subprocess.run(
         argv,

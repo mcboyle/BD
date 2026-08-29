@@ -55,6 +55,7 @@
 #
 # Flags:
 #   --dir PATH        install dir (default: $BD_DEPLOY_DIR, else ~/BulkDownloader)
+#   --expect-commit S the 40-hex commit this deploy is SUPPOSED to land
 #   --discard-local   proceed over operator live edits, after listing them
 #   --skip-graph-pin  skip the graph content re-pin (the next capture WILL drift)
 #   --health-url URL  (default: http://localhost:5555/api/health)
@@ -75,8 +76,25 @@
 #                      this script's stopped window, so it is REFUSED rather than
 #                      silently ignored -- see step [0].
 #
-# There is no --expect flag: the expected version is DERIVED from the tree this
-# script just reset to, so it cannot disagree with what was deployed.
+# THE EXPECTED VERSION IS DERIVED; THE INTENDED COMMIT IS DECLARED. These are
+# different questions and conflating them is what shipped a 21-version-stale
+# host as DEPLOY OK on 2026-08-29. The VERSION the health gate demands is read
+# out of the tree that was just reset to, so it can never disagree with what
+# landed -- that stays derived and there is no flag for it. The COMMIT the
+# deploy was FOR cannot be derived here at all on a host whose `origin` is a
+# LOCAL BARE MIRROR (two fleet boxes clone from /home/mboyle/bd.git on that same
+# box): `git fetch origin` succeeds, returns 0, delivers nothing, and leaves the
+# checkout exactly where it was. Everything downstream then agreed with itself
+# -- tree version == health version == the stale tree -- and the script printed
+# success having compared the deployed commit to NOTHING.
+#
+# So step [1b] establishes an INTENDED COMMIT before anything is mutated, step
+# [4] resets to THAT rather than to whatever origin/main names, and step [13]
+# re-asserts the tree is still it before any verdict is printed. It comes from
+# --expect-commit when the operator states it, or from origin/main when and
+# only when `origin` is the official origin. Neither available means the
+# intended commit is UNMEASURED, and unknown is a third state that FAILS
+# (CLAUDE.md A2/A7) -- it refuses at step [1b], before the first side effect.
 #
 # Operator-executed. coreutils + git + curl; the only Python it runs is the
 # tree's own tools under the venv interpreter.
@@ -115,6 +133,9 @@ usage() {
 deploy.sh -- the git deploy path for BulkDownloader.
 
   --dir PATH        install dir (default: $BD_DEPLOY_DIR, else ~/BulkDownloader)
+  --expect-commit S the 40-hex commit this deploy is SUPPOSED to land. Required
+                    when `origin` is not the official origin, because a fetch
+                    from a mirror succeeds whether or not the mirror is current
   --discard-local   proceed over operator live edits, after listing them
   --skip-graph-pin  skip the graph content re-pin (the next capture WILL drift)
   --health-url URL  default http://localhost:5555/api/health
@@ -128,8 +149,36 @@ exit 2  refusal / precondition -- NOTHING was mutated
 USAGE
 }
 
+# THE OFFICIAL ORIGIN. CLAUDE.md A1 names it: `mcboyle/BD`. This predicate is
+# the only thing between "the fetch succeeded" and "the fetch reached the
+# repository whose main IS the project's main", and on two fleet hosts those are
+# different repositories: each clones from a LOCAL BARE MIRROR at
+# /home/mboyle/bd.git on that same host, so a fetch that nothing has pushed into
+# returns 0 and delivers nothing.
+#
+# EXACT MATCHES, NEVER GLOBS. A pattern loose enough to admit a fork
+# (mcboyle/BD-fork) or a look-alike host would put the step [1b] refusal out of
+# reach while still reading as a check -- a gate that cannot see its subject.
+# Case is folded and one trailing slash and one .git suffix are stripped because
+# all four spellings name the same GitHub repository; nothing else is accepted.
+# The locals are unprefixed on purpose: a BD_-prefixed shell local enters
+# tests/test_gui_parity.py's config-surface denominator (CLAUDE.md A8).
+_origin_is_authoritative() {
+  _oia_url="$(printf '%s' "${1:-}" | tr 'A-Z' 'a-z')"
+  _oia_url="${_oia_url%/}"
+  _oia_url="${_oia_url%.git}"
+  case "$_oia_url" in
+    https://github.com/mcboyle/bd)    return 0;;
+    http://github.com/mcboyle/bd)     return 0;;
+    ssh://git@github.com/mcboyle/bd)  return 0;;
+    git@github.com:mcboyle/bd)        return 0;;
+  esac
+  return 1
+}
+
 DIR=""
 DISCARD=0
+EXPECT_COMMIT=""
 SKIP_GRAPH=0
 HEALTH_URL="http://localhost:5555/api/health"
 TIMEOUT=120
@@ -144,6 +193,7 @@ unset DEPLOY_POST_RESET_EXPECT
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)            DIR="${2:-}"; shift 2;;
+    --expect-commit)  EXPECT_COMMIT="${2:-}"; shift 2;;
     --discard-local)  DISCARD=1; shift;;
     --skip-graph-pin) SKIP_GRAPH=1; shift;;
     --health-url)     HEALTH_URL="${2:-}"; shift 2;;
@@ -161,6 +211,22 @@ done
 case "$TIMEOUT" in ''|*[!0-9]*) refuse "--timeout must be a whole number of seconds, got: $TIMEOUT";; esac
 case "$INTERVAL" in ''|*[!0-9]*) refuse "--interval must be a whole number of seconds, got: $INTERVAL";; esac
 [ "$INTERVAL" -gt 0 ] || refuse "--interval must be greater than 0"
+
+# A FULL SHA, NOT AN ABBREVIATION. The caller is automation that has just
+# pushed the object and holds all 40 characters; an abbreviation buys nothing
+# and becomes ambiguous as history grows, at which point rev-parse resolves it
+# to the wrong commit or to none and this script would be arguing about a
+# different thing than the operator was. Checked here, in the pre-mutation
+# block, so a typo costs exit 2 and no side effect.
+if [ -n "$EXPECT_COMMIT" ]; then
+  EXPECT_COMMIT="$(printf '%s' "$EXPECT_COMMIT" | tr 'A-Z' 'a-z')"
+  case "$EXPECT_COMMIT" in
+    *[!0-9a-f]*) refuse "--expect-commit must be a full 40-character hex commit
+  sha; got: $EXPECT_COMMIT";;
+  esac
+  [ "${#EXPECT_COMMIT}" -eq 40 ] || refuse "--expect-commit must be a full
+  40-character hex commit sha, not an abbreviation; got: $EXPECT_COMMIT"
+fi
 
 # BD_RESTART_CMD is honoured by being REFUSED, not by being ignored. The zip
 # deploy restarted in one command; this one needs a STOPPED WINDOW (the bytecode
@@ -296,9 +362,57 @@ note "preconditions OK: $DIR (venv python: $VENV_PY)"
 # else and leaves every other stale ref in place (CLAUDE.md section 2a).
 STEP=1
 git fetch --prune origin >/dev/null 2>&1 || die "git fetch --prune origin failed"
-NEW="$(git rev-parse origin/main 2>/dev/null || true)"
-[ -n "$NEW" ] || die "origin/main does not resolve after a successful fetch"
-note "fetched; origin/main = $NEW"
+# THE URL IS EVIDENCE, NOT DECORATION. Exit 0 from fetch says a repository
+# answered, never which repository, and step [1b] is about exactly that
+# difference. Printed on every run so the operator reading a verdict can see
+# what it was a verdict about.
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+ORIGIN_MAIN="$(git rev-parse origin/main 2>/dev/null || true)"
+[ -n "$ORIGIN_MAIN" ] || die "origin/main does not resolve after a successful fetch"
+note "fetched from ${ORIGIN_URL:-<no origin url>}; origin/main = $ORIGIN_MAIN"
+
+# ── [1b] the commit this deploy is SUPPOSED to land ─────────────────
+# Before this step existed, "what should be running here" had no representation
+# anywhere in the script, so no later check could be wrong about it. Everything
+# after this point lands $NEW and is verified against $NEW.
+STEP=1b
+if [ -n "$EXPECT_COMMIT" ]; then
+  # The object must be PRESENT after the fetch. This is the stale-mirror shape
+  # seen from the operator's side: they pushed nothing into the host's bare
+  # repo, the fetch still returned 0, and the commit they asked for is simply
+  # not here. Nothing but its absence can report that.
+  git rev-parse --verify --quiet "${EXPECT_COMMIT}^{commit}" >/dev/null 2>&1 \
+    || refuse "INTENDED-COMMIT-ABSENT: --expect-commit named $EXPECT_COMMIT, the
+  fetch from ${ORIGIN_URL:-<no origin url>} SUCCEEDED, and that commit is still
+  not in this repository -- origin/main there is $ORIGIN_MAIN. A fetch exiting 0
+  is not evidence it delivered anything. If that remote is a local mirror, push
+  the object into it first:
+      git push <mirror> $EXPECT_COMMIT:refs/heads/main
+  Nothing has been changed."
+  NEW="$EXPECT_COMMIT"
+  INTENDED_SOURCE="--expect-commit"
+  if [ "$NEW" != "$ORIGIN_MAIN" ]; then
+    note "NOTE: origin/main at ${ORIGIN_URL:-<no origin url>} is $ORIGIN_MAIN,
+  which is NOT the intended commit. This deploy lands the INTENDED commit; the
+  operator's stated target outranks whatever that remote's main happens to name."
+  fi
+elif _origin_is_authoritative "$ORIGIN_URL"; then
+  NEW="$ORIGIN_MAIN"
+  INTENDED_SOURCE="origin/main at the official origin"
+else
+  refuse "ORIGIN-NOT-AUTHORITATIVE: origin is ${ORIGIN_URL:-<no origin url>},
+  which is not the official origin (mcboyle/BD), so origin/main here is a MIRROR
+  of unknown currency and the commit this deploy should land is UNMEASURED. A
+  fetch from a mirror succeeds whether or not anything has been pushed into it:
+  on 2026-08-29 that shape certified a host whose tree was 21 versions stale.
+  (The verdict strings this script prints on success are deliberately NOT
+  quoted in this message: a refusal that contains them reads as one of them to
+  anything grepping the output.)
+  Unknown is a third state and it fails rather than guessing. Re-run with
+  --expect-commit <40-hex sha> naming the commit this host is meant to run.
+  Nothing has been changed."
+fi
+note "intended commit is $NEW (source: $INTENDED_SOURCE)"
 
 # ── [2] show what is about to land, BEFORE any mutation ─────────────
 STEP=2
@@ -308,10 +422,10 @@ if [ "$OLD" = "$NEW" ]; then
   note "source already current at $OLD"
 else
   SAME=0
-  note "incoming commits (HEAD..origin/main):"
-  git log --oneline HEAD..origin/main
+  note "incoming commits (HEAD..$NEW):"
+  git log --oneline "HEAD..$NEW"
   note "incoming diffstat:"
-  git diff --stat HEAD origin/main
+  git diff --stat HEAD "$NEW"
 fi
 
 # ── [3] operator live-edit gate ─────────────────────────────────────
@@ -335,8 +449,8 @@ DIRTY="$(git status --porcelain --untracked-files=no)"
 # as an uncommitted edit, and `git status` is silent about it. Ask the question
 # git actually answers: is HEAD an ancestor of what we are about to reset to?
 LOCAL_COMMITS=""
-if [ "$SAME" -eq 0 ] && ! git merge-base --is-ancestor HEAD origin/main; then
-  LOCAL_COMMITS="$(git log --oneline origin/main..HEAD)"
+if [ "$SAME" -eq 0 ] && ! git merge-base --is-ancestor HEAD "$NEW"; then
+  LOCAL_COMMITS="$(git log --oneline "$NEW..HEAD")"
 fi
 
 if [ -n "$DIRTY" ] || [ -n "$LOCAL_COMMITS" ]; then
@@ -346,7 +460,7 @@ if [ -n "$DIRTY" ] || [ -n "$LOCAL_COMMITS" ]; then
     git diff --stat || true
   fi
   if [ -n "$LOCAL_COMMITS" ]; then
-    note "commits on HEAD that are NOT in origin/main and would be DESTROYED:"
+    note "commits on HEAD that are NOT in the intended commit and would be DESTROYED:"
     printf '%s\n' "$LOCAL_COMMITS"
   fi
   if [ "$DISCARD" -eq 0 ]; then
@@ -375,7 +489,11 @@ fi
 # across the reset, confirming the rename/new-inode mechanism.
 #
 STEP=4
-git reset --hard origin/main >/dev/null || die "git reset --hard origin/main failed"
+# THE TARGET IS THE INTENDED COMMIT, NOT THE REF. Resetting to `origin/main`
+# re-reads the remote-tracking ref and would silently land whatever it names --
+# including a mirror's stale main, and including a commit that moved after step
+# [1b] decided what this run was for.
+git reset --hard "$NEW" >/dev/null || die "git reset --hard $NEW failed"
 [ "$(git rev-parse HEAD)" = "$NEW" ] \
   || die "reset reported success but HEAD is $(git rev-parse HEAD), not $NEW"
 note "tree reset to $NEW"
@@ -792,6 +910,21 @@ note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
 # current and whose ENVIRONMENT had not converged, which is why "already
 # current" is still a full verification and not an early return.
 STEP=13
+# THE VERDICT IS CHECKED AGAINST THE TREE THAT IS THERE NOW. Step [4] asserted
+# HEAD immediately after its own reset, which says nothing about steps [5]-[12]
+# -- pip, a bundle build, a bytecode sweep and a parity regen all run inside
+# this work tree, and any of them (or an operator, or a second writer) can move
+# it. The health gate cannot see that: two commits routinely carry the same
+# __version__, so a tree moved to a sibling commit answers the version probe
+# correctly and reports OK for a commit this deploy was told not to land.
+FINAL_HEAD="$(git rev-parse HEAD 2>/dev/null || true)"
+[ "$FINAL_HEAD" = "$NEW" ] \
+  || die "DEPLOYED-TREE-IS-NOT-THE-INTENDED-COMMIT: this deploy set out to land
+  $NEW ($INTENDED_SOURCE) and $DIR is at ${FINAL_HEAD:-<unresolved>} now. The
+  tree moved after step [4]; every verification above described a tree that is
+  no longer on disk, so none of them certifies this host."
+note "deployed tree is still the intended commit $NEW"
+
 # The record is written LAST, after both health and GET / verified. Writing it
 # beside the pin at step 7 would let a later failed deploy claim this tree had
 # deployed successfully. It is the exact Git TREE rather than a version string:
@@ -812,9 +945,9 @@ recorded_tree="$(tr -d '\r\n' < "$PIN_DEPLOY_RECORD" 2>/dev/null || true)"
 note "deployed tree provenance recorded beside graph pin: $DEPLOY_TREE"
 if [ "$SAME" -eq 1 ] && [ -z "$handoff_expected" ] \
    && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
-  note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW)"
+  note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW), intended via $INTENDED_SOURCE"
 else
-  note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW)"
+  note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW), intended via $INTENDED_SOURCE"
 fi
 DEPLOY_SUCCEEDED=1
 exit 0

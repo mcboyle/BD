@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1351 - deploy.sh reported success while landing a 20-version-old tree
+
+- deploy.sh establishes an intended commit before it mutates anything, resets
+- A fetch that reaches a repository other than the official origin now refuse
+- A stated --expect-commit that a successful fetch did not deliver refuses wi
+- A tree moved after step 4 by pip, a bundle build or a sweep can no longer b
+- deploy.sh reported success while landing a 20-version-old tree
+- test: test_deploy_script.py
+- test: test_row391_deploy_proves_the_intended_commit.py
+- test: test_row_285_deploy_fail_open.py
+- 5 file(s), 608 insertion(s) in the worker diff
+
 ## v3.66.1350 - 8528 tests judged the tree while the app could not complete a download
 
 - The download chain is gated end to end: DOM, ranking, direct-URL resolution
