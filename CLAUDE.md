@@ -354,6 +354,24 @@ invocation (`^bash /path/to/script`) or match a known PID. A count that is
 suspiciously uniform across hosts is the tell that the probe is counting itself;
 print the matching lines once and read them before trusting any such number.
 
+A RENDERED PAGE IS EVIDENCE; A CANDIDATE LIST IS A CLAIM ABOUT IT. On
+2026-08-29 BD chose a download link, saved 5,102,802,950 bytes, and recorded it
+under the requested scene's title -- and the file was a different scene. The
+history row said `done`, the library title read correctly, the candidate
+ranking looked sane, and all three were wrong. One screenshot answered it: below
+the scene's own six download tiers sat a Related Videos grid of ~25 scenes, each
+card exposing its own direct .mp4 links -- 159 media links on one page, six of
+them the requested work. Capture what the browser sees BEFORE theorising,
+whenever a result looks wrong or looks right for a reason you cannot name. The
+same rule works in the other direction and did within the hour: a filename audit
+called three teenmegaworld rows mis-filed, and the page showed the performer and
+studio that the filename encodes, so the files were correct and the comparison
+was wrong. The operator harness carries `bd-shoot.py` for this: a site id, a
+URL and a destination, printing the page title and every media link it can see.
+It is harness rather than `toolchain/bin` deliberately -- it drives a real
+browser against an authenticated site, which A6 forbids a repository test from
+doing, so it is an operator instrument and never a gate.
+
 Environment-changing tests remove inherited values rather than merely declining
 to set them. To ask whether importing code touches a resource, instrument the
 resource boundary and exercise relevant flag states; source reading is not

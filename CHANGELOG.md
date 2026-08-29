@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1347 - a rendered page is evidence; a candidate list is a claim about it
+
+- CLAUDE.md A7 gains "a rendered page is evidence; a candidate list is a clai
+- it records the incident that earned it: BD saved 5,102,802,950 bytes of a d
+- it records the same rule clearing three false positives an hour later, so t
+- it names bd-shoot.py in the operator harness and states why that tool is ha
+
 ## v3.66.1346 - the right link is chosen, clicked, and no download event ever fires
 
 - a leaf anchor whose href IS the media file is now fetched instead of clicke
