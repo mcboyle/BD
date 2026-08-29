@@ -636,6 +636,80 @@ class TransportMixin:
         return h[:7] == b"#EXTM3U"
 
     @staticmethod
+    @staticmethod
+    def _direct_media_route(href, page_url):
+        """(media_url, destination_name) if `href` IS the file, else (None, None).
+
+        v3.66.x row 384 -- THE SECOND ROUTING DECISION, AS A PURE FUNCTION.
+
+        The direct-URL fast path above is gated on `_via_learned and url_attr`,
+        and `_via_learned` is set at exactly ONE place (detect.py, the learned
+        branch). So a WIDE-SWEEP winner can never reach it, however perfect its
+        href, and falls through to expect_download(timeout=60000). Measured on
+        test6 at v3.66.1342 with both ranking fixes deployed: BD chose
+        A[href=https://content2a.nubilefilms.com/.../..._3840.mp4?st=..&e=..&dl=..],
+        score 2160, size 5,368,709,120 -- the right link -- clicked it, the
+        browser navigated a signed cross-host .mp4, and the job recorded
+        "no dl event; scored ok but no download fired" a full minute later.
+
+        MANIFESTS ARE NOT OURS. _stream_route is consulted first by the caller,
+        and this function ALSO refuses .m3u8/.mpd outright, so the ordering
+        cannot silently invert and hand ffmpeg's work to httpx.
+
+        RESOLVE THE RELATIVE HREF -- Phase 19.fix's lesson and _stream_route's:
+        a browser resolves it natively on click, httpx gets a string and cannot.
+
+        PREFER THE SITE'S OWN NAME. `dl=` (and `filename=`) is what the site
+        intends the file to be called, and it is what skip_if_exists compares
+        on the next run; the path basename is the fallback.
+        """
+        if not href or not isinstance(href, str):
+            return None, None
+        raw = href.strip()
+        if not raw or raw.startswith(("#", "javascript:", "mailto:", "data:")):
+            return None, None
+        try:
+            from urllib.parse import urljoin, urlparse, parse_qs, unquote
+            absolute = raw if raw.startswith(("http://", "https://")) \
+                else urljoin(page_url or "", raw)
+            parsed = urlparse(absolute)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                return None, None
+            path = (parsed.path or "").lower()
+            # Refuse a manifest even though the caller asks _stream_route first.
+            # ASK THE OWNER. hls_downloader.is_streaming_url holds the streaming
+            # table; a local ".m3u8"/".mpd" tuple here would be a SECOND COPY of
+            # it, which tests/test_a_manifest_is_not_a_finished_download.py
+            # refuses by name -- and it caught this function doing exactly that.
+            # A soft import, like the PWTimeout branch below: if hls_downloader
+            # cannot be reached we cannot rule a manifest out, so we decline the
+            # direct fetch and fall back to the CLICK path, which is today's
+            # behaviour. Never guess our way into handing ffmpeg's work to httpx.
+            try:
+                from . import hls_downloader as _hls
+            except Exception:
+                return None, None
+            if _hls.is_streaming_url(absolute):
+                return None, None
+            if not path.endswith((".mp4", ".m4v", ".mkv", ".mov", ".webm",
+                                  ".avi", ".wmv")):
+                return None, None
+            qs = parse_qs(parsed.query or "")
+            name = ""
+            for key in ("dl", "filename", "file"):
+                if qs.get(key) and qs[key][0].strip():
+                    name = unquote(qs[key][0].strip())
+                    break
+            if not name:
+                name = unquote(Path(parsed.path).name or "")
+            if not name:
+                return None, None
+            return absolute, name
+        except Exception:
+            # An unparseable href is not a direct fetch. Fail to the CLICK
+            # path, which is what happens today -- never to a wrong URL.
+            return None, None
+
     def _stream_route(href, page_url):
         """(manifest_url, destination_name) if `href` is a stream, else (None, None).
 
@@ -991,6 +1065,17 @@ class TransportMixin:
                 self._update_job(page_url, "running",
                                  "Streaming manifest — downloading segments "
                                  "with ffmpeg...")
+            elif _href:
+                # row 384: not a manifest, but the href may BE the file. The
+                # fast path above only fires for a learned hit, so without this
+                # a wide-sweep winner is clicked and expect_download waits 60s
+                # for an event a cross-host signed .mp4 will never produce.
+                _durl, _dname = TransportMixin._direct_media_route(_href, page.url)
+                if _durl:
+                    direct_url, suggested = _durl, _dname
+                    sys.stderr.write(
+                        f"  download: direct media href -> {_dname} "
+                        f"({_durl[:90]})\n")
 
         # ── Standard path: click and let Playwright capture the download ──
         if not direct_url:

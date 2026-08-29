@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1346 - the right link is chosen, clicked, and no download event ever fires
+
+- a leaf anchor whose href IS the media file is now fetched instead of clicke
+- the direct-URL fast path was gated on _via_learned, set only in detect.py's
+- measured on test6 at v3.66.1342: BD chose the right link, a signed cross-ho
+- the routing decision is a pure function over two strings, matching _stream_
+- manifests keep priority: _stream_route is asked first, and the new route re
+- two existing gates refuse that duplication by name, and they caught this fu
+- the destination name prefers the site's own dl= or filename= parameter over
+- a relative href is resolved against the page, which a browser does natively
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _a_direct_media_href_is_fetched.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1345 - a mutant anchoring on a re-derived value stops rotting on neighbouring cuts (+1 file-disjoint row(s): 371)
 
 - a mutant anchoring on a re-derived value stops rotting on neighbouring cut
