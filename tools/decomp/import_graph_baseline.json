@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4062,
+  "edge_count": 4065,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3528,6 +3528,11 @@
     ],
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
+    ],
+    "tests/test_row122_challenge_resume_event.py": [
+      "bulk_downloader/challenge_handling.py",
+      "bulk_downloader/session_capture.py",
+      "tools/capture_session.py"
     ],
     "tests/test_row339_measurement_noise_bounds.py": [
       "tools/verify_release.py"

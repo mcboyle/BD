@@ -681,12 +681,23 @@ def drive_challenge_handling(observe_fn, *, tick_fn=None,
                     pass
             # re-run DETECTION on a fresh observation; advance to a resumable
             # state ONLY if the detector now confirms the challenge is gone.
-            if handler.observe(observe_fn()):
+            fresh = observe_fn()
+            if not observation_is_conclusive(fresh):
+                # Row 122: a page we could not READ is UNKNOWN, not cleared. The
+                # observation builder degrades every failed read to "", and an
+                # empty observation carries no markers, so the detector would
+                # answer "absent" and resume a run over a page nobody saw. Keep
+                # waiting instead; the budget still ends in an operator handoff.
+                continue
+            if handler.observe(fresh):
                 if log_fn is not None:
                     try:
                         log_fn(handler.to_log_event())
                     except Exception:
                         pass
+                # Row 122: the explicit detector-cleared / resume EVENT, filed
+                # once, by the detector path that actually observed the clear.
+                emit_challenge_resume_event(handler, fresh, log_fn=log_fn)
                 return handler  # challenge_cleared_observed (resumable)
         handler.mark_passive_timeout()
 
@@ -740,3 +751,204 @@ def handle_challenge_on_page(page, *, passive_budget_s: Optional[float] = None,
         poll_interval_s=poll_interval_s, artifact_fn=artifact_fn,
         log_fn=log_fn, clock=clock,
     )
+
+
+# ── P3-T12-CALLSITE (backlog row 122): the explicit detector-cleared / resume
+#    EVENT ───────────────────────────────────────────────────────────────────
+#
+# Detect, pause and handoff were already observed live -- a human completed a
+# real challenge in the noVNC browser -- but the held-open runner then DISCARDED
+# the handler, so there was no first-class record of the one fact that authorises
+# the run to continue: THE DETECTOR CONFIRMED THE CHALLENGE IS GONE. Reading that
+# fact off later authenticated traffic would be asserting over a subject the
+# instrument never saw, so the event is emitted by the detector path itself or
+# not at all.
+#
+# The event is deliberately THREE-VALUED, because the two-valued version is a
+# fail-open. ``observe_page_for_challenge`` degrades every failed read to an
+# empty string, and an empty observation carries no challenge markers, so the
+# keyword detector answers "absent" -- which the passive loop used to accept as a
+# confirmed clear. A page that could not be READ is UNKNOWN, and UNKNOWN never
+# resumes (CLAUDE.md A7: unavailable measurement returns UNKNOWN, not OK).
+#
+# What this adds is a record and a refusal. It still never interacts with a
+# widget, never claims automation cleared anything (``solved`` stays False), and
+# carries no raw challenge material -- only the decision, the reached state, the
+# routing labels and a reason.
+
+CHALLENGE_RESUME_EVENT = "challenge_resume"     # distinct from "challenge_handling"
+RESUME_DECISION_RESUMED = "resumed"             # detector confirmed gone -> resume
+RESUME_DECISION_BLOCKED = "blocked"             # still challenged -> stay paused
+RESUME_DECISION_UNKNOWN = "unknown"             # cannot tell -> stay paused
+
+# The states the framework reaches only AFTER the detector confirmed absence.
+# Used solely as a fallback when a caller passes a duck-typed handler with no
+# ``can_resume``; the handler's own gate is authoritative when it has one, and
+# ``test_row122_challenge_resume_event`` pins this set against the framework's.
+_RESUMABLE_STATES = frozenset({"challenge_cleared_observed",
+                               "operator_handoff_complete"})
+
+_RESUME_EVENT_ATTR = "_bd_challenge_resume_event"
+_MISSING = object()
+
+
+def observation_is_conclusive(observation: Any) -> bool:
+    """True only when the observation carries something the detector can judge.
+
+    ``observe_page_for_challenge`` returns empty strings for every read that
+    raised, so an all-empty observation is indistinguishable from a clean page to
+    a keyword detector. It is not evidence of absence -- it is the absence of
+    evidence, and this predicate is what keeps the two apart.
+    """
+    if not isinstance(observation, dict):
+        return False
+    for key in ("text", "title"):
+        value = observation.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    markers = observation.get("markers")
+    if isinstance(markers, (list, tuple, set, frozenset)):
+        for marker in markers:
+            if str(marker).strip():
+                return True
+    return False
+
+
+def _resume_event(decision: str, handler, state, detector_cleared,
+                  reason: str) -> Dict[str, Any]:
+    try:
+        challenge_type = str(handler.challenge_type)
+    except Exception:
+        challenge_type = "unknown"
+    labels: List[str] = []
+    try:
+        raw_labels = handler.to_log_event().get("labels")
+        if isinstance(raw_labels, (list, tuple)):
+            labels = [str(x) for x in raw_labels]
+    except Exception:
+        labels = []
+    return {
+        "event": CHALLENGE_RESUME_EVENT,
+        "decision": decision,
+        # tri-state on purpose: True / False / None(UNKNOWN). Never defaulted.
+        "detector_cleared": detector_cleared,
+        "resume_permitted": decision == RESUME_DECISION_RESUMED,
+        "state": state,
+        "challenge_type": challenge_type,
+        "labels": labels,
+        "reason": reason,
+        "solved": False,                 # automation never clears a challenge
+        "raw_challenge_material": False,  # asserted: decision + state only
+    }
+
+
+def challenge_resume_event(handler, fresh_observation=None
+                           ) -> Optional[Dict[str, Any]]:
+    """Build the explicit detector-cleared / resume event for ``handler``.
+
+    Returns ``None`` -- no event at all -- when no challenge was ever detected;
+    a run over a clean site must stay exactly as quiet as it was before. A
+    handler that is missing entirely (a degraded seam) is UNKNOWN, not OK.
+
+    ``fresh_observation`` is the observation the decision is made over. Passing
+    ``None`` means "no fresh reading was taken", and the decision then rests on
+    the handler's own detector-gated state; passing an observation the detector
+    could not read yields UNKNOWN rather than a clear.
+    """
+    if handler is None:
+        return _resume_event(RESUME_DECISION_UNKNOWN, None, None, None,
+                             "detector_unavailable")
+    state = getattr(handler, "state", _MISSING)
+    if state is _MISSING:
+        return _resume_event(RESUME_DECISION_UNKNOWN, handler, None, None,
+                             "detector_state_unavailable")
+    if state is None:
+        return None                      # inert: no challenge, so no event
+    if fresh_observation is not None and not observation_is_conclusive(fresh_observation):
+        return _resume_event(RESUME_DECISION_UNKNOWN, handler, state, None,
+                             "observation_inconclusive")
+    try:
+        permitted = bool(handler.can_resume(fresh_observation))
+    except Exception:
+        permitted = state in _RESUMABLE_STATES
+    if permitted:
+        return _resume_event(RESUME_DECISION_RESUMED, handler, state, True,
+                             "detector_confirmed_challenge_gone")
+    return _resume_event(RESUME_DECISION_BLOCKED, handler, state, False,
+                         "paused_in_" + str(state))
+
+
+def recorded_resume_event(handler) -> Optional[Dict[str, Any]]:
+    """The resume event already recorded on ``handler``, or None."""
+    if handler is None:
+        return None
+    return getattr(handler, _RESUME_EVENT_ATTR, None)
+
+
+def emit_challenge_resume_event(handler, fresh_observation=None, log_fn=None
+                                ) -> Optional[Dict[str, Any]]:
+    """Record the resume decision for this handler and hand it to ``log_fn``.
+
+    ONLY A ``resumed`` DECISION IS TERMINAL, and only a terminal decision claims
+    the once-per-run slot: the passive-clear path in the driver and the held-open
+    call site cannot both file the same clear, and a second call after a clear
+    returns ``None``. A ``blocked`` or ``unknown`` decision is a reading of a run
+    that is still paused, so it must NOT latch -- latching it would leave the
+    human's later clear permanently unreportable, which is the very fail-open
+    this row exists to refuse. Never raises.
+    """
+    if recorded_resume_event(handler) is not None:
+        return None
+    event = challenge_resume_event(handler, fresh_observation)
+    if event is None:
+        return None
+    if handler is not None and event["decision"] == RESUME_DECISION_RESUMED:
+        try:
+            setattr(handler, _RESUME_EVENT_ATTR, event)
+        except Exception:
+            pass
+    if log_fn is not None:
+        try:
+            log_fn(event)
+        except Exception:
+            pass
+    return event
+
+
+def emit_resume_when_cleared(handler, observe_fn, log_fn=None
+                             ) -> Optional[Dict[str, Any]]:
+    """Poll a paused run and emit the resume event WHEN, and only when, the
+    detector confirms the challenge is gone.
+
+    This is the operator path made reachable: after a human handles the challenge
+    in the noVNC browser, the held-open loop calls this once per tick, it re-runs
+    DETECTION on a fresh read of the same page, and only a conclusive, cleared
+    reading advances the handler and files the event. Nothing here interacts with
+    the page beyond the read-only observation the caller supplies.
+
+    Zero cost on a clean run: an inert handler returns before ``observe_fn`` is
+    ever called, so a capture with no challenge never pays for this path. Returns
+    the event on the tick that resumed, otherwise ``None``. Never raises.
+    """
+    if handler is None:
+        return None
+    state = getattr(handler, "state", None)
+    if state is None:
+        return None                      # inert: never even observe the page
+    if recorded_resume_event(handler) is not None:
+        return None                      # already filed: exactly once per run
+    try:
+        fresh = observe_fn()
+    except Exception:
+        return None                      # nothing observed -> nothing claimed
+    if not observation_is_conclusive(fresh):
+        return None                      # UNKNOWN is not a clear and not an event
+    if state not in _RESUMABLE_STATES:
+        # An operator signal is not proof either: the framework re-runs the
+        # detector and refuses the transition while the challenge is present.
+        try:
+            if not bool(handler.operator_complete(fresh)):
+                return None
+        except Exception:
+            return None
+    return emit_challenge_resume_event(handler, fresh, log_fn=log_fn)
