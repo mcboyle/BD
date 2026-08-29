@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4052,
+  "edge_count": 4062,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -108,6 +108,7 @@
       "bulk_downloader/app_diagnostics_bundle.py",
       "bulk_downloader/app_discovery.py",
       "bulk_downloader/app_doctor.py",
+      "bulk_downloader/app_download_hold.py",
       "bulk_downloader/app_edge_deploy.py",
       "bulk_downloader/app_envfile_editor.py",
       "bulk_downloader/app_eol.py",
@@ -493,6 +494,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/doctor.py"
     ],
+    "bulk_downloader/app_download_hold.py": [
+      "bulk_downloader/download_hold.py"
+    ],
     "bulk_downloader/app_edge_deploy.py": [
       "bulk_downloader/edge_deploy.py"
     ],
@@ -536,6 +540,7 @@
     ],
     "bulk_downloader/app_health.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/download_hold.py",
       "bulk_downloader/healthcheck.py",
       "bulk_downloader/secrets_store.py"
     ],
@@ -1293,6 +1298,9 @@
     "bulk_downloader/dom_recorder.py": [
       "bulk_downloader/session_capture.py"
     ],
+    "bulk_downloader/download_hold.py": [
+      "bulk_downloader/global_config.py"
+    ],
     "bulk_downloader/download_window.py": [
       "bulk_downloader/app.py"
     ],
@@ -1658,6 +1666,7 @@
       "bulk_downloader/dedup.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/download_egress.py",
+      "bulk_downloader/download_hold.py",
       "bulk_downloader/download_supervisor.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/error_fingerprint.py",
@@ -3630,6 +3639,13 @@
     ],
     "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py": [
       "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_row390_download_hold_survives_restart.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/download_hold.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/runner.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
