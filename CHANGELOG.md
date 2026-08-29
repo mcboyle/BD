@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1342 - res_score reads Large 6000x4000px as 6K and outranks the real 4K anchor
+
+- NON_VIDEO_RE was NOT the seam and is unchanged: it matches words like 'phot
+- no real video label loses a point: 1920x1080, 3840x2160, 7680x4320, '1280 x
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _photo_pixels_are_not_a_resolution.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1341 - a layout div inherits its children's labels and wins the download sort
 
 - 1.99GB\n1280 x 720\n...\n7680 x 4320') -- clicking it fires no
