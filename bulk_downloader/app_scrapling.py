@@ -39,10 +39,14 @@ def api_scrapling_status():
             "ok": False, "available": False,
             "error": "scrapling_adapter module unavailable",
         })
+    capabilities = _scrap_adapter.capability_status()
     return jsonify({
         "ok": True,
-        "available": _scrap_adapter.is_available(),
-        "stealthy_fetcher": _scrap_adapter.is_stealthy_fetcher_available(),
+        # Backward-compatible booleans for existing CLI/API consumers.  Both
+        # now derive from the same measured states exposed below.
+        "available": capabilities["adaptive_selectors"]["available"],
+        "stealthy_fetcher": capabilities["turnstile_bypass"]["available"],
+        "capabilities": capabilities,
         "stats": _scrap_adapter.stats(),
     })
 
@@ -125,4 +129,3 @@ def register_routes(app) -> int:
     app.register_blueprint(scrapling_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("scrapling."))
-

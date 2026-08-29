@@ -23,7 +23,7 @@ Scrapling types stay inside this module. The rest of BD interacts
 through plain dict-shaped fingerprints and HTML strings. No
 Scrapling import leaks out of `scrapling_adapter.py`.
 
-  - `is_available()` — Scrapling importable
+  - `is_available()` — Scrapling's Adaptor capability is callable
   - `build_fingerprint(html, selector)` — capture a content-based
     fingerprint of the element matched by `selector`
   - `recover_selector(html, fingerprint)` — re-locate an element
@@ -60,8 +60,10 @@ itself raised → log debug, return None. The caller treats None as
 from __future__ import annotations
 
 import hashlib
+import importlib
 import logging
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -73,22 +75,113 @@ log = logging.getLogger(__name__)
 # ─── Availability ──────────────────────────────────────────────────
 
 
-def is_available() -> bool:
-    """True if scrapling imports cleanly."""
+def _probe_capability(symbol: str, *, available_reason: str,
+                      unavailable_reason: str,
+                      required_callable: str = "") -> dict:
+    """Measure one Scrapling symbol without turning probe failure into OK.
+
+    A missing package, transitive dependency, or expected symbol is a measured
+    unavailable capability.  An unrelated exception means the measurement
+    itself failed, so its status is UNKNOWN even though callers still receive a
+    fail-closed ``available=False`` boolean.
+    """
     try:
-        return True
-    except ImportError:
-        return False
+        module = importlib.import_module("scrapling")
+        capability = getattr(module, symbol)
+        if not callable(capability):
+            raise AttributeError(f"{symbol} is not callable")
+        if required_callable and not callable(
+                getattr(capability, required_callable, None)):
+            raise AttributeError(
+                f"{symbol}.{required_callable} is not callable")
+    except ModuleNotFoundError as exc:
+        missing = str(getattr(exc, "name", "") or "").strip()
+        reason = (
+            "scrapling_not_installed"
+            if missing == "scrapling"
+            else f"missing_dependency:{missing or 'unknown'}"
+        )
+        return {"available": False, "status": "unavailable", "reason": reason}
+    except (ImportError, AttributeError):
+        return {
+            "available": False,
+            "status": "unavailable",
+            "reason": unavailable_reason,
+        }
+    except Exception as exc:  # noqa: BLE001 - UNKNOWN is distinct from absent
+        return {
+            "available": False,
+            "status": "unknown",
+            "reason": f"capability_probe_failed:{type(exc).__name__}",
+        }
+    return {"available": True, "status": "available", "reason": available_reason}
+
+
+def capability_status() -> dict:
+    """Return independently measured adaptive-selector and bypass states."""
+    return {
+        "adaptive_selectors": _probe_capability(
+            "Adaptor",
+            available_reason="adaptor_available",
+            unavailable_reason="adaptor_unavailable",
+        ),
+        "turnstile_bypass": _probe_capability(
+            "StealthyFetcher",
+            available_reason="stealthy_fetcher_available",
+            unavailable_reason="stealthy_fetcher_unavailable",
+            required_callable="fetch",
+        ),
+    }
+
+
+def is_available() -> bool:
+    """True if Scrapling's adaptive-selector capability imports cleanly."""
+    return bool(_probe_capability(
+        "Adaptor",
+        available_reason="adaptor_available",
+        unavailable_reason="adaptor_unavailable",
+    )["available"])
 
 
 def is_stealthy_fetcher_available() -> bool:
-    """True if scrapling.StealthyFetcher imports. Some bare-bones
-    installations of scrapling don't ship the stealth submodule."""
-    try:
-        from scrapling import StealthyFetcher  # noqa: F401
-        return True
-    except (ImportError, AttributeError):
-        return False
+    """True when StealthyFetcher imports and exposes callable ``fetch``."""
+    return bool(_probe_capability(
+        "StealthyFetcher",
+        available_reason="stealthy_fetcher_available",
+        unavailable_reason="stealthy_fetcher_unavailable",
+        required_callable="fetch",
+    )["available"])
+
+
+def turnstile_probe_verdict(state: dict) -> tuple[int, str]:
+    """Map a measured bypass state to provisioning's three exit states."""
+    measured = state if isinstance(state, dict) else {}
+    status = str(measured.get("status") or "unknown")
+    reason = str(measured.get("reason") or "measurement_not_supplied")
+    if status == "available" and measured.get("available") is True:
+        return 0, f"available:{reason}"
+    if status == "unavailable" and measured.get("available") is False:
+        return 1, f"unavailable:{reason}"
+    return 2, f"unknown:{reason}"
+
+
+def _main(argv: Optional[list[str]] = None) -> int:
+    """Machine-facing runtime probe used by cloud provisioning."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args != ["--probe-turnstile"]:
+        # sys.stderr.write, not print(): library modules are forbidden from
+        # calling print() (tests/test_v3_43_78_static_analysis_fixes.py), and
+        # that rule holds even for a __main__ entry point living in a package
+        # module. Same stream, same text.
+        sys.stderr.write(
+            "usage: python -m bulk_downloader.scrapling_adapter "
+            "--probe-turnstile\n"
+        )
+        return 2
+    code, detail = turnstile_probe_verdict(
+        capability_status()["turnstile_bypass"])
+    sys.stdout.write(detail + "\n")
+    return code
 
 
 # ─── Runtime stats ─────────────────────────────────────────────────
@@ -568,6 +661,8 @@ def bypass_turnstile(
 
 
 __all__ = [
+    "capability_status",
+    "turnstile_probe_verdict",
     "is_available",
     "is_stealthy_fetcher_available",
     "ScraplingStats",
@@ -581,3 +676,7 @@ __all__ = [
     "bypass_turnstile",
     "BypassResult",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
