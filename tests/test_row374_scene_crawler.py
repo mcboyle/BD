@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -134,6 +135,9 @@ def _run(page, origin, tmp_path, *, site_id, path, expected, pages,
     assert len(result["scenes"]) == expected, result
     assert len([s for s in result["scenes"] if s["title"].strip()]) == expected
     assert len(queued) == expected
+    # Every walk must have OBSERVED its listing pages stop growing; a run whose
+    # settle budget expired reports UNKNOWN and must not read as a clean crawl.
+    assert result["scroll_settle_state"] == crawler.SETTLE_SETTLED, result
     return crawler, result, queued
 
 
@@ -180,6 +184,7 @@ def test_evilangel_combines_gate_scroll_and_numbered_pager(
         config={"dismiss_selectors": "button#enter-members"},
     )
     assert result["scroll_growth_steps"] == 1
+    assert result["scroll_settle_state"] == "SETTLED", result
     assert any("/view/" in shape for shape in result["scene_shapes"])
 
 
@@ -534,3 +539,209 @@ def test_scene_crawl_start_and_status_routes_are_registered():
         path == "/api/discovery/scenes/status" and "GET" in methods
         for path, methods in routes
     )
+
+
+class _ScriptedLazyLoadPage:
+    """A scripted page whose scroll-triggered append becomes visible only after
+    ``reads_before_visible`` further DOM reads.
+
+    That is exactly what a renderer whose next rendering opportunity has been
+    descheduled presents to a CDP client: ``window.scrollTo`` returns, but the
+    ``scroll`` listener that appends the remaining cards has not run yet, so the
+    reads that follow still observe the pre-scroll page.  No sleeping and no
+    real browser is involved, so the schedule under test is fixed rather than
+    sampled.
+    """
+
+    def __init__(self, *, initial=4, appended=2, reads_before_visible=3,
+                 grows_forever=False):
+        self.initial = initial
+        self.appended = appended
+        self.reads_before_visible = reads_before_visible
+        self.grows_forever = grows_forever
+        self.expanded = False
+        self.scrolls = 0
+        self.reads = 0
+        self.waits = []
+        self._pending = None
+        self._extra = 0
+
+    # -- scripted DOM -------------------------------------------------
+    def _card_count(self):
+        count = self.initial + (self.appended if self.expanded else 0)
+        return count + self._extra
+
+    def _cards(self):
+        return [
+            {
+                "url": f"https://members.example.test/view/{index}",
+                "text": f"Scene {index}",
+                "title": "",
+                "aria": "",
+                "img_alt": "",
+                "nearest": "",
+                "class_name": "scene-card",
+                "rel": "",
+                "has_img": True,
+            }
+            for index in range(self._card_count())
+        ]
+
+    def _read(self):
+        self.reads += 1
+        if self.grows_forever:
+            self._extra += 1
+            return
+        if self._pending is not None:
+            self._pending -= 1
+            if self._pending <= 0:
+                self.expanded = True
+                self._pending = None
+
+    # -- Playwright surface used by the walk --------------------------
+    def evaluate(self, js):
+        if "scrollTo" in js:
+            self.scrolls += 1
+            if not self.expanded and self._pending is None:
+                self._pending = self.reads_before_visible
+            return None
+        self._read()
+        count = self._card_count()
+        return [720 + 200 * count, count]
+
+    def locator(self, selector):
+        assert selector == "a[href]", selector
+        page = self
+
+        class _Locator:
+            def evaluate_all(self, _js):
+                page._read()
+                return page._cards()
+
+        return _Locator()
+
+    def wait_for_timeout(self, ms):
+        self.waits.append(ms)
+        time.sleep(max(0.0, float(ms)) / 1000.0)
+
+
+def test_row397_walk_waits_for_a_late_lazy_load_instead_of_a_scroll_event_count(
+):
+    """RED on the defective base: the walk breaks on ONE stale post-scroll read.
+
+    ``max_scrolls`` counts scroll EVENTS; it is not a settle condition.  On the
+    defective base this returns 4 cards and growth 0 -- the two lazy-loaded
+    cards are dropped and the run still reports a clean result, which is the
+    measured ``assert 6 == 8`` shape.
+    """
+    crawler = _crawler()
+    page = _ScriptedLazyLoadPage(reads_before_visible=3)
+
+    # Preconditions: the scripted page really does lazy-load, and the append is
+    # genuinely invisible to the first read after the scroll.
+    assert page._card_count() == 4
+    outcome = crawler._scroll_and_collect(page, max_scrolls=4, settle_s=0.0)
+    rows, growth = outcome[0], outcome[1]
+
+    # Preconditions: the walk really scrolled and really re-read the DOM.
+    assert page.scrolls >= 1, page.scrolls
+    assert page.reads > 2, page.reads
+    # Verdict: on the defective base this is `assert 4 == 6` -- the two
+    # lazy-loaded cards are dropped and the run still reports a clean result.
+    urls = sorted({row["url"] for row in rows})
+    assert len(urls) == 6, urls
+    assert growth == 1, growth
+    # The append became visible only because the walk kept polling for it.
+    assert page.expanded is True
+    assert outcome[2] == crawler.SETTLE_SETTLED
+    # The first read after the scroll was stale and a later poll saw the growth:
+    # this walk observed and absorbed the exact race the old single read lost.
+    assert outcome[3] == 1, outcome
+
+
+def test_row397_a_page_that_never_stops_growing_reports_unknown_and_stays_bounded(
+):
+    """A7: an unavailable measurement is UNKNOWN, never a settled page."""
+    crawler = _crawler()
+    page = _ScriptedLazyLoadPage(grows_forever=True)
+    started = time.monotonic()
+    outcome = crawler._scroll_and_collect(
+        page,
+        max_scrolls=2,
+        settle_s=0.0,
+        poll_s=0.01,
+        quiet_polls=4,
+        settle_budget_s=0.30,
+    )
+    elapsed = time.monotonic() - started
+    assert page.reads > 4, page.reads
+    assert outcome[2] == crawler.SETTLE_UNKNOWN, outcome
+    assert elapsed < 5.0, elapsed
+
+
+def test_row397_a_page_without_lazy_load_settles_promptly_and_reads_a_bounded_number(
+):
+    """Negative control: nothing to wait for must not cost the settle budget."""
+    crawler = _crawler()
+    page = _ScriptedLazyLoadPage(initial=4, appended=0, reads_before_visible=0)
+    page.expanded = True
+    started = time.monotonic()
+    outcome = crawler._scroll_and_collect(
+        page, max_scrolls=4, settle_s=0.0, poll_s=0.01, quiet_polls=4,
+        settle_budget_s=5.0,
+    )
+    elapsed = time.monotonic() - started
+    assert page.scrolls == 1, page.scrolls
+    assert outcome[1] == 0
+    assert outcome[2] == crawler.SETTLE_SETTLED
+    assert outcome[3] == 0
+    assert len({row["url"] for row in outcome[0]}) == 4
+    assert elapsed < 1.0, elapsed
+
+
+def test_row397_fixture_precondition_evilangel_lazy_loads_two_of_its_eight_scenes(
+    page, fixture_origin,
+):
+    """The 8 expected scenes are really 4 + 2 lazy-loaded + 2 on page two."""
+    page.goto(fixture_origin + "/evilangel/en/videos", wait_until="domcontentloaded")
+    assert page.locator('a[href*="/view/"]').count() == 0
+    page.click("button#enter-members")
+    page.wait_for_selector('a[href*="/view/"]')
+    assert page.locator('a[href*="/view/"]').count() == 4
+    assert page.locator('a[href*="/videos/sort/latest/page/2"]').count() == 1
+    page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+    page.wait_for_function(
+        "() => document.querySelectorAll('a[href*=\"/view/\"]').length === 6",
+        timeout=15000,
+    )
+    assert page.locator('a[href*="/view/"]').count() == 6
+
+    page.goto(
+        fixture_origin + "/evilangel/en/videos/sort/latest/page/2",
+        wait_until="domcontentloaded",
+    )
+    page.click("button#enter-members")
+    page.wait_for_selector('a[href*="/view/"]')
+    assert page.locator('a[href*="/view/"]').count() == 2
+
+
+def test_row397_a_listing_with_fewer_scenes_completes_without_spending_the_budget(
+    page, fixture_origin, tmp_path,
+):
+    """Negative control on the real browser: a listing that genuinely exposes
+    fewer scenes must reach COMPLETED promptly, not spin to the settle budget."""
+    crawler = _crawler()
+    started = time.monotonic()
+    _crawler_mod, result, _queued = _run(
+        page,
+        fixture_origin,
+        tmp_path,
+        site_id="wowgirls",
+        path="/wowgirls/updates/",
+        expected=4,
+        pages=1,
+    )
+    elapsed = time.monotonic() - started
+    assert result["scroll_settle_state"] == crawler.SETTLE_SETTLED, result
+    assert result["scroll_growth_steps"] == 0, result
+    assert elapsed < crawler.SCROLL_SETTLE_BUDGET_S, elapsed

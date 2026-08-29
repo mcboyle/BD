@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1352 - sibling of row 385, deliberately not folded in
+
+- Scene crawler scroll walk now stops on observed stability, not on a fixed c
+- A rendered-frame barrier after each scroll proves the scroll listener was d
+- Measured on test5: 1 target-mode failure in 384 contended pre-fix reps, 0 i
+- Crawl results gain scroll_settle_state and scroll_late_growth_steps; an unm
+- sibling of row 385, deliberately not folded in
+- application: 1 file(s) in bulk_downloader/ changed
+- test: test_row374_scene_crawler.py
+- 2 file(s), 354 insertion(s) in the worker diff
+
 ## v3.66.1351 - deploy.sh reported success while landing a 20-version-old tree
 
 - deploy.sh establishes an intended commit before it mutates anything, resets

@@ -34,6 +34,20 @@ STATE_COMPLETED = "COMPLETED"
 STATE_NOT_LOGGED_IN = "NOT_LOGGED_IN"
 STATE_FAILED = "FAILED"
 
+SETTLE_SETTLED = "SETTLED"
+SETTLE_UNKNOWN = "UNKNOWN"
+
+# A scroll only tells the renderer to move; the listener that appends
+# lazy-loaded cards runs at its next rendering opportunity, which is not
+# ordered against the CDP round-trip that reads the DOM back.  The walk
+# therefore waits for the anchor count to STOP CHANGING -- unchanged across
+# SCROLL_SETTLE_QUIET_POLLS consecutive reads -- instead of for a fixed number
+# of scroll events.  SCROLL_SETTLE_BUDGET_S bounds the whole wait for one
+# listing page; expiry is reported as UNKNOWN, never as a settled page.
+SCROLL_SETTLE_POLL_S = 0.05
+SCROLL_SETTLE_QUIET_POLLS = 6
+SCROLL_SETTLE_BUDGET_S = 10.0
+
 _ACTIVE: dict[str, str] = {}
 _ACTIVE_LOCK = threading.Lock()
 
@@ -335,29 +349,129 @@ def _page_metrics(page: Any) -> tuple[int, int]:
     return int(result[0]), int(result[1])
 
 
+_SCROLL_JS = """
+() => new Promise((resolve) => {
+  let done = false;
+  const finish = () => { if (!done) { done = true; resolve(true); } };
+  window.scrollTo(0, document.body.scrollHeight);
+  // The listener that appends lazy-loaded cards runs during "update the
+  // rendering", in the scroll steps, which precede animation-frame callbacks.
+  // Resolving inside a frame callback therefore PROVES the scroll event was
+  // already dispatched, instead of guessing at how long that takes.  The timer
+  // is a ceiling for a document that never renders a frame -- it is a refusal
+  // to hang, not the settle mechanism.
+  setTimeout(finish, 1000);
+  requestAnimationFrame(() => requestAnimationFrame(finish));
+})
+"""
+
+
+def _scroll_to_end(page: Any) -> None:
+    try:
+        page.evaluate(_SCROLL_JS)
+    except Exception:
+        # A page that cannot run the frame barrier still gets the scroll; the
+        # stability poll below remains the settle condition.
+        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+
+
+def _settle_metrics(
+    page: Any,
+    *,
+    before: tuple[int, int],
+    deadline: float,
+    poll_s: float,
+    quiet_polls: int,
+) -> tuple[tuple[int, int], bool, bool]:
+    """Poll ``(height, links)`` until it stops changing, or ``deadline`` passes.
+
+    Chromium dispatches the ``scroll`` listener that appends lazy-loaded cards
+    at its next rendering opportunity, which is not ordered against the CDP
+    round-trip that reads the DOM back.  A single post-scroll read therefore
+    observes the *pre-scroll* page whenever the host is contended, and the walk
+    then stops a whole batch of cards short while reporting a clean result.
+    Stability -- the count has not moved across ``quiet_polls`` consecutive
+    reads -- is the real settle condition; a fixed number of scroll events is
+    not.  Expiry is reported as UNKNOWN (A7), never as a settled page.
+
+    SETTLED is a bounded claim and says so: the count did not move across
+    ``quiet_polls`` consecutive reads after a rendered frame.  A loader that
+    appends asynchronously later than that window is not observable by any
+    bounded walk, which is why ``_scroll_to_end`` closes the *dispatch* race
+    causally rather than leaning on this window for it.
+
+    Returns ``(metrics, settled, absorbed_late_growth)`` where
+    ``absorbed_late_growth`` is True when the first read after the scroll still
+    showed ``before`` but a later poll saw growth -- i.e. this call observed the
+    race the old single read would have lost.
+    """
+    quiet_polls = max(1, int(quiet_polls))
+    current = _page_metrics(page)
+    first_read_was_stale = current == before
+    stable = 1
+    while stable < quiet_polls:
+        if time.monotonic() >= deadline:
+            return current, False, False
+        page.wait_for_timeout(max(1, int(poll_s * 1000)))
+        latest = _page_metrics(page)
+        if latest == current:
+            stable += 1
+        else:
+            current = latest
+            stable = 1
+    return current, True, first_read_was_stale and current != before
+
+
 def _scroll_and_collect(
     page: Any,
     *,
     max_scrolls: int,
     settle_s: float,
-) -> tuple[list[dict[str, Any]], int]:
+    poll_s: float = SCROLL_SETTLE_POLL_S,
+    quiet_polls: int = SCROLL_SETTLE_QUIET_POLLS,
+    settle_budget_s: float = SCROLL_SETTLE_BUDGET_S,
+) -> tuple[list[dict[str, Any]], int, str, int]:
+    """Scroll a listing until its anchor count stops growing.
+
+    Returns ``(anchor rows, growth steps, settle state, absorbed races)``.  The
+    walk stops on OBSERVED STABILITY, never on a scroll-event count: a scroll is
+    dispatched, a rendered frame proves the listener ran, and the count must
+    then hold still across the quiet window before the page is called done.
+    """
     aggregate: dict[str, dict[str, Any]] = {}
     _merge_anchors(aggregate, _collect_anchors(page))
-    previous_height, previous_links = _page_metrics(page)
+    previous = _page_metrics(page)
     growth_steps = 0
+    settle_state = SETTLE_SETTLED
+    absorbed_races = 0
+    # One shared budget per listing page bounds the added wall time even when a
+    # page never stops growing; an exhausted budget degrades to the old single
+    # read and is reported as UNKNOWN rather than as a settled page.
+    budget_deadline = time.monotonic() + max(0.0, float(settle_budget_s))
     for _ in range(max(0, int(max_scrolls))):
-        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        _scroll_to_end(page)
         if settle_s > 0:
             page.wait_for_timeout(int(settle_s * 1000))
+        current, settled, absorbed = _settle_metrics(
+            page,
+            before=previous,
+            deadline=budget_deadline,
+            poll_s=poll_s,
+            quiet_polls=quiet_polls,
+        )
         _merge_anchors(aggregate, _collect_anchors(page))
-        height, links = _page_metrics(page)
-        grew = height > previous_height or links > previous_links
-        if grew:
+        if absorbed:
+            absorbed_races += 1
+        if not settled:
+            settle_state = SETTLE_UNKNOWN
+        height, links = current
+        previous_height, previous_links = previous
+        if height > previous_height or links > previous_links:
             growth_steps += 1
-        if height == previous_height and links == previous_links:
+        if settled and height == previous_height and links == previous_links:
             break
-        previous_height, previous_links = height, links
-    return list(aggregate.values()), growth_steps
+        previous = current
+    return list(aggregate.values()), growth_steps, settle_state, absorbed_races
 
 
 def _pager_urls(
@@ -672,6 +786,8 @@ def _run_base(
     pages_walked: int,
     page_urls: list[str],
     scroll_growth_steps: int,
+    scroll_settle_state: str,
+    scroll_late_growth_steps: int,
     shapes: set[str],
     scenes: list[dict[str, Any]],
     discovered: int,
@@ -686,6 +802,12 @@ def _run_base(
         "pages_walked": pages_walked,
         "page_urls": page_urls,
         "scroll_growth_steps": scroll_growth_steps,
+        # SETTLED only when every listing page's anchor count was observed to
+        # stop changing; UNKNOWN when a settle budget expired first (A7).
+        "scroll_settle_state": scroll_settle_state,
+        # Scrolls whose first read was stale and whose later poll saw growth --
+        # the race a single post-scroll read would have lost.
+        "scroll_late_growth_steps": scroll_late_growth_steps,
         "scene_shapes": sorted(shapes),
         "scenes": scenes,
         "discovered": discovered,
@@ -751,6 +873,8 @@ def crawl_with_page(
     page_urls: list[str] = []
     effective_url = ""
     scroll_growth_steps = 0
+    scroll_settle_state = SETTLE_SETTLED
+    scroll_late_growth_steps = 0
     shapes: set[str] = set()
     authenticated = False
     saw_scene_cohort = False
@@ -775,12 +899,15 @@ def crawl_with_page(
             first_listing_page=pages_walked == 1,
             delay_s=delay_s,
         )
-        anchors, growth = _scroll_and_collect(
+        anchors, growth, page_settle_state, absorbed = _scroll_and_collect(
             page,
             max_scrolls=max_scrolls,
             settle_s=min(1.0, max(0.0, float(delay_s))),
         )
         scroll_growth_steps += growth
+        scroll_late_growth_steps += absorbed
+        if page_settle_state == SETTLE_UNKNOWN:
+            scroll_settle_state = SETTLE_UNKNOWN
         scenes, page_shapes = _scene_cohort(anchors, current)
         shapes.update(page_shapes)
         saw_scene_cohort = saw_scene_cohort or bool(scenes)
@@ -795,6 +922,8 @@ def crawl_with_page(
                 pages_walked=pages_walked,
                 page_urls=page_urls,
                 scroll_growth_steps=scroll_growth_steps,
+                scroll_settle_state=scroll_settle_state,
+                scroll_late_growth_steps=scroll_late_growth_steps,
                 shapes=shapes,
                 scenes=[],
                 discovered=0,
@@ -914,6 +1043,8 @@ def crawl_with_page(
         pages_walked=pages_walked,
         page_urls=page_urls,
         scroll_growth_steps=scroll_growth_steps,
+        scroll_settle_state=scroll_settle_state,
+        scroll_late_growth_steps=scroll_late_growth_steps,
         shapes=shapes,
         scenes=new_records,
         discovered=len(new_records),
@@ -1100,6 +1231,7 @@ def crawl_status(
             "queued": 0,
             "pages_walked": 0,
             "zero_scenes_found": False,
+            "scroll_settle_state": SETTLE_UNKNOWN,
         }
     result: dict[str, Any] = {}
     try:
@@ -1119,6 +1251,7 @@ def crawl_status(
         "queued": 0,
         "pages_walked": 0,
         "zero_scenes_found": False,
+        "scroll_settle_state": SETTLE_UNKNOWN,
     }
     payload.update(result)
     return payload
