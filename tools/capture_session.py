@@ -433,6 +433,23 @@ def _challenge_wait_seconds() -> float:
         return 20.0
 
 
+# Row 122: the resume record filed when the challenge seam cannot be reached at
+# all. Kept at module scope because the no-solving static guard over
+# `_settle_challenge_handoff` reads that function's own source text.
+_DETECTOR_UNAVAILABLE_EVENT = {
+    "event": "challenge_resume",
+    "decision": "unknown",
+    "detector_cleared": None,
+    "resume_permitted": False,
+    "state": None,
+    "challenge_type": "unknown",
+    "labels": [],
+    "reason": "detector_unavailable",
+    "solved": False,
+    "raw_challenge_material": False,
+}
+
+
 def _settle_challenge_handoff(page):
     """P3-T12-CALLSITE: route the held-open capture runner's anti-bot *settle*
     step through the canonical challenge seam
@@ -451,26 +468,41 @@ def _settle_challenge_handoff(page):
     opportunity (the detector gates resume via the seam). Best-effort: any
     failure here must never crash the capture.
 
-    Returns the ``ChallengeHandler`` (or None on a degraded import / error) for
-    callers / tests that want to inspect the reached state.
-    """
-    try:
-        from bulk_downloader.session_capture import handle_challenge_on_page
-        from bulk_downloader import challenge_handling as _ch
-    except Exception:
-        return None
+    Row 122 (P3-T12-CALLSITE): the returned handler is no longer DISCARDED. An
+    explicit detector-cleared / resume EVENT is filed through ``_log`` under the
+    distinct ``[challenge-resume]`` prefix, carrying a three-valued decision --
+    resumed / blocked / unknown. A detector that could not read the page reports
+    UNKNOWN and the run stays paused; resume is never inferred from what happened
+    afterwards. A capture with no challenge files nothing at all.
 
+    Returns the ``ChallengeHandler`` (or None on a degraded import / error) for
+    the held-open loop, which polls it for the operator-path clear.
+    """
     def _log(event):
+        name = None
+        if isinstance(event, dict):
+            name = event.get("event")
+        prefix = ("[challenge-resume] " if name == "challenge_resume"
+                  else "[challenge] ")
         try:
-            sys.stderr.write("[challenge] " + json.dumps(event, default=str) + "\n")
+            sys.stderr.write(prefix + json.dumps(event, default=str) + "\n")
         except Exception:
             pass
 
     try:
-        handler = handle_challenge_on_page(
+        from bulk_downloader import session_capture as _sc
+        from bulk_downloader import challenge_handling as _ch
+    except Exception:
+        # A degraded detector is UNKNOWN, never a silent OK (CLAUDE.md A7).
+        _log(dict(_DETECTOR_UNAVAILABLE_EVENT))
+        return None
+
+    try:
+        handler = _sc.handle_challenge_on_page(
             page, passive_budget_s=_challenge_wait_seconds(), log_fn=_log,
         )
     except Exception:
+        _log(_sc.challenge_resume_event(None))
         return None
 
     try:
@@ -480,7 +512,47 @@ def _settle_challenge_handoff(page):
             )
     except Exception:
         pass
+
+    # File the resume decision for whatever state the seam reached. On a passive
+    # self-clear the driver already filed it and this is a no-op (exactly once).
+    try:
+        _sc.emit_challenge_resume_event(handler, log_fn=_log)
+    except Exception:
+        pass
     return handler
+
+
+def _poll_challenge_resume(handler, page):
+    """Row 122, THE OPERATOR PATH: while a run is paused for a human, re-run
+    DETECTION on the same page once per held-open tick and file the explicit
+    resume EVENT on the tick the detector confirms the challenge is gone.
+
+    This is what makes the cleared event REACHABLE for the case the row was
+    written about -- a human completing a real challenge in the noVNC browser --
+    without ever inferring it from later authenticated traffic. Read-only: it
+    reads the page title and body text through the canonical observation builder
+    and touches nothing else.
+
+    Zero cost when no challenge was detected: an inert (or absent) handler
+    returns before the page is ever read, so a normal capture is not slowed.
+    Best-effort -- any failure leaves the capture untouched.
+    """
+    if handler is None or getattr(handler, "state", None) is None:
+        return None
+    try:
+        from bulk_downloader import session_capture as _sc
+
+        def _log(event):
+            try:
+                sys.stderr.write("[challenge-resume] "
+                                 + json.dumps(event, default=str) + "\n")
+            except Exception:
+                pass
+
+        return _sc.emit_resume_when_cleared(
+            handler, lambda: _sc.observe_page_for_challenge(page), log_fn=_log)
+    except Exception:
+        return None
 
 
 def _attach_recorders(ctx, initial_page, capture, *, redact: bool = True):
@@ -862,6 +934,11 @@ def run(argv=None) -> int:
             # at, stamped on the same clock as network_log so it correlates.
             _record_pick(rec)
 
+        # Row 122: the ChallengeHandler the settle step reached, retained for the
+        # held-open pump. None until the settle runs, and None for every capture
+        # where no challenge was ever detected.
+        _challenge = [None]
+
         def _pump_dom():
             # Compute the capture snapshot once per tick (cheaper than the old
             # per-page call) and, when the inspector is on, resolve the action
@@ -996,8 +1073,17 @@ def run(argv=None) -> int:
             except Exception:
                 pass
 
+            # Row 122: while a run is PAUSED for a human (the noVNC handoff),
+            # re-run detection on this page and file the explicit resume event
+            # on the tick the detector confirms the challenge is gone. Inert
+            # when no challenge was detected, so a normal capture pays nothing.
+            _poll_challenge_resume(_challenge[0], page)
+
         _goto_or_continue_if_usable(page, start_url)
-        _settle_challenge_handoff(page)  # C: detect/handoff an anti-bot interstitial via the canonical seam
+        # C: detect/handoff an anti-bot interstitial via the canonical seam. The
+        # handler is RETAINED (row 122) so the held-open pump above can observe
+        # the clear and record the resume event instead of inferring it.
+        _challenge[0] = _settle_challenge_handoff(page)
         sys.stderr.write(nav_note)
         cur = [page]  # page for the end-of-session snapshot (A/B may swap it)
         _pump_dom()  # arm the initial page post-load + first snapshot + mount HUD

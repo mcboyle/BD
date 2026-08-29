@@ -6,11 +6,11 @@
   },
   "guards": {
     "bulk_downloader/extraction_core.py": "5b6248a5c9e664abdb0cfd27ad1d2e311f4563d450bc20531c4b21ad8a2ceac9",
-    "bulk_downloader/session_capture.py": "547d70c95cde93779e161540df59a4f59f926c4c86865ff9b3a6b61bb74680be",
+    "bulk_downloader/session_capture.py": "4b7f281ea1c586ac7411885932a1ebd33cc6dc3547ef01b04e5aaf28aae71d02",
     "bulk_downloader/dom_capture.py": "0559903d0b15916295c2c7f991b7dd02900e096ea485cd078e3f2bd6dcf04879",
     "bulk_downloader/dom_recorder.py": "1657d0a0e39917ae26ba7aa1629ff3d2672efea84e9a881ec090c292f1cddce5",
     "bulk_downloader/capture_bodies.py": "6c7f5c9a87510ccaa79e8babfd57ccbb9cadd92186ef0dd266341c3963d3048a",
-    "tools/capture_session.py": "55917da07efc0a357ff4bf06d4106cdc6ff756d728ef9cd5ceb29f5f4a1c6b8b",
+    "tools/capture_session.py": "38fbe2a8ccd8b64536380f0cb481be09e4f5649f2d0c002be886588f37534857",
     "tools/build_release.py": "79bf462779333dc4c2d0bcd564aa9375a5e4e384e8e5d9706654d4cf5bd1706c"
   }
 }

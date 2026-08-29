@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1354 - recognizers claim a player family on evidence from two guided captures
+
+- Row 124 FR-A6.2: the recognizers now claim a real non-Cloudflare, non-video
+- New tests/corpus/a62_breadth: archiveorg_item (jwplayer, progressive, 4 ren
+- Non-CF and non-video.js are measured from the raw fixture bytes, not inferr
+- The canonical 46-case recognizer corpus and its four loadfile shards are un
+- Still open: no non-Cloudflare hls.js capture exists in the supplied set, an
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _challenge_resume_event.py -> bulk_downloader
+    _challenge_resume_event.py -> tools
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1353 - the stop is a runtime call and deploy.sh restarts the service
 
 - A download hold is now durable: recorded in app_config.json and re-applied 
