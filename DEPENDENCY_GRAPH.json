@@ -946,7 +946,8 @@
     "knowledge": {
       "module": "app_knowledge.py",
       "providers": [
-        "bulk_downloader/knowledge.py"
+        "bulk_downloader/knowledge.py",
+        "bulk_downloader/scrapling_adapter.py"
       ],
       "route_count": 4,
       "routes": [
@@ -2337,7 +2338,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1659,
+    "edge_count": 1661,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4335,6 +4336,8 @@
       ],
       "bulk_downloader/scrapling_adapter.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/app_knowledge.py",
+        "bulk_downloader/doctor.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_teach.py"
       ],
@@ -5653,7 +5656,8 @@
         "bulk_downloader/extractors_jsonapi.py"
       ],
       "bulk_downloader/app_knowledge.py": [
-        "bulk_downloader/knowledge.py"
+        "bulk_downloader/knowledge.py",
+        "bulk_downloader/scrapling_adapter.py"
       ],
       "bulk_downloader/app_library.py": [
         "bulk_downloader/bitrot.py",
@@ -6354,6 +6358,7 @@
         "bulk_downloader/llm_exec.py"
       ],
       "bulk_downloader/doctor.py": [
+        "bulk_downloader/scrapling_adapter.py",
         "bulk_downloader/selftest.py"
       ],
       "bulk_downloader/dom_analyzer.py": [

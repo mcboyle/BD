@@ -1224,6 +1224,12 @@ def cmd_scrapling_status(args):
         sys.exit(1)
     print(f"  scrapling:        {r.get('available')}")
     print(f"  stealthy_fetcher: {r.get('stealthy_fetcher')}")
+    capabilities = r.get("capabilities") or {}
+    for name in ("adaptive_selectors", "turnstile_bypass"):
+        state = capabilities.get(name) or {}
+        status = state.get("status") or "unknown"
+        reason = state.get("reason") or "measurement_not_supplied"
+        print(f"  {name}: {status} ({reason})")
     stats = r.get("stats") or {}
     print(f"  fingerprints built:    {stats.get('fingerprints_built', 0)}")
     rec_att = stats.get("recoveries_attempted", 0)

@@ -126,4 +126,4 @@ videohash>=2.1,<3.0
 # Turnstile bypass via StealthyFetcher. Both are opt-in per site;
 # fail-open everywhere — missing library reports `not_available`
 # and BD's existing teach path runs unchanged.
-scrapling>=0.2,<1.0
+scrapling[fetchers]>=0.2,<1.0
