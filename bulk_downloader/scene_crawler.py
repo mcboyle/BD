@@ -837,6 +837,16 @@ def crawl_with_page(
             queue_records[url] = record
             step_new += 1
 
+        # The budget can also fill on the LAST scene this page showed, leaving
+        # no further candidate to trip the check inside the loop above.  A
+        # truncated scroll makes that shape common -- the scroll event may not
+        # have been dispatched before the DOM was re-read -- so an exhausted
+        # budget is a depth stop wherever it happened.  Without this the walk
+        # spends a request on the pager and checkpoints there, and the scenes
+        # this page has not shown yet are skipped until the library cycles.
+        if newest_n and len(new_records) >= newest_n:
+            stopped_on_depth = True
+
         # The newest-N boundary may be reached part-way through a page that
         # also exposed pager links.  Keep that unfinished page at the front of
         # the durable frontier; otherwise the next run jumps to the pager and
