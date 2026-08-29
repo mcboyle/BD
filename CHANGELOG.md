@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1348 - owned pytest launches register themselves
+
+-        cmd = [sys.executable, "-m", "pytest", str(loader), *files,
+-               "-q", "-p", "no:randomly", "-p", "bd_modwatch_plugin"]
+-    collect_cmd = [py, "-m", "pytest", "--collect-only", "-q", "-p", "no:ran
+-            py, "-m", "pytest", "-q", "-p", "no:randomly",
+- Owned pytest launches register themselves before any test work starts.
+- The old lookup swept the interpreter's parents for toolchain/bin/bd-jobs.
+- On test5 that always resolved: venv/bin/python lives inside the repo.
+- CI uses actions/setup-python, so no parent is a BD checkout at all.
+- The verifier shard also drives bd-mutate against synthetic tmp trees.
+- Every candidate then missed and five baselines refused in PR #572.
+- A green test5 band was never evidence; it passed for an ambient reason.
+- Resolution now anchors on an explicit repository root, not the interpreter.
+- The ambient parents sweep is deleted rather than kept as a fallback.
+- CI GATE COUNT RE-PINNED, AND THE MOVE IS NAMED: 193 -> 230.
+  This cut declares a new gate, so the declared population grew. The refusal
+  reported 'missing from CI: []; extra in CI: []' -- the SET was already
+  correct and only the count was stale, which is the case that pin exists to
+  allow. A non-empty set is a real gap and is NOT re-pinned here.
+
 ## v3.66.1347 - a rendered page is evidence; a candidate list is a claim about it
 
 - CLAUDE.md A7 gains "a rendered page is evidence; a candidate list is a clai

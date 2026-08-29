@@ -830,6 +830,14 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # Row 377 (2026-08-29). One installed-layout selftest-state gate is declared
 # and scheduled; on top of main's 228 that is 229.
 _EXPECTED_DECLARED_GATE_COUNT = 230
+_EXPECTED_DECLARED_GATE_COUNT = 228
+_EXPECTED_DECLARED_GATE_COUNT = 227
+_EXPECTED_DECLARED_GATE_COUNT = 226
+_EXPECTED_DECLARED_GATE_COUNT = 225
+_EXPECTED_DECLARED_GATE_COUNT = 224
+# 192 -> 193 at row 243 rebuild (2026-08-28). The deterministic registration
+# gate is declared once and scheduled once in toolchain-verifiers.
+_EXPECTED_DECLARED_GATE_COUNT = 230
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
