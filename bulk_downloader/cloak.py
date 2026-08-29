@@ -556,6 +556,7 @@ def cloaked_page(
     args: list[str] | None = None,
     config: dict | None = None,
     viewport: dict | None = None,
+    context_options: dict | None = None,
     **extra: Any,
 ):
     """Yield a Playwright ``Page`` from the canonical backend (CloakBrowser when
@@ -568,14 +569,16 @@ def cloaked_page(
     → ``pw.stop()`` on the Playwright fallback). On the CloakBrowser path the
     backend supplies its OWN fingerprint, so ``user_agent`` is applied ONLY on
     the Playwright fallback (forcing a vanilla UA on the cloak path would partly
-    defeat the stealth). ``launch_browser`` already falls open to Playwright if
-    a cloak launch raises, so callers get a working page either way.
+    defeat the stealth). ``context_options`` is forwarded only to
+    ``browser.new_context`` (for example, to block service workers on a guarded
+    verifier page). ``launch_browser`` already falls open to Playwright if a
+    cloak launch raises, so callers get a working page either way.
     """
     browser, pw, backend = launch_browser(
         headless=headless, args=args, config=config, **extra)
     context = None
     try:
-        ctx_kwargs: dict = {}
+        ctx_kwargs: dict = dict(context_options or {})
         if viewport is not None:
             ctx_kwargs["viewport"] = viewport
         if user_agent and backend != CLOAKBROWSER:

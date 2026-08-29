@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Row 362 click-open fixture</title></head>
+  <body>
+    <main data-fixture-shape="dropdown-needs-one-click">
+      <div class="ScenePlayerHeaderPlus-IconItem styles_like"><span class="Icon-Like"></span>Like</div>
+      <div class="ScenePlayerHeaderPlus-IconItem styles_dislike"><span class="Icon-Dislike"></span>Dislike</div>
+      <div class="ScenePlayerHeaderPlus-IconItem styles_favorite"><span class="Icon-Favorite"></span>Favorite</div>
+      <div class="ScenePlayerHeaderPlus-IconItem styles_save"><span class="Icon-Save"></span>Save</div>
+      <div id="download-control" class="ScenePlayerHeaderPlus-IconItem styles_download">
+        <span class="Icon-Download styles_icon"></span>Download
+      </div>
+      <div class="ScenePlayerHeaderPlus-IconItem styles_picture"><span class="Icon-Picture"></span>Pictures</div>
+      <div class="ScenePlayerHeaderPlus-IconItem styles_report"><span class="Icon-Report"></span>Report</div>
+      <output id="click-count">0</output>
+      <section id="download-options"></section>
+    </main>
+    <template id="option-template">
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/160p/mp4">Low 160p 91.23 MB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/240p/mp4">Small 240p 147.56 MB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/360p/mp4">Medium 360p 222.34 MB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/480p/mp4">High 480p 256.56 MB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/540p/mp4">Web HD 540p 415.13 MB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/720p/mp4">HD 720p 644.65 MB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/1080p/mp4">Full HD 1080p 1.27 GB</a>
+      <a class="Link ScenePlayer-DownloadOption-Link styles_option" href="https://fixture.invalid/movieaction/download/362/2160p/mp4">4K 2160p 3.77 GB</a>
+    </template>
+    <script>
+      document.querySelector("#download-control").addEventListener("click", () => {
+        const counter = document.querySelector("#click-count");
+        counter.value = String(Number(counter.value) + 1);
+        if (!document.querySelector("#download-options a")) {
+          const options = document.querySelector("#option-template").content.cloneNode(true);
+          document.querySelector("#download-options").append(options);
+        }
+      });
+    </script>
+  </body>
+</html>

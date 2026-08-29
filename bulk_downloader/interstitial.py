@@ -36,14 +36,65 @@ Import-light and pure: ``time`` only, no Flask, no I/O, no module-level work.
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, List, Optional
+from urllib.parse import urlsplit
 
 # The runner has used these two numbers since the loop was written; they are
 # named here rather than restated at each call site so the two consumers cannot
 # drift apart on them.
 DEFAULT_TIMEOUT_MS = 3000
 DEFAULT_SETTLE_S = 0.5
+
+# Generic controls that accept/continue, in the order a person encounters the
+# layers.  These are deliberately conservative: one successful click per tier,
+# never a sweep across every matching control.
+CONSENT = [
+    "#onetrust-accept-btn-handler",
+    "[id*='cky'] button:has-text('Accept')",
+    "[class*='cookie' i] button:has-text('Accept')",
+    "button:has-text('Accept All')",
+    "button:has-text('Accept all')",
+    "button:has-text('Accept')",
+    "button:has-text('I Agree')",
+    "button:has-text('Agree')",
+    "button:has-text('Got it')",
+    "button:has-text('Allow all')",
+    "button:has-text('OK')",
+]
+AGE = [
+    "button:has-text('I am 18')",
+    "a:has-text('I am 18')",
+    "button:has-text('Enter Site')",
+    "a:has-text('Enter Site')",
+    "button:has-text('Enter')",
+    "a:has-text('Enter')",
+    "button:has-text('I am over')",
+    "button:has-text('Continue')",
+]
+INTERSTITIAL = [
+    "a:has-text('No Thanks')",
+    "button:has-text('No Thanks')",
+    "a:has-text('Continue to Members Area')",
+    "button:has-text('Skip')",
+    "[class*='close' i]:visible",
+    "button[aria-label*='close' i]",
+]
+
+# Never choose a control that declines, exits, or opts out.  This exact
+# denylist is grounded in the measured kink.com failure where "I Disagree,
+# Exit Here" navigated to an unrelated Google sign-in page.
+FORBIDDEN = re.compile(
+    r"\b(exit|leave|disagree|decline|reject|deny|opt.?out|cancel|"
+    r"i am under|under 18|not 18|go back|take me (out|back))\b", re.I)
+
+GATE_CLICK_TIMEOUT_MS = 8000
+GATE_SETTLE_S = 2.5
+ORIGIN_RECOVERY_TIMEOUT_MS = 30000
+ORIGIN_RECOVERY_SETTLE_S = 2.0
+DESTINATION_TIMEOUT_MS = 45000
+DESTINATION_SETTLE_S = 4.0
 
 
 def selector_lines(raw: Any) -> List[str]:
@@ -92,5 +143,144 @@ def dismiss(page: Any, raw: Any, *,
     return clicked
 
 
-__all__ = ["dismiss", "selector_lines",
-           "DEFAULT_TIMEOUT_MS", "DEFAULT_SETTLE_S"]
+def _gate_selectors(raw: Any) -> List[str]:
+    """Normalise a site's stored dismiss block or an already-split list."""
+    if isinstance(raw, str):
+        return selector_lines(raw)
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: List[str] = []
+    for candidate in raw:
+        if not isinstance(candidate, str):
+            continue
+        selector = candidate.strip()
+        if selector and not selector.startswith("# "):
+            out.append(selector)
+    return out
+
+
+def _safe_candidate(page: Any, selector: str) -> Optional[Any]:
+    """Return the first visible locator only when its label is safe to click."""
+    try:
+        candidates = page.locator(selector)
+        if not candidates.count():
+            return None
+        candidate = candidates.first
+        if not candidate.is_visible():
+            return None
+        label = candidate.inner_text() or ""
+        if FORBIDDEN.search(label):
+            return None
+        return candidate
+    except Exception:
+        return None
+
+
+def _origin(url: Any) -> str:
+    """Return a comparable HTTP(S) origin, or an empty value if unprovable."""
+    try:
+        parsed = urlsplit(str(url or ""))
+    except Exception:
+        return ""
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        return ""
+    return "%s://%s" % (parsed.scheme.lower(), parsed.netloc.lower())
+
+
+def clear_gates(page: Any, *, site_gates: Any = None,
+                url: Optional[str] = None, log=None,
+                sleep=time.sleep) -> List[str]:
+    """Clear configured gates first, then one consent/age/interstitial control.
+
+    Every candidate is checked against :data:`FORBIDDEN` before clicking.  The
+    requested origin is verified after every click; an escape is undone and is
+    never described as a clearance.  A cleared interstitial is special because
+    it can land on the members home page, so the original destination is
+    requested again before returning.
+
+    The returned messages name every cleared tier and are also sent to ``log``
+    when supplied, giving the runner an operator-visible account of page
+    changes without coupling this import-light helper to runner telemetry.
+    """
+    result: List[str] = []
+
+    def note(message: str) -> None:
+        result.append(message)
+        if log is not None:
+            log(message)
+
+    expected_origin = _origin(url or getattr(page, "url", ""))
+    tiers = (
+        ("site", _gate_selectors(site_gates)),
+        ("consent", CONSENT),
+        ("age", AGE),
+        ("interstitial", INTERSTITIAL),
+    )
+    interstitial_cleared = False
+
+    for tier, selectors in tiers:
+        for selector in selectors:
+            candidate = _safe_candidate(page, selector)
+            if candidate is None:
+                continue
+            before_url = str(getattr(page, "url", "") or "")
+            try:
+                candidate.click(timeout=GATE_CLICK_TIMEOUT_MS)
+                sleep(GATE_SETTLE_S)
+            except Exception:
+                continue
+
+            after_url = str(getattr(page, "url", "") or "")
+            current_origin = _origin(after_url)
+            if not expected_origin or current_origin != expected_origin:
+                note("%s: %s LEFT THE ORIGIN (%s -> %s) -- going back, "
+                     "not trusting it" % (
+                         tier, selector, expected_origin, current_origin))
+                try:
+                    page.go_back(
+                        wait_until="domcontentloaded",
+                        timeout=ORIGIN_RECOVERY_TIMEOUT_MS,
+                    )
+                    sleep(ORIGIN_RECOVERY_SETTLE_S)
+                except Exception:
+                    if url:
+                        page.goto(
+                            url,
+                            wait_until="domcontentloaded",
+                            timeout=DESTINATION_TIMEOUT_MS,
+                        )
+                if (url and _origin(getattr(page, "url", ""))
+                        != expected_origin):
+                    page.goto(
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=DESTINATION_TIMEOUT_MS,
+                    )
+                break
+
+            note("%s: cleared via %s" % (tier, selector))
+            # A configured selector is deliberately tried before the generic
+            # tiers, so it has no stored subtype.  A same-origin navigation
+            # away from the page it covered is the observable interstitial
+            # signal: the destination was swallowed even though the selector
+            # ran under the "site" tier.
+            if tier == "interstitial" or (url and after_url != before_url):
+                interstitial_cleared = True
+            break
+
+    if url and interstitial_cleared:
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=DESTINATION_TIMEOUT_MS,
+        )
+        sleep(DESTINATION_SETTLE_S)
+        note("re-requested the original url after an interstitial")
+
+    return result
+
+
+__all__ = [
+    "AGE", "CONSENT", "FORBIDDEN", "INTERSTITIAL", "clear_gates",
+    "dismiss", "selector_lines", "DEFAULT_TIMEOUT_MS", "DEFAULT_SETTLE_S",
+]

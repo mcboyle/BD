@@ -1,7 +1,7 @@
 """login_impl.replay -- verbatim cluster from login.py @v447 (DECOMP-LEAF cut 3)."""
 
 import time
-from ._common import _ms_since
+from ._common import _fire_login_trigger_if_needed, _ms_since
 
 
 _AUTH_COOKIE_HINTS = (
@@ -529,10 +529,12 @@ def _attempt_headless_fill_submit(page, config, timeout=15.0, runner=None):
 
     # Build selector chains: user-configured first, then learned.
     learned = ((config.get("learned") or {}).get("login") or {})
-    user_sels = []
+    configured_user_sels = []
     if config.get("user_field"):
-        user_sels.append(config["user_field"])
-    user_sels.extend(learned.get("user_field") or [])
+        configured_user_sels.append(config["user_field"])
+    learned_user_sels = list(learned.get("user_field") or [])
+    trigger_user_sels = configured_user_sels or learned_user_sels
+    user_sels = configured_user_sels + learned_user_sels
     user_sels.extend(["input[type='email']", "input[type='text']",
                         "input[name='username']", "input[name='email']"])
 
@@ -559,6 +561,14 @@ def _attempt_headless_fill_submit(page, config, timeout=15.0, runner=None):
             "pass_field": pass_sels, "submit_btn": submit_sels})
         user_sels, pass_sels, submit_sels = (
             _aug["user_field"], _aug["pass_field"], _aug["submit_btn"])
+
+    trigger_needed, _trigger_fired, trigger_detail = (
+        _fire_login_trigger_if_needed(
+            page,
+            config.get("login_trigger"),
+            trigger_user_sels or user_sels,
+        )
+    )
 
     # ── P5-1 chain runner ──────────────────────────────────────────
     # Run one role's chain through try_step. Returns (ok, winning_index,
@@ -591,6 +601,10 @@ def _attempt_headless_fill_submit(page, config, timeout=15.0, runner=None):
     ok_u, idx_u, det_u = _run_chain("user_field", user_sels, "fill",
                                     value=username)
     if not ok_u:
+        if trigger_needed:
+            return False, ("login form is hidden behind a trigger: "
+                           f"{trigger_detail}; couldn't find username field "
+                           f"({det_u})")
         return False, f"couldn't find username field ({det_u})"
 
     ok_p, idx_p, det_p = _run_chain("pass_field", pass_sels, "fill",

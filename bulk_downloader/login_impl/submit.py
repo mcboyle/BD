@@ -5,7 +5,12 @@ import time
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..cookies import pw_to_json
-from ._common import _css_escape_for_id, _try_click, _try_fill
+from ._common import (
+    _css_escape_for_id,
+    _fire_login_trigger_if_needed,
+    _try_click,
+    _try_fill,
+)
 from .manual import _MANUAL_LOGIN_BANNER_JS
 from .replay import _looks_authenticated, replay_saved_login_flow
 
@@ -555,6 +560,12 @@ def do_login(config, allow_manual_takeover=False):
         sys.stderr.write(f"  login: replaying learned selectors "
             f"(user={len(learned_uf)}, pass={len(learned_pf)}, submit={len(learned_sb)})\n")
 
+    # The trigger precondition must inspect the known login field, not every
+    # generic fallback.  A visible site-search input matching
+    # ``input[type=text]`` does not make a configured, hidden ``#username``
+    # usable.  Prefer the operator selector, then learned selectors; only use
+    # the full fallback chain when the site has no precise username selector.
+    trigger_uf_candidates=([user_uf] if user_uf else list(learned_uf))
     uf_candidates=([user_uf] if user_uf else [])+learned_uf+USER_FIELD_FALLBACKS
     pf_candidates=([user_pf] if user_pf else [])+learned_pf+PASS_FIELD_FALLBACKS
     sb_candidates=([user_sb] if user_sb else [])+learned_sb+SUBMIT_FALLBACKS
@@ -573,6 +584,8 @@ def do_login(config, allow_manual_takeover=False):
         uf_candidates=_aug["user_field"]+USER_FIELD_FALLBACKS
         pf_candidates=_aug["pass_field"]+PASS_FIELD_FALLBACKS
         sb_candidates=_aug["submit_btn"]+SUBMIT_FALLBACKS
+        if not trigger_uf_candidates:
+            trigger_uf_candidates=list(_aug["user_field"])
 
     pw=None; browser=None; ctx=None
     def _hard_close():
@@ -785,6 +798,10 @@ def do_login(config, allow_manual_takeover=False):
                                               + pf_candidates)
                             sb_candidates = ([proposal["submit_selector"]]
                                               + sb_candidates)
+                            if not trigger_uf_candidates:
+                                trigger_uf_candidates = [
+                                    proposal["username_selector"]
+                                ]
                             # Stash for the success path to save as learned
                             # (the wider _save_learned flow lives outside
                             # this scope; we leave a marker on the page
@@ -808,12 +825,30 @@ def do_login(config, allow_manual_takeover=False):
                 sys.stderr.write(f"  login: AI assist failed: {e} "
                                   f"(falling back to enumeration)\n")
 
+        trigger_needed, trigger_fired, trigger_detail = (
+            _fire_login_trigger_if_needed(
+                page,
+                config.get("login_trigger"),
+                trigger_uf_candidates or uf_candidates,
+            )
+        )
+        if trigger_needed:
+            sys.stderr.write(
+                f"  login: login-form trigger: {trigger_detail} "
+                f"(fired={trigger_fired})\n"
+            )
+
         # ── Try to fill username. If we can't even find the username field,
         # the form might be entirely custom — but the page IS loaded, so
         # the user can drive it manually if they want.
         ok,info=_try_fill(page,uf_candidates,username,"username")
         if not ok:
+            if trigger_needed:
+                info=("login form is hidden behind a trigger: "
+                      f"{trigger_detail}; {info}")
             if allow_manual_takeover:
+                if trigger_needed:
+                    return _hand_off(info)
                 return _hand_off(f"Couldn't find username field: {info}")
             _hard_close(); return False,info,[]
         sys.stderr.write(f"  login: filled username via [{info}]\n")

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 362 transform control. This must report one valid ESCAPED mutant: the byte-identical HIT/MISS reversal caught by the behavioral battery is invisible to a node that only imports the verifier API. CAUGHT or INVALID would invalidate the primary mutation evidence.",
+  "subject": "importing the verifier does not constrain selector verdict behavior",
+  "band": [
+    "tests/test_row362_templates_are_resolvable.py::test_transform_control_only_imports_the_verifier_contract"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL HIT and MISS reversal escapes an import-only test",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "        row[\"status\"] = \"HIT\" if count else \"MISS\"",
+      "new": "        row[\"status\"] = \"MISS\" if count else \"HIT\"",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_transform_control_only_imports_the_verifier_contract"
+    }
+  ]
+}
