@@ -834,7 +834,8 @@
       "module": "app_health.py",
       "providers": [
         "bulk_downloader/db.py",
-        "bulk_downloader/healthcheck.py"
+        "bulk_downloader/healthcheck.py",
+        "bulk_downloader/secrets_store.py"
       ],
       "route_count": 3,
       "routes": [
@@ -2337,7 +2338,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1661,
+    "edge_count": 1662,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4351,6 +4352,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_captures.py",
         "bulk_downloader/app_data_layer.py",
+        "bulk_downloader/app_health.py",
         "bulk_downloader/app_secrets.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/db_tools.py",
@@ -5630,7 +5632,8 @@
       ],
       "bulk_downloader/app_health.py": [
         "bulk_downloader/db.py",
-        "bulk_downloader/healthcheck.py"
+        "bulk_downloader/healthcheck.py",
+        "bulk_downloader/secrets_store.py"
       ],
       "bulk_downloader/app_history.py": [
         "bulk_downloader/db.py"

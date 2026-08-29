@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1333 - an admin token administers, or says which scope would
+
+- an admin token administers, or says which scope would
+- application: 5 file(s) in bulk_downloader/ changed
+- frontend: 4 file(s) changed
+- test: test_capture_vault_is_isolated.py
+- test: test_install_service_waits_for_serving.py
+- test: test_row368_vault_restart_state.py
+- 15 file(s), 956 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    app_health.py -> bulk_downloader
+    _vault_restart_state.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1332 - the capture path dismisses upsell interstitials and says it did
 
 -    """DEC-2: admin is reserved/unmintable, so NO API token can reach a
