@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1343 - a gate that cannot measure must not crash
+
+- a gate that cannot measure must not crash
+- frontend: 1 file(s) changed
+- test: test_row377_installed_template_selftest_states.py
+- test: test_v3_66_939_ci_gate_shards_cover_every_gate.py
+- 8 file(s), 311 insertion(s) in the worker diff
+
 ## v3.66.1342 - res_score reads Large 6000x4000px as 6K and outranks the real 4K anchor
 
 - NON_VIDEO_RE was NOT the seam and is unchanged: it matches words like 'phot

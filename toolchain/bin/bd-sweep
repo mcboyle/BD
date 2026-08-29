@@ -93,6 +93,11 @@ NEVER_EXEC = frozenset([
     "bd-queue-chaos", "bd-netns-proof", "bd-scrub-proof", "bd-proof-ledger",
 ])
 
+# Read-only analysis tools whose installed-layout bootstrap deliberately avoids
+# importing the shared toolchain modules before it can diagnose import failure.
+# Keep this narrow: membership makes a tool executable by the sweep.
+EXPLICIT_ANALYSIS_TOOLS = frozenset(["bd-template-verify"])
+
 PASS, FAIL, SKIP, TIMEOUT, UNKNOWN = "PASS", "FAIL", "SKIP", "TIMEOUT", "UNKNOWN"
 
 
@@ -116,7 +121,7 @@ def runnable(bindir, tools):
             src = open(os.path.join(bindir, t), errors="ignore").read()
         except OSError:
             continue
-        if sec.is_analysis_tool(src):
+        if t in EXPLICIT_ANALYSIS_TOOLS or sec.is_analysis_tool(src):
             out.append(t)
     return out
 
@@ -136,7 +141,7 @@ def selftest_case(bindir, tool, timeout):
     if "--selftest" not in src:
         return (tool, "selftest", SKIP, "no --selftest", 0.0)
     t0 = time.time()
-    rc, out, _err = _run([os.path.join(bindir, tool), "--selftest"], timeout)
+    rc, out, err = _run([os.path.join(bindir, tool), "--selftest"], timeout)
     dt = time.time() - t0
     if rc is None:
         return (tool, "selftest", TIMEOUT, "exceeded %ss" % timeout, dt)
@@ -144,13 +149,24 @@ def selftest_case(bindir, tool, timeout):
     if first and first[0].startswith("SKIP:"):
         return (tool, "selftest", SKIP, first[0][5:].strip(), dt)
     # The suite's selftest output contract: a machine-readable terminal verdict.
-    # A tool that exits 0 while printing SELFTEST FAIL is not a pass, and a tool
-    # that prints neither cannot be read -- that is UNKNOWN, and unknown fails.
-    if "SELFTEST FAIL" in out:
+    # A tool that exits 0 while printing SELFTEST FAIL is not a pass. UNKNOWN is
+    # also non-success, but retaining its named state lets an operator distinguish
+    # an unavailable instrument from the measured subject failing.
+    # Captured streams have no ordering guarantee, but they must remain
+    # distinct physical lines.  Concatenating raw bytes can turn a terminal
+    # stderr verdict into ``stdout-prefixSELFTEST UNKNOWN`` and hide it.
+    combined = "\n".join(part for part in (out, err) if part)
+    unknown_lines = [
+        line for line in combined.splitlines()
+        if line.startswith("SELFTEST UNKNOWN")
+    ]
+    if unknown_lines:
+        return (tool, "selftest", UNKNOWN, unknown_lines[-1][:700], dt)
+    if "SELFTEST FAIL" in combined:
         return (tool, "selftest", FAIL, "printed SELFTEST FAIL", dt)
     if rc != 0:
         return (tool, "selftest", FAIL, "rc=%d" % rc, dt)
-    if "SELFTEST PASS" not in out:
+    if "SELFTEST PASS" not in combined:
         return (tool, "selftest", UNKNOWN, "rc=0 but no SELFTEST PASS line", dt)
     return (tool, "selftest", PASS, "", dt)
 
