@@ -133,7 +133,18 @@ def api_secrets_unlock():
         return resp, 429
     if backend.unlock(password):
         _at.record_success(_at.LABEL_MASTER_PASSWORD)
-        return jsonify({"ok": True})
+        resp = {"ok": True}
+        # Row 402: unlocking a vault that holds no stored secrets is an
+        # INITIALISE (any password is accepted first-use, committing this
+        # password for the process), not the open of a usable vault. Say so,
+        # so a caller can tell the two apart from the response alone --
+        # is_unlocked is True in both cases and cannot.
+        try:
+            if not backend.list_keys():
+                resp["initialized_empty_vault"] = True
+        except Exception:
+            pass
+        return jsonify(resp)
     _at.record_failure(_at.LABEL_MASTER_PASSWORD)
     return jsonify({"ok": False, "error": "incorrect password"}), 401
 @secrets_bp.route("/api/secrets/lock", methods=["POST"])
