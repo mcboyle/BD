@@ -291,6 +291,80 @@ def test_legacy_unlock_backfills_verifier_before_last_secret_deletion(
     assert reopened.unlock(_MASTER) is True
 
 
+def test_locked_legacy_vault_refuses_to_delete_its_last_commitment(
+    monkeypatch, tmp_path
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    seed.set(_KEY, _VALUE)
+    seed._data.pop("verifier", None)
+    assert seed._save() is True
+    seed.lock()
+    path = tmp_path / "secrets.json"
+    legacy_disk = path.read_bytes()
+
+    legacy = _reopen_backend(monkeypatch, tmp_path)
+    assert legacy.is_initialized() is True
+    assert legacy.is_unlocked() is False
+    assert legacy.list_keys() == [_KEY]
+
+    with pytest.raises(ss.SecretsUnlockRequiredError, match="unlock"):
+        legacy.delete(_KEY)
+
+    assert legacy.is_initialized() is True
+    assert legacy.is_unlocked() is False
+    assert legacy.list_keys() == [_KEY]
+    assert path.read_bytes() == legacy_disk
+
+    reopened = _reopen_backend(monkeypatch, tmp_path)
+    assert reopened.is_initialized() is True
+    assert reopened.list_keys() == [_KEY]
+    assert reopened.unlock(_WRONG) is False
+    assert reopened.unlock(_MASTER) is True
+    assert reopened.delete(_KEY) is True
+    assert reopened.is_initialized() is True
+
+
+def test_delete_endpoint_preserves_locked_legacy_last_secret_and_reference(
+    monkeypatch, tmp_path
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    seed.set(_KEY, _VALUE)
+    seed._data.pop("verifier", None)
+    assert seed._save() is True
+    seed.lock()
+    path = tmp_path / "secrets.json"
+    legacy_disk = path.read_bytes()
+
+    legacy = _reopen_backend(monkeypatch, tmp_path)
+    sites = {"row402": {"password": _REF}}
+    save_calls = []
+    monkeypatch.setattr(app_secrets, "_app_s_cfg", lambda: sites)
+    monkeypatch.setattr(
+        app_secrets,
+        "_save_sites_config",
+        lambda: save_calls.append("saved"),
+    )
+
+    response = _secrets_client().post(
+        "/api/secrets/delete", json={"site_id": "row402"}
+    )
+    body = response.get_json()
+
+    assert response.status_code == 409, body
+    assert body["ok"] is False
+    assert body["state"] == "locked"
+    assert body["requires_unlock"] is True
+    assert "unlock" in body["error"].lower()
+    assert sites["row402"]["password"] == _REF
+    assert save_calls == []
+    assert legacy.is_initialized() is True
+    assert legacy.is_unlocked() is False
+    assert legacy.list_keys() == [_KEY]
+    assert path.read_bytes() == legacy_disk
+
+
 def test_legacy_verifier_upgrade_failure_keeps_original_vault_locked(
     monkeypatch, tmp_path
 ):
@@ -424,6 +498,38 @@ def test_rotation_persist_failure_restores_salt_verifier_key_and_disk(
     backend.lock()
     assert backend.unlock(_NEW_MASTER) is False
     assert backend.unlock(_MASTER) is True
+
+
+def test_change_password_endpoint_maps_legacy_preflight_upgrade_failure(
+    monkeypatch, tmp_path
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    seed.set(_KEY, _VALUE)
+    seed._data.pop("verifier", None)
+    assert seed._save() is True
+    seed.lock()
+    path = tmp_path / "secrets.json"
+    legacy_disk = path.read_bytes()
+
+    legacy = _reopen_backend(monkeypatch, tmp_path)
+    monkeypatch.setattr(legacy, "_save", lambda: False)
+    response = _secrets_client().post(
+        "/api/secrets/change_password",
+        json={"old_password": _MASTER, "new_password": _NEW_MASTER},
+    )
+    body = response.get_json()
+
+    assert response.status_code == 500, body
+    assert body["ok"] is False
+    assert "rotation failed during persist" in body["error"]
+    assert "old password is still in effect" in body["error"].lower()
+    assert "incorrect" not in body["error"].lower()
+    assert legacy.is_initialized() is True
+    assert legacy.is_unlocked() is False
+    assert legacy.list_keys() == [_KEY]
+    assert "verifier" not in legacy._data
+    assert path.read_bytes() == legacy_disk
 
 
 def test_deleting_last_secret_does_not_uninitialize_the_vault(

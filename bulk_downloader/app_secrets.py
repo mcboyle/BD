@@ -229,18 +229,18 @@ def api_secrets_change_password():
                         "error": f"too many attempts; try again in {retry:.0f}s"})
         resp.headers["Retry-After"] = str(int(retry) + 1)
         return resp, 429
-    # B15 (v3.66.43): probe the old password independently. unlock() is
-    # read-only and (post-B6) safe as a check. change_password() also
-    # returns False on undecryptable ciphertext (data corruption) and
-    # raises SecretsPersistError on a failed persist — neither is "wrong
-    # password", so map them to distinct status codes instead of telling
-    # the operator to retype a password that's actually correct.
-    if not backend.unlock(old):
-        _at.record_failure(_at.LABEL_MASTER_PASSWORD)
-        return jsonify({"ok": False,
-                        "error": "current password is incorrect"}), 401
-    _at.record_success(_at.LABEL_MASTER_PASSWORD)
+    # B15 (v3.66.43): probe the old password independently.
+    # change_password() returns False on undecryptable ciphertext (data
+    # corruption), while either this probe or rotation may raise
+    # SecretsPersistError: unlock now durably upgrades legacy verifier-less
+    # vaults. Neither storage failure is "wrong password", so keep the probe
+    # inside the persistence-error mapping.
     try:
+        if not backend.unlock(old):
+            _at.record_failure(_at.LABEL_MASTER_PASSWORD)
+            return jsonify({"ok": False,
+                            "error": "current password is incorrect"}), 401
+        _at.record_success(_at.LABEL_MASTER_PASSWORD)
         if backend.change_password(old, new):
             return jsonify({"ok": True})
         return jsonify({
@@ -406,7 +406,19 @@ def api_secrets_delete():
         key = data.get("key", "")
     if not key:
         return jsonify({"ok": False, "error": "key or site_id required"}), 400
-    removed = ss.get_backend().delete(key)
+    try:
+        removed = ss.get_backend().delete(key)
+    except ss.SecretsUnlockRequiredError as e:
+        # A ciphertext-only legacy vault has no standalone verifier yet; its
+        # final ciphertext is the only durable password commitment.  Do not
+        # clear the corresponding config reference until one authenticated
+        # unlock has backfilled that verifier.
+        return jsonify({
+            "ok": False,
+            "state": "locked",
+            "requires_unlock": True,
+            "error": str(e),
+        }), 409
     # B16 (v3.66.43): when deleting by site_id, also clear the matching
     # @cred: reference so the next login sees "no credentials" instead of
     # a dangling reference that resolves to None. Deliberately narrow:

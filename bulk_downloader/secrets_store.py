@@ -421,6 +421,10 @@ class SecretsPersistError(RuntimeError):
     data — silently losing every password written this session."""
 
 
+class SecretsUnlockRequiredError(RuntimeError):
+    """Raised when a locked vault mutation would erase its key commitment."""
+
+
 class MasterPasswordBackend(_BackendBase):
     """AES-GCM encrypted blob, keyed off a PBKDF2-derived master key.
 
@@ -774,6 +778,19 @@ class MasterPasswordBackend(_BackendBase):
         with self._lock:
             cts = self._data.get("ciphertexts") or {}
             if key not in cts: return False
+            if (
+                self._key is None
+                and "verifier" not in self._data
+                and len(cts) == 1
+            ):
+                # A ciphertext-only vault predates the durable verifier, so
+                # its final ciphertext is also its only password commitment.
+                # Require one successful unlock to authenticate the operator
+                # and backfill the verifier before that commitment is removed.
+                raise SecretsUnlockRequiredError(
+                    "unlock this legacy vault once before deleting its final "
+                    "credential"
+                )
             removed = cts.pop(key)
             if not self._save():
                 cts[key] = removed  # B4: roll back, never report a phantom delete
