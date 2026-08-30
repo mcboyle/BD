@@ -62,6 +62,34 @@ const AUTOMATIC_ENDPOINTS = Array.from(
   ),
 );
 
+// The pytest gate supplies a receipt built by the real Python
+// capacity_report() aggregator. The fallback keeps direct Vitest runs useful;
+// it is deliberately the same contract, while the merge gate uses the
+// independently produced value rather than trusting this fixture.
+const FALLBACK_CAPACITY_RECEIPT = {
+  disk: {
+    free_gb: 8,
+    rate_gb_per_day: 2,
+    runway_days: 4,
+    runway_label: "days",
+    confidence: "medium",
+    lookback_hours: 168,
+  },
+  queue: {
+    pending: 3,
+    running: 1,
+    failed: 0,
+    completions_per_hour: 2,
+    eta_hours: 1.5,
+    confidence: "medium",
+  },
+  bottleneck: { bottleneck: "running", detail: "1/2 workers active", severity: 0 },
+  generated_at: 1_788_112_800,
+};
+const PRODUCTION_CAPACITY_RECEIPT = process.env.BD_CAPACITY_RECEIPT
+  ? JSON.parse(process.env.BD_CAPACITY_RECEIPT)
+  : FALLBACK_CAPACITY_RECEIPT;
+
 const FIXTURES = {
   "/api/auth/whoami": { ok: true, user: null, multi_user: false },
   "/api/dashboard": { totals: {}, active_workers: 0 },
@@ -69,7 +97,7 @@ const FIXTURES = {
   "/api/stats/bandwidth": { series: [] },
   "/api/stats/timeline": { points: [] },
   "/api/hourly_stats": { hours: [] },
-  "/api/capacity": { disks: [] },
+  "/api/capacity": PRODUCTION_CAPACITY_RECEIPT,
   "/api/status": {},
   "/api/session_status": { keepers: [] },
   "/api/health/checklist": { checks: [] },
@@ -130,6 +158,32 @@ describe("T1 dashboard runtime wiring", () => {
         expect(calls.has(endpoint), endpoint).toBe(true);
       }
     });
+  });
+
+  it("renders the capacity receipt production actually transports", async () => {
+    renderWired(<Dashboard />, "/dashboard");
+
+    await waitFor(() => {
+      const capacityCalls = calledPaths(apiGetMock).filter(
+        (path) => path === "/api/capacity",
+      );
+      expect(capacityCalls).toHaveLength(1);
+    });
+    expect(await screen.findByText(/8\.0 GB free/)).toBeInTheDocument();
+    expect(screen.getByText(/4\.0d runway/)).toBeInTheDocument();
+  });
+
+  it("does not mistake the frontend-only legacy disks array for a receipt", async () => {
+    installApiFixtures(apiGetMock, apiPostMock, {
+      ...FIXTURES,
+      "/api/capacity": {
+        disks: [{ path: "/not-production", free_gb: 8, total_gb: 16 }],
+      },
+    });
+    renderWired(<Dashboard />, "/dashboard");
+
+    expect(await screen.findByText("No volumes reported.")).toBeInTheDocument();
+    expect(screen.queryByText(/8\.0 GB free/)).not.toBeInTheDocument();
   });
 
   it("route lookup stays inert until Resolve and then calls its exact endpoint", async () => {

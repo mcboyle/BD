@@ -881,7 +881,31 @@ export interface HourlyStats {
 }
 
 export interface CapacitySnapshot {
-  disks?: Array<{ path?: string; free_gb?: number; total_gb?: number; [k: string]: unknown }>;
+  disk?: {
+    free_gb?: number | null;
+    rate_gb_per_day?: number;
+    runway_days?: number | null;
+    runway_label?: string;
+    confidence?: string;
+    lookback_hours?: number;
+    [k: string]: unknown;
+  };
+  queue?: {
+    pending?: number;
+    running?: number;
+    failed?: number;
+    completions_per_hour?: number;
+    eta_hours?: number | null;
+    confidence?: string;
+    [k: string]: unknown;
+  };
+  bottleneck?: {
+    bottleneck?: string;
+    detail?: string;
+    severity?: number;
+    [k: string]: unknown;
+  };
+  generated_at?: number;
   [k: string]: unknown;
 }
 

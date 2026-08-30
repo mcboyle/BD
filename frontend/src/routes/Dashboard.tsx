@@ -160,20 +160,21 @@ function HealthPanel() {
 function CapacityPanel() {
   const { data, isLoading } = useCapacity();
   if (isLoading) return <Skeleton className="h-20 w-full" />;
-  const disks = data?.disks ?? [];
-  if (disks.length === 0)
+  const freeGb = data?.disk?.free_gb;
+  if (typeof freeGb !== "number" || !Number.isFinite(freeGb) || freeGb < 0)
     return <span className="text-sm text-muted-foreground">No volumes reported.</span>;
+  const runwayDays = data?.disk?.runway_days;
   return (
     <ul className="flex flex-col gap-1.5">
-      {disks.map((d, i) => (
-        <li key={d.path ?? i} className="flex justify-between text-sm">
-          <span className="truncate">{d.path ?? "—"}</span>
-          <span className="tabular-nums text-muted-foreground">
-            {formatBytes((d.free_gb ?? 0) * 1e9)} free /{" "}
-            {formatBytes((d.total_gb ?? 0) * 1e9)}
-          </span>
-        </li>
-      ))}
+      <li className="flex justify-between text-sm">
+        <span className="truncate">Download storage</span>
+        <span className="tabular-nums text-muted-foreground">
+          {formatBytes(freeGb * 1024 ** 3)} free
+          {typeof runwayDays === "number" && Number.isFinite(runwayDays) && runwayDays > 0
+            ? ` · ${runwayDays.toFixed(1)}d runway`
+            : null}
+        </span>
+      </li>
     </ul>
   );
 }
