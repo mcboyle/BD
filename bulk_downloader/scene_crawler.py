@@ -132,6 +132,18 @@ def _ensure_schema(db_path: str | None = None) -> None:
         )
         cx.execute(
             """
+            CREATE TABLE IF NOT EXISTS scene_listing_validators (
+                site_id TEXT NOT NULL,
+                listing_url TEXT NOT NULL,
+                etag TEXT NOT NULL DEFAULT '',
+                last_modified TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (site_id, listing_url)
+            )
+            """
+        )
+        cx.execute(
+            """
             CREATE TABLE IF NOT EXISTS scene_crawl_runs (
                 run_id TEXT PRIMARY KEY,
                 site_id TEXT NOT NULL,
@@ -658,6 +670,88 @@ def _load_frontier(site_id: str, listing_url: str, db_path: str | None) -> list[
         return []
 
 
+def _completed_checkpoint(
+    site_id: str, listing_url: str, db_path: str | None
+) -> bool:
+    with db.db_conn(db_path) as cx:
+        row = cx.execute(
+            """
+            SELECT listing_url, completed
+            FROM scene_crawl_checkpoints
+            WHERE site_id = ?
+            """,
+            (site_id,),
+        ).fetchone()
+    return bool(
+        row
+        and str(row["listing_url"]) == listing_url
+        and int(row["completed"])
+    )
+
+
+def _load_listing_validators(
+    site_id: str, listing_url: str, db_path: str | None
+) -> dict[str, str]:
+    with db.db_conn(db_path) as cx:
+        row = cx.execute(
+            """
+            SELECT etag, last_modified
+            FROM scene_listing_validators
+            WHERE site_id = ? AND listing_url = ?
+            """,
+            (site_id, listing_url),
+        ).fetchone()
+    if not row:
+        return {}
+    headers = {}
+    if str(row["etag"] or ""):
+        headers["If-None-Match"] = str(row["etag"])
+    if str(row["last_modified"] or ""):
+        headers["If-Modified-Since"] = str(row["last_modified"])
+    return headers
+
+
+def _save_listing_validators(
+    site_id: str,
+    listing_url: str,
+    validators: dict[str, str],
+    db_path: str | None,
+) -> None:
+    with db.db_conn(db_path) as cx:
+        cx.execute(
+            """
+            INSERT INTO scene_listing_validators(
+                site_id, listing_url, etag, last_modified, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(site_id, listing_url) DO UPDATE SET
+                etag = excluded.etag,
+                last_modified = excluded.last_modified,
+                updated_at = excluded.updated_at
+            """,
+            (
+                site_id,
+                listing_url,
+                str(validators.get("etag") or ""),
+                str(validators.get("last-modified") or ""),
+                time.time(),
+            ),
+        )
+
+
+def _response_validators(response: Any) -> dict[str, str]:
+    raw = getattr(response, "headers", {}) if response is not None else {}
+    if callable(raw):
+        raw = raw()
+    if not isinstance(raw, dict):
+        return {}
+    lowered = {str(key).lower(): str(value) for key, value in raw.items()}
+    return {
+        key: lowered[key]
+        for key in ("etag", "last-modified")
+        if lowered.get(key)
+    }
+
+
 def _save_frontier(
     site_id: str,
     listing_url: str,
@@ -686,17 +780,87 @@ def _save_frontier(
 class _Pacer:
     def __init__(self, delay_s: float):
         self.delay_s = max(0.0, float(delay_s))
+        self.max_delay_s = max(30.0, self.delay_s)
         self.requests = 0
+        self._requests_by_host: dict[str, int] = defaultdict(int)
+        self._delay_by_host: dict[str, float] = defaultdict(
+            lambda: self.delay_s
+        )
 
-    def before_request(self) -> None:
-        if self.requests and self.delay_s:
-            time.sleep(self.delay_s)
+    @staticmethod
+    def _host(url: str) -> str:
+        return (urlsplit(str(url or "")).hostname or "").lower()
+
+    def before_request(self, url: str) -> None:
+        host = self._host(url)
+        delay = self._delay_by_host[host]
+        if self._requests_by_host[host] and delay:
+            time.sleep(delay)
+        self._requests_by_host[host] += 1
         self.requests += 1
 
+    def after_response(self, url: str, response: Any) -> None:
+        host = self._host(url)
+        status = getattr(response, "status", None) if response else None
+        current = self._delay_by_host[host]
+        if status in (429, 503):
+            # A direct throttle doubles only this host's pause.  The existing
+            # site setting remains the floor, and the API's 30-second bound
+            # remains the ceiling.
+            self._delay_by_host[host] = min(
+                self.max_delay_s,
+                max(self.delay_s, current * 2.0 or 1.0),
+            )
+        elif isinstance(status, int) and 200 <= status < 400:
+            # One successful response removes one backoff step, never the
+            # operator-configured politeness floor.
+            self._delay_by_host[host] = max(self.delay_s, current / 2.0)
 
-def _goto(page: Any, url: str, pacer: _Pacer) -> Any:
-    pacer.before_request()
-    return page.goto(url, wait_until="domcontentloaded", timeout=45000)
+
+def _goto(
+    page: Any,
+    url: str,
+    pacer: _Pacer,
+    *,
+    conditional_headers: dict[str, str] | None = None,
+) -> Any:
+    pacer.before_request(url)
+    matcher = handler = None
+    conditional_responses: list[Any] = []
+    if conditional_headers:
+        def matcher(candidate: str) -> bool:
+            return candidate == url
+
+        def handler(route: Any) -> None:
+            request_headers = dict(getattr(route.request, "headers", {}) or {})
+            upstream = route.fetch(
+                headers={**request_headers, **conditional_headers}
+            )
+            conditional_responses.append(upstream)
+            if getattr(upstream, "status", None) == 304:
+                # A fresh browser cache cannot render a 304 body.  Fulfill an
+                # empty 200 document for Chromium while returning the observed
+                # upstream 304 to the crawler below.
+                route.fulfill(
+                    status=200,
+                    content_type="text/html; charset=utf-8",
+                    body="",
+                )
+            else:
+                route.fulfill(response=upstream)
+
+        page.route(matcher, handler, times=1)
+    try:
+        response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    finally:
+        if matcher is not None and handler is not None:
+            page.unroute(matcher, handler)
+    if conditional_responses:
+        upstream = conditional_responses[-1]
+        if getattr(upstream, "status", None) == 304:
+            response = upstream
+    pacer.after_response(url, response)
+    return response
 
 
 def _clear_gates(
@@ -794,6 +958,7 @@ def _run_base(
     queued: int,
     title_pages_fetched: int,
     zero_scenes_found: bool,
+    listing_not_modified: bool = False,
     enqueue_errors: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -814,6 +979,7 @@ def _run_base(
         "queued": queued,
         "title_pages_fetched": title_pages_fetched,
         "zero_scenes_found": bool(zero_scenes_found),
+        "listing_not_modified": bool(listing_not_modified),
         "enqueue_errors": enqueue_errors or [],
     }
 
@@ -864,6 +1030,15 @@ def crawl_with_page(
 
     existing = _existing(site_id, db_path)
     saved_frontier = _load_frontier(site_id, listing_url, db_path)
+    conditional_headers = {}
+    if (
+        not saved_frontier
+        and _completed_checkpoint(site_id, listing_url, db_path)
+        and not any(row.get("queued_at") is None for row in existing.values())
+    ):
+        conditional_headers = _load_listing_validators(
+            site_id, listing_url, db_path
+        )
     to_visit = list(saved_frontier or [listing_url])
     scheduled = set(to_visit)
     visited: set[str] = set()
@@ -880,15 +1055,47 @@ def crawl_with_page(
     saw_scene_cohort = False
     terminated_on_no_new = False
     stopped_on_depth = False
+    pending_validators: dict[str, dict[str, str]] = {}
 
     while to_visit and pages_walked < max_pages:
         requested = to_visit.pop(0)
         if requested in visited:
             continue
         visited.add(requested)
-        response = _goto(page, requested, pacer)
+        request_validators = (
+            conditional_headers
+            if pages_walked == 0 and requested == listing_url
+            else None
+        )
+        response = _goto(
+            page,
+            requested,
+            pacer,
+            conditional_headers=request_validators,
+        )
         status = getattr(response, "status", None) if response else None
         pages_walked += 1
+        if status == 304:
+            page_urls.append(requested)
+            effective_url = requested
+            result = _run_base(
+                state=STATE_COMPLETED,
+                effective_url=effective_url,
+                pages_walked=pages_walked,
+                page_urls=page_urls,
+                scroll_growth_steps=scroll_growth_steps,
+                scroll_settle_state=scroll_settle_state,
+                scroll_late_growth_steps=scroll_late_growth_steps,
+                shapes=shapes,
+                scenes=[],
+                discovered=0,
+                queued=0,
+                title_pages_fetched=0,
+                zero_scenes_found=False,
+                listing_not_modified=True,
+            )
+            _finish_run(run_id, result, db_path)
+            return result
         current = str(page.url)
         page_urls.append(current)
         if not effective_url:
@@ -934,6 +1141,12 @@ def crawl_with_page(
             _finish_run(run_id, result, db_path)
             return result
         authenticated = True
+        # A validator is durable only after this response has passed the
+        # members-area checks, and it is committed only when the whole listing
+        # walk below completes.  A crash cannot advance the validator past the
+        # discovery checkpoint it describes.
+        if current == requested:
+            pending_validators[requested] = _response_validators(response)
 
         scene_urls = {scene["url"] for scene in scenes}
         for pager_url in _pager_urls(
@@ -1036,6 +1249,12 @@ def crawl_with_page(
                 "url": record["url"],
                 "error": f"{type(exc).__name__}: {str(exc)[:200]}",
             })
+
+    if not incomplete:
+        for validator_url, validators in pending_validators.items():
+            _save_listing_validators(
+                site_id, validator_url, validators, db_path
+            )
 
     result = _run_base(
         state=STATE_COMPLETED,

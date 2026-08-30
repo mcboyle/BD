@@ -745,3 +745,255 @@ def test_row397_a_listing_with_fewer_scenes_completes_without_spending_the_budge
     assert result["scroll_settle_state"] == crawler.SETTLE_SETTLED, result
     assert result["scroll_growth_steps"] == 0, result
     assert elapsed < crawler.SCROLL_SETTLE_BUDGET_S, elapsed
+
+
+# ROW 394 -- per-host adaptive pacing and conditional listing requests.  The
+# HTTP evidence remains loopback-only, and pacing uses recorded sleeps rather
+# than wall-clock thresholds so the matched windows are deterministic.
+
+
+class _Row394Response:
+    def __init__(self, status: int):
+        self.status = status
+        self.headers = {}
+
+
+class _Row394StatusPage:
+    def __init__(self, statuses: list[int]):
+        self._statuses = iter(statuses)
+        self.requests: list[str] = []
+
+    def goto(self, url: str, **_kwargs):
+        self.requests.append(url)
+        return _Row394Response(next(self._statuses))
+
+
+def _row394_paced_window(monkeypatch, statuses: list[int]):
+    crawler = _crawler()
+    sleeps: list[float] = []
+    monkeypatch.setattr(crawler.time, "sleep", sleeps.append)
+    page = _Row394StatusPage(statuses)
+    pacer = crawler._Pacer(1.0)
+    for _status in statuses:
+        crawler._goto(page, "https://members.example.test/listing", pacer)
+    return page.requests, sleeps
+
+
+def test_row394_throttle_adapts_one_hosts_matched_window_without_wall_clock(
+    monkeypatch,
+):
+    healthy_requests, healthy_sleeps = _row394_paced_window(
+        monkeypatch, [200, 200, 200, 200]
+    )
+    throttled_requests, throttled_sleeps = _row394_paced_window(
+        monkeypatch, [429, 200, 200, 200]
+    )
+
+    # Preconditions: both windows dispatched the same nonzero request count and
+    # differ only in the first response status.  No elapsed-time threshold can
+    # turn a loaded host into a different verdict.
+    assert len(healthy_requests) == len(throttled_requests) == 4
+    assert set(healthy_requests) == set(throttled_requests) == {
+        "https://members.example.test/listing"
+    }
+    assert healthy_sleeps == [1.0, 1.0, 1.0]
+    assert throttled_sleeps == [2.0, 1.0, 1.0]
+    assert sum(throttled_sleeps) > sum(healthy_sleeps)
+
+
+def test_row394_throttle_delay_is_isolated_to_responding_host(monkeypatch):
+    crawler = _crawler()
+    sleeps: list[float] = []
+    monkeypatch.setattr(crawler.time, "sleep", sleeps.append)
+    pacer = crawler._Pacer(1.0)
+
+    sequence = [
+        ("https://slow.example.test/listing", 429),
+        ("https://healthy.example.test/listing", 200),
+        ("https://healthy.example.test/page/2", 200),
+        ("https://slow.example.test/page/2", 200),
+    ]
+    page = _Row394StatusPage([status for _url, status in sequence])
+    for url, _status in sequence:
+        crawler._goto(page, url, pacer)
+
+    # The healthy host's second request keeps the configured floor (1s); only
+    # the throttled host's second request receives the 2s backoff.
+    assert page.requests == [url for url, _status in sequence]
+    assert sleeps == [1.0, 2.0]
+
+
+@pytest.fixture
+def row394_conditional_listing_origin():
+    state = {"version": 1, "requests": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - stdlib handler API
+            if self.path != "/members/listing":
+                self.send_error(404)
+                return
+            version = int(state["version"])
+            etag = f'"row394-v{version}"'
+            last_modified = (
+                "Sun, 30 Aug 2026 12:00:00 GMT"
+                if version == 1
+                else "Sun, 30 Aug 2026 12:01:00 GMT"
+            )
+            observed = {
+                "if-none-match": self.headers.get("If-None-Match"),
+                "if-modified-since": self.headers.get("If-Modified-Since"),
+            }
+            state["requests"].append(observed)
+            if (
+                observed["if-none-match"] == etag
+                and observed["if-modified-since"] == last_modified
+            ):
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Last-Modified", last_modified)
+                self.end_headers()
+                return
+
+            cards = [(1, "First Scene"), (2, "Second Scene")]
+            if version >= 2:
+                cards.append((3, "Third Scene"))
+            anchors = "".join(
+                "<article><a href='/video/watch/{number}/scene-{number}'>"
+                "<img alt='{title}'></a></article>".format(
+                    number=number, title=title
+                )
+                for number, title in cards
+            )
+            raw = (
+                "<!doctype html><html><body data-members-area='true'>"
+                f"{anchors}</body></html>"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("ETag", etag)
+            self.send_header("Last-Modified", last_modified)
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, _fmt, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", state
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _row394_crawl_in_fresh_context(
+    root_page, origin, db_path, queued, *, enqueue_fn=None,
+):
+    crawler = _crawler()
+    browser = root_page.context.browser
+    assert browser is not None
+    context = browser.new_context(viewport={"width": 800, "height": 600})
+    page = context.new_page()
+    try:
+        submit = enqueue_fn or (
+            lambda sid, url: queued.append((sid, url)) or {
+                "added": 1,
+                "dupes": 0,
+                "skipped": 0,
+            }
+        )
+        return crawler.crawl_with_page(
+            page,
+            site_id="row394",
+            listing_url=origin + "/members/listing",
+            site_config={},
+            newest_n=0,
+            max_pages=1,
+            max_scrolls=0,
+            delay_s=0,
+            title_fetch_limit=0,
+            enqueue_fn=submit,
+            db_path=str(db_path),
+        )
+    finally:
+        context.close()
+
+
+def test_row394_completed_listing_revalidates_and_changed_body_is_processed(
+    page, row394_conditional_listing_origin, tmp_path,
+):
+    crawler = _crawler()
+    origin, state = row394_conditional_listing_origin
+    db_path = tmp_path / "conditional.sqlite"
+    queued: list[tuple[str, str]] = []
+
+    first = _row394_crawl_in_fresh_context(page, origin, db_path, queued)
+    assert first["state"] == crawler.STATE_COMPLETED
+    assert first["discovered"] == first["queued"] == 2
+    assert len(queued) == 2
+    assert state["requests"] == [{
+        "if-none-match": None,
+        "if-modified-since": None,
+    }]
+
+    # A fresh browser context has no HTTP cache.  The validators therefore can
+    # only come from the crawler's durable completed-walk evidence.
+    unchanged = _row394_crawl_in_fresh_context(page, origin, db_path, queued)
+    assert unchanged["state"] == crawler.STATE_COMPLETED
+    assert unchanged["listing_not_modified"] is True
+    assert unchanged["pages_walked"] == 1
+    assert unchanged["discovered"] == unchanged["queued"] == 0
+    assert len(queued) == 2
+    assert state["requests"][-1] == {
+        "if-none-match": '"row394-v1"',
+        "if-modified-since": "Sun, 30 Aug 2026 12:00:00 GMT",
+    }
+
+    # Negative control: the same conditional headers no longer match after the
+    # server changes.  A 200 body must be processed, not mistaken for a 304.
+    state["version"] = 2
+    changed = _row394_crawl_in_fresh_context(page, origin, db_path, queued)
+    assert changed["listing_not_modified"] is False
+    assert changed["discovered"] == changed["queued"] == 1
+    assert len(queued) == 3
+    assert state["requests"][-1] == state["requests"][-2]
+
+
+def test_row394_pending_enqueue_disables_304_until_retry_succeeds(
+    page, row394_conditional_listing_origin, tmp_path,
+):
+    crawler = _crawler()
+    origin, state = row394_conditional_listing_origin
+    db_path = tmp_path / "pending-enqueue.sqlite"
+    queued: list[tuple[str, str]] = []
+
+    first = _row394_crawl_in_fresh_context(
+        page,
+        origin,
+        db_path,
+        queued,
+        enqueue_fn=lambda _sid, _url: {
+            "ok": False,
+            "error": "deliberate row394 refusal",
+        },
+    )
+    assert first["discovered"] == 2
+    assert first["queued"] == 0
+    assert len(first["enqueue_errors"]) == 2
+    assert not queued
+
+    retried = _row394_crawl_in_fresh_context(page, origin, db_path, queued)
+    assert retried["listing_not_modified"] is False
+    assert retried["discovered"] == 0
+    assert retried["queued"] == 2
+    assert len(queued) == 2
+    # A validator was available, but pending durable rows made the second
+    # request unconditional so their enqueue attempts could not be skipped.
+    assert state["requests"] == [
+        {"if-none-match": None, "if-modified-since": None},
+        {"if-none-match": None, "if-modified-since": None},
+    ]
