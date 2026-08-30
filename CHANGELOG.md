@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1356 - a page with no video says so instead of scoring a 6K non-candidate
+
+- Row 399: a page with zero media affordances now reports a distinct no-video
+- Site-chrome navigation links such as /films-6K/ are excluded from the downl
+- The scene page still ranks its tiers exactly as before and the gallery fixt
+- The download path asks the page before blaming a selector, so a page with n
+- a page with no video says so instead of scoring a 6K non-candidate
+- frontend: 1 file(s) changed
+- 2 file(s), 0 insertion(s) in the worker diff
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather than absorbed silently:
+    _a_photo_gallery_is_not_a_failed_video_page.py -> bulk_downloader
+    detect.py -> bulk_downloader
+    runner.py -> bulk_downloader
+  The gate is a boundary, so a re-baseline that does not say what moved
+  is indistinguishable from an unwanted dependency being laundered in.
+
 ## v3.66.1355 - five reptyle selector kinds reviewed and tested against recorded DOM
 
 - Twelve reptyle download row selectors were valid CSS that resolved zero on 
