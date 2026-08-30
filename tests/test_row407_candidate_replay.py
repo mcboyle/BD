@@ -728,6 +728,83 @@ def test_rollback_retains_output_when_claim_path_inode_is_replaced(
             path.unlink(missing_ok=True)
 
 
+def test_rollback_retains_output_when_claim_token_is_replaced_in_place(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The held manifest inode alone does not authorize deleting an output."""
+
+    subject = _load_replay_module()
+    injected = OSError("injected failure after claim token replacement")
+
+    def replace_token_then_fail(*_args, **_kwargs):
+        payload = json.loads(repo_case.manifest.read_text())
+        payload["token"] = "0" * 64
+        repo_case.manifest.write_text(json.dumps(payload, sort_keys=True))
+        raise injected
+
+    monkeypatch.setattr(subject, "_copy_untracked", replace_token_then_fail)
+
+    try:
+        with pytest.raises(OSError) as caught:
+            subject.replay(
+                repo=repo_case.repo,
+                source=repo_case.source,
+                expect_head=repo_case.source_head,
+                main_ref="refs/remotes/origin/main",
+                output=repo_case.output,
+            )
+
+        assert caught.value is injected
+        assert repo_case.output.is_dir(), "token drift must retain replay output"
+        assert repo_case.manifest.is_file(), "token drift must retain the claim"
+        assert any("claim token changed" in note for note in injected.__notes__)
+    finally:
+        _git(repo_case.repo, "worktree", "remove", "--force", str(repo_case.output), check=False)
+        repo_case.manifest.unlink(missing_ok=True)
+
+
+def test_rollback_retains_replacement_output_inode(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A loser must never remove a directory that replaced its exact output inode."""
+
+    subject = _load_replay_module()
+    retained = repo_case.output.with_name("owned-output")
+    injected = OSError("injected failure after output replacement")
+
+    def replace_output_then_fail(*_args, **_kwargs):
+        repo_case.output.rename(retained)
+        repo_case.output.mkdir()
+        (repo_case.output / "replacement.txt").write_text("winner\n")
+        raise injected
+
+    monkeypatch.setattr(subject, "_copy_untracked", replace_output_then_fail)
+
+    try:
+        with pytest.raises(OSError) as caught:
+            subject.replay(
+                repo=repo_case.repo,
+                source=repo_case.source,
+                expect_head=repo_case.source_head,
+                main_ref="refs/remotes/origin/main",
+                output=repo_case.output,
+            )
+
+        assert caught.value is injected
+        assert (repo_case.output / "replacement.txt").read_text() == "winner\n"
+        assert retained.is_dir(), "the transaction-owned output must be retained"
+        assert repo_case.manifest.is_file(), "uncertain output ownership retains claim"
+        assert any("output final-path" in note for note in injected.__notes__)
+    finally:
+        shutil.rmtree(repo_case.output, ignore_errors=True)
+        if retained.exists():
+            retained.rename(repo_case.output)
+        _git(repo_case.repo, "worktree", "remove", "--force", str(repo_case.output), check=False)
+        repo_case.manifest.unlink(missing_ok=True)
+
+
 def _wait_until(predicate, timeout: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

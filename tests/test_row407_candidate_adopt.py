@@ -183,6 +183,24 @@ def test_output_bytes_drift_is_not_adoptable(replayed_case: ReplayedCase) -> Non
     assert body["evidence"]["output_unchanged"] is False
 
 
+@pytest.mark.parametrize("worktree", ("source", "output"))
+def test_worktree_head_drift_is_not_adoptable(
+    replayed_case: ReplayedCase,
+    worktree: str,
+) -> None:
+    """Unchanged paths and clean status cannot substitute for the recorded HEAD."""
+
+    target = getattr(replayed_case, worktree)
+    _write(target / f"later-{worktree}.txt", "later commit\n")
+    _commit(target, f"move {worktree} HEAD")
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 1
+    assert body["verdict"] == "NOT_ADOPTABLE"
+    assert body["evidence"][f"{worktree}_unchanged"] is False
+
+
 @pytest.mark.parametrize("missing", ("source", "output"))
 def test_missing_required_worktree_evidence_is_unknown(
     replayed_case: ReplayedCase,
@@ -246,6 +264,18 @@ def test_unsupported_manifest_schema_is_unknown(
     assert body["reason_code"] == "MANIFEST_SCHEMA_UNSUPPORTED"
 
 
+def test_malformed_manifest_json_is_unknown(replayed_case: ReplayedCase) -> None:
+    """Truncated transaction bytes are unavailable evidence, never a mismatch."""
+
+    replayed_case.manifest.write_text('{"schema": 1, "state":')
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 2
+    assert body["verdict"] == "UNKNOWN"
+    assert body["reason_code"] == "MANIFEST_MALFORMED"
+
+
 def test_manifest_path_inode_replacement_is_not_adoptable(
     replayed_case: ReplayedCase,
 ) -> None:
@@ -260,6 +290,63 @@ def test_manifest_path_inode_replacement_is_not_adoptable(
     assert result.returncode == 1
     assert body["verdict"] == "NOT_ADOPTABLE"
     assert body["evidence"]["manifest_identity_matches"] is False
+
+
+def test_output_path_inode_replacement_is_not_adoptable(
+    replayed_case: ReplayedCase,
+) -> None:
+    """A new directory at the recorded output name cannot inherit adoption."""
+
+    retained = replayed_case.output.with_name("retained-output")
+    replayed_case.output.rename(retained)
+    replayed_case.output.mkdir()
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 1
+    assert body["verdict"] == "NOT_ADOPTABLE"
+    assert body["evidence"]["repository_matches"] is False
+
+
+def test_missing_common_git_directory_is_unknown(
+    replayed_case: ReplayedCase,
+) -> None:
+    """Disappearing repository evidence is uncertainty, not a readable mismatch."""
+
+    common_git = replayed_case.repo / ".git"
+    common_git.rename(replayed_case.repo / ".git-retained")
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 2
+    assert body["verdict"] == "UNKNOWN"
+    assert body["reason_code"] == "EVIDENCE_PATH_UNREADABLE"
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "evidence_name"),
+    (
+        ("merge_base", "0" * 40, "merge_base_matches"),
+        ("candidate_commits", [], "candidate_commits_match"),
+    ),
+)
+def test_manifest_replay_derivation_tampering_is_not_adoptable(
+    replayed_case: ReplayedCase,
+    field: str,
+    replacement: object,
+    evidence_name: str,
+) -> None:
+    """Schema-valid edits cannot turn informational replay fields into authority."""
+
+    manifest = json.loads(replayed_case.manifest.read_text())
+    manifest[field] = replacement
+    replayed_case.manifest.write_text(json.dumps(manifest, sort_keys=True))
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 1
+    assert body["verdict"] == "NOT_ADOPTABLE"
+    assert body["evidence"][evidence_name] is False
 
 
 def test_symlink_manifest_is_unknown_and_never_followed(
