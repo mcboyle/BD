@@ -1,10 +1,14 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Backlog row 26 slice 4 extends the @1098 always-true assertion gate with one variable-mediated decidable shape. Re-run from an independent detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1098_assertion_gate.json --work DETACHED_SCRATCH --timeout 300. Eight behavioral mutants must be CAUGHT. The final duplicate transform mutant deliberately names the import-only control as its catcher and must ESCAPE; that proves the behavioral catchers fail on assertions rather than on an invalid transform or collection break.",
-  "subject": "row 26 slice 4 -- straight-line immutable local literals cannot make an assertion's root-or chain vacuously true",
+  "_comment": "Backlog row 26 slices 4 and 5 extend the @1098 always-true assertion gate with two variable-mediated decidable shapes. Re-run from an independent detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1098_assertion_gate.json --work DETACHED_SCRATCH --timeout 300. Twelve behavioral mutants must be CAUGHT. The final duplicate transform mutant deliberately names the import-only control as its catcher and must ESCAPE; that proves the behavioral catchers fail on assertions rather than on an invalid transform or collection break.",
+  "subject": "row 26 slices 4 and 5 -- straight-line immutable locals cannot make a bare/root-or assertion or one direct equality/inequality vacuously true",
   "band": [
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_local_literal_can_make_an_assertion_vacuous",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_literal_comparison_can_make_an_assertion_vacuous",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_literal_local_compared_with_a_runtime_value_remains_real",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_resolved_false_local_comparison_does_not_make_root_or_vacuous",
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_variable_slice_reports_an_exact_metrics_dictionary",
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_comparison_slice_reports_reconciled_fixture_metrics",
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_bare_truthy_local_is_inside_the_decidable_slice",
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_falsy_local_clause_remains_a_real_assertion",
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_rebinding_and_dynamic_scope_refuse_stale_literal_facts",
@@ -84,6 +88,44 @@
       "new": "                    if False:\n                        metrics[\"variable_asserts_excluded_already_true\"] += 1",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_variable_slice_reports_an_exact_metrics_dictionary"
+    },
+    {
+      "label": "M9 variable-mediated equality is never resolved",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "    if env is not None:\n        comparison = _literal_comparison_verdict(node, env)\n        if comparison is not None:\n            return comparison",
+      "new": "    if False:\n        comparison = _literal_comparison_verdict(node, env)\n        if comparison is not None:\n            return comparison",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_literal_comparison_can_make_an_assertion_vacuous"
+    },
+    {
+      "label": "M10 OVER-CORRECTION an unresolved runtime operand is invented as true",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "    if left is _MISSING or right is _MISSING:\n        return None",
+      "new": "    if left is _MISSING or right is _MISSING:\n        return True",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_literal_local_compared_with_a_runtime_value_remains_real",
+      "preserves": [
+        "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_literal_comparison_can_make_an_assertion_vacuous"
+      ]
+    },
+    {
+      "label": "M11 OVER-CORRECTION every resolved comparison is called true",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "    return bool(equal) if isinstance(node.ops[0], ast.Eq) else not bool(equal)",
+      "new": "    return True",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_resolved_false_local_comparison_does_not_make_root_or_vacuous",
+      "preserves": [
+        "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_a_straight_line_literal_comparison_can_make_an_assertion_vacuous"
+      ]
+    },
+    {
+      "label": "M12 the resolved-comparison metric stops counting its decidable population",
+      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+      "old": "                                metrics[\"variable_comparisons_resolved\"] += 1",
+      "new": "                                metrics[\"variable_comparisons_resolved\"] += 0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_comparison_slice_reports_reconciled_fixture_metrics"
     },
     {
       "label": "TRANSFORM CONTROL: disabling variable resolution must escape when the named test only imports the mutated module",

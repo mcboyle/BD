@@ -22,9 +22,16 @@ assertion's root `or` chain. Any intervening lexical binding clears the fact;
 any `global` or `nonlocal` declaration anywhere below the function refuses the
 name. Assertions nested under control flow are deliberately outside the slice.
 
+SLICE 5 admits one more expression position without widening that data flow:
+one `==` or `!=` comparison in the same bare/root-`or` positions, with a direct
+Name or Constant on each side. At least one side must be a tracked local and
+both sides must resolve before the comparison has a verdict. Calls, chained
+comparisons, ordering, membership, identity, and an unresolved side are UNKNOWN.
+
 WHAT THIS GATE DELIBERATELY DOES NOT CLAIM. It is not the vacuous-test detector
 row 26 asks for and does not close it. It cannot see:
-  - variable-mediated vacuity outside the exact straight-line literal slice;
+  - variable-mediated vacuity outside the exact straight-line literal and
+    single equality/inequality slice;
   - a test whose assertions are real but unreachable;
   - a test that asserts something true of every possible implementation.
 These are decidable syntax floors, and the row stays open above them.
@@ -52,7 +59,51 @@ _VARIABLE_METRIC_KEYS = (
     "variable_asserts_eligible",
     "variable_asserts_decided_true",
     "variable_asserts_not_decided_true",
+    "variable_comparisons_seen",
+    "variable_comparisons_resolved",
+    "variable_comparisons_unresolved",
+    "variable_comparisons_resolved_true",
+    "variable_comparisons_resolved_false",
 )
+
+_MISSING = object()
+
+
+def _comparison_operand(
+        node: ast.expr, env: dict[str, object],
+) -> object:
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name) and node.id in env:
+        return env[node.id]
+    return _MISSING
+
+
+def _literal_comparison_verdict(
+        node: ast.expr, env: dict[str, object],
+) -> bool | None:
+    """Decide one local-mediated equality, or return UNKNOWN.
+
+    Requiring a bound Name keeps this slice variable-mediated rather than
+    silently widening the original syntax-only floor to arbitrary expressions.
+    """
+    if not (isinstance(node, ast.Compare)
+            and len(node.ops) == 1
+            and isinstance(node.ops[0], (ast.Eq, ast.NotEq))):
+        return None
+    operands = (node.left, node.comparators[0])
+    if not any(isinstance(operand, ast.Name) and operand.id in env
+               for operand in operands):
+        return None
+    left = _comparison_operand(operands[0], env)
+    right = _comparison_operand(operands[1], env)
+    if left is _MISSING or right is _MISSING:
+        return None
+    try:
+        equal = left == right
+    except Exception:  # pragma: no cover - Constant equality is total in CPython
+        return None
+    return bool(equal) if isinstance(node.ops[0], ast.Eq) else not bool(equal)
 
 
 def _tracked_test_files() -> list[Path]:
@@ -75,6 +126,10 @@ def _always_true(node: ast.expr, env: dict[str, object] | None = None) -> bool:
         return bool(node.value)
     if isinstance(node, ast.Name) and env is not None and node.id in env:
         return bool(env[node.id])
+    if env is not None:
+        comparison = _literal_comparison_verdict(node, env)
+        if comparison is not None:
+            return comparison
     if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
         # `x or True` is true regardless of x.
         return any(_always_true(v, env) for v in node.values)
@@ -147,7 +202,29 @@ def _variable_names_in_true_slice(node: ast.expr) -> set[str]:
     if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
         return set().union(*(_variable_names_in_true_slice(value)
                              for value in node.values))
+    if (isinstance(node, ast.Compare)
+            and len(node.ops) == 1
+            and isinstance(node.ops[0], (ast.Eq, ast.NotEq))):
+        return {
+            operand.id
+            for operand in (node.left, node.comparators[0])
+            if isinstance(operand, ast.Name)
+        }
     return set()
+
+
+def _variable_comparisons_in_true_slice(node: ast.expr) -> list[ast.Compare]:
+    if (isinstance(node, ast.Compare)
+            and len(node.ops) == 1
+            and isinstance(node.ops[0], (ast.Eq, ast.NotEq))):
+        return [node]
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        return [
+            comparison
+            for value in node.values
+            for comparison in _variable_comparisons_in_true_slice(value)
+        ]
+    return []
 
 
 def _variable_vacuous_asserts(
@@ -186,6 +263,27 @@ def _variable_vacuous_asserts(
                         metrics["variable_asserts_excluded_already_true"] += 1
                     else:
                         metrics["variable_asserts_eligible"] += 1
+                        for comparison in _variable_comparisons_in_true_slice(
+                                statement.test):
+                            comparison_names = {
+                                operand.id
+                                for operand in (comparison.left,
+                                                comparison.comparators[0])
+                                if isinstance(operand, ast.Name)
+                            }
+                            if not comparison_names & assert_env.keys():
+                                continue
+                            metrics["variable_comparisons_seen"] += 1
+                            verdict = _literal_comparison_verdict(
+                                comparison, assert_env)
+                            if verdict is None:
+                                metrics["variable_comparisons_unresolved"] += 1
+                            else:
+                                metrics["variable_comparisons_resolved"] += 1
+                                outcome = "true" if verdict else "false"
+                                metrics[
+                                    f"variable_comparisons_resolved_{outcome}"
+                                ] += 1
                         if _always_true(statement.test, assert_env):
                             metrics["variable_asserts_decided_true"] += 1
                             hits.append((statement.lineno,
@@ -294,6 +392,54 @@ def test_a_straight_line_local_literal_can_make_an_assertion_vacuous(tmp_path):
     assert _vacuous_asserts(path) == [(3, "condition or always")]
 
 
+def test_a_straight_line_literal_comparison_can_make_an_assertion_vacuous(
+        tmp_path):
+    """RED for the next row 26 slice: equality is true through a NAME."""
+    source = ("def test_it():\n"
+              "    expected = 12\n"
+              "    assert expected == 12\n")
+    tree = ast.parse(source)
+    assignments = [node for node in ast.walk(tree)
+                   if isinstance(node, ast.Assign)]
+    assertions = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.Assert)]
+    assert len(assignments) == 1 and len(assertions) == 1, (
+        "positive comparison fixture must contain one assignment and one assert")
+    assert isinstance(assignments[0].value, ast.Constant)
+    assert assignments[0].value.value == 12
+    assert isinstance(assertions[0].test, ast.Compare)
+    assert isinstance(assertions[0].test.ops[0], ast.Eq)
+
+    path = tmp_path / "test_variable_comparison_vacuity.py"
+    path.write_text(source, encoding="utf-8")
+    assert _vacuous_asserts(path) == [(3, "expected == 12")]
+
+
+def test_a_literal_local_compared_with_a_runtime_value_remains_real():
+    source = ("def test_it(observed):\n"
+              "    expected = 12\n"
+              "    assert observed == expected\n"
+              "    assert expected != observed\n")
+    tree = ast.parse(source)
+    assertions = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.Assert)]
+    assert len(assertions) == 2
+    assert _variable_vacuous_asserts(tree) == []
+
+
+def test_a_resolved_false_local_comparison_does_not_make_root_or_vacuous():
+    """Over-sensitivity control and the live decidable-denominator floor."""
+    source = ("def test_it(observed):\n"
+              "    expected = 12\n"
+              "    same = 12\n"
+              "    assert observed or expected != same\n")
+    tree = ast.parse(source)
+    hits = _variable_vacuous_asserts(tree)
+    expected = 12
+    same = 12
+    assert not hits or expected != same
+
+
 def test_the_variable_slice_reports_an_exact_metrics_dictionary():
     source = ("def test_it(result):\n"
               "    fallback = False\n"
@@ -319,7 +465,20 @@ def test_the_variable_slice_reports_an_exact_metrics_dictionary():
     assert _variable_vacuous_asserts(tree, counts) == [
         (5, "result or always")
     ]
-    assert counts == {
+    original_slice_counts = {
+        key: counts[key]
+        for key in (
+            "literal_bindings_seen",
+            "literal_bindings_excluded_declaration",
+            "literal_bindings_tracked",
+            "variable_asserts_seen",
+            "variable_asserts_excluded_already_true",
+            "variable_asserts_eligible",
+            "variable_asserts_decided_true",
+            "variable_asserts_not_decided_true",
+        )
+    }
+    assert original_slice_counts == {
         "literal_bindings_seen": 4,
         "literal_bindings_excluded_declaration": 1,
         "literal_bindings_tracked": 3,
@@ -329,6 +488,23 @@ def test_the_variable_slice_reports_an_exact_metrics_dictionary():
         "variable_asserts_decided_true": 1,
         "variable_asserts_not_decided_true": 1,
     }, counts
+
+
+def test_the_comparison_slice_reports_reconciled_fixture_metrics():
+    source = ("def test_it(actual):\n"
+              "    expected = 7\n"
+              "    assert expected == 7\n"
+              "    assert actual == expected\n"
+              "    same = 7\n"
+              "    assert expected != same\n")
+    counts: dict[str, int] = {}
+    hits = _variable_vacuous_asserts(ast.parse(source), counts)
+    assert hits == [(3, "expected == 7")]
+    assert counts["variable_comparisons_seen"] == 3
+    assert counts["variable_comparisons_resolved"] == 2
+    assert counts["variable_comparisons_unresolved"] == 1
+    assert counts["variable_comparisons_resolved_true"] == 1
+    assert counts["variable_comparisons_resolved_false"] == 1
 
 
 def test_a_bare_truthy_local_is_inside_the_decidable_slice():
@@ -454,7 +630,13 @@ def test_no_tracked_test_carries_an_assertion_that_cannot_fail():
         f"{counts['variable_asserts_excluded_already_true']} already decided "
         f"by the syntax-only slice, {counts['variable_asserts_eligible']} "
         f"eligible, {counts['variable_asserts_decided_true']} true and "
-        f"{counts['variable_asserts_not_decided_true']} not decided true. "
+        f"{counts['variable_asserts_not_decided_true']} not decided true; "
+        f"single equality/inequality comparisons: "
+        f"{counts['variable_comparisons_seen']} seen, "
+        f"{counts['variable_comparisons_resolved']} resolved "
+        f"({counts['variable_comparisons_resolved_true']} true, "
+        f"{counts['variable_comparisons_resolved_false']} false), and "
+        f"{counts['variable_comparisons_unresolved']} unresolved. "
         "Assertions below "
         "nested control flow and every non-literal or merged value remain "
         "UNKNOWN, not clean."
@@ -478,6 +660,20 @@ def test_the_variable_slice_denominator_is_nonzero_and_reconciled():
         counts["variable_asserts_decided_true"]
         + counts["variable_asserts_not_decided_true"]
     ), counts
+    assert counts["variable_comparisons_seen"] == (
+        counts["variable_comparisons_resolved"]
+        + counts["variable_comparisons_unresolved"]
+    ), counts
+    assert counts["variable_comparisons_resolved"] == (
+        counts["variable_comparisons_resolved_true"]
+        + counts["variable_comparisons_resolved_false"]
+    ), counts
     assert counts["variable_asserts_eligible"] > 0, (
         "the straight-line local-literal slice has zero eligible assertions; "
         "a clean verdict would say nothing about its advertised population")
+    assert counts["variable_comparisons_resolved"] > 0, (
+        "the equality/inequality slice resolved zero comparisons; a clean "
+        "verdict would say nothing about its advertised decidable population")
+    assert counts["variable_comparisons_resolved_false"] > 0, (
+        "the equality/inequality slice has no resolved-false control; treating "
+        "every resolved comparison as vacuous could launder a clean verdict")

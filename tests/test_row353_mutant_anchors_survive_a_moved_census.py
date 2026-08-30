@@ -128,7 +128,9 @@ def test_regex_mutant_replaces_one_span_verbatim_with_exact_length_arithmetic(
     assert len(matches) == 1
     matched = matches[0].group(0).encode("utf-8")
     expected_after = b"CENSUS = \\1\n"
-    assert expected_after != original
+    subject_before = subject.read_bytes()
+    assert subject_before == original
+    assert expected_after != subject_before
     assert len(expected_after) == len(original) - len(matched) + len(
         replacement.encode("utf-8")
     )

@@ -91,10 +91,11 @@ def test_many_logical_leases_use_one_physical_connection_and_one_config_stat(
         synchronous = cx.execute("PRAGMA synchronous").fetchone()[0]
         busy_timeout = cx.execute("PRAGMA busy_timeout").fetchone()[0]
 
-    assert workload_leases == 12, "precondition: configured workload changed"
-    assert completed_leases == 12, "precondition: workload lost logical leases"
-    assert completed_statements == 24, "precondition: workload lost statements"
-    assert [row[0] for row in stored] == list(range(12)), (
+    assert completed_leases == workload_leases, (
+        "precondition: workload lost logical leases")
+    assert completed_statements == 2 * workload_leases, (
+        "precondition: workload lost statements")
+    assert [row[0] for row in stored] == list(range(workload_leases)), (
         "every logical lease must still commit its row")
     assert str(journal_mode).lower() == "wal"
     assert int(synchronous) == 1, "SQLite NORMAL synchronous mode is numeric 1"
@@ -226,8 +227,8 @@ def test_enabled_tracer_caches_threshold_and_still_traces(
         results = [cx.execute("SELECT ?", (value,)).fetchone()[0]
                    for value in range(statement_count)]
 
-    assert statement_count == 6, "precondition: traced statement workload changed"
-    assert results == list(range(6)), "precondition: traced statements did not run"
+    assert results == list(range(statement_count)), (
+        "precondition: traced statements did not run")
     assert len(warnings) == statement_count - 1, (
         "enabled tracing must report every post-first statement at threshold -1; "
         f"observed {len(warnings)} warnings")
