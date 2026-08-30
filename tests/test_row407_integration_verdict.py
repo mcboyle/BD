@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ REAL_GIT = shutil.which("git")
 assert REAL_GIT is not None
 ROW = 407
 REQUIRED_TEST = "tests/test_row407_behavior.py"
+BD_GATE_SCOPE = "module"
 
 
 def _run(
@@ -24,10 +26,12 @@ def _run(
     *,
     cwd: Path,
     check: bool = True,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         argv,
         cwd=cwd,
+        env=env,
         text=True,
         capture_output=True,
         check=False,
@@ -166,6 +170,7 @@ class VerdictRepo:
         expected_version: str = "3.66.11",
         row: int = ROW,
         required_paths: tuple[str, ...] = (REQUIRED_TEST,),
+        env: dict[str, str] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
         command = [
             sys.executable,
@@ -184,7 +189,7 @@ class VerdictRepo:
         ]
         for path in required_paths:
             command.extend(("--require-path", path))
-        result = _run(command, cwd=ROOT, check=False)
+        result = _run(command, cwd=ROOT, check=False, env=env)
         return result, json.loads(result.stdout)
 
 
@@ -295,3 +300,37 @@ def test_unreadable_candidate_or_main_is_unknown_not_integrated(
     assert result.returncode == 2
     assert body["verdict"] == "UNKNOWN"
     assert body["reason_code"] in {"CANDIDATE_UNREADABLE", "MAIN_REF_UNREADABLE"}
+
+
+def test_poisoned_git_environment_cannot_manufacture_an_integrated_verdict(
+    verdict_repo: VerdictRepo,
+    tmp_path: Path,
+) -> None:
+    """Inheriting GIT_DIR can make ancestry/version evidence describe another repo."""
+
+    poison = tmp_path / "poison"
+    poison.mkdir()
+    _git(poison, "init", "-b", "main")
+    _git(poison, "config", "user.name", "Poison")
+    _git(poison, "config", "user.email", "poison@example.invalid")
+    _write(poison / "bulk_downloader" / "__init__.py", _version("3.66.99"))
+    _write(
+        poison / "project-knowledge" / "IMPROVEMENT_BACKLOG.md",
+        _register("OPEN"),
+    )
+    poison_head = _commit(poison, "poison")
+    env = dict(os.environ)
+    env.update(
+        GIT_DIR=str(poison / ".git"),
+        GIT_WORK_TREE=str(poison),
+        GIT_INDEX_FILE=str(tmp_path / "poison.index"),
+        GIT_OBJECT_DIRECTORY=str(poison / ".git" / "objects"),
+    )
+
+    result, body = verdict_repo.run_verdict(env=env)
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert body["verdict"] == "INTEGRATED"
+    assert body["candidate_sha"] == verdict_repo.merged_candidate
+    assert body["main_sha"] == verdict_repo.main_head
+    assert body["candidate_sha"] != poison_head

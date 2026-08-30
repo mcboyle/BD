@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -26,10 +27,22 @@ class UnknownEvidence(Exception):
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    run_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_")
+    }
+    run_env.update(
+        GIT_OPTIONAL_LOCKS="0",
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_TERMINAL_PROMPT="0",
+    )
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
         check=False,
+        env=run_env,
     )
 
 
