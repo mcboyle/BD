@@ -22,6 +22,8 @@ os.environ.setdefault("BD_HOME", tempfile.mkdtemp(prefix="bd_navreach_test_"))
 
 import importlib.util  # noqa: E402
 
+from flask import Flask
+
 _spec = importlib.util.spec_from_file_location(
     "nav_reachability", _ROOT / "tools" / "nav_reachability.py")
 nav_reachability = importlib.util.module_from_spec(_spec)
@@ -45,3 +47,61 @@ def test_external_nav_entries_present():
     land, GREEN after."""
     missing = nav_reachability.check_external_nav(verbose=False)
     assert missing == [], "External nav orphans:\n  " + "\n  ".join(missing)
+
+
+def test_rendered_server_links_resolve_in_flask_or_the_spa():
+    """Every currently served internal anchor needs a real routing owner."""
+    findings = nav_reachability.check_outbound_internal_links(verbose=False)
+    assert findings == [], "Unresolved rendered internal links:\n  " + "\n  ".join(findings)
+
+
+def test_outbound_links_accept_explicit_server_and_spa_routes():
+    """The outbound checker must accept both routing domains.
+
+    Flask's root catch-all serves the SPA document but cannot prove that React
+    has a route for a target.  This fixture gives the checker one real Flask
+    target and one declared SPA target so a replacement that accepts only one
+    domain is caught.
+    """
+    app = Flask(__name__)
+
+    @app.route("/source")
+    def source():
+        return ('<a href="/server">server</a><a href="/spa">spa</a>'
+                '<a href="/slash">slash redirect</a>')
+
+    @app.route("/server")
+    def server():
+        return "server"
+
+    @app.route("/slash/")
+    def slash():
+        return "slash"
+
+    assert nav_reachability.check_outbound_internal_links(
+        app=app, spa_routes={"/spa"}, verbose=False) == []
+
+
+def test_outbound_links_catch_a_rendered_relative_dead_link():
+    """A browser-resolved relative breadcrumb is the row-113 failure shape."""
+    app = Flask(__name__)
+
+    @app.route("/cockpit/settings")
+    def settings():
+        return '<a href="home">Cockpit Home</a>'
+
+    findings = nav_reachability.check_outbound_internal_links(
+        app=app, spa_routes=set(), verbose=False)
+
+    retired = "/cockpit/" + "home"
+    assert findings == [
+        f"OUTBOUND unresolved: /cockpit/settings href='home' resolves to {retired}"
+    ]
+
+
+def test_outbound_links_refuse_an_empty_rendered_page_denominator():
+    """No source pages means the route claim is unmeasured, not clean."""
+    findings = nav_reachability.check_outbound_internal_links(
+        app=Flask(__name__), spa_routes=set(), verbose=False)
+
+    assert findings == ["OUTBOUND uncheckable: no static server GET pages"]

@@ -39,7 +39,10 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
+
+from werkzeug.routing import Map, Rule
+from werkzeug.routing.exceptions import HTTPException, RequestRedirect
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -121,6 +124,155 @@ class _HrefParser(HTMLParser):
         for k, v in attrs:
             if k == "href" and v and not v.startswith(("#", "mailto:", "javascript:")):
                 self.hrefs.append(v)
+
+
+def _declared_spa_routes() -> set[str]:
+    """Return the concrete React route declarations, excluding its catch-all.
+
+    The Flask root handler deliberately returns the SPA document for unknown
+    paths.  It cannot therefore establish that a browser can render a target;
+    this small, explicit App.tsx population is the client-side routing half of
+    the outbound-link contract.
+    """
+    app_tsx = ROOT / "frontend" / "src" / "App.tsx"
+    if not app_tsx.is_file():
+        return set()
+    app_src = app_tsx.read_text(encoding="utf-8", errors="replace")
+    return {
+        m.group(1)
+        for m in re.finditer(
+            r'<Route\s+path="([^"]+)"\s+element=\{<(\w+)', app_src)
+        if m.group(1) != "*"
+    }
+
+
+def _matches_spa_route(path: str, routes: set[str]) -> bool:
+    """Whether a browser path can be claimed by one declared React route."""
+    for route in routes:
+        if route == path:
+            return True
+        # React parameters consume exactly one non-empty path segment.  The
+        # current route population uses only this ``:name`` form; a future
+        # wildcard or optional form must be implemented deliberately rather
+        # than treating its syntax as evidence that every path is valid.
+        pattern = "^" + re.sub(r":[^/]+", r"[^/]+", re.escape(route)) + "$"
+        if ":" in route and re.fullmatch(pattern, path):
+            return True
+    return False
+
+
+def _explicit_get_map(app) -> Map:
+    """Build a matcher for real Flask GET rules, never its SPA catch-all."""
+    explicit = Map()
+    for rule in app.url_map.iter_rules():
+        if "GET" not in (rule.methods or set()):
+            continue
+        if rule.endpoint == "serve_spa_root":
+            continue
+        explicit.add(Rule(str(rule), endpoint=rule.endpoint,
+                          methods={"GET"}))
+    return explicit
+
+
+def _matches_explicit_get(path: str, routes: Map) -> bool:
+    try:
+        routes.bind("bd.local").match(path, method="GET")
+    except RequestRedirect:
+        # Flask generated a canonical-slash redirect to an explicit GET rule;
+        # following this anchor succeeds in a browser, so it is not a dead
+        # outbound link.
+        return True
+    except HTTPException:
+        return False
+    return True
+
+
+def _outbound_source_pages(app) -> list[str]:
+    """Static, server-rendered GET pages whose anchors can be exercised now."""
+    pages = set()
+    for rule in app.url_map.iter_rules():
+        if "GET" not in (rule.methods or set()):
+            continue
+        if rule.endpoint == "serve_spa_root" or "<" in str(rule):
+            continue
+        path = _norm(str(rule))
+        if _is_page_rule(path):
+            pages.add(path)
+    return sorted(pages)
+
+
+def check_outbound_internal_links(app=None, spa_routes: set[str] | None = None,
+                                  verbose: bool = False) -> list[str]:
+    """Return rendered anchors that neither Flask nor React can resolve.
+
+    This is intentionally a two-domain check.  A direct Flask request is not
+    sufficient because ``serve_spa_root`` returns index.html for unknown
+    client paths; accepting that catch-all would recreate the row-113 blind
+    spot.  Conversely, checking only Flask routes would reject valid SPA
+    navigation.  The source denominator is all static server GET pages that
+    currently render HTML; parameterised pages require real data and are
+    outside a deterministic local test-client probe.
+    """
+    if app is None:
+        os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
+        if "BD_HOME" not in os.environ:
+            import tempfile
+            os.environ["BD_HOME"] = tempfile.mkdtemp(prefix="bd_navout_")
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from bulk_downloader.app import app as live_app  # heavy import, by design
+        app = live_app
+    if spa_routes is None:
+        spa_routes = _declared_spa_routes()
+
+    explicit_get = _explicit_get_map(app)
+    sources = _outbound_source_pages(app)
+    findings: list[str] = []
+    rendered = 0
+    anchors = 0
+    if not sources:
+        return ["OUTBOUND uncheckable: no static server GET pages"]
+    with app.test_client() as client:
+        for source in sources:
+            try:
+                response = client.get(source, follow_redirects=False)
+            except Exception as exc:  # noqa: BLE001 -- report the unexamined source
+                findings.append(
+                    f"OUTBOUND source-unrenderable: {source} raised "
+                    f"{type(exc).__name__}: {exc}")
+                continue
+            content_type = response.headers.get("Content-Type", "")
+            if response.status_code != 200 or "html" not in content_type:
+                continue
+            rendered += 1
+            parser = _HrefParser()
+            parser.feed(response.get_data(as_text=True))
+            for href in parser.hrefs:
+                anchors += 1
+                resolved = urlsplit(urljoin("http://bd.local" + source, href))
+                if resolved.scheme not in {"http", "https"}:
+                    continue
+                if resolved.netloc not in {"", "bd.local"}:
+                    continue
+                # Keep a trailing slash for Flask matching: ``/framework/``
+                # and ``/framework`` can have different route semantics.
+                # React Router treats the slashless spelling equivalently, so
+                # normalise only for its route declaration comparison.
+                path = unquote(resolved.path) or "/"
+                spa_path = path.rstrip("/") or "/"
+                if (_matches_explicit_get(path, explicit_get)
+                        or _matches_spa_route(spa_path, spa_routes)):
+                    continue
+                findings.append(
+                    f"OUTBOUND unresolved: {source} href={href!r} "
+                    f"resolves to {path}")
+    if not rendered:
+        findings.append(
+            "OUTBOUND uncheckable: no static server GET page rendered HTML")
+    if verbose:
+        print(f"  outbound: {len(sources)} static source pages, {rendered} rendered, "
+              f"{anchors} anchors, {len(findings)} unresolved")
+    return findings
 
 
 # ── 1. server-side crawl ─────────────────────────────────────────────────────
@@ -363,7 +515,8 @@ def check_spa(verbose: bool = False) -> list[str]:
 
 def run_check(verbose: bool = True) -> int:
     orphans = (check_spa(verbose=verbose) + check_server(verbose=verbose)
-               + check_external_nav(verbose=verbose))
+               + check_external_nav(verbose=verbose)
+               + check_outbound_internal_links(verbose=verbose))
     if orphans:
         print("NAV REACHABILITY: FAIL")
         for o in orphans:
