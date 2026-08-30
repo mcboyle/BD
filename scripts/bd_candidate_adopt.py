@@ -234,8 +234,11 @@ def _read_manifest(
 def _path_identity_matches(path: Path, expected: FsIdentity) -> bool:
     try:
         return _identity_at(path) == expected
-    except OSError:
-        return False
+    except OSError as error:
+        _unknown(
+            "EVIDENCE_PATH_UNREADABLE",
+            f"cannot measure required evidence path {path}: {error}",
+        )
 
 
 def evaluate(*, manifest_path: Path) -> dict[str, object]:

@@ -200,6 +200,25 @@ def test_committed_candidate_replays_onto_new_main_without_touching_source(
     assert _git(repo_case.output, "rev-parse", "HEAD").stdout.strip() == body["replayed_head"]
 
 
+def test_late_same_output_loser_refuses_on_winners_atomic_claim(
+    repo_case: RepoCase,
+) -> None:
+    """A completed winner remains the claim authority before output inspection."""
+
+    first = repo_case.run_replay()
+    assert first.returncode == 0, (first.stdout, first.stderr)
+    manifest_before = repo_case.manifest.read_bytes()
+    output_head = _git(repo_case.output, "rev-parse", "HEAD").stdout.strip()
+
+    second = repo_case.run_replay()
+
+    assert second.returncode == 2
+    body = json.loads(second.stdout)
+    assert body["reason_code"] == "OUTPUT_CLAIMED"
+    assert repo_case.manifest.read_bytes() == manifest_before
+    assert _git(repo_case.output, "rev-parse", "HEAD").stdout.strip() == output_head
+
+
 def test_dirty_candidate_preserves_index_worktree_untracked_binary_exec_and_symlink(
     repo_case: RepoCase,
 ) -> None:
@@ -317,6 +336,69 @@ def test_failed_worktree_creation_reaps_partial_output_and_preserves_source(
     assert body["reason_code"] == "OUTPUT_CREATE_FAILED"
     assert not repo_case.output.exists()
     assert _source_snapshot(repo_case.source) == source_before
+
+
+def test_partial_registration_without_output_is_identity_cleaned_or_claimed(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """A missing directory does not prove Git left no registered worktree."""
+
+    bin_dir = tmp_path / "registration-only-bin"
+    bin_dir.mkdir()
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, shutil, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "result = subprocess.run([os.environ['BD_REAL_GIT'], *args], check=False)\n"
+        "if 'worktree' in args and 'add' in args and result.returncode == 0:\n"
+        "    shutil.rmtree(pathlib.Path(args[-2]))\n"
+        "    raise SystemExit(77)\n"
+        "raise SystemExit(result.returncode)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    source_before = _source_snapshot(repo_case.source)
+
+    try:
+        result = repo_case.run_replay(env=env)
+
+        assert result.returncode == 2
+        assert json.loads(result.stdout)["reason_code"] == "OUTPUT_CREATE_FAILED"
+        assert not repo_case.output.exists()
+        common = Path(
+            _git(repo_case.repo, "rev-parse", "--git-common-dir").stdout.strip()
+        )
+        if not common.is_absolute():
+            common = repo_case.repo / common
+        registrations = common / "worktrees"
+        registration_retained = any(
+            str(repo_case.output) in receipt.read_text()
+            for receipt in registrations.glob("*/gitdir")
+        )
+        claim_retained = repo_case.manifest.is_file()
+        assert registration_retained is claim_retained
+        assert not registration_retained, (
+            "a fully identified partial registration should be cleaned; "
+            "otherwise its claim must remain"
+        )
+        assert _source_snapshot(repo_case.source) == source_before
+    finally:
+        _git(
+            repo_case.repo,
+            "worktree",
+            "remove",
+            "--force",
+            str(repo_case.output),
+            check=False,
+        )
+        _git(repo_case.repo, "worktree", "prune", "--expire", "now", check=False)
+        repo_case.manifest.unlink(missing_ok=True)
 
 
 def test_source_worker_never_receives_a_destructive_git_command(
@@ -455,6 +537,26 @@ def test_a_staged_gitlink_is_refused_instead_of_approximated(
     assert _source_snapshot(case.source) == source_before
 
 
+def test_intent_to_add_is_refused_instead_of_reclassified_as_unstaged(
+    tmp_path: Path,
+) -> None:
+    """An intent-to-add index entry has state that a plain worktree patch loses."""
+
+    case = RepoCase(tmp_path, commit_candidate=False)
+    _write(case.source / "intent.txt", "intent content\n")
+    _git(case.source, "add", "--intent-to-add", "intent.txt")
+    source_before = _source_snapshot(case.source)
+
+    result = case.run_replay(expect_head=case.base_head)
+
+    assert result.returncode == 2
+    body = json.loads(result.stdout)
+    assert body["reason_code"] == "SOURCE_HAS_INTENT_TO_ADD"
+    assert not case.output.exists()
+    assert not case.manifest.exists()
+    assert _source_snapshot(case.source) == source_before
+
+
 def _load_replay_module():
     spec = importlib.util.spec_from_file_location("row407_candidate_replay", SCRIPT)
     assert spec is not None and spec.loader is not None
@@ -486,6 +588,38 @@ def test_source_quiescence_requires_two_equal_complete_snapshots_before_claim(
     assert caught.value.reason_code == "SOURCE_NOT_QUIESCENT"
     assert not repo_case.output.exists()
     assert not repo_case.manifest.exists()
+
+
+def test_claim_construction_cancellation_preserves_primary_and_records_retention(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An incomplete token record is retained safely, but never silently."""
+
+    class ClaimCancelled(BaseException):
+        pass
+
+    subject = _load_replay_module()
+    cancellation = ClaimCancelled("cancel while constructing claim")
+
+    def cancel_payload(*_args, **_kwargs):
+        raise cancellation
+
+    monkeypatch.setattr(subject, "_claim_payload", cancel_payload)
+
+    with pytest.raises(ClaimCancelled) as caught:
+        subject.replay(
+            repo=repo_case.repo,
+            source=repo_case.source,
+            expect_head=repo_case.source_head,
+            main_ref="refs/remotes/origin/main",
+            output=repo_case.output,
+        )
+
+    assert caught.value is cancellation
+    assert not repo_case.output.exists()
+    assert repo_case.manifest.is_file()
+    assert any("retained replay claim" in note for note in cancellation.__notes__)
 
 
 @pytest.mark.parametrize(

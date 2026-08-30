@@ -183,6 +183,23 @@ def test_output_bytes_drift_is_not_adoptable(replayed_case: ReplayedCase) -> Non
     assert body["evidence"]["output_unchanged"] is False
 
 
+@pytest.mark.parametrize("missing", ("source", "output"))
+def test_missing_required_worktree_evidence_is_unknown(
+    replayed_case: ReplayedCase,
+    missing: str,
+) -> None:
+    """Unavailable evidence cannot be collapsed into a readable identity mismatch."""
+
+    path = getattr(replayed_case, missing)
+    path.rename(path.with_name(path.name + "-retained"))
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 2
+    assert body["verdict"] == "UNKNOWN"
+    assert body["reason_code"] == "EVIDENCE_PATH_UNREADABLE"
+
+
 def test_main_ref_drift_is_not_adoptable(replayed_case: ReplayedCase) -> None:
     """Adopting after main moves would replay against evidence for a stale base."""
 

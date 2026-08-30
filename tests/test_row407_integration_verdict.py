@@ -334,3 +334,36 @@ def test_poisoned_git_environment_cannot_manufacture_an_integrated_verdict(
     assert body["candidate_sha"] == verdict_repo.merged_candidate
     assert body["main_sha"] == verdict_repo.main_head
     assert body["candidate_sha"] != poison_head
+
+
+def test_fatal_required_path_measurement_is_unknown_not_missing(
+    verdict_repo: VerdictRepo,
+    tmp_path: Path,
+) -> None:
+    """A Git evidence failure cannot be reported as a proven-absent path."""
+
+    bin_dir = tmp_path / "fatal-git-bin"
+    bin_dir.mkdir()
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if 'cat-file' in args or 'ls-tree' in args:\n"
+        "    os.write(2, b'fatal: injected object read failure\\n')\n"
+        "    raise SystemExit(70)\n"
+        "os.execv(os.environ['BD_REAL_GIT'], "
+        "[os.environ['BD_REAL_GIT'], *args])\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+
+    result, body = verdict_repo.run_verdict(env=env)
+
+    assert result.returncode == 2
+    assert body["verdict"] == "UNKNOWN"
+    assert body["reason_code"] == "REQUIRED_PATH_UNREADABLE"
