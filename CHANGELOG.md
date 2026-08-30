@@ -36,6 +36,13 @@ archive is not present in this repository; consult source-control history.
   rejects uninitialized or incoherent states instead of laundering them. The
   Secrets status endpoint reports damaged inventory as a structured integrity
   error rather than an HTML 500 or a false empty key list.
+- Operator verification now initializes only its owned throwaway credential
+  vault before demanding healthy readiness, and its accessibility probe treats
+  an intentional health 503 as proof that the isolated cockpit server bound
+  while still auditing the served cockpit itself with axe-core.
+- The name-aware CI verdict now refuses a nonzero check-collection result even
+  when every row returned before the failure appears to pass, so incomplete
+  transport or filtering cannot authorize a merge.
 - Canonical-register prose corrections now use a repository-owned, atomic
   one-row compare-and-swap command that verifies the row status, whole-row
   digest, and derived header before writing, without restamping closures.

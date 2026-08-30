@@ -48,6 +48,12 @@ _SCRIPT_PATH = Path(__file__).resolve()
 _SCRIPT_DIR = _SCRIPT_PATH.parent
 _WORK = os.environ.get("BD_WORK", str(_SCRIPT_PATH.parents[2]))
 sec = None
+# Environment variables are caller-controlled and therefore cannot prove that
+# this process created or owns a resource boundary.  The entry function records
+# a process-local capability plus the exact selectors it installed; credential
+# initialization is permitted only while that live capability still matches.
+_RESOURCE_BOUNDARY_CAPABILITY = None
+_RESOURCE_BOUNDARY_STATE = None
 
 
 def _load_sec():
@@ -86,6 +92,10 @@ def _enter_resource_boundary():
     future check cannot accidentally treat HOME isolation as database, config,
     cache, temporary-directory, or cwd isolation.
     """
+    global _RESOURCE_BOUNDARY_CAPABILITY, _RESOURCE_BOUNDARY_STATE
+    if _RESOURCE_BOUNDARY_CAPABILITY is not None:
+        raise RuntimeError("bd-opv resource boundary is already active")
+
     caller_tmp = os.environ.get("TMPDIR")
     owner = tempfile.TemporaryDirectory(prefix="bd-opv-resources-",
                                         dir=caller_tmp)
@@ -128,6 +138,8 @@ def _enter_resource_boundary():
         "BD_DOWNLOAD_DIR": str(paths["downloads"]),
         "BD_CAPTURES_ROOT": str(paths["captures"]),
         "BD_LOG_FILE": str(paths["state"] / "logs" / "bulk_downloader.log"),
+        "BD_CAPTURE_VAULT": "1",
+        "BD_SECRETS_FILE": str(paths["state"] / "opv-secrets.json"),
         "BD_ENVFILE": str(paths["config"] / ".env"),
         "BD_SITES_CONFIG_PATH": str(paths["config"] / "sites_config.json"),
         "BD_VPN_CONFIG_PATH": str(paths["config"] / "vpn_config.json"),
@@ -138,15 +150,68 @@ def _enter_resource_boundary():
     sys.pycache_prefix = str(paths["cache"] / "pycache")
     tempfile.tempdir = None
     os.chdir(paths["cwd"])
+    capability = object()
+    _RESOURCE_BOUNDARY_CAPABILITY = capability
+    _RESOURCE_BOUNDARY_STATE = {
+        "capability": capability,
+        "root": root,
+        "cwd": paths["cwd"],
+        "environment": dict(isolated),
+        "vault": Path(isolated["BD_SECRETS_FILE"]),
+    }
     return owner, root
 
 
 def _leave_resource_boundary(owner, root: Path) -> None:
     """Remove only the exact TemporaryDirectory object this process owns."""
+    global _RESOURCE_BOUNDARY_CAPABILITY, _RESOURCE_BOUNDARY_STATE
     try:
         os.chdir(root.parent)
     finally:
-        owner.cleanup()
+        try:
+            owner.cleanup()
+        finally:
+            _RESOURCE_BOUNDARY_STATE = None
+            _RESOURCE_BOUNDARY_CAPABILITY = None
+
+
+def _owned_vault_targets():
+    """Return the exact owned vault paths, or ``None`` if ownership is stale.
+
+    This deliberately validates the live filesystem/process state instead of
+    trusting ``_BD_OPV_RESOURCE_ROOT``.  A caller can inherit or forge any
+    environment variable, and secrets_store binds its write targets at import
+    time, so both the selectors and those bound targets are checked separately.
+    """
+    state = _RESOURCE_BOUNDARY_STATE
+    capability = _RESOURCE_BOUNDARY_CAPABILITY
+    if (
+        not isinstance(state, dict)
+        or capability is None
+        or state.get("capability") is not capability
+    ):
+        return None
+    try:
+        root = Path(state["root"]).resolve(strict=True)
+        expected_cwd = Path(state["cwd"]).resolve(strict=True)
+        if not root.is_dir() or Path.cwd().resolve(strict=True) != expected_cwd:
+            return None
+        if not expected_cwd.is_relative_to(root):
+            return None
+        expected_environment = state["environment"]
+        if any(
+            os.environ.get(key) != value
+            for key, value in expected_environment.items()
+        ):
+            return None
+        vault = Path(state["vault"])
+        vault = vault.resolve(strict=False)
+        meta = vault.with_name(f"{vault.stem}_meta.json")
+        if not vault.is_relative_to(root) or not meta.is_relative_to(root):
+            return None
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+        return None
+    return vault, meta
 
 G, R, Y, B, DIM, RST = ("\033[32m", "\033[31m", "\033[33m", "\033[34m",
                         "\033[2m", "\033[0m")
@@ -346,9 +411,62 @@ def chk_health_version():
     smoke gate every deploy confirms -- now confirmable in-sandbox."""
     c, _ = _client()
     r = c.get("/api/health")
+    body = r.get_json() or {}
+    credentials = body.get("credentials") or {}
+    if (
+        r.status_code == 503
+        and credentials.get("state") == "uninitialized"
+    ):
+        # v3.66.1359 deliberately makes an uninitialized master-password
+        # vault unhealthy, even with zero references.  This check owns a
+        # throwaway resource root, so initialize that sandbox before asking
+        # whether a healthy deployment reports 200.  Never initialize a vault
+        # when this function is imported outside the bd-opv boundary.
+        owned_targets = _owned_vault_targets()
+        if owned_targets is None:
+            return FAIL, (
+                "/api/health reported an uninitialized vault outside the "
+                "owned bd-opv resource boundary"
+            )
+        from bulk_downloader import secrets_store as _ss
+        expected_vault, expected_meta = owned_targets
+        try:
+            actual_vault = Path(_ss.SECRETS_FILE)
+            actual_meta = Path(_ss.SECRETS_META_FILE)
+            if not actual_vault.is_absolute():
+                actual_vault = Path.cwd() / actual_vault
+            if not actual_meta.is_absolute():
+                actual_meta = Path.cwd() / actual_meta
+            actual_vault = actual_vault.resolve(strict=False)
+            actual_meta = actual_meta.resolve(strict=False)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return FAIL, "owned bd-opv vault targets could not be resolved"
+        if (actual_vault, actual_meta) != (expected_vault, expected_meta):
+            return FAIL, (
+                "credential backend vault targets do not match the owned "
+                "bd-opv resource boundary"
+            )
+        backend = _ss.get_backend()
+        initialize = getattr(backend, "unlock_with_status", None)
+        if not callable(initialize):
+            return FAIL, (
+                "/api/health reported an uninitialized vault whose backend "
+                "has no durable initialization operation"
+            )
+        outcome = initialize("A" * 16, minimum_initial_length=8)
+        if not (
+            isinstance(outcome, dict)
+            and outcome.get("initialized_now") is True
+            and outcome.get("is_initialized") is True
+        ):
+            return FAIL, (
+                "owned sandbox vault did not report durable initialization"
+            )
+        r = c.get("/api/health")
+        body = r.get_json() or {}
     if r.status_code != 200:
         return FAIL, f"/api/health {r.status_code}"
-    v = (r.get_json() or {}).get("version")
+    v = body.get("version")
     if not v:
         return FAIL, "/api/health has no version field"
     return PASS, f"/api/health 200, version {v}"
@@ -847,7 +965,7 @@ def chk_a11y():
         return SKIP, ("axe-core asset absent (set BD_AXE_JS, or fetch axe.min.js "
                       "to one of: %s)" % ", ".join(_axe_cands))
     try:
-        import threading as _th, time as _t, urllib.request as _u
+        import threading as _th, time as _t, urllib.error as _ue, urllib.request as _u
         from bulk_downloader.app import app as _app
     except Exception as e:
         return SKIP, f"app import issue ({str(e)[:40]})"
@@ -859,6 +977,13 @@ def chk_a11y():
     for _ in range(25):
         try:
             _u.urlopen(base + "/api/health", timeout=1); bound = True; break
+        except _ue.HTTPError:
+            # Any HTTP response proves that the server bound.  Health 503 is
+            # intentional for a fresh v3.66.1359 vault; readiness and process
+            # binding are different questions, and the navigation below is
+            # the subject this accessibility check actually judges.
+            bound = True
+            break
         except Exception:  # why: the app has not bound the port yet; retry. Exhausting the loop
                            # is NOT ignored -- it falls through to `if not bound: return SKIP`
             _t.sleep(0.4)
