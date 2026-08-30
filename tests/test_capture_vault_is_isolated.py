@@ -21,14 +21,14 @@ credential, drive a login, persist a jar and record auth health; which FILE the
 vault lives in is irrelevant to whether that code path works, so this supplies
 input to a real path rather than substituting for its output.
 
-THE DANGER THIS FILE CONTAINS. MasterPasswordBackend.unlock() accepts ANY
-password when the vault holds no ciphertexts, stamping it as the verifier on the
-first set(). So a stray env var that silently redirected the vault would not
-error -- it would hand back an empty, trivially-unlockable credential store and
-look healthy. That is worse than crashing, and it is why the override needs two
-keys rather than one: a path alone does nothing. Every other BD_* path override
-in the tree is single-key; this one deliberately is not, and the reason is that
-none of the others can silently produce a working-looking empty vault.
+THE DANGER THIS FILE CONTAINS. MasterPasswordBackend.unlock() commits the first
+password presented to a fresh vault. So a stray env var that silently redirected
+the vault would not error -- it would hand back a newly initialized empty
+credential store instead of the intended isolated store and look healthy. That
+is worse than crashing, and it is why the override needs two keys rather than
+one: a path alone does nothing. Every other BD_* path override in the tree is
+single-key; this one deliberately is not, and the reason is that none of the
+others can silently produce a working-looking empty vault.
 
 The password is NEVER defaulted in source. capture.sh supplies it at runtime.
 A hardcoded default would mean every install shipped a known unlock.
@@ -101,9 +101,9 @@ def test_the_path_alone_does_not_move_the_vault(monkeypatch, tmp_path):
     secrets, meta = _resolve(monkeypatch, BD_SECRETS_FILE=str(stray))
     assert secrets == Path(DEFAULT_NAME), (
         f"BD_SECRETS_FILE alone redirected the vault to {secrets}. One env var "
-        f"must not be able to do this: unlock() accepts any password on a vault "
-        f"with no ciphertexts, so a silent redirect yields an empty, trivially "
-        f"unlockable credential store that looks healthy."
+        f"must not be able to do this: the first unlock commits a password to "
+        f"a fresh vault, so a silent redirect yields the wrong newly initialized "
+        f"credential store while looking healthy."
     )
     assert meta == Path(DEFAULT_META_NAME), meta
 

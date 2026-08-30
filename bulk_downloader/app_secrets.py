@@ -115,7 +115,12 @@ def api_secrets_configure():
 def api_secrets_unlock():
     """Unlock the master-password backend. Body: {"password": "..."}.
     No-op (returns ok:True) for backends that don't need unlocking
-    (Windows Credential Manager, plaintext)."""
+    (Windows Credential Manager, plaintext).
+
+    For a fresh master-password backend this is also the first-use setup path:
+    the backend durably commits the password before success, and the response
+    distinguishes that initialization from opening an existing vault.
+    """
     from . import secrets_store as ss
     backend = ss.get_backend()
     if not hasattr(backend, "unlock"):
@@ -123,6 +128,9 @@ def api_secrets_unlock():
     password = (request.json or {}).get("password", "")
     if not password:
         return jsonify({"ok": False, "error": "password required"}), 400
+    was_initialized = bool(
+        getattr(backend, "is_initialized", lambda: True)()
+    )
     # NEW-9: shared escalating back-off with change_password (same secret).
     from . import auth_throttle as _at
     allowed, retry = _at.check(_at.LABEL_MASTER_PASSWORD)
@@ -131,11 +139,65 @@ def api_secrets_unlock():
                         "error": f"too many attempts; try again in {retry:.0f}s"})
         resp.headers["Retry-After"] = str(int(retry) + 1)
         return resp, 429
-    if backend.unlock(password):
+    try:
+        unlocked = backend.unlock(password)
+    except ss.SecretsPersistError:
+        now_initialized = bool(
+            getattr(backend, "is_initialized", lambda: True)()
+        )
+        now_unlocked = (
+            backend.is_unlocked() if hasattr(backend, "is_unlocked") else True
+        )
+        if now_initialized:
+            error = (
+                "vault verifier upgrade could not be persisted; the existing "
+                "vault remains locked and unchanged"
+            )
+        else:
+            error = (
+                "vault initialization could not be persisted; the master "
+                "password was not committed"
+            )
+        return jsonify({
+            "ok": False,
+            "state": "uninitialized" if not now_initialized else "locked",
+            "is_initialized": now_initialized,
+            "is_unlocked": now_unlocked,
+            "error": error,
+        }), 500
+    if unlocked:
         _at.record_success(_at.LABEL_MASTER_PASSWORD)
-        return jsonify({"ok": True})
+        now_initialized = bool(
+            getattr(backend, "is_initialized", lambda: True)()
+        )
+        initialized_now = (not was_initialized) and now_initialized
+        return jsonify({
+            "ok": True,
+            "state": "initialized" if initialized_now else "unlocked",
+            "initialized_now": initialized_now,
+            "is_initialized": now_initialized,
+            "is_unlocked": (
+                backend.is_unlocked()
+                if hasattr(backend, "is_unlocked") else True
+            ),
+        })
+    if not was_initialized:
+        # Defensive compatibility for a backend that reports a failed first
+        # initialization without raising SecretsPersistError.  This is a
+        # storage failure, not an authentication failure, so do not throttle it.
+        return jsonify({
+            "ok": False,
+            "state": "uninitialized",
+            "is_initialized": False,
+            "is_unlocked": False,
+            "error": (
+                "vault initialization failed; the master password was not "
+                "committed"
+            ),
+        }), 500
     _at.record_failure(_at.LABEL_MASTER_PASSWORD)
-    return jsonify({"ok": False, "error": "incorrect password"}), 401
+    return jsonify({"ok": False, "state": "locked",
+                    "error": "incorrect password"}), 401
 @secrets_bp.route("/api/secrets/lock", methods=["POST"])
 def api_secrets_lock():
     """Lock the master-password backend (forget the derived key)."""
@@ -562,4 +624,3 @@ def register_routes(app) -> int:
     app.register_blueprint(secrets_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("secrets."))
-
