@@ -87,11 +87,57 @@ def proc_starttime(pid):
 
 
 def proc_cmdline(pid):
+    return " ".join(proc_argv(pid))
+
+
+def proc_argv(pid):
+    """Exact process argv, preserving token boundaries from ``/proc``."""
     try:
         raw = pathlib.Path("/proc", str(pid), "cmdline").read_bytes()
     except OSError:
-        return ""
-    return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        return []
+    return [part.decode("utf-8", "replace")
+            for part in raw.split(b"\0") if part]
+
+
+def _is_pytest_argv(argv):
+    """True only when executable argv identifies a pytest master process.
+
+    ``ps args`` is display text and loses argv boundaries. Substring matching
+    it both misses console-script launches and can classify a Python runner
+    whose ordinary argument merely mentions ``-m pytest``. Interpret only the
+    Python invocation prefix (or the console entry point) instead.
+    """
+    if not argv:
+        return False
+    executable = os.path.basename(argv[0])
+    if executable in ("pytest", "py.test"):
+        return True
+    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:-dbg)?", executable) is None:
+        return False
+
+    index = 1
+    while index < len(argv):
+        token = argv[index]
+        if token == "-m":
+            return index + 1 < len(argv) and argv[index + 1] == "pytest"
+        if token == "-mpytest":
+            return True
+        if token in ("-c", "-"):
+            return False
+        if token == "--":
+            index += 1
+            if index >= len(argv):
+                return False
+            return os.path.basename(argv[index]) in ("pytest", "py.test")
+        if token in ("-W", "-X"):
+            index += 2
+            continue
+        if token.startswith(("-W", "-X")) or token.startswith("-"):
+            index += 1
+            continue
+        return os.path.basename(token) in ("pytest", "py.test")
+    return False
 
 
 def alive(entry):
@@ -2358,7 +2404,7 @@ def cmd_orphans(args):
     # register the live process that now holds that number.
     known = {(e["pid"], e["starttime"]) for e in rows}
     found = []
-    ps_argv = ["ps", "-eo", "pid=,comm=,args="]
+    ps_argv = ["ps", "-eo", "pid=,ppid=,comm=,args="]
 
     def process_table_unknown(kind, detail):
         _name_malformed(
@@ -2382,19 +2428,47 @@ def cmd_orphans(args):
         return process_table_unknown(
             "nonzero", "exit %d" % measured.returncode)
     ps = measured.stdout
+    process_rows = []
+    parents = {}
     for line in ps.splitlines():
-        parts = line.split(None, 2)
-        if len(parts) < 3:
+        parts = line.split(None, 3)
+        if len(parts) < 4:
             continue
-        pid, comm, argv = parts
-        if not comm.startswith("python") or "-m pytest" not in argv:
+        pid_text, ppid_text, comm, display_argv = parts
+        try:
+            pid = int(pid_text)
+            ppid = int(ppid_text)
+        except ValueError:
             continue
-        current_starttime = proc_starttime(int(pid))
+        parents[pid] = ppid
+        process_rows.append((pid, comm, display_argv))
+
+    def has_registered_ancestor(pid):
+        seen = set()
+        current = pid
+        while current > 0 and current not in seen:
+            seen.add(current)
+            starttime = proc_starttime(current)
+            if starttime is not None and (current, starttime) in known:
+                return True
+            current = parents.get(current, 0)
+        return False
+
+    for pid, comm, display_argv in process_rows:
+        # The comm filter bounds /proc reads while admitting both module and
+        # console spellings. Exact classification comes from argv below; a
+        # display substring such as "-m pytest" is never ownership evidence.
+        if not (comm.startswith("python") or comm in ("pytest", "py.test")):
+            continue
+        argv = proc_argv(pid)
+        if not _is_pytest_argv(argv):
+            continue
+        current_starttime = proc_starttime(pid)
         if current_starttime is None:
             continue
-        if (int(pid), current_starttime) in known:
+        if has_registered_ancestor(pid):
             continue
-        found.append((pid, argv))
+        found.append((str(pid), display_argv))
     for pid, argv in found:
         print("ORPHAN pid=%-7s %s" % (pid, argv[:110]))
     # THE COUNT SENTENCE IS A COMPATIBILITY SURFACE, byte for byte:
