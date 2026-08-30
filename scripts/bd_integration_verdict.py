@@ -110,7 +110,22 @@ def _safe_tree_path(path: str) -> str:
 
 def _path_exists(repo: Path, commit: str, path: str) -> bool:
     safe = _safe_tree_path(path)
-    return _git(repo, "cat-file", "-e", f"{commit}:{safe}").returncode == 0
+    result = _git(
+        repo,
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        commit,
+        "--",
+        safe,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", "replace").strip()
+        raise UnknownEvidence(
+            "REQUIRED_PATH_UNREADABLE",
+            detail or f"cannot measure required path {safe!r} at {commit}",
+        )
+    return bool(result.stdout)
 
 
 def _row_closed_exactly_once(register: str, row: int) -> bool:

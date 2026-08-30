@@ -67,6 +67,7 @@ class ProcCase:
         self.home.mkdir()
         self.script = self.home / "bd-watchdog.sh"
         self.script.write_text("#!/bin/bash\nwhile :; do sleep 120; done\n")
+        self.bash = Path("/bin/bash").resolve(strict=True)
 
     def add(
         self,
@@ -76,6 +77,7 @@ class ProcCase:
         start_ticks: int,
         argv: list[str] | None = None,
         cwd: Path | None = None,
+        executable: Path | None = None,
         stat_text: str | None = None,
     ) -> None:
         entry = self.root / str(pid)
@@ -90,12 +92,17 @@ class ProcCase:
             b"\0".join(arg.encode("utf-8") for arg in command) + b"\0"
         )
         (entry / "cwd").symlink_to(cwd or self.home, target_is_directory=True)
+        (entry / "exe").symlink_to(
+            executable or self.bash,
+            target_is_directory=False,
+        )
 
     def remove(self, pid: int) -> None:
         entry = self.root / str(pid)
         if not entry.exists():
             return
         (entry / "cwd").unlink(missing_ok=True)
+        (entry / "exe").unlink(missing_ok=True)
         (entry / "cmdline").unlink(missing_ok=True)
         (entry / "stat").unlink(missing_ok=True)
         entry.rmdir()
@@ -184,6 +191,33 @@ def test_exact_argv_excludes_substring_lookalikes_and_resolves_relative_script(
 
     assert body["status"] == "UNIQUE"
     assert _lineage_pids(body) == [[100]]
+
+
+def test_bash_option_arguments_and_non_bash_executable_do_not_match(
+    proc_case: ProcCase,
+) -> None:
+    """A watchdog-looking option value or forged argv[0] is not an invocation."""
+
+    proc_case.add(
+        100,
+        ppid=1,
+        start_ticks=1000,
+        argv=["bash", "--rcfile", str(proc_case.script), "-i"],
+    )
+    impostor = proc_case.home / "impostor"
+    impostor.write_text("not bash\n")
+    proc_case.add(
+        200,
+        ppid=1,
+        start_ticks=2000,
+        argv=["bash", str(proc_case.script)],
+        executable=impostor,
+    )
+    subject = _subject()
+
+    body = subject.inspect_watchdogs(script=proc_case.script, proc_root=proc_case.root)
+
+    assert body["status"] == "ABSENT"
 
 
 def test_malformed_identity_for_matching_argv_is_unknown_not_absent(
@@ -330,6 +364,52 @@ def test_identity_drift_after_pidfd_open_forbids_signal_and_adoption(
     record = tmp_path / "watchdog-adoption.json"
     kernel = FakeKernel(proc_case, drift_pid=100)
     subject = _subject()
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=True,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+        kernel=kernel,
+    )
+
+    assert body["status"] == "UNKNOWN"
+    assert body["reason_code"] == "PROCESS_IDENTITY_CHANGED"
+    assert kernel.signalled == []
+    assert kernel.closed == [100]
+    assert not record.exists()
+
+
+def test_exec_receipt_drift_after_pidfd_census_forbids_signal(
+    proc_case: ProcCase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A task can exec after a census without changing PID or start ticks."""
+
+    proc_case.add(100, ppid=1, start_ticks=1000)
+    proc_case.add(200, ppid=1, start_ticks=2000)
+    record = tmp_path / "watchdog-adoption.json"
+    kernel = FakeKernel(proc_case)
+    subject = _subject()
+    real_census = subject._take_census
+    calls = 0
+
+    def exec_after_second_census(*, script: Path, proc_root: Path):
+        nonlocal calls
+        result = real_census(script=script, proc_root=proc_root)
+        calls += 1
+        if calls == 2:
+            proc_case.set_identity(
+                100,
+                ppid=1,
+                start_ticks=1000,
+                argv=["bash", "--version"],
+            )
+        return result
+
+    monkeypatch.setattr(subject, "_take_census", exec_after_second_census)
 
     body = subject.adopt_watchdog(
         script=proc_case.script,

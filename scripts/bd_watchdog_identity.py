@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import secrets
 import select
+import shutil
 import signal
 import stat
 import sys
@@ -29,6 +30,12 @@ class ProcessIdentity:
     start_ticks: int
     argv: tuple[str, ...]
     script: str
+    cwd: str
+    cwd_device: int
+    cwd_inode: int
+    executable: str
+    executable_device: int
+    executable_inode: int
 
     def record(self) -> dict[str, object]:
         return {
@@ -36,6 +43,12 @@ class ProcessIdentity:
             "ppid": self.ppid,
             "start_ticks": self.start_ticks,
             "argv": list(self.argv),
+            "cwd": self.cwd,
+            "cwd_device": self.cwd_device,
+            "cwd_inode": self.cwd_inode,
+            "executable": self.executable,
+            "executable_device": self.executable_device,
+            "executable_inode": self.executable_inode,
         }
 
 
@@ -150,15 +163,37 @@ def _bash_script_operand(argv: tuple[str, ...]) -> str | None:
         if not argument.startswith(("-", "+")) or argument in {"-", "+"}:
             break
         if argument.startswith("--"):
-            if argument in {"--command", "--help", "--version"}:
+            if argument in {"--help", "--version"}:
+                return None
+            if argument in {"--init-file", "--rcfile"}:
+                index += 2
+                continue
+            if argument.startswith(("--init-file=", "--rcfile=")):
+                index += 1
+                continue
+            if argument not in {
+                "--debugger",
+                "--dump-po-strings",
+                "--dump-strings",
+                "--login",
+                "--noediting",
+                "--noprofile",
+                "--norc",
+                "--posix",
+                "--pretty-print",
+                "--restricted",
+                "--verbose",
+            }:
                 return None
             index += 1
             continue
         options = argument[1:]
         if "c" in options:
             return None
-        if argument in {"-O", "+O"}:
+        if argument in {"-O", "+O", "-o", "+o"}:
             index += 2
+        elif "O" in options or "o" in options:
+            return None
         else:
             index += 1
     if index >= len(argv):
@@ -173,6 +208,27 @@ def _resolved_operand(operand: str, cwd: Path) -> Path:
     return path.resolve(strict=False)
 
 
+def _path_receipt(path: Path) -> tuple[Path, int, int]:
+    resolved = path.resolve(strict=True)
+    metadata = path.stat()
+    return resolved, metadata.st_dev, metadata.st_ino
+
+
+def _known_bash_identities() -> set[tuple[int, int]]:
+    candidates = {Path("/bin/bash"), Path("/usr/bin/bash")}
+    discovered = shutil.which("bash")
+    if discovered:
+        candidates.add(Path(discovered))
+    identities: set[tuple[int, int]] = set()
+    for candidate in candidates:
+        try:
+            metadata = candidate.stat()
+        except OSError:
+            continue
+        identities.add((metadata.st_dev, metadata.st_ino))
+    return identities
+
+
 def _read_matching_process(
     *,
     proc_root: Path,
@@ -183,26 +239,43 @@ def _read_matching_process(
     entry = proc_root / str(pid)
     try:
         stat_before_raw = (entry / "stat").read_text(encoding="ascii")
-        argv = _decode_argv((entry / "cmdline").read_bytes())
-        cwd = (entry / "cwd").resolve(strict=True)
+        argv_before = _decode_argv((entry / "cmdline").read_bytes())
+        cwd_before = _path_receipt(entry / "cwd")
     except FileNotFoundError:
         return None
     except (OSError, UnicodeError) as error:
         _unknown("PROCESS_IDENTITY_UNREADABLE", f"PID {pid}: {error}")
 
-    operand = _bash_script_operand(argv)
-    if operand is None or _resolved_operand(operand, cwd) != canonical_script:
+    operand = _bash_script_operand(argv_before)
+    if (
+        operand is None
+        or _resolved_operand(operand, cwd_before[0]) != canonical_script
+    ):
         return None
     try:
+        executable_before = _path_receipt(entry / "exe")
+        if executable_before[1:] not in _known_bash_identities():
+            return None
         before = _parse_stat(stat_before_raw, pid)
+        stat_middle_raw = (entry / "stat").read_text(encoding="ascii")
+        middle = _parse_stat(stat_middle_raw, pid)
+        argv_after = _decode_argv((entry / "cmdline").read_bytes())
+        cwd_after = _path_receipt(entry / "cwd")
+        executable_after = _path_receipt(entry / "exe")
         stat_after_raw = (entry / "stat").read_text(encoding="ascii")
         after = _parse_stat(stat_after_raw, pid)
     except (OSError, UnicodeError, ValueError) as error:
         _unknown("PROCESS_IDENTITY_UNREADABLE", f"PID {pid}: {error}")
-    if before != after:
+    if (
+        before != middle
+        or middle != after
+        or argv_before != argv_after
+        or cwd_before != cwd_after
+        or executable_before != executable_after
+    ):
         _unknown(
             "PROCESS_IDENTITY_CHANGED",
-            f"PID {pid} changed identity during census",
+            f"PID {pid} changed its complete receipt during census",
         )
     _, ppid, start_ticks = after
     return ProcessIdentity(
@@ -210,8 +283,14 @@ def _read_matching_process(
         pid=pid,
         ppid=ppid,
         start_ticks=start_ticks,
-        argv=argv,
+        argv=argv_after,
         script=str(canonical_script),
+        cwd=str(cwd_after[0]),
+        cwd_device=cwd_after[1],
+        cwd_inode=cwd_after[2],
+        executable=str(executable_after[0]),
+        executable_device=executable_after[1],
+        executable_inode=executable_after[2],
     )
 
 
@@ -360,12 +439,24 @@ def _member_from_record(
         "ppid",
         "start_ticks",
         "argv",
+        "cwd",
+        "cwd_device",
+        "cwd_inode",
+        "executable",
+        "executable_device",
+        "executable_inode",
     }:
         _unknown("ADOPTION_RECORD_UNREADABLE", "process record keys are invalid")
     pid = value["pid"]
     ppid = value["ppid"]
     start_ticks = value["start_ticks"]
     argv = value["argv"]
+    cwd = value["cwd"]
+    cwd_device = value["cwd_device"]
+    cwd_inode = value["cwd_inode"]
+    executable = value["executable"]
+    executable_device = value["executable_device"]
+    executable_inode = value["executable_inode"]
     if (
         not isinstance(pid, int)
         or isinstance(pid, bool)
@@ -379,6 +470,22 @@ def _member_from_record(
         or not isinstance(argv, list)
         or not argv
         or not all(isinstance(argument, str) for argument in argv)
+        or not isinstance(cwd, str)
+        or not cwd
+        or not isinstance(cwd_device, int)
+        or isinstance(cwd_device, bool)
+        or cwd_device < 0
+        or not isinstance(cwd_inode, int)
+        or isinstance(cwd_inode, bool)
+        or cwd_inode < 0
+        or not isinstance(executable, str)
+        or not executable
+        or not isinstance(executable_device, int)
+        or isinstance(executable_device, bool)
+        or executable_device < 0
+        or not isinstance(executable_inode, int)
+        or isinstance(executable_inode, bool)
+        or executable_inode < 0
     ):
         _unknown("ADOPTION_RECORD_UNREADABLE", "process record values are invalid")
     return ProcessIdentity(
@@ -388,6 +495,12 @@ def _member_from_record(
         start_ticks=start_ticks,
         argv=tuple(argv),
         script=script,
+        cwd=cwd,
+        cwd_device=cwd_device,
+        cwd_inode=cwd_inode,
+        executable=executable,
+        executable_device=executable_device,
+        executable_inode=executable_inode,
     )
 
 
@@ -482,6 +595,26 @@ def _identity_set(census: Census) -> set[ProcessIdentity]:
         for lineage in census.lineages
         for member in lineage.members
     }
+
+
+def _receipt_after_pidfd(
+    target: ProcessIdentity,
+    *,
+    proc_root: Path,
+) -> ProcessIdentity | None:
+    proc_root = proc_root.resolve(strict=True)
+    boot_before = _read_boot_id(proc_root)
+    if boot_before != target.boot_id:
+        _unknown("BOOT_ID_CHANGED", "kernel boot ID changed after pidfd acquisition")
+    receipt = _read_matching_process(
+        proc_root=proc_root,
+        pid=target.pid,
+        canonical_script=Path(target.script),
+        boot_id=boot_before,
+    )
+    if _read_boot_id(proc_root) != boot_before:
+        _unknown("BOOT_ID_CHANGED", "kernel boot ID changed before pidfd signal")
+    return receipt
 
 
 def _depth(member: ProcessIdentity, lineage: Lineage) -> int:
@@ -719,6 +852,19 @@ def _adopt_locked(
                                 "PROCESS_LINEAGE_CHANGED",
                                 f"PID {target.pid} changed logical lineage",
                             )
+                if outcome is None:
+                    try:
+                        final_receipt = _receipt_after_pidfd(
+                            target,
+                            proc_root=proc_root,
+                        )
+                    except WatchdogUnknown as error:
+                        outcome = _unknown_payload(error.reason_code, error.message)
+                    if final_receipt != target:
+                        outcome = _unknown_payload(
+                            "PROCESS_IDENTITY_CHANGED",
+                            f"PID {target.pid} changed immediately before signal",
+                        )
                 if outcome is None:
                     kernel.send_term(pidfd)
                     if not kernel.wait_ready(pidfd, settle_timeout):
