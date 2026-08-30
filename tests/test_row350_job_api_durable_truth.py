@@ -592,6 +592,34 @@ def test_dev_start_holds_identity_through_cancel_and_worker_settlement(
             subject._runs.clear()
 
 
+def test_dev_test_launcher_places_its_cap_outside_the_subject(monkeypatch):
+    from bulk_downloader import dev_tools as subject
+
+    monkeypatch.setenv("TEST_RUN_CAP_SECONDS", "73")
+    monkeypatch.setattr(
+        subject.shutil, "which", lambda name: "/usr/bin/timeout"
+    )
+
+    command = subject._outer_capped_command(["python", "run_tests.py"])
+
+    assert command == [
+        "/usr/bin/timeout", "--kill-after=10", "73", "python", "run_tests.py",
+    ]
+
+
+def test_dev_test_launcher_refuses_invalid_caps_before_launch(monkeypatch):
+    from bulk_downloader import dev_tools as subject
+
+    for value in ("0", "not-a-number"):
+        monkeypatch.setenv("TEST_RUN_CAP_SECONDS", value)
+        try:
+            subject._outer_capped_command(["python", "run_tests.py"])
+        except RuntimeError as exc:
+            assert "positive whole number" in str(exc)
+        else:
+            raise AssertionError(f"invalid cap {value!r} reached a launch command")
+
+
 def test_transform_control_only_imports_the_lifecycle_modules():
     from bulk_downloader import app_sites_teach, dev_tools, mass_import
 
