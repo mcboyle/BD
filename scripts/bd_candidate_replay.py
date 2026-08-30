@@ -41,12 +41,20 @@ def _git_result(
     input_bytes: bytes | None = None,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
+    run_env = dict(os.environ)
+    if env is not None:
+        run_env.update(env)
+    # Even nominally read-only commands such as `git status` may refresh the
+    # index unless optional locks are disabled.  The source is evidence, so all
+    # Git subprocesses inherit the stricter posture; explicit output-worktree
+    # operations such as cherry-pick still take their required locks.
+    run_env["GIT_OPTIONAL_LOCKS"] = "0"
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
         input=input_bytes,
         capture_output=True,
         check=False,
-        env=env,
+        env=run_env,
     )
 
 
@@ -342,13 +350,19 @@ def replay(
         add_result = _git_result(
             repo, "worktree", "add", "--detach", str(output), main_sha
         )
+        # Git may create/register the worktree and still return non-zero (for
+        # example, when checkout fails late).  The path was proven absent at
+        # preflight, so any new output belongs to this transaction and must be
+        # reaped by the common failure path.
+        created = (
+            add_result.returncode == 0 or output.exists() or output.is_symlink()
+        )
         if add_result.returncode != 0:
             detail = add_result.stderr.decode("utf-8", "replace").strip()
             raise ReplayFailure(
                 "OUTPUT_CREATE_FAILED",
                 detail or f"could not create output worktree {output}",
             )
-        created = True
         _cherry_pick(output, commits)
         _apply_patch(output, staged_patch, staged=True)
         _apply_patch(output, unstaged_patch, staged=False)
