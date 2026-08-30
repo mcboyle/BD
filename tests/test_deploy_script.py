@@ -331,6 +331,10 @@ case "$mode" in
     body="{\"ok\":false,\"version\":\"9.9.9\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
   locked_vault_shared_credential)
     body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":2,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":1,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  uninitialized_vault)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_uninitialized\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":false,\"is_unlocked\":false,\"missing_count\":1,\"ok\":false,\"reference_count\":1,\"resolved_count\":0,\"state\":\"uninitialized\",\"stored_count\":0,\"unavailable_count\":0}}"; code="503"; rc=0;;
+  unlocked_zero_resolved)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_unlocked_zero_resolved\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":true,\"missing_count\":1,\"ok\":false,\"reference_count\":1,\"resolved_count\":0,\"state\":\"unlocked_zero_resolved\",\"stored_count\":0,\"unavailable_count\":0}}"; code="503"; rc=0;;
   locked_vault_unknown_hold)
     body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"unknown\",\"downloads_allowed\":false},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
   locked_vault_bad_backend)
@@ -1214,6 +1218,25 @@ def test_locked_vault_is_serving_degraded_and_requires_explicit_unlock():
     assert _curl_calls(fx) == 2, (
         "the structured health response must be followed by an independent "
         "GET / proof" + _ctx(r, "curl calls: %s" % _curl_calls(fx)))
+
+
+def test_deploy_rejects_uninitialized_and_unlocked_zero_resolved_vaults():
+    """Only v1357's exact populated restart-lock shape is deploy permission."""
+    for mode in ("uninitialized_vault", "unlocked_zero_resolved"):
+        fx = _setup(CURL_MODE=mode, ROOT_CODE="200")
+        _bundle_current(fx)
+
+        r = _deploy(fx)
+
+        assert r.returncode == 1, _ctx(r, "mode: " + mode)
+        assert "SERVING-DEGRADED" not in _out(r), _ctx(r, "mode: " + mode)
+        assert _curl_calls(fx) == 1, (
+            "a non-lock credential state must fail before unrelated GET / "
+            "evidence" + _ctx(
+                r,
+                "mode: %s\ncurl calls: %s" % (mode, _curl_calls(fx)),
+            )
+        )
 
 
 def test_locked_vault_with_wrong_version_is_not_deployed_readiness():
