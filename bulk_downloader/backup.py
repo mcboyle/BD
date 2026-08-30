@@ -36,6 +36,8 @@ import hashlib
 import io
 import json
 import os
+import shutil
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -566,3 +568,260 @@ def default_backup_filename() -> str:
     when the user doesn't specify a path."""
     now = dt.datetime.now()
     return f"bd_backup_{now.strftime('%Y-%m-%d_%H%M')}.zip"
+
+
+# ── Explicit capture-corpus backup ───────────────────────────────────
+
+# Capture artifacts are deliberately NOT part of BACKUP_TARGETS.  They can be
+# large and may contain sensitive session material, so copying them must stay a
+# separate, explicit operator action with an explicit source/destination root.
+_CORPUS_MANIFEST = "_capture_corpus_manifest.json"
+_CORPUS_FORMAT = "bd-capture-corpus-backup"
+_COPY_BLOCK_BYTES = 1024 * 1024
+
+
+def _capture_output_dirs(root: str | Path) -> tuple[Path, ...]:
+    """Return only the physical capture-output roots for an explicit base."""
+    from . import dom_analyzer as _da
+    return _da.capture_output_dirs(root=Path(root))
+
+
+def _capture_corpus_state(root: str | Path) -> tuple[str, tuple[Path, ...]]:
+    """State for the three capture-output roots, matching row 89's vocabulary."""
+    roots = _capture_output_dirs(root)
+    exists = [path.is_dir() and not path.is_symlink() for path in roots]
+    if not any(exists):
+        return "absent", roots
+    if not all(exists):
+        return "partial", roots
+    for directory in roots:
+        for _base, _dirs, names in os.walk(directory, followlinks=False):
+            if any((Path(_base) / name).is_symlink() for name in names):
+                continue
+            if any(name.endswith(".wacz") or (
+                name.startswith("capture_") and name.endswith(".json")
+            ) for name in names):
+                return "present", roots
+    return "empty", roots
+
+
+def _corpus_files(roots: tuple[Path, ...]) -> list[tuple[Path, str]]:
+    """Enumerate regular corpus files without following a single symlink."""
+    files: list[tuple[Path, str]] = []
+    for root in roots:
+        if root.is_symlink():
+            raise OSError(f"capture output root is a symlink: {root}")
+        logical_root = root.name
+        for base, dirs, names in os.walk(root, followlinks=False):
+            base_path = Path(base)
+            linked_dirs = [name for name in dirs if (base_path / name).is_symlink()]
+            if linked_dirs:
+                raise OSError(f"capture corpus contains symlinked directory: {linked_dirs[0]}")
+            for name in names:
+                path = base_path / name
+                if path.is_symlink():
+                    raise OSError(f"capture corpus contains symlinked file: {path}")
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(root).as_posix()
+                files.append((path, f"{logical_root}/{relative}"))
+    return sorted(files, key=lambda item: item[1])
+
+
+def _sha256_zip_member(zf: zipfile.ZipFile, name: str) -> str:
+    digest = hashlib.sha256()
+    with zf.open(name) as stream:
+        while chunk := stream.read(_COPY_BLOCK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_corpus_manifest(zf: zipfile.ZipFile) -> tuple[dict, list[dict]]:
+    """Strictly validate a corpus archive before any destination is touched."""
+    names = zf.namelist()
+    if names.count(_CORPUS_MANIFEST) != 1:
+        raise ValueError("capture-corpus archive must contain exactly one manifest")
+    try:
+        manifest = json.loads(zf.read(_CORPUS_MANIFEST).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
+        raise ValueError("capture-corpus manifest is unreadable") from exc
+    if not isinstance(manifest, dict) or manifest.get("format") != _CORPUS_FORMAT:
+        raise ValueError("not a capture-corpus backup")
+    if manifest.get("format_version") != 1:
+        raise ValueError("unsupported capture-corpus backup format")
+    state = manifest.get("source_corpus_state")
+    if state not in {"present", "empty"}:
+        raise ValueError("archive declares a non-restorable corpus state")
+    from . import dom_analyzer as _da
+    expected_roots = list(_da._CAPTURE_OUTPUT_DIRS)
+    if manifest.get("roots") != expected_roots:
+        raise ValueError("archive capture roots do not match this installation")
+    records = manifest.get("files")
+    if not isinstance(records, list):
+        raise ValueError("archive file inventory is invalid")
+    seen: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("archive file record is invalid")
+        name = record.get("arcname")
+        digest = record.get("sha256")
+        size = record.get("size")
+        mtime_ns = record.get("mtime_ns")
+        if not isinstance(name, str) or not isinstance(digest, str) or len(digest) != 64:
+            raise ValueError("archive file record is invalid")
+        if not isinstance(size, int) or size < 0 or not isinstance(mtime_ns, int) or mtime_ns < 0:
+            raise ValueError("archive file record is invalid")
+        parts = Path(name).parts
+        if (name in seen or name.startswith("/") or ".." in parts or not parts
+                or parts[0] not in _da._CAPTURE_OUTPUT_DIRS or len(parts) < 2):
+            raise ValueError("archive contains an unsafe capture member")
+        seen.add(name)
+        try:
+            info = zf.getinfo(name)
+        except KeyError as exc:
+            raise ValueError("archive inventory member is missing") from exc
+        if info.is_dir() or info.file_size != size:
+            raise ValueError("archive member size does not match inventory")
+    if len(names) != len(records) + 1 or set(names) != seen | {_CORPUS_MANIFEST}:
+        raise ValueError("archive contains undeclared or duplicate members")
+    if state == "empty" and records:
+        raise ValueError("empty corpus archive contains files")
+    return manifest, records
+
+
+def create_capture_corpus_backup(
+    out_path: str | Path, *, source_root: str | Path,
+) -> dict:
+    """Create a standalone snapshot of an explicitly named capture corpus.
+
+    The source must be ``present`` or intentionally ``empty``.  ``absent`` and
+    ``partial`` are refused instead of producing an archive that could later be
+    mistaken for a healthy backup.  Archive output is also refused inside a
+    capture root so it cannot become part of its own snapshot.
+    """
+    try:
+        source_state, roots = _capture_corpus_state(source_root)
+    except OSError as exc:
+        return {"ok": False, "error": f"capture-corpus source unavailable: {exc}",
+                "source_corpus_state": "unknown", "files": 0}
+    result = {"source_corpus_state": source_state, "files": 0}
+    if source_state not in {"present", "empty"}:
+        return {"ok": False, "error": f"refusing to back up {source_state} capture corpus", **result}
+    out = Path(out_path)
+    tmp = out.with_suffix(out.suffix + ".tmp")
+    try:
+        out_resolved = out.resolve()
+        if any(out_resolved.is_relative_to(root.resolve()) for root in roots):
+            return {"ok": False, "error": "backup archive must be outside capture output roots", **result}
+        files = _corpus_files(roots)
+        if source_state == "empty" and files:
+            return {"ok": False, "error": "empty capture corpus contains unexpected files", **result}
+        if tmp.exists():
+            return {"ok": False, "error": f"backup temporary path already exists: {tmp}", **result}
+        out.parent.mkdir(parents=True, exist_ok=True)
+        records: list[dict] = []
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for source, arcname in files:
+                before = source.stat()
+                digest = hashlib.sha256()
+                with source.open("rb") as input_stream, zf.open(arcname, "w") as output_stream:
+                    while chunk := input_stream.read(_COPY_BLOCK_BYTES):
+                        digest.update(chunk)
+                        output_stream.write(chunk)
+                after = source.stat()
+                if (before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns):
+                    raise OSError(f"capture changed during backup: {source}")
+                records.append({"arcname": arcname, "sha256": digest.hexdigest(),
+                                "size": before.st_size, "mtime_ns": before.st_mtime_ns})
+            manifest = {
+                "format": _CORPUS_FORMAT,
+                "format_version": 1,
+                "source_corpus_state": source_state,
+                "roots": [path.name for path in roots],
+                "files": records,
+            }
+            zf.writestr(_CORPUS_MANIFEST, json.dumps(manifest, sort_keys=True))
+        tmp.replace(out)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return {"ok": False, "error": f"capture-corpus backup failed: {exc}", **result}
+    return {"ok": True, "path": str(out), **result, "files": len(records)}
+
+
+def _roots_physically_empty(roots: tuple[Path, ...]) -> bool:
+    return all(not root.exists() or (root.is_dir() and not root.is_symlink() and not any(root.iterdir()))
+               for root in roots)
+
+
+def restore_capture_corpus_backup(
+    backup_path: str | Path, *, target_root: str | Path, dry_run: bool = False,
+) -> dict:
+    """Restore an explicit corpus snapshot without merging into live captures.
+
+    A destination may be absent or have all three empty output directories. A
+    populated or partial destination is refused before any path is created.
+    Members and hashes are fully validated before staging or replacing output
+    roots, and every restored file receives its recorded nanosecond mtime.
+    """
+    try:
+        target_state, roots = _capture_corpus_state(target_root)
+    except OSError as exc:
+        return {"ok": False, "error": f"capture-corpus target unavailable: {exc}",
+                "target_corpus_state": "unknown", "files_restored": 0, "dry_run": dry_run}
+    base_result = {"target_corpus_state": target_state, "files_restored": 0, "dry_run": dry_run}
+    if target_state in {"present", "partial"} or not _roots_physically_empty(roots):
+        return {"ok": False, "error": "refusing to merge into existing capture corpus", **base_result}
+    try:
+        with zipfile.ZipFile(backup_path) as zf:
+            manifest, records = _read_corpus_manifest(zf)
+            for record in records:
+                if _sha256_zip_member(zf, record["arcname"]) != record["sha256"]:
+                    raise ValueError(f"archive checksum mismatch: {record['arcname']}")
+            if dry_run:
+                return {"ok": True, "source_corpus_state": manifest["source_corpus_state"],
+                        **base_result, "files_restored": len(records)}
+
+            target = Path(target_root)
+            target_parent = target.parent
+            target_parent.mkdir(parents=True, exist_ok=True)
+            staging = Path(tempfile.mkdtemp(prefix=".bd-corpus-restore-", dir=target_parent))
+            try:
+                for root in roots:
+                    (staging / root.name).mkdir()
+                for record in records:
+                    staged = staging / record["arcname"]
+                    staged.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(record["arcname"]) as input_stream, staged.open("wb") as output_stream:
+                        shutil.copyfileobj(input_stream, output_stream, _COPY_BLOCK_BYTES)
+                    os.utime(staged, ns=(record["mtime_ns"], record["mtime_ns"]))
+
+                target.mkdir(parents=True, exist_ok=True)
+                rollback = staging / ".rollback"
+                rollback.mkdir()
+                moved_old: list[str] = []
+                moved_new: list[str] = []
+                try:
+                    for root in roots:
+                        destination = target / root.name
+                        if destination.exists():
+                            destination.replace(rollback / root.name)
+                            moved_old.append(root.name)
+                        (staging / root.name).replace(destination)
+                        moved_new.append(root.name)
+                except OSError:
+                    for name in reversed(moved_new):
+                        destination = target / name
+                        if destination.exists():
+                            shutil.rmtree(destination)
+                    for name in reversed(moved_old):
+                        (rollback / name).replace(target / name)
+                    raise
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        return {"ok": False, "error": f"capture-corpus restore failed: {exc}", **base_result}
+    return {"ok": True, "source_corpus_state": manifest["source_corpus_state"],
+            **base_result, "files_restored": len(records)}
