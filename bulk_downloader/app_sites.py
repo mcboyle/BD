@@ -16,7 +16,7 @@ import re
 import sys
 import time
 import uuid
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request
 from pathlib import Path
 from .constants import SCREENSHOTS_DIR
 from .runner import SiteRunner
@@ -26,6 +26,31 @@ from .db import db_search
 from .db import queue_upsert
 
 sites_bp = Blueprint("sites", __name__)
+
+
+@sites_bp.before_request
+def _enter_site_lifecycle_transaction():
+    """Serialize identity check through completion for every per-site route."""
+    view_args = request.view_args or {}
+    site_id = view_args.get("sid")
+    if site_id is None:
+        return None
+    from .app_state import site_lifecycle_lock
+    lock = site_lifecycle_lock(site_id)
+    lock.acquire()
+    held = getattr(g, "_bd_site_lifecycle_locks", None)
+    if held is None:
+        held = []
+        g._bd_site_lifecycle_locks = held
+    held.append(lock)
+    return None
+
+
+@sites_bp.teardown_request
+def _leave_site_lifecycle_transaction(_error=None):
+    held = getattr(g, "_bd_site_lifecycle_locks", ())
+    while held:
+        held.pop().release()
 
 def _apply_login_template_by_id(*_a, **_k):
     """Delegate to app._apply_login_template_by_id at call time (lazy; avoids an import cycle)."""
@@ -176,6 +201,14 @@ def _app__watch_threads():
     """The live shared _watch_threads from app.py (fetched fresh per call, by reference)."""
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app_state"), "_watch_threads")
+
+def _app__watch_registry_lock():
+    """The shared watch-worker lifecycle lock from app_state."""
+    import importlib
+    return getattr(
+        importlib.import_module("bulk_downloader.app_state"),
+        "_watch_registry_lock",
+    )
 
 def _app_runners():
     """The live shared runners from app.py (fetched fresh per call, by reference)."""

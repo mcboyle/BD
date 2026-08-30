@@ -53,6 +53,7 @@ import os
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from typing import Callable, Optional
 
 
@@ -73,6 +74,9 @@ _siterunner_resumer: Optional[Callable[[str], None]] = None
 
 _initialized = False
 _init_lock = threading.RLock()
+_runtime_lifecycle_lock = threading.RLock()
+_kill_callback = None
+_kill_callback_generation = None
 
 # Disable gate. Read at CALL time (not import time) so a var set after this
 # module is imported -- e.g. a live .env / env write via the Bucket-2 editor --
@@ -86,6 +90,31 @@ def _is_disabled() -> bool:
 
 class VPNRequiredError(Exception):
     """Raised when a site has vpn.required=True but the tunnel isn't available."""
+
+
+@contextmanager
+def _init_transaction():
+    """Serialize init and reject a still-live stopped monitor generation.
+
+    Leaf quiescence is checked before taking ``_init_lock`` because a leak
+    monitor can itself be waiting to enter the callback guarded by that lock.
+    """
+    with _runtime_lifecycle_lock:
+        from . import vpn, vpn_kill_switch, vpn_leak_tests
+        pending = []
+        if not vpn._health_generation_quiesced():
+            pending.append("vpn health")
+        if not vpn._backend_generation_quiesced():
+            pending.append("vpn backend action")
+        if not vpn_leak_tests._monitor_generation_quiesced():
+            pending.append("vpn leak")
+        if not vpn_kill_switch._cycle_generation_quiesced():
+            pending.append("vpn kill cycle")
+        if pending:
+            yield False, pending
+            return
+        with _init_lock:
+            yield True, pending
 
 
 # ─── Init / config loading ──────────────────────────────────────────
@@ -114,12 +143,29 @@ def init(
       5. Start health + leak monitors (unless start_monitors=False)
     """
     global _initialized, _siterunner_pauser, _siterunner_resumer
+    global _kill_callback, _kill_callback_generation
     if _is_disabled():
         return {"ok": True, "skipped": True, "reason": "BD_DISABLE_VPN_RUNTIME"}
 
-    with _init_lock:
+    # Keep init mutually exclusive with the detach-then-join shutdown
+    # transaction.  Callbacks take only _init_lock, so shutdown can release
+    # that inner lock before joining a monitor that may be inside a callback.
+    with _init_transaction() as (ready, pending_monitors):
+        if not ready:
+            return {
+                "ok": False,
+                "reason": "monitor teardown pending",
+                "pending_monitors": pending_monitors,
+            }
         if _initialized:
             return {"ok": True, "skipped": True, "reason": "already initialized"}
+        from . import vpn
+        if not vpn._open_backend_actions():
+            return {
+                "ok": False,
+                "reason": "backend teardown pending",
+                "pending_monitors": ["vpn backend action"],
+            }
 
         _siterunner_pauser = siterunner_pauser
         _siterunner_resumer = siterunner_resumer
@@ -170,21 +216,59 @@ def init(
                     _site_to_tunnel[sid] = tid
                     _site_required[sid] = bool(s.get("vpn_required", False))
 
-        # 4: subscribe to kill-switch
-        vpn_kill_switch.register_kill_callback(_on_kill_switch_event)
+        # 4: subscribe with a generation-owned wrapper.  Unregistering cannot
+        # remove a callable already copied by the dispatcher, so the wrapper's
+        # token is the revocation boundary for queued old callbacks.
+        callback_token = object()
+
+        def generation_callback(
+            tunnel_id: str,
+            new_state: str,
+            _token=callback_token,
+        ) -> None:
+            with _init_lock:
+                if (_kill_callback_generation is not _token
+                        or _kill_callback is not generation_callback):
+                    return
+                if not vpn_kill_switch._callback_transition_is_current(
+                    tunnel_id, new_state
+                ):
+                    return
+                _on_kill_switch_event(tunnel_id, new_state)
+
+        _kill_callback_generation = callback_token
+        _kill_callback = generation_callback
+        vpn_kill_switch.register_kill_callback(generation_callback)
 
         # 5: start monitors
+        monitor_error = None
         if start_monitors and not os.environ.get("BD_DISABLE_KEEPALIVE"):
             try:
                 vpn.start_health_thread()
             except Exception as e:
-                sys.stderr.write(f"[vpn-runtime] could not start vpn health thread: {e}\n")
-            try:
-                from . import vpn_leak_tests
-                interval = vpn_config.get_global_settings().get("leak_test_interval_s", 1800)
-                vpn_leak_tests.start_periodic_monitor(interval_s=int(interval))
-            except Exception as e:
-                sys.stderr.write(f"[vpn-runtime] could not start leak monitor: {e}\n")
+                monitor_error = e
+            if monitor_error is None:
+                try:
+                    from . import vpn_leak_tests
+                    interval = vpn_config.get_global_settings().get(
+                        "leak_test_interval_s", 1800)
+                    vpn_leak_tests.start_periodic_monitor(
+                        interval_s=int(interval))
+                except Exception as e:
+                    monitor_error = e
+        if monitor_error is not None:
+            sys.stderr.write(
+                "[vpn-runtime] monitor start failed; runtime rolled back: "
+                f"{monitor_error}\n")
+            # Revoke the generation before stopping any successfully-started
+            # leaf.  A copied callback then becomes inert while cleanup waits.
+            _detach_runtime_locked()
+            _stop_leaf_resources()
+            return {
+                "ok": False,
+                "reason": "monitor start failed",
+                "error": str(monitor_error),
+            }
 
         _initialized = True
         return {
@@ -196,20 +280,85 @@ def init(
         }
 
 
-def shutdown() -> None:
-    """Stop monitors, tear down tunnels. atexit-safe."""
-    if _is_disabled():
-        return
+def _clear_runtime_state_locked() -> None:
+    """Clear state owned by this module while ``_init_lock`` is held."""
+    global _initialized, _siterunner_pauser, _siterunner_resumer
+    global _global_tunnel_id, _kill_callback, _kill_callback_generation
+
+    _site_to_tunnel.clear()
+    _site_required.clear()
+    _siterunner_pauser = None
+    _siterunner_resumer = None
+    _global_tunnel_id = None
+    _kill_callback = None
+    _kill_callback_generation = None
+    _initialized = False
+
+
+def _detach_runtime_locked() -> None:
+    """Publish stopped runtime state while ``_init_lock`` is held."""
+    global _kill_callback, _kill_callback_generation
+    try:
+        from . import vpn_kill_switch
+        if _kill_callback is not None:
+            vpn_kill_switch.unregister_kill_callback(_kill_callback)
+    except Exception:
+        pass
+
+    # Invalidate before releasing _init_lock. A callback copied before
+    # unregister may enter later, but it can no longer target this or a future
+    # runtime generation.
+    _kill_callback_generation = None
+    _kill_callback = None
+
+    # A callback already copied by the kill switch can no longer find stale
+    # site mappings or runner callbacks after it acquires _init_lock.
+    _clear_runtime_state_locked()
+
+
+def _stop_leaf_resources() -> bool:
+    """Quiesce leaves, then tear down tunnels only after producer proof."""
+    leak_stopped = True
     try:
         from . import vpn_leak_tests
-        vpn_leak_tests.stop_periodic_monitor()
+        leak_stopped = vpn_leak_tests.stop_periodic_monitor() is not False
+        if not leak_stopped:
+            sys.stderr.write(
+                "[vpn-runtime] leak monitor survived the shutdown bound\n")
     except Exception:
-        pass
+        leak_stopped = False
+    cycle_stopped = True
+    try:
+        from . import vpn_kill_switch
+        cycle_stopped = vpn_kill_switch.shutdown() is not False
+        if not cycle_stopped:
+            sys.stderr.write(
+                "[vpn-runtime] kill-switch cycle survived the shutdown bound\n")
+    except Exception:
+        cycle_stopped = False
+    if not (leak_stopped and cycle_stopped):
+        return False
     try:
         from . import vpn
-        vpn.shutdown()
+        if vpn.shutdown() is False:
+            return False
     except Exception:
-        pass
+        return False
+    return True
+
+
+def shutdown() -> bool:
+    """Stop monitors, tear down tunnels, and release runtime state."""
+    # Cleanup is required even if the disable gate changed after init(). An
+    # early return here would strand the registered callback and make the next
+    # enabled init() report "already initialized".
+    with _runtime_lifecycle_lock:
+        with _init_lock:
+            _detach_runtime_locked()
+        # A leak-monitor pass can synchronously fire our kill callback. Joining
+        # it while holding _init_lock creates a lock cycle; the outer lifecycle
+        # lock still excludes re-init while the inner callback lock is free.
+        return _stop_leaf_resources()
 
 
 # ─── Public API used by runner.py ───────────────────────────────────
@@ -304,36 +453,46 @@ def maybe_wait_for_vpn(site_id: str, timeout: float = 30.0) -> bool:
 def _on_kill_switch_event(tunnel_id: str, new_state: str) -> None:
     """Subscribed at init(). When a tunnel transitions to killed, pause
     every SiteRunner that's using that tunnel. On clear, resume them."""
-    affected_sites = [sid for sid, tid in _site_to_tunnel.items() if tid == tunnel_id]
-    # Global tunnel: if a site uses the global, also affected when nothing site-specific.
-    if tunnel_id == _global_tunnel_id:
-        # We can't know all site_ids without sites_config in hand — but the
-        # runner.py side handles this via maybe_wait_for_vpn anyway.
-        pass
+    # Keep lifecycle serialization through the injected calls. Otherwise a
+    # callback can snapshot an old pauser, shutdown can clear state and return,
+    # and the old generation can still pause a replacement runner afterward.
+    with _init_lock:
+        if not _initialized:
+            return
+        affected_sites = [
+            sid for sid, tid in _site_to_tunnel.items() if tid == tunnel_id
+        ]
+        # Global tunnel: if a site uses the global, also affected when nothing
+        # site-specific. We can't know all site_ids without sites_config in hand
+        # — runner.py handles this via maybe_wait_for_vpn anyway.
+        if tunnel_id == _global_tunnel_id:
+            pass
 
-    if new_state == "killed":
-        sys.stderr.write(
-            f"[vpn-runtime] kill switch tripped on {tunnel_id}; "
-            f"affected sites: {affected_sites}\n"
-        )
-        if _siterunner_pauser is not None:
-            for sid in affected_sites:
-                try:
-                    _siterunner_pauser(sid)
-                except Exception as e:
-                    sys.stderr.write(f"[vpn-runtime] could not pause {sid}: {e}\n")
-    elif new_state == "cleared":
-        sys.stderr.write(
-            f"[vpn-runtime] kill switch cleared on {tunnel_id}; "
-            f"resuming sites: {affected_sites}\n"
-        )
-        if _siterunner_resumer is not None:
-            for sid in affected_sites:
-                try:
-                    _siterunner_resumer(sid)
-                except Exception as e:
-                    sys.stderr.write(f"[vpn-runtime] could not resume {sid}: {e}\n")
-    # "cycling" — informational only; no action.
+        if new_state == "killed":
+            sys.stderr.write(
+                f"[vpn-runtime] kill switch tripped on {tunnel_id}; "
+                f"affected sites: {affected_sites}\n"
+            )
+            if _siterunner_pauser is not None:
+                for sid in affected_sites:
+                    try:
+                        _siterunner_pauser(sid)
+                    except Exception as e:
+                        sys.stderr.write(
+                            f"[vpn-runtime] could not pause {sid}: {e}\n")
+        elif new_state == "cleared":
+            sys.stderr.write(
+                f"[vpn-runtime] kill switch cleared on {tunnel_id}; "
+                f"resuming sites: {affected_sites}\n"
+            )
+            if _siterunner_resumer is not None:
+                for sid in affected_sites:
+                    try:
+                        _siterunner_resumer(sid)
+                    except Exception as e:
+                        sys.stderr.write(
+                            f"[vpn-runtime] could not resume {sid}: {e}\n")
+        # "cycling" — informational only; no action.
 
 
 # ─── Browser context proxy helper ───────────────────────────────────
@@ -354,13 +513,21 @@ def playwright_proxy_for_site(site_id: str) -> Optional[dict]:
 # ─── Test helpers ───────────────────────────────────────────────────
 
 def _reset_for_tests() -> None:
-    global _initialized, _siterunner_pauser, _siterunner_resumer, _global_tunnel_id
-    _site_to_tunnel.clear()
-    _site_required.clear()
-    _siterunner_pauser = None
-    _siterunner_resumer = None
-    _global_tunnel_id = None
-    _initialized = False
+    """Hard-reset this runtime and every VPN leaf module it owns."""
+    with _runtime_lifecycle_lock:
+        with _init_lock:
+            _detach_runtime_locked()
+        if not _stop_leaf_resources():
+            raise RuntimeError(
+                "VPN runtime leaf worker survived the test-reset bound")
+        from . import vpn, vpn_config, vpn_kill_switch, vpn_leak_tests
+        for reset in (
+            vpn_kill_switch._reset_for_tests,
+            vpn_config._reset_for_tests,
+            vpn._reset_for_tests,
+            vpn_leak_tests._reset_for_tests,
+        ):
+            reset()
 
 
 __all__ = [

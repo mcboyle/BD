@@ -239,6 +239,106 @@ _port_pool = PortPool(SOCKS_PORT_START, SOCKS_PORT_END)
 
 _health_thread: Optional[threading.Thread] = None
 _health_stop = threading.Event()
+_health_lifecycle_lock = threading.RLock()
+_HEALTH_STOP_TIMEOUT_S = HEALTH_CHECK_TIMEOUT_S + 1.0
+
+# Backend subprocess actions run outside ``_lock``. Track them explicitly so
+# shutdown can close admission, invalidate an in-flight start, and boundedly
+# prove quiescence before it tears tunnels down or a new runtime opens.
+_BACKEND_ACTION_STOP_TIMEOUT_S = HEALTH_CHECK_TIMEOUT_S + 1.0
+_backend_action_condition = threading.Condition(threading.RLock())
+_backend_shutdown_lock = threading.RLock()
+_backend_tunnel_locks = tuple(threading.RLock() for _ in range(64))
+_backend_actions: dict[object, tuple[str, threading.Thread, int]] = {}
+_backend_action_epoch = 0
+_backend_accepting_actions = True
+
+
+def _begin_backend_action(tunnel_id: str):
+    """Admit and serialize one tunnel action, or fail while shutting down."""
+    with _backend_action_condition:
+        if not _backend_accepting_actions:
+            return None
+        token = object()
+        epoch = _backend_action_epoch
+        tunnel_lock = _backend_tunnel_locks[
+            hash(str(tunnel_id)) % len(_backend_tunnel_locks)]
+        _backend_actions[token] = (
+            tunnel_id, threading.current_thread(), epoch)
+    tunnel_lock.acquire()
+    with _backend_action_condition:
+        current = (
+            _backend_accepting_actions
+            and epoch == _backend_action_epoch
+            and token in _backend_actions
+        )
+        if not current:
+            _backend_actions.pop(token, None)
+            _backend_action_condition.notify_all()
+    if not current:
+        tunnel_lock.release()
+        return None
+    return token, epoch, tunnel_lock
+
+
+def _end_backend_action(action) -> None:
+    token, _epoch, tunnel_lock = action
+    try:
+        tunnel_lock.release()
+    finally:
+        with _backend_action_condition:
+            _backend_actions.pop(token, None)
+            _backend_action_condition.notify_all()
+
+
+def _backend_action_is_current(action) -> bool:
+    token, epoch, _tunnel_lock = action
+    with _backend_action_condition:
+        return (
+            _backend_accepting_actions
+            and epoch == _backend_action_epoch
+            and token in _backend_actions
+        )
+
+
+def _stop_backend_actions(timeout: float) -> bool:
+    """Close admission, invalidate starts, and wait for tracked actions."""
+    global _backend_action_epoch, _backend_accepting_actions
+    deadline = time.monotonic() + max(0.0, timeout)
+    current = threading.current_thread()
+    with _backend_action_condition:
+        _backend_accepting_actions = False
+        _backend_action_epoch += 1
+        while any(
+            owner is not current
+            for _tid, owner, _epoch in _backend_actions.values()
+        ):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            _backend_action_condition.wait(timeout=remaining)
+        # An action cannot prove itself quiescent from inside its own backend
+        # or plugin callback. Retain it and fail closed.
+        return not _backend_actions
+
+
+def _backend_generation_quiesced() -> bool:
+    with _backend_action_condition:
+        return not _backend_actions
+
+
+def _open_backend_actions() -> bool:
+    """Open a new runtime generation only after the old one is dead."""
+    global _backend_accepting_actions
+    # Serialize with the entire shutdown transaction, including internal
+    # backend.stop calls after tracked actions have drained. Otherwise re-init
+    # can reopen admission in that gap and a new start races the teardown.
+    with _backend_shutdown_lock:
+        with _backend_action_condition:
+            if _backend_actions:
+                return False
+            _backend_accepting_actions = True
+            return True
 
 
 # ─── Registration ────────────────────────────────────────────────────
@@ -286,21 +386,39 @@ def unregister_tunnel(tunnel_id: str) -> bool:
     the allocated SOCKS port leaked into the pool until process exit.
     stop_tunnel is idempotent on 'down' so we can always call it.
     """
-    with _lock:
-        if tunnel_id not in _tunnels:
+    action = _begin_backend_action(tunnel_id)
+    if action is None:
+        return False
+    try:
+        with _lock:
+            tunnel = _tunnels.get(tunnel_id)
+            if tunnel is None:
+                return False
+        if _stop_tunnel_action(tunnel_id) is False:
             return False
-    # Always call stop_tunnel — it's a no-op on already-down tunnels and
-    # ensures the SOCKS port is returned to the pool from any other state.
-    stop_tunnel(tunnel_id)
-    with _lock:
-        _tunnels.pop(tunnel_id, None)
-    return True
+        with _lock:
+            if _tunnels.get(tunnel_id) is tunnel:
+                _tunnels.pop(tunnel_id, None)
+        return True
+    finally:
+        _end_backend_action(action)
 
 
 # ─── Lifecycle ───────────────────────────────────────────────────────
 
 def start_tunnel(tunnel_id: str) -> bool:
     """Allocate a SOCKS port and call backend.start(). Returns success."""
+    action = _begin_backend_action(tunnel_id)
+    if action is None:
+        return False
+    try:
+        return _start_tunnel_action(tunnel_id, action)
+    finally:
+        _end_backend_action(action)
+
+
+def _start_tunnel_action(tunnel_id: str, action) -> bool:
+    """Start under an already-admitted per-tunnel backend action."""
     with _lock:
         tunnel = _tunnels.get(tunnel_id)
         if not tunnel:
@@ -329,21 +447,53 @@ def start_tunnel(tunnel_id: str) -> bool:
         with _lock:
             tunnel.last_error = f"backend start raised: {e}"
 
-    with _lock:
-        # Re-fetch in case tunnel was unregistered concurrently
-        t = _tunnels.get(tunnel_id)
-        if t is None:
-            return False
-        if ok:
-            t.state = "up"
-            t.started_at = _now()
-            t.failure_count = 0
-            t.health_ok = True  # optimistic until first real check
-        else:
-            t.state = "down"
-            if t.socks_port:
-                _port_pool.release(t.socks_port)
-                t.socks_port = 0
+    with _backend_action_condition:
+        current = _backend_action_is_current(action)
+        stale_started_backend = bool(ok and not current)
+        if ok and current:
+            with _lock:
+                # Re-fetch in case tunnel was unregistered concurrently.
+                t = _tunnels.get(tunnel_id)
+                if t is None:
+                    return False
+                t.state = "up"
+                t.started_at = _now()
+                t.failure_count = 0
+                t.health_ok = True  # optimistic until first real check
+
+    if not (ok and current):
+        cleanup_ok = True
+        cleanup_error = None
+        # A shutdown that began while backend.start() was blocked invalidates
+        # this generation. Compensate the real backend before publishing down.
+        if stale_started_backend:
+            try:
+                cleanup_result = backend.stop(tunnel)
+                cleanup_ok = cleanup_result is not False
+                if not cleanup_ok:
+                    cleanup_error = "stale backend start cleanup returned false"
+            except Exception as e:
+                cleanup_ok = False
+                cleanup_error = f"stale backend start cleanup raised: {e}"
+                sys.stderr.write(
+                    f"[vpn] stale start cleanup({tunnel_id}) raised: {e}\n")
+        with _lock:
+            t = _tunnels.get(tunnel_id)
+            if t is None:
+                return False
+            ok = False
+            t.started_at = None
+            t.health_ok = False
+            if cleanup_ok:
+                t.state = "down"
+                if t.socks_port:
+                    _port_pool.release(t.socks_port)
+                    t.socks_port = 0
+            else:
+                # Retain the port and actionable state so shutdown/retry cannot
+                # mistake an unproved external stop for a completed teardown.
+                t.state = "stopping"
+                t.last_error = cleanup_error
     # E1 (v3.66.494): plugin event surface. Fired through the isolated emit
     # seam AFTER the lock -- a throwing consumer never perturbs tunnel start.
     if ok:
@@ -361,6 +511,17 @@ def start_tunnel(tunnel_id: str) -> bool:
 
 def stop_tunnel(tunnel_id: str) -> bool:
     """Call backend.stop() and release the SOCKS port. Idempotent."""
+    action = _begin_backend_action(tunnel_id)
+    if action is None:
+        return False
+    try:
+        return _stop_tunnel_action(tunnel_id)
+    finally:
+        _end_backend_action(action)
+
+
+def _stop_tunnel_action(tunnel_id: str) -> bool:
+    """Stop under owner serialization or shutdown's closed admission."""
     with _lock:
         tunnel = _tunnels.get(tunnel_id)
         if not tunnel:
@@ -370,10 +531,17 @@ def stop_tunnel(tunnel_id: str) -> bool:
         tunnel.state = "stopping"
         port_to_release = tunnel.socks_port
 
+    stop_ok = True
+    stop_error = None
     try:
         backend = _get_backend(tunnel)
-        backend.stop(tunnel)
+        result = backend.stop(tunnel)
+        if result is False:
+            stop_ok = False
+            stop_error = "backend stop returned false"
     except Exception as e:
+        stop_ok = False
+        stop_error = f"backend stop raised: {e}"
         sys.stderr.write(f"[vpn] stop({tunnel_id}) backend raised: {e}\n")
 
     with _lock:
@@ -382,6 +550,10 @@ def stop_tunnel(tunnel_id: str) -> bool:
             if port_to_release:
                 _port_pool.release(port_to_release)
             return True
+        if not stop_ok:
+            t.state = "stopping"
+            t.last_error = stop_error
+            return False
         if t.socks_port:
             _port_pool.release(t.socks_port)
             t.socks_port = 0
@@ -402,9 +574,17 @@ def stop_tunnel(tunnel_id: str) -> bool:
 def cycle_tunnel(tunnel_id: str) -> bool:
     """Stop and restart a tunnel. Provider-specific endpoint rotation
     happens inside backend.start() if the provider supports it."""
-    if not stop_tunnel(tunnel_id):
+    action = _begin_backend_action(tunnel_id)
+    if action is None:
         return False
-    return start_tunnel(tunnel_id)
+    try:
+        if not _stop_tunnel_action(tunnel_id):
+            return False
+        if not _backend_action_is_current(action):
+            return False
+        return _start_tunnel_action(tunnel_id, action)
+    finally:
+        _end_backend_action(action)
 
 
 # ─── Queries ─────────────────────────────────────────────────────────
@@ -574,27 +754,96 @@ def start_health_thread() -> None:
     if os.environ.get("BD_DISABLE_KEEPALIVE"):
         return
     global _health_thread
-    with _lock:
-        if _health_thread is not None and _health_thread.is_alive():
-            return
-        _health_stop.clear()
-        _health_thread = threading.Thread(
-            target=_health_loop, name="bd-vpn-health", daemon=True,
-        )
-        _health_thread.start()
+    # Serialize the whole stop/join/start generation boundary.  The data lock
+    # cannot be held across join because an in-flight health pass needs it.
+    with _health_lifecycle_lock:
+        with _lock:
+            if _health_thread is not None and _health_thread.is_alive():
+                return
+            _health_stop.clear()
+            _health_thread = threading.Thread(
+                target=_health_loop, name="bd-vpn-health", daemon=True,
+            )
+            generation = _health_thread
+            try:
+                generation.start()
+            except BaseException:
+                # A never-started Thread cannot be joined. Roll back the exact
+                # published identity so reset and a later start remain usable.
+                if _health_thread is generation:
+                    _health_thread = None
+                _health_stop.set()
+                raise
 
 
-def shutdown() -> None:
-    """Stop every tunnel and the health thread. Safe to call multiple
-    times. Intended for atexit and test teardown."""
+def _stop_health_thread_locked(
+    timeout: float = _HEALTH_STOP_TIMEOUT_S,
+) -> bool:
+    """Stop and join the published health generation.
+
+    The caller holds ``_health_lifecycle_lock`` so no starter can clear the
+    shared stop event while the captured generation is still unwinding.
+    """
+    global _health_thread
     _health_stop.set()
     with _lock:
-        ids = list(_tunnels.keys())
-    for tid in ids:
-        try:
-            stop_tunnel(tid)
-        except Exception as e:
-            sys.stderr.write(f"[vpn] shutdown stop_tunnel({tid}) raised: {e}\n")
+        thread = _health_thread
+    if thread is None:
+        return True
+    if thread is threading.current_thread():
+        return False
+    if thread.ident is None:
+        # Defensive recovery for a legacy/externally planted unstarted handle.
+        with _lock:
+            if _health_thread is thread:
+                _health_thread = None
+        return True
+    thread.join(timeout=max(0.0, timeout))
+    if thread.is_alive():
+        return False
+    with _lock:
+        if _health_thread is thread:
+            _health_thread = None
+    return True
+
+
+def _health_generation_quiesced() -> bool:
+    """Whether no previously published health generation is still alive."""
+    with _health_lifecycle_lock:
+        return _health_thread is None or not _health_thread.is_alive()
+
+
+def shutdown(
+    backend_timeout: float = _BACKEND_ACTION_STOP_TIMEOUT_S,
+) -> bool:
+    """Stop every tunnel and the health thread. Safe to call multiple
+    times. Intended for atexit and test teardown."""
+    with _backend_shutdown_lock:
+        # Close action admission first. An ordinary API start is just as able
+        # to resurrect a backend as an auto-cycle and must share this fence.
+        backend_stopped = _stop_backend_actions(backend_timeout)
+        with _health_lifecycle_lock:
+            health_stopped = _stop_health_thread_locked()
+        if not health_stopped:
+            sys.stderr.write(
+                "[vpn] health thread did not stop within the shutdown bound\n")
+        if not backend_stopped:
+            sys.stderr.write(
+                "[vpn] backend action survived the shutdown bound\n")
+        if not (health_stopped and backend_stopped):
+            return False
+        with _lock:
+            ids = list(_tunnels.keys())
+        tunnels_stopped = True
+        for tid in ids:
+            try:
+                if _stop_tunnel_action(tid) is False:
+                    tunnels_stopped = False
+            except Exception as e:
+                tunnels_stopped = False
+                sys.stderr.write(
+                    f"[vpn] shutdown stop_tunnel({tid}) raised: {e}\n")
+        return tunnels_stopped
 
 
 # ─── Introspection (for tests + UI) ──────────────────────────────────
@@ -608,14 +857,28 @@ def _reset_for_tests() -> None:
     """Hard reset of module state. ONLY for unit tests — never call from
     production code. After reset, register_tunnel/start_tunnel start
     from a clean slate."""
-    global _health_thread
-    _health_stop.set()
-    if _health_thread is not None:
-        # Don't .join() — daemon thread, harmless if it lingers a beat
-        _health_thread = None
-    with _lock:
-        _tunnels.clear()
-    # Rebuild the pool so prior allocations don't leak between tests
     global _port_pool
-    _port_pool = PortPool(SOCKS_PORT_START, SOCKS_PORT_END)
-    _health_stop.clear()
+    with _backend_shutdown_lock:
+        if not _stop_backend_actions(_BACKEND_ACTION_STOP_TIMEOUT_S):
+            raise RuntimeError(
+                "VPN backend action survived the test-reset bound")
+        with _health_lifecycle_lock:
+            if not _stop_health_thread_locked():
+                raise RuntimeError(
+                    "VPN health thread survived the test-reset bound")
+            with _lock:
+                tunnel_ids = list(_tunnels)
+            for tunnel_id in tunnel_ids:
+                if _stop_tunnel_action(tunnel_id) is False:
+                    raise RuntimeError(
+                        "VPN backend did not stop during test reset: "
+                        f"{tunnel_id}")
+            with _lock:
+                _tunnels.clear()
+                # Rebuild the pool so prior allocations don't leak between tests.
+                _port_pool = PortPool(SOCKS_PORT_START, SOCKS_PORT_END)
+            # Reuse the event only after the captured generation is proven dead.
+            _health_stop.clear()
+        if not _open_backend_actions():
+            raise RuntimeError(
+                "VPN backend action remained published after test reset")

@@ -20,6 +20,8 @@ import warnings
 import pathlib
 import shutil
 import sys
+import threading
+import time
 from types import ModuleType
 from pathlib import Path
 
@@ -124,6 +126,282 @@ def _canonicalize_package_children(package_name, modules=None):
         parent = package_modules.get(parent_name)
         if parent is not None and child_attr not in vars(parent):
             setattr(parent, child_attr, child)
+
+
+def _reset_loaded_app_site_runtime(*, reopen=False):
+    """Model a service restart between tests without importing the app.
+
+    ``isolated_bd_home`` gives every test a different configured-state path.
+    Once row 409 made a live runner set retain that path identity, clearing only
+    files/environment stopped being a process restart: custom test clients could
+    leave a runner or the runtime latch behind and the next test correctly hit
+    the production "restart required" boundary.  Reset only an app module that
+    collection or an earlier test already loaded; never import heavyweight app
+    state from this autouse fixture.
+    """
+    app_mod = sys.modules.get("bulk_downloader.app")
+    site_ids = set()
+    captured_runners = {}
+    captured_runner_threads = []
+    captured_watch_threads = {}
+    captured_watch_stops = {}
+    captured_global_watcher = None
+    boot_lock = None
+    watch_lock = None
+    deadline = time.monotonic() + 2.0
+
+    def remaining():
+        return max(0.0, deadline - time.monotonic())
+
+    if isinstance(app_mod, ModuleType):
+        runners = getattr(app_mod, "runners", None)
+        site_cfg = getattr(app_mod, "s_cfg", None)
+        site_meta = getattr(app_mod, "s_meta", None)
+        watch_threads = getattr(app_mod, "_watch_threads", None)
+        watch_stops = getattr(app_mod, "_watch_stops", None)
+        boot_lock = getattr(app_mod, "_BOOT_LOCK", None)
+        watch_lock = getattr(app_mod, "_watch_registry_lock", None)
+
+        def capture_and_signal() -> None:
+            nonlocal captured_global_watcher
+            captured_global_watcher = getattr(
+                app_mod, "_watcher_thread", None)
+            if hasattr(app_mod, "_SITE_RUNTIME_RETIRING"):
+                app_mod._SITE_RUNTIME_RETIRING = True
+            if isinstance(site_cfg, dict):
+                site_ids.update(site_cfg)
+            if isinstance(runners, dict):
+                site_ids.update(runners)
+                captured_runners.update(runners)
+                for runner in tuple(runners.values()):
+                    worker_handles = getattr(
+                        runner, "_worker_threads", ()) or ()
+                    if isinstance(worker_handles, (list, tuple)):
+                        captured_runner_threads.extend(
+                            worker for worker in worker_handles
+                            if isinstance(worker, threading.Thread)
+                        )
+                    for attr in ("_sched_thread", "_auto_retry_thread"):
+                        thread = getattr(runner, attr, None)
+                        if isinstance(thread, threading.Thread):
+                            captured_runner_threads.append(thread)
+            if isinstance(site_meta, dict):
+                site_ids.update(site_meta)
+            if isinstance(watch_stops, dict):
+                captured_watch_stops.update(watch_stops)
+                for stop in captured_watch_stops.values():
+                    try:
+                        stop.set()
+                    except Exception:
+                        pass
+            if isinstance(watch_threads, dict):
+                captured_watch_threads.update(watch_threads)
+
+        def detach_with_watch_lock() -> None:
+            if watch_lock is None:
+                capture_and_signal()
+            else:
+                with watch_lock:
+                    capture_and_signal()
+
+        # Canonical nested order: boot lifecycle, then watch lifecycle.  Stop,
+        # signal, and join only after both locks have been released.
+        if boot_lock is None:
+            detach_with_watch_lock()
+        else:
+            with boot_lock:
+                detach_with_watch_lock()
+
+    verdicts = []
+    for runner in captured_runners.values():
+        # Lightweight route-contract fakes need only their legacy stop hooks;
+        # real SiteRunner owners expose permanent retirement APIs that retain
+        # a survivor's only handle and prevent replacement generations.
+        for owner_method, fallback in (
+            ("retire_scheduler", "stop_scheduler"),
+            ("retire_auto_retry", "_stop_auto_retry"),
+            ("retire_workers", "stop"),
+        ):
+            method = getattr(runner, owner_method, None)
+            if not callable(method):
+                method = getattr(runner, fallback, None)
+            if not callable(method):
+                continue
+            try:
+                result = (method(timeout=remaining())
+                          if owner_method != "retire_workers"
+                          or hasattr(runner, "retire_workers")
+                          else method())
+                if result is False:
+                    verdicts.append(f"{owner_method} refused quiescence")
+            except TypeError:
+                try:
+                    result = method()
+                    if result is False:
+                        verdicts.append(
+                            f"{owner_method} refused quiescence")
+                except Exception as exc:
+                    verdicts.append(f"{owner_method} raised {exc!r}")
+            except Exception as exc:
+                verdicts.append(f"{owner_method} raised {exc!r}")
+
+    # Stop the process-global folder watcher through its owner. It retains a
+    # timed-out generation rather than clearing the only liveness handle.
+    if isinstance(app_mod, ModuleType):
+        stop_watcher = getattr(app_mod, "_stop_watcher", None)
+        if callable(stop_watcher):
+            try:
+                if stop_watcher(
+                    timeout=remaining(), retire=True
+                ) is False:
+                    verdicts.append("global folder watcher survived")
+            except Exception as exc:
+                verdicts.append(f"global folder watcher raised {exc!r}")
+
+    session_keeper = sys.modules.get("bulk_downloader.session_keeper")
+    if isinstance(session_keeper, ModuleType):
+        try:
+            if session_keeper.stop_all(
+                timeout=remaining(), retire=True
+            ) is False:
+                verdicts.append("session keeper survived")
+        except Exception as exc:
+            verdicts.append(f"session keeper stop raised {exc!r}")
+
+    # All captured worker handles must settle before the test's cwd/env can be
+    # restored.  One shared bound prevents N workers from multiplying teardown
+    # time.  Only real Thread instances are lifecycle subjects; many unit tests
+    # intentionally use light-weight stand-ins in _worker_threads.
+    current = threading.current_thread()
+    threads = []
+    seen_threads = set()
+    for thread in [
+        *captured_runner_threads,
+        *captured_watch_threads.values(),
+    ]:
+        if (not isinstance(thread, threading.Thread)
+                or thread is current or id(thread) in seen_threads):
+            continue
+        seen_threads.add(id(thread))
+        threads.append(thread)
+    for thread in threads:
+        try:
+            if thread.is_alive():
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        except Exception:
+            pass
+    survivors = [thread.name for thread in threads if thread.is_alive()]
+    if survivors:
+        verdicts.append("watch threads survived: " + ", ".join(survivors))
+    if isinstance(app_mod, ModuleType):
+        current_global_watcher = getattr(app_mod, "_watcher_thread", None)
+        if (current_global_watcher is not None
+                and current_global_watcher is not captured_global_watcher):
+            verdicts.append("global folder watcher identity was replaced")
+        elif current_global_watcher is not None:
+            try:
+                if current_global_watcher.is_alive():
+                    verdicts.append("global folder watcher remained live")
+            except Exception:
+                verdicts.append("global folder watcher liveness is unknown")
+    if verdicts:
+        pytest.fail(
+            "configured runtime teardown was not proved within 2s: "
+            + "; ".join(verdicts)
+        )
+
+    if isinstance(app_mod, ModuleType) and isinstance(runners, dict):
+        replaced = [
+            site_id for site_id, runner in captured_runners.items()
+            if runners.get(site_id) not in (None, runner)
+        ]
+        if replaced:
+            pytest.fail(
+                "configured runtime identities changed during teardown: "
+                + ", ".join(sorted(replaced))
+            )
+
+    # Only after every writer is dead may ownership registries and runtime
+    # latches be cleared. Exact-identity checks prevent teardown from erasing a
+    # replacement generation published by a concurrent test action.
+    if isinstance(app_mod, ModuleType):
+        def clear_proven_generations():
+            if isinstance(runners, dict):
+                for site_id, runner in captured_runners.items():
+                    if runners.get(site_id) is runner:
+                        runners.pop(site_id, None)
+            if isinstance(watch_threads, dict):
+                for site_id, thread in captured_watch_threads.items():
+                    if watch_threads.get(site_id) is thread:
+                        watch_threads.pop(site_id, None)
+            if isinstance(watch_stops, dict):
+                for site_id, stop in captured_watch_stops.items():
+                    if watch_stops.get(site_id) is stop:
+                        watch_stops.pop(site_id, None)
+            if isinstance(site_meta, dict):
+                site_meta.clear()
+            if isinstance(site_cfg, dict):
+                site_cfg.clear()
+            booted = getattr(app_mod, "_BOOTED_PATHS", None)
+            if isinstance(booted, set):
+                booted.clear()
+            if hasattr(app_mod, "_SITE_RUNTIME_PATH"):
+                app_mod._SITE_RUNTIME_PATH = None
+            if hasattr(app_mod, "_SITE_RUNTIME_READY"):
+                app_mod._SITE_RUNTIME_READY = False
+            if hasattr(app_mod, "_SITE_RUNTIME_ROLLBACK_PENDING"):
+                app_mod._SITE_RUNTIME_ROLLBACK_PENDING = False
+
+        def clear_with_watch_lock():
+            if watch_lock is None:
+                clear_proven_generations()
+            else:
+                with watch_lock:
+                    clear_proven_generations()
+
+        if boot_lock is None:
+            clear_with_watch_lock()
+        else:
+            with boot_lock:
+                clear_with_watch_lock()
+
+    # Leaf state is reset only after all writers that can reference it are
+    # proved dead. Touch already-loaded owners only; this fixture must not make
+    # importing app/VPN/account modules a side effect of unrelated tests.
+    account_pool = sys.modules.get("bulk_downloader.account_pool")
+    if isinstance(account_pool, ModuleType):
+        for site_id in site_ids:
+            try:
+                account_pool.remove_pool(site_id)
+            except Exception:
+                pass
+    vpn_runtime = sys.modules.get("bulk_downloader.vpn_runtime")
+    if isinstance(vpn_runtime, ModuleType):
+        reset_vpn = getattr(vpn_runtime, "_reset_for_tests", None)
+        if callable(reset_vpn):
+            reset_vpn()
+    if reopen:
+        # Setup begins a new, fully isolated test generation only after every
+        # prior writer and leaf reset above is proved. Teardown leaves admission
+        # retired; explicit application boot is the production reopen boundary.
+        def reopen_runtime_admission():
+            session_keeper = sys.modules.get(
+                "bulk_downloader.session_keeper")
+            if isinstance(session_keeper, ModuleType):
+                open_keepers = getattr(
+                    session_keeper, "open_lifecycle", None)
+                if callable(open_keepers) and open_keepers() is not True:
+                    pytest.fail(
+                        "session keeper lifecycle retained a prior generation")
+            if (isinstance(app_mod, ModuleType)
+                    and hasattr(app_mod, "_SITE_RUNTIME_RETIRING")):
+                app_mod._SITE_RUNTIME_RETIRING = False
+
+        if boot_lock is None:
+            reopen_runtime_admission()
+        else:
+            with boot_lock:
+                reopen_runtime_admission()
 
 
 # v3.66.13: canonical `isolated_bd_home` fixture. Replaces 45 copy-pasted
@@ -375,6 +653,7 @@ def isolated_bd_home(request, tmp_path):
     # Repair attr/table splits left by a previous test before this test can
     # resolve a stale child via ``from bulk_downloader import child``.
     _canonicalize_package_children("bulk_downloader")
+    _reset_loaded_app_site_runtime(reopen=True)
 
     # Wipe any leftover state from a prior test sharing this tmp_path
     # (Anthropic-sandbox custom-runner quirk; harmless elsewhere).
@@ -421,26 +700,36 @@ def isolated_bd_home(request, tmp_path):
         # blind the existing leak guard. The value presented to test code is
         # always absent; clean_workdir's monkeypatch unwinds before this point.
         install_dir_after = os.environ.get("BD_INSTALL_DIR")
-        install_dir_leaked = (
-            install_dir_leak_verdict(
-                saved_env["BD_INSTALL_DIR"], install_dir_after
-            ) == "leaked"
-        )
-        os.chdir(saved_cwd)
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        if do_wipe:
-            for _bd_mod in [_m for _m in list(sys.modules)
-                            if _m.startswith("bulk_downloader")]:
-                del sys.modules[_bd_mod]
-            sys.modules.update(saved_modules)
-        # Keep the two representations of imported children in lockstep.
-        # This is required even for unmarked tests: a test can directly pop a
-        # child from sys.modules and otherwise poison the next test.
-        _canonicalize_package_children("bulk_downloader")
+        install_dir_leaked = False
+        try:
+            install_dir_leaked = (
+                install_dir_leak_verdict(
+                    saved_env["BD_INSTALL_DIR"], install_dir_after
+                ) == "leaked"
+            )
+            # Stop test-owned configured runtime while its cwd/env still
+            # identify the test sandbox. Waiting until the next test would let
+            # a daemon write into the restored checkout between teardowns.
+            _reset_loaded_app_site_runtime()
+        finally:
+            # A fail-loud worker/reset verdict must remain the reported error,
+            # but process-global cwd/env/module state still belongs to the next
+            # test.  Always restore it before Python re-raises that verdict.
+            os.chdir(saved_cwd)
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            if do_wipe:
+                for _bd_mod in [_m for _m in list(sys.modules)
+                                if _m.startswith("bulk_downloader")]:
+                    del sys.modules[_bd_mod]
+                sys.modules.update(saved_modules)
+            # Keep the two representations of imported children in lockstep.
+            # This is required even for unmarked tests: a test can directly
+            # pop a child from sys.modules and otherwise poison the next test.
+            _canonicalize_package_children("bulk_downloader")
         if install_dir_leaked:
             _fail_install_dir_leak(
                 saved_env["BD_INSTALL_DIR"], install_dir_after
@@ -470,10 +759,8 @@ def fresh_app(clean_workdir, monkeypatch):
     # Reset module-level state. The app uses module-level dicts for
     # runners/s_cfg/s_meta which would otherwise leak between tests.
     if "bulk_downloader.app" in sys.modules:
+        _reset_loaded_app_site_runtime(reopen=True)
         app_mod = sys.modules["bulk_downloader.app"]
-        app_mod.runners.clear()
-        app_mod.s_cfg.clear()
-        app_mod.s_meta.clear()
         app_mod._app_cfg.clear()
         app_mod._app_cfg["global_max_concurrent"] = 0
         # Phase 26.7: rate-limit buckets are module-level — without
@@ -494,14 +781,7 @@ def fresh_app(clean_workdir, monkeypatch):
     client = app.test_client()
     yield client
     # Cleanup any threads the app spun up
-    if "bulk_downloader.app" in sys.modules:
-        app_mod = sys.modules["bulk_downloader.app"]
-        for sid in list(app_mod.runners.keys()):
-            try:
-                app_mod.runners[sid].stop()
-                app_mod.runners[sid]._stop_auto_retry()
-            except Exception: pass
-        app_mod.runners.clear()
+    _reset_loaded_app_site_runtime()
 
 
 # ─── The operator's real AI settings are off limits to the whole suite ───────

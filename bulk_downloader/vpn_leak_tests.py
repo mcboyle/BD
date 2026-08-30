@@ -191,6 +191,8 @@ _external_lock = threading.Lock()
 
 _monitor_thread: Optional[threading.Thread] = None
 _monitor_stop = threading.Event()
+_monitor_lifecycle_lock = threading.RLock()
+_MONITOR_STOP_TIMEOUT_S = DEFAULT_PROBE_TIMEOUT_S + 1.0
 
 
 # ─── Public probe API ───────────────────────────────────────────────
@@ -236,11 +238,13 @@ def run_all_probes(
 ) -> AggregateResult:
     """Run every probe for a tunnel. Emits LEAK_DETECTED / LEAK_CLEARED via VPNManager."""
     from .vpn import get_tunnel  # local import to keep this module standalone-importable
+    from .vpn_kill_switch import capture_leak_measurement_token
     try:
         from .vpn import _subscribers_emit  # type: ignore
     except ImportError:
         _subscribers_emit = None  # vpn.py doesn't expose subscribers in v1; UI polls instead
 
+    measurement_token = capture_leak_measurement_token(tunnel_id)
     tunnel = get_tunnel(tunnel_id)
     socks_port = tunnel.socks_port if tunnel else 0
     if not socks_port:
@@ -282,7 +286,7 @@ def run_all_probes(
     # Emit event if there's a kill-switch-worthy failure or it cleared.
     try:
         from .vpn_kill_switch import notify_leak_test_result  # type: ignore
-        notify_leak_test_result(tunnel_id, agg)
+        notify_leak_test_result(tunnel_id, agg, measurement_token)
     except ImportError:
         # Kill switch not yet installed (step 7 not landed) — fine, results
         # still recorded in history.
@@ -778,20 +782,54 @@ def start_periodic_monitor(interval_s: int = DEFAULT_MONITOR_INTERVAL_S) -> None
     if os.environ.get("BD_DISABLE_KEEPALIVE"):
         return
     global _monitor_thread
-    if _monitor_thread is not None and _monitor_thread.is_alive():
-        return
-    _monitor_stop.clear()
-    _monitor_thread = threading.Thread(
-        target=_monitor_loop, args=(interval_s,),
-        name="bd-vpn-leak-monitor", daemon=True,
-    )
-    _monitor_thread.start()
+    with _monitor_lifecycle_lock:
+        if _monitor_thread is not None and _monitor_thread.is_alive():
+            return
+        # A stop event is reusable only after the previous published thread
+        # has been joined by stop_periodic_monitor().
+        _monitor_stop.clear()
+        _monitor_thread = threading.Thread(
+            target=_monitor_loop, args=(interval_s,),
+            name="bd-vpn-leak-monitor", daemon=True,
+        )
+        generation = _monitor_thread
+        try:
+            generation.start()
+        except BaseException:
+            if _monitor_thread is generation:
+                _monitor_thread = None
+            _monitor_stop.set()
+            raise
 
 
-def stop_periodic_monitor() -> None:
-    _monitor_stop.set()
+def stop_periodic_monitor(
+    timeout: float = _MONITOR_STOP_TIMEOUT_S,
+) -> bool:
+    """Stop and boundedly join the currently published monitor generation."""
     global _monitor_thread
-    _monitor_thread = None
+    with _monitor_lifecycle_lock:
+        _monitor_stop.set()
+        thread = _monitor_thread
+        if thread is None:
+            return True
+        if thread is threading.current_thread():
+            return False
+        if thread.ident is None:
+            if _monitor_thread is thread:
+                _monitor_thread = None
+            return True
+        thread.join(timeout=max(0.0, timeout))
+        if thread.is_alive():
+            return False
+        if _monitor_thread is thread:
+            _monitor_thread = None
+        return True
+
+
+def _monitor_generation_quiesced() -> bool:
+    """Whether no previously published leak-monitor generation is alive."""
+    with _monitor_lifecycle_lock:
+        return _monitor_thread is None or not _monitor_thread.is_alive()
 
 
 def _monitor_loop(interval_s: int) -> None:
@@ -901,11 +939,13 @@ WEBRTC_PROBE_JS = r"""
 # ─── Test/introspection helpers ─────────────────────────────────────
 
 def _reset_for_tests() -> None:
+    if not stop_periodic_monitor():
+        raise RuntimeError(
+            "VPN leak monitor survived the test-reset bound")
     with _history_lock:
         _history.clear()
     with _external_lock:
         _external_results.clear()
-    stop_periodic_monitor()
 
 
 __all__ = [

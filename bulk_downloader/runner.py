@@ -33,7 +33,7 @@ excepts. v3.43.17 narrowed the remaining bare `except:` clauses to
 ──────────────────────────────────────────────────────────────────────
 """
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
-import collections, contextlib, enum, functools, itertools, json, math, os, queue, re, shutil, sqlite3, subprocess, sys, threading, time
+import collections, contextlib, enum, functools, inspect, itertools, json, math, os, queue, re, shutil, sqlite3, subprocess, sys, threading, time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -580,6 +580,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._ss_dir=SCREENSHOTS_DIR/site_id; self._ss_dir.mkdir(parents=True, exist_ok=True)
         self._sched_stop=threading.Event()
         self._sched_thread=None
+        # Serialize scheduler generation publication with bounded stop/join.
+        # Deletion also marks the runner retired under this lock so a caller
+        # that captured it before registry detachment cannot resurrect it.
+        self._sched_lifecycle_lock=threading.RLock()
+        self._sched_retired=False
         # Phase 30: auto-retry thread. Periodically scans for stuck
         # needs_review / failed jobs and bumps them back to pending
         # according to the per-site auto_retry_schedule. Stays running
@@ -587,6 +592,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # actual retry actions.
         self._auto_retry_stop=threading.Event()
         self._auto_retry_thread=None
+        self._auto_retry_lifecycle_lock=threading.RLock()
+        self._auto_retry_retired=False
         # Phase 13: structured event log ring buffer. Each entry is a small
         # dict {ts, url, kind, message, extra}. Capped at 500 entries to
         # prevent unbounded memory growth. The UI streams the tail via
@@ -682,6 +689,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # than one lock follows: lifecycle -> jobs -> heartbeats -> queue.
         # RLock is intentional: overseer finalization atomically calls start().
         self._run_lifecycle_lock = threading.RLock()
+        self._run_retired = False
+        # Auth/manual launch calls can spend tens of seconds constructing a
+        # thread-owned browser before publishing its session handle. Retain the
+        # caller generation across that gap so deletion can fail closed rather
+        # than miss an in-flight owner.
+        self._auxiliary_start_threads = {}
         self._worker_heartbeats_lock = threading.Lock()
         # v3.43.24: watchdog populates this with {worker_idx, last_beat_age_s}
         # dicts for any worker that hasn't heartbeat in >15min. Empty
@@ -727,6 +740,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # made it easy to typo the attribute name and never notice.
         self._manual_download_session = None
         self._manual_login_handle = None
+        self._manual_snapshot_thread = None
+        self._manual_snapshot_stop = None
+        self._captcha_solve_sessions = {}
         self._auto_teach_logged = False
         # GH-2a (v3.66.693): opt-in yt-dlp @extractor adapter. A site that sets
         # the *undeclared* site-cfg key `ytdlp_extractor` truthy registers a
@@ -906,7 +922,70 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
+    def _begin_auxiliary_start(self):
+        """Register the current auth/manual launcher before it can block."""
+        with self._run_lifecycle_lock:
+            if self._run_retired:
+                return False
+            thread = threading.current_thread()
+            starts = self._auxiliary_start_threads
+            starts[thread] = starts.get(thread, 0) + 1
+            return True
+
+    def _end_auxiliary_start(self):
+        """Release a launcher, retaining its handle after retirement."""
+        with self._run_lifecycle_lock:
+            thread = threading.current_thread()
+            starts = self._auxiliary_start_threads
+            count = starts.get(thread, 0)
+            if count <= 0 or self._run_retired:
+                # A retired caller is still alive until its wrapper returns.
+                # Keep that Thread identity for the next teardown proof.
+                return
+            if count == 1:
+                starts.pop(thread, None)
+            else:
+                starts[thread] = count - 1
+
+    def _start_owned_auxiliary_thread(self, attribute, thread):
+        """Atomically publish/start one auxiliary generation or refuse it."""
+        with self._run_lifecycle_lock:
+            if self._run_retired:
+                return False
+            setattr(self, attribute, thread)
+            try:
+                thread.start()
+            except BaseException:
+                if getattr(self, attribute, None) is thread:
+                    setattr(self, attribute, None)
+                raise
+            return True
+
+    def _start_tracked_auxiliary_thread(self, thread):
+        """Publish a callback-only thread in the shared auxiliary registry."""
+        with self._run_lifecycle_lock:
+            if self._run_retired:
+                return False
+            starts = self._auxiliary_start_threads
+            starts[thread] = starts.get(thread, 0) + 1
+            try:
+                thread.start()
+            except BaseException:
+                starts.pop(thread, None)
+                raise
+            return True
+
+    def _finish_tracked_auxiliary_thread(self, thread):
+        with self._run_lifecycle_lock:
+            if not self._run_retired:
+                self._auxiliary_start_threads.pop(thread, None)
+
     def start(self):
+        # A delete transaction permanently retires this object before waiting
+        # for its workers.  This fast path handles stale action callbacks; the
+        # serialized recheck below closes the race with retirement itself.
+        if getattr(self, "_run_retired", False):
+            return StartOutcome.TEARDOWN_PENDING
         # A stopped generation may still be unwinding a browser owned by one
         # of its worker threads. Wait outside the lifecycle lock: a worker
         # that reached a status writer just before stop must be able to enter
@@ -959,6 +1038,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
     @_run_lifecycle_serialized
     def _start_serialized(self, _teardown_generation=None):
+        if getattr(self, "_run_retired", False):
+            return StartOutcome.TEARDOWN_PENDING
         if self._state=="running": return
         # A fresh run must not inherit liveness state from worker threads that
         # belonged to the previous run. Guard both maps with the same lock so
@@ -1501,7 +1582,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         with job_status_writer(self) as mark_status_changed:
             changed = False
             for u,j in self.jobs.items():
-                if j["status"] in ("pending","running"):
+                # Corrupt/legacy queue payloads must not make lifecycle
+                # teardown fail open.  The status endpoint already reports
+                # such values defensively; stop them only when a mutable job
+                # record is actually present.
+                if (isinstance(j, dict)
+                        and j.get("status") in ("pending", "running")):
                     j.update({"status":"stopped","message":"Stopped","ts":_ts()})
                     changed = True
             if changed:
@@ -1511,23 +1597,337 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # call browser.close() across threads — Playwright sync is not
         # thread-safe and that crashes hard.
         #
-        # Phase 41.3: close any in-flight manual-download session.
-        # The session class owns its own thread that does the cleanup
-        # safely (since Playwright is thread-bound). cancel() is a no-op
-        # if the session is already closed.
+        # Signal auxiliary browser owners without waiting under the run lock.
+        # ``retire_workers`` performs the bounded joins and identity-checked
+        # clears outside this serialized stop transition.
+        snapshot_stop = getattr(self, "_manual_snapshot_stop", None)
+        if snapshot_stop is not None:
+            try: snapshot_stop.set()
+            except Exception: pass
         dl_session = getattr(self, "_manual_download_session", None)
         if dl_session:
-            try: dl_session.cancel(timeout=5)
+            try: dl_session.cancel(timeout=0)
             except Exception as e: self.log.debug("stop: dl session cancel: %s", e)
-            self._manual_download_session = None
         login_session = getattr(self, "_manual_login_handle", None)
         if login_session and hasattr(login_session, "cancel"):
-            try: login_session.cancel(timeout=5)
+            try: login_session.cancel(timeout=0)
             except Exception as e: self.log.debug("stop: login session cancel: %s", e)
-            self._manual_login_handle = None
+        for captcha_session in tuple(
+                (getattr(self, "_captcha_solve_sessions", None) or {}).values()):
+            handle = captcha_session.get("handle") if isinstance(
+                captcha_session, dict) else None
+            if handle is None:
+                continue
+            try:
+                if captcha_session.get("kind") == "vnc" and hasattr(handle, "stop"):
+                    handle.stop(timeout=0)
+                elif hasattr(handle, "cancel"):
+                    handle.cancel(timeout=0)
+            except Exception as e:
+                self.log.debug("stop: captcha session cancel: %s", e)
         # Phase 30: stop the auto-retry thread cleanly
-        try: self._stop_auto_retry()
-        except Exception as e: self.log.debug("stop: auto-retry stop: %s", e)
+        try:
+            try:
+                parameters = inspect.signature(
+                    self._stop_auto_retry).parameters.values()
+            except (TypeError, ValueError):
+                # Legacy adapters are Python callables in practice. If an
+                # opaque callable cannot expose a signature, prefer the old
+                # no-argument contract rather than risking a second invocation
+                # after an internal TypeError.
+                accepts_timeout = False
+            else:
+                accepts_timeout = any(
+                    (parameter.name == "timeout"
+                     and parameter.kind in (
+                         inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                         inspect.Parameter.KEYWORD_ONLY,
+                     ))
+                    or parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in parameters
+                )
+            if accepts_timeout:
+                self._stop_auto_retry(timeout=0)
+            else:
+                self._stop_auto_retry()
+        except Exception as e:
+            debug = getattr(getattr(self, "log", None), "debug", None)
+            if callable(debug):
+                debug("stop: auto-retry stop: %s", e)
+
+    def retire_workers(self, timeout=5.0):
+        """Permanently stop and prove every runner-owned writer quiescent.
+
+        Besides download workers, the runner owns auto-login, manual browser,
+        snapshot-poller, captcha-takeover, and in-flight launch generations.
+        Every class shares one deadline. A survivor keeps both its handle and
+        the permanently retired runner identity for a fail-closed delete retry.
+        """
+        lifecycle_lock = getattr(self, "_run_lifecycle_lock", None)
+        if lifecycle_lock is None:
+            with _RUN_LIFECYCLE_BOOTSTRAP_LOCK:
+                lifecycle_lock = getattr(self, "_run_lifecycle_lock", None)
+                if lifecycle_lock is None:
+                    lifecycle_lock = threading.RLock()
+                    self._run_lifecycle_lock = lifecycle_lock
+        worker_lock = getattr(self, "_worker_heartbeats_lock", None)
+        if worker_lock is None:
+            worker_lock = threading.Lock()
+            self._worker_heartbeats_lock = worker_lock
+
+        wait_budget = max(0.0, _finite_config_float(timeout, 0.0))
+        deadline = time.monotonic() + wait_budget
+
+        # Publication retirement and stop-generation invalidation are one
+        # lifecycle transaction. Do not hold this lock across cancels/joins:
+        # worker finalizers and guarded launch wrappers need it to settle.
+        with lifecycle_lock:
+            self._run_retired = True
+            self.stop()
+            with worker_lock:
+                captured_workers = tuple(getattr(self, "_worker_threads", ()))
+            captured_auxiliary = tuple(
+                (getattr(self, "_auxiliary_start_threads", None) or {}).keys())
+            captured_login = getattr(self, "_login_thread", None)
+            captured_snapshot = getattr(self, "_manual_snapshot_thread", None)
+            captured_download = getattr(
+                self, "_manual_download_session", None)
+            captured_manual_login = getattr(
+                self, "_manual_login_handle", None)
+            captured_captcha = tuple(
+                (getattr(self, "_captcha_solve_sessions", None) or {}).items())
+
+        snapshot_stop = getattr(self, "_manual_snapshot_stop", None)
+        if snapshot_stop is not None:
+            try:
+                snapshot_stop.set()
+            except Exception:
+                pass
+
+        signal_verdicts = {}
+
+        def remaining():
+            return max(0.0, deadline - time.monotonic())
+
+        def signal_session(handle, *, kind="session"):
+            if handle is None or id(handle) in signal_verdicts:
+                return
+            verdict = False
+            try:
+                if kind == "vnc" and hasattr(handle, "stop"):
+                    result = handle.stop(timeout=remaining())
+                    verdict = result is True
+                elif hasattr(handle, "cancel"):
+                    result = handle.cancel(timeout=remaining())
+                    verdict = result is True
+                elif kind == "manual_login" and isinstance(handle, tuple):
+                    # Legacy pre-thread-owned login handle: synchronous close
+                    # is its complete ownership proof.
+                    from .login import cancel_manual_login
+                    cancel_manual_login(handle)
+                    verdict = True
+            except Exception:
+                verdict = False
+            signal_verdicts[id(handle)] = verdict
+
+        signal_session(captured_download, kind="manual_download")
+        signal_session(captured_manual_login, kind="manual_login")
+        for _url, captcha_session in captured_captcha:
+            if not isinstance(captcha_session, dict):
+                continue
+            signal_session(
+                captcha_session.get("handle"),
+                kind=("vnc" if captcha_session.get("kind") == "vnc"
+                      else "captcha"),
+            )
+
+        def handle_thread(handle):
+            thread = getattr(handle, "_thread", None)
+            return thread if thread is not None else None
+
+        threads = []
+        seen = set()
+        for thread in (
+            *captured_workers,
+            *captured_auxiliary,
+            captured_login,
+            captured_snapshot,
+            handle_thread(captured_download),
+            handle_thread(captured_manual_login),
+            *(handle_thread(session.get("handle"))
+              for _url, session in captured_captcha
+              if isinstance(session, dict)),
+        ):
+            if thread is None or id(thread) in seen:
+                continue
+            seen.add(id(thread))
+            threads.append(thread)
+
+        current = threading.current_thread()
+        for thread in threads:
+            if thread is current:
+                continue
+            try:
+                thread.join(timeout=remaining())
+            except (RuntimeError, AttributeError):
+                pass
+
+        def _is_live(thread):
+            if thread is current:
+                return True
+            try:
+                return bool(thread.is_alive())
+            except Exception:
+                return True
+
+        # A guarded launcher captured above can publish its browser/session
+        # while retirement is joining that launcher. Resnapshot once after the
+        # producer stage settles, then signal and join every newly published
+        # owner within the same original deadline.
+        observed_captcha = list(captured_captcha)
+        with lifecycle_lock:
+            captured_auxiliary = tuple(
+                (getattr(self, "_auxiliary_start_threads", None) or {}).keys())
+            captured_login = getattr(self, "_login_thread", None)
+            captured_snapshot = getattr(self, "_manual_snapshot_thread", None)
+            captured_download = getattr(
+                self, "_manual_download_session", None)
+            captured_manual_login = getattr(
+                self, "_manual_login_handle", None)
+            captured_captcha = tuple(
+                (getattr(self, "_captcha_solve_sessions", None) or {}).items())
+            staged_snapshot_stop = getattr(
+                self, "_manual_snapshot_stop", None)
+
+        if staged_snapshot_stop is not None:
+            try:
+                staged_snapshot_stop.set()
+            except Exception:
+                pass
+        signal_session(captured_download, kind="manual_download")
+        signal_session(captured_manual_login, kind="manual_login")
+        observed_ids = {id(session) for _url, session in observed_captcha}
+        for url, captcha_session in captured_captcha:
+            if id(captcha_session) not in observed_ids:
+                observed_captcha.append((url, captcha_session))
+                observed_ids.add(id(captcha_session))
+            if not isinstance(captcha_session, dict):
+                continue
+            signal_session(
+                captcha_session.get("handle"),
+                kind=("vnc" if captcha_session.get("kind") == "vnc"
+                      else "captcha"),
+            )
+
+        staged_threads = (
+            *captured_auxiliary,
+            captured_login,
+            captured_snapshot,
+            handle_thread(captured_download),
+            handle_thread(captured_manual_login),
+            *(handle_thread(session.get("handle"))
+              for _url, session in captured_captcha
+              if isinstance(session, dict)),
+        )
+        for thread in staged_threads:
+            if thread is None or id(thread) in seen:
+                continue
+            seen.add(id(thread))
+            threads.append(thread)
+            if thread is current:
+                continue
+            try:
+                thread.join(timeout=remaining())
+            except (RuntimeError, AttributeError):
+                pass
+
+        def _handle_quiescent(handle):
+            if handle is None:
+                return True
+            thread = handle_thread(handle)
+            if thread is not None:
+                return not _is_live(thread)
+            closed = getattr(handle, "_closed", None)
+            if closed is not None and hasattr(closed, "is_set"):
+                try:
+                    return bool(closed.is_set())
+                except Exception:
+                    return False
+            return signal_verdicts.get(id(handle), False) is True
+
+        # Once a VNC owner is proven dead, reap its module registry/channel.
+        # A survivor is deliberately left published in both registries.
+        for _url, captcha_session in observed_captcha:
+            if (not isinstance(captcha_session, dict)
+                    or captcha_session.get("kind") != "vnc"):
+                continue
+            handle = captcha_session.get("handle")
+            if not _handle_quiescent(handle):
+                continue
+            try:
+                from . import takeover_vnc as _takeover_vnc
+                _takeover_vnc.teardown(captcha_session.get("session_id"))
+            except Exception:
+                # The browser is already proven dead; registry cleanup is
+                # idempotent and can be retried without permitting a writer.
+                pass
+
+        all_quiescent = not any(_is_live(thread) for thread in threads)
+        with lifecycle_lock:
+            # An in-flight guarded launch may have published its session after
+            # the first capture. Retired publication gates prevent new starts,
+            # so a changed/current live identity is a survivor for this pass.
+            with worker_lock:
+                owned = tuple(getattr(self, "_worker_threads", ()))
+                if any(_is_live(worker) for worker in owned):
+                    all_quiescent = False
+                elif tuple(getattr(self, "_worker_threads", ())) == owned:
+                    self._worker_threads = []
+
+            starts = getattr(self, "_auxiliary_start_threads", None) or {}
+            for thread in tuple(starts):
+                if _is_live(thread):
+                    all_quiescent = False
+                else:
+                    starts.pop(thread, None)
+
+            current_login = getattr(self, "_login_thread", None)
+            if current_login is not None:
+                if _is_live(current_login):
+                    all_quiescent = False
+                elif current_login is captured_login:
+                    self._login_thread = None
+
+            current_snapshot = getattr(self, "_manual_snapshot_thread", None)
+            if current_snapshot is not None:
+                if _is_live(current_snapshot):
+                    all_quiescent = False
+                elif current_snapshot is captured_snapshot:
+                    self._manual_snapshot_thread = None
+
+            current_download = getattr(self, "_manual_download_session", None)
+            if current_download is not None:
+                if not _handle_quiescent(current_download):
+                    all_quiescent = False
+                elif current_download is captured_download:
+                    self._manual_download_session = None
+
+            current_manual_login = getattr(self, "_manual_login_handle", None)
+            if current_manual_login is not None:
+                if not _handle_quiescent(current_manual_login):
+                    all_quiescent = False
+                elif current_manual_login is captured_manual_login:
+                    self._manual_login_handle = None
+
+            captcha_sessions = getattr(self, "_captcha_solve_sessions", None) or {}
+            captured_captcha_map = dict(captured_captcha)
+            for url, session in tuple(captcha_sessions.items()):
+                handle = session.get("handle") if isinstance(session, dict) else None
+                if not _handle_quiescent(handle):
+                    all_quiescent = False
+                elif captured_captcha_map.get(url) is session:
+                    captcha_sessions.pop(url, None)
+        return all_quiescent
 
 
 

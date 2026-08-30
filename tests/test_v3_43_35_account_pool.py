@@ -17,6 +17,7 @@ Coverage:
 """
 from __future__ import annotations
 
+import ast
 import threading
 import time
 from pathlib import Path
@@ -46,6 +47,21 @@ def _APP_SRC():
     _parts = [(_pkg / 'app.py').read_text(encoding='utf-8')]
     _parts += [p.read_text(encoding='utf-8') for p in sorted(_pkg.glob('app_*.py'))]
     return '\n'.join(_parts)
+
+
+def _APP_FUNCTION_SRC(name):
+    """Return one exact top-level app/app_* function from parsed source."""
+    paths = [_APP_PY] + sorted(_APP_PY.parent.glob("app_*.py"))
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for node in tree.body:
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == name):
+                segment = ast.get_source_segment(source, node)
+                assert segment, f"could not isolate {name} in {path}"
+                return segment
+    raise AssertionError(f"app function not found: {name}")
 
 
 def test_account_pool_module_importable():
@@ -522,11 +538,14 @@ def test_app_reconfigures_on_site_save():
 
 
 def test_app_removes_pool_on_delete():
-    src = _APP_SRC()
-    pos = src.find("def api_delete")
-    assert pos > 0
-    body = src[pos:pos + 3000]
-    assert "remove_pool" in body
+    body = _APP_FUNCTION_SRC("_api_delete_transaction")
+    function = ast.parse(body).body[0]
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "remove_pool"
+        for node in ast.walk(function)
+    )
 
 
 # ── UI ───────────────────────────────────────────────────────────────

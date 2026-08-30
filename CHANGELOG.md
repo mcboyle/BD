@@ -4,6 +4,127 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1358 - defer configured site runtime until explicit boot
+
+- Row 409: importing the Flask app no longer restores configured sites or
+  starts their runner, VPN, session-keeper, watch-folder, or folder-watcher
+  runtime before pytest and other callers establish their isolation.
+- The first explicit boot still restores the complete configured-site runtime
+  exactly once. Forced schema boots and boots for another database do not
+  duplicate runners or background threads.
+- A process cannot silently relabel live runners as belonging to a different
+  sites-config path; that change now requires a restart and fails loudly.
+- Partial restoration is transactional: every configured-site owner is
+  boundedly retired, surviving teardown handles remain reachable, published
+  state is rolled back only after quiescence is proved, and a failed watcher
+  start cannot publish a false completed boot.
+- A fixed, process-wide set of per-site lifecycle stripes now serializes site
+  mutation with deletion without growing from attacker-chosen IDs. The sites
+  routes, legacy non-sites routes, bulk actions, URL routing, cookie-health
+  publisher, watcher startup, and configuration import all revalidate the live
+  site generation while holding the same ownership boundary.
+- Site deletion is fail-closed for watch, session-keeper, scheduler,
+  auto-retry, and runner worker generations. A survivor is republished with
+  its stop/join handle, while config, metadata, account-pool, queue, and auth
+  state are removed only after every writer is proven quiescent. Watch-only
+  partial-restore identities are also recognized and can be reaped safely.
+- Watch-folder and session-keeper workers reserve one generation before
+  `Thread.start()`, roll it back on start failure, conditionally deregister on
+  target exit, and carry permanent process-retirement admission fences.
+- Runner scheduler, auto-retry, worker, manual-login, authentication, captcha,
+  and queue entry points reject retired generations. Their joins are bounded,
+  identity-aware, retryable, and retain every survivor rather than losing the
+  only teardown handle. A rejected async login still resolves its completion
+  callback immediately with failure, and a failed manual-login poller launch
+  cancels and clears only its own browser/thread/event generation so retry is
+  not blocked by a phantom handle.
+- `POST /api/config/import` is now an all-site transaction. It parses before
+  locking, stages new runners off-registry, retires every old owner before a
+  replace deletes any persistent state, rolls back failed constructors and
+  updates, requires an affirmative atomic-save verdict, synchronizes account
+  pools, and retry-heals keeper/watcher dependency startup. Partial teardown is
+  reported truthfully rather than acknowledged as a complete rollback.
+- Sites-config writes now serialize auto-fill, snapshot, JSON encoding, temp
+  write, and atomic replace under one global lock and return an explicit
+  success verdict, preventing an older concurrent snapshot from resurrecting
+  a deleted site.
+- URL routing scores detached config projections and revalidates both the
+  config identity and projected routing fields before loading the current
+  runner. Same-key delete/recreate and in-place PUT races therefore cannot
+  send URLs to an obsolete generation.
+- Cookie-health sweeps snapshot the population, then lock and revalidate each
+  config identity before checking or publishing, preventing a background
+  sweep from resurrecting a deleted site's health state or failing on a
+  concurrently resized dictionary.
+- VPN configuration, backend, tunnel, leak-test, and kill-switch owners now
+  use generation reservations and measurement tokens. Reset/disable retires
+  monitors and callbacks, stale measurements cannot publish into a replacement
+  generation, and partially started kill-switch state remains retryable.
+- The process-restart test boundary now retires configured runners, watchers,
+  keepers, account pools, scheduler/auth/manual generations, and VPN mappings,
+  monitors, and kill callbacks before reopening clean admission for the next
+  test process generation.
+- Runner stop remains compatible with legacy no-argument auto-retry teardown
+  adapters while keeping the real owner non-blocking, and malformed legacy job
+  values can no longer abort retirement. Release fixtures now prove their
+  threadless retirement explicitly, new test modules declare their gate scope,
+  and the rejected-write persistence gate binds its intended file generation.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE EDGES ARE NAMED HERE rather
+  than absorbed silently:
+    bulk_downloader/app_config.py -> bulk_downloader/account_pool.py
+    bulk_downloader/app_config.py -> bulk_downloader/app_sites_id_core.py
+    bulk_downloader/app_config.py -> bulk_downloader/app_state.py
+    bulk_downloader/app_config.py -> bulk_downloader/session_keeper.py
+    bulk_downloader/app_sites.py -> bulk_downloader/app_state.py
+    bulk_downloader/app_sites_id_core.py -> bulk_downloader/app_state.py
+    bulk_downloader/cookie_health.py -> bulk_downloader/app_state.py
+    bulk_downloader/runner.py -> bulk_downloader/takeover_vnc.py
+    tests/test_bug1_idle_site_delete.py -> bulk_downloader/account_pool.py
+    tests/test_bug1_idle_site_delete.py -> bulk_downloader/cookie_health.py
+    tests/test_bug1_idle_site_delete.py -> bulk_downloader/db.py
+    tests/test_bug1_idle_site_delete.py -> bulk_downloader/session_keeper.py
+    tests/test_config_import_lifecycle.py -> bulk_downloader/account_pool.py
+    tests/test_config_import_lifecycle.py -> bulk_downloader/app_config.py
+    tests/test_config_import_lifecycle.py -> bulk_downloader/app_sites_id_core.py
+    tests/test_config_import_lifecycle.py -> bulk_downloader/app_state.py
+    tests/test_config_import_lifecycle.py -> bulk_downloader/cookie_health.py
+    tests/test_config_import_lifecycle.py -> bulk_downloader/db.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/account_pool.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/app.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/app_sites_id_core.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/app_state.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/audit.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/cookie_health.py
+    tests/test_route_urls_generation_fence.py -> bulk_downloader/db.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/account_pool.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/app.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/app_sites_id_core.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/app_state.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/captcha_relay.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/content_rights.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/cookie_health.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/db.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/runner.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/runner_queue.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/runner_scheduler.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/session_keeper.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/takeover_vnc.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/vpn_runtime.py
+    tests/test_runner_scheduler_delete_fence.py -> bulk_downloader/watch_folder.py
+    tests/test_session_keeper.py -> bulk_downloader/app_sites_id_core.py
+    tests/test_session_keeper.py -> bulk_downloader/app_state.py
+    tests/test_session_keeper.py -> bulk_downloader/audit.py
+    tests/test_session_keeper.py -> bulk_downloader/cookie_health.py
+  Three obsolete direct test edges were deliberately removed because the idle
+  delete gate now reaches canonical collaborators instead of importing their
+  former owners directly:
+    tests/test_bug1_idle_site_delete.py -/-> bulk_downloader/app.py
+    tests/test_bug1_idle_site_delete.py -/-> bulk_downloader/app_sites_id_core.py
+    tests/test_bug1_idle_site_delete.py -/-> bulk_downloader/app_state.py
+  These production edges are the shared lifecycle ownership introduced by this
+  cut; the test edges are the deterministic race, rollback, and teardown gates
+  that exercise those owners directly.
+
 ## v3.66.1357 - deploy distinguishes restart-locked credentials from a missing SPA
 
 - Row 408: a structured `credential_vault_locked` health response from the

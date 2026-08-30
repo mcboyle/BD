@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -59,6 +60,11 @@ class TestBdctlJson:
         import tempfile
         tmp = tempfile.mkdtemp()
         os.environ["BD_HOME"] = tmp
+        # The class-level server outlives each function fixture's cwd.  Pin the
+        # configured runtime to its own absolute install path before importing
+        # app so later tests cannot make the live server appear to switch from
+        # one relative sites_config.json identity to another.
+        os.environ["BD_INSTALL_DIR"] = tmp
         os.chdir(tmp)
         saved_modules = {k: v for k, v in sys.modules.items()
                          if k.startswith("bulk_downloader")}
@@ -66,6 +72,11 @@ class TestBdctlJson:
             if mod.startswith("bulk_downloader"):
                 del sys.modules[mod]
         import bulk_downloader.app as a
+        # This server intentionally survives function-scoped fixtures that
+        # replace the process environment.  Make its config identity an
+        # explicit module binding rather than an auto-resolved environment
+        # candidate, exactly as a long-lived embedding caller must do.
+        a.SITES_FILE = Path(tmp) / "sites_config.json"
         from werkzeug.serving import make_server
         # v3.66.7: kernel-picks-port atomically at bind. Removes the
         # bind→close→re-bind TOCTOU window the old _free_port-style

@@ -44,133 +44,149 @@ Tags:
 Schema version: 2
 
 
-## `bulk_downloader/app.py` (120 entries)
+## `bulk_downloader/app.py` (136 entries)
 
 ```
-- L0057 `_dom_analyzer_capture_store_root` `[private]` — Resolved capture store root (Cut 1.3) for the startup selftest disk check,
-- L0114 `boot_once` — Run the one-time startup DB work. Returns True iff this call did it.
-- L0303 `_bd_boot_before_request` `[private]` — Boot the DB on the first request rather than at import (item 11).
-- L0362 `_json_error` `[private]`
-- L0367 `_on_attribute_error` `[private]`
-- L0386 `_on_bad_request` `[private]`
-- L0395 `_on_not_found` `[private]`
-- L0401 `_on_method_not_allowed` `[private]`
-- L0411 `_on_request_too_large` `[private]`
-- L0420 `_on_internal_error` `[private]`
-- L0434 `_on_request_budget_exceeded` `[private]`
-- L0466 `_expected_token` `[private]`
-- L0486 `_bd_token_secondary` `[private]` — v3.66.317: optional SECOND accepted server-side token (BD_TOKEN promoted
-- L0499 `_accepted_tokens` `[private]` — All server-side tokens that authenticate an /api/ request: the primary
-- L0511 `app_test_mode` — v3.66.317: advisory TEST-MODE indicator (BD_TEST_MODE promoted full).
-- L0569 `_token_eq` `[private]` — AF1 (v3.66.41): constant-time comparison for auth secrets. Plain
-- L0581 `_check_token` `[private]`
-- L0773 `_session_valid` `[private]` — True iff the session exists and hasn't expired (idle TTL).
-- L0785 `_session_touch` `[private]` — Slide the idle TTL by updating last_used.
-- L0792 `_session_create` `[private]` — Mint a new session. source is for diagnostics — "pair_redeem",
-- L0802 `_csrf_token_for` `[private]` — Derive a CSRF token from the session token. Deterministic per
-- L0847 `csrf_fires_for` — Route-level answer to: would `_check_csrf` 403 a cookie-session browser
-- L0867 `_check_csrf` `[private]` — For state-changing requests (POST/PUT/PATCH/DELETE) under /api/,
-- L0965 `_add_security_headers` `[private]` — Audit 2026-05 / Phase 2C: defense-in-depth response headers.
-- L1019 `_dev_metrics_start` `[private]`
-- L1027 `_dev_metrics_record` `[private]`
-- L1110 `_bootstrap_session` `[private]` — If the request is for the HTML shell (GET /) and there's no
-- L1172 `serve_mobile_view` `GET /m/; GET /m`
-- L1189 `serve_mobile_ops_view` `GET /m/ops/; GET /m/ops`
-- L1220 `_m2_503_node_missing` `[private]` — Uniform 503 response when frontend/dist/ is missing.
-- L1275 `_m2_opt_state` `[private]` — Return one of 'v2', 'v1', or 'default' based on query + cookie.
-- L1291 `_m2_apply_opt_cookie` `[private]` — If the request had `?ui=v2` or `?ui=v1`, persist that as the
-- L1310 `serve_m2_spa` `GET /m2/; GET /m2; GET /m2/<path:subpath>` — Phase 1 root flip (v3.66.203): the D3 SPA moved from /m2 to `/`
-- L1357 `_resolve_sites_file` `[private]` — Where the site config lives.
-- L1397 `_save_sites_config` `[private]` — Write current sites to disk. Called on every add/update/delete.
-- L1474 `_build_meta` `[private]` — Return a copy of cfg with secrets stripped — top-level password
-- L1513 `_load_sites_config` `[private]` — Read sites from disk on startup and instantiate SiteRunners.
-- L1667 `_start_session_keepers` `[private]`
-- L1738 `_heartbeat_to_disk_loop` `[private]`
-- L1778 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
-- L1812 `_start_window_scheduler` `[private]`
-- L1881 `_start_storage_tier_scheduler` `[private]`
-- L1900 `_load_app_config` `[private]`
-- L1993 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
-- L2055 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
-- L2137 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
-- L2170 `_saved_search_enqueue_handler` `[private]`
-- L2185 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
-- L2277 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
-- L2347 `_start_watcher` `[private]` — Idempotent start. Called at module import + whenever app_config
-- L2404 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
-- L2422 `_405_with_allow` `[private]`
-- L2430 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
-- L2463 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
-- L2546 `pwa_manifest` `GET /manifest.json`
-- L2562 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
-- L2675 `pwa_sw` `GET /sw.js`
-- L2695 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
-- L2707 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
-- L2733 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
-- L2742 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
-- L2767 `_chk` `[private]`
-- L2888 `_request_is_same_origin` `[private]` — True when the request's Referer host:port matches its Host -- i.e. it
-- L2911 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
-- L2942 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
-- L3423 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
-- L3458 `_bd_cookie_dir` `[private]`
-- L3465 `_site_primary_url` `[private]` — Resolve a site's primary URL from the usual config fields (mirrors
-- L3521 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
-- L3607 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
-- L3724 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
-- L3737 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
-- L3755 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L3803 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L3853 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L3872 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L3899 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L3990 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L4006 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L4048 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L4107 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L4139 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L4269 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L4314 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L4349 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L4374 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L4408 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L4428 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L4510 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L4539 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L4567 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L4617 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L4814 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L4850 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L5011 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L5075 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L5215 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L5232 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L5424 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L5437 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L5464 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L5484 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L5524 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L5592 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L5734 `serve_ss` `GET /screenshots/<path:filename>`
-- L7023 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7030 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7041 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7056 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7120 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7149 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7157 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7174 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7186 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7209 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7225 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7241 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7258 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7311 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7432 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L0032 `_selftest_sites_inputs` `[private]` — Read self-test inputs from the exact config identity boot will load.
+- L0058 `_dom_analyzer_capture_store_root` `[private]` — Resolved capture store root (Cut 1.3) for the startup selftest disk check,
+- L0125 `boot_once` — Run the one-time startup DB work. Returns True iff this call did it.
+- L0339 `_bd_boot_before_request` `[private]` — Boot the DB on the first request rather than at import (item 11).
+- L0406 `_enter_non_sites_site_lifecycle_transaction` `[private]` — Serialize mutating non-sites routes with deletion of a live site.
+- L0439 `_leave_non_sites_site_lifecycle_transaction` `[private]`
+- L0454 `_json_error` `[private]`
+- L0459 `_on_attribute_error` `[private]`
+- L0478 `_on_bad_request` `[private]`
+- L0487 `_on_not_found` `[private]`
+- L0493 `_on_method_not_allowed` `[private]`
+- L0503 `_on_request_too_large` `[private]`
+- L0512 `_on_internal_error` `[private]`
+- L0526 `_on_request_budget_exceeded` `[private]`
+- L0558 `_expected_token` `[private]`
+- L0578 `_bd_token_secondary` `[private]` — v3.66.317: optional SECOND accepted server-side token (BD_TOKEN promoted
+- L0591 `_accepted_tokens` `[private]` — All server-side tokens that authenticate an /api/ request: the primary
+- L0603 `app_test_mode` — v3.66.317: advisory TEST-MODE indicator (BD_TEST_MODE promoted full).
+- L0661 `_token_eq` `[private]` — AF1 (v3.66.41): constant-time comparison for auth secrets. Plain
+- L0673 `_check_token` `[private]`
+- L0865 `_session_valid` `[private]` — True iff the session exists and hasn't expired (idle TTL).
+- L0877 `_session_touch` `[private]` — Slide the idle TTL by updating last_used.
+- L0884 `_session_create` `[private]` — Mint a new session. source is for diagnostics — "pair_redeem",
+- L0894 `_csrf_token_for` `[private]` — Derive a CSRF token from the session token. Deterministic per
+- L0939 `csrf_fires_for` — Route-level answer to: would `_check_csrf` 403 a cookie-session browser
+- L0959 `_check_csrf` `[private]` — For state-changing requests (POST/PUT/PATCH/DELETE) under /api/,
+- L1057 `_add_security_headers` `[private]` — Audit 2026-05 / Phase 2C: defense-in-depth response headers.
+- L1111 `_dev_metrics_start` `[private]`
+- L1119 `_dev_metrics_record` `[private]`
+- L1202 `_bootstrap_session` `[private]` — If the request is for the HTML shell (GET /) and there's no
+- L1264 `serve_mobile_view` `GET /m/; GET /m`
+- L1281 `serve_mobile_ops_view` `GET /m/ops/; GET /m/ops`
+- L1312 `_m2_503_node_missing` `[private]` — Uniform 503 response when frontend/dist/ is missing.
+- L1367 `_m2_opt_state` `[private]` — Return one of 'v2', 'v1', or 'default' based on query + cookie.
+- L1383 `_m2_apply_opt_cookie` `[private]` — If the request had `?ui=v2` or `?ui=v1`, persist that as the
+- L1402 `serve_m2_spa` `GET /m2/; GET /m2; GET /m2/<path:subpath>` — Phase 1 root flip (v3.66.203): the D3 SPA moved from /m2 to `/`
+- L1449 `_resolve_sites_file` `[private]` — Where the site config lives.
+- L1499 `_sites_file_for_boot` `[private]` — Resolve a candidate without corrupting a bound runtime on rejection.
+- L1506 `_publish_sites_file_for_runtime` `[private]` — Publish an accepted auto-owned candidate; preserve explicit patches.
+- L1513 `_save_sites_config` `[private]` — Write current sites to disk. Called on every add/update/delete.
+- L1600 `_build_meta` `[private]` — Return a copy of cfg with secrets stripped — top-level password
+- L1639 `_load_sites_config` `[private]` — Read sites from disk on startup and instantiate SiteRunners.
+- L1753 `_init_vpn_runtime` `[private]` — Initialize VPN mappings after configured sites have been restored.
+- L1794 `_start_session_keepers` `[private]`
+- L1872 `_heartbeat_to_disk_loop` `[private]`
+- L1912 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
+- L1997 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
+- L2006 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
+- L2019 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
+- L2045 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
+- L2109 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
+- L2140 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
+- L2154 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
+- L2171 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
+- L2253 `_start_window_scheduler` `[private]`
+- L2322 `_start_storage_tier_scheduler` `[private]`
+- L2341 `_load_app_config` `[private]`
+- L2434 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
+- L2496 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
+- L2582 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
+- L2593 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
+- L2656 `_saved_search_enqueue_handler` `[private]`
+- L2671 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
+- L2763 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
+- L2834 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
+- L2876 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
+- L2948 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
+- L2966 `_405_with_allow` `[private]`
+- L2974 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
+- L3007 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
+- L3090 `pwa_manifest` `GET /manifest.json`
+- L3106 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
+- L3219 `pwa_sw` `GET /sw.js`
+- L3239 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
+- L3251 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
+- L3277 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
+- L3286 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
+- L3311 `_chk` `[private]`
+- L3432 `_request_is_same_origin` `[private]` — True when the request's Referer host:port matches its Host -- i.e. it
+- L3455 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
+- L3486 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
+- L3967 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
+- L4002 `_bd_cookie_dir` `[private]`
+- L4009 `_site_primary_url` `[private]` — Resolve a site's primary URL from the usual config fields (mirrors
+- L4065 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
+- L4151 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
+- L4268 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
+- L4281 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
+- L4299 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
+- L4347 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L4397 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L4416 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L4443 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L4534 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L4550 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L4592 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L4651 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L4683 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L4813 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L4858 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L4893 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L4918 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L4952 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L4972 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5054 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5083 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5111 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5161 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L5358 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L5394 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L5555 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L5619 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L5759 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L5776 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L5968 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L5981 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6008 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6028 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6068 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6136 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6278 `serve_ss` `GET /screenshots/<path:filename>`
+- L7567 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7574 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7585 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7600 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7664 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7693 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7701 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7718 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7730 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7753 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7769 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7785 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7802 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7855 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7976 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
-## `bulk_downloader/runner.py` (51 entries)
+## `bulk_downloader/runner.py` (57 entries)
 
 ```
 - L0224 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
@@ -183,47 +199,53 @@ Schema version: 2
 - L0506 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
 - L0524 `SiteRunner` `[class]`
   - L0529 `SiteRunner.__init__` `[dunder]`
-  - L0749 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L0841 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L0849 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L0862 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L0871 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L0909 `SiteRunner.start`
-  - L0961 `SiteRunner._start_serialized` `[private]`
-  - L1284 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1294 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1355 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L1433 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L1452 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L1478 `SiteRunner.stop`
-  - L1581 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L1605 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L1707 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L1724 `SiteRunner.state`
-  - L1726 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L1762 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L1769 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L1776 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L1842 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L1873 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L1888 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L2405 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L2434 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L2485 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L2543 `SiteRunner._worker_generation_is_current` `[private]`
-  - L2547 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L2608 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L2668 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L2700 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L2731 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L2751 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L2760 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L2785 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L2806 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L2888 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L3230 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L3245 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L3266 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L0765 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L0857 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L0865 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L0878 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L0887 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L0925 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
+  - L0935 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
+  - L0950 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
+  - L0964 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
+  - L0978 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
+  - L0983 `SiteRunner.start`
+  - L1040 `SiteRunner._start_serialized` `[private]`
+  - L1365 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1375 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L1436 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L1514 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L1533 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L1559 `SiteRunner.stop`
+  - L1658 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
+  - L1981 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L2005 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L2107 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L2124 `SiteRunner.state`
+  - L2126 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L2162 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L2169 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L2176 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L2242 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L2273 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L2288 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L2805 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L2834 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L2885 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L2943 `SiteRunner._worker_generation_is_current` `[private]`
+  - L2947 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L3008 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L3068 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L3100 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L3131 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L3151 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L3160 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L3185 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L3206 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L3288 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L3630 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L3645 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L3666 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -269,28 +291,29 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_manual.py` (19 entries)
+## `bulk_downloader/runner_manual.py` (20 entries)
 
 ```
 - L0032 `_fire_capture_lifecycle` `[private]` — v3.66.468 WS3: fire a GATED capture-path lifecycle event.
-- L0049 `_ManualDownloadSession` `[private]` — Owns a Playwright session for the duration of a manual download
-  - L0054 `_ManualDownloadSession.__init__` `[dunder]`
-  - L0071 `_ManualDownloadSession.ready`
-  - L0075 `_ManualDownloadSession.error`
-  - L0078 `_ManualDownloadSession._launch` `[private]` — Open browser+context+page. Only called from the worker thread.
-  - L0144 `_ManualDownloadSession._run` `[private]` — Owner thread for the manual download Playwright session.
-  - L0466 `_ManualDownloadSession._send` `[private]` — Dispatch a command and wait for the response. Returns the
-  - L0483 `_ManualDownloadSession.finalize` — Harvest recordings + cookies, close session. Returns
-  - L0493 `_ManualDownloadSession.verify` — Test the user's picked selectors against the live DOM.
-  - L0501 `_ManualDownloadSession.test_download` — v3.43.0: dry-run a real fetch of the URL the picks would
-  - L0512 `_ManualDownloadSession.commit` — Snapshot cookies and close the session for a Teach Mode commit.
-  - L0521 `_ManualDownloadSession.cancel` — Close the session without harvesting anything.
-  - L0527 `_ManualDownloadSession.snapshot_cookies` — Read cookies without closing the session.
-- L0534 `ManualMixin` `[class]`
-  - L0535 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
-  - L0573 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
-  - L0655 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
-  - L0681 `ManualMixin.is_awaiting_manual_download`
+- L0049 `_manual_start_guard` `[private]` — Fence a possibly-blocking manual launch against runner retirement.
+- L0066 `_ManualDownloadSession` `[private]` — Owns a Playwright session for the duration of a manual download
+  - L0071 `_ManualDownloadSession.__init__` `[dunder]`
+  - L0088 `_ManualDownloadSession.ready`
+  - L0092 `_ManualDownloadSession.error`
+  - L0095 `_ManualDownloadSession._launch` `[private]` — Open browser+context+page. Only called from the worker thread.
+  - L0161 `_ManualDownloadSession._run` `[private]` — Owner thread for the manual download Playwright session.
+  - L0483 `_ManualDownloadSession._send` `[private]` — Dispatch a command and wait for the response. Returns the
+  - L0500 `_ManualDownloadSession.finalize` — Harvest recordings + cookies, close session. Returns
+  - L0510 `_ManualDownloadSession.verify` — Test the user's picked selectors against the live DOM.
+  - L0518 `_ManualDownloadSession.test_download` — v3.43.0: dry-run a real fetch of the URL the picks would
+  - L0529 `_ManualDownloadSession.commit` — Snapshot cookies and close the session for a Teach Mode commit.
+  - L0538 `_ManualDownloadSession.cancel` — Signal closure and prove it within one shared timeout.
+  - L0547 `_ManualDownloadSession.snapshot_cookies` — Read cookies without closing the session.
+- L0554 `ManualMixin` `[class]`
+  - L0556 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
+  - L0594 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
+  - L0676 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
+  - L0702 `ManualMixin.is_awaiting_manual_download`
 ```
 
 
@@ -371,25 +394,31 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_scheduler.py` (16 entries)
+## `bulk_downloader/runner_scheduler.py` (22 entries)
 
 ```
-- L0015 `SchedulerMixin` `[class]`
-  - L0016 `SchedulerMixin._start_auto_retry` `[private]` — Spin up the auto-retry scanner thread if not already running.
-  - L0025 `SchedulerMixin._stop_auto_retry` `[private]` — Signal the auto-retry thread to exit and wait up to 2s for it.
-  - L0033 `SchedulerMixin._parse_retry_schedule` `[private]` — Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
-  - L0050 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
-  - L0078 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
-  - L0149 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
-  - L0282 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
-  - L0307 `SchedulerMixin._load_rl` `[private]`
-  - L0319 `SchedulerMixin._save_rl` `[private]`
-  - L0334 `SchedulerMixin._clear_rl` `[private]`
-  - L0338 `SchedulerMixin._next_sched_dt` `[private]`
-  - L0348 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
-  - L0358 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
-  - L0369 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait up to 12s for it.
-  - L0381 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
+- L0019 `_scheduler_lifecycle_lock` `[private]` — Return the per-runner lock, including legacy unbound-mixin users.
+- L0031 `_auto_retry_lifecycle_lock` `[private]` — Return the per-runner auto-retry generation lock.
+- L0043 `SchedulerMixin` `[class]`
+  - L0044 `SchedulerMixin._start_auto_retry` `[private]` — Spin up the auto-retry scanner thread if not already running.
+  - L0071 `SchedulerMixin._stop_auto_retry_locked` `[private]` — Stop the captured auto-retry generation with its lock held.
+  - L0088 `SchedulerMixin._stop_auto_retry` `[private]` — Boundedly stop the scanner and return a quiescence verdict.
+  - L0093 `SchedulerMixin.retire_auto_retry` — Permanently stop the scanner before deleting its site.
+  - L0098 `SchedulerMixin._parse_retry_schedule` `[private]` — Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
+  - L0115 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
+  - L0143 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
+  - L0214 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
+  - L0347 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
+  - L0372 `SchedulerMixin._load_rl` `[private]`
+  - L0384 `SchedulerMixin._save_rl` `[private]`
+  - L0399 `SchedulerMixin._clear_rl` `[private]`
+  - L0403 `SchedulerMixin._next_sched_dt` `[private]`
+  - L0413 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
+  - L0423 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
+  - L0463 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
+  - L0483 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
+  - L0495 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
+  - L0505 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
 ```
 
 
@@ -421,22 +450,22 @@ Schema version: 2
   - L0072 `QueueMixin._job_status_writer` `[private]`
   - L0075 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
   - L0129 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0400 `QueueMixin.reorder_urls`
-  - L0412 `QueueMixin.set_priority`
-  - L0422 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0440 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0471 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0499 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0524 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0545 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0567 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0591 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0637 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0651 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0667 `QueueMixin.retry`
-  - L0669 `QueueMixin.clear`
-  - L0671 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0677 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0406 `QueueMixin.reorder_urls`
+  - L0418 `QueueMixin.set_priority`
+  - L0428 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0446 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0477 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0505 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0530 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0551 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0573 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0597 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0643 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0657 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0673 `QueueMixin.retry`
+  - L0675 `QueueMixin.clear`
+  - L0677 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0683 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
 ```
 
 
@@ -465,36 +494,38 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (27 entries)
+## `bulk_downloader/runner_auth.py` (29 entries)
 
 ```
 - L0016 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0039 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
-- L0050 `_truthy` `[private]`
-- L0060 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0066 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0076 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0091 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
-- L0100 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
-- L0115 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
-- L0147 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
-- L0166 `AuthMixin` `[class]`
-  - L0167 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0345 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0379 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0449 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0475 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0583 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0627 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L0832 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L0882 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L0887 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L0902 `AuthMixin.is_awaiting_manual_login`
-  - L0904 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L0926 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1005 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1013 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1078 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0039 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
+- L0060 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
+- L0071 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0082 `_truthy` `[private]`
+- L0092 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0098 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0108 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0123 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0132 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0147 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0179 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0198 `AuthMixin` `[class]`
+  - L0200 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0387 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0434 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0529 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0557 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0666 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0710 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L0915 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L0965 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L0970 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L0985 `AuthMixin.is_awaiting_manual_login`
+  - L0987 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1009 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1088 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1096 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1161 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -673,22 +704,22 @@ Schema version: 2
 ## `bulk_downloader/login_impl/manual.py` (16 entries)
 
 ```
-- L0082 `_manual_launch_kwargs` `[private]` — MOD-1 A-4: build the launch kwargs (args + headless + optional channel)
-- L0101 `_dispatch_cdp_input` `[private]` — Translate one allowlisted takeover input event (already validated by the
-- L0118 `_drain_and_dispatch_input` `[private]` — Pump: drain queued operator input for `sid` and dispatch each to the CDP
-- L0135 `ManualLoginSession` `[class]` — Phase 19.fix: dedicated-thread owner of a Playwright session.
-  - L0156 `ManualLoginSession.__init__` `[dunder]`
-  - L0182 `ManualLoginSession.ready`
-  - L0186 `ManualLoginSession.error`
-  - L0189 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0431 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0566 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0585 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0602 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0630 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0644 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0669 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0698 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+- L0083 `_manual_launch_kwargs` `[private]` — MOD-1 A-4: build the launch kwargs (args + headless + optional channel)
+- L0102 `_dispatch_cdp_input` `[private]` — Translate one allowlisted takeover input event (already validated by the
+- L0119 `_drain_and_dispatch_input` `[private]` — Pump: drain queued operator input for `sid` and dispatch each to the CDP
+- L0136 `ManualLoginSession` `[class]` — Phase 19.fix: dedicated-thread owner of a Playwright session.
+  - L0157 `ManualLoginSession.__init__` `[dunder]`
+  - L0183 `ManualLoginSession.ready`
+  - L0187 `ManualLoginSession.error`
+  - L0190 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
+  - L0432 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0567 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0586 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0603 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0631 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0648 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0673 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0702 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 
@@ -748,4 +779,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 572 across 22 files._
+_Total entries: 603 across 22 files._

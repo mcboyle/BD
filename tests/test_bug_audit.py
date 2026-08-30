@@ -220,3 +220,61 @@ def test_f4_save_survives_concurrent_mutation():
             _os.environ.pop("BD_HOME", None)
         else:
             _os.environ["BD_HOME"] = _orig_home
+
+
+def test_sites_config_saves_serialize_snapshot_through_atomic_replace(
+        monkeypatch, tmp_path):
+    """A later delete/save must overwrite an earlier blocked stale snapshot."""
+    import json as _json
+    import threading as _threading
+    import bulk_downloader.app as _app
+
+    serialization_entered = _threading.Event()
+    release_first_save = _threading.Event()
+    second_save_done = _threading.Event()
+    original_dumps = _app.json.dumps
+
+    def gated_dumps(*args, **kwargs):
+        if _threading.current_thread().name == "stale-sites-save":
+            serialization_entered.set()
+            release_first_save.wait(2)
+        return original_dumps(*args, **kwargs)
+
+    configs = {
+        "site-a": {"name": "Site A", "cookie_file": "cookie-a.json"},
+        "site-b": {"name": "Site B", "cookie_file": "cookie-b.json"},
+    }
+    monkeypatch.setattr(_app, "s_cfg", configs)
+    monkeypatch.setattr(_app, "SITES_FILE", tmp_path / "sites_config.json")
+    monkeypatch.setattr(_app.json, "dumps", gated_dumps)
+
+    def first_save():
+        _app._save_sites_config()
+
+    def delete_then_save():
+        configs.pop("site-b")
+        _app._save_sites_config()
+        second_save_done.set()
+
+    first_thread = _threading.Thread(
+        target=first_save, name="stale-sites-save", daemon=True)
+    second_thread = _threading.Thread(
+        target=delete_then_save, name="delete-sites-save", daemon=True)
+    second_crossed_first = False
+    try:
+        first_thread.start()
+        assert serialization_entered.wait(2), (
+            "first save never reached its post-snapshot serialization gate")
+        second_thread.start()
+        second_crossed_first = second_save_done.wait(0.1)
+    finally:
+        release_first_save.set()
+        first_thread.join(timeout=2)
+        second_thread.join(timeout=2)
+
+    assert not first_thread.is_alive() and not second_thread.is_alive()
+    assert not second_crossed_first, (
+        "second save crossed the first save's snapshot-to-replace window")
+    on_disk = _json.loads(_app.SITES_FILE.read_text(encoding="utf-8"))
+    assert set(on_disk) == {"site-a"}, (
+        "the stale first snapshot resurrected site B after its delete/save")

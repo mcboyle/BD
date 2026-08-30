@@ -125,8 +125,11 @@ def test_u10_sites_bulk_no_dynamic_dispatch_to_delete():
     assert "queue_delete_site(sid)" in body, (
         "delete branch must inline the queue_delete_site teardown call"
     )
-    assert "del runners[sid]" in body, (
-        "delete branch must inline `del runners[sid]`"
+    assert "runners.pop(sid, None)" in body, (
+        "delete branch must atomically detach `runners.pop(sid, None)`"
+    )
+    assert "with _watch_registry_lock:" in body, (
+        "delete must detach the runner and watch generation under its lock"
     )
 
 

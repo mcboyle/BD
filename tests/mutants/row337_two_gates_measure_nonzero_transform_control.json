@@ -34,8 +34,8 @@
     {
       "label": "TC4 suppressed worker-start transform remains importable",
       "file": "bulk_downloader/session_keeper.py",
-      "old": "    keeper.start()\n    return keeper\n",
-      "new": "    # mutant: worker start suppressed\n    return keeper\n",
+      "old": "            keeper.start()\n",
+      "new": "            pass  # mutant: worker start suppressed\n",
       "direction": "regression",
       "catcher": "tests/test_session_keeper.py::test_keeper_start_transform_control_imports_without_starting_a_worker"
     }

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4070,
+  "edge_count": 4115,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -370,7 +370,11 @@
       "bulk_downloader/cluster_rate.py"
     ],
     "bulk_downloader/app_config.py": [
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
       "bulk_downloader/runner.py",
+      "bulk_downloader/session_keeper.py",
       "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/app_cookie_clipboard.py": [
@@ -715,6 +719,7 @@
       "bulk_downloader/app_sites_lifecycle.py",
       "bulk_downloader/app_sites_queue.py",
       "bulk_downloader/app_sites_teach.py",
+      "bulk_downloader/app_state.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py"
@@ -744,6 +749,7 @@
       "bulk_downloader/ai_login.py",
       "bulk_downloader/aiassist.py",
       "bulk_downloader/app_sites.py",
+      "bulk_downloader/app_state.py",
       "bulk_downloader/audit.py",
       "bulk_downloader/auto_onboard.py",
       "bulk_downloader/constants.py",
@@ -1084,6 +1090,7 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/cookie_health.py": [
+      "bulk_downloader/app_state.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/db.py"
     ],
@@ -1725,6 +1732,7 @@
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/subtitles.py",
       "bulk_downloader/tags.py",
+      "bulk_downloader/takeover_vnc.py",
       "bulk_downloader/template_assist.py",
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/tier_probe.py",
@@ -2301,9 +2309,10 @@
       "tools/bd_decomp_lib.py"
     ],
     "tests/test_bug1_idle_site_delete.py": [
-      "bulk_downloader/app.py",
-      "bulk_downloader/app_sites_id_core.py",
-      "bulk_downloader/app_state.py"
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_bug37_subfolder_capture_picker.py": [
       "bulk_downloader/dom_analyzer.py"
@@ -2502,6 +2511,14 @@
     ],
     "tests/test_cockpit_ui_prefs.py": [
       "tools/cockpit_console.py"
+    ],
+    "tests/test_config_import_lifecycle.py": [
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/app_config.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py"
     ],
     "tests/test_config_parity_ratchet.py": [
       "tools/config_surface_inventory.py"
@@ -3529,6 +3546,15 @@
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
     ],
+    "tests/test_route_urls_generation_fence.py": [
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/audit.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/session_capture.py",
@@ -3712,6 +3738,23 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_manual.py"
     ],
+    "tests/test_runner_scheduler_delete_fence.py": [
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/content_rights.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_queue.py",
+      "bulk_downloader/runner_scheduler.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/takeover_vnc.py",
+      "bulk_downloader/vpn_runtime.py",
+      "bulk_downloader/watch_folder.py"
+    ],
     "tests/test_secret_display_never.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_settings_center.py",
@@ -3764,7 +3807,12 @@
       "bulk_downloader/capture_redact.py"
     ],
     "tests/test_session_keeper.py": [
+      "bulk_downloader/account_pool.py",
       "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/audit.py",
+      "bulk_downloader/cookie_health.py",
       "bulk_downloader/db.py",
       "bulk_downloader/session_keeper.py"
     ],
@@ -6447,6 +6495,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/provenance.py"
     ],
+    "tests/test_v3_66_926_app_import_does_not_boot_db.py": [
+      "bulk_downloader/app.py"
+    ],
     "tests/test_v3_66_927_integrity_thread_keeps_its_path.py": [
       "bulk_downloader/db.py"
     ],
@@ -6551,8 +6602,10 @@
       "bulk_downloader/runner_manual.py"
     ],
     "tests/test_vpn_runtime_startup_contract.py": [
+      "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_leak_tests.py",
       "bulk_downloader/vpn_runtime.py"
     ],
     "tests/test_vpn_wireguard_stop_cleanup.py": [

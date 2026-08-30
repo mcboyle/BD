@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import threading as _threading
 import time
 import uuid
 from flask import Blueprint, Response, jsonify, request
@@ -26,6 +27,7 @@ from .app_sites import (
     _app__SITES_BULK_ACTIONS,
     _app__watch_stops,
     _app__watch_threads,
+    _app__watch_registry_lock,
     _app_runners,
     _app_s_cfg,
     _app_s_meta,
@@ -47,6 +49,66 @@ from .app_sites import (
     _vault_guard_for_password,
     sites_bp,
 )
+
+
+# A watch target's finalizer needs _watch_registry_lock, so delete cannot hold
+# that registry lock while it joins. The outer site lifecycle stripe is shared
+# by every per-site route, keeping identity check through commit atomic against
+# deletion without growing an attacker-keyed lock registry.
+_SITE_SCHEDULER_STOP_TIMEOUT_S = 2.0
+_SITE_AUTO_RETRY_STOP_TIMEOUT_S = 2.0
+_SITE_RUNNER_WORKER_STOP_TIMEOUT_S = 2.0
+_SITE_DELETE_KEEPER_TIMEOUT_S = 2.0
+
+
+def _site_delete_lock(site_id: str):
+    from .app_state import site_lifecycle_lock
+    return site_lifecycle_lock(site_id)
+
+
+def _retire_site_scheduler(runner) -> bool:
+    """Permanently stop and prove a runner's scheduler generation dead."""
+    retire = getattr(runner, "retire_scheduler", None)
+    if not callable(retire):
+        # SiteRunner always owns this lifecycle API.  Missing/unknown teardown
+        # behavior is not evidence that a writer-capable scheduler is gone.
+        return False
+    try:
+        return retire(timeout=_SITE_SCHEDULER_STOP_TIMEOUT_S) is True
+    except Exception:
+        return False
+
+
+def _retire_site_auto_retry(runner) -> bool:
+    """Permanently stop and prove a runner's queue scanner dead."""
+    retire = getattr(runner, "retire_auto_retry", None)
+    if not callable(retire):
+        return False
+    try:
+        return retire(timeout=_SITE_AUTO_RETRY_STOP_TIMEOUT_S) is True
+    except Exception:
+        return False
+
+
+def _retire_site_workers(runner) -> bool:
+    """Permanently stop and prove every download worker dead."""
+    retire = getattr(runner, "retire_workers", None)
+    if not callable(retire):
+        return False
+    try:
+        return retire(timeout=_SITE_RUNNER_WORKER_STOP_TIMEOUT_S) is True
+    except Exception:
+        return False
+
+
+def _stop_site_keeper_generations(site_id: str) -> bool:
+    """Signal and prove all independently-owned keepers quiescent."""
+    try:
+        from . import session_keeper
+        return session_keeper.stop_site_keepers(
+            site_id, timeout=_SITE_DELETE_KEEPER_TIMEOUT_S) is True
+    except Exception:
+        return False
 
 
 @sites_bp.route("/api/sites/<sid>/ai_reanalyze", methods=["POST"])
@@ -364,6 +426,7 @@ def api_sites_v2_bulk():
     _SITES_BULK_ACTIONS = _app__SITES_BULK_ACTIONS()
     _watch_stops = _app__watch_stops()
     _watch_threads = _app__watch_threads()
+    _watch_registry_lock = _app__watch_registry_lock()
     runners = _app_runners()
     s_cfg = _app_s_cfg()
     s_meta = _app_s_meta()
@@ -398,35 +461,116 @@ def api_sites_v2_bulk():
         ordered.append(sid)
     results = {"ok": 0, "errors": []}
     for sid in ordered:
-        if sid not in runners:
+        if action != "delete" and sid not in runners:
             results["errors"].append({"site_id": sid, "error": "unknown site_id"})
             continue
+        delete_lock = None
         try:
+            # This bulk route has no <sid> path argument, so the Blueprint
+            # request hook cannot acquire the shared transaction for it.
+            delete_lock = _site_delete_lock(sid)
+            delete_lock.acquire()
             if action == "delete":
                 # Inline the per-site delete teardown so the aggregate
                 # endpoint goes through the same code paths as
                 # api_delete. Kept in sync with api_delete at L10757.
-                runner = runners[sid]
-                runner.stop()
-                try: runner._stop_auto_retry()
-                except Exception: pass
-                try:
-                    from . import session_keeper as _sk
-                    for k in _sk.get_status():
-                        if k["site_id"] == sid:
-                            _sk.stop_keeper(sid, k["account_idx"])
-                except Exception: pass
-                try:
+                # Detach the runner and its watcher as one generation.  A
+                # concurrent starter takes this same lock and therefore cannot
+                # publish after deletion has made the runner unreachable.
+                with _watch_registry_lock:
+                    runner = runners.pop(sid, None)
                     stop_ev = _watch_stops.pop(sid, None)
-                    if stop_ev is not None:
-                        stop_ev.set()
-                    _watch_threads.pop(sid, None)
-                except Exception: pass
+                    watch_thread = _watch_threads.pop(sid, None)
+                if stop_ev is not None:
+                    stop_ev.set()
+                # A watch iteration can be inside runner.load_urls() after it
+                # observes the stop signal.  Do not clear the queue/config (or
+                # stop the runner it is using) until that writer has actually
+                # exited.  On timeout, restore the detached generation so a
+                # later delete can retry and so teardown retains its join
+                # handles.
+                if (watch_thread is not None
+                        and watch_thread is not _threading.current_thread()):
+                    try: watch_thread.join(timeout=2.0)
+                    except Exception: pass
+                known_site = (runner is not None or sid in s_cfg
+                              or sid in s_meta)
+                with _watch_registry_lock:
+                    try:
+                        watch_alive = bool(
+                            watch_thread is _threading.current_thread()
+                            or (watch_thread is not None
+                                and watch_thread.is_alive()))
+                    except Exception:
+                        # An uninspectable worker is not evidence of
+                        # quiescence.
+                        watch_alive = watch_thread is not None
+                    if watch_alive and known_site:
+                        # Liveness proof and identity publication are one
+                        # registry transaction.  A target finishing now blocks
+                        # in its identity-finally, then reaps this publication
+                        # after the lock is released; a dead target is never
+                        # republished after its finalizer already ran.
+                        if runner is not None:
+                            runners.setdefault(sid, runner)
+                        _watch_threads.setdefault(sid, watch_thread)
+                        if stop_ev is not None:
+                            _watch_stops.setdefault(sid, stop_ev)
+                        results["errors"].append({
+                            "site_id": sid,
+                            "error": "watch worker did not stop",
+                        })
+                        continue
+                if runner is None and sid not in s_cfg and sid not in s_meta:
+                    results["errors"].append({
+                        "site_id": sid, "error": "unknown site_id"})
+                    continue
+                if not _stop_site_keeper_generations(sid):
+                    if runner is not None:
+                        with _watch_registry_lock:
+                            runners.setdefault(sid, runner)
+                    results["errors"].append({
+                        "site_id": sid,
+                        "error": "session keeper did not stop",
+                    })
+                    continue
+                if runner is not None:
+                    if not _retire_site_scheduler(runner):
+                        # The scheduler can still call runner.start().  Restore
+                        # the detached identity and leave config/queue intact;
+                        # retirement prevents any stale updater from clearing
+                        # its stop event and resurrecting another generation.
+                        with _watch_registry_lock:
+                            runners.setdefault(sid, runner)
+                        results["errors"].append({
+                            "site_id": sid,
+                            "error": "scheduler worker did not stop",
+                        })
+                        continue
+                    if not _retire_site_auto_retry(runner):
+                        with _watch_registry_lock:
+                            runners.setdefault(sid, runner)
+                        results["errors"].append({
+                            "site_id": sid,
+                            "error": "auto-retry worker did not stop",
+                        })
+                        continue
+                    if not _retire_site_workers(runner):
+                        with _watch_registry_lock:
+                            runners.setdefault(sid, runner)
+                        results["errors"].append({
+                            "site_id": sid,
+                            "error": "runner worker did not stop",
+                        })
+                        continue
+                # Keepers and account pools are keyed by configured site, not
+                # by runner identity.  A partial restore can own either while
+                # the runner registry is empty, so every known-site delete
+                # must reap them.
                 try:
                     from . import account_pool as _ap
                     _ap.remove_pool(sid)
                 except Exception: pass
-                del runners[sid]
                 s_meta.pop(sid, None)
                 s_cfg.pop(sid, None)
                 try:
@@ -458,6 +602,9 @@ def api_sites_v2_bulk():
         except Exception as e:
             results["errors"].append({"site_id": sid, "error": str(e)[:200]})
             continue
+        finally:
+            if delete_lock is not None:
+                delete_lock.release()
         results["ok"] += 1
     if action == "delete" and results["ok"] > 0:
         # One config save at the end, not one per delete — matches the
@@ -827,7 +974,7 @@ def api_update(sid):
                 for k in active:
                     _sk.update_config(sid, k["account_idx"], s_cfg[sid])
             else:
-                _start_session_keepers()
+                _start_session_keepers(site_id=sid)
         else:
             for k in active:
                 _sk.stop_keeper(sid, k["account_idx"])
@@ -872,44 +1019,99 @@ def api_update(sid):
 
 @sites_bp.route("/api/sites/<sid>",methods=["DELETE"])
 def api_delete(sid):
+    with _site_delete_lock(sid):
+        return _api_delete_transaction(sid)
+
+
+def _api_delete_transaction(sid):
     _watch_stops = _app__watch_stops()
     _watch_threads = _app__watch_threads()
+    _watch_registry_lock = _app__watch_registry_lock()
     runners = _app_runners()
     s_cfg = _app_s_cfg()
     s_meta = _app_s_meta()
     # v3.48 (#25): capture before-state for audit
     _audit_old = dict(s_cfg.get(sid) or {})
-    # BUG-1: a truly-absent id (in neither runners nor config) is a 404 -- so a
-    # successful delete is distinguishable from deleting nothing.
-    if sid not in runners and sid not in s_cfg and sid not in s_meta:
-        return jsonify({"ok": False, "error": "unknown site"}), 404
-    if sid in runners:
-        runners[sid].stop()
-        # Phase 30: also stop the auto-retry scanner so its daemon thread
-        # exits cleanly rather than running until process death.
-        try: runners[sid]._stop_auto_retry()
+    # BUG-1: a truly absent id is a 404, but watcher generations are canonical
+    # site-owned state too.  A failed/partial restore can leave only a watch
+    # handle + stop event; treating that population as unknown makes it
+    # impossible for DELETE (and config replace) to reap the final owner.
+    # Check and detach under the registry lock so a target finalizer cannot
+    # remove the last watch identity between the known-state proof and pop.
+    with _watch_registry_lock:
+        known_site = (sid in runners or sid in s_cfg or sid in s_meta
+                      or sid in _watch_threads or sid in _watch_stops)
+        if not known_site:
+            return jsonify({"ok": False, "error": "unknown site"}), 404
+        runner = runners.pop(sid, None)
+        stop_ev = _watch_stops.pop(sid, None)
+        watch_thread = _watch_threads.pop(sid, None)
+    if stop_ev is not None:
+        stop_ev.set()
+    # v3.43.30: wait boundedly for the detached watch worker.  Never join
+    # while holding the registry lock: its target-finally needs that lock.
+    if (watch_thread is not None
+            and watch_thread is not _threading.current_thread()):
+        try: watch_thread.join(timeout=2.0)
         except Exception: pass
-        # v3.43.16: stop any session keepers for this site
+    with _watch_registry_lock:
         try:
-            from . import session_keeper as _sk
-            for k in _sk.get_status():
-                if k["site_id"] == sid:
-                    _sk.stop_keeper(sid, k["account_idx"])
-        except Exception: pass
-        # v3.43.30: stop the watch-folder thread for this site
-        try:
-            stop_ev = _watch_stops.pop(sid, None)
+            watch_alive = bool(
+                watch_thread is _threading.current_thread()
+                or (watch_thread is not None and watch_thread.is_alive()))
+        except Exception:
+            # A failed liveness probe cannot prove that a queue writer stopped.
+            watch_alive = watch_thread is not None
+        if watch_alive:
+            if runner is not None:
+                runners.setdefault(sid, runner)
+            _watch_threads.setdefault(sid, watch_thread)
             if stop_ev is not None:
-                stop_ev.set()
-            _watch_threads.pop(sid, None)
-        except Exception: pass
-        # v3.43.35: drop the account pool entirely — health state
-        # for this site is gone with the site itself
-        try:
-            from . import account_pool as _ap
-            _ap.remove_pool(sid)
-        except Exception: pass
-        del runners[sid]
+                _watch_stops.setdefault(sid, stop_ev)
+            return jsonify({
+                "ok": False,
+                "error": "watch worker did not stop",
+            }), 503
+    if not _stop_site_keeper_generations(sid):
+        if runner is not None:
+            with _watch_registry_lock:
+                runners.setdefault(sid, runner)
+        return jsonify({
+            "ok": False,
+            "error": "session keeper did not stop",
+        }), 503
+    if runner is not None:
+        if not _retire_site_scheduler(runner):
+            # A bounded survivor retains both its handle and its stop signal.
+            # Republish the runner so retry can finish teardown; never remove
+            # config or queue rows while that scheduler can still fire.
+            with _watch_registry_lock:
+                runners.setdefault(sid, runner)
+            return jsonify({
+                "ok": False,
+                "error": "scheduler worker did not stop",
+            }), 503
+        if not _retire_site_auto_retry(runner):
+            with _watch_registry_lock:
+                runners.setdefault(sid, runner)
+            return jsonify({
+                "ok": False,
+                "error": "auto-retry worker did not stop",
+            }), 503
+        if not _retire_site_workers(runner):
+            with _watch_registry_lock:
+                runners.setdefault(sid, runner)
+            return jsonify({
+                "ok": False,
+                "error": "runner worker did not stop",
+            }), 503
+    # v3.43.16/v3.43.35: these resources are keyed by site configuration
+    # independently of runner construction.  Reap them even after a partial
+    # restore left a configured/meta-only site.
+    try:
+        from . import account_pool as _ap
+        _ap.remove_pool(sid)
+    except Exception: pass
     # BUG-1: config/meta removal + queue cleanup + save are UNCONDITIONAL, so an
     # idle (never-started, runner-less) site is actually deleted rather than
     # silently left in place behind a success toast.

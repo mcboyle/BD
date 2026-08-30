@@ -33,10 +33,10 @@
       "catcher": "tests/test_row337_tool_smoke_unknown_is_failure.py::test_timeout_is_unknown_and_fails_gate_while_clean_tool_stays_clean"
     },
     {
-      "label": "M4 suppress the SessionKeeper worker start while retaining its registry row",
+      "label": "M4 suppress the SessionKeeper worker start while retaining its reserved registry row",
       "file": "bulk_downloader/session_keeper.py",
-      "old": "    keeper.start()\n    return keeper\n",
-      "new": "    # mutant: worker start suppressed\n    return keeper\n",
+      "old": "            keeper.start()\n",
+      "new": "            pass  # mutant: worker start suppressed\n",
       "direction": "regression",
       "catcher": "tests/test_session_keeper.py::test_start_and_stop_keeper"
     }

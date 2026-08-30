@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1686**
+- internal import edges: **1694**
 - tools: 228 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 161 · config stores: 5
 
@@ -34,8 +34,8 @@ Graph version: 1
 - `bulk_downloader/app_dev.py`: 12
 - `bulk_downloader/capture_redact.py`: 12
 - `bulk_downloader/detect.py`: 12
+- `bulk_downloader/session_keeper.py`: 12
 - `tools/autonomy_oracle.py`: 12
-- `bulk_downloader/learn.py`: 11
 
 ## Blueprints → providers
 
@@ -69,7 +69,7 @@ Graph version: 1
 - **cockpit_home** (`app_cockpit_home.py`) — routes 1, providers 0
 - **community_scrapers** (`app_community_scrapers.py`) — routes 5, providers 0
 - **concurrent** (`app_concurrent.py`) — routes 1, providers 0
-- **config** (`app_config.py`) — routes 2, providers 2
+- **config** (`app_config.py`) — routes 2, providers 6
 - **cookie_clipboard** (`app_cookie_clipboard.py`) — routes 2, providers 2
 - **cookie_quality** (`app_cookie_quality.py`) — routes 2, providers 1
 - **cookie_relogin** (`app_cookie_relogin.py`) — routes 2, providers 1
@@ -163,7 +163,7 @@ Graph version: 1
 - **settings_center** (`app_settings_center.py`) — routes 11, providers 3
 - **shares** (`app_shares.py`) — routes 3, providers 1
 - **shortcuts** (`app_shortcuts.py`) — routes 1, providers 1
-- **sites** (`app_sites.py`) — routes 0, providers 10
+- **sites** (`app_sites.py`) — routes 0, providers 11
 - **sites_list** (`app_sites_list.py`) — routes 1, providers 0
 - **sse_status** (`app_sse_status.py`) — routes 1, providers 1
 - **start_all** (`app_start_all.py`) — routes 1, providers 0

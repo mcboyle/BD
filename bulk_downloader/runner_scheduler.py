@@ -12,24 +12,89 @@ from .runner_util import _ts
 from .db import queue_upsert
 
 
+_SCHED_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
+_AUTO_RETRY_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
+
+
+def _scheduler_lifecycle_lock(runner):
+    """Return the per-runner lock, including legacy unbound-mixin users."""
+    lock = getattr(runner, "_sched_lifecycle_lock", None)
+    if lock is None:
+        with _SCHED_LIFECYCLE_BOOTSTRAP_LOCK:
+            lock = getattr(runner, "_sched_lifecycle_lock", None)
+            if lock is None:
+                lock = threading.RLock()
+                runner._sched_lifecycle_lock = lock
+    return lock
+
+
+def _auto_retry_lifecycle_lock(runner):
+    """Return the per-runner auto-retry generation lock."""
+    lock = getattr(runner, "_auto_retry_lifecycle_lock", None)
+    if lock is None:
+        with _AUTO_RETRY_LIFECYCLE_BOOTSTRAP_LOCK:
+            lock = getattr(runner, "_auto_retry_lifecycle_lock", None)
+            if lock is None:
+                lock = threading.RLock()
+                runner._auto_retry_lifecycle_lock = lock
+    return lock
+
+
 class SchedulerMixin:
     def _start_auto_retry(self):
         """Spin up the auto-retry scanner thread if not already running."""
-        if self._auto_retry_thread and self._auto_retry_thread.is_alive():
-            return
-        self._auto_retry_stop.clear()
-        self._auto_retry_thread = threading.Thread(
-            target=self._auto_retry_loop, daemon=True,
-            name=f"auto-retry-{self.site_id}")
-        self._auto_retry_thread.start()
-    def _stop_auto_retry(self):
-        """Signal the auto-retry thread to exit and wait up to 2s for it.
-        Idempotent — safe to call even if the thread isn't running."""
+        with _auto_retry_lifecycle_lock(self):
+            if getattr(self, "_auto_retry_retired", False):
+                return False
+            current = self._auto_retry_thread
+            if current is not None:
+                if current.is_alive():
+                    return not self._auto_retry_stop.is_set()
+                if self._auto_retry_thread is current:
+                    self._auto_retry_thread = None
+            self._auto_retry_stop.clear()
+            thread = threading.Thread(
+                target=self._auto_retry_loop,
+                daemon=True,
+                name=f"auto-retry-{self.site_id}",
+            )
+            self._auto_retry_thread = thread
+            try:
+                thread.start()
+            except BaseException:
+                self._auto_retry_stop.set()
+                if self._auto_retry_thread is thread:
+                    self._auto_retry_thread = None
+                raise
+            return True
+
+    def _stop_auto_retry_locked(self, timeout):
+        """Stop the captured auto-retry generation with its lock held."""
         self._auto_retry_stop.set()
-        t = self._auto_retry_thread
-        if t and t.is_alive():
-            t.join(timeout=2)
-        self._auto_retry_thread = None
+        thread = self._auto_retry_thread
+        if thread is None:
+            return True
+        if thread is threading.current_thread():
+            return False
+        thread.join(timeout=max(0.0, timeout))
+        if thread.is_alive():
+            # This scanner can mutate queue state.  Retain its only join handle
+            # and leave the stop signal set until quiescence is proven.
+            return False
+        if self._auto_retry_thread is thread:
+            self._auto_retry_thread = None
+        return True
+
+    def _stop_auto_retry(self, timeout=2.0):
+        """Boundedly stop the scanner and return a quiescence verdict."""
+        with _auto_retry_lifecycle_lock(self):
+            return self._stop_auto_retry_locked(timeout)
+
+    def retire_auto_retry(self, timeout=2.0):
+        """Permanently stop the scanner before deleting its site."""
+        with _auto_retry_lifecycle_lock(self):
+            self._auto_retry_retired = True
+            return self._stop_auto_retry_locked(timeout)
     def _parse_retry_schedule(self, schedule_str):
         """Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
         whitespace, mixed units, malformed entries (which are skipped)."""
@@ -361,23 +426,82 @@ class SchedulerMixin:
         running. The thread sleeps until the configured sched_time and then
         calls start(), optionally with a pre-login N minutes earlier when
         prelogin_minutes is set."""
-        if not self.config.get("sched_enabled"): return
-        if self._sched_thread and self._sched_thread.is_alive(): return
-        self._sched_stop.clear()
-        self._sched_thread=threading.Thread(target=self._sched_loop,daemon=True)
-        self._sched_thread.start()
-    def stop_scheduler(self):
-        """Signal the scheduler thread to exit and wait up to 12s for it.
+        if not self.config.get("sched_enabled"):
+            return False
+        with _scheduler_lifecycle_lock(self):
+            # Site deletion permanently retires this runner's scheduler.  A
+            # request that captured the runner before registry detachment must
+            # not resurrect it after deletion has proved the old generation
+            # quiescent (or while a timed-out generation is still unwinding).
+            if getattr(self, "_sched_retired", False):
+                return False
+            current = self._sched_thread
+            if current is not None:
+                if current.is_alive():
+                    # A signalled live generation is teardown-pending, not an
+                    # active generation that permits its shared Event to be
+                    # cleared.
+                    return not self._sched_stop.is_set()
+                if self._sched_thread is current:
+                    self._sched_thread = None
+            self._sched_stop.clear()
+            thread = threading.Thread(
+                target=self._sched_loop,
+                daemon=True,
+                name=f"site-scheduler-{getattr(self, 'site_id', 'unknown')}",
+            )
+            self._sched_thread = thread
+            try:
+                thread.start()
+            except BaseException:
+                self._sched_stop.set()
+                if self._sched_thread is thread:
+                    self._sched_thread = None
+                raise
+            return True
+
+    def _stop_scheduler_locked(self, timeout):
+        """Stop the captured generation while its lifecycle lock is held."""
+        self._sched_stop.set()
+        thread = self._sched_thread
+        if thread is None:
+            return True
+        if thread is threading.current_thread():
+            # The generation cannot prove its own exit.  Keep the handle so a
+            # later external caller can join it.
+            return False
+        thread.join(timeout=max(0.0, timeout))
+        if thread.is_alive():
+            # Never discard the only join/liveness handle.  In particular,
+            # start_scheduler must continue to see this generation and must
+            # not clear the Event on which it is trying to stop.
+            return False
+        if self._sched_thread is thread:
+            self._sched_thread = None
+        return True
+
+    def stop_scheduler(self, timeout=12.0):
+        """Signal the scheduler thread to exit and wait boundedly for it.
+
+        Returns whether the published generation is proven quiescent.  A live
+        bounded-join survivor remains published so no starter can overwrite
+        its handle or clear its stop event.
+
         Safe to call from any thread including the scheduler thread itself
         (it just won't join in that case, avoiding deadlock)."""
-        self._sched_stop.set()
-        # Wait for the loop to exit so a subsequent start_scheduler() doesn't
-        # see is_alive()==True and skip starting a fresh thread. Skip the join
-        # if we're being called from inside the loop itself (avoid deadlock).
-        t=self._sched_thread
-        if t and t is not threading.current_thread():
-            t.join(timeout=12)
-        self._sched_thread=None
+        with _scheduler_lifecycle_lock(self):
+            return self._stop_scheduler_locked(timeout)
+
+    def retire_scheduler(self, timeout=12.0):
+        """Permanently stop this runner's scheduler for site deletion.
+
+        Retirement and the bounded quiescence proof share one lifecycle lock,
+        so an updater holding an earlier runner reference cannot race a fresh
+        scheduler generation into the delete transaction.
+        """
+        with _scheduler_lifecycle_lock(self):
+            self._sched_retired = True
+            return self._stop_scheduler_locked(timeout)
     def _sched_loop(self):
         """Scheduler thread body. Waits until the configured sched_time,
         fires start(), then either exits (sched_repeat='once') or loops
