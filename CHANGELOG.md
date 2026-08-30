@@ -17,6 +17,11 @@ archive is not present in this repository; consult source-control history.
   Commitments are backfilled only after authenticated agreement; malformed or
   disagreeing verifier material is rejected loudly instead of being rebound
   to the submitted password, and repair failures cannot publish partial state.
+  The internal rollback commitment uses a collision-free authority pointer,
+  preserving legacy credentials even when their arbitrary key name or value
+  matches the preferred internal commitment material; a retargeted authority
+  that disagrees with intact user ciphertexts now fails closed, and
+  noncanonical authority-marker names are refused.
 - The first-use password-length policy applies only to a genuinely empty,
   uninitialized vault. Legacy short passwords remain usable, while password
   rotation refuses an uninitialized vault rather than accidentally turning a
@@ -31,6 +36,11 @@ archive is not present in this repository; consult source-control history.
   rejects uninitialized or incoherent states instead of laundering them. The
   Secrets status endpoint reports damaged inventory as a structured integrity
   error rather than an HTML 500 or a false empty key list.
+- Canonical-register prose corrections now use a repository-owned, atomic
+  one-row compare-and-swap command that verifies the row status, whole-row
+  digest, and derived header before writing, without restamping closures.
+  Post-publication sync or lock-cleanup failures report a distinct COMMIT
+  UNCERTAIN outcome so callers cannot mistake a visible update for refusal.
 - FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE NEW EDGES ARE NAMED HERE:
     tests/test_row402_durable_vault_verifier.py -> bulk_downloader/app_health.py
     tests/test_row402_durable_vault_verifier.py -> bulk_downloader/app_secrets.py

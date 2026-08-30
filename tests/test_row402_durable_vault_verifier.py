@@ -63,11 +63,11 @@ def _reopen_backend(monkeypatch, root: Path):
 def _strip_row402_commitments(backend):
     """Turn a candidate-written vault into the ciphertext-only legacy shape."""
     authority = backend._COMMITMENT_AUTHORITY_FIELD
-    commitment = backend._ROLLBACK_COMMITMENT_KEY
     ciphertexts = backend._data["ciphertexts"]
+    commitment = backend._data.get(authority)
 
     assert "verifier" in backend._data
-    assert backend._data.get(authority) == commitment
+    assert isinstance(commitment, str)
     assert commitment in ciphertexts
 
     backend._data.pop("verifier")
@@ -172,12 +172,16 @@ def test_first_unlock_is_rejected_by_base44_when_password_is_wrong(
     assert backend.list_keys() == []
     assert backend.get(commitment_key) is None
     assert backend.delete(commitment_key) is False
-    before_reserved_set = json.loads(json.dumps(backend._data))
-    before_reserved_disk = path.read_bytes()
-    with pytest.raises(ValueError, match="reserved"):
-        backend.set(commitment_key, "cannot-overwrite-commitment")
-    assert backend._data == before_reserved_set
-    assert path.read_bytes() == before_reserved_disk
+    backend.set(commitment_key, "row402-user-value-at-internal-name")
+    dynamic_commitment_key = backend._data[
+        backend._COMMITMENT_AUTHORITY_FIELD
+    ]
+    assert dynamic_commitment_key != commitment_key
+    assert list(backend._data["ciphertexts"])[0] == dynamic_commitment_key
+    assert backend.list_keys() == [commitment_key]
+    assert backend.get(commitment_key) == "row402-user-value-at-internal-name"
+    assert backend.get(dynamic_commitment_key) is None
+    assert backend.delete(dynamic_commitment_key) is False
 
     source = subprocess.run(
         [
@@ -202,17 +206,91 @@ def test_first_unlock_is_rejected_by_base44_when_password_is_wrong(
     assert rollback_backend.unlock(_WRONG) is False
     assert rollback_backend.is_unlocked() is False
     assert rollback_backend.unlock(_MASTER) is True
+    assert (
+        rollback_backend.get(commitment_key)
+        == "row402-user-value-at-internal-name"
+    )
 
 
-def test_base44_password_rotation_is_reconciled_by_authenticated_commitment(
-    fresh_backend, monkeypatch, tmp_path
+@pytest.mark.parametrize("failure_mode", ["seal", "save_false", "save_raise"])
+def test_commitment_relocation_failure_is_atomic(
+    fresh_backend,
+    monkeypatch,
+    failure_mode,
 ):
     backend, path = fresh_backend
     assert backend.unlock(_MASTER) is True
+    authority_key = backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
+    before_memory = json.loads(json.dumps(backend._data))
+    before_disk = path.read_bytes()
+
+    if failure_mode == "seal":
+        def fail_seal(_key):
+            raise RuntimeError("synthetic relocation seal failure")
+
+        monkeypatch.setattr(backend, "_seal_rollback_commitment", fail_seal)
+        error = RuntimeError
+    elif failure_mode == "save_false":
+        monkeypatch.setattr(backend, "_save", lambda: False)
+        error = ss.SecretsPersistError
+    else:
+        def fail_save():
+            raise OSError("synthetic relocation save exception")
+
+        monkeypatch.setattr(backend, "_save", fail_save)
+        error = OSError
+
+    with pytest.raises(error):
+        backend.set(authority_key, "row402-colliding-user-value")
+
+    assert backend._data == before_memory
+    assert path.read_bytes() == before_disk
+
+
+def test_repeated_authority_name_collisions_relocate_without_reserving_names(
+    fresh_backend,
+    monkeypatch,
+    tmp_path,
+):
+    backend, _path = fresh_backend
+    assert backend.unlock(_MASTER) is True
+    expected = {}
+    for index in range(3):
+        collided_name = backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
+        value = f"row402-relocated-user-value-{index}"
+        backend.set(collided_name, value)
+        expected[collided_name] = value
+        assert backend._data[backend._COMMITMENT_AUTHORITY_FIELD] not in expected
+        assert list(backend._data["ciphertexts"])[0] == (
+            backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
+        )
+
+    backend.lock()
+    reopened = _reopen_backend(monkeypatch, tmp_path)
+    assert reopened.unlock(_MASTER) is True
+    assert reopened.list_keys() == sorted(expected)
+    assert {name: reopened.get(name) for name in expected} == expected
+    deleted_name = next(iter(expected))
+    assert reopened.delete(deleted_name) is True
+    assert reopened.get(deleted_name) is None
+    assert reopened.list_keys() == sorted(set(expected) - {deleted_name})
+
+
+@pytest.mark.parametrize("relocated_authority", [False, True])
+def test_base44_password_rotation_is_reconciled_by_authenticated_commitment(
+    fresh_backend, monkeypatch, tmp_path, relocated_authority
+):
+    backend, path = fresh_backend
+    assert backend.unlock(_MASTER) is True
+    preferred_key = backend._ROLLBACK_COMMITMENT_KEY
+    if relocated_authority:
+        backend.set(preferred_key, "row402-dynamic-authority-user-value")
     backend.set(_KEY, _VALUE)
     before = json.loads(path.read_text(encoding="utf-8"))
-    commitment_key = backend._ROLLBACK_COMMITMENT_KEY
-    assert before[backend._COMMITMENT_AUTHORITY_FIELD] == commitment_key
+    commitment_key = before[backend._COMMITMENT_AUTHORITY_FIELD]
+    assert commitment_key in before["ciphertexts"]
+    assert list(before["ciphertexts"])[0] == commitment_key
+    assert (commitment_key != preferred_key) is relocated_authority
 
     source = subprocess.run(
         [
@@ -247,6 +325,11 @@ def test_base44_password_rotation_is_reconciled_by_authenticated_commitment(
     reopened = _reopen_backend(monkeypatch, tmp_path)
     assert reopened.unlock(_NEW_MASTER) is True
     assert reopened.get(_KEY) == _VALUE
+    if relocated_authority:
+        assert (
+            reopened.get(preferred_key)
+            == "row402-dynamic-authority-user-value"
+        )
     repaired = json.loads(path.read_text(encoding="utf-8"))
     assert repaired["verifier"] != rolled_back["verifier"]
     assert repaired[backend._COMMITMENT_AUTHORITY_FIELD] == commitment_key
@@ -701,6 +784,145 @@ def test_ciphertext_only_legacy_vault_still_unlocks(
     assert reopened.get(_KEY) == _VALUE
 
 
+@pytest.mark.parametrize("with_other_credential", [False, True])
+def test_legacy_reserved_name_collision_survives_upgrade_and_rotation(
+    monkeypatch,
+    tmp_path,
+    with_other_credential,
+):
+    """A pre-row402 user key may equal the candidate's internal key name."""
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    seed.set(_KEY, _VALUE)
+    _strip_row402_commitments(seed)
+    collision_key = seed._ROLLBACK_COMMITMENT_KEY
+    seed._data["ciphertexts"][collision_key] = (
+        seed._data["ciphertexts"].pop(_KEY)
+    )
+    if with_other_credential:
+        seed.set(_KEY, "row402-second-legacy-value")
+    assert seed._save() is True
+    seed.lock()
+
+    path = tmp_path / "secrets.json"
+    original_disk = path.read_bytes()
+    expected_user_keys = [collision_key]
+    if with_other_credential:
+        expected_user_keys.append(_KEY)
+    expected_user_keys.sort()
+
+    legacy = _reopen_backend(monkeypatch, tmp_path)
+    assert legacy.list_keys() == expected_user_keys
+    assert legacy.unlock(_WRONG) is False
+    assert path.read_bytes() == original_disk
+    assert legacy.unlock(_MASTER) is True
+    assert legacy.get(collision_key) == _VALUE
+    if with_other_credential:
+        assert legacy.get(_KEY) == "row402-second-legacy-value"
+
+    commitment_key = legacy._data[legacy._COMMITMENT_AUTHORITY_FIELD]
+    assert commitment_key != collision_key
+    assert list(legacy._data["ciphertexts"])[0] == commitment_key
+    assert legacy.list_keys() == expected_user_keys
+
+    legacy.lock()
+    restarted = _reopen_backend(monkeypatch, tmp_path)
+    assert restarted.unlock(_WRONG) is False
+    assert restarted.unlock(_MASTER) is True
+    assert restarted.get(collision_key) == _VALUE
+    assert restarted.change_password(_MASTER, _NEW_MASTER) is True
+    restarted.lock()
+    assert restarted.unlock(_MASTER) is False
+    assert restarted.unlock(_NEW_MASTER) is True
+    assert restarted.get(collision_key) == _VALUE
+    assert restarted.list_keys() == expected_user_keys
+
+
+@pytest.mark.parametrize("with_other_credential", [False, True])
+def test_legacy_collision_value_equal_to_public_sentinel_is_not_internal(
+    monkeypatch,
+    tmp_path,
+    with_other_credential,
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    sentinel = seed._ROLLBACK_COMMITMENT_PLAINTEXT.decode("utf-8")
+    seed.set(_KEY, sentinel)
+    _strip_row402_commitments(seed)
+    collision_key = seed._ROLLBACK_COMMITMENT_KEY
+    seed._data["ciphertexts"][collision_key] = (
+        seed._data["ciphertexts"].pop(_KEY)
+    )
+    if with_other_credential:
+        # Keep synthetic credentials deliberately low-entropy: Gitleaks scans
+        # every commit in the PR range, not only the final tree.
+        seed.set(_KEY, "test")
+    assert seed._save() is True
+    seed.lock()
+
+    legacy = _reopen_backend(monkeypatch, tmp_path)
+    assert legacy.unlock(_MASTER) is True
+    assert legacy._data[legacy._COMMITMENT_AUTHORITY_FIELD] != collision_key
+    assert legacy.get(collision_key) == sentinel
+    expected = [collision_key]
+    if with_other_credential:
+        expected.append(_KEY)
+        assert legacy.get(_KEY) == "test"
+    assert legacy.list_keys() == sorted(expected)
+
+
+def test_authority_marker_rejects_an_ordinary_sentinel_valued_user_key(
+    monkeypatch,
+    tmp_path,
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    sentinel = seed._ROLLBACK_COMMITMENT_PLAINTEXT.decode("utf-8")
+    seed.set(_KEY, sentinel)
+    assert not seed._is_rollback_commitment_name(_KEY)
+    seed._data[seed._COMMITMENT_AUTHORITY_FIELD] = _KEY
+    assert seed._save() is True
+    seed.lock()
+
+    path = tmp_path / "secrets.json"
+    original_disk = path.read_bytes()
+    reopened = _reopen_backend(monkeypatch, tmp_path)
+    original_memory = json.loads(json.dumps(reopened._data))
+    with pytest.raises(
+        ss.SecretsIntegrityError, match="commitment marker is invalid"
+    ):
+        reopened.unlock(_MASTER)
+
+    assert reopened.is_unlocked() is False
+    assert reopened._data == original_memory
+    assert path.read_bytes() == original_disk
+
+
+def test_direct_rotation_of_unupgraded_legacy_collision_preserves_user_data(
+    monkeypatch,
+    tmp_path,
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    seed.set(_KEY, _VALUE)
+    _strip_row402_commitments(seed)
+    collision_key = seed._ROLLBACK_COMMITMENT_KEY
+    seed._data["ciphertexts"][collision_key] = (
+        seed._data["ciphertexts"].pop(_KEY)
+    )
+    assert seed._save() is True
+    seed.lock()
+
+    legacy = _reopen_backend(monkeypatch, tmp_path)
+    assert legacy.change_password(_MASTER, _NEW_MASTER) is True
+    assert legacy._data[legacy._COMMITMENT_AUTHORITY_FIELD] != collision_key
+    legacy.lock()
+    assert legacy.unlock(_MASTER) is False
+    assert legacy.unlock(_NEW_MASTER) is True
+    assert legacy.get(collision_key) == _VALUE
+    assert legacy.list_keys() == [collision_key]
+
+
 def test_legacy_unlock_uses_an_intact_ciphertext_not_only_the_first(
     monkeypatch, tmp_path
 ):
@@ -1042,8 +1264,10 @@ def test_unlock_endpoint_names_legacy_upgrade_persist_failure(
     assert "verifier" not in legacy._data
 
 
+@pytest.mark.parametrize("attempted_password", [_MASTER, _NEW_MASTER])
+@pytest.mark.parametrize("with_matching_decoy", [False, True])
 def test_present_verifier_disagreement_is_loud_and_never_rebound(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, attempted_password, with_matching_decoy
 ):
     seed = _new_backend(monkeypatch, tmp_path)
     assert seed.unlock(_MASTER) is True
@@ -1053,6 +1277,10 @@ def test_present_verifier_disagreement_is_loud_and_never_rebound(
     different_key = seed._derive_key(_NEW_MASTER)
     disagreeing = seed._seal_verifier(different_key)
     seed._data["verifier"] = disagreeing
+    if with_matching_decoy:
+        seed._data["ciphertexts"]["row402-verifier-matching-decoy"] = (
+            seed._seal_verifier(different_key)
+        )
     assert seed._save() is True
     seed.lock()
     original_disk = (tmp_path / "secrets.json").read_bytes()
@@ -1060,7 +1288,7 @@ def test_present_verifier_disagreement_is_loud_and_never_rebound(
 
     reopened = _reopen_backend(monkeypatch, tmp_path)
     with pytest.raises(ss.SecretsIntegrityError, match="disagree"):
-        reopened.unlock(_MASTER)
+        reopened.unlock(attempted_password)
 
     assert reopened.is_unlocked() is False
     assert reopened._data == original_memory
@@ -1068,10 +1296,12 @@ def test_present_verifier_disagreement_is_loud_and_never_rebound(
 
 
 @pytest.mark.parametrize("commitment_shape", ["both", "commitment_only"])
-def test_no_authority_public_commitments_cannot_override_user_ciphertext(
+@pytest.mark.parametrize("with_matching_decoy", [False, True])
+def test_no_authority_commitment_cannot_override_user_ciphertext(
     monkeypatch,
     tmp_path,
     commitment_shape,
+    with_matching_decoy,
 ):
     seed = _new_backend(monkeypatch, tmp_path)
     assert seed.unlock(_MASTER) is True
@@ -1081,6 +1311,10 @@ def test_no_authority_public_commitments_cannot_override_user_ciphertext(
     seed._data["ciphertexts"][
         seed._ROLLBACK_COMMITMENT_KEY
     ] = seed._seal_rollback_commitment(chosen_key)
+    if with_matching_decoy:
+        seed._data["ciphertexts"]["row402-matching-decoy"] = (
+            seed._seal_verifier(chosen_key)
+        )
     if commitment_shape == "both":
         seed._data["verifier"] = seed._seal_verifier(chosen_key)
     else:
@@ -1105,6 +1339,83 @@ def test_no_authority_public_commitments_cannot_override_user_ciphertext(
     assert path.read_bytes() == original_disk
 
 
+@pytest.mark.parametrize("dynamic_authority", [False, True])
+@pytest.mark.parametrize("attempted_password", [_MASTER, _NEW_MASTER])
+def test_stripped_authority_with_injected_ciphertext_fails_closed(
+    monkeypatch,
+    tmp_path,
+    dynamic_authority,
+    attempted_password,
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    preferred_key = seed._ROLLBACK_COMMITMENT_KEY
+    if dynamic_authority:
+        seed.set(preferred_key, "row402-user-at-preferred-name")
+    seed.set(_KEY, _VALUE)
+    authority_key = seed._data[seed._COMMITMENT_AUTHORITY_FIELD]
+    assert (authority_key != preferred_key) is dynamic_authority
+
+    seed._data.pop("verifier")
+    seed._data.pop(seed._COMMITMENT_AUTHORITY_FIELD)
+    attacker_key = seed._derive_key(_NEW_MASTER)
+    seed._data["ciphertexts"]["row402-injected-ciphertext"] = (
+        seed._seal_verifier(attacker_key)
+    )
+    assert seed._save() is True
+    seed.lock()
+
+    path = tmp_path / "secrets.json"
+    original_disk = path.read_bytes()
+    reopened = _reopen_backend(monkeypatch, tmp_path)
+    original_memory = json.loads(json.dumps(reopened._data))
+    with pytest.raises(ss.SecretsIntegrityError, match="disagree"):
+        reopened.unlock(attempted_password)
+
+    assert reopened.is_unlocked() is False
+    assert reopened._data == original_memory
+    assert path.read_bytes() == original_disk
+
+
+@pytest.mark.parametrize("attempted_password", [_MASTER, _NEW_MASTER])
+@pytest.mark.parametrize("with_matching_decoy", [False, True])
+def test_retargeted_authority_cannot_override_user_ciphertext(
+    monkeypatch,
+    tmp_path,
+    attempted_password,
+    with_matching_decoy,
+):
+    seed = _new_backend(monkeypatch, tmp_path)
+    assert seed.unlock(_MASTER) is True
+    seed.set(_KEY, _VALUE)
+    original_authority = seed._data[seed._COMMITMENT_AUTHORITY_FIELD]
+    attacker_authority = f"{original_authority}.1"
+    assert attacker_authority not in seed._data["ciphertexts"]
+    attacker_key = seed._derive_key(_NEW_MASTER)
+    seed._data["ciphertexts"][attacker_authority] = (
+        seed._seal_rollback_commitment(attacker_key)
+    )
+    seed._data[seed._COMMITMENT_AUTHORITY_FIELD] = attacker_authority
+    seed._data["verifier"] = seed._seal_verifier(attacker_key)
+    if with_matching_decoy:
+        seed._data["ciphertexts"]["row402-authority-matching-decoy"] = (
+            seed._seal_verifier(attacker_key)
+        )
+    assert seed._save() is True
+    seed.lock()
+
+    path = tmp_path / "secrets.json"
+    original_disk = path.read_bytes()
+    reopened = _reopen_backend(monkeypatch, tmp_path)
+    original_memory = json.loads(json.dumps(reopened._data))
+    with pytest.raises(ss.SecretsIntegrityError, match="disagree"):
+        reopened.unlock(attempted_password)
+
+    assert reopened.is_unlocked() is False
+    assert reopened._data == original_memory
+    assert path.read_bytes() == original_disk
+
+
 @pytest.mark.parametrize("commitment_shape", ["both", "commitment_only"])
 def test_no_authority_public_commitments_upgrade_when_user_ciphertext_agrees(
     fresh_backend,
@@ -1121,14 +1432,18 @@ def test_no_authority_public_commitments_upgrade_when_user_ciphertext_agrees(
 
     assert backend.unlock(_MASTER) is True
     assert backend.get(_KEY) == _VALUE
-    assert (
-        backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
-        == backend._ROLLBACK_COMMITMENT_KEY
+    old_unmarked_entry = backend._ROLLBACK_COMMITMENT_KEY
+    new_authority = backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
+    assert new_authority != old_unmarked_entry
+    assert list(backend._data["ciphertexts"])[0] == new_authority
+    assert backend.get(old_unmarked_entry) == (
+        backend._ROLLBACK_COMMITMENT_PLAINTEXT.decode("utf-8")
     )
+    assert backend.list_keys() == sorted([_KEY, old_unmarked_entry])
 
 
 @pytest.mark.parametrize("commitment_shape", ["both", "commitment_only"])
-def test_no_authority_public_commitments_upgrade_an_empty_vault(
+def test_no_authority_ciphertexts_are_preserved_as_legacy_user_data(
     fresh_backend,
     commitment_shape,
 ):
@@ -1141,10 +1456,13 @@ def test_no_authority_public_commitments_upgrade_an_empty_vault(
     backend.lock()
 
     assert backend.unlock(_MASTER) is True
-    assert backend.list_keys() == []
-    assert (
-        backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
-        == backend._ROLLBACK_COMMITMENT_KEY
+    old_unmarked_entry = backend._ROLLBACK_COMMITMENT_KEY
+    new_authority = backend._data[backend._COMMITMENT_AUTHORITY_FIELD]
+    assert new_authority != old_unmarked_entry
+    assert list(backend._data["ciphertexts"])[0] == new_authority
+    assert backend.list_keys() == [old_unmarked_entry]
+    assert backend.get(old_unmarked_entry) == (
+        backend._ROLLBACK_COMMITMENT_PLAINTEXT.decode("utf-8")
     )
 
 
