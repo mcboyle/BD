@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -141,6 +142,23 @@ def _visible_state(case: ReplayedCase) -> tuple[bytes, str, str, str]:
         _git(case.output, "status", "--porcelain=v2", "--untracked-files=all"),
         _git(case.repo, "rev-parse", "refs/remotes/origin/main"),
     )
+
+
+def _load_adopt_module():
+    scripts = str(ROOT / "scripts")
+    added_path = scripts not in sys.path
+    if added_path:
+        sys.path.insert(0, scripts)
+    try:
+        spec = importlib.util.spec_from_file_location("row407_candidate_adopt", ADOPT)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if added_path:
+            sys.path.remove(scripts)
 
 
 def test_complete_unchanged_replay_manifest_is_adoptable_and_read_only(
@@ -347,6 +365,108 @@ def test_manifest_replay_derivation_tampering_is_not_adoptable(
     assert result.returncode == 1
     assert body["verdict"] == "NOT_ADOPTABLE"
     assert body["evidence"][evidence_name] is False
+
+
+@pytest.mark.parametrize("record_name", ("manifest", "source", "output"))
+def test_relative_evidence_path_is_unknown(
+    replayed_case: ReplayedCase,
+    record_name: str,
+) -> None:
+    """Replay-generated path authorities are canonical absolute paths."""
+
+    manifest = json.loads(replayed_case.manifest.read_text())
+    manifest[record_name]["path"] = f"relative-{record_name}"
+    replayed_case.manifest.write_text(json.dumps(manifest, sort_keys=True))
+
+    result, body = replayed_case.run_adopt()
+
+    assert result.returncode == 2
+    assert body["verdict"] == "UNKNOWN"
+    assert body["reason_code"] == "MANIFEST_MALFORMED"
+
+
+def test_manifest_inode_drift_after_initial_read_is_not_adoptable(
+    replayed_case: ReplayedCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The initial descriptor receipt cannot authorize a later replacement."""
+
+    subject = _load_adopt_module()
+    original_read = subject._read_manifest
+    replaced = False
+
+    def read_then_replace(path: Path):
+        nonlocal replaced
+        receipt = original_read(path)
+        if not replaced:
+            replaced = True
+            contents = replayed_case.manifest.read_bytes()
+            replayed_case.manifest.unlink()
+            replayed_case.manifest.write_bytes(contents)
+        return receipt
+
+    monkeypatch.setattr(subject, "_read_manifest", read_then_replace)
+
+    body = subject.evaluate(manifest_path=replayed_case.manifest)
+
+    assert body["verdict"] == "NOT_ADOPTABLE"
+    assert body["evidence"]["manifest_identity_matches"] is False
+
+
+def test_manifest_contents_drift_after_initial_read_is_not_adoptable(
+    replayed_case: ReplayedCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same manifest inode must still contain the initially measured record."""
+
+    subject = _load_adopt_module()
+    original_read = subject._read_manifest
+    changed = False
+
+    def read_then_change(path: Path):
+        nonlocal changed
+        receipt = original_read(path)
+        if not changed:
+            changed = True
+            payload = json.loads(replayed_case.manifest.read_text())
+            payload["token"] = "0" * 64
+            replayed_case.manifest.write_text(json.dumps(payload, sort_keys=True))
+        return receipt
+
+    monkeypatch.setattr(subject, "_read_manifest", read_then_change)
+
+    body = subject.evaluate(manifest_path=replayed_case.manifest)
+
+    assert body["verdict"] == "NOT_ADOPTABLE"
+    assert body["evidence"]["manifest_contents_match"] is False
+
+
+def test_output_inode_drift_after_fingerprint_is_not_adoptable(
+    replayed_case: ReplayedCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every path identity is sampled again after content evidence is read."""
+
+    subject = _load_adopt_module()
+    original_fingerprint = subject._fingerprint
+    retained = replayed_case.output.with_name("retained-after-fingerprint")
+    replaced = False
+
+    def fingerprint_then_replace(path: Path):
+        nonlocal replaced
+        fingerprint = original_fingerprint(path)
+        if path == replayed_case.output and not replaced:
+            replaced = True
+            replayed_case.output.rename(retained)
+            replayed_case.output.mkdir()
+        return fingerprint
+
+    monkeypatch.setattr(subject, "_fingerprint", fingerprint_then_replace)
+
+    body = subject.evaluate(manifest_path=replayed_case.manifest)
+
+    assert body["verdict"] == "NOT_ADOPTABLE"
+    assert body["evidence"]["repository_matches"] is False
 
 
 def test_symlink_manifest_is_unknown_and_never_followed(
