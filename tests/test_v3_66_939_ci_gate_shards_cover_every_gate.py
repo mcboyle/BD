@@ -369,6 +369,10 @@ _DECLARED = {
     # atomic compare-and-swap is the only sanctioned correction path for
     # release-register prose, so it remains an explicit CI safety boundary.
     "tests/test_register_content_amend.py",
+    # The append path shares the same stable-directory transaction with amend
+    # and close, so a regression can otherwise lose a release row without any
+    # diff-derived module test reaching the cross-writer schedule.
+    "tests/test_register_append.py",
     # Row 323. A human-review census expires when main moves, so this gate
     # drives the pytest collection hook before a stale row can spend its band.
     # It is tree-wide because the version comparison is about the row's base
@@ -846,8 +850,10 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # scheduled in its own browser-bearing shard; on top of main's 230 that is 231.
 # v3.66.1359 / row 402. The module-scoped register-amendment safety boundary is
 # explicitly declared and scheduled in toolchain, taking 231 to 232.
+# The cross-writer append safety boundary is declared and scheduled in the
+# same toolchain shard, taking 232 to 233.
 # The integrator re-pins this if a concurrent cut also lands a gate.
-_EXPECTED_DECLARED_GATE_COUNT = 232
+_EXPECTED_DECLARED_GATE_COUNT = 233
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

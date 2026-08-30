@@ -10,11 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import importlib.machinery
+import importlib.util
+import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+from types import ModuleType
 
 import pytest
 
@@ -109,6 +113,17 @@ def _run_close(
     )
 
 
+def _load_close_module() -> ModuleType:
+    loader = importlib.machinery.SourceFileLoader(
+        "test_bd_register_close", str(CLOSE_TOOL)
+    )
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_an_already_closed_worker_row_is_restamped_with_the_integrators_version(
     tmp_path: Path,
 ) -> None:
@@ -132,6 +147,57 @@ def test_an_open_row_is_closed_with_the_integrators_version(tmp_path: Path) -> N
     )
     assert "| 263 | CLOSED @4321 | fixture row |" in register
     assert "rows=1 open=0" in register
+
+
+def test_post_replace_directory_fsync_failure_reports_commit_uncertain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = _synthetic_repo(tmp_path, "OPEN")
+    register = repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+    module = _load_close_module()
+    real_open, real_fsync = os.open, os.fsync
+    directory_opens = 0
+    sync_descriptor: int | None = None
+
+    def injected_open(path: object, flags: int, *args: object) -> int:
+        nonlocal directory_opens, sync_descriptor
+        descriptor = real_open(path, flags, *args)
+        if Path(path) == register.parent and flags & getattr(os, "O_DIRECTORY", 0):
+            directory_opens += 1
+            if directory_opens == 2:
+                sync_descriptor = descriptor
+        return descriptor
+
+    def injected_fsync(descriptor: int) -> None:
+        if descriptor == sync_descriptor:
+            raise OSError("injected directory fsync failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(module.os, "open", injected_open)
+    monkeypatch.setattr(module.os, "fsync", injected_fsync)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(CLOSE_TOOL),
+            "--repo",
+            str(repo),
+            "--row",
+            "263",
+            "--version",
+            "3.66.4321",
+        ],
+    )
+
+    assert module.main() == 3
+    captured = capsys.readouterr()
+    assert "COMMIT UNCERTAIN" in captured.err
+    assert "directory fsync" in captured.err
+    assert "| 263 | CLOSED @4321 | fixture row |" in register.read_text(
+        encoding="ascii"
+    )
 
 
 def test_restamping_preserves_a_closed_rows_status_annotation(tmp_path: Path) -> None:

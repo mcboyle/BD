@@ -99,6 +99,10 @@ def _load_request(path: Path) -> tuple[str, list[tuple[int, str]]]:
             raise ValueError("each proposed row must be ASCII text without newline or pipe hazards") from exc
         if "\n" in value or "\r" in value:
             raise ValueError("each proposed row must be ASCII text without newline or pipe hazards")
+        if any(not 0x20 <= ord(character) <= 0x7E for character in value):
+            raise ValueError(
+                "each proposed row must use printable ASCII; TAB and control bytes are refused"
+            )
         row = value.strip()
         if row.count("|") != 4:
             raise ValueError("each proposed row must have exactly four table pipes")

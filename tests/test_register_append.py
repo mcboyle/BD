@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import importlib.machinery
 import importlib.util
 import json
@@ -19,10 +20,14 @@ from types import ModuleType
 import pytest
 
 
-BD_GATE_SCOPE = "module"
+# The register append/close/amend paths serialize one canonical release
+# authority across independent processes; that safety contract is tree-wide.
+BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "toolchain" / "bin" / "bd-register-append"
+AMEND_TOOL = ROOT / "toolchain" / "bin" / "bd-register-amend"
+CLOSE_TOOL = ROOT / "toolchain" / "bin" / "bd-register-close"
 PARSER = ROOT / "project-knowledge" / "build_current_overlay.py"
 HEADER = re.compile(
     r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
@@ -111,6 +116,38 @@ def _start(repo: Path, request: Path, env: dict[str, str]) -> subprocess.Popen[s
     )
 
 
+def _start_close(
+    repo: Path, version: str = "3.66.4321", env: dict[str, str] | None = None
+) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(CLOSE_TOOL),
+            "--repo",
+            str(repo),
+            "--row",
+            "401",
+            "--version",
+            version,
+        ],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _start_amend(repo: Path, request: Path) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        [sys.executable, str(AMEND_TOOL), "--repo", str(repo), "--request", str(request)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
 def _wait_for(path: Path, process: subprocess.Popen[str]) -> None:
     deadline = time.monotonic() + 10
     while not path.exists():
@@ -123,19 +160,49 @@ def _wait_for(path: Path, process: subprocess.Popen[str]) -> None:
         time.sleep(0.005)
 
 
+def _arrives_before(path: Path, process: subprocess.Popen[str], seconds: float = 1.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        if process.poll() is not None:
+            out, err = process.communicate()
+            pytest.fail(f"writer exited before lock observation: {process.returncode}, {out!r}, {err!r}")
+        time.sleep(0.005)
+    return path.exists()
+
+
+def _directory_has_exclusive_flock(path: Path) -> bool:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(descriptor)
+
+
 def _install_lock_barrier(repo: Path) -> None:
     parser = repo / "project-knowledge" / "build_current_overlay.py"
     with parser.open("a", encoding="ascii") as handle:
         handle.write(
-            "\nimport os as _append_os\nfrom pathlib import Path as _AppendPath\nimport time as _append_time\n"
+            "\nimport os as _append_os\nimport sys as _append_sys\nfrom pathlib import Path as _AppendPath\nimport time as _append_time\n"
             "_append_real_derive = derive_backlog\n_append_entered = False\n"
             "def derive_backlog(text):\n"
             "    global _append_entered\n"
             "    barrier = _append_os.environ.get('BD_REGISTER_APPEND_TEST_BARRIER')\n"
-            "    if barrier and not _append_entered:\n"
+            "    if barrier and 'bd-register-append' in _append_os.path.basename(_append_sys.argv[0]) and not _append_entered:\n"
             "        _append_entered = True\n        gate = _AppendPath(barrier)\n"
             "        (gate / f'arrived-{_append_os.getpid()}').touch()\n"
             "        while not (gate / 'release').exists(): _append_time.sleep(0.005)\n"
+            "    close_barrier = _append_os.environ.get('BD_REGISTER_CLOSE_TEST_BARRIER')\n"
+            "    if close_barrier and 'bd-register-close' in _append_os.path.basename(_append_sys.argv[0]):\n"
+            "        close_gate = _AppendPath(close_barrier)\n"
+            "        (close_gate / f'arrived-{_append_os.getpid()}').touch()\n"
+            "        while not (close_gate / 'release').exists(): _append_time.sleep(0.005)\n"
             "    return _append_real_derive(text)\n"
         )
 
@@ -184,6 +251,9 @@ def test_appends_a_numerically_ordered_batch_as_one_publication(tmp_path: Path) 
         ("empty item", ["| 403 | OPEN |  |"], {}, "non-empty item"),
         ("embedded pipe", ["| 403 | OPEN | unsafe | extra |"], {}, "exactly four table pipes"),
         ("embedded newline", ["| 403 | OPEN | unsafe\ntext |"], {}, "without newline or pipe"),
+        ("NUL item", ["| 403 | OPEN | unsafe\x00text |"], {}, "printable ASCII"),
+        ("TAB item", ["| 403 | OPEN | unsafe\ttext |"], {}, "printable ASCII"),
+        ("DEL item", ["| 403 | OPEN | unsafe\x7ftext |"], {}, "printable ASCII"),
         ("non-ascii", ["| 403 | OPEN | caf\u00e9 |"], {}, "ASCII JSON object"),
         ("wrong schema", ["| 403 | OPEN | new work |"], {"schema": "bd-register-append/v2"}, "schema must be bd-register-append/v1"),
         ("extra request key", ["| 403 | OPEN | new work |"], {"unexpected": "value"}, "exactly the bd-register-append/v1 schema"),
@@ -217,6 +287,10 @@ def test_concurrent_same_digest_requests_have_exactly_one_success(tmp_path: Path
 
     first = _start(repo, paths[0], env)
     _wait_for(barrier / f"arrived-{first.pid}", first)
+    assert _directory_has_exclusive_flock(register.parent), (
+        "append reached its deterministic barrier without holding the stable "
+        "directory flock"
+    )
     second = _start(repo, paths[1], env)
     (barrier / "release").touch()
     results = []
@@ -228,6 +302,70 @@ def test_concurrent_same_digest_requests_have_exactly_one_success(tmp_path: Path
     assert sum("canonical header digest mismatch" in result[2] for result in results) == 1
     final = register.read_text(encoding="ascii")
     assert sum(row in final for row in ("| 403 | OPEN | first winner |", "| 404 | OPEN | second winner |")) == 1
+
+
+@pytest.mark.parametrize("writer", ["close", "amend"])
+def test_append_serializes_with_other_register_writers(tmp_path: Path, writer: str) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    _install_lock_barrier(repo)
+    barrier = tmp_path / "barrier"
+    barrier.mkdir()
+    append_request = tmp_path / "append.json"
+    _write_request(append_request, _request(repo, register, ["| 403 | OPEN | appended work | "]))
+    env = os.environ.copy()
+    env["BD_REGISTER_APPEND_TEST_BARRIER"] = str(barrier)
+    append_process = _start(repo, append_request, env)
+    _wait_for(barrier / f"arrived-{append_process.pid}", append_process)
+
+    if writer == "close":
+        close_barrier = tmp_path / "close-barrier"
+        close_barrier.mkdir()
+        env["BD_REGISTER_CLOSE_TEST_BARRIER"] = str(close_barrier)
+        other_process = _start_close(repo, env=env)
+        preserved = "| 401 | CLOSED @4321 | preserved before |"
+    else:
+        amend_request = tmp_path / "amend.json"
+        original_row = "| 402 | CLOSED @1359 | preserved after |"
+        _write_request(
+            amend_request,
+            {
+                "schema": "bd-register-amend/v1",
+                "row": 402,
+                "expected_status": "CLOSED @1359",
+                "expected_row_sha256": hashlib.sha256(original_row.encode("ascii")).hexdigest(),
+                "find": "preserved after",
+                "replace": "amended after",
+            },
+        )
+        other_process = _start_amend(repo, amend_request)
+        preserved = "| 402 | CLOSED @1359 | amended after |"
+
+    lock_evidence = _directory_has_exclusive_flock(register.parent)
+    close_entered_while_append_locked = False
+    if writer == "close":
+        close_entered_while_append_locked = _arrives_before(
+            close_barrier / f"arrived-{other_process.pid}", other_process
+        )
+        (close_barrier / "release").touch()
+    if not lock_evidence or close_entered_while_append_locked:
+        other_process.communicate(timeout=10)
+    (barrier / "release").touch()
+    append_out, append_err = append_process.communicate(timeout=10)
+    other_out, other_err = other_process.communicate(timeout=10)
+
+    assert lock_evidence, (
+        "no-flock negative control: the competing writer completed while append "
+        "was paused, so an unlocked append can overwrite its stale snapshot"
+    )
+    assert not close_entered_while_append_locked, (
+        "no-flock negative control: close read the register while append held "
+        "the stable directory flock"
+    )
+    assert append_process.returncode == 0, (append_out, append_err)
+    assert other_process.returncode == 0, (other_out, other_err)
+    final = register.read_text(encoding="ascii")
+    assert "| 403 | OPEN | appended work |" in final
+    assert preserved in final
 
 
 def test_malformed_request_refuses_without_writing(tmp_path: Path) -> None:
