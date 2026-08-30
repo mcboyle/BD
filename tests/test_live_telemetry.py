@@ -204,6 +204,159 @@ def test_watchdog_rejects_old_generation_and_changed_heartbeat_snapshots(monkeyp
     assert runner._hung_workers == hung
 
 
+def test_replacement_start_waits_for_single_watchdog_owner(monkeypatch):
+    """A completed run's watchdog stays owned until it is quiescent."""
+    from bulk_downloader import runner as runner_mod
+    from bulk_downloader.runner import StartOutcome
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.config = {
+        "auto_teach_first_run": False,
+        "max_concurrent": 1,
+        "worker_teardown_wait_s": 0,
+    }
+    runner.jobs[url].update({"status": "pending", "retry_after": 0})
+    runner._state = "idle"
+    runner._hung_workers = []
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._url_queue = queue.Queue()
+    runner._worker_threads = []
+    runner._worker_generation_invalidated = False
+    runner._rl_autostart = False
+    runner._manual_download_session = None
+    runner._manual_login_handle = None
+    runner.is_rate_limited = lambda: False
+    runner._worker_loop = lambda *args: None
+    runner._watch_done = lambda *args: None
+    runner._stop_auto_retry = lambda: None
+    runner.log_event = lambda *args, **kwargs: None
+    runner.log = types.SimpleNamespace(
+        warning=lambda *args, **kwargs: None,
+        debug=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        runner_mod._download_hold, "downloads_allowed",
+        lambda: (True, {"state": "absent", "reason": ""}),
+    )
+
+    first_started = threading.Event()
+    first_saw_stop = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+    ownership_lock = threading.Lock()
+    watchdog_threads = []
+    first_stop_observed = []
+    active = [0]
+    max_active = [0]
+
+    def blocked_watchdog(_run_generation):
+        with ownership_lock:
+            owner_index = len(watchdog_threads)
+            watchdog_threads.append(threading.current_thread())
+            active[0] += 1
+            max_active[0] = max(max_active[0], active[0])
+        try:
+            if owner_index == 0:
+                first_started.set()
+                first_stop_observed.append(runner._stop.wait())
+                first_saw_stop.set()
+                release_first.wait()
+            else:
+                second_started.set()
+                runner._stop.wait()
+        finally:
+            with ownership_lock:
+                active[0] -= 1
+
+    runner._watchdog_loop = blocked_watchdog
+
+    try:
+        assert runner.start() is None
+        assert first_started.wait(2.0), "the first watchdog never reached its target"
+        first_owner = watchdog_threads[0]
+        assert getattr(runner, "_watchdog_thread", None) is first_owner
+
+        # Negative control: start is idempotent while this generation runs.
+        assert runner.start() is None
+        assert watchdog_threads == [first_owner]
+
+        # Model natural queue completion, where the shared stop event remains
+        # clear. Replacement start must signal the old owner itself.
+        with runner._run_lifecycle_lock:
+            runner._state = "done"
+        with runner._lock:
+            runner.jobs[url].update({"status": "pending", "retry_after": 0})
+
+        refused = runner.start()
+
+        assert first_saw_stop.wait(2.0), (
+            "replacement start did not signal the completed watchdog owner")
+        assert first_stop_observed == [True]
+        assert refused is StartOutcome.TEARDOWN_PENDING
+        assert getattr(runner, "_watchdog_thread", None) is first_owner
+        assert watchdog_threads == [first_owner]
+        assert max_active == [1]
+
+        # Positive control: after the exact owner exits, one replacement runs.
+        release_first.set()
+        first_owner.join(2.0)
+        assert not first_owner.is_alive()
+        assert runner.start() is None
+        assert second_started.wait(2.0), "the replacement watchdog did not start"
+        assert len(watchdog_threads) == 2
+        assert getattr(runner, "_watchdog_thread", None) is watchdog_threads[1]
+        assert watchdog_threads[1].is_alive()
+        assert max_active == [1]
+    finally:
+        release_first.set()
+        runner._stop.set()
+        for thread in watchdog_threads:
+            thread.join(2.0)
+
+
+def test_retire_workers_keeps_a_live_watchdog_owned(monkeypatch):
+    """Permanent retirement cannot forget a watchdog that missed its stop."""
+    runner = _telemetry_runner(monkeypatch)
+    release = threading.Event()
+    watchdog = threading.Thread(
+        target=release.wait,
+        name="blocked-retirement-watchdog",
+        daemon=True,
+    )
+    runner.config = {"worker_teardown_wait_s": 0}
+    runner._state = "running"
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._worker_threads = []
+    runner._worker_generation_invalidated = False
+    runner._watchdog_thread = watchdog
+    runner._rl_autostart = False
+    runner._manual_download_session = None
+    runner._manual_login_handle = None
+    runner._stop_auto_retry = lambda: None
+    runner.log = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
+    watchdog.start()
+
+    try:
+        assert runner.retire_workers(timeout=0) is False
+        assert runner._watchdog_thread is watchdog
+        assert watchdog.is_alive()
+        assert runner._run_retired is True
+
+        release.set()
+        watchdog.join(2.0)
+        assert not watchdog.is_alive()
+        assert runner.retire_workers(timeout=1.0) is True
+        assert runner._watchdog_thread is None
+    finally:
+        release.set()
+        watchdog.join(2.0)
+
+
 def test_old_watch_done_cannot_mutate_new_generation(monkeypatch):
     runner = _telemetry_runner(monkeypatch)
     new_url = "https://example.test/new.mp4"

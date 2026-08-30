@@ -557,6 +557,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # Phase 3: persistent worker threads pull from this queue.
         self._url_queue=queue.Queue()
         self._worker_threads=[]
+        self._watchdog_thread=None
         self._state="idle"; self._login_thread=None; self._login_status=""
         # Phase 18.fix: session-recovery gate. Cleared while a re-login is
         # in flight; workers wait on this before pulling the next URL so
@@ -1001,7 +1002,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             elif getattr(self, "_worker_generation_invalidated", False):
                 teardown_generation = getattr(self, "_worker_run_generation", 0)
 
-            if teardown_generation is not None:
+            captured_watchdog = None
+            if (getattr(self, "_watchdog_thread", None) is not None
+                    and getattr(self, "_state", None) != "running"):
+                # A completed run can leave its watchdog sleeping for up to a
+                # minute.  Claim and signal that exact identity under the run
+                # lock before a replacement is allowed to clear `_stop`.
+                with self._run_lifecycle_lock:
+                    if self._state != "running":
+                        captured_watchdog = self._watchdog_thread
+                        if captured_watchdog is not None:
+                            self._stop.set()
+
+            if teardown_generation is not None or captured_watchdog is not None:
                 captured_workers = tuple(getattr(self, "_worker_threads", ()))
                 current_thread = threading.current_thread()
                 wait_budget = max(0.0, _finite_config_float(
@@ -1022,6 +1035,20 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             still_alive.append(worker)
                     except AttributeError:
                         pass
+                watchdog_alive = False
+                if captured_watchdog is not None:
+                    if captured_watchdog is current_thread:
+                        watchdog_alive = True
+                    else:
+                        try:
+                            captured_watchdog.join(
+                                timeout=max(0.0, deadline - time.monotonic()))
+                        except (RuntimeError, AttributeError):
+                            pass
+                        try:
+                            watchdog_alive = captured_watchdog.is_alive()
+                        except AttributeError:
+                            watchdog_alive = True
                 if still_alive:
                     log = getattr(self, "log", None)
                     if log is not None:
@@ -1029,6 +1056,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             "start refused: %d prior worker(s) still tearing down",
                             len(still_alive))
                     return StartOutcome.TEARDOWN_PENDING
+                if watchdog_alive:
+                    log = getattr(self, "log", None)
+                    if log is not None:
+                        log.warning(
+                            "start refused: prior watchdog still tearing down")
+                    return StartOutcome.TEARDOWN_PENDING
+                if captured_watchdog is not None:
+                    with self._run_lifecycle_lock:
+                        if self._watchdog_thread is captured_watchdog:
+                            self._watchdog_thread = None
 
             outcome = self._start_serialized(
                 _teardown_generation=teardown_generation)
@@ -1359,8 +1396,18 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # in 15min. Can't safely kill threads in Python, so we don't
         # try — just surface the signal loudly so the user can choose
         # to restart the site.
-        threading.Thread(target=self._watchdog_loop, args=(run_generation,), daemon=True,
-                          name=f"watchdog-{self.site_id}").start()
+        watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            args=(run_generation,),
+            daemon=True,
+            name=f"watchdog-{self.site_id}")
+        self._watchdog_thread = watchdog_thread
+        try:
+            watchdog_thread.start()
+        except BaseException:
+            if self._watchdog_thread is watchdog_thread:
+                self._watchdog_thread = None
+            raise
 
     def _publish_watchdog_snapshot(self, run_generation, beats, hung_workers):
         """Publish only a still-current heartbeat snapshot for this run."""
@@ -1686,6 +1733,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             self.stop()
             with worker_lock:
                 captured_workers = tuple(getattr(self, "_worker_threads", ()))
+            captured_watchdog = getattr(self, "_watchdog_thread", None)
             captured_auxiliary = tuple(
                 (getattr(self, "_auxiliary_start_threads", None) or {}).keys())
             captured_login = getattr(self, "_login_thread", None)
@@ -1749,6 +1797,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         seen = set()
         for thread in (
             *captured_workers,
+            captured_watchdog,
             *captured_auxiliary,
             captured_login,
             captured_snapshot,
@@ -1883,6 +1932,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     all_quiescent = False
                 elif tuple(getattr(self, "_worker_threads", ())) == owned:
                     self._worker_threads = []
+
+            current_watchdog = getattr(self, "_watchdog_thread", None)
+            if current_watchdog is not None:
+                if _is_live(current_watchdog):
+                    all_quiescent = False
+                elif current_watchdog is captured_watchdog:
+                    self._watchdog_thread = None
 
             starts = getattr(self, "_auxiliary_start_threads", None) or {}
             for thread in tuple(starts):
