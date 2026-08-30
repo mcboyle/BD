@@ -22,7 +22,7 @@ import sys
 from typing import NoReturn
 
 
-@dataclass(frozen=True)
+@dataclass
 class ReplayFailure(Exception):
     reason_code: str
     message: str
@@ -67,6 +67,7 @@ class ReplayClaim:
     parent_fd: int
     path_identity: FsIdentity
     parent_identity: FsIdentity
+    owner: dict[str, object]
 
     def close(self) -> None:
         for descriptor in (self.fd, self.parent_fd):
@@ -78,7 +79,7 @@ class ReplayClaim:
 
 @dataclass(frozen=True)
 class OutputOwnership:
-    output_identity: FsIdentity
+    output_identity: FsIdentity | None
     git_dir: Path
     git_dir_identity: FsIdentity
 
@@ -261,6 +262,30 @@ def _require_supported_source_state(source: Path) -> None:
                 f"source index contains unsupported gitlink {path!r}",
             )
 
+    ita_visible = _git_bytes(
+        source,
+        "diff",
+        "--cached",
+        "--raw",
+        "--ita-visible-in-index",
+        "HEAD",
+        "--",
+    )
+    ita_invisible = _git_bytes(
+        source,
+        "diff",
+        "--cached",
+        "--raw",
+        "--ita-invisible-in-index",
+        "HEAD",
+        "--",
+    )
+    if ita_visible != ita_invisible:
+        raise ReplayFailure(
+            "SOURCE_HAS_INTENT_TO_ADD",
+            "source index contains unsupported intent-to-add entries",
+        )
+
 
 def _stable_fingerprint(source: Path) -> str:
     first = _fingerprint(source)
@@ -401,6 +426,17 @@ def _process_start_ticks() -> int:
     return int(fields[19])
 
 
+def _owner_payload() -> dict[str, object]:
+    return {
+        "boot_id": Path("/proc/sys/kernel/random/boot_id")
+        .read_text(encoding="ascii")
+        .strip(),
+        "pid": os.getpid(),
+        "ppid": os.getppid(),
+        "start_ticks": _process_start_ticks(),
+    }
+
+
 def _claim_payload(claim: ReplayClaim, *, state: str) -> dict[str, object]:
     return {
         "schema": 1,
@@ -411,14 +447,7 @@ def _claim_payload(claim: ReplayClaim, *, state: str) -> dict[str, object]:
             "identity": claim.path_identity.as_dict(),
             "parent_identity": claim.parent_identity.as_dict(),
         },
-        "owner": {
-            "boot_id": Path("/proc/sys/kernel/random/boot_id")
-            .read_text(encoding="ascii")
-            .strip(),
-            "pid": os.getpid(),
-            "ppid": os.getppid(),
-            "start_ticks": _process_start_ticks(),
-        },
+        "owner": claim.owner,
     }
 
 
@@ -443,6 +472,8 @@ def _claim_still_owned(claim: ReplayClaim) -> tuple[bool, str]:
 
 
 def _acquire_claim(output: Path) -> ReplayClaim:
+    token = secrets.token_hex(32)
+    owner = _owner_payload()
     parent = output.parent
     parent_fd = os.open(
         parent,
@@ -475,11 +506,12 @@ def _acquire_claim(output: Path) -> ReplayClaim:
         claim = ReplayClaim(
             path=path,
             parent=parent,
-            token=secrets.token_hex(32),
+            token=token,
             fd=fd,
             parent_fd=parent_fd,
             path_identity=path_identity,
             parent_identity=parent_identity,
+            owner=owner,
         )
         _write_descriptor_json(claim.fd, _claim_payload(claim, state="CLAIMED"))
         os.fsync(claim.fd)
@@ -493,17 +525,38 @@ def _acquire_claim(output: Path) -> ReplayClaim:
             )
         os.fsync(parent_fd)
         return claim
-    except BaseException:
+    except BaseException as primary:
+        notes: list[str] = []
         if claim is not None:
-            owned, _ = _claim_still_owned(claim)
+            owned, reason = _claim_still_owned(claim)
             if owned:
                 try:
                     os.unlink(claim.path.name, dir_fd=claim.parent_fd)
-                except OSError:
-                    pass
+                    os.fsync(claim.parent_fd)
+                except OSError as cleanup_error:
+                    notes.append(
+                        "failed to remove acquired replay claim: "
+                        f"{cleanup_error!r}"
+                    )
+            else:
+                notes.append(f"retained replay claim: {reason}")
+        elif fd >= 0:
+            notes.append(
+                "retained replay claim because token ownership was not established"
+            )
         if fd >= 0:
-            os.close(fd)
-        os.close(parent_fd)
+            try:
+                os.close(fd)
+            except OSError as close_error:
+                notes.append(f"replay claim close failed: {close_error!r}")
+        try:
+            os.close(parent_fd)
+        except OSError as close_error:
+            notes.append(f"replay parent close failed: {close_error!r}")
+        add_note = getattr(primary, "add_note", None)
+        if add_note is not None:
+            for note in notes:
+                add_note(note)
         raise
 
 
@@ -531,6 +584,59 @@ def _capture_output_ownership(output: Path) -> OutputOwnership:
     )
 
 
+def _registered_output_ownership(
+    common_git_dir: Path,
+    output: Path,
+) -> OutputOwnership | None:
+    registrations = common_git_dir / "worktrees"
+    try:
+        entries = list(registrations.iterdir())
+    except FileNotFoundError:
+        return None
+    matches: list[OutputOwnership] = []
+    for entry in entries:
+        entry_identity = _identity_at(entry)
+        if not stat.S_ISDIR(entry_identity.mode):
+            raise ReplayFailure(
+                "OUTPUT_REGISTRATION_UNSAFE",
+                f"worktree registration is not a directory: {entry}",
+            )
+        gitdir_file = entry / "gitdir"
+        try:
+            gitdir_identity = _identity_at(gitdir_file)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(gitdir_identity.mode):
+            raise ReplayFailure(
+                "OUTPUT_REGISTRATION_UNSAFE",
+                f"worktree gitdir receipt is not regular: {gitdir_file}",
+            )
+        raw_target = gitdir_file.read_text(encoding="utf-8").strip()
+        if not raw_target:
+            raise ReplayFailure(
+                "OUTPUT_REGISTRATION_UNSAFE",
+                f"worktree gitdir receipt is empty: {gitdir_file}",
+            )
+        target = Path(raw_target)
+        if not target.is_absolute():
+            target = entry / target
+        registered_output = target.parent.resolve(strict=False)
+        if registered_output == output:
+            matches.append(
+                OutputOwnership(
+                    output_identity=None,
+                    git_dir=entry,
+                    git_dir_identity=entry_identity,
+                )
+            )
+    if len(matches) > 1:
+        raise ReplayFailure(
+            "OUTPUT_REGISTRATION_AMBIGUOUS",
+            f"multiple Git registrations name replay output {output}",
+        )
+    return matches[0] if matches else None
+
+
 def _output_still_owned(
     claim: ReplayClaim,
     output: Path,
@@ -540,7 +646,10 @@ def _output_still_owned(
     if not claimed:
         return False, reason
     try:
-        if _identity_at(output) != ownership.output_identity:
+        if ownership.output_identity is None:
+            if output.exists() or output.is_symlink():
+                return False, "unregistered output path appeared before rollback"
+        elif _identity_at(output) != ownership.output_identity:
             return False, "output final-path no-follow identity changed"
         if _identity_at(ownership.git_dir) != ownership.git_dir_identity:
             return False, "registered output Git-dir identity changed"
@@ -566,6 +675,9 @@ def _rollback_owned(
     repo: Path,
     output: Path,
     ownership: OutputOwnership | None,
+    *,
+    release_claim_with_unowned_output: bool = False,
+    release_absent_claim: bool = True,
 ) -> list[str]:
     notes: list[str] = []
     output_absent = not output.exists() and not output.is_symlink()
@@ -575,15 +687,32 @@ def _rollback_owned(
             notes.append(f"retained replay output: {reason}")
             return notes
         result = _git_result(repo, "worktree", "remove", "--force", str(output))
-        if result.returncode != 0 or output.exists() or output.is_symlink():
+        registration_exists = (
+            ownership.git_dir.exists() or ownership.git_dir.is_symlink()
+        )
+        if (
+            output.exists()
+            or output.is_symlink()
+            or registration_exists
+        ):
             detail = result.stderr.decode("utf-8", "replace").strip()
             notes.append(
                 "failed to remove identity-owned replay output: "
                 + (detail or str(output))
             )
             return notes
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", "replace").strip()
+            notes.append(
+                "Git reported a cleanup error after exact output and registration "
+                f"absence was proven: {detail or result.returncode}"
+            )
         output_absent = True
-    if output_absent:
+        release_absent_claim = True
+    if (
+        (output_absent and release_absent_claim)
+        or release_claim_with_unowned_output
+    ):
         note = _unlink_owned_claim(claim)
         if note:
             notes.append(note)
@@ -634,63 +763,79 @@ def replay(
         output = Path.cwd() / output
     output_parent = output.parent.resolve(strict=True)
     output = output_parent / output.name
-    if output.exists() or output.is_symlink():
-        raise ReplayFailure("OUTPUT_EXISTS", f"output path already exists: {output}")
     _refuse_if_nested_output(source, output)
-    repo_common_git = _common_git_dir(repo)
-    source_common_git = _common_git_dir(source)
-    if repo_common_git != source_common_git:
-        raise ReplayFailure(
-            "REPOSITORY_MISMATCH", "repo and source do not share a Git common directory"
-        )
-    _require_supported_source_state(source)
-
-    source_head = _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
-    expected = _resolve_commit(source, expect_head, "EXPECTED_HEAD_UNREADABLE")
-    if source_head != expected:
-        raise ReplayFailure(
-            "SOURCE_HEAD_MISMATCH",
-            f"source HEAD is {source_head}, expected {expected}",
-        )
-    main_sha = _resolve_commit(repo, main_ref, "MAIN_REF_UNREADABLE")
-    merge_base = _git_text(repo, "merge-base", source_head, main_sha)
-    if not merge_base:
-        raise ReplayFailure("NO_MERGE_BASE", "source and main have no merge base")
-
-    source_before = _stable_fingerprint(source)
-    staged_patch = _git_bytes(
-        source,
-        "diff",
-        "--cached",
-        "--binary",
-        "--full-index",
-        "HEAD",
-        "--",
-    )
-    unstaged_patch = _git_bytes(
-        source, "diff", "--binary", "--full-index", "--"
-    )
-    untracked = _untracked_entries(source)
-    commits = _candidate_commits(source, merge_base, source_head)
-    if not commits and not staged_patch and not unstaged_patch and not untracked:
-        raise ReplayFailure("NO_CANDIDATE_CHANGES", "source contains no candidate work")
-    if _fingerprint(source) != source_before:
-        raise ReplayFailure(
-            "SOURCE_NOT_QUIESCENT",
-            "source changed while replay inputs were captured",
-        )
-
-    repo_identity = _identity_at(repo)
-    source_identity = _identity_at(source)
-    common_git_identity = _identity_at(repo_common_git)
     claim = _acquire_claim(output)
     ownership: OutputOwnership | None = None
+    source_before: str | None = None
+    release_claim_with_unowned_output = False
+    worktree_add_attempted = False
+    registration_absence_proven = False
     try:
+        if output.exists() or output.is_symlink():
+            release_claim_with_unowned_output = True
+            raise ReplayFailure(
+                "OUTPUT_EXISTS",
+                f"output path already exists without this transaction: {output}",
+            )
+        repo_common_git = _common_git_dir(repo)
+        source_common_git = _common_git_dir(source)
+        if repo_common_git != source_common_git:
+            raise ReplayFailure(
+                "REPOSITORY_MISMATCH",
+                "repo and source do not share a Git common directory",
+            )
+        _require_supported_source_state(source)
+
+        source_head = _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
+        expected = _resolve_commit(source, expect_head, "EXPECTED_HEAD_UNREADABLE")
+        if source_head != expected:
+            raise ReplayFailure(
+                "SOURCE_HEAD_MISMATCH",
+                f"source HEAD is {source_head}, expected {expected}",
+            )
+        main_sha = _resolve_commit(repo, main_ref, "MAIN_REF_UNREADABLE")
+        merge_base = _git_text(repo, "merge-base", source_head, main_sha)
+        if not merge_base:
+            raise ReplayFailure("NO_MERGE_BASE", "source and main have no merge base")
+
+        source_before = _stable_fingerprint(source)
+        staged_patch = _git_bytes(
+            source,
+            "diff",
+            "--cached",
+            "--binary",
+            "--full-index",
+            "HEAD",
+            "--",
+        )
+        unstaged_patch = _git_bytes(
+            source, "diff", "--binary", "--full-index", "--"
+        )
+        untracked = _untracked_entries(source)
+        commits = _candidate_commits(source, merge_base, source_head)
+        if not commits and not staged_patch and not unstaged_patch and not untracked:
+            raise ReplayFailure(
+                "NO_CANDIDATE_CHANGES",
+                "source contains no candidate work",
+            )
+        if _fingerprint(source) != source_before:
+            raise ReplayFailure(
+                "SOURCE_NOT_QUIESCENT",
+                "source changed while replay inputs were captured",
+            )
+
+        repo_identity = _identity_at(repo)
+        source_identity = _identity_at(source)
+        common_git_identity = _identity_at(repo_common_git)
+        worktree_add_attempted = True
         add_result = _git_result(
             repo, "worktree", "add", "--detach", str(output), main_sha
         )
         if output.exists() or output.is_symlink():
             ownership = _capture_output_ownership(output)
+        else:
+            ownership = _registered_output_ownership(repo_common_git, output)
+            registration_absence_proven = ownership is None
         if add_result.returncode != 0:
             detail = add_result.stderr.decode("utf-8", "replace").strip()
             raise ReplayFailure(
@@ -772,17 +917,30 @@ def replay(
         }
     except BaseException as primary:
         try:
-            notes = _rollback_owned(claim, repo, output, ownership)
+            notes = _rollback_owned(
+                claim,
+                repo,
+                output,
+                ownership,
+                release_claim_with_unowned_output=(
+                    release_claim_with_unowned_output
+                ),
+                release_absent_claim=(
+                    not worktree_add_attempted
+                    or registration_absence_proven
+                ),
+            )
         except BaseException as cleanup_error:
             notes = [f"replay rollback raised secondary error: {cleanup_error!r}"]
-        try:
-            if _fingerprint(source) != source_before:
-                notes.append("source changed while failed replay was rolled back")
-        except BaseException as evidence_error:
-            notes.append(
-                "source could not be revalidated after failed replay: "
-                f"{evidence_error!r}"
-            )
+        if source_before is not None:
+            try:
+                if _fingerprint(source) != source_before:
+                    notes.append("source changed while failed replay was rolled back")
+            except BaseException as evidence_error:
+                notes.append(
+                    "source could not be revalidated after failed replay: "
+                    f"{evidence_error!r}"
+                )
         add_note = getattr(primary, "add_note", None)
         if add_note is not None:
             for note in notes:
