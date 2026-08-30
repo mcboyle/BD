@@ -452,6 +452,11 @@ and summarize results rather than flooding the working context. This does not
 permit skimming: read every instruction or source needed for the current claim.
 
 CAPTURE WHOLE TO DISK, READ A SLICE. A SECOND HAND-ROLLED HEREDOC IS A MISSING `bd-*` TOOL.
+Generated remote source is transport data, not nested shell grammar: send its
+UTF-8 bytes through an ASCII-safe decoder and verify an integrity digest before
+publication. Never embed generated remote source in a bootstrap heredoc; test a
+delimiter-collision payload and a decodable-corruption refusal at the real
+transport seam.
 And measure before optimising: use the complete captured denominator,
 then inspect bounded slices and promote repeated logic into the existing toolchain.
 
