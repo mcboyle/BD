@@ -358,3 +358,80 @@ def confidence_tier(verdict: "Verdict") -> str:
     if s >= _TIER_REVIEW_MIN:
         return TIER_REVIEW
     return TIER_REJECT
+
+
+# ── row 399: page-level "does this page carry ANY video?" ────────────────────
+# find_best_download returning None means no download CONTROL was harvested;
+# this answers the DIFFERENT question of whether the PAGE exposes media at all,
+# so the runner can name a no-video page (a photo gallery) distinctly from a
+# video page whose control failed to fire. Mirrors the MEDIA subset of the
+# operator's bd-shoot instrument -- which measured MEDIA AFFORDANCES 0 on the
+# row-399 gallery -- but treats a photo pixel dimension as a still, not a video.
+_SIGNED_URL_RE = re.compile(r"signed", re.I)
+# A video WxH (1920x1080), but NOT a photo pixel dimension (6000x4000px): a
+# trailing 'px' marks a still, not a video (the row 381 distinction). The
+# (?!\d) is load-bearing exactly as in detect.res_score: a bare (?!\s*px)
+# BACKTRACKS on '6000x4000px' and matches ('6000','400'), reading a still as a
+# video. (?!\d) blocks the shorter second-group match; (?!\s*px) blocks the
+# full one.
+_VIDEO_WXH_RE = re.compile(r"\d{3,4}\s*[x×]\s*\d{3,4}(?!\d)(?!\s*px)")
+
+# The needs_review message for a PROVEN no-video page. Its distinctive substring
+# ("no video on this page") names THIS state; the transport timeout path
+# ("scored ok but no download fired") names the OTHER -- a control that fired
+# no download event. The two must never share a diagnostic.
+NO_MEDIA_AFFORDANCE_MESSAGE = (
+    "No video on this page -- it exposes no media affordance at all (a photo "
+    "gallery or non-video page), so there is nothing to download here. This is "
+    "not a broken selector and not a control that failed to fire.")
+
+
+def is_media_affordance(value: str = "", text: str = "") -> bool:
+    """True when an affordance's URL ``value`` or visible ``text`` names actual
+    media -- a video/audio file, a manifest, a media API, a signed CDN URL, or a
+    video WxH resolution. A photo gallery's image links, nav chrome, and account
+    links are NOT media affordances; nor is a photo pixel dimension
+    (``6000x4000px``), which row 381 established is a still, not a video.
+
+    ``value`` and ``text`` are tested SEPARATELY, never joined: ``MEDIA_EXT_RE``
+    anchors the extension on ``?``/``#``/end, so appending text after a URL that
+    ends in ``.mp4`` would defeat the ``$`` anchor and hide a real media file."""
+    for s in (value or "", text or ""):
+        if not s:
+            continue
+        if (MEDIA_EXT_RE.search(s) or MANIFEST_RE.search(s)
+                or API_PATTERN_RE.search(s)):
+            return True
+        if _SIGNED_URL_RE.search(s):
+            return True
+        if _VIDEO_WXH_RE.search(s):
+            return True
+    return False
+
+
+def classify_page_affordances(rows) -> Tuple[int, int]:
+    """Return ``(total, media)`` over affordance rows. Each row is a dict with a
+    URL ``val`` (or ``value``) and visible ``txt`` (or ``text``); missing keys
+    read as ``''``. ``total`` counts every row so a caller can distinguish 'zero
+    affordances of ANY kind' (the page did not render / is not authenticated ->
+    UNKNOWN) from 'affordances present but none are media' (a no-video page)."""
+    total = 0
+    media = 0
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        total += 1
+        val = r.get("val", r.get("value", "")) or ""
+        txt = r.get("txt", r.get("text", "")) or ""
+        if is_media_affordance(val, txt):
+            media += 1
+    return total, media
+
+
+def page_reports_no_video(rows) -> bool:
+    """True ONLY when the page has affordances but ZERO are media -- a photo
+    gallery / no-video page. ``total == 0`` (nothing rendered, or an
+    unauthenticated page) is UNKNOWN and returns ``False``, never a no-video
+    claim (A7: an unavailable measurement is UNKNOWN, never OK)."""
+    total, media = classify_page_affordances(rows)
+    return total > 0 and media == 0

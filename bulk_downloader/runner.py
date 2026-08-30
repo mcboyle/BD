@@ -105,6 +105,28 @@ except Exception as _e:
 # v3.66.390 (Track-K): fail-closed proxy selection for in-process payload
 # downloads. Pure decision; reuses the per-site VPN resolver the browser uses.
 from .download_egress import effective_download_proxy
+
+# row 399: when no download candidate is harvested, ask whether the PAGE
+# carries any media at all (a photo gallery exposes affordances but no video).
+# Same attribute set bd-shoot / detect trust; ONE row per (element, attr) so
+# each `val` is a single clean URL -- MEDIA_EXT_RE anchors the extension on
+# ?/#/end, so a joined blob would hide a `.mp4` that is not last. Classified by
+# the pure candidate_filter.page_reports_no_video.
+_AFFORDANCE_ATTRS = ("href", "src", "data-href", "data-url", "data-src",
+                     "data-download", "data-signed-url-key", "data-video",
+                     "data-link", "onclick")
+_AFFORDANCE_SCAN_JS = (
+    "(attrs) => {"
+    "  const out = [];"
+    "  for (const e of document.querySelectorAll('*')) {"
+    "    for (const a of attrs) {"
+    "      const v = e.getAttribute && e.getAttribute(a);"
+    "      if (v) out.push({val: String(v),"
+    "                       txt: (e.innerText || '').trim().slice(0, 80)});"
+    "    }"
+    "  }"
+    "  return out;"
+    "}")
 # F5 Phase 2 (v3.66.701): per-capture netns for the BROWSER launch. The engine
 # shipped @686 and the shim @699; this is the bracket that owns a worker's
 # namespace for its browser's whole lifetime (see _worker_loop).
@@ -3874,6 +3896,38 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     # `best` as the live result).
             if not best:
                 ss=self._screenshot(page,url)
+                # row 399: a page whose affordances carry ZERO media is a
+                # no-video page (a photo gallery), not a broken control. Name it
+                # distinctly and route to needs_review -- do not burn transient
+                # retries on a page that will never grow a video, and do not
+                # charge it against the no-button / selector-drift counters,
+                # which measure a DIFFERENT failure (a control that should be
+                # present and is not). Fail-closed and UNKNOWN-safe: claim
+                # no-video ONLY on a proven (total>0, media==0); zero affordances
+                # of any kind, or a probe error, falls through to the generic
+                # "No download button found" path below unchanged (A7).
+                _no_video=False
+                try:
+                    from . import candidate_filter as _cf
+                    _aff_rows=page.evaluate(_AFFORDANCE_SCAN_JS,
+                                            list(_AFFORDANCE_ATTRS))
+                    # isinstance(list) is load-bearing: a mock page's evaluate
+                    # returns a truthy Mock, and page_reports_no_video would then
+                    # iterate a non-iterable. Any probe failure -> generic path.
+                    if isinstance(_aff_rows, list):
+                        _no_video=_cf.page_reports_no_video(_aff_rows)
+                except Exception:
+                    _no_video=False
+                if _no_video:
+                    _nv=_cf.NO_MEDIA_AFFORDANCE_MESSAGE
+                    sys.stderr.write(
+                        f"  download: no video on {url[-40:]} — page exposes "
+                        f"zero media affordances (photo gallery / non-video "
+                        f"page). needs_review.\n")
+                    self._update_job(url,"needs_review",_nv,screenshot=ss)
+                    db_log(self.site_id,self.config.get("name","?"),url,
+                           "needs_review","",0,_nv,ss)
+                    return
                 self._consec_no_btn+=1
                 threshold=int(self.config.get("no_button_threshold",5))
                 if self._consec_no_btn>=threshold:
