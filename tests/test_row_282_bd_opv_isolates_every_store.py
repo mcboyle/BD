@@ -27,12 +27,14 @@ _TOOL = _REPO / "toolchain" / "bin" / "bd-opv"
 _AUDIT_PREFIX = "ROW282-RESOURCE "
 _ISOLATION_ENV = {
     "BD_AUTH_TOKEN",
+    "BD_CAPTURE_VAULT",
     "BD_CAPTURES_ROOT",
     "BD_DOWNLOAD_DIR",
     "BD_ENVFILE",
     "BD_HOME",
     "BD_INSTALL_DIR",
     "BD_LOG_FILE",
+    "BD_SECRETS_FILE",
     "BD_SITES_CONFIG_PATH",
     "BD_VPN_CONFIG_PATH",
     "BD_WIDGETS_CONFIG_PATH",
@@ -205,7 +207,8 @@ def _seed_push_store(path: Path) -> None:
     assert count == 0
 
 
-def _run_opv(tmp_path: Path, check_id: str, *, seed_push: bool = False) -> dict:
+def _run_opv(tmp_path: Path, check_id: str, *, seed_push: bool = False,
+             extra_env: dict[str, str] | None = None) -> dict:
     caller = tmp_path / "operator-state"
     caller_home = tmp_path / "caller-home"
     caller_tmp = tmp_path / "caller-tmp"
@@ -224,10 +227,12 @@ def _run_opv(tmp_path: Path, check_id: str, *, seed_push: bool = False) -> dict:
         for path in caller.rglob("*") if path.is_file()
     }
 
+    child_env = _clean_environment(instrumentation, caller_home, caller_tmp)
+    child_env.update(extra_env or {})
     done = subprocess.run(
         [sys.executable, str(_TOOL), "--only", check_id],
         cwd=caller,
-        env=_clean_environment(instrumentation, caller_home, caller_tmp),
+        env=child_env,
         capture_output=True,
         text=True,
         timeout=90,
@@ -307,13 +312,15 @@ def test_real_health_boot_writes_only_owned_config_cache_database_and_cwd(tmp_pa
         "BD_DOWNLOAD_DIR": root / "downloads",
         "BD_CAPTURES_ROOT": root / "captures",
         "BD_LOG_FILE": root / "state" / "logs" / "bulk_downloader.log",
+        "BD_SECRETS_FILE": root / "state" / "opv-secrets.json",
         "BD_ENVFILE": root / "config" / ".env",
         "BD_SITES_CONFIG_PATH": root / "config" / "sites_config.json",
         "BD_VPN_CONFIG_PATH": root / "config" / "vpn_config.json",
         "BD_WIDGETS_CONFIG_PATH": root / "config" / "widgets_config.json",
     }
-    assert len(expected) == 20
+    assert len(expected) == 21
     assert {key: Path(environment[key]) for key in expected} == expected
+    assert environment["BD_CAPTURE_VAULT"] == "1"
 
     chdirs = [Path(event["path"]) for event in run["events"]
               if event["kind"] == "os.chdir"]
@@ -324,6 +331,85 @@ def test_real_health_boot_writes_only_owned_config_cache_database_and_cwd(tmp_pa
     written_names = {Path(event["path"]).name for event in run["events"]
                      if event["kind"] == "open.write"}
     assert {"app_config.tmp", "bulk_downloader.log"} <= written_names
+
+
+def test_inherited_capture_vault_override_cannot_escape_the_owned_boundary(
+        tmp_path) -> None:
+    outside = tmp_path / "operator-capture-vault.json"
+    run = _run_opv(
+        tmp_path,
+        "OPV-HEALTH",
+        extra_env={
+            "BD_CAPTURE_VAULT": "1",
+            "BD_SECRETS_FILE": str(outside),
+        },
+    )
+    root = _assert_resource_boundary(run)
+    environment = run["final"][0]["environment"]
+    assert environment["BD_CAPTURE_VAULT"] == "1"
+    assert Path(environment["BD_SECRETS_FILE"]) == (
+        root / "state" / "opv-secrets.json"
+    )
+    assert not outside.exists()
+    assert not outside.with_name("operator-capture-vault_meta.json").exists()
+
+
+def test_forged_resource_marker_cannot_initialize_the_callers_vault(
+        tmp_path) -> None:
+    """An inherited environment marker is not proof that bd-opv owns a path."""
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    env = dict(os.environ)
+    for key in _ISOLATION_ENV | {
+        "BD_CAPTURE_VAULT", "BD_SECRETS_FILE", "BD_WORK", "PYTHONPATH",
+        "_BD_OPV_REEXEC",
+    }:
+        env.pop(key, None)
+    env.update({
+        "BD_DISABLE_KEEPALIVE": "1",
+        "BD_HOME": str(caller),
+        "BD_INSTALL_DIR": str(caller),
+        "BD_WORK": str(_REPO),
+        "HOME": str(caller),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "_BD_OPV_REEXEC": "1",
+        # This is deliberately forged: _enter_resource_boundary was not called.
+        "_BD_OPV_RESOURCE_ROOT": str(caller),
+    })
+    probe = textwrap.dedent(
+        f"""
+        import importlib.machinery
+        import importlib.util
+        import json
+        from pathlib import Path
+
+        tool = Path({str(_TOOL)!r})
+        spec = importlib.util.spec_from_loader(
+            "row282_forged_boundary_probe",
+            importlib.machinery.SourceFileLoader(
+                "row282_forged_boundary_probe", str(tool)
+            ),
+        )
+        assert spec is not None and spec.loader is not None
+        opv = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(opv)
+        print(json.dumps(opv.chk_health_version()))
+        """
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=caller,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    verdict = json.loads(done.stdout.splitlines()[-1])
+    assert verdict[0] == "FAIL", verdict
+    assert "owned bd-opv resource boundary" in verdict[1]
+    assert not (caller / "secrets.json").exists()
+    assert not (caller / "secrets_meta.json").exists()
 
 
 def test_push_subscription_and_vapid_stores_are_inside_the_same_boundary(tmp_path) -> None:
