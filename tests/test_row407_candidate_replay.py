@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -17,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "bd_candidate_replay.py"
 REAL_GIT = shutil.which("git")
 assert REAL_GIT is not None
+BD_GATE_SCOPE = "module"
 
 
 def _run(
@@ -114,6 +117,7 @@ class RepoCase:
         *,
         main_shared: str = "base\n",
         candidate_shared: str | None = None,
+        commit_candidate: bool = True,
     ) -> None:
         self.repo = tmp_path / "repo"
         self.source = tmp_path / "source"
@@ -136,7 +140,15 @@ class RepoCase:
         _write(self.source / "candidate.txt", "candidate\n")
         if candidate_shared is not None:
             _write(self.source / "shared.txt", candidate_shared)
-        self.source_head = _commit(self.source, "candidate")
+        self.source_head = (
+            _commit(self.source, "candidate")
+            if commit_candidate
+            else self.base_head
+        )
+
+    @property
+    def manifest(self) -> Path:
+        return self.output.parent / f".{self.output.name}.bd-replay.json"
 
     def run_replay(
         self,
@@ -179,6 +191,8 @@ def test_committed_candidate_replays_onto_new_main_without_touching_source(
     assert body["source_head"] == repo_case.source_head
     assert body["main_sha"] == repo_case.main_head
     assert body["candidate_commits"] == [repo_case.source_head]
+    assert Path(body["manifest"]) == repo_case.manifest.resolve()
+    assert json.loads(repo_case.manifest.read_text())["state"] == "REPLAYED"
     assert Path(body["output"]) == repo_case.output.resolve()
     assert _source_snapshot(repo_case.source) == source_before
     assert (repo_case.output / "candidate.txt").read_text() == "candidate\n"
@@ -361,3 +375,321 @@ def test_source_worker_never_receives_a_destructive_git_command(
         and call["argv"][2] == "cherry-pick"
         for call in calls
     )
+
+
+def test_poisoned_git_environment_cannot_retarget_replay(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """Dropping any scrubbed GIT_* key would retarget a real Git read."""
+
+    poison = tmp_path / "poison"
+    poison.mkdir()
+    _git(poison, "init", "-b", "main")
+    _git(poison, "config", "user.name", "Poison")
+    _git(poison, "config", "user.email", "poison@example.invalid")
+    _write(poison / "poison.txt", "not the candidate\n")
+    _commit(poison, "poison")
+    env = dict(os.environ)
+    env.update(
+        GIT_DIR=str(poison / ".git"),
+        GIT_WORK_TREE=str(poison),
+        GIT_INDEX_FILE=str(tmp_path / "poison.index"),
+        GIT_OBJECT_DIRECTORY=str(poison / ".git" / "objects"),
+    )
+
+    result = repo_case.run_replay(env=env)
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    body = json.loads(result.stdout)
+    assert body["source_head"] == repo_case.source_head
+    assert body["main_sha"] == repo_case.main_head
+    assert (repo_case.output / "candidate.txt").read_text() == "candidate\n"
+    assert not (repo_case.output / "poison.txt").exists()
+
+
+def test_entirely_uncommitted_candidate_replays_onto_main_without_touching_source(
+    tmp_path: Path,
+) -> None:
+    """An empty commit list must not drop the incident's uncommitted half."""
+
+    case = RepoCase(tmp_path, commit_candidate=False)
+    _write(case.source / "staged.txt", "staged\n")
+    _git(case.source, "add", "staged.txt")
+    _write(case.source / "staged.txt", "staged\nunstaged\n")
+    source_before = _source_snapshot(case.source)
+
+    result = case.run_replay(expect_head=case.base_head)
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    body = json.loads(result.stdout)
+    assert body["candidate_commits"] == []
+    assert _source_snapshot(case.source) == source_before
+    assert (case.output / "candidate.txt").read_text() == "candidate\n"
+    assert (case.output / "staged.txt").read_text() == "staged\nunstaged\n"
+
+
+def test_a_staged_gitlink_is_refused_instead_of_approximated(
+    tmp_path: Path,
+) -> None:
+    """Removing the gitlink refusal would approximate a submodule as a patch."""
+
+    case = RepoCase(tmp_path, commit_candidate=False)
+    _git(
+        case.source,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{case.base_head},nested-module",
+    )
+    source_before = _source_snapshot(case.source)
+
+    result = case.run_replay(expect_head=case.base_head)
+
+    assert result.returncode == 2
+    body = json.loads(result.stdout)
+    assert body["status"] == "REFUSED"
+    assert body["reason_code"] == "SOURCE_HAS_SUBMODULE"
+    assert not case.output.exists()
+    assert not case.manifest.exists()
+    assert _source_snapshot(case.source) == source_before
+
+
+def _load_replay_module():
+    spec = importlib.util.spec_from_file_location("row407_candidate_replay", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_source_quiescence_requires_two_equal_complete_snapshots_before_claim(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single preflight read can claim output while the source is changing."""
+
+    subject = _load_replay_module()
+    snapshots = iter(("snapshot-a", "snapshot-b"))
+    monkeypatch.setattr(subject, "_fingerprint", lambda _source: next(snapshots))
+
+    with pytest.raises(subject.ReplayFailure) as caught:
+        subject.replay(
+            repo=repo_case.repo,
+            source=repo_case.source,
+            expect_head=repo_case.source_head,
+            main_ref="refs/remotes/origin/main",
+            output=repo_case.output,
+        )
+
+    assert caught.value.reason_code == "SOURCE_NOT_QUIESCENT"
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (OSError("injected replay I/O failure"), UnicodeError("injected Unicode failure")),
+    ids=("ordinary-io", "unicode"),
+)
+def test_ordinary_fault_after_claim_rolls_back_owned_output_and_reraises_original(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: BaseException,
+) -> None:
+    """Catching only ReplayFailure strands output after ordinary local faults."""
+
+    subject = _load_replay_module()
+    source_before = _source_snapshot(repo_case.source)
+
+    def fail_copy(*_args, **_kwargs):
+        raise fault
+
+    monkeypatch.setattr(subject, "_copy_untracked", fail_copy)
+
+    with pytest.raises(type(fault), match="injected") as caught:
+        subject.replay(
+            repo=repo_case.repo,
+            source=repo_case.source,
+            expect_head=repo_case.source_head,
+            main_ref="refs/remotes/origin/main",
+            output=repo_case.output,
+        )
+
+    assert caught.value is fault
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+    assert _source_snapshot(repo_case.source) == source_before
+
+
+def test_cancellation_after_claim_rolls_back_then_preserves_the_same_baseexception(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Narrow Exception cleanup strands output when its owner is cancelled."""
+
+    class ReplayCancelled(BaseException):
+        pass
+
+    subject = _load_replay_module()
+    cancellation = ReplayCancelled("injected cancellation")
+    source_before = _source_snapshot(repo_case.source)
+
+    def cancel_copy(*_args, **_kwargs):
+        raise cancellation
+
+    monkeypatch.setattr(subject, "_copy_untracked", cancel_copy)
+
+    with pytest.raises(ReplayCancelled) as caught:
+        subject.replay(
+            repo=repo_case.repo,
+            source=repo_case.source,
+            expect_head=repo_case.source_head,
+            main_ref="refs/remotes/origin/main",
+            output=repo_case.output,
+        )
+
+    assert caught.value is cancellation
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+    assert _source_snapshot(repo_case.source) == source_before
+
+
+def test_rollback_retains_output_when_claim_path_inode_is_replaced(
+    repo_case: RepoCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A matching path or token cannot authorize unlinking a replacement inode."""
+
+    subject = _load_replay_module()
+    original_claim = repo_case.manifest.with_name("owned-claim.json")
+    replacement_bytes = b'{"state":"unowned-replacement"}\n'
+    injected = OSError("injected failure after claim replacement")
+
+    def replace_claim_then_fail(*_args, **_kwargs):
+        repo_case.manifest.rename(original_claim)
+        repo_case.manifest.write_bytes(replacement_bytes)
+        raise injected
+
+    monkeypatch.setattr(subject, "_copy_untracked", replace_claim_then_fail)
+
+    try:
+        with pytest.raises(OSError) as caught:
+            subject.replay(
+                repo=repo_case.repo,
+                source=repo_case.source,
+                expect_head=repo_case.source_head,
+                main_ref="refs/remotes/origin/main",
+                output=repo_case.output,
+            )
+
+        assert caught.value is injected
+        assert repo_case.output.is_dir(), "unproved output ownership must be retained"
+        assert repo_case.manifest.read_bytes() == replacement_bytes
+        assert original_claim.is_file()
+    finally:
+        _git(repo_case.repo, "worktree", "remove", "--force", str(repo_case.output), check=False)
+        for path in (repo_case.manifest, original_claim):
+            path.unlink(missing_ok=True)
+
+
+def _wait_until(predicate, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """output.exists() is evidence of presence, never transaction ownership."""
+
+    bin_dir = tmp_path / "barrier-bin"
+    markers = tmp_path / "markers"
+    bin_dir.mkdir()
+    markers.mkdir()
+    git_log = tmp_path / "git-argv.jsonl"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, time, sys\n"
+        "args = sys.argv[1:]\n"
+        "root = pathlib.Path(os.environ['BD_BARRIER_ROOT'])\n"
+        "with open(os.environ['BD_GIT_ARGV_LOG'], 'a', encoding='utf-8') as out:\n"
+        "    out.write(json.dumps({'pid': os.getpid(), 'argv': args}) + '\\n')\n"
+        "if 'worktree' in args and 'add' in args:\n"
+        "    (root / ('add-' + str(os.getpid()))).write_text('ready')\n"
+        "    while not (root / 'release').exists():\n"
+        "        time.sleep(0.01)\n"
+        "os.execv(os.environ['BD_REAL_GIT'], "
+        "[os.environ['BD_REAL_GIT'], *args])\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_BARRIER_ROOT=str(markers),
+        BD_GIT_ARGV_LOG=str(git_log),
+        BD_REAL_GIT=REAL_GIT,
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    command = [
+        sys.executable,
+        str(SCRIPT),
+        "--repo",
+        str(repo_case.repo),
+        "--source",
+        str(repo_case.source),
+        "--expect-head",
+        repo_case.source_head,
+        "--main-ref",
+        "refs/remotes/origin/main",
+        "--output",
+        str(repo_case.output),
+        "--json",
+    ]
+    first = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert _wait_until(lambda: bool(list(markers.glob("add-*"))))
+    second = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert _wait_until(
+        lambda: second.poll() is not None
+        or len(list(markers.glob("add-*"))) == 2
+    )
+    (markers / "release").write_text("go\n")
+    first_stdout, first_stderr = first.communicate(timeout=20)
+    second_stdout, second_stderr = second.communicate(timeout=20)
+    results = [
+        (first.returncode, json.loads(first_stdout), first_stderr),
+        (second.returncode, json.loads(second_stdout), second_stderr),
+    ]
+
+    assert sorted(result[0] for result in results) == [0, 2], results
+    assert sum(result[1]["status"] == "REPLAYED" for result in results) == 1
+    refusal = next(result[1] for result in results if result[0] == 2)
+    assert refusal["reason_code"] == "OUTPUT_CLAIMED"
+    assert repo_case.output.is_dir()
+    assert repo_case.manifest.is_file()
+    calls = [json.loads(line) for line in git_log.read_text().splitlines()]
+    assert not [
+        call
+        for call in calls
+        if "worktree" in call["argv"] and "remove" in call["argv"]
+    ]

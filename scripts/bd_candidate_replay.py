@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import secrets
 import shutil
 import stat
 import subprocess
@@ -35,26 +36,87 @@ class UntrackedEntry:
     kind: str
 
 
+@dataclass(frozen=True)
+class FsIdentity:
+    device: int
+    inode: int
+    mode: int
+
+    @classmethod
+    def from_stat(cls, metadata: os.stat_result) -> "FsIdentity":
+        return cls(
+            device=metadata.st_dev,
+            inode=metadata.st_ino,
+            mode=metadata.st_mode,
+        )
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "device": self.device,
+            "inode": self.inode,
+            "mode": self.mode,
+        }
+
+
+@dataclass
+class ReplayClaim:
+    path: Path
+    parent: Path
+    token: str
+    fd: int
+    parent_fd: int
+    path_identity: FsIdentity
+    parent_identity: FsIdentity
+
+    def close(self) -> None:
+        for descriptor in (self.fd, self.parent_fd):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+@dataclass(frozen=True)
+class OutputOwnership:
+    output_identity: FsIdentity
+    git_dir: Path
+    git_dir_identity: FsIdentity
+
+
+def _git_environment(*, committer: bool = False) -> dict[str, str]:
+    """Build a Git environment that cannot inherit repository selectors."""
+
+    run_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_")
+    }
+    run_env.update(
+        GIT_OPTIONAL_LOCKS="0",
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_TERMINAL_PROMPT="0",
+    )
+    if committer:
+        run_env.update(
+            GIT_COMMITTER_NAME="BulkDownloader Candidate Replay",
+            GIT_COMMITTER_EMAIL="candidate-replay@example.invalid",
+        )
+    return run_env
+
+
 def _git_result(
     cwd: Path,
     *args: str,
     input_bytes: bytes | None = None,
-    env: dict[str, str] | None = None,
+    committer: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
-    run_env = dict(os.environ)
-    if env is not None:
-        run_env.update(env)
-    # Even nominally read-only commands such as `git status` may refresh the
-    # index unless optional locks are disabled.  The source is evidence, so all
-    # Git subprocesses inherit the stricter posture; explicit output-worktree
-    # operations such as cherry-pick still take their required locks.
-    run_env["GIT_OPTIONAL_LOCKS"] = "0"
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
         input=input_bytes,
         capture_output=True,
         check=False,
-        env=run_env,
+        env=_git_environment(committer=committer),
     )
 
 
@@ -165,7 +227,7 @@ def _common_git_dir(worktree: Path) -> Path:
     return Path(text).resolve()
 
 
-def _require_quiescent_source(source: Path) -> None:
+def _require_supported_source_state(source: Path) -> None:
     unresolved = _git_text(source, "diff", "--name-only", "--diff-filter=U")
     if unresolved:
         raise ReplayFailure("SOURCE_HAS_CONFLICTS", "source index has unresolved paths")
@@ -183,6 +245,32 @@ def _require_quiescent_source(source: Path) -> None:
                 "SOURCE_OPERATION_IN_PROGRESS",
                 f"source has an in-progress Git operation ({marker})",
             )
+
+    for entry in filter(None, _git_bytes(source, "ls-files", "--stage", "-z").split(b"\0")):
+        metadata, separator, raw_path = entry.partition(b"\t")
+        if not separator:
+            raise ReplayFailure(
+                "SOURCE_INDEX_UNREADABLE",
+                "source index contains an unparseable staged entry",
+            )
+        mode = metadata.split(b" ", 1)[0]
+        if mode == b"160000":
+            path = os.fsdecode(raw_path)
+            raise ReplayFailure(
+                "SOURCE_HAS_SUBMODULE",
+                f"source index contains unsupported gitlink {path!r}",
+            )
+
+
+def _stable_fingerprint(source: Path) -> str:
+    first = _fingerprint(source)
+    second = _fingerprint(source)
+    if first != second:
+        raise ReplayFailure(
+            "SOURCE_NOT_QUIESCENT",
+            "source changed between two complete snapshots",
+        )
+    return second
 
 
 def _candidate_commits(source: Path, merge_base: str, source_head: str) -> list[str]:
@@ -205,11 +293,8 @@ def _candidate_commits(source: Path, merge_base: str, source_head: str) -> list[
 
 
 def _cherry_pick(output: Path, commits: list[str]) -> None:
-    env = dict(os.environ)
-    env.setdefault("GIT_COMMITTER_NAME", "BulkDownloader Candidate Replay")
-    env.setdefault("GIT_COMMITTER_EMAIL", "candidate-replay@example.invalid")
     for commit in commits:
-        result = _git_result(output, "cherry-pick", commit, env=env)
+        result = _git_result(output, "cherry-pick", commit, committer=True)
         if result.returncode != 0:
             detail = result.stderr.decode("utf-8", "replace").strip()
             raise ReplayFailure(
@@ -277,14 +362,254 @@ def _copy_untracked(
             os.chmod(destination, entry.mode, follow_symlinks=False)
 
 
-def _remove_output(repo: Path, output: Path) -> None:
-    result = _git_result(repo, "worktree", "remove", "--force", str(output))
-    if result.returncode != 0 or output.exists() or output.is_symlink():
-        detail = result.stderr.decode("utf-8", "replace").strip()
-        raise ReplayFailure(
-            "OUTPUT_CLEANUP_FAILED",
-            detail or f"failed to remove replay output {output}",
+def _identity_at(path: Path) -> FsIdentity:
+    return FsIdentity.from_stat(path.lstat())
+
+
+def _identity_at_dirfd(parent_fd: int, name: str) -> FsIdentity:
+    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    return FsIdentity.from_stat(metadata)
+
+
+def _write_descriptor_json(fd: int, payload: dict[str, object]) -> None:
+    encoded = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.ftruncate(fd, 0)
+    view = memoryview(encoded)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("short write while persisting replay manifest")
+        view = view[written:]
+
+
+def _read_descriptor_json(fd: int) -> dict[str, object]:
+    metadata = os.fstat(fd)
+    raw = os.pread(fd, metadata.st_size, 0)
+    payload = json.loads(raw.decode("utf-8", "strict"))
+    if not isinstance(payload, dict):
+        raise ValueError("replay manifest is not a JSON object")
+    return payload
+
+
+def _process_start_ticks() -> int:
+    raw = Path("/proc/self/stat").read_text(encoding="ascii")
+    close = raw.rfind(")")
+    fields = raw[close + 2 :].split()
+    if close < 0 or len(fields) < 20:
+        raise OSError("cannot parse /proc/self/stat")
+    return int(fields[19])
+
+
+def _claim_payload(claim: ReplayClaim, *, state: str) -> dict[str, object]:
+    return {
+        "schema": 1,
+        "state": state,
+        "token": claim.token,
+        "manifest": {
+            "path": str(claim.path),
+            "identity": claim.path_identity.as_dict(),
+            "parent_identity": claim.parent_identity.as_dict(),
+        },
+        "owner": {
+            "boot_id": Path("/proc/sys/kernel/random/boot_id")
+            .read_text(encoding="ascii")
+            .strip(),
+            "pid": os.getpid(),
+            "ppid": os.getppid(),
+            "start_ticks": _process_start_ticks(),
+        },
+    }
+
+
+def _claim_still_owned(claim: ReplayClaim) -> tuple[bool, str]:
+    try:
+        if FsIdentity.from_stat(os.fstat(claim.parent_fd)) != claim.parent_identity:
+            return False, "held parent-directory identity changed"
+        if _identity_at(claim.parent) != claim.parent_identity:
+            return False, "manifest parent path no longer names the held directory"
+        if FsIdentity.from_stat(os.fstat(claim.fd)) != claim.path_identity:
+            return False, "held manifest descriptor identity changed"
+        if _identity_at_dirfd(claim.parent_fd, claim.path.name) != claim.path_identity:
+            return False, "manifest final path no longer names the held inode"
+        if _identity_at(claim.path) != claim.path_identity:
+            return False, "manifest path no-follow identity changed"
+        payload = _read_descriptor_json(claim.fd)
+        if payload.get("token") != claim.token:
+            return False, "manifest claim token changed"
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+        return False, f"manifest ownership could not be revalidated: {error}"
+    return True, ""
+
+
+def _acquire_claim(output: Path) -> ReplayClaim:
+    parent = output.parent
+    parent_fd = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+    )
+    fd = -1
+    claim: ReplayClaim | None = None
+    try:
+        parent_identity = FsIdentity.from_stat(os.fstat(parent_fd))
+        if _identity_at(parent) != parent_identity:
+            raise ReplayFailure(
+                "OUTPUT_PARENT_CHANGED",
+                "output parent changed while the replay claim was acquired",
+            )
+        path = parent / f".{output.name}.bd-replay.json"
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+        try:
+            fd = os.open(path.name, flags, 0o600, dir_fd=parent_fd)
+        except FileExistsError as error:
+            raise ReplayFailure(
+                "OUTPUT_CLAIMED",
+                f"replay transaction record already exists: {path}",
+            ) from error
+        path_identity = FsIdentity.from_stat(os.fstat(fd))
+        if not stat.S_ISREG(path_identity.mode):
+            raise ReplayFailure(
+                "OUTPUT_CLAIM_UNSAFE",
+                "replay transaction record is not a regular file",
+            )
+        claim = ReplayClaim(
+            path=path,
+            parent=parent,
+            token=secrets.token_hex(32),
+            fd=fd,
+            parent_fd=parent_fd,
+            path_identity=path_identity,
+            parent_identity=parent_identity,
         )
+        _write_descriptor_json(claim.fd, _claim_payload(claim, state="CLAIMED"))
+        os.fsync(claim.fd)
+        owned, reason = _claim_still_owned(claim)
+        if not owned:
+            raise ReplayFailure("OUTPUT_CLAIM_CHANGED", reason)
+        if _identity_at(parent) != parent_identity:
+            raise ReplayFailure(
+                "OUTPUT_PARENT_CHANGED",
+                "output parent changed before claim directory fsync",
+            )
+        os.fsync(parent_fd)
+        return claim
+    except BaseException:
+        if claim is not None:
+            owned, _ = _claim_still_owned(claim)
+            if owned:
+                try:
+                    os.unlink(claim.path.name, dir_fd=claim.parent_fd)
+                except OSError:
+                    pass
+        if fd >= 0:
+            os.close(fd)
+        os.close(parent_fd)
+        raise
+
+
+def _capture_output_ownership(output: Path) -> OutputOwnership:
+    output_identity = _identity_at(output)
+    if not stat.S_ISDIR(output_identity.mode):
+        raise ReplayFailure(
+            "OUTPUT_IDENTITY_UNSAFE",
+            "created replay output is not a directory",
+        )
+    git_dir = Path(
+        _git_text(output, "rev-parse", "--path-format=absolute", "--absolute-git-dir")
+    )
+    git_dir = git_dir.resolve(strict=True)
+    git_dir_identity = _identity_at(git_dir)
+    if not stat.S_ISDIR(git_dir_identity.mode):
+        raise ReplayFailure(
+            "OUTPUT_GIT_DIR_UNSAFE",
+            "created replay Git directory is not a directory",
+        )
+    return OutputOwnership(
+        output_identity=output_identity,
+        git_dir=git_dir,
+        git_dir_identity=git_dir_identity,
+    )
+
+
+def _output_still_owned(
+    claim: ReplayClaim,
+    output: Path,
+    ownership: OutputOwnership,
+) -> tuple[bool, str]:
+    claimed, reason = _claim_still_owned(claim)
+    if not claimed:
+        return False, reason
+    try:
+        if _identity_at(output) != ownership.output_identity:
+            return False, "output final-path no-follow identity changed"
+        if _identity_at(ownership.git_dir) != ownership.git_dir_identity:
+            return False, "registered output Git-dir identity changed"
+    except OSError as error:
+        return False, f"output ownership could not be revalidated: {error}"
+    return True, ""
+
+
+def _unlink_owned_claim(claim: ReplayClaim) -> str | None:
+    owned, reason = _claim_still_owned(claim)
+    if not owned:
+        return f"retained replay claim: {reason}"
+    try:
+        os.unlink(claim.path.name, dir_fd=claim.parent_fd)
+        os.fsync(claim.parent_fd)
+    except OSError as error:
+        return f"failed to remove owned replay claim: {error}"
+    return None
+
+
+def _rollback_owned(
+    claim: ReplayClaim,
+    repo: Path,
+    output: Path,
+    ownership: OutputOwnership | None,
+) -> list[str]:
+    notes: list[str] = []
+    output_absent = not output.exists() and not output.is_symlink()
+    if ownership is not None:
+        owned, reason = _output_still_owned(claim, output, ownership)
+        if not owned:
+            notes.append(f"retained replay output: {reason}")
+            return notes
+        result = _git_result(repo, "worktree", "remove", "--force", str(output))
+        if result.returncode != 0 or output.exists() or output.is_symlink():
+            detail = result.stderr.decode("utf-8", "replace").strip()
+            notes.append(
+                "failed to remove identity-owned replay output: "
+                + (detail or str(output))
+            )
+            return notes
+        output_absent = True
+    if output_absent:
+        note = _unlink_owned_claim(claim)
+        if note:
+            notes.append(note)
+    else:
+        notes.append("retained unowned replay output and transaction claim")
+    return notes
+
+
+def _finalize_claim(
+    claim: ReplayClaim,
+    manifest: dict[str, object],
+) -> None:
+    owned, reason = _claim_still_owned(claim)
+    if not owned:
+        raise ReplayFailure("OUTPUT_CLAIM_CHANGED", reason)
+    _write_descriptor_json(claim.fd, manifest)
+    os.fsync(claim.fd)
+    owned, reason = _claim_still_owned(claim)
+    if not owned:
+        raise ReplayFailure("OUTPUT_CLAIM_CHANGED", reason)
+    if _identity_at(claim.parent) != claim.parent_identity:
+        raise ReplayFailure(
+            "OUTPUT_PARENT_CHANGED",
+            "output parent changed before replay manifest directory fsync",
+        )
+    os.fsync(claim.parent_fd)
 
 
 def _refuse_if_nested_output(source: Path, output: Path) -> None:
@@ -305,15 +630,20 @@ def replay(
 ) -> dict[str, object]:
     repo = repo.resolve(strict=True)
     source = source.resolve(strict=True)
-    output = output.resolve(strict=False)
+    if not output.is_absolute():
+        output = Path.cwd() / output
+    output_parent = output.parent.resolve(strict=True)
+    output = output_parent / output.name
     if output.exists() or output.is_symlink():
         raise ReplayFailure("OUTPUT_EXISTS", f"output path already exists: {output}")
     _refuse_if_nested_output(source, output)
-    if _common_git_dir(repo) != _common_git_dir(source):
+    repo_common_git = _common_git_dir(repo)
+    source_common_git = _common_git_dir(source)
+    if repo_common_git != source_common_git:
         raise ReplayFailure(
             "REPOSITORY_MISMATCH", "repo and source do not share a Git common directory"
         )
-    _require_quiescent_source(source)
+    _require_supported_source_state(source)
 
     source_head = _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
     expected = _resolve_commit(source, expect_head, "EXPECTED_HEAD_UNREADABLE")
@@ -327,7 +657,7 @@ def replay(
     if not merge_base:
         raise ReplayFailure("NO_MERGE_BASE", "source and main have no merge base")
 
-    source_before = _fingerprint(source)
+    source_before = _stable_fingerprint(source)
     staged_patch = _git_bytes(
         source,
         "diff",
@@ -344,24 +674,33 @@ def replay(
     commits = _candidate_commits(source, merge_base, source_head)
     if not commits and not staged_patch and not unstaged_patch and not untracked:
         raise ReplayFailure("NO_CANDIDATE_CHANGES", "source contains no candidate work")
+    if _fingerprint(source) != source_before:
+        raise ReplayFailure(
+            "SOURCE_NOT_QUIESCENT",
+            "source changed while replay inputs were captured",
+        )
 
-    created = False
+    repo_identity = _identity_at(repo)
+    source_identity = _identity_at(source)
+    common_git_identity = _identity_at(repo_common_git)
+    claim = _acquire_claim(output)
+    ownership: OutputOwnership | None = None
     try:
         add_result = _git_result(
             repo, "worktree", "add", "--detach", str(output), main_sha
         )
-        # Git may create/register the worktree and still return non-zero (for
-        # example, when checkout fails late).  The path was proven absent at
-        # preflight, so any new output belongs to this transaction and must be
-        # reaped by the common failure path.
-        created = (
-            add_result.returncode == 0 or output.exists() or output.is_symlink()
-        )
+        if output.exists() or output.is_symlink():
+            ownership = _capture_output_ownership(output)
         if add_result.returncode != 0:
             detail = add_result.stderr.decode("utf-8", "replace").strip()
             raise ReplayFailure(
                 "OUTPUT_CREATE_FAILED",
                 detail or f"could not create output worktree {output}",
+            )
+        if ownership is None:
+            raise ReplayFailure(
+                "OUTPUT_CREATE_FAILED",
+                f"Git reported success without creating output {output}",
             )
         _cherry_pick(output, commits)
         _apply_patch(output, staged_patch, staged=True)
@@ -374,26 +713,83 @@ def replay(
                 "source fingerprint changed while replay was in progress",
             )
         replayed_head = _resolve_commit(output, "HEAD", "OUTPUT_HEAD_UNREADABLE")
+        output_state = _fingerprint(output)
+        manifest = _claim_payload(claim, state="REPLAYED")
+        manifest.update(
+            {
+                "repo": {
+                    "path": str(repo),
+                    "identity": repo_identity.as_dict(),
+                },
+                "common_git_dir": {
+                    "path": str(repo_common_git),
+                    "identity": common_git_identity.as_dict(),
+                },
+                "source": {
+                    "path": str(source),
+                    "identity": source_identity.as_dict(),
+                    "head": source_head,
+                    "state_sha256": source_before,
+                },
+                "output": {
+                    "path": str(output),
+                    "identity": ownership.output_identity.as_dict(),
+                    "git_dir": {
+                        "path": str(ownership.git_dir),
+                        "identity": ownership.git_dir_identity.as_dict(),
+                    },
+                    "head": replayed_head,
+                    "state_sha256": output_state,
+                },
+                "merge_base": merge_base,
+                "main_ref": main_ref,
+                "main_sha": main_sha,
+                "candidate_commits": commits,
+            }
+        )
+        _finalize_claim(claim, manifest)
         return {
             "status": "REPLAYED",
             "source_head": source_head,
             "merge_base": merge_base,
+            "main_ref": main_ref,
             "main_sha": main_sha,
             "replayed_head": replayed_head,
             "source_state_sha256": source_before,
-            "output_state_sha256": _fingerprint(output),
+            "output_state_sha256": output_state,
             "output": str(output),
+            "manifest": str(claim.path),
             "candidate_commits": commits,
+            "filesystem_identities": {
+                "manifest": claim.path_identity.as_dict(),
+                "manifest_parent": claim.parent_identity.as_dict(),
+                "repo": repo_identity.as_dict(),
+                "source": source_identity.as_dict(),
+                "common_git_dir": common_git_identity.as_dict(),
+                "output": ownership.output_identity.as_dict(),
+                "output_git_dir": ownership.git_dir_identity.as_dict(),
+            },
         }
-    except ReplayFailure:
-        if created:
-            _remove_output(repo, output)
-        if _fingerprint(source) != source_before:
-            raise ReplayFailure(
-                "SOURCE_CHANGED_DURING_REPLAY",
-                "source fingerprint changed while a failed replay was rolled back",
+    except BaseException as primary:
+        try:
+            notes = _rollback_owned(claim, repo, output, ownership)
+        except BaseException as cleanup_error:
+            notes = [f"replay rollback raised secondary error: {cleanup_error!r}"]
+        try:
+            if _fingerprint(source) != source_before:
+                notes.append("source changed while failed replay was rolled back")
+        except BaseException as evidence_error:
+            notes.append(
+                "source could not be revalidated after failed replay: "
+                f"{evidence_error!r}"
             )
+        add_note = getattr(primary, "add_note", None)
+        if add_note is not None:
+            for note in notes:
+                add_note(note)
         raise
+    finally:
+        claim.close()
 
 
 def _emit(payload: dict[str, object], *, as_json: bool) -> None:
