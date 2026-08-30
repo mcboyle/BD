@@ -56,6 +56,13 @@ class Census:
 
 
 @dataclass(frozen=True)
+class ExistingRecord:
+    payload: dict[str, object]
+    raw: bytes
+    identity: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
 class WatchdogUnknown(Exception):
     reason_code: str
     message: str
@@ -386,7 +393,7 @@ def _member_from_record(
 
 def _read_existing_record(
     record: Path,
-) -> tuple[dict[str, object], bytes] | None:
+) -> ExistingRecord | None:
     try:
         metadata = record.lstat()
     except FileNotFoundError:
@@ -424,18 +431,22 @@ def _read_existing_record(
             "members",
         }:
             _unknown("ADOPTION_RECORD_UNREADABLE", "adoption record keys are invalid")
-        return payload, raw
+        return ExistingRecord(
+            payload=payload,
+            raw=raw,
+            identity=(after.st_dev, after.st_ino, after.st_mode),
+        )
     finally:
         os.close(descriptor)
 
 
 def _existing_authority(
-    existing: tuple[dict[str, object], bytes] | None,
+    existing: ExistingRecord | None,
     census: Census,
-) -> tuple[Lineage | None, bytes | None]:
+) -> Lineage | None:
     if existing is None:
-        return None, None
-    payload, raw = existing
+        return None
+    payload = existing.payload
     if (
         payload.get("schema") != SCHEMA
         or payload.get("boot_id") != census.boot_id
@@ -458,7 +469,7 @@ def _existing_authority(
     )
     for lineage in census.lineages:
         if lineage.root == root and lineage.members == members:
-            return lineage, raw
+            return lineage
     _unknown(
         "ADOPTION_RECORD_STALE",
         "existing adoption record does not name a current exact lineage",
@@ -642,7 +653,7 @@ def _adopt_locked(
         return _refused("WATCHDOG_ABSENT", "no matching watchdog lineage exists")
     try:
         existing = _read_existing_record(record)
-        prior_authority, existing_bytes = _existing_authority(existing, census)
+        prior_authority = _existing_authority(existing, census)
     except WatchdogUnknown as error:
         return _unknown_payload(error.reason_code, error.message)
     authority = prior_authority or _authority(census.lineages)
@@ -746,10 +757,40 @@ def _adopt_locked(
             )
         census = settled_census
 
+    final_census = _take_census(script=script, proc_root=proc_root)
+    if final_census.status == "UNKNOWN":
+        return _unknown_payload(
+            final_census.reason_code or "CENSUS_UNKNOWN",
+            final_census.message or "",
+        )
+    if (
+        final_census.status != "UNIQUE"
+        or len(final_census.lineages) != 1
+        or final_census.lineages[0] != authority
+    ):
+        return _unknown_payload(
+            "ADOPTION_CENSUS_CHANGED",
+            "final census did not prove the selected exact lineage",
+        )
+    census = final_census
+
     desired = _record_payload(census, authority)
     desired_bytes = _record_bytes(desired)
-    if existing_bytes is not None:
-        if existing_bytes != desired_bytes:
+    if existing is not None:
+        try:
+            current_existing = _read_existing_record(record)
+        except WatchdogUnknown as error:
+            return _unknown_payload("ADOPTION_RECORD_CHANGED", error.message)
+        if (
+            current_existing is None
+            or current_existing.identity != existing.identity
+            or current_existing.raw != existing.raw
+        ):
+            return _unknown_payload(
+                "ADOPTION_RECORD_CHANGED",
+                "existing adoption record changed before idempotent return",
+            )
+        if existing.raw != desired_bytes:
             return _unknown_payload(
                 "ADOPTION_RECORD_DIFFERENT",
                 "existing valid adoption record is not byte-identical",
