@@ -2359,7 +2359,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1686,
+    "edge_count": 1688,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3115,8 +3115,10 @@
         "bulk_downloader/app_bw_chart.py"
       ],
       "bulk_downloader/candidate_filter.py": [
+        "bulk_downloader/detect.py",
         "bulk_downloader/disco_triage.py",
         "bulk_downloader/dry_run.py",
+        "bulk_downloader/runner.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/template_extractor_impl/candidates.py",
         "bulk_downloader/template_multi.py"
@@ -6292,6 +6294,7 @@
         "bulk_downloader/provider_resolve.py"
       ],
       "bulk_downloader/detect.py": [
+        "bulk_downloader/candidate_filter.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/dom_honeypot.py",
         "bulk_downloader/global_config.py",
@@ -6807,6 +6810,7 @@
       "bulk_downloader/runner.py": [
         "bulk_downloader/admission.py",
         "bulk_downloader/app_state.py",
+        "bulk_downloader/candidate_filter.py",
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/circuit_breaker.py",
         "bulk_downloader/cloak.py",
