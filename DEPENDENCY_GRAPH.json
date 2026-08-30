@@ -400,7 +400,11 @@
     "config": {
       "module": "app_config.py",
       "providers": [
+        "bulk_downloader/account_pool.py",
+        "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/app_state.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/session_keeper.py",
         "bulk_downloader/site_editor.py"
       ],
       "route_count": 2,
@@ -1699,6 +1703,7 @@
         "bulk_downloader/app_sites_lifecycle.py",
         "bulk_downloader/app_sites_queue.py",
         "bulk_downloader/app_sites_teach.py",
+        "bulk_downloader/app_state.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/runner.py"
@@ -2359,7 +2364,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1686,
+    "edge_count": 1694,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2391,6 +2396,7 @@
         "bulk_downloader/account_health.py",
         "bulk_downloader/app.py",
         "bulk_downloader/app_account_pool.py",
+        "bulk_downloader/app_config.py",
         "bulk_downloader/app_sites_auth.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/runner_accounts.py"
@@ -2914,6 +2920,7 @@
         "bulk_downloader/app_sites.py"
       ],
       "bulk_downloader/app_sites_id_core.py": [
+        "bulk_downloader/app_config.py",
         "bulk_downloader/app_sites.py"
       ],
       "bulk_downloader/app_sites_integrations.py": [
@@ -2939,6 +2946,10 @@
       ],
       "bulk_downloader/app_state.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/app_config.py",
+        "bulk_downloader/app_sites.py",
+        "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/cookie_health.py",
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/app_stats.py": [
@@ -4462,6 +4473,7 @@
       ],
       "bulk_downloader/session_keeper.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/app_config.py",
         "bulk_downloader/app_session_status.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/app_sites_lifecycle.py",
@@ -4571,6 +4583,7 @@
       ],
       "bulk_downloader/takeover_vnc.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/runner.py",
         "bulk_downloader/runner_auth.py"
       ],
       "bulk_downloader/template_assist.py": [
@@ -5523,7 +5536,11 @@
         "bulk_downloader/cluster_rate.py"
       ],
       "bulk_downloader/app_config.py": [
+        "bulk_downloader/account_pool.py",
+        "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/app_state.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/session_keeper.py",
         "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/app_cookie_clipboard.py": [
@@ -5868,6 +5885,7 @@
         "bulk_downloader/app_sites_lifecycle.py",
         "bulk_downloader/app_sites_queue.py",
         "bulk_downloader/app_sites_teach.py",
+        "bulk_downloader/app_state.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/runner.py"
@@ -5897,6 +5915,7 @@
         "bulk_downloader/ai_login.py",
         "bulk_downloader/aiassist.py",
         "bulk_downloader/app_sites.py",
+        "bulk_downloader/app_state.py",
         "bulk_downloader/audit.py",
         "bulk_downloader/auto_onboard.py",
         "bulk_downloader/constants.py",
@@ -6237,6 +6256,7 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/cookie_health.py": [
+        "bulk_downloader/app_state.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/db.py"
       ],
@@ -6878,6 +6898,7 @@
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/subtitles.py",
         "bulk_downloader/tags.py",
+        "bulk_downloader/takeover_vnc.py",
         "bulk_downloader/template_assist.py",
         "bulk_downloader/thumbnail_gen.py",
         "bulk_downloader/tier_probe.py",

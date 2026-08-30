@@ -203,6 +203,10 @@ BACKOFF_INTERVAL_SEC = 60 * 60           # 1 hour
 
 # Per-keeper Chromium check timeout (page load + verify).
 CHECK_TIMEOUT_SEC = 60
+# Starting a replacement is safe only after the prior generation has left its
+# target and identity-finalizer.  Refuse after a bounded wait rather than
+# overlapping two browsers on the same profile/account.
+_KEEPER_GENERATION_STOP_TIMEOUT_S = 5.0
 
 
 def _jitter(base: float, fraction: float = JITTER_FRACTION) -> float:
@@ -218,7 +222,12 @@ def _now() -> float:
 # ─── Per-keeper state and module-level registry ──────────────────────
 
 _state_lock = threading.RLock()
+_keeper_lifecycle_lock = threading.RLock()
 _keepers: dict[tuple[str, int], "SessionKeeper"] = {}
+# Process teardown/rollback closes admission before it captures generations.
+# Only an explicit application/test boot may reopen it after every retained
+# handle has been proved quiescent.
+_keeper_retired = False
 
 # Per-(site, account) lock that manual takeover takes before launching
 # its own browser. Keep-alive must wait until released. Module-level so
@@ -280,8 +289,10 @@ class SessionKeeper:
         self.do_login_callback = do_login_callback
         self._stop = threading.Event()
         self._wake = threading.Event()  # set to force an immediate check
+        self._restart_requested = threading.Event()
         self._thread = threading.Thread(
-            target=self._run, name=f"keepalive-{site_id}-{account_idx}",
+            target=self._run_and_unregister,
+            name=f"keepalive-{site_id}-{account_idx}",
             daemon=True)
         # v3.43.16: persistent browser per (site, account). Owned by the
         # keeper thread for its lifetime; restarted every 24h to bound
@@ -311,6 +322,38 @@ class SessionKeeper:
 
     def start(self):
         self._thread.start()
+
+    def _run_and_unregister(self):
+        """Run this generation and remove only its own registry entry."""
+        try:
+            self._run()
+        finally:
+            key = (self.site_id, self.account_idx)
+            with _state_lock:
+                if _keepers.get(key) is self:
+                    _keepers.pop(key, None)
+                    if (self._restart_requested.is_set()
+                            and not self._stop.is_set()):
+                        # Publish/start the replacement while the state lock
+                        # still makes the handoff atomic with stop/start.  Do
+                        # not acquire the lifecycle lock here: a starter can
+                        # legitimately hold _state_lock while this finalizer
+                        # runs, and the inverse order would deadlock.
+                        replacement = SessionKeeper(
+                            self.site_id,
+                            self.account_idx,
+                            self.config,
+                            self.do_login_callback,
+                        )
+                        _keepers[key] = replacement
+                        try:
+                            replacement.start()
+                        except BaseException as exc:
+                            if _keepers.get(key) is replacement:
+                                _keepers.pop(key, None)
+                            sys.stderr.write(
+                                "  keepalive generation handoff failed for "
+                                f"{self.site_id}/{self.account_idx}: {exc}\n")
 
     def stop(self):
         self._stop.set()
@@ -932,15 +975,62 @@ def start_keeper(site_id: str, account_idx: int, site_config: dict,
                  do_login_callback: Callable) -> SessionKeeper:
     """Spawn a keeper thread. Returns the SessionKeeper instance."""
     key = (site_id, account_idx)
-    with _state_lock:
-        existing = _keepers.get(key)
-        if existing and not existing._stop.is_set():
-            return existing
-        keeper = SessionKeeper(site_id, account_idx, site_config,
-                               do_login_callback)
-        _keepers[key] = keeper
-    keeper.start()
-    return keeper
+    with _keeper_lifecycle_lock:
+        if _keeper_retired:
+            raise RuntimeError("keeper lifecycle is retired")
+        with _state_lock:
+            existing = _keepers.get(key)
+            if (existing is not None
+                    and not existing._stop.is_set()
+                    and existing._thread.is_alive()):
+                # If the target has already returned but is blocked in its
+                # identity-finally, Thread.is_alive() is still true.  Store an
+                # ensure request on that exact generation so its finalizer
+                # hands off instead of losing this starter.
+                existing.config = site_config
+                existing.do_login_callback = do_login_callback
+                existing._restart_requested.set()
+                return existing
+            if existing is not None:
+                existing.stop()
+
+        # Never hold _state_lock across join: the target's identity-finally
+        # needs it.  The outer lifecycle lock excludes every public starter and
+        # stopper while the captured generation settles.
+        if existing is not None:
+            old_thread = existing._thread
+            if old_thread is threading.current_thread():
+                raise RuntimeError(
+                    "previous keeper generation is still live")
+            if old_thread.is_alive():
+                old_thread.join(timeout=_KEEPER_GENERATION_STOP_TIMEOUT_S)
+            if old_thread.is_alive():
+                raise RuntimeError(
+                    "previous keeper generation is still live")
+
+        with _state_lock:
+            current = _keepers.get(key)
+            if existing is not None and current is existing:
+                _keepers.pop(key, None)
+            elif current is not None:
+                # Public lifecycle calls are serialized, so a different
+                # identity here can only be an unsanctioned direct mutation.
+                # Do not overwrite a generation we cannot prove quiescent.
+                raise RuntimeError(
+                    "keeper registry changed during generation handoff")
+            keeper = SessionKeeper(site_id, account_idx, site_config,
+                                   do_login_callback)
+            # Reserve before Thread.start() while holding the registry lock.
+            # The target-finally conditionally removes only this generation,
+            # so an immediate exit cannot erase a later retry.
+            _keepers[key] = keeper
+            try:
+                keeper.start()
+            except BaseException:
+                if _keepers.get(key) is keeper:
+                    _keepers.pop(key, None)
+                raise
+        return keeper
 
 
 def pause_site_keepers(site_id: str) -> int:  # INV-001
@@ -1013,23 +1103,117 @@ def note_worker_success(site_id: str, account_idx: int = 0) -> None:
 def stop_keeper(site_id: str, account_idx: int):
     """Stop the keeper for (site, account). Does not wait."""
     key = (site_id, account_idx)
-    with _state_lock:
-        keeper = _keepers.pop(key, None)
-    if keeper: keeper.stop()
+    with _keeper_lifecycle_lock:
+        with _state_lock:
+            keeper = _keepers.get(key)
+            if keeper:
+                # Retain the identity until its finalizer runs.  A concurrent
+                # start can then join/refuse this exact live generation rather
+                # than publishing a replacement beside an untracked worker.
+                keeper.stop()
 
 
-def stop_all(timeout: float = 5.0):
-    """Signal all keepers to stop, wait up to timeout for them to exit."""
-    with _state_lock:
-        keepers = list(_keepers.values())
-        _keepers.clear()
-    for k in keepers: k.stop()
-    # Brief wait for thread exits; daemonized so they won't block shutdown
-    deadline = _now() + timeout
-    for k in keepers:
-        remaining = max(0.1, deadline - _now())
-        try: k._thread.join(timeout=remaining)
-        except Exception: pass
+def stop_site_keepers(site_id: str, timeout: float = 5.0) -> bool:
+    """Stop and boundedly prove every keeper generation for one site dead.
+
+    Survivor identities remain published so a delete retry or process teardown
+    retains the only available stop/join handles.
+    """
+    with _keeper_lifecycle_lock:
+        with _state_lock:
+            keepers = [
+                keeper for (keeper_site, _idx), keeper in _keepers.items()
+                if keeper_site == site_id
+            ]
+            for keeper in keepers:
+                keeper.stop()
+        deadline = time.monotonic() + max(0.0, timeout)
+        current_thread = threading.current_thread()
+        for keeper in keepers:
+            thread = keeper._thread
+            if thread is current_thread:
+                continue
+            try:
+                if thread.is_alive():
+                    thread.join(timeout=max(
+                        0.0, deadline - time.monotonic()))
+            except Exception:
+                pass
+        with _state_lock:
+            survivors = []
+            for keeper in keepers:
+                key = (keeper.site_id, keeper.account_idx)
+                try:
+                    alive = (keeper._thread is current_thread
+                             or keeper._thread.is_alive())
+                except Exception:
+                    alive = True
+                if alive:
+                    survivors.append(keeper)
+                elif _keepers.get(key) is keeper:
+                    _keepers.pop(key, None)
+        return not survivors
+
+
+def stop_all(timeout: float = 5.0, *, retire: bool = False) -> bool:
+    """Stop all keepers and optionally close admission until the next boot."""
+    global _keeper_retired
+    with _keeper_lifecycle_lock:
+        if retire:
+            # Publish the fence before capturing. A starter already inside the
+            # lifecycle lock completes first and is therefore included below;
+            # every later starter observes the closed admission state.
+            _keeper_retired = True
+        with _state_lock:
+            keepers = list(_keepers.values())
+            for k in keepers:
+                k.stop()
+        # Brief wait for thread exits; daemonized so they won't block shutdown.
+        # Keep any survivor published so later teardown/start still has its
+        # only stop/join handle.
+        deadline = _now() + timeout
+        for k in keepers:
+            remaining = max(0.0, deadline - _now())
+            try:
+                if (k._thread is not threading.current_thread()
+                        and k._thread.is_alive()):
+                    k._thread.join(timeout=remaining)
+            except Exception:
+                pass
+        with _state_lock:
+            survivors = []
+            for k in keepers:
+                key = (k.site_id, k.account_idx)
+                try:
+                    alive = (k._thread is threading.current_thread()
+                             or k._thread.is_alive())
+                except Exception:
+                    alive = True
+                if alive:
+                    survivors.append(k)
+                elif _keepers.get(key) is k:
+                    _keepers.pop(key, None)
+        return not survivors
+
+
+def open_lifecycle() -> bool:
+    """Open a new keeper generation only when no prior handle is live."""
+    global _keeper_retired
+    with _keeper_lifecycle_lock:
+        with _state_lock:
+            current = threading.current_thread()
+            for key, keeper in tuple(_keepers.items()):
+                try:
+                    alive = (keeper._thread is current
+                             or keeper._thread.is_alive())
+                except Exception:
+                    alive = True
+                if alive:
+                    return False
+                if _keepers.get(key) is keeper:
+                    _keepers.pop(key, None)
+        _keeper_retired = False
+        return True
 
 
 def get_status() -> list[dict]:

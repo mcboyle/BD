@@ -88,3 +88,28 @@ def test_p3a_stop_clears_autostart_flag():
         "stop() did not clear the pending rate-limit autostart flag — an "
         "operator stop during cooldown will be overridden by a stale resume"
     )
+
+
+def test_stop_does_not_retry_timeout_aware_hook_after_internal_typeerror():
+    """An exception raised inside teardown is not a signature mismatch."""
+    class _Stub:
+        def __init__(self):
+            self._stop = threading.Event()
+            self._pause = threading.Event()
+            self._worker_threads = []
+            self._url_queue = _queue.Queue()
+            self._lock = threading.Lock()
+            self.jobs = {}
+            self._state = "running"
+            self._rl_autostart = False
+            self.auto_retry_calls = []
+
+        def _stop_auto_retry(self, timeout=2.0):
+            self.auto_retry_calls.append(timeout)
+            raise TypeError("nested got unexpected keyword argument 'timeout'")
+
+    stub = _Stub()
+    SiteRunner.stop(stub)
+    assert stub.auto_retry_calls == [0], (
+        "stop retried a timeout-aware teardown hook after its body raised"
+    )

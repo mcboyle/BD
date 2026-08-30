@@ -8,7 +8,7 @@ _ManualDownloadSession + sys; the class also needs the kernel fns + the httpx /
 vpn_runtime conditionals). Cycle rule: imports the kernel from .runner_util,
 NEVER from .runner.
 """
-import sys, threading, queue
+import functools, sys, threading, queue, time
 
 from playwright.sync_api import TimeoutError as PWTimeout
 from .runner_util import _check_video_magic_bytes, resolve_url_attribute
@@ -44,6 +44,23 @@ def _fire_capture_lifecycle(event, *args):
     except Exception as _e:  # noqa: BLE001
         sys.stderr.write(f"  manual_dl: {event} lifecycle hook error: {_e}\n")
         return 0
+
+
+def _manual_start_guard(method):
+    """Fence a possibly-blocking manual launch against runner retirement."""
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        begin = getattr(self, "_begin_auxiliary_start", None)
+        end = getattr(self, "_end_auxiliary_start", None)
+        admitted = True if not callable(begin) else begin()
+        if admitted is not True:
+            return False, "Site runtime is being deleted"
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            if callable(end):
+                end()
+    return guarded
 
 
 class _ManualDownloadSession:
@@ -519,10 +536,13 @@ class _ManualDownloadSession:
         return False, []
 
     def cancel(self, timeout=10):
-        """Close the session without harvesting anything."""
-        if self._closed.is_set(): return
-        self._send("cancel", timeout=timeout)
-        self._closed.wait(timeout=10)
+        """Signal closure and prove it within one shared timeout."""
+        if self._closed.is_set():
+            return True
+        deadline = time.monotonic() + max(0.0, timeout)
+        self._send("cancel", timeout=max(0.0, deadline - time.monotonic()))
+        self._closed.wait(timeout=max(0.0, deadline - time.monotonic()))
+        return self._closed.is_set()
 
     def snapshot_cookies(self, timeout=10):
         """Read cookies without closing the session."""
@@ -532,6 +552,7 @@ class _ManualDownloadSession:
 
 
 class ManualMixin:
+    @_manual_start_guard
     def start_manual_download(self,target_url):
         """Phase 41.3: open a non-headless Chromium at `target_url` with
         the site's cookies loaded and the click recorder + teach overlay

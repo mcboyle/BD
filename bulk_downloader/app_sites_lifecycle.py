@@ -220,7 +220,7 @@ def api_site_keep_alive_toggle(sid):
                 _sk.stop_keeper(sid, k["account_idx"])
     else:
         # Spawn keepers (re-uses the helper at startup)
-        _start_session_keepers()
+        _start_session_keepers(site_id=sid)
     return jsonify({"ok": True, "enabled": enabled})
 
 

@@ -71,6 +71,17 @@ class _FakeManualSession:
         return []
 
 
+class _CancellableManualSession(_FakeManualSession):
+    """Minimal browser owner exposing the cancellation contract under test."""
+
+    def __init__(self):
+        self.cancel_calls = []
+
+    def cancel(self, timeout=10):
+        self.cancel_calls.append(timeout)
+        return True
+
+
 def _runner(**over):
     db_init()  # SiteRunner reads the queue table on construction; idempotent.
     cfg = {
@@ -179,6 +190,114 @@ def test_on_done_fires_when_a_manual_login_is_already_pending():
     assert cb.calls[0] is False, (
         "a pending manual takeover is 'not logged in yet', so the resolved "
         f"value must be False, got {cb.calls[0]!r}")
+
+
+def test_on_done_fires_truthful_failure_when_runtime_is_retired():
+    """Retirement refuses new auth ownership without stranding its waiter."""
+    r = _runner()
+    r._run_retired = True
+    cb = _Collector()
+
+    started = time.monotonic()
+    result = r.login_async(on_done=cb)
+    elapsed = time.monotonic() - started
+
+    assert result is None
+    assert cb.fired.wait(0.5), (
+        "the retired admission guard dropped on_done, leaving the cookie "
+        "relogin consumer to wait its full 60-second timeout")
+    assert cb.calls == [False], (
+        "a retired runtime cannot start or complete a login, so its callback "
+        f"must resolve exactly once with False, got {cb.calls!r}")
+    assert elapsed < 1.0
+    assert r._login_thread is None, (
+        "reporting failure must not weaken retired admission by starting a "
+        "replacement login owner")
+
+
+def test_manual_login_publish_exception_clears_failed_handle_for_retry():
+    """A poller publication failure must not leave a phantom manual login."""
+    r = _runner()
+    first = _CancellableManualSession()
+    second = _CancellableManualSession()
+    publish_calls = []
+
+    def _publish(attribute, thread):
+        publish_calls.append((attribute, thread))
+        if len(publish_calls) == 1:
+            raise RuntimeError("thread start failed")
+        setattr(r, attribute, thread)
+        thread.start()
+        return True
+
+    r._start_owned_auxiliary_thread = _publish
+    r._poll_manual_cookies = lambda _handle, _stop: None
+    try:
+        with mock.patch(
+                "bulk_downloader.session_keeper.pause_site_keepers"), \
+             mock.patch(
+                 "bulk_downloader.login.open_manual_login_browser",
+                 side_effect=[first, second]) as open_browser:
+            with pytest.raises(RuntimeError, match="thread start failed"):
+                r.start_manual_login()
+
+            assert first.cancel_calls == [0]
+            assert r._manual_snapshot_thread is None
+            assert r._manual_snapshot_stop is None
+            assert r._manual_login_handle is None, (
+                "the failed browser handle remained published, so retry is "
+                "misreported as an already-open manual window")
+            assert r.is_awaiting_manual_login() is False
+
+            assert r.start_manual_login() == (
+                True, "Manual login window opened")
+            assert open_browser.call_count == 2
+            assert r._manual_login_handle is second
+    finally:
+        stop = getattr(r, "_manual_snapshot_stop", None)
+        if stop is not None:
+            stop.set()
+        thread = getattr(r, "_manual_snapshot_thread", None)
+        if thread is not None:
+            thread.join(timeout=2)
+        r._manual_snapshot_thread = None
+        r._manual_login_handle = None
+
+
+def test_manual_login_publish_exception_preserves_replacement_handle():
+    """Failure cleanup cannot erase a newer manual-login generation."""
+    r = _runner()
+    failed = _CancellableManualSession()
+    replacement = _CancellableManualSession()
+    replacement_stop = threading.Event()
+
+    def _replace_then_fail(_attribute, _thread):
+        r._manual_login_handle = replacement
+        r._manual_snapshot_stop = replacement_stop
+        raise RuntimeError("publication raced replacement")
+
+    r._start_owned_auxiliary_thread = _replace_then_fail
+    try:
+        with mock.patch(
+                "bulk_downloader.session_keeper.pause_site_keepers"), \
+             mock.patch(
+                 "bulk_downloader.login.open_manual_login_browser",
+                 return_value=failed):
+            with pytest.raises(RuntimeError, match="raced replacement"):
+                r.start_manual_login()
+
+        assert failed.cancel_calls == [0]
+        assert replacement.cancel_calls == []
+        assert r._manual_login_handle is replacement, (
+            "cleanup for the failed generation erased a replacement handle")
+        assert r._manual_snapshot_stop is replacement_stop
+        assert replacement_stop.is_set() is False, (
+            "cleanup for the failed generation signalled the replacement "
+            "generation's stop event")
+        assert r.is_awaiting_manual_login() is True
+    finally:
+        r._manual_login_handle = None
+        r._manual_snapshot_stop = None
 
 
 def test_on_done_fires_when_a_login_is_already_in_flight():

@@ -59,6 +59,16 @@ class _FakeRunner:
     """Minimal stand-in for SiteRunner: the bulk delete branch skips any
     sid that is not in `runners`, so a runner object is required to reach
     the teardown at all."""
+    def retire_scheduler(self, timeout=12.0):
+        return True
+
+    def retire_auto_retry(self, timeout=2.0):
+        return True
+
+    def retire_workers(self, timeout=5.0):
+        self.stop()
+        return True
+
     def stop(self):
         pass
 
@@ -289,6 +299,10 @@ def test_both_delete_paths_carry_the_reap(handler_name):
     from bulk_downloader import app_sites_id_core as core
     handler = getattr(core, handler_name)      # raises loudly on a rename
     body = inspect.getsource(handler)
+    if handler_name == "api_delete":
+        # The public route is a striped-lock wrapper; the transaction remains
+        # the implementation surface whose cleanup parity this guard audits.
+        body += inspect.getsource(core._api_delete_transaction)
     assert body.strip(), f"{handler_name} source came back empty"
     assert "forget_site(sid)" in body, (
         f"{handler_name} does not reap auth_health")

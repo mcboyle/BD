@@ -90,6 +90,19 @@ class _StubRunner:
         self.stopped = True
         return 0
 
+    def retire_scheduler(self, *a, **k):
+        """Truthfully prove the fixture owns no scheduler generation."""
+        return True
+
+    def retire_auto_retry(self, *a, **k):
+        """Truthfully prove the fixture owns no auto-retry generation."""
+        return True
+
+    def retire_workers(self, *a, **k):
+        """Truthfully prove the fixture owns no runner worker generation."""
+        self.stopped = True
+        return True
+
     def _stop_auto_retry(self, *a, **k):
         return None
 

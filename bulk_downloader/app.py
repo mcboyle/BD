@@ -6,7 +6,7 @@ import json, os, re, sys, time, uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, jsonify, Response, send_file, stream_with_context
+from flask import Flask, g, request, jsonify, Response, send_file, stream_with_context
 
 from .constants import SCREENSHOTS_DIR
 
@@ -26,31 +26,32 @@ from .runner import SiteRunner, StartOutcome, _ts
 from . import selftest as _selftest
 from .constants import DB_PATH as _DB_PATH
 
-# Load sites_config eagerly so we can validate it in the self-test.
-# (Full load happens later via _load_sites_config; here we just need
-# the file path + any configured download_dirs for the disk check.)
 import os as _os
-_SITES_CFG_PATH = _os.environ.get("BD_SITES_CONFIG_PATH", "sites_config.json")
-_DOWNLOAD_DIRS_FOR_SELFTEST = []
-try:
-    import json as _json
-    with open(_SITES_CFG_PATH, "r", encoding="utf-8") as _f:
-        _cfg_for_st = _json.load(_f)
-    # Tolerate two shapes: dict-with-"sites" key (new) and bare list (old).
-    if isinstance(_cfg_for_st, dict):
-        _sites_list = _cfg_for_st.get("sites") or []
-    elif isinstance(_cfg_for_st, list):
-        _sites_list = _cfg_for_st
-    else:
-        _sites_list = []
-    for _s in _sites_list:
-        if not isinstance(_s, dict):
-            continue
-        _dd = _s.get("download_dir")
-        if _dd:
-            _DOWNLOAD_DIRS_FOR_SELFTEST.append(_dd)
-except (FileNotFoundError, _json.JSONDecodeError, OSError, AttributeError, TypeError):
-    pass  # First run or unparseable; self-test will report cleanly
+
+
+def _selftest_sites_inputs(config_path):
+    """Read self-test inputs from the exact config identity boot will load."""
+    download_dirs = []
+    try:
+        cfg_for_test = json.loads(
+            Path(config_path).read_text(encoding="utf-8"))
+        if isinstance(cfg_for_test, dict):
+            sites = cfg_for_test.get("sites")
+            if sites is None:
+                sites = list(cfg_for_test.values())
+            elif isinstance(sites, dict):
+                sites = list(sites.values())
+        elif isinstance(cfg_for_test, list):
+            sites = cfg_for_test
+        else:
+            sites = []
+        for site in sites:
+            if isinstance(site, dict) and site.get("download_dir"):
+                download_dirs.append(site["download_dir"])
+    except (FileNotFoundError, json.JSONDecodeError, OSError,
+            AttributeError, TypeError):
+        pass
+    return str(config_path), download_dirs
 
 # Skip the self-test entirely under the same env flag as keep-alive
 # (tests don't want startup noise + auto-recover side effects).
@@ -109,6 +110,16 @@ import threading as _threading
 
 _BOOT_LOCK = _threading.Lock()
 _BOOTED_PATHS: set = set()
+# A configured site's runtime is process state, not database-schema state.
+# `force=True` intentionally re-runs the schema/self-test boot below, but it must
+# not construct a second SiteRunner (and therefore a second auto-retry thread)
+# for the same sites_config file. One process owns one live runner set, so after
+# activation a different config path is a loud restart boundary rather than an
+# invitation to relabel the existing runners as having come from a second file.
+_SITE_RUNTIME_PATH = None
+_SITE_RUNTIME_READY = False
+_SITE_RUNTIME_ROLLBACK_PENDING = False
+_SITE_RUNTIME_RETIRING = False
 
 
 def boot_once(*, force: bool = False) -> bool:
@@ -139,6 +150,9 @@ def boot_once(*, force: bool = False) -> bool:
         key = "<unresolved>"
     global _STARTUP_SELFTEST
     with _BOOT_LOCK:
+        requested_site_runtime_path = _resolved_site_runtime_path()
+        _require_compatible_site_runtime_path(requested_site_runtime_path)
+        _publish_sites_file_for_runtime(requested_site_runtime_path)
         if key in _BOOTED_PATHS and not force:
             return False
         # force=True DISCARDS the latch before re-running, so a re-boot that
@@ -154,11 +168,13 @@ def boot_once(*, force: bool = False) -> bool:
         # before db_init() tries to use it. That ordering is the whole reason
         # it sits above; tests/test_v3_43_24_reliability.py pins it.
         if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
+            selftest_sites_path, selftest_download_dirs = (
+                _selftest_sites_inputs(requested_site_runtime_path))
             _STARTUP_SELFTEST = _selftest.run_all(
-                sites_config_path=_SITES_CFG_PATH,
+                sites_config_path=selftest_sites_path,
                 db_path=_DB_PATH,
                 cookies_dir="cookies",
-                download_dirs=_DOWNLOAD_DIRS_FOR_SELFTEST,
+                download_dirs=selftest_download_dirs,
                 captures_root=str(_dom_analyzer_capture_store_root()),
             )
             _selftest.log_to_stderr(_STARTUP_SELFTEST)
@@ -244,6 +260,15 @@ def boot_once(*, force: bool = False) -> bool:
         except Exception as e:
             sys.stderr.write(f"migrations init failed: {e}\n")
 
+        # Configured sites are runtime state and must not be activated by a bare
+        # module import.  Pytest imports app-using test modules during collection,
+        # before its function-scoped cwd/env isolation; constructing SiteRunner
+        # there restores queues into the inherited DB and starts auto-retry
+        # threads.  Boot is the first point at which the schema and caller-owned
+        # environment are both ready.  The helper is resolved at CALL time after
+        # this module has finished defining it.
+        _activate_configured_runtime_once(requested_site_runtime_path)
+
         # item 40: persist a first-run allowlist seed now that the app is
         # actually booting, rather than at import.
         #
@@ -276,12 +301,23 @@ def boot_once(*, force: bool = False) -> bool:
             except Exception as _e:
                 _cfglog.get_logger(__name__).warning(
                     "failed to persist seeded path_allowlist: %s", _e)
+        # The folder watcher is fallible startup work, so start it before
+        # publishing completion. If Thread.start() raises, the DB key remains
+        # unlatched and the next caller can retry the whole boot.
+        _watcher_boot_context.reopen_allowed = True
+        try:
+            _start_watcher()
+        finally:
+            try:
+                del _watcher_boot_context.reopen_allowed
+            except AttributeError:
+                pass
         _BOOTED_PATHS.add(key)
-        # Background services start LAST, and after the latch is set. Last,
-        # because the scheduler's tasks read tables the migrations above
-        # create. After the latch, because a service thread that immediately
-        # issues a request would otherwise re-enter boot_once, find the key
-        # absent, and queue behind a lock this thread still holds.
+        # Request-capable background services start LAST, and after the latch is
+        # set. Last, because the scheduler's tasks read tables the migrations
+        # above create. After the latch, because a service thread that
+        # immediately issues a request would otherwise re-enter boot_once, find
+        # the key absent, and queue behind a lock this thread still holds.
         #
         # Resolved at CALL time, so being defined ~1800 lines below is fine --
         # boot_once never runs during module execution, which is the entire
@@ -344,10 +380,66 @@ from .app_kernel import (
 )
 from .app_state import (
     runners, s_cfg, s_meta,
-    _watch_threads, _watch_stops,
+    _watch_threads, _watch_stops, _watch_registry_lock,
+    _sites_config_save_lock,
     _pairing_tokens, _pairing_lock,
     _dedup_scan_state, _dedup_scan_lock,
 )
+
+
+# A site DELETE is a teardown transaction: once it owns the site's stripe, no
+# other request may publish new state for that site before the identity is
+# removed.  The canonical sites Blueprint owns this rule for every
+# /api/sites/<sid> route.  A handful of older, independently extracted
+# Blueprints also mutate site state through a <sid> argument, so cover those
+# writes here without treating every similarly named route argument as a site.
+# In particular, captcha relay/takeover uses <sid> for a solve-session id and
+# includes a long-lived stream; it is deliberately outside this transaction.
+_SITE_TRANSACTION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_SITE_TRANSACTION_BLUEPRINT_EXCLUSIONS = frozenset({
+    "sites",
+    "captcha_relay_api",
+})
+
+
+@app.before_request
+def _enter_non_sites_site_lifecycle_transaction():
+    """Serialize mutating non-sites routes with deletion of a live site."""
+    if request.method not in _SITE_TRANSACTION_METHODS:
+        return None
+    if request.blueprint in _SITE_TRANSACTION_BLUEPRINT_EXCLUSIONS:
+        return None
+    site_id = (request.view_args or {}).get("sid")
+    if site_id is None:
+        return None
+
+    # This observation is intentionally before acquiring the stripe.  If a
+    # concurrent DELETE wins after it, we queue behind it and the route's
+    # existing identity check observes absence under the lock.  If DELETE has
+    # already detached every identity, this non-site route can proceed to its
+    # own not-found response without manufacturing a stripe transaction for an
+    # unrelated <sid> namespace.
+    if (site_id not in runners
+            and site_id not in s_cfg
+            and site_id not in s_meta):
+        return None
+
+    from .app_state import site_lifecycle_lock
+    lock = site_lifecycle_lock(site_id)
+    lock.acquire()
+    held = getattr(g, "_bd_non_sites_site_lifecycle_locks", None)
+    if held is None:
+        held = []
+        g._bd_non_sites_site_lifecycle_locks = held
+    held.append(lock)
+    return None
+
+
+@app.teardown_request
+def _leave_non_sites_site_lifecycle_transaction(_error=None):
+    held = getattr(g, "_bd_non_sites_site_lifecycle_locks", ())
+    while held:
+        held.pop().release()
 
 
 # ── Phase 41.7: Global JSON error handling ──────────────────────────────
@@ -1386,6 +1478,9 @@ def _resolve_sites_file() -> Path:
     reference SITES_FILE and at least one monkeypatches it with setattr. A
     resolver would leave every one of those patches inert.
     """
+    explicit = os.environ.get("BD_SITES_CONFIG_PATH", "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
     install = os.environ.get("BD_INSTALL_DIR", "").strip()
     if install:
         return Path(install).resolve() / "sites_config.json"
@@ -1393,6 +1488,27 @@ def _resolve_sites_file() -> Path:
 
 
 SITES_FILE = _resolve_sites_file()
+# Preserve the public/patchable module attribute while allowing explicit boot
+# to re-read environment roots that changed after collection-time import.  An
+# explicit assignment to SITES_FILE changes object identity and is respected;
+# values published by this resolver remain eligible for the next call-time
+# refresh until the configured runtime binds its absolute identity.
+_SITES_FILE_LAST_AUTO_OBJECT = SITES_FILE
+
+
+def _sites_file_for_boot() -> Path:
+    """Resolve a candidate without corrupting a bound runtime on rejection."""
+    if SITES_FILE is _SITES_FILE_LAST_AUTO_OBJECT:
+        return _resolve_sites_file()
+    return Path(SITES_FILE)
+
+
+def _publish_sites_file_for_runtime(config_path) -> None:
+    """Publish an accepted auto-owned candidate; preserve explicit patches."""
+    global SITES_FILE, _SITES_FILE_LAST_AUTO_OBJECT
+    if SITES_FILE is _SITES_FILE_LAST_AUTO_OBJECT:
+        SITES_FILE = Path(config_path)
+        _SITES_FILE_LAST_AUTO_OBJECT = SITES_FILE
 
 def _save_sites_config():
     """Write current sites to disk. Called on every add/update/delete.
@@ -1421,6 +1537,12 @@ def _save_sites_config():
     path is BD_HOME/cookies/<site_id>.json which respects BD_HOME
     overrides (used by the dev install) and stays inside the project
     tree."""
+    # Different site routes hold different lifecycle stripes, but they all
+    # replace this one file.  Keep auto-fill, snapshot, serialization, temp
+    # write, and replace in one global transaction.  A later caller then takes
+    # a fresh snapshot after any mutation that caused it to wait.
+    _sites_config_save_lock.acquire()
+    saved = False
     try:
         # Compute default cookie dir from BD_HOME or current working dir.
         # We resolve lazily on each save so a BD_HOME change picks up
@@ -1468,8 +1590,12 @@ def _save_sites_config():
         # Path.replace is atomic on POSIX and on Windows NTFS for same-volume
         # renames (which this always is since tmp sits next to SITES_FILE).
         tmp.replace(SITES_FILE)
+        saved = True
     except Exception as e:
         sys.stderr.write(f"  ! sites_config save failed: {e}\n")
+    finally:
+        _sites_config_save_lock.release()
+    return saved
 
 def _build_meta(cfg: dict) -> dict:
     """Return a copy of cfg with secrets stripped — top-level password
@@ -1624,34 +1750,35 @@ def _load_sites_config():
                 )
     sys.stderr.write(f"  ↺ restored {len(data)} site(s) from {SITES_FILE.name}\n")
 
-_load_sites_config()
+def _init_vpn_runtime():
+    """Initialize VPN mappings after configured sites have been restored."""
+    try:
+        from . import vpn_runtime
 
+        def _vpn_pause_site(site_id):
+            runner = runners.get(site_id)
+            if runner is not None:
+                runner.pause()
 
-try:
-    from . import vpn_runtime
+        def _vpn_resume_site(site_id):
+            runner = runners.get(site_id)
+            if runner is not None:
+                runner.resume()
 
-    def _vpn_pause_site(site_id):
-        runner = runners.get(site_id)
-        if runner is not None:
-            runner.pause()
-
-    def _vpn_resume_site(site_id):
-        runner = runners.get(site_id)
-        if runner is not None:
-            runner.resume()
-
-    _vpn_runtime_status = vpn_runtime.init(
-        s_cfg,
-        siterunner_pauser=_vpn_pause_site,
-        siterunner_resumer=_vpn_resume_site,
-    )
-    if _vpn_runtime_status.get("tunnel_register_errors"):
+        status = vpn_runtime.init(
+            s_cfg,
+            siterunner_pauser=_vpn_pause_site,
+            siterunner_resumer=_vpn_resume_site,
+        )
+        if status.get("tunnel_register_errors"):
+            sys.stderr.write(
+                "  ! VPN runtime registration errors: "
+                f"{status['tunnel_register_errors']}\n")
+        return status
+    except Exception as _vpn_runtime_err:
         sys.stderr.write(
-            "  ! VPN runtime registration errors: "
-            f"{_vpn_runtime_status['tunnel_register_errors']}\n")
-except Exception as _vpn_runtime_err:
-    sys.stderr.write(
-        f"  ! VPN runtime initialization failed: {_vpn_runtime_err}\n")
+            f"  ! VPN runtime initialization failed: {_vpn_runtime_err}\n")
+        return {"ok": False, "error": str(_vpn_runtime_err)}
 
 
 # v3.43.16: spawn session keep-alive threads for sites that have a
@@ -1664,7 +1791,9 @@ except Exception as _vpn_runtime_err:
 #
 # Set BD_DISABLE_KEEPALIVE=1 to skip startup (used by tests and any
 # environment where you don't want the background threads).
-def _start_session_keepers():
+def _start_session_keepers(site_id=None):
+    if _SITE_RUNTIME_RETIRING:
+        return
     if os.environ.get("BD_DISABLE_KEEPALIVE", "").strip() == "1":
         return
     from . import session_keeper as _sk
@@ -1711,7 +1840,14 @@ def _start_session_keepers():
         except Exception as e:
             return False, f"login raised: {type(e).__name__}: {e}"
 
-    for sid, cfg in list(s_cfg.items()):
+    if site_id is None:
+        configured_sites = list(s_cfg.items())
+    else:
+        cfg = s_cfg.get(site_id)
+        configured_sites = ([(site_id, cfg)]
+                            if isinstance(cfg, dict) else [])
+
+    for sid, cfg in configured_sites:
         if not isinstance(cfg, dict): continue
         if not cfg.get("keep_alive_enabled", True): continue
         accounts = cfg.get("accounts") or []
@@ -1726,8 +1862,6 @@ def _start_session_keepers():
                         sid, idx, keeper_cfg, _do_login_for_keeper)
         elif cfg.get("password"):
             _sk.start_keeper(sid, 0, cfg, _do_login_for_keeper)
-
-_start_session_keepers()
 
 # v3.43.24: process-alive heartbeat to disk. External monitors (Windows
 # scheduled task, systemd, nagios) can watch this file's mtime to detect
@@ -1779,6 +1913,8 @@ def _start_watch_folder_threads():
     """Spawn one daemon thread per configured site. The thread's
     own poll cycle handles enable/disable changes — we don't need
     to start/stop threads on config change."""
+    if _SITE_RUNTIME_RETIRING:
+        return
     if _os.environ.get("BD_DISABLE_KEEPALIVE"):
         return
     try:
@@ -1786,23 +1922,328 @@ def _start_watch_folder_threads():
     except Exception:
         return
     import threading as _wf_th
-    for _sid, _r in runners.items():
-        # One thread per site, regardless of whether watch is
-        # currently enabled — the loop short-circuits when disabled.
-        # This keeps thread count predictable.
-        if _sid in _watch_threads:
-            continue
-        stop = _wf_th.Event()
-        t = _wf_th.Thread(
-            target=_wf.watch_loop_for_site,
-            args=(_r, stop),
-            daemon=True,
-            name=f"watch-folder-{_sid}")
-        _watch_threads[_sid] = t
-        _watch_stops[_sid] = stop
-        t.start()
+    # Reserve before Thread.start() while holding the shared lifecycle lock.
+    # That makes concurrent update/delete calls observe either the complete
+    # generation or none of it; no started worker can be overwritten or missed.
+    with _watch_registry_lock:
+        # The fast check above avoids imports/work on the ordinary retired
+        # path. This lock-coupled recheck is the actual publication fence:
+        # teardown sets retirement while holding the same registry lock.
+        if _SITE_RUNTIME_RETIRING:
+            return
+        for _sid, _r in tuple(runners.items()):
+            existing = _watch_threads.get(_sid)
+            if existing is not None and existing.is_alive():
+                # The target may already have returned while Thread.is_alive()
+                # remains true because its finally block is waiting for this
+                # registry lock.  Remember the overlapping ensure request on
+                # that exact generation so its finalizer hands off to a fresh
+                # worker instead of silently losing the request.
+                restart_requested = getattr(
+                    existing, "_bd_watch_restart_requested", None)
+                if restart_requested is not None:
+                    restart_requested.set()
+                continue
+            if existing is not None:
+                _watch_threads.pop(_sid, None)
+                _watch_stops.pop(_sid, None)
 
-_start_watch_folder_threads()
+            stop = _wf_th.Event()
+            restart_requested = _wf_th.Event()
+
+            def run_and_unregister(
+                    sid=_sid, runner=_r, stop_event=stop,
+                    restart_event=restart_requested):
+                try:
+                    _wf.watch_loop_for_site(runner, stop_event)
+                finally:
+                    current = _wf_th.current_thread()
+                    should_restart = False
+                    with _watch_registry_lock:
+                        is_current = _watch_threads.get(sid) is current
+                        if is_current:
+                            _watch_threads.pop(sid, None)
+                        if _watch_stops.get(sid) is stop_event:
+                            _watch_stops.pop(sid, None)
+                        should_restart = (
+                            is_current
+                            and restart_event.is_set()
+                            and not stop_event.is_set()
+                            and runners.get(sid) is runner
+                        )
+                    # Never recurse while holding the registry lock: Thread
+                    # finalization and delete both need the same lock.  The
+                    # identity checks above also prevent an obsolete
+                    # generation from replacing a newer one.
+                    if should_restart:
+                        _start_watch_folder_threads()
+
+            t = _wf_th.Thread(
+                target=run_and_unregister,
+                daemon=True,
+                name=f"watch-folder-{_sid}")
+            t._bd_watch_restart_requested = restart_requested
+            _watch_threads[_sid] = t
+            _watch_stops[_sid] = stop
+            try:
+                t.start()
+            except BaseException:
+                if _watch_threads.get(_sid) is t:
+                    _watch_threads.pop(_sid, None)
+                if _watch_stops.get(_sid) is stop:
+                    _watch_stops.pop(_sid, None)
+                raise
+
+def _resolved_site_runtime_path():
+    """Return the absolute identity of the configured-sites runtime."""
+    sites_file = _sites_file_for_boot()
+    try:
+        return str(sites_file.resolve())
+    except Exception:
+        return os.path.abspath(str(sites_file))
+
+
+def _require_compatible_site_runtime_path(requested_path):
+    """Refuse to bind the process's live runners to a second config file."""
+    if (_SITE_RUNTIME_PATH is not None
+            and requested_path != _SITE_RUNTIME_PATH):
+        raise RuntimeError(
+            "sites configuration path changed after runtime activation "
+            f"(active={_SITE_RUNTIME_PATH!r}, requested={requested_path!r}); "
+            "restart required")
+
+
+_SITE_RUNTIME_RETIRE_TIMEOUT_S = 2.0
+
+
+def _retire_configured_runtime_runners(deadline=None) -> bool:
+    """Retire every partially loaded runner without losing any handle."""
+    if deadline is None:
+        deadline = time.monotonic() + _SITE_RUNTIME_RETIRE_TIMEOUT_S
+    all_quiescent = True
+    for runner in tuple(runners.values()):
+        # Do not short-circuit: one stuck generation must not leave the other
+        # writer classes running merely because the aggregate already failed.
+        for method_name in (
+            "retire_scheduler",
+            "retire_auto_retry",
+            "retire_workers",
+        ):
+            method = getattr(runner, method_name, None)
+            verdict = False
+            if callable(method):
+                try:
+                    verdict = method(
+                        timeout=max(0.0, deadline - time.monotonic())) is True
+                except Exception:
+                    verdict = False
+            if not verdict:
+                all_quiescent = False
+    return all_quiescent
+
+
+def _retire_configured_runtime_watchers(deadline=None) -> bool:
+    """Signal and prove every configured watch generation quiescent."""
+    if deadline is None:
+        deadline = time.monotonic() + _SITE_RUNTIME_RETIRE_TIMEOUT_S
+    with _watch_registry_lock:
+        site_ids = set(s_cfg) | set(s_meta) | set(runners)
+        site_ids.update(_watch_threads)
+        site_ids.update(_watch_stops)
+        captured_threads = {
+            site_id: _watch_threads.get(site_id) for site_id in site_ids
+            if _watch_threads.get(site_id) is not None
+        }
+        captured_stops = {
+            site_id: _watch_stops.get(site_id) for site_id in site_ids
+            if _watch_stops.get(site_id) is not None
+        }
+        for stop_event in captured_stops.values():
+            try:
+                stop_event.set()
+            except Exception:
+                pass
+
+    current_thread = threading.current_thread()
+    for thread in captured_threads.values():
+        if thread is current_thread:
+            continue
+        try:
+            if thread.is_alive():
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        except Exception:
+            # The liveness verdict below treats an uninspectable generation as
+            # a survivor and retains its registry identity.
+            pass
+
+    all_quiescent = True
+    with _watch_registry_lock:
+        for site_id, thread in captured_threads.items():
+            try:
+                alive = (thread is current_thread or thread.is_alive())
+            except Exception:
+                alive = True
+            if alive:
+                all_quiescent = False
+                continue
+            if _watch_threads.get(site_id) is thread:
+                _watch_threads.pop(site_id, None)
+            elif _watch_threads.get(site_id) is not None:
+                # A replacement generation is live state that this rollback
+                # did not capture or prove.
+                all_quiescent = False
+                continue
+            stop_event = captured_stops.get(site_id)
+            if stop_event is not None and _watch_stops.get(site_id) is stop_event:
+                _watch_stops.pop(site_id, None)
+        for site_id, stop_event in captured_stops.items():
+            if site_id in captured_threads:
+                continue
+            if _watch_threads.get(site_id) is not None:
+                all_quiescent = False
+            elif _watch_stops.get(site_id) is stop_event:
+                _watch_stops.pop(site_id, None)
+    return all_quiescent
+
+
+def _retire_configured_runtime_dependencies(deadline=None) -> bool:
+    """Quiesce watcher/keeper producers without resetting VPN leaves."""
+    if deadline is None:
+        deadline = time.monotonic() + _SITE_RUNTIME_RETIRE_TIMEOUT_S
+    all_quiescent = _retire_configured_runtime_watchers(deadline)
+    site_ids = set(s_cfg) | set(s_meta) | set(runners)
+    try:
+        from . import session_keeper as _session_keeper
+        for site_id in site_ids:
+            try:
+                stopped = _session_keeper.stop_site_keepers(
+                    site_id,
+                    timeout=max(0.0, deadline - time.monotonic())) is True
+            except Exception:
+                stopped = False
+            if not stopped:
+                all_quiescent = False
+        try:
+            stopped = _session_keeper.stop_all(
+                timeout=max(0.0, deadline - time.monotonic()),
+                retire=True,
+            ) is True
+        except Exception:
+            stopped = False
+        if not stopped:
+            all_quiescent = False
+    except Exception:
+        all_quiescent = False
+    return all_quiescent
+
+
+def _retire_configured_runtime_all() -> bool:
+    """Retire all producers, then and only then reset their VPN leaf."""
+    deadline = time.monotonic() + _SITE_RUNTIME_RETIRE_TIMEOUT_S
+    dependencies_quiescent = _retire_configured_runtime_dependencies(deadline)
+    runners_quiescent = _retire_configured_runtime_runners(deadline)
+    if not (dependencies_quiescent and runners_quiescent):
+        return False
+    try:
+        from . import vpn_runtime as _vpn_runtime
+        return _vpn_runtime.shutdown() is True
+    except Exception:
+        return False
+
+
+def _clear_configured_runtime_state() -> None:
+    """Clear a partial load only after every owned generation is dead."""
+    site_ids = set(s_cfg) | set(s_meta) | set(runners)
+    try:
+        from . import account_pool as _account_pool
+        for site_id in site_ids:
+            try:
+                _account_pool.remove_pool(site_id)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    runners.clear()
+    s_meta.clear()
+    s_cfg.clear()
+
+
+def _activate_configured_runtime_once(requested_path=None):
+    """Restore configured sites and their dependent services exactly once.
+
+    Called only from ``boot_once`` while ``_BOOT_LOCK`` is held.  Keep the latch
+    separate from ``_BOOTED_PATHS``: a forced schema boot must not replace live
+    runners or duplicate their scheduler/auto-retry threads.
+    """
+    global _SITE_RUNTIME_PATH, _SITE_RUNTIME_READY, _SITE_RUNTIME_RETIRING
+    global _SITE_RUNTIME_ROLLBACK_PENDING
+    key = requested_path or _resolved_site_runtime_path()
+    _require_compatible_site_runtime_path(key)
+    _publish_sites_file_for_runtime(key)
+    if _SITE_RUNTIME_READY:
+        return False
+    if _SITE_RUNTIME_ROLLBACK_PENDING:
+        if not _retire_configured_runtime_all():
+            raise RuntimeError(
+                "configured-site load rollback is still pending; "
+                "background generation did not stop")
+        _clear_configured_runtime_state()
+        _SITE_RUNTIME_ROLLBACK_PENDING = False
+    # Explicit callers and tests may deliberately load/replace site state before
+    # their first request.  The historical module-scope load happened before
+    # those callers, so boot never overwrote that state.  Preserve the same
+    # ordering after deferral: only hydrate from disk when no site state exists;
+    # still initialize the dependent services below for preloaded state.
+    if not (s_cfg or s_meta or runners):
+        try:
+            _load_sites_config()
+        except Exception as load_error:
+            # Loading is all-or-nothing.  SiteRunner.__init__ starts its
+            # scheduler and auto-retry threads, so a later runner failing to
+            # construct would otherwise leave an incomplete live set.  The
+            # runtime latch is still clear, but a retry would see the partial
+            # dictionaries above, skip hydration, and incorrectly latch them.
+            # Stop every runner created by this empty-state load and restore
+            # the empty invariant before propagating the original failure.
+            if _retire_configured_runtime_runners():
+                _clear_configured_runtime_state()
+                raise
+            _SITE_RUNTIME_ROLLBACK_PENDING = True
+            raise RuntimeError(
+                "configured-site load rollback is pending; "
+                "background generation did not stop") from load_error
+    # Bind the identity as soon as the complete runner set exists. Dependent
+    # service startup below can fail and be retried without either duplicating
+    # runners or allowing a different config file to claim the live set.
+    _SITE_RUNTIME_PATH = key
+    try:
+        from . import session_keeper as _session_keeper
+        if not _session_keeper.open_lifecycle():
+            raise RuntimeError(
+                "session keeper lifecycle has a surviving generation")
+        # Reopen app-owned dependent admission only at this serialized boot
+        # boundary, after any pending rollback has been proved and cleared.
+        _SITE_RUNTIME_RETIRING = False
+        vpn_status = _init_vpn_runtime()
+        if not (isinstance(vpn_status, dict)
+                and vpn_status.get("ok") is True):
+            reason = (vpn_status.get("reason") or vpn_status.get("error")
+                      if isinstance(vpn_status, dict)
+                      else f"invalid status {vpn_status!r}")
+            raise RuntimeError(f"VPN runtime activation failed: {reason}")
+        _start_session_keepers()
+        _start_watch_folder_threads()
+    except Exception as activation_error:
+        _SITE_RUNTIME_RETIRING = True
+        if _retire_configured_runtime_all():
+            _clear_configured_runtime_state()
+            raise
+        _SITE_RUNTIME_ROLLBACK_PENDING = True
+        raise RuntimeError(
+            "configured-site activation rollback is pending; "
+            "background generation did not stop") from activation_error
+    _SITE_RUNTIME_READY = True
+    return True
 
 
 # ── v3.43.41: download-window scheduler ───────────────────────────────
@@ -2133,6 +2574,21 @@ except Exception as e:
 import threading
 _watcher_thread = None
 _watcher_stop = threading.Event()
+_watcher_lifecycle_lock = threading.RLock()
+_watcher_retiring = False
+_watcher_boot_context = threading.local()
+
+
+def _routing_config_projection(cfg):
+    """Return the immutable-by-value inputs used for URL/site scoring."""
+    if not isinstance(cfg, dict):
+        return None
+    projection = {}
+    for field in ("url_patterns", "login_url", "success_url"):
+        value = cfg.get(field)
+        projection[field] = value if isinstance(value, str) else ""
+    return projection
+
 
 def _route_urls_internal(urls):
     """Internal helper: same routing logic as /api/route_urls but without
@@ -2143,9 +2599,18 @@ def _route_urls_internal(urls):
     top so concurrent site add/delete in another thread doesn't raise
     'dict changed size during iteration'."""
     from urllib.parse import urlparse
+    from .app_state import site_lifecycle_lock
     by_site = {}; unrouted = []
-    # Snapshot for thread-safe iteration
-    cfg_snapshot = list(s_cfg.items())
+    # Keep object identities as generation markers, but score immutable
+    # projections. PUT updates config dictionaries in place, so object identity
+    # alone cannot prove the fields that produced a score are still current.
+    live_cfg_snapshot = list(s_cfg.items())
+    captured_configs = dict(live_cfg_snapshot)
+    cfg_snapshot = [
+        (sid, _routing_config_projection(cfg))
+        for sid, cfg in live_cfg_snapshot
+    ]
+    captured_projections = dict(cfg_snapshot)
     for url in urls:
         best_sid, best_score, _reason = _score_url_against_sites(
             url, cfg_snapshot)
@@ -2155,9 +2620,30 @@ def _route_urls_internal(urls):
             unrouted.append(url)
     summary = {}
     for sid, site_urls in by_site.items():
-        if sid not in runners: continue
-        added, dupes, *rest = runners[sid].load_urls(site_urls)
-        summary[sid] = {"added": added, "dupes": dupes, "total": len(site_urls)}
+        captured_cfg = captured_configs.get(sid)
+        captured_projection = captured_projections.get(sid)
+        if captured_cfg is None or captured_projection is None:
+            continue
+        # Scoring and publication are separated by arbitrary work (policy,
+        # regex, and folder-watcher scheduling).  A key alone is not a
+        # generation: DELETE may remove it and a later create may reuse it.
+        # Serialize the identity recheck through load_urls so delete observes
+        # either the complete old enqueue or none of it, and never feed a URL
+        # scored on old config into a new same-key runner.
+        with site_lifecycle_lock(sid):
+            if s_cfg.get(sid) is not captured_cfg:
+                continue
+            if _routing_config_projection(captured_cfg) != captured_projection:
+                continue
+            runner = runners.get(sid)
+            if runner is None:
+                continue
+            added, dupes, *rest = runner.load_urls(site_urls)
+            summary[sid] = {
+                "added": added,
+                "dupes": dupes,
+                "total": len(site_urls),
+            }
     return summary, unrouted
 
 
@@ -2274,21 +2760,22 @@ def _score_url_against_sites(url: str, cfg_snapshot=None):
             best_reason = reason
     return best_sid, best_score, best_reason
 
-def _watcher_loop():
+def _watcher_loop(stop_event=None):
     """Thread body. Polls watch_folder for new .txt files; imports URLs;
     renames the file so it won't be processed again. Failures are logged
     but never crash the thread — folder watcher is best-effort."""
     import sys
-    while not _watcher_stop.is_set():
+    stop_event = stop_event or _watcher_stop
+    while not stop_event.is_set():
         try:
             folder = (_app_cfg or {}).get("watch_folder", "").strip()
             if not folder:
-                _watcher_stop.wait(5); continue
+                stop_event.wait(5); continue
             interval = max(5, int((_app_cfg or {}).get("watch_interval_sec", 30) or 30))
             archive = bool((_app_cfg or {}).get("watch_archive", True))
             watch_dir = Path(folder)
             if not watch_dir.exists() or not watch_dir.is_dir():
-                _watcher_stop.wait(interval); continue
+                stop_event.wait(interval); continue
             archive_dir = watch_dir / "processed"
             if archive: archive_dir.mkdir(exist_ok=True)
             for txt in sorted(watch_dir.glob("*.txt")):
@@ -2339,22 +2826,79 @@ def _watcher_loop():
                         txt.rename(target)
                 except Exception as e:
                     sys.stderr.write(f"[watcher] {txt.name}: rename failed {e}\n")
-            _watcher_stop.wait(interval)
+            stop_event.wait(interval)
         except Exception as e:
             sys.stderr.write(f"[watcher] loop error (continuing): {e}\n")
-            _watcher_stop.wait(15)
+            stop_event.wait(15)
 
 def _start_watcher():
-    """Idempotent start. Called at module import + whenever app_config
+    """Idempotent start. Called at explicit boot + whenever app_config
     changes. The thread polls _app_cfg directly each loop, so we don't
     actually need to restart it on config changes — it just notices."""
-    global _watcher_thread
-    if _watcher_thread and _watcher_thread.is_alive(): return
-    _watcher_stop.clear()
-    _watcher_thread = threading.Thread(target=_watcher_loop, daemon=True,
-                                       name="bd-folder-watcher")
-    _watcher_thread.start()
-_start_watcher()
+    global _watcher_thread, _watcher_stop
+    with _watcher_lifecycle_lock:
+        if _watcher_retiring:
+            if not getattr(
+                _watcher_boot_context, "reopen_allowed", False
+            ):
+                return False
+            globals()["_watcher_retiring"] = False
+        if _watcher_thread and _watcher_thread.is_alive():
+            return False
+        stop_event = threading.Event()
+        generation = None
+
+        def run_generation():
+            try:
+                _watcher_loop(stop_event)
+            finally:
+                with _watcher_lifecycle_lock:
+                    if _watcher_thread is generation:
+                        globals()["_watcher_thread"] = None
+
+        generation = threading.Thread(
+            target=run_generation,
+            daemon=True,
+            name="bd-folder-watcher",
+        )
+        _watcher_stop = stop_event
+        _watcher_thread = generation
+        try:
+            generation.start()
+        except BaseException:
+            stop_event.set()
+            if _watcher_thread is generation:
+                _watcher_thread = None
+            raise
+        return True
+
+
+def _stop_watcher(timeout=2.0, *, retire=False):
+    """Signal and boundedly prove the process-global watcher generation."""
+    global _watcher_thread, _watcher_retiring
+    with _watcher_lifecycle_lock:
+        _watcher_retiring = True
+        generation = _watcher_thread
+        stop_event = _watcher_stop
+        if generation is None:
+            if not retire:
+                _watcher_retiring = False
+            return True
+        stop_event.set()
+    try:
+        if generation is threading.current_thread():
+            return False
+        if generation.ident is not None and generation.is_alive():
+            generation.join(timeout=max(0.0, timeout))
+        stopped = not generation.is_alive()
+        with _watcher_lifecycle_lock:
+            if stopped and _watcher_thread is generation:
+                _watcher_thread = None
+        return stopped
+    finally:
+        if not retire:
+            with _watcher_lifecycle_lock:
+                _watcher_retiring = False
 
 
 # ── SPA root routing contract ────────────────────────────────────────────

@@ -291,6 +291,14 @@ def check_all_sites(s_cfg: dict, *, only_if_stale: bool = False) -> dict:
 
     skipped = []
     checked = []
+    site_configs = s_cfg if s_cfg is not None else {}
+    # Snapshot the registry before doing network I/O.  A live DELETE mutates
+    # the shared dict; iterating its view directly can raise "dictionary
+    # changed size" and, more importantly, leaves a captured config able to
+    # publish after deletion.  Each captured entry is revalidated under the
+    # same per-site stripe used by DELETE below.
+    captured_configs = list(site_configs.copy().items())
+    from .app_state import site_lifecycle_lock
     if only_if_stale:
         try:
             with _db.db_conn() as cx:
@@ -305,19 +313,28 @@ def check_all_sites(s_cfg: dict, *, only_if_stale: bool = False) -> dict:
     else:
         fresh = set()
 
-    for sid, cfg in (s_cfg or {}).items():
-        if not _cookie_file(cfg):
-            skipped.append({"site_id": sid, "reason": "no cookies_file"})
-            continue
-        if sid in fresh:
-            skipped.append({"site_id": sid, "reason": "checked recently"})
-            continue
-        try:
-            res = check_site(sid, cfg)
-            checked.append(res)
-        except Exception as e:
-            checked.append({"site_id": sid, "status": "red",
-                            "note": f"check_site raised: {str(e)[:100]}"})
+    for sid, cfg in captured_configs:
+        with site_lifecycle_lock(sid):
+            # DELETE or PUT may have won the stripe after the snapshot.  Only
+            # the exact still-current config generation may run and publish.
+            if site_configs.get(sid) is not cfg:
+                skipped.append({"site_id": sid,
+                                "reason": "site removed or reconfigured"})
+                continue
+            if not _cookie_file(cfg):
+                skipped.append({"site_id": sid,
+                                "reason": "no cookies_file"})
+                continue
+            if sid in fresh:
+                skipped.append({"site_id": sid,
+                                "reason": "checked recently"})
+                continue
+            try:
+                res = check_site(sid, cfg)
+                checked.append(res)
+            except Exception as e:
+                checked.append({"site_id": sid, "status": "red",
+                                "note": f"check_site raised: {str(e)[:100]}"})
 
     summary = {
         "checked": len(checked),

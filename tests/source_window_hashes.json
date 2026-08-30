@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "resolved": 114,
+  "resolved": 113,
   "schema_version": 1,
   "unresolved": [],
   "windows": [
@@ -47,7 +47,7 @@
     {
       "bytes": 2002,
       "key": "tests/test_v3_43_24_reliability.py::test_heartbeat_to_disk_function_exists::src[hb_start:hb_start + 2000]::1",
-      "sha256": "7d72569af80c541b84d13b8ce7bcbae8f587bd3c153e6d6237b25f2ef37bdc6a"
+      "sha256": "1d3855ead639642092b8ea4132b6a208c8cffbc394aa5e9f315bceb64d73ff8d"
     },
     {
       "bytes": 700,
@@ -160,14 +160,14 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "bytes": 1572,
+      "bytes": 1502,
       "key": "tests/test_v3_43_30_watch_folder.py::test_watch_thread_disable_keepalive_gate::src[fn_pos:fn_pos + 1500]::1",
-      "sha256": "89c6bdb87fc875597adca063cb40691f8d68685dd58b5b8854dc88961452c9b3"
+      "sha256": "4fbbbc3dc3ef501b1570f010fb5b36ba877b47fd3c5e0bf1aa35753a5fafaf23"
     },
     {
-      "bytes": 2002,
+      "bytes": 2000,
       "key": "tests/test_v3_43_30_watch_folder.py::test_watch_thread_stopped_on_site_delete::src[del_pos:del_pos + 2000]::1",
-      "sha256": "0bd3003816fc333af6584e807719b7c93f6ec30f03ce529bbec606b4cdc4b150"
+      "sha256": "b2b86f0f34d03044602290a57562ae08bf7181cc4a7113fa20fee916b17fbe0c"
     },
     {
       "bytes": 3007,
@@ -182,7 +182,7 @@
     {
       "bytes": 2502,
       "key": "tests/test_v3_43_32_cookie_validation.py::test_app_keep_alive_login_writer_delegates_too::body[max(0, pos - 2000):pos + 500]::1",
-      "sha256": "bdae63632000be5fe237b77adecef4276f12f56bc2a45055529e9b1e1b2079d5"
+      "sha256": "29f6c4ee83a54b56cbee163943c1c58702ff7c00a66d0bb4deb039e2d4a17be2"
     },
     {
       "bytes": 502,
@@ -222,12 +222,7 @@
     {
       "bytes": 8018,
       "key": "tests/test_v3_43_35_account_pool.py::test_app_calls_configure_pool_on_load::src[pos:pos + 8000]::1",
-      "sha256": "44e9b8e4a14ffc351bd05ae91c65750308453b6642d179b15de046d8232b82c7"
-    },
-    {
-      "bytes": 3004,
-      "key": "tests/test_v3_43_35_account_pool.py::test_app_removes_pool_on_delete::src[pos:pos + 3000]::1",
-      "sha256": "898517dfcd6cb85bc91ad82c2c93622950ba7edb3ac971a698aaff52c924f21b"
+      "sha256": "0fd616592e7b3f7c46d805297774db4fa185dc7a85ad8428b86da1d0e2b47524"
     },
     {
       "bytes": 1414,

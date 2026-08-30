@@ -28,7 +28,6 @@ RED on pristine v3.66.522:
 from __future__ import annotations
 
 import json
-import os
 
 
 # --------------------------------------------------------------------------
@@ -44,12 +43,16 @@ def test_vr_p08_nan_rejected_by_numeric_backstop():
     assert se.validate_numeric_updates({"wait": 5}) == {}
 
 
-def test_vr_p08_nan_not_persisted_via_real_put():
+def test_vr_p08_nan_not_persisted_via_real_put(monkeypatch, tmp_path):
     """E2E: the audited PUT path must reject a NaN and leave the on-disk config
     unchanged (the confirmed corruption was nan persisting to sites config)."""
-    os.environ["BD_DISABLE_KEEPALIVE"] = "1"
+    monkeypatch.setenv("BD_DISABLE_KEEPALIVE", "1")
     from bulk_downloader import app as a
     from bulk_downloader import db
+    # The app may already be imported from a prior test generation. Bind this
+    # persistence assertion to an explicit file identity so first-request boot
+    # cannot correctly refresh an auto-owned path out from under the fixture.
+    monkeypatch.setattr(a, "SITES_FILE", tmp_path / "sites_config.json")
     db.db_init()
     a.SITES_FILE.write_text(
         json.dumps({"demo": {"name": "Demo", "max_concurrent": 4, "wait": 5}}),

@@ -5,7 +5,7 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (matched the seams doc exactly -- no
 conditional soft-import blocks in this unit). Cycle rule: nothing from .runner.
 """
-import math, sys, threading, time
+import functools, math, sys, threading, time
 
 from .db import db_log, session_event_record
 from .login import do_login
@@ -34,6 +34,38 @@ def _finite_config_float(raw, default):
 
 
 _TAKEOVER_MODES = ("visible", "remote", "remote_vnc")
+
+
+def _auth_start_guard(retired_result, *, on_retired=None):
+    """Track auth/manual launch callers until publication or retirement."""
+    def decorate(method):
+        @functools.wraps(method)
+        def guarded(self, *args, **kwargs):
+            begin = getattr(self, "_begin_auxiliary_start", None)
+            end = getattr(self, "_end_auxiliary_start", None)
+            admitted = True if not callable(begin) else begin()
+            if admitted is not True:
+                if on_retired is not None:
+                    on_retired(self, *args, **kwargs)
+                return retired_result()
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                if callable(end):
+                    end()
+        return guarded
+    return decorate
+
+
+def _resolve_retired_login(self, on_done=None, allow_manual=True):
+    """Complete the async callback contract when retirement rejects login."""
+    del allow_manual
+    if on_done is None:
+        return
+    try:
+        on_done(False)
+    except Exception as exc:
+        sys.stderr.write(f"[{self.site_id}] login on_done raised: {exc}\n")
 
 
 def _resolve_takeover_mode(config: dict) -> str:
@@ -164,6 +196,7 @@ def _admit_takeover(config: dict, active_count: int):
 
 
 class AuthMixin:
+    @_auth_start_guard(lambda: None, on_retired=_resolve_retired_login)
     def login_async(self,on_done=None,allow_manual=True):
         """Phase 4.4: by default, allow manual takeover when auto-login
         can't complete the form. The Chromium window stays open with the
@@ -341,7 +374,16 @@ class AuthMixin:
                 sys.stderr.write(f"[{self.site_id}] login thread crashed: {e}\n")
             finally:
                 _settle(False)
-        self._login_thread=threading.Thread(target=_run,daemon=True); self._login_thread.start()
+        login_thread = threading.Thread(
+            target=_run, daemon=True, name=f"login-{self.site_id}")
+        publish = getattr(self, "_start_owned_auxiliary_thread", None)
+        if callable(publish):
+            if not publish("_login_thread", login_thread):
+                _fire(False)
+                return
+        else:
+            self._login_thread = login_thread
+            login_thread.start()
     def _await_in_flight_login(self, thread, fire, timeout=55.0):
         """v3.66.834: resolve a second caller's on_done against the login
         thread that is ALREADY running (the in-flight guard path in
@@ -364,18 +406,31 @@ class AuthMixin:
         tests/test_v3_66_834_login_on_done_always_fires.py pins it."""
         attempt = getattr(self, "_login_attempt_seq", 0)
         def _watch():
-            thread.join(timeout)
-            rec = getattr(self, "_login_outcome", None)
-            fire(bool(rec) and rec[0] == attempt and rec[1] is True)
+            try:
+                thread.join(timeout)
+                rec = getattr(self, "_login_outcome", None)
+                fire(bool(rec) and rec[0] == attempt and rec[1] is True)
+            finally:
+                finish = getattr(self, "_finish_tracked_auxiliary_thread", None)
+                if callable(finish):
+                    finish(threading.current_thread())
         try:
-            threading.Thread(target=_watch, daemon=True,
-                             name=f"login-wait-{self.site_id}").start()
+            waiter = threading.Thread(
+                target=_watch, daemon=True,
+                name=f"login-wait-{self.site_id}")
+            publish = getattr(self, "_start_tracked_auxiliary_thread", None)
+            if callable(publish):
+                if not publish(waiter):
+                    fire(False)
+            else:
+                waiter.start()
         except Exception as _e:
             # Thread exhaustion must not strand the caller: this guard path
             # was a bare `return` before v3.66.834 and could not raise.
             sys.stderr.write(
                 f"[{self.site_id}] login watcher could not start: {_e}\n")
             fire(False)
+    @_auth_start_guard(lambda: (False, "Site runtime is being deleted"))
     def start_manual_login(self):
         """Phase 19: skip auto-login entirely and open a browser at the
         login URL with the recorder + manual banner active. The user
@@ -436,13 +491,38 @@ class AuthMixin:
             return False, "Browser open returned no handle"
         self._manual_login_handle = handle
         self._manual_cookie_snapshot = []
-        self._manual_snapshot_stop = threading.Event()
-        # Start the snapshot poller. Daemon so app shutdown doesn't wait.
-        threading.Thread(
+        snapshot_stop = threading.Event()
+        self._manual_snapshot_stop = snapshot_stop
+        # Publish the snapshot-poller generation before start so teardown can
+        # never miss a thread that outlives the manual browser handle.
+        snapshot_thread = threading.Thread(
             target=self._poll_manual_cookies,
-            args=(handle, self._manual_snapshot_stop),
+            args=(handle, snapshot_stop),
             daemon=True, name=f"manual-poll-{self.site_id}",
-        ).start()
+        )
+        publish = getattr(self, "_start_owned_auxiliary_thread", None)
+        try:
+            if callable(publish):
+                published = publish("_manual_snapshot_thread", snapshot_thread)
+            else:
+                self._manual_snapshot_thread = snapshot_thread
+                snapshot_thread.start()
+                published = True
+            if not published:
+                raise RuntimeError("site runtime retired during manual login")
+        except BaseException:
+            snapshot_stop.set()
+            if self._manual_snapshot_thread is snapshot_thread:
+                self._manual_snapshot_thread = None
+            if self._manual_snapshot_stop is snapshot_stop:
+                self._manual_snapshot_stop = None
+            try:
+                handle.cancel(timeout=0)
+            except Exception:
+                pass
+            if self._manual_login_handle is handle:
+                self._manual_login_handle = None
+            raise
         self._login_status = "⏳ Manual login: complete in browser, then click I'm Done"
         sys.stderr.write(f"  manual login started for {self.site_id}: {login_url}\n")
         return True, "Manual login window opened"
@@ -472,6 +552,8 @@ class AuthMixin:
             consecutive_misses = 0
             if cookies:
                 self._manual_cookie_snapshot = cookies
+    @_auth_start_guard(
+        lambda: {"ok": False, "error": "site runtime is being deleted"})
     def start_captcha_solve_session(self, url: str) -> dict:
         """Open a visible browser pointed at `url` so the user can solve
         a captcha challenge by hand. Uses the same manual-login plumbing
@@ -580,6 +662,7 @@ class AuthMixin:
         self.log_event("captcha", f"Manual solve session started ({label}) for {url[:60]}", url=url)
         return {"ok": True, "session_id": session_id, "url": url,
                 "mode": eff_mode, "mode_reason": downgrade_reason}
+    @_auth_start_guard(lambda: False)
     def end_captcha_solve_session(self, url: str, resolution: str = "resolved") -> bool:
         """Close the visible browser for `url`. If resolution=='resolved',
         requeue the URL (status pending) so the worker picks it up on

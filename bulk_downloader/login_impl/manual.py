@@ -3,6 +3,7 @@
 import queue
 import sys
 import threading
+import time
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..cookies import pw_to_json
@@ -630,15 +631,18 @@ class ManualLoginSession:
     def cancel(self, timeout=10):
         """Close the session without capturing anything. Safe to call
         from any thread."""
-        if self._closed.is_set(): return
+        if self._closed.is_set():
+            return True
+        deadline = time.monotonic() + max(0.0, timeout)
         rq = queue.Queue()
         try:
             self._cmd_q.put(("cancel", None, rq))
         except Exception:
             pass
-        try: rq.get(timeout=timeout)
+        try: rq.get(timeout=max(0.0, deadline - time.monotonic()))
         except queue.Empty: pass
-        self._closed.wait(timeout=10)
+        self._closed.wait(timeout=max(0.0, deadline - time.monotonic()))
+        return self._closed.is_set()
 
 
 def open_manual_login_browser(config, manual_profile_dir=None, headless=False):

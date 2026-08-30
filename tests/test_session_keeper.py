@@ -82,6 +82,28 @@ def _reset_module_state():
         sk._takeover_locks.clear()
 
 
+def _reset_app_runtime_state(app_module):
+    """Model a process restart for API tests that change their working dir."""
+    from bulk_downloader import account_pool
+
+    with app_module._BOOT_LOCK:
+        site_ids = set(app_module.s_cfg) | set(app_module.runners)
+        for runner in list(app_module.runners.values()):
+            try:
+                runner.stop_scheduler()
+            finally:
+                runner.stop()
+        for site_id in site_ids:
+            account_pool.remove_pool(site_id)
+        app_module.runners.clear()
+        app_module.s_meta.clear()
+        app_module.s_cfg.clear()
+        app_module._BOOTED_PATHS.clear()
+        app_module._SITE_RUNTIME_PATH = None
+        app_module._SITE_RUNTIME_READY = False
+        app_module._SITE_RUNTIME_ROLLBACK_PENDING = False
+
+
 def _keeper_config():
     """Config for lifecycle/API tests that must not launch a real browser."""
     return {"password": "p", "keep_alive_enabled": False}
@@ -292,6 +314,158 @@ def test_start_stop_precondition_rejects_zero_worker_threads(monkeypatch):
         assert _worker_thread_population(keeper) == 0
 
 
+def test_start_failure_is_not_published_and_a_retry_starts_the_worker(monkeypatch):
+    """A failed Thread.start cannot become a reusable dead keeper."""
+    from bulk_downloader import session_keeper as sk
+    with _isolated_cwd():
+        from bulk_downloader import db
+        db.db_init()
+        _reset_module_state()
+        real_start = sk.SessionKeeper.start
+        calls = 0
+
+        def fail_once(keeper):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("planted keeper start failure")
+            return real_start(keeper)
+
+        monkeypatch.setattr(sk.SessionKeeper, "start", fail_once)
+        with pytest.raises(RuntimeError, match="planted keeper start failure"):
+            sk.start_keeper(
+                "wow", 0, _keeper_config(), lambda *_: (True, ""))
+        assert ("wow", 0) not in sk._keepers
+
+        keeper = sk.start_keeper(
+            "wow", 0, _keeper_config(), lambda *_: (True, ""))
+        _assert_keeper_worker_started(keeper)
+        assert sk._keepers[("wow", 0)] is keeper
+        sk.stop_keeper("wow", 0)
+        _assert_thread_stopped(keeper._thread)
+
+
+def test_exited_keeper_deregisters_and_a_later_start_replaces_it(monkeypatch):
+    """A target that exits after Thread.start cannot remain reusable forever."""
+    from bulk_downloader import session_keeper as sk
+    with _isolated_cwd():
+        from bulk_downloader import db
+        db.db_init()
+        _reset_module_state()
+        first_exited = threading.Event()
+
+        def exit_immediately(_keeper):
+            first_exited.set()
+
+        monkeypatch.setattr(sk.SessionKeeper, "_run", exit_immediately)
+        first = sk.start_keeper(
+            "wow", 0, _keeper_config(), lambda *_: (True, ""))
+        assert first_exited.wait(_KEEPER_THREAD_BOUND_SECONDS)
+        _assert_thread_stopped(first._thread)
+        assert ("wow", 0) not in sk._keepers
+
+        release = threading.Event()
+        monkeypatch.setattr(
+            sk.SessionKeeper,
+            "_run",
+            lambda _keeper: release.wait(_KEEPER_THREAD_BOUND_SECONDS),
+        )
+        second = sk.start_keeper(
+            "wow", 0, _keeper_config(), lambda *_: (True, ""))
+        try:
+            assert second is not first
+            _assert_keeper_worker_started(second)
+            assert sk._keepers[("wow", 0)] is second
+        finally:
+            release.set()
+            sk.stop_keeper("wow", 0)
+            _assert_thread_stopped(second._thread)
+
+
+def test_restart_refuses_while_stopped_keeper_generation_is_still_live(
+        monkeypatch):
+    """Stop/start overlap must not publish two keepers for one account."""
+    from bulk_downloader import session_keeper as sk
+    with _isolated_cwd():
+        from bulk_downloader import db
+        db.db_init()
+        _reset_module_state()
+        entered = threading.Event()
+        release = threading.Event()
+        generations = []
+
+        def blocked_run(keeper):
+            generations.append(keeper)
+            entered.set()
+            release.wait(_KEEPER_THREAD_BOUND_SECONDS)
+
+        monkeypatch.setattr(sk.SessionKeeper, "_run", blocked_run)
+        monkeypatch.setattr(
+            sk, "_KEEPER_GENERATION_STOP_TIMEOUT_S", 0.05, raising=False)
+        first = sk.start_keeper(
+            "wow", 0, _keeper_config(), lambda *_: (True, ""))
+        assert entered.wait(_KEEPER_THREAD_BOUND_SECONDS)
+        sk.stop_keeper("wow", 0)
+
+        try:
+            with pytest.raises(
+                RuntimeError, match="previous keeper generation is still live"
+            ):
+                sk.start_keeper(
+                    "wow", 0, _keeper_config(), lambda *_: (True, ""))
+            assert generations == [first]
+            assert sk._keepers.get(("wow", 0)) is first
+        finally:
+            release.set()
+            _assert_thread_stopped(first._thread)
+
+
+def test_starter_overlapping_keeper_target_exit_hands_off_generation(
+        monkeypatch):
+    """An ensure call cannot be lost behind an exiting target finalizer."""
+    from bulk_downloader import session_keeper as sk
+    with _isolated_cwd():
+        from bulk_downloader import db
+        db.db_init()
+        _reset_module_state()
+        allow_first_return = threading.Event()
+        first_body_done = threading.Event()
+        second_started = threading.Event()
+        release_second = threading.Event()
+        generations = []
+
+        def controlled_run(keeper):
+            generations.append(keeper)
+            if len(generations) == 1:
+                allow_first_return.wait(_KEEPER_THREAD_BOUND_SECONDS)
+                first_body_done.set()
+                return
+            second_started.set()
+            release_second.wait(_KEEPER_THREAD_BOUND_SECONDS)
+
+        monkeypatch.setattr(sk.SessionKeeper, "_run", controlled_run)
+        first = sk.start_keeper(
+            "wow", 0, _keeper_config(), lambda *_: (True, ""))
+        try:
+            # Keep the old target blocked in identity-finally while the
+            # overlapping starter sees Thread.is_alive() as true.
+            with sk._state_lock:
+                allow_first_return.set()
+                assert first_body_done.wait(_KEEPER_THREAD_BOUND_SECONDS)
+                assert first._thread.is_alive()
+                returned = sk.start_keeper(
+                    "wow", 0, _keeper_config(), lambda *_: (True, ""))
+                assert returned is first
+
+            assert second_started.wait(_KEEPER_THREAD_BOUND_SECONDS)
+            second = sk._keepers.get(("wow", 0))
+            assert second is not None and second is not first
+            assert second._thread.is_alive()
+        finally:
+            release_second.set()
+            sk.stop_all(timeout=_KEEPER_THREAD_BOUND_SECONDS)
+
+
 def test_keeper_stop_bound_still_fires_for_genuinely_hung_work():
     """Negative bound control: a never-released worker must remain a failure."""
     release = threading.Event()
@@ -452,12 +626,16 @@ def _api_client():
         Path(td, "screenshots").mkdir(exist_ok=True)
         db_init()
         _reset_module_state()
-        c = A.app.test_client()
-        r = c.get('/api/pair'); token = r.get_json()['token']
-        r = c.post('/api/pair/redeem', json={'token': token})
-        csrf = r.get_json()['csrf_token']
-        H = {'X-CSRF-Token': csrf}
-        yield c, H, A
+        _reset_app_runtime_state(A)
+        try:
+            c = A.app.test_client()
+            r = c.get('/api/pair'); token = r.get_json()['token']
+            r = c.post('/api/pair/redeem', json={'token': token})
+            csrf = r.get_json()['csrf_token']
+            H = {'X-CSRF-Token': csrf}
+            yield c, H, A
+        finally:
+            _reset_app_runtime_state(A)
 
 
 def test_session_status_endpoint_empty():
@@ -571,3 +749,134 @@ def test_start_session_keepers_passes_account_credentials(monkeypatch):
 
     assert captured[0][2]["username"] == "tester"
     assert captured[0][2]["password"] == "fixturepass"
+
+
+def test_site_update_cannot_start_keeper_for_concurrently_deleted_other_site(
+        monkeypatch):
+    """A site-local update must not replay a stale all-site keeper snapshot."""
+    from bulk_downloader import account_pool, app as app_module, app_state
+    from bulk_downloader import audit, cookie_health, db, session_keeper
+    from bulk_downloader import app_sites_id_core as site_core
+
+    site_a = "keeper-update-site-a"
+    site_b = "keeper-delete-site-b"
+    suffix = 0
+    while app_state.site_lifecycle_lock(site_a) is app_state.site_lifecycle_lock(
+            site_b):
+        suffix += 1
+        site_b = f"keeper-delete-site-b-{suffix}"
+
+    class _Runner:
+        def update_config(self, _cfg):
+            return None
+
+        def retire_scheduler(self, timeout=2.0):
+            return True
+
+        def retire_auto_retry(self, timeout=2.0):
+            return True
+
+        def retire_workers(self, timeout=2.0):
+            return True
+
+    start_a_entered = threading.Event()
+    release_start_a = threading.Event()
+    delete_done = threading.Event()
+    started_sites = []
+    responses = {}
+
+    def gated_start(site_id, account_idx, cfg, callback):
+        started_sites.append(site_id)
+        if site_id == site_a:
+            start_a_entered.set()
+            assert release_start_a.wait(2), "test never released site-A start"
+
+    monkeypatch.delenv("BD_DISABLE_KEEPALIVE", raising=False)
+    monkeypatch.setattr(app_module, "_SITE_RUNTIME_RETIRING", False)
+    monkeypatch.setattr(app_module, "boot_once", lambda: False)
+    monkeypatch.setattr(app_module, "_accepted_tokens", lambda: [])
+    monkeypatch.setattr(app_module, "_save_sites_config", lambda: None)
+    monkeypatch.setattr(app_module, "_start_watch_folder_threads", lambda: None)
+    monkeypatch.setattr(session_keeper, "get_status", lambda: [])
+    monkeypatch.setattr(session_keeper, "start_keeper", gated_start)
+    monkeypatch.setattr(
+        site_core, "_stop_site_keeper_generations", lambda _sid: True)
+    monkeypatch.setattr(account_pool, "remove_pool", lambda _sid: None)
+    monkeypatch.setattr(db, "queue_delete_site", lambda _sid: None)
+    monkeypatch.setattr(cookie_health, "forget_site", lambda _sid: None)
+    monkeypatch.setattr(audit, "audit_log", lambda **_kwargs: None)
+
+    assert site_a not in app_state.s_cfg and site_b not in app_state.s_cfg
+    app_state.s_cfg[site_a] = {
+        "name": "Site A",
+        "password": "secret-a",
+        "keep_alive_enabled": True,
+    }
+    app_state.s_cfg[site_b] = {
+        "name": "Site B",
+        "password": "secret-b",
+        "keep_alive_enabled": True,
+    }
+    app_state.s_meta[site_a] = {"name": "Site A"}
+    app_state.s_meta[site_b] = {"name": "Site B"}
+    app_state.runners[site_a] = _Runner()
+    app_state.runners[site_b] = _Runner()
+
+    def issue_update():
+        with app_module.app.test_client() as client:
+            responses["update"] = client.put(
+                f"/api/sites/{site_a}", json={"name": "Site A updated"})
+
+    def issue_delete():
+        with app_module.app.test_client() as client:
+            responses["delete"] = client.delete(f"/api/sites/{site_b}")
+        delete_done.set()
+
+    update_thread = threading.Thread(
+        target=issue_update, name="site-a-keeper-update", daemon=True)
+    delete_thread = threading.Thread(
+        target=issue_delete, name="site-b-delete", daemon=True)
+    try:
+        update_thread.start()
+        assert start_a_entered.wait(2), "site-A update never reached keeper start"
+        delete_thread.start()
+        assert delete_done.wait(2), "site-B delete was blocked by site-A update"
+        assert responses["delete"].status_code == 200
+
+        release_start_a.set()
+        update_thread.join(timeout=2)
+        delete_thread.join(timeout=2)
+        assert not update_thread.is_alive() and not delete_thread.is_alive()
+        assert responses["update"].status_code == 200
+        assert site_b not in app_state.s_cfg
+        assert site_b not in started_sites, (
+            "site-A update started an orphan keeper from its stale all-site "
+            "snapshot after site B was deleted")
+    finally:
+        release_start_a.set()
+        update_thread.join(timeout=2)
+        delete_thread.join(timeout=2)
+        for site_id in (site_a, site_b):
+            app_state.runners.pop(site_id, None)
+            app_state.s_meta.pop(site_id, None)
+            app_state.s_cfg.pop(site_id, None)
+
+
+def test_retired_keeper_lifecycle_rejects_stale_starter(monkeypatch):
+    """Teardown retirement must fence a starter that arrives afterward."""
+    from bulk_downloader import session_keeper as sk
+
+    constructed = []
+
+    class UnexpectedKeeper:
+        def __init__(self, *_args, **_kwargs):
+            constructed.append(True)
+
+    assert sk.stop_all(timeout=0.1, retire=True) is True
+    monkeypatch.setattr(sk, "SessionKeeper", UnexpectedKeeper)
+
+    with pytest.raises(RuntimeError, match="lifecycle is retired"):
+        sk.start_keeper("stale", 0, _keeper_config(), lambda *_: None)
+
+    assert constructed == []
+    assert sk.open_lifecycle() is True

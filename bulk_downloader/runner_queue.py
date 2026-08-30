@@ -326,6 +326,12 @@ class QueueMixin:
         # Publish the prepared intake as one lifecycle/job transaction. Slow
         # policy and filesystem checks above never hold either lock.
         with self._job_status_writer() as mark_status_changed:
+            # A global folder/saved-search router can capture this runner
+            # before DELETE detaches it, then arrive here after retirement.
+            # The lifecycle lock serializes the verdict: a retired identity
+            # may never repopulate its in-memory or durable queue.
+            if getattr(self, "_run_retired", False):
+                return 0, dupes, skipped_on_disk
             ord_start=len(self.urls)
             for u, hdrs, pre_done, status, msg in prepared:
                 if u in self.jobs:
