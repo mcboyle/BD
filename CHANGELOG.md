@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1357 - deploy distinguishes restart-locked credentials from a missing SPA
+
+- Row 408: a structured `credential_vault_locked` health response from the
+  exact deployed version is reported as serving-degraded, with the required
+  Settings -> Secrets unlock stated explicitly.
+- The deploy still proves `GET / = 200` and the exact intended commit before
+  success. It also validates DB, queue, download-hold, and credential cross-field
+  state; wrong-version, blank, malformed, masked-UNKNOWN, and unrelated 503
+  responses fail.
+- Locked-vault health still enumerates referenced key names, so an independently
+  observed missing credential cannot be hidden by the expected restart lock.
+- Only an observed 503 from `GET /` diagnoses an unavailable SPA bundle.
+
 ## v3.66.1356 - the reviewed-template regression asserts the recorded modal contract
 
 - Corrected the v3.66.144 integration test to assert Reptyle's recorded modal

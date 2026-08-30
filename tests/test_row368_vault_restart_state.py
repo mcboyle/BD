@@ -193,6 +193,32 @@ def test_unlocked_missing_reference_is_the_negative_control(vault_subject, path)
     )
 
 
+@pytest.mark.parametrize("path", ["/api/health", "/api/health/v2"])
+def test_locked_vault_still_enumerates_and_reports_a_missing_reference(
+    vault_subject, path
+):
+    backend, sites, client = vault_subject
+    sites["row368-b"]["accounts"][0]["password"] = f"@cred:{_MISSING_KEY}"
+    backend.lock()
+
+    # The master key is absent, but list_keys remains an independent inventory
+    # measurement.  One referenced label exists and one does not; reporting
+    # missing_count=0 here would turn a hardcoded constant into deploy permission.
+    assert backend.is_unlocked() is False
+    assert backend.list_keys() == [_KEY_A, _KEY_B]
+    assert _MISSING_KEY not in backend.list_keys()
+
+    response = client.get(path)
+    body = response.get_json()
+    assert response.status_code == 503, body
+    assert body["degraded"] == "credential_missing"
+    expected = _expected_health(
+        state="missing_credentials", ok=False, resolved=0, missing=1, unavailable=1
+    )
+    expected["is_unlocked"] = False
+    assert body["credentials"] == expected
+
+
 def test_unavailable_vault_measurement_is_unknown_never_ok(
     vault_subject, monkeypatch
 ):

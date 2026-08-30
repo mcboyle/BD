@@ -833,6 +833,66 @@ ROOT_URL="${HEALTH_URL%/api/health}/"
 deadline=$(( $(date +%s) + TIMEOUT ))
 got=""
 code=""
+health_serving_degraded=0
+
+# A master-password vault deliberately locks on every process restart.  That
+# makes /api/health answer 503 even though this exact service is listening and
+# serving the SPA.  Recognise only the complete, nonempty structured condition:
+# a bare 503, a sibling degradation, or a payload with no affected credentials
+# remains a failure.  JSON is parsed rather than grepped because accepting a
+# coincidental string from an error page would turn an unavailable measurement
+# into deploy permission.
+_locked_vault_version() {
+  printf '%s' "$1" | "$VENV_PY" -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if not isinstance(payload, dict):
+    raise SystemExit(1)
+credentials = payload.get("credentials")
+download_hold = payload.get("download_hold")
+exact_int = lambda value: type(value) is int
+nonnegative = lambda value: exact_int(value) and value >= 0
+positive = lambda value: exact_int(value) and value > 0
+reference_count = credentials.get("reference_count") if isinstance(credentials, dict) else None
+stored_count = credentials.get("stored_count") if isinstance(credentials, dict) else None
+unavailable_count = credentials.get("unavailable_count") if isinstance(credentials, dict) else None
+hold_state = download_hold.get("state") if isinstance(download_hold, dict) else None
+observed = (
+    payload.get("ok") is False
+    and payload.get("degraded") == "credential_vault_locked"
+    and payload.get("db_ok") is True
+    and nonnegative(payload.get("queue_depth"))
+    and nonnegative(payload.get("active_downloads"))
+    and nonnegative(payload.get("sites_loaded"))
+    and isinstance(download_hold, dict)
+    and hold_state in {"clear", "held"}
+    and download_hold.get("downloads_allowed") is (hold_state == "clear")
+    and isinstance(credentials, dict)
+    and credentials.get("backend") == "master_password"
+    and credentials.get("ok") is False
+    and credentials.get("state") == "locked"
+    and credentials.get("is_initialized") is True
+    and credentials.get("is_unlocked") is False
+    and type(credentials.get("missing_count")) is int
+    and credentials.get("missing_count") == 0
+    and type(credentials.get("resolved_count")) is int
+    and credentials.get("resolved_count") == 0
+    and positive(reference_count)
+    and positive(stored_count)
+    and positive(unavailable_count)
+    and unavailable_count == reference_count
+)
+version = payload.get("version")
+if not observed or not isinstance(version, str) or not version:
+    raise SystemExit(1)
+sys.stdout.write(version)
+'
+}
 while :; do
   bodyf="$(mktemp)"
   code="$(curl -s -o "$bodyf" -w '%{http_code}' --max-time 5 "$HEALTH_URL" 2>/dev/null)" || true
@@ -840,13 +900,30 @@ while :; do
   body="$(cat "$bodyf")"
   rm -f "$bodyf"
 
-  # A 503 is a DEFINITE answer, not a not-yet: bulk_downloader/app.py serves it
-  # when the SPA bundle is absent. Polling a definite answer for the full budget
-  # only wastes the operator's time.
+  # A 503 is a DEFINITE answer, not a not-yet.  It is not, however, proof that
+  # the SPA is absent: /api/health also uses 503 for structured degradation and
+  # does not serve frontend/dist at all.  Only the exact restart-locked-vault
+  # condition can proceed, and GET / still independently proves the SPA below.
   if [ "$code" = "503" ]; then
-    die "GET $HEALTH_URL returned 503 -- the SPA bundle was not found. frontend/dist
-  did not deliver; rebuild it with (cd frontend && npm ci && npm run build).
-  Not retried: 503 here is an answer, not a slow start."
+    locked_version=""
+    if locked_version="$(_locked_vault_version "$body")"; then
+      if [ "$locked_version" != "$TREE_VERSION" ]; then
+        die "health gate: $HEALTH_URL reported the structured
+  credential_vault_locked state from version $locked_version, expected
+  $TREE_VERSION. A degraded sibling tree is still the wrong deployment."
+      fi
+      got="$locked_version"
+      health_serving_degraded=1
+      note "SERVING-DEGRADED: Credential vault is LOCKED after the service restart.
+  The intended service is listening, but stored credentials are unavailable
+  until a human opens Settings -> Secrets -> Unlock. This explicit unlock is
+  required after every service restart. Verifying GET / separately."
+      break
+    fi
+    die "health gate: GET $HEALTH_URL returned HTTP 503, and its response did
+  not prove the exact structured credential_vault_locked serving-degraded
+  condition. Expected HTTP 200 or that explicit restart state; not retried
+  because 503 is a definite answer rather than a slow start."
   fi
 
   # A body is health evidence only when it came with HTTP 200. In particular,
@@ -902,7 +979,12 @@ fi
 # Echo the code that was RECEIVED, never the literal the check demands. A
 # success note that restates its own constant cannot contradict a weakened
 # check: it would print "GET / = 200" over a 404 and read as a clean pass.
-note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
+if [ "$health_serving_degraded" -eq 1 ]; then
+  note "serving-degraded verified: /api/health version $TREE_VERSION with
+  credential_vault_locked, GET / = $rcode; Settings -> Secrets unlock required"
+else
+  note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
+fi
 
 # ── [13] summary ────────────────────────────────────────────────────
 # An unchanged tree that verified clean says so and exits 0. It does NOT
