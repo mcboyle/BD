@@ -76,6 +76,8 @@ Exit codes -- three states, and UNKNOWN is not a pass:
                          SAMPLE-RECORDED with failures=0 before review.
 """
 import argparse
+import base64
+import hashlib
 import io
 import json
 import os
@@ -709,11 +711,22 @@ def build_runner(rundir, repo, want, workers, cap, register, runid, purpose):
         cmd_display=q(cmdline))
 
 
+def encode_remote_source(source):
+    """Return an ASCII transport payload and digest for generated shell source.
+
+    The outer command is already a script on SSH stdin.  Its generated runner
+    must be transport data as well: a nested heredoc makes a delimiter inside
+    the runner executable syntax in the bootstrap shell.  Base64 has no shell
+    metacharacters, and the digest makes a decodable corruption a refusal rather
+    than a different runner.
+    """
+    raw = str(source).encode("utf-8")
+    return (base64.b64encode(raw).decode("ascii"),
+            hashlib.sha256(raw).hexdigest())
+
+
 def build_launch(rundir, runner_text):
-    marker = "BD_SWEEP_RUNNER_EOF"
-    if marker in runner_text:
-        raise Refuse("REFUSE-RUNNER-UNQUOTABLE",
-                     "the generated runner contains its own heredoc terminator")
+    payload, digest = encode_remote_source(runner_text)
     return (
         "set -u\n"
         # A RUNDIR THAT ALREADY HOLDS A MARKER IS SOMEBODY ELSE'S RESULT. The
@@ -727,7 +740,9 @@ def build_launch(rundir, runner_text):
         "  echo 'BD-SWEEP-RUNDIR-REUSED'; exit 72\n"
         "fi\n"
         "mkdir -p %(d)s/bd-run || exit 71\n"
-        "cat > %(d)s/runner.sh <<'%(m)s'\n%(body)s\n%(m)s\n"
+        "printf %%s %(payload)s | base64 -d > %(d)s/runner.sh.tmp || { rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-DECODE-FAILED'; exit 70; }\n"
+        "if [ \"$(sha256sum %(d)s/runner.sh.tmp | awk '{print $1}')\" != %(digest)s ]; then rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-DIGEST-MISMATCH'; exit 70; fi\n"
+        "mv %(d)s/runner.sh.tmp %(d)s/runner.sh || exit 70\n"
         # DETACHED, ALL THREE FDS REDIRECTED: the ssh channel has to be able to
         # close, and the run has to outlive it.
         "if command -v setsid >/dev/null 2>&1; then\n"
@@ -750,7 +765,7 @@ def build_launch(rundir, runner_text):
         "  nohup env --default-signal=INT,QUIT bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
         "fi\n"
         "echo \"BD-SWEEP-LAUNCH-OK pid=$!\"\n"
-        % {"d": q(rundir), "m": marker, "body": runner_text})
+        % {"d": q(rundir), "payload": q(payload), "digest": q(digest)})
 
 
 # ---------------------------------------------------------------------------
