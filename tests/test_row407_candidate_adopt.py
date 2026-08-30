@@ -236,6 +236,40 @@ def test_missing_required_worktree_evidence_is_unknown(
     assert body["reason_code"] == "EVIDENCE_PATH_UNREADABLE"
 
 
+@pytest.mark.parametrize(
+    "fault",
+    (OSError("injected adoption I/O fault"), UnicodeError("injected Unicode fault")),
+    ids=("io", "unicode"),
+)
+def test_local_evidence_fault_is_unknown(
+    replayed_case: ReplayedCase,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    fault: BaseException,
+) -> None:
+    """Ordinary measurement failures remain machine-distinct from adoption."""
+
+    subject = _load_adopt_module()
+
+    def fail_read(*_args, **_kwargs):
+        raise fault
+
+    monkeypatch.setattr(subject, "_read_manifest", fail_read)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(ADOPT), "--manifest", str(replayed_case.manifest), "--json"],
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        subject.main()
+
+    assert caught.value.code == 2
+    body = json.loads(capsys.readouterr().out)
+    assert body["verdict"] == "UNKNOWN"
+    assert body["reason_code"] == "LOCAL_IO_FAILED"
+
+
 def test_main_ref_drift_is_not_adoptable(replayed_case: ReplayedCase) -> None:
     """Adopting after main moves would replay against evidence for a stale base."""
 
