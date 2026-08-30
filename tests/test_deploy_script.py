@@ -325,6 +325,22 @@ case "$mode" in
     body=""; code="000"; rc=7;;
   bundle_missing)
     body=""; code="503"; rc=0;;
+  locked_vault)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_wrong_version)
+    body="{\"ok\":false,\"version\":\"9.9.9\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_shared_credential)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":2,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":1,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_unknown_hold)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"unknown\",\"downloads_allowed\":false},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_bad_backend)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"environment\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_bad_missing_type)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":false,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_bad_resolved)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":1,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":2}}"; code="503"; rc=0;;
+  locked_vault_bad_unavailable_count)
+    body="{\"ok\":false,\"version\":\"$ver\",\"degraded\":\"credential_vault_locked\",\"db_ok\":true,\"queue_depth\":0,\"active_downloads\":0,\"sites_loaded\":1,\"download_hold\":{\"state\":\"clear\",\"downloads_allowed\":true},\"credentials\":{\"backend\":\"master_password\",\"is_initialized\":true,\"is_unlocked\":false,\"missing_count\":0,\"ok\":false,\"reference_count\":2,\"resolved_count\":0,\"state\":\"locked\",\"stored_count\":2,\"unavailable_count\":1}}"; code="503"; rc=0;;
   server_error_matching_version)
     body="{\"version\": \"$ver\", \"status\": \"broken\"}"; code="500"; rc=0;;
   versionless_then_healthy)
@@ -1147,15 +1163,18 @@ def test_health_diagnoses_are_distinct():
         "that is a different diagnosis from a version mismatch" + _ctx(r))
     assert "9.9.9" not in _out(r)
 
-    # the SPA bundle is missing: 503, and there is no point polling
+    # A blank 503 from /api/health proves neither readiness nor the state of
+    # the separately-served SPA root.  It must fail, but must not invent a
+    # bundle diagnosis that only GET / can establish.
     fx = _setup(CURL_MODE="bundle_missing")
     _bundle_current(fx)
     r = _deploy(fx, "--timeout", "10", "--interval", "1")
     low = _low(r)
     assert r.returncode == 1, _ctx(r)
     assert "503" in _out(r), "the 503 must be reported as a 503" + _ctx(r)
-    assert "bundle" in low or "dist" in low, (
-        "503 means the SPA bundle was not found -- say so" + _ctx(r))
+    assert "bundle" not in r.stderr.lower() and "dist" not in r.stderr.lower(), (
+        "/api/health does not serve frontend/dist, so its 503 cannot prove the "
+        "SPA bundle is missing" + _ctx(r))
     assert _curl_calls(fx) <= 2, (
         "a 503 is a definite answer; polling it for the full budget wastes the "
         "operator's time" + _ctx(r, "curl calls: %s" % _curl_calls(fx)))
@@ -1170,6 +1189,81 @@ def test_health_diagnoses_are_distinct():
         "a version mismatch must name BOTH what was seen and what the tree "
         "says -- stale bytecode and a restart that did not take look identical "
         "otherwise" + _ctx(r))
+
+
+def test_locked_vault_is_serving_degraded_and_requires_explicit_unlock():
+    """A restart-locked vault is observed service state, not a missing SPA."""
+    fx = _setup(CURL_MODE="locked_vault", ROOT_CODE="200")
+    _bundle_current(fx)
+
+    r = _deploy(fx)
+
+    out = _out(r)
+    assert r.returncode == 0, (
+        "the service returned the exact tree version and a structured, "
+        "nonempty credential_vault_locked state, while GET / returned 200; "
+        "that is a deployed service requiring the documented post-restart "
+        "unlock, not an absent bundle" + _ctx(r))
+    assert "serving-degraded" in out.lower(), (
+        "the deploy must not launder a locked vault into ordinary healthy "
+        "readiness" + _ctx(r))
+    assert "Credential vault is LOCKED" in out, _ctx(r)
+    assert "Settings -> Secrets" in out, _ctx(r)
+    assert "after every service restart" in out, _ctx(r)
+    assert "bundle" not in r.stderr.lower(), _ctx(r)
+    assert _curl_calls(fx) == 2, (
+        "the structured health response must be followed by an independent "
+        "GET / proof" + _ctx(r, "curl calls: %s" % _curl_calls(fx)))
+
+
+def test_locked_vault_with_wrong_version_is_not_deployed_readiness():
+    fx = _setup(CURL_MODE="locked_vault_wrong_version", ROOT_CODE="200")
+    _bundle_current(fx)
+
+    r = _deploy(fx)
+
+    out = _out(r)
+    assert r.returncode == 1, _ctx(r)
+    assert "9.9.9" in out and TREE_VERSION in out, (
+        "a structured degradation from a sibling tree is still the wrong "
+        "deployment and must name both versions" + _ctx(r))
+    assert "bundle" not in r.stderr.lower(), _ctx(r)
+
+
+def test_locked_vault_allows_two_consumers_to_share_one_stored_key():
+    fx = _setup(CURL_MODE="locked_vault_shared_credential", ROOT_CODE="200")
+    _bundle_current(fx)
+
+    r = _deploy(fx)
+
+    assert r.returncode == 0, (
+        "reference_count is occurrence-based while stored_count is distinct; "
+        "two consumers may validly share one stored key" + _ctx(r))
+    assert "serving-degraded verified" in _out(r), _ctx(r)
+
+
+def test_locked_vault_does_not_mask_another_unknown_or_malformed_state():
+    for mode in (
+        "locked_vault_unknown_hold",
+        "locked_vault_bad_backend",
+        "locked_vault_bad_missing_type",
+        "locked_vault_bad_resolved",
+        "locked_vault_bad_unavailable_count",
+    ):
+        fx = _setup(CURL_MODE=mode, ROOT_CODE="200")
+        _bundle_current(fx)
+
+        r = _deploy(fx)
+
+        assert r.returncode == 1, (
+            "credential_vault_locked is permission only when every other "
+            "measured health field is internally consistent and non-UNKNOWN"
+            + _ctx(r, "mode: " + mode))
+        assert "SERVING-DEGRADED" not in _out(r), _ctx(r, "mode: " + mode)
+        assert _curl_calls(fx) == 1, (
+            "an invalid health payload must fail before GET / is used as "
+            "unrelated evidence"
+            + _ctx(r, "mode: %s\ncurl calls: %s" % (mode, _curl_calls(fx))))
 
 
 def test_versionless_then_healthy_retries():

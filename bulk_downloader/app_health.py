@@ -173,17 +173,23 @@ def credential_health(sites_config: dict | None) -> dict:
         "reference_count": len(references),
         "stored_count": len(stored_keys),
     }
+    stored = set(stored_keys)
     if initialized and not unlocked:
+        # list_keys is deliberately available while the master key is locked,
+        # so missing references remain measurable even though values cannot be
+        # decrypted.  Hardcoding missing_count=0 here launders an absent key
+        # into the ordinary post-restart lock state that deploy.sh may accept.
+        missing_count = sum(ref not in stored for ref in references)
+        unavailable_count = len(references) - missing_count
         return {
             **base,
-            "missing_count": 0,
+            "missing_count": missing_count,
             "ok": False,
             "resolved_count": 0,
-            "state": "locked",
-            "unavailable_count": len(references),
+            "state": ("missing_credentials" if missing_count else "locked"),
+            "unavailable_count": unavailable_count,
         }
 
-    stored = set(stored_keys)
     resolved_count = 0
     missing_count = 0
     unavailable_count = 0
