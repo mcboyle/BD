@@ -99,6 +99,29 @@ def test_diff_flags_forbidden_artifacts():
     assert any(b.endswith(".wacz") for b in bad), bad
 
 
+def test_diff_allows_only_declared_synthetic_capture_corpus_wacz():
+    names = [
+        "tests/capture_corpus_synthetic/site.wacz",
+        "tests/capture_corpus_synthetic/nested/site.wacz",
+        "tests/fixtures/site.redacted.wacz",
+        "tests/capture_corpus_syntheticish/site.wacz",
+        "tests/capture_corpus/site.wacz",
+        "tests/fixtures/site.wacz",
+        "captures/site.wacz",
+    ]
+    bad = set(DRZ.forbidden_artifacts(names))
+
+    assert "tests/capture_corpus_synthetic/site.wacz" not in bad
+    assert "tests/capture_corpus_synthetic/nested/site.wacz" not in bad
+    assert "tests/fixtures/site.redacted.wacz" not in bad
+    assert bad == {
+        "tests/capture_corpus_syntheticish/site.wacz",
+        "tests/capture_corpus/site.wacz",
+        "tests/fixtures/site.wacz",
+        "captures/site.wacz",
+    }
+
+
 def test_diff_flags_frontend_drop():
     old = _mkzip({"frontend/dist/index.html": "h", "x.py": "1"})
     new = _mkzip({"x.py": "1"})
