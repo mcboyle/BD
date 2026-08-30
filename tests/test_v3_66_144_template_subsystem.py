@@ -151,9 +151,14 @@ def test_reviewed_template_feeds_modal_flow_into_learned_dl():
     rows = merged.get("row_selectors") or []
     # "Download Full Movie" is a first-class trigger (opens the modal)...
     assert any("Download Full Movie" in s for s in trig)
-    # ...and the row selectors are modal-scoped and prefer real download links.
-    assert any(("dialog" in s) or ("ant-modal" in s) for s in rows)
-    assert any("download-resolution" in s for s in rows)
+    # ...and the merged row selectors preserve the recorded modal-button
+    # contract: one selector per observed quality plus a modal-scoped fallback.
+    assert rows
+    assert all(".ant-modal.download-modal" in s for s in rows)
+    assert all("button.modal-download-button" in s for s in rows)
+    for resolution in ("720p", "1080p", "2160p"):
+        assert any(f'div:text-is("{resolution}")' in s for s in rows)
+    assert ".ant-modal.download-modal button.modal-download-button" in rows
     # The reviewed selectors are tried before any generic learned ones.
     assert merged.get("_template_host") == "app.reptyle.com"
 
