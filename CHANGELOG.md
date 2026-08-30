@@ -19,6 +19,11 @@ archive is not present in this repository; consult source-control history.
   code-evidence audit is recorded as OPEN row 411; no historical status cell
   was rewritten, and the canonical census is mechanically derived as 360 rows
   with 5 OPEN.
+- Release hygiene permits only the declared synthetic capture corpus to carry
+  WACZ fixtures. The extracted-package runner now preserves single list/tuple
+  parameters, loads test modules under spawn-importable names, and invokes
+  module-level setup before every function, so package verification exercises
+  the same state-isolation contract as pytest.
 
 ## v3.66.1359 - durably initialize and verify empty credential vaults
 

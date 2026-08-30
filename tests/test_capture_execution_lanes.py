@@ -16,15 +16,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 
 # These are MECHANICAL facts derived from the curated allowlist after row 324's
-# three evidence-backed promotions. They do not claim a new whole-tree review:
-# 1,253 memberships retain row 292's evidence and exactly three have the
-# per-file mechanism and two-width measurements recorded beside the lane set.
+# three evidence-backed promotions, minus v3.66.1360's required demotion of
+# test_release_hygiene_gates.py after it began executing the fallback runner in
+# a file that also carries loader-capable code. They do not claim a new
+# whole-tree review: the other memberships retain their existing evidence.
 # The digest canonicalisation is sorted non-comment membership with one UTF-8
 # newline after every entry; an actual allowlist edit updates both facts and its
 # review evidence in the same commit.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1264
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1263
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "f6f56f9ae338a4b6cf11cda5599605bc033728238f277807a47b83832178c13e"
+    "d1f0682e820f2b448d20de2aa506b08ebfb296f287178606f7c8c38b435a4268"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -632,12 +633,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1264
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1263
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1254
+    assert _PARALLEL_RATCHET_FLOOR == 1253
     with pytest.raises(
         AssertionError,
-        match=r"down to 1253 files.*count was 1264.*margin is 10.*floor is 1254",
+        match=r"down to 1252 files.*count was 1263.*margin is 10.*floor is 1253",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 
