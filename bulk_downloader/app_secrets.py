@@ -128,9 +128,6 @@ def api_secrets_unlock():
     password = (request.json or {}).get("password", "")
     if not password:
         return jsonify({"ok": False, "error": "password required"}), 400
-    was_initialized = bool(
-        getattr(backend, "is_initialized", lambda: True)()
-    )
     # NEW-9: shared escalating back-off with change_password (same secret).
     from . import auth_throttle as _at
     allowed, retry = _at.check(_at.LABEL_MASTER_PASSWORD)
@@ -139,15 +136,86 @@ def api_secrets_unlock():
                         "error": f"too many attempts; try again in {retry:.0f}s"})
         resp.headers["Retry-After"] = str(int(retry) + 1)
         return resp, 429
+
+    def reject_incoherent_unlock_status():
+        lock = getattr(backend, "lock", None)
+        if callable(lock):
+            try:
+                lock()
+            except Exception:
+                pass
+        return jsonify({
+            "ok": False,
+            "state": "unknown",
+            "error": "backend returned an incoherent unlock status",
+        }), 500
+
     try:
-        unlocked = backend.unlock(password)
-    except ss.SecretsPersistError:
-        now_initialized = bool(
-            getattr(backend, "is_initialized", lambda: True)()
-        )
-        now_unlocked = (
-            backend.is_unlocked() if hasattr(backend, "is_unlocked") else True
-        )
+        unlock_with_status = getattr(backend, "unlock_with_status", None)
+        if callable(unlock_with_status):
+            outcome = unlock_with_status(
+                password, minimum_initial_length=8
+            )
+        else:
+            # Compatibility for duck-typed test/plugin backends.  The real
+            # MasterPasswordBackend uses the serialized method above, so its
+            # first-use classification never comes from an outside-lock read.
+            # A custom backend cannot claim ``initialized_now`` from this
+            # non-atomic path; its post-operation status is used only after
+            # the coherence check below.
+            unlocked = backend.unlock(password)
+            now_initialized = bool(
+                getattr(backend, "is_initialized", lambda: True)()
+            )
+            outcome = {
+                "unlocked": unlocked,
+                "initialized_now": False,
+                "is_initialized": now_initialized,
+                "is_unlocked": (
+                    backend.is_unlocked()
+                    if hasattr(backend, "is_unlocked") else True
+                ),
+            }
+    except ss.SecretsPasswordPolicyError as e:
+        return jsonify({"ok": False, "state": "uninitialized",
+                        "error": str(e)}), 400
+    except ss.SecretsIntegrityError as e:
+        failure_status = getattr(e, "vault_status", {})
+        if "is_initialized" in failure_status:
+            failed_initialized = bool(failure_status["is_initialized"])
+        else:
+            failed_initialized = bool(
+                getattr(backend, "is_initialized", lambda: True)()
+            )
+        if "is_unlocked" in failure_status:
+            failed_unlocked = bool(failure_status["is_unlocked"])
+        else:
+            failed_unlocked = (
+                bool(backend.is_unlocked())
+                if hasattr(backend, "is_unlocked") else False
+            )
+        return jsonify({
+            "ok": False,
+            "state": "integrity_error",
+            "is_initialized": failed_initialized,
+            "is_unlocked": failed_unlocked,
+            "error": str(e),
+        }), 409
+    except ss.SecretsPersistError as e:
+        failure_status = getattr(e, "vault_status", {})
+        if "is_initialized" in failure_status:
+            now_initialized = bool(failure_status["is_initialized"])
+        else:
+            now_initialized = bool(
+                getattr(backend, "is_initialized", lambda: True)()
+            )
+        if "is_unlocked" in failure_status:
+            now_unlocked = bool(failure_status["is_unlocked"])
+        else:
+            now_unlocked = (
+                bool(backend.is_unlocked())
+                if hasattr(backend, "is_unlocked") else True
+            )
         if now_initialized:
             error = (
                 "vault verifier upgrade could not be persisted; the existing "
@@ -165,23 +233,45 @@ def api_secrets_unlock():
             "is_unlocked": now_unlocked,
             "error": error,
         }), 500
+    required_status = (
+        "unlocked",
+        "initialized_now",
+        "is_initialized",
+        "is_unlocked",
+    )
+    if (
+        not isinstance(outcome, dict)
+        or any(type(outcome.get(field)) is not bool for field in required_status)
+    ):
+        return reject_incoherent_unlock_status()
+    unlocked = outcome["unlocked"]
+    now_initialized = outcome["is_initialized"]
+    now_unlocked = outcome["is_unlocked"]
+    initialized_now = outcome["initialized_now"]
+    if (
+        unlocked != now_unlocked
+        or (now_unlocked and not now_initialized)
+        or (
+            initialized_now
+            and not (unlocked and now_initialized and now_unlocked)
+        )
+    ):
+        # Never publish the impossible "unlocked but uninitialized" pair,
+        # even for a duck-typed/plugin backend with a broken status contract.
+        # Best-effort relock prevents a rejected response from leaving access
+        # enabled behind the API's back; UNKNOWN avoids inventing a coherent
+        # snapshot when the backend did not provide one.
+        return reject_incoherent_unlock_status()
     if unlocked:
         _at.record_success(_at.LABEL_MASTER_PASSWORD)
-        now_initialized = bool(
-            getattr(backend, "is_initialized", lambda: True)()
-        )
-        initialized_now = (not was_initialized) and now_initialized
         return jsonify({
             "ok": True,
             "state": "initialized" if initialized_now else "unlocked",
             "initialized_now": initialized_now,
             "is_initialized": now_initialized,
-            "is_unlocked": (
-                backend.is_unlocked()
-                if hasattr(backend, "is_unlocked") else True
-            ),
+            "is_unlocked": bool(outcome["is_unlocked"]),
         })
-    if not was_initialized:
+    if not now_initialized:
         # Defensive compatibility for a backend that reports a failed first
         # initialization without raising SecretsPersistError.  This is a
         # storage failure, not an authentication failure, so do not throttle it.
@@ -221,6 +311,18 @@ def api_secrets_change_password():
     if not new or len(new) < 8:
         return jsonify({"ok": False,
                         "error": "new password must be at least 8 characters"}), 400
+    if not bool(getattr(backend, "is_initialized", lambda: True)()):
+        # change_password is rotation, not setup.  In particular it must not
+        # call unlock(old) on a fresh vault and accidentally commit either
+        # submitted password.
+        return jsonify({
+            "ok": False,
+            "state": "uninitialized",
+            "error": (
+                "vault is uninitialized; initialize it through the unlock "
+                "flow before changing its password"
+            ),
+        }), 409
     # NEW-9: shared escalating back-off with the unlock route (same secret).
     from . import auth_throttle as _at
     allowed, retry = _at.check(_at.LABEL_MASTER_PASSWORD)
@@ -229,20 +331,58 @@ def api_secrets_change_password():
                         "error": f"too many attempts; try again in {retry:.0f}s"})
         resp.headers["Retry-After"] = str(int(retry) + 1)
         return resp, 429
-    # B15 (v3.66.43): probe the old password independently.
-    # change_password() returns False on undecryptable ciphertext (data
-    # corruption), while either this probe or rotation may raise
-    # SecretsPersistError: unlock now durably upgrades legacy verifier-less
-    # vaults. Neither storage failure is "wrong password", so keep the probe
-    # inside the persistence-error mapping.
     try:
-        if not backend.unlock(old):
+        change_with_status = getattr(
+            backend, "change_password_with_status", None
+        )
+        if callable(change_with_status):
+            # The real backend verifies initialization + old password and
+            # rotates under one lock.  A separate unlock preflight could race
+            # a failed first-use publish and initialize the vault itself.
+            outcome = change_with_status(old, new)
+            if not isinstance(outcome, dict):
+                return jsonify({
+                    "ok": False,
+                    "state": "unknown",
+                    "error": "backend returned an incoherent rotation status",
+                }), 500
+            reason = outcome.get("reason")
+            changed = outcome.get("changed")
+        else:
+            # Compatibility path for older duck-typed/plugin backends.  The
+            # durable MasterPasswordBackend always uses the atomic path above.
+            if not backend.unlock(old):
+                reason = "incorrect_password"
+                changed = False
+            else:
+                changed = bool(backend.change_password(old, new))
+                reason = "changed" if changed else "corrupt"
+        if (
+            type(changed) is not bool
+            or (changed, reason) not in {
+                (True, "changed"),
+                (False, "incorrect_password"),
+                (False, "corrupt"),
+            }
+        ):
+            return jsonify({
+                "ok": False,
+                "state": "unknown",
+                "error": "backend returned an incoherent rotation status",
+            }), 500
+        if reason == "incorrect_password":
             _at.record_failure(_at.LABEL_MASTER_PASSWORD)
             return jsonify({"ok": False,
                             "error": "current password is incorrect"}), 401
         _at.record_success(_at.LABEL_MASTER_PASSWORD)
-        if backend.change_password(old, new):
+        if changed and reason == "changed":
             return jsonify({"ok": True})
+        if reason != "corrupt":
+            return jsonify({
+                "ok": False,
+                "state": "unknown",
+                "error": "backend returned an incoherent rotation status",
+            }), 500
         return jsonify({
             "ok": False,
             "error": ("rotation aborted because one or more stored "
@@ -251,6 +391,12 @@ def api_secrets_change_password():
                       "been changed. Check app logs for which entry "
                       "failed."),
         }), 500
+    except ss.SecretsUninitializedError as e:
+        return jsonify({"ok": False, "state": "uninitialized",
+                        "error": str(e)}), 409
+    except ss.SecretsIntegrityError as e:
+        return jsonify({"ok": False, "state": "integrity_error",
+                        "error": str(e)}), 409
     except ss.SecretsPersistError as e:
         return jsonify({
             "ok": False,
@@ -409,10 +555,10 @@ def api_secrets_delete():
     try:
         removed = ss.get_backend().delete(key)
     except ss.SecretsUnlockRequiredError as e:
-        # A ciphertext-only legacy vault has no standalone verifier yet; its
-        # final ciphertext is the only durable password commitment.  Do not
-        # clear the corresponding config reference until one authenticated
-        # unlock has backfilled that verifier.
+        # The final raw user ciphertext -- or final structurally usable legacy
+        # ciphertext -- is a destructive boundary regardless of verifier
+        # presence or shape.  Do not remove it or clear the matching config
+        # reference until this process has successfully unlocked the vault.
         return jsonify({
             "ok": False,
             "state": "locked",

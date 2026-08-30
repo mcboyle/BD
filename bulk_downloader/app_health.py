@@ -198,6 +198,19 @@ def credential_health(sites_config: dict | None) -> dict:
 
     stored = set(stored_keys)
     if not unlocked:
+        if not references:
+            # A locked vault cannot make credentials unavailable when the live
+            # configuration asks for none.  Stored but unreferenced keys are
+            # inventory, not a serving dependency, so this is explicitly
+            # healthy instead of a misleading credential_vault_locked 503.
+            return {
+                **base,
+                "missing_count": 0,
+                "ok": True,
+                "resolved_count": 0,
+                "state": "locked_no_references",
+                "unavailable_count": 0,
+            }
         # list_keys is deliberately available while the master key is locked,
         # so missing references remain measurable even though values cannot be
         # decrypted.  Hardcoding missing_count=0 here launders an absent key

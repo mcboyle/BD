@@ -425,6 +425,18 @@ class SecretsUnlockRequiredError(RuntimeError):
     """Raised when a locked vault mutation would erase its key commitment."""
 
 
+class SecretsUninitializedError(RuntimeError):
+    """Raised when an operation requires an existing password commitment."""
+
+
+class SecretsIntegrityError(RuntimeError):
+    """Raised when independently stored password commitments disagree."""
+
+
+class SecretsPasswordPolicyError(ValueError):
+    """Raised when first-use password setup does not meet local policy."""
+
+
 class MasterPasswordBackend(_BackendBase):
     """AES-GCM encrypted blob, keyed off a PBKDF2-derived master key.
 
@@ -436,6 +448,7 @@ class MasterPasswordBackend(_BackendBase):
         "iterations": 600000,
         "salt": "<base64>",
         "verifier": {"nonce": "<b64>", "ct": "<b64>"},
+        "commitment_authority": "__bd_vault_password_commitment_v1__",
         "ciphertexts": {
             "bulkdl-wow":   {"nonce": "<b64>", "ct": "<b64>"},
             "bulkdl-ultraf": {"nonce": "<b64>", "ct": "<b64>"},
@@ -557,6 +570,19 @@ class MasterPasswordBackend(_BackendBase):
         return self._derive_key_with_salt(self._data["salt"], password)
 
     _VERIFIER_PLAINTEXT = b"bd-vault-verifier-v1"
+    # A top-level ``verifier`` is invisible to releases at or below 44c8701c.
+    # Keep a public, non-secret commitment inside ``ciphertexts`` as well so a
+    # rollback still authenticates the password instead of treating an empty
+    # initialized vault as first use.  Candidate APIs hide and protect this
+    # reserved entry; its position is deliberate because base44 authenticates
+    # only the first ciphertext.
+    _ROLLBACK_COMMITMENT_KEY = "__bd_vault_password_commitment_v1__"
+    _ROLLBACK_COMMITMENT_PLAINTEXT = b"bd-vault-rollback-commitment-v1"
+    _COMMITMENT_AUTHORITY_FIELD = "commitment_authority"
+    # Historical vaults use 200k or 600k.  Bound persisted input so malformed
+    # metadata cannot overflow the C API or turn health-green unlock into an
+    # effectively unbounded CPU job.
+    _MAX_KDF_ITERATIONS = 10_000_000
 
     def _verify_with(self, entry: Any, key: bytes) -> bool:
         """Return whether *entry* is a valid envelope for this key."""
@@ -565,6 +591,27 @@ class MasterPasswordBackend(_BackendBase):
             ciphertext = base64.b64decode(entry["ct"])
             plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
             return plaintext == self._VERIFIER_PLAINTEXT
+        except Exception:
+            return False
+
+    @staticmethod
+    def _envelope_is_well_formed(entry: Any) -> bool:
+        """Whether an entry has the exact AES-GCM envelope wire shape."""
+        try:
+            if not isinstance(entry, dict) or set(entry) != {"nonce", "ct"}:
+                return False
+            nonce = base64.b64decode(entry["nonce"], validate=True)
+            ciphertext = base64.b64decode(entry["ct"], validate=True)
+            return len(nonce) == 12 and len(ciphertext) >= 16
+        except Exception:
+            return False
+
+    def _verify_rollback_commitment_with(self, entry: Any, key: bytes) -> bool:
+        try:
+            nonce = base64.b64decode(entry["nonce"])
+            ciphertext = base64.b64decode(entry["ct"])
+            plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+            return plaintext == self._ROLLBACK_COMMITMENT_PLAINTEXT
         except Exception:
             return False
 
@@ -588,6 +635,394 @@ class MasterPasswordBackend(_BackendBase):
             "ct": base64.b64encode(ciphertext).decode(),
         }
 
+    def _seal_rollback_commitment(self, key: bytes) -> dict[str, str]:
+        nonce = _stdlib_secrets.token_bytes(12)
+        ciphertext = AESGCM(key).encrypt(
+            nonce, self._ROLLBACK_COMMITMENT_PLAINTEXT, None
+        )
+        return {
+            "nonce": base64.b64encode(nonce).decode(),
+            "ct": base64.b64encode(ciphertext).decode(),
+        }
+
+    def _is_initialized_locked(self) -> bool:
+        ciphertexts_present = "ciphertexts" in self._data
+        ciphertexts = self._data.get("ciphertexts")
+        # Every genuine fresh vault has an empty dict.  A missing or non-dict
+        # container is damaged persisted state, not permission to choose a new
+        # password, and must therefore classify as initialized/fail-closed.
+        malformed_ciphertexts = (
+            not ciphertexts_present or not isinstance(ciphertexts, dict)
+        )
+        return (
+            malformed_ciphertexts
+            or self._COMMITMENT_AUTHORITY_FIELD in self._data
+            or "verifier" in self._data
+            or bool(ciphertexts)
+        )
+
+    def _validate_kdf_metadata_locked(self) -> None:
+        """Reject salt/iteration metadata that cannot derive a vault key."""
+        try:
+            salt_text = self._data["salt"]
+            if not isinstance(salt_text, str):
+                raise TypeError("salt is not text")
+            salt = base64.b64decode(salt_text, validate=True)
+            if not salt:
+                raise ValueError("salt is empty")
+            raw_iterations = self._data["iterations"]
+            if isinstance(raw_iterations, bool):
+                raise TypeError("iterations is boolean")
+            iterations = int(raw_iterations)
+            if not 0 < iterations <= self._MAX_KDF_ITERATIONS:
+                raise ValueError("iterations is outside the supported range")
+        except Exception as error:
+            raise SecretsIntegrityError(
+                "vault KDF metadata is missing or malformed"
+            ) from error
+
+    def _validate_commitment_structure_locked(
+        self, ciphertexts: dict[str, Any]
+    ) -> None:
+        """Reject commitment shapes that cannot authenticate any password.
+
+        This validation needs no derived key, so locked inventory/health can
+        distinguish structurally damaged state from an ordinary healthy
+        zero-reference vault.  A malformed verifier is allowed only when the
+        explicit authority marker and a well-formed reserved commitment make
+        authenticated rollback repair possible after unlock.
+        """
+        authority_present = self._COMMITMENT_AUTHORITY_FIELD in self._data
+        authority_valid = (
+            self._data.get(self._COMMITMENT_AUTHORITY_FIELD)
+            == self._ROLLBACK_COMMITMENT_KEY
+        )
+        commitment_present = self._ROLLBACK_COMMITMENT_KEY in ciphertexts
+        commitment = ciphertexts.get(self._ROLLBACK_COMMITMENT_KEY)
+        verifier_present = "verifier" in self._data
+        verifier = self._data.get("verifier")
+
+        if authority_present:
+            if not authority_valid:
+                raise SecretsIntegrityError(
+                    "vault password commitment authority marker is invalid"
+                )
+            if (
+                not commitment_present
+                or not self._envelope_is_well_formed(commitment)
+            ):
+                raise SecretsIntegrityError(
+                    "authoritative rollback password commitment is missing "
+                    "or malformed"
+                )
+            return
+
+        if (
+            verifier_present
+            and not self._envelope_is_well_formed(verifier)
+        ):
+            raise SecretsIntegrityError(
+                "vault verifier is malformed; password commitment integrity "
+                "cannot be established"
+            )
+        if (
+            commitment_present
+            and not self._envelope_is_well_formed(commitment)
+        ):
+            raise SecretsIntegrityError(
+                "rollback password commitment is malformed; vault integrity "
+                "cannot be established"
+            )
+        user_entries = [
+            entry
+            for name, entry in ciphertexts.items()
+            if name != self._ROLLBACK_COMMITMENT_KEY
+        ]
+        if (
+            user_entries
+            and not any(
+                self._envelope_is_well_formed(entry)
+                for entry in user_entries
+            )
+        ):
+            raise SecretsIntegrityError(
+                "stored credential ciphertexts are malformed; vault "
+                "integrity cannot be established"
+            )
+
+    def _persist_missing_commitments(
+        self,
+        key: bytes,
+        *,
+        add_verifier: bool,
+        add_rollback_commitment: bool,
+        action: str,
+    ) -> None:
+        """Atomically add authenticated compatibility material.
+
+        Existing entries are never replaced here.  In particular, a present
+        verifier that disagrees with ciphertext is an integrity error, not an
+        invitation to silently bind it to whichever password was tried last.
+        """
+        had_verifier = "verifier" in self._data
+        old_verifier = self._data.get("verifier")
+        had_ciphertexts = "ciphertexts" in self._data
+        old_ciphertexts = self._data.get("ciphertexts")
+        had_authority = self._COMMITMENT_AUTHORITY_FIELD in self._data
+        old_authority = self._data.get(self._COMMITMENT_AUTHORITY_FIELD)
+
+        # Seal and assemble everything before publishing any in-memory field.
+        # RNG/AES failures are exceptions (not a False save result) and must
+        # therefore leave first-use and legacy-upgrade state byte-exact too.
+        new_verifier = self._seal_verifier(key) if add_verifier else None
+        new_ciphertexts = None
+        if add_rollback_commitment:
+            rollback_commitment = self._seal_rollback_commitment(key)
+            current = self._data.get("ciphertexts")
+            current = current if isinstance(current, dict) else {}
+            # Reserved entry first: base44 verifies only next(iter(cts)).
+            new_ciphertexts = {
+                self._ROLLBACK_COMMITMENT_KEY: rollback_commitment,
+                **{
+                    name: entry
+                    for name, entry in current.items()
+                    if name != self._ROLLBACK_COMMITMENT_KEY
+                },
+            }
+
+        if add_verifier:
+            self._data["verifier"] = new_verifier
+        if add_rollback_commitment:
+            self._data["ciphertexts"] = new_ciphertexts
+        self._data[
+            self._COMMITMENT_AUTHORITY_FIELD
+        ] = self._ROLLBACK_COMMITMENT_KEY
+        if self._save():
+            return
+
+        if had_verifier:
+            self._data["verifier"] = old_verifier
+        else:
+            self._data.pop("verifier", None)
+        if had_ciphertexts:
+            self._data["ciphertexts"] = old_ciphertexts
+        else:
+            self._data.pop("ciphertexts", None)
+        if had_authority:
+            self._data[self._COMMITMENT_AUTHORITY_FIELD] = old_authority
+        else:
+            self._data.pop(self._COMMITMENT_AUTHORITY_FIELD, None)
+        self._key = None
+        raise SecretsPersistError(
+            f"{action} failed; existing vault was not changed"
+        )
+
+    def _repair_verifier_from_authoritative_commitment(
+        self, key: bytes
+    ) -> None:
+        """Repair only under the explicit rollback-compatibility contract.
+
+        Base44 preserves unknown top-level fields but rotates every ciphertext.
+        Therefore a base44 password change updates the reserved commitment and
+        leaves ``verifier`` stale.  The authority marker plus successful AEAD
+        authentication of the fixed reserved plaintext is the exact rule that
+        permits rebinding the verifier; ordinary user ciphertext never does.
+        """
+        had_verifier = "verifier" in self._data
+        old_verifier = self._data.get("verifier")
+        self._data["verifier"] = self._seal_verifier(key)
+        if self._save():
+            sys.stderr.write(
+                "  secrets: repaired verifier from authenticated rollback "
+                "password commitment\n"
+            )
+            return
+        if had_verifier:
+            self._data["verifier"] = old_verifier
+        else:
+            self._data.pop("verifier", None)
+        self._key = None
+        raise SecretsPersistError(
+            "vault verifier compatibility repair failed; existing vault was "
+            "not changed"
+        )
+
+    def _unlock_locked(self, password: str) -> bool:
+        """Unlock while ``self._lock`` is held."""
+        # Every path proves the supplied password again.  Clear any prior key
+        # before validation/derivation/sealing so an unexpected exception can
+        # never leave a failed unlock with old access still enabled.
+        self._key = None
+        raw_cts = self._data.get("ciphertexts")
+        if "ciphertexts" not in self._data or not isinstance(raw_cts, dict):
+            self._key = None
+            raise SecretsIntegrityError(
+                "vault ciphertexts container is missing or malformed"
+            )
+        cts = raw_cts
+        try:
+            self._validate_kdf_metadata_locked()
+            self._validate_commitment_structure_locked(cts)
+        except SecretsIntegrityError:
+            self._key = None
+            raise
+        verifier_present = "verifier" in self._data
+        verifier = self._data.get("verifier")
+        commitment_present = self._ROLLBACK_COMMITMENT_KEY in cts
+        commitment = cts.get(self._ROLLBACK_COMMITMENT_KEY)
+        user_cts = {
+            name: entry
+            for name, entry in cts.items()
+            if name != self._ROLLBACK_COMMITMENT_KEY
+        }
+        authority_present = self._COMMITMENT_AUTHORITY_FIELD in self._data
+        authority_valid = (
+            self._data.get(self._COMMITMENT_AUTHORITY_FIELD)
+            == self._ROLLBACK_COMMITMENT_KEY
+        )
+
+        key = self._derive_key(password)
+
+        if (
+            not authority_present
+            and not verifier_present
+            and not commitment_present
+            and not user_cts
+        ):
+            self._persist_missing_commitments(
+                key,
+                add_verifier=True,
+                add_rollback_commitment=True,
+                action="vault initialization",
+            )
+            self._key = key
+            return True
+
+        verifier_well_formed = (
+            verifier_present and self._envelope_is_well_formed(verifier)
+        )
+        commitment_well_formed = (
+            commitment_present
+            and self._envelope_is_well_formed(commitment)
+        )
+        verifier_ok = (
+            verifier_well_formed and self._verify_with(verifier, key)
+        )
+        commitment_ok = (
+            commitment_well_formed
+            and self._verify_rollback_commitment_with(commitment, key)
+        )
+        legacy_ok = any(
+            self._verify_ciphertext_with(entry, key)
+            for entry in user_cts.values()
+        )
+
+        if authority_valid:
+            if commitment_ok:
+                if not verifier_ok:
+                    self._repair_verifier_from_authoritative_commitment(key)
+                self._key = key
+                return True
+            if verifier_ok or legacy_ok:
+                self._key = None
+                raise SecretsIntegrityError(
+                    "authoritative rollback password commitment disagrees "
+                    "with other vault material"
+                )
+            self._key = None
+            return False
+
+        if verifier_present and commitment_present:
+            if verifier_ok != commitment_ok:
+                self._key = None
+                raise SecretsIntegrityError(
+                    "vault verifier and rollback password commitment disagree"
+                )
+            if verifier_ok:
+                if user_cts and not legacy_ok:
+                    self._key = None
+                    raise SecretsIntegrityError(
+                        "vault verifier, rollback password commitment, and "
+                        "stored ciphertexts disagree"
+                    )
+                self._persist_missing_commitments(
+                    key,
+                    add_verifier=False,
+                    add_rollback_commitment=False,
+                    action="vault commitment-authority upgrade",
+                )
+                self._key = key
+                return True
+            if legacy_ok:
+                self._key = None
+                raise SecretsIntegrityError(
+                    "vault verifier and stored ciphertexts disagree"
+                )
+            self._key = None
+            return False
+
+        if verifier_present:
+            if verifier_ok:
+                if user_cts and not legacy_ok:
+                    self._key = None
+                    raise SecretsIntegrityError(
+                        "vault verifier and stored ciphertexts disagree"
+                    )
+                self._persist_missing_commitments(
+                    key,
+                    add_verifier=False,
+                    add_rollback_commitment=True,
+                    action="vault rollback-commitment upgrade",
+                )
+                self._key = key
+                return True
+            if legacy_ok:
+                self._key = None
+                raise SecretsIntegrityError(
+                    "vault verifier and stored ciphertexts disagree"
+                )
+            self._key = None
+            return False
+
+        if commitment_present:
+            if commitment_ok:
+                if user_cts and not legacy_ok:
+                    self._key = None
+                    raise SecretsIntegrityError(
+                        "rollback password commitment and stored ciphertexts "
+                        "disagree"
+                    )
+                self._persist_missing_commitments(
+                    key,
+                    add_verifier=True,
+                    add_rollback_commitment=False,
+                    action="vault verifier upgrade",
+                )
+                self._key = key
+                return True
+            if legacy_ok:
+                self._key = None
+                raise SecretsIntegrityError(
+                    "rollback password commitment and stored ciphertexts "
+                    "disagree"
+                )
+            self._key = None
+            return False
+
+        # Pre-row402 legacy vault: one intact user ciphertext is its password
+        # commitment.  Once authenticated, add both new forms in one publish.
+        if not legacy_ok:
+            self._key = None
+            return False
+        self._persist_missing_commitments(
+            key,
+            add_verifier=True,
+            add_rollback_commitment=True,
+            action="vault verifier upgrade",
+        )
+        self._key = key
+        return True
+
     def unlock(self, password: str) -> bool:
         """Unlock an existing vault or durably initialize a fresh one.
 
@@ -598,65 +1033,46 @@ class MasterPasswordBackend(_BackendBase):
         existed remain compatible by authenticating against one ciphertext.
         """
         with self._lock:
-            key = self._derive_key(password)
-            has_verifier = "verifier" in self._data
-            verifier = self._data.get("verifier")
-            cts = self._data.get("ciphertexts") or {}
-            repair_verifier = False
-            if has_verifier:
-                verified = self._verify_with(verifier, key)
-                if not verified and cts:
-                    verified = any(
-                        self._verify_ciphertext_with(entry, key)
-                        for entry in cts.values()
-                    )
-                    repair_verifier = verified
-            elif cts:
-                verified = any(
-                    self._verify_ciphertext_with(entry, key)
-                    for entry in cts.values()
+            return self._unlock_locked(password)
+
+    def unlock_with_status(
+        self,
+        password: str,
+        *,
+        minimum_initial_length: int = 0,
+    ) -> dict[str, bool]:
+        """Unlock and report initialization from one serialized state view."""
+        with self._lock:
+            was_initialized = self._is_initialized_locked()
+            if (
+                not was_initialized
+                and minimum_initial_length
+                and len(password) < minimum_initial_length
+            ):
+                raise SecretsPasswordPolicyError(
+                    "first-use master password must be at least "
+                    f"{minimum_initial_length} characters"
                 )
-                repair_verifier = verified
-            else:
-                # No verifier and no ciphertext means no password has ever
-                # been committed. Publish the verifier before exposing _key.
-                self._data["verifier"] = self._seal_verifier(key)
-                if not self._save():
-                    self._data.pop("verifier", None)
-                    self._key = None
-                    raise SecretsPersistError(
-                        "vault initialization failed; master password was not "
-                        "committed"
-                    )
-                self._key = key
-                return True
-            if not verified:
-                # B6 (v3.66.43): a failed verify must LEAVE THE BACKEND
-                # LOCKED. Without this, a wrong-password unlock after a
-                # prior good unlock returns False but self._key still
-                # holds the prior key — is_unlocked() stays True and
-                # get() keeps working. Explicit reset closes that.
-                self._key = None
-                return False
-            if repair_verifier:
-                # A ciphertext-only vault predates the durable verifier, and a
-                # damaged verifier must not brick intact ciphertexts. Once a
-                # ciphertext authenticates the password, publish a fresh
-                # verifier before returning unlocked; otherwise deleting the
-                # last ciphertext could recreate the original bug.
-                self._data["verifier"] = self._seal_verifier(key)
-                if not self._save():
-                    if has_verifier:
-                        self._data["verifier"] = verifier
-                    else:
-                        self._data.pop("verifier", None)
-                    self._key = None
-                    raise SecretsPersistError(
-                        "vault verifier upgrade failed; existing vault was "
-                        "not changed"
-                    )
-            self._key = key
-            return True
+            try:
+                unlocked = self._unlock_locked(password)
+            except (SecretsPersistError, SecretsIntegrityError) as error:
+                # Capture the state while still under the same lock.  The HTTP
+                # layer must not re-read after another first-use request has
+                # initialized the vault and misreport this request's outcome.
+                error.vault_status = {
+                    "is_initialized": self._is_initialized_locked(),
+                    "is_unlocked": self._key is not None,
+                }
+                raise
+            now_initialized = self._is_initialized_locked()
+            return {
+                "unlocked": unlocked,
+                "initialized_now": (
+                    unlocked and not was_initialized and now_initialized
+                ),
+                "is_initialized": now_initialized,
+                "is_unlocked": self._key is not None,
+            }
 
     def lock(self) -> None:
         """Forget the derived key. get/set will fail until unlock again."""
@@ -666,73 +1082,104 @@ class MasterPasswordBackend(_BackendBase):
     def is_unlocked(self) -> bool:
         return self._key is not None
 
-    def change_password(self, old_password: str, new_password: str) -> bool:
-        """Re-encrypt every stored secret with a key derived from the new
-        password. All-or-nothing and atomic.
+    def _change_password_locked(
+        self, old_password: str, new_password: str
+    ) -> str:
+        """Return changed/incorrect_password/corrupt while holding the lock."""
+        if not self._is_initialized_locked():
+            raise SecretsUninitializedError(
+                "initialize the vault through /api/secrets/unlock before "
+                "changing its password"
+            )
+        if not self._unlock_locked(old_password):
+            return "incorrect_password"
+        old_key = self._key
+        cts = self._data.get("ciphertexts") or {}
+        # All-or-nothing decrypt: a single failure aborts the whole rotation
+        # BEFORE any state is mutated. The old code skipped undecryptable
+        # entries to stderr and silently dropped them.
+        plaintexts = {}
+        for k, entry in cts.items():
+            try:
+                nonce = base64.b64decode(entry["nonce"])
+                ct = base64.b64decode(entry["ct"])
+                plaintexts[k] = AESGCM(old_key).decrypt(
+                    nonce, ct, None).decode("utf-8")
+            except Exception as e:
+                sys.stderr.write(
+                    f"  change_password aborted: cannot decrypt {k!r}: {e}\n")
+                return "corrupt"  # nothing mutated yet
+        # Derive the new key from a fresh salt WITHOUT touching self._data, so
+        # a failure here leaves the vault untouched.
+        new_salt = base64.b64encode(_stdlib_secrets.token_bytes(16)).decode()
+        new_key = self._derive_key_with_salt(new_salt, new_password)
+        new_verifier = self._seal_verifier(new_key)
+        new_cts = {}
+        for k, pt in plaintexts.items():
+            nonce = _stdlib_secrets.token_bytes(12)
+            ct = AESGCM(new_key).encrypt(nonce, pt.encode("utf-8"), None)
+            new_cts[k] = {
+                "nonce": base64.b64encode(nonce).decode(),
+                "ct": base64.b64encode(ct).decode(),
+            }
+        if self._ROLLBACK_COMMITMENT_KEY in new_cts:
+            commitment = new_cts[self._ROLLBACK_COMMITMENT_KEY]
+            new_cts = {
+                self._ROLLBACK_COMMITMENT_KEY: commitment,
+                **{
+                    name: entry
+                    for name, entry in new_cts.items()
+                    if name != self._ROLLBACK_COMMITMENT_KEY
+                },
+            }
+        # Snapshot, swap in memory, persist; roll back fully on a save failure
+        # so memory always matches disk.
+        old_salt = self._data["salt"]
+        old_cts = self._data.get("ciphertexts")
+        had_verifier = "verifier" in self._data
+        old_verifier = self._data.get("verifier")
+        self._data["salt"] = new_salt
+        self._data["ciphertexts"] = new_cts
+        self._data["verifier"] = new_verifier
+        self._key = new_key
+        if not self._save():
+            self._data["salt"] = old_salt
+            self._data["ciphertexts"] = old_cts
+            if had_verifier:
+                self._data["verifier"] = old_verifier
+            else:
+                self._data.pop("verifier", None)
+            self._key = old_key
+            raise SecretsPersistError(
+                "change_password: could not persist rotated vault; "
+                "rolled back, old password still in effect")
+        return "changed"
 
-        Returns False (changing nothing) if old_password doesn't match, OR
-        if any existing ciphertext can't be decrypted (B17, v3.66.38: never
-        silently drop a secret during rotation). Raises SecretsPersistError
-        — after rolling back in memory — if the rotated vault can't be
-        persisted (B4/B18), so the old password stays in effect rather than
-        the session diverging from disk."""
+    def change_password_with_status(
+        self, old_password: str, new_password: str
+    ) -> dict[str, bool | str]:
+        """Atomically classify authentication and rotate without a preflight."""
         with self._lock:
-            # Verify old password first
-            if not self.unlock(old_password):
-                return False
-            old_key = self._key
-            cts = self._data.get("ciphertexts") or {}
-            # All-or-nothing decrypt: a single failure aborts the whole
-            # rotation BEFORE any state is mutated. The old code skipped
-            # undecryptable entries to stderr and silently dropped them.
-            plaintexts = {}
-            for k, entry in cts.items():
-                try:
-                    nonce = base64.b64decode(entry["nonce"])
-                    ct = base64.b64decode(entry["ct"])
-                    plaintexts[k] = AESGCM(old_key).decrypt(
-                        nonce, ct, None).decode("utf-8")
-                except Exception as e:
-                    sys.stderr.write(
-                        f"  change_password aborted: cannot decrypt {k!r}: {e}\n")
-                    return False  # nothing mutated yet
-            # Derive the new key from a fresh salt WITHOUT touching
-            # self._data, so a failure here leaves the vault untouched.
-            new_salt = base64.b64encode(_stdlib_secrets.token_bytes(16)).decode()
-            new_key = self._derive_key_with_salt(new_salt, new_password)
-            new_verifier = self._seal_verifier(new_key)
-            new_cts = {}
-            for k, pt in plaintexts.items():
-                nonce = _stdlib_secrets.token_bytes(12)
-                ct = AESGCM(new_key).encrypt(nonce, pt.encode("utf-8"), None)
-                new_cts[k] = {
-                    "nonce": base64.b64encode(nonce).decode(),
-                    "ct": base64.b64encode(ct).decode(),
-                }
-            # Snapshot, swap in memory, persist; roll back fully on a save
-            # failure so memory always matches disk.
-            old_salt = self._data["salt"]
-            old_cts = self._data.get("ciphertexts")
-            had_verifier = "verifier" in self._data
-            old_verifier = self._data.get("verifier")
-            self._data["salt"] = new_salt
-            self._data["ciphertexts"] = new_cts
-            self._data["verifier"] = new_verifier
-            self._key = new_key
-            if not self._save():
-                self._data["salt"] = old_salt
-                self._data["ciphertexts"] = old_cts
-                if had_verifier:
-                    self._data["verifier"] = old_verifier
-                else:
-                    self._data.pop("verifier", None)
-                self._key = old_key
-                raise SecretsPersistError(
-                    "change_password: could not persist rotated vault; "
-                    "rolled back, old password still in effect")
-            return True
+            reason = self._change_password_locked(old_password, new_password)
+            return {"changed": reason == "changed", "reason": reason}
+
+    def change_password(self, old_password: str, new_password: str) -> bool:
+        """Re-encrypt every stored secret with a new master password.
+
+        Returns False, without mutation, for an incorrect old password or an
+        undecryptable ciphertext. Persistence errors raise after full in-memory
+        rollback. The initialized check, password proof, and rotation share one
+        lock so this operation can never become first-use initialization.
+        """
+        with self._lock:
+            return (
+                self._change_password_locked(old_password, new_password)
+                == "changed"
+            )
 
     def set(self, key: str, password: str) -> None:
+        if key == self._ROLLBACK_COMMITMENT_KEY:
+            raise ValueError("reserved vault commitment key")
         if self._key is None:
             raise RuntimeError("backend is locked; call unlock() first")
         with self._lock:
@@ -764,6 +1211,8 @@ class MasterPasswordBackend(_BackendBase):
         # B18 (v3.66.38): read under the lock so a get() can't observe a
         # half-swapped vault mid change_password (new ciphertexts vs old key).
         with self._lock:
+            if key == self._ROLLBACK_COMMITMENT_KEY:
+                return None
             if self._key is None: return None
             entry = (self._data.get("ciphertexts") or {}).get(key)
             if not entry: return None
@@ -776,19 +1225,40 @@ class MasterPasswordBackend(_BackendBase):
 
     def delete(self, key: str) -> bool:
         with self._lock:
+            if key == self._ROLLBACK_COMMITMENT_KEY:
+                return False
             cts = self._data.get("ciphertexts") or {}
             if key not in cts: return False
+            user_keys = [
+                name for name in cts
+                if name != self._ROLLBACK_COMMITMENT_KEY
+            ]
+            other_user_entries = [
+                entry
+                for name, entry in cts.items()
+                if name not in {self._ROLLBACK_COMMITMENT_KEY, key}
+            ]
+            removes_last_well_formed_user = (
+                self._envelope_is_well_formed(cts[key])
+                and not any(
+                    self._envelope_is_well_formed(entry)
+                    for entry in other_user_entries
+                )
+            )
             if (
                 self._key is None
-                and "verifier" not in self._data
-                and len(cts) == 1
+                and (
+                    len(user_keys) == 1
+                    or removes_last_well_formed_user
+                )
             ):
-                # A ciphertext-only vault predates the durable verifier, so
-                # its final ciphertext is also its only password commitment.
-                # Require one successful unlock to authenticate the operator
-                # and backfill the verifier before that commitment is removed.
+                # Removing the final raw user ciphertext -- or the final one
+                # whose envelope could still authenticate a legacy vault -- is
+                # the destructive edge. Require a successful unlock regardless
+                # of verifier presence or shape so an unauthenticated delete
+                # cannot leave only known-malformed password evidence.
                 raise SecretsUnlockRequiredError(
-                    "unlock this legacy vault once before deleting its final "
+                    "unlock this vault before deleting its final usable "
                     "credential"
                 )
             removed = cts.pop(key)
@@ -800,7 +1270,27 @@ class MasterPasswordBackend(_BackendBase):
         return True
 
     def list_keys(self) -> list[str]:
-        return sorted((self._data.get("ciphertexts") or {}).keys())
+        with self._lock:
+            ciphertexts = self._data.get("ciphertexts")
+            if (
+                "ciphertexts" not in self._data
+                or not isinstance(ciphertexts, dict)
+                or any(not isinstance(name, str) for name in ciphertexts)
+            ):
+                # Inventory powers the health endpoint even while locked.
+                # Treat a damaged container as unavailable evidence; iterating
+                # a list (or normalising None to {}) can otherwise launder
+                # corruption into a healthy zero-reference vault.
+                raise SecretsIntegrityError(
+                    "vault ciphertexts container is missing or malformed"
+                )
+            self._validate_kdf_metadata_locked()
+            self._validate_commitment_structure_locked(ciphertexts)
+            return sorted(
+                name
+                for name in ciphertexts
+                if name != self._ROLLBACK_COMMITMENT_KEY
+            )
 
     def is_initialized(self) -> bool:
         """Whether durable material commits a master password.
@@ -809,7 +1299,8 @@ class MasterPasswordBackend(_BackendBase):
         empty vaults.  Presence is intentional: a malformed verifier is a
         damaged initialized vault, not permission to choose a new password.
         """
-        return "verifier" in self._data or bool(self._data.get("ciphertexts"))
+        with self._lock:
+            return self._is_initialized_locked()
 
 
 # ─── Module state + auto-detect ──────────────────────────────────────
