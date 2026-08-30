@@ -784,6 +784,11 @@ def replay(
                 "REPOSITORY_MISMATCH",
                 "repo and source do not share a Git common directory",
             )
+        if _registered_output_ownership(repo_common_git, output) is not None:
+            raise ReplayFailure(
+                "OUTPUT_REGISTRATION_EXISTS",
+                "a pre-existing Git worktree registration names the output",
+            )
         _require_supported_source_state(source)
 
         source_head = _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
