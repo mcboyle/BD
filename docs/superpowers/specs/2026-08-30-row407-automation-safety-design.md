@@ -88,4 +88,3 @@ worktrees. They prove:
 - integration is refused for non-ancestry, wrong version, a missing or non-
   CLOSED row, and a missing required test/path; and
 - only the complete evidence set emits `INTEGRATED`.
-

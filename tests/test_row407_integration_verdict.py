@@ -295,4 +295,3 @@ def test_unreadable_candidate_or_main_is_unknown_not_integrated(
     assert result.returncode == 2
     assert body["verdict"] == "UNKNOWN"
     assert body["reason_code"] in {"CANDIDATE_UNREADABLE", "MAIN_REF_UNREADABLE"}
-
