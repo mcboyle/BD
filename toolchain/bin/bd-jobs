@@ -4715,12 +4715,21 @@ def _unsafe_target(target):
     return None
 
 
-def _ssh_argv(target, command):
+def _ssh_argv(target, command, *, config=None):
     """`--` TERMINATES SSH'S OWN OPTIONS. Without it a target that begins with
     a dash is read by ssh as a flag, which is a way to make the launcher run
-    something the operator did not ask for."""
-    return ["ssh", "-o", "BatchMode=yes", "-o",
-            _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
+    something the operator did not ask for.
+
+    ``config`` is the isolated acceptance-harness seam.  Production callers
+    leave it unset and retain their byte-for-byte argv; the live OpenSSH test
+    passes one exact temporary file so it need not read or modify operator SSH
+    configuration or bind a test daemon to port 22.
+    """
+    argv = ["ssh"]
+    if config is not None:
+        argv += ["-F", os.fspath(config)]
+    return argv + ["-o", "BatchMode=yes", "-o",
+                   _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
 
 
 def _new_request_id():
