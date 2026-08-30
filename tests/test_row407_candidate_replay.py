@@ -401,6 +401,60 @@ def test_partial_registration_without_output_is_identity_cleaned_or_claimed(
         repo_case.manifest.unlink(missing_ok=True)
 
 
+def test_preexisting_missing_worktree_registration_is_refused_and_preserved(
+    repo_case: RepoCase,
+) -> None:
+    """A failed add cannot transfer ownership of an older Git registration."""
+
+    _git(
+        repo_case.repo,
+        "worktree",
+        "add",
+        "--detach",
+        str(repo_case.output),
+        repo_case.main_head,
+    )
+    registration = Path(
+        _git(
+            repo_case.output,
+            "rev-parse",
+            "--path-format=absolute",
+            "--absolute-git-dir",
+        ).stdout.strip()
+    )
+    registration_identity = registration.lstat()
+    receipt_before = (registration / "gitdir").read_bytes()
+    retained = repo_case.output.with_name("preexisting-missing-output")
+    repo_case.output.rename(retained)
+
+    try:
+        result = repo_case.run_replay()
+
+        assert result.returncode == 2
+        body = json.loads(result.stdout)
+        assert body["reason_code"] == "OUTPUT_REGISTRATION_EXISTS"
+        current = registration.lstat()
+        assert (current.st_dev, current.st_ino) == (
+            registration_identity.st_dev,
+            registration_identity.st_ino,
+        )
+        assert (registration / "gitdir").read_bytes() == receipt_before
+        assert retained.is_dir()
+        assert not repo_case.manifest.exists()
+    finally:
+        if retained.exists() and not repo_case.output.exists():
+            retained.rename(repo_case.output)
+        _git(
+            repo_case.repo,
+            "worktree",
+            "remove",
+            "--force",
+            str(repo_case.output),
+            check=False,
+        )
+        repo_case.manifest.unlink(missing_ok=True)
+
+
 def test_source_worker_never_receives_a_destructive_git_command(
     repo_case: RepoCase,
     tmp_path: Path,
