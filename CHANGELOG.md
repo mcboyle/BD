@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1359 - durably initialize and verify empty credential vaults
+
+- A successful first unlock of an empty master-password vault now commits
+  authenticated verifier and rollback material atomically before reporting
+  success, so a restart cannot silently accept any password as first use.
+- Fresh-vault initialization, existing-vault unlock, verifier repair, and
+  password rotation are serialized under one backend lock and return coherent
+  status snapshots. Failed persistence or sealing restores the exact prior
+  in-memory and on-disk state and leaves the vault locked.
+- Existing ciphertext remains the authority for legacy vault upgrades.
+  Commitments are backfilled only after authenticated agreement; malformed or
+  disagreeing verifier material is rejected loudly instead of being rebound
+  to the submitted password, and repair failures cannot publish partial state.
+- The first-use password-length policy applies only to a genuinely empty,
+  uninitialized vault. Legacy short passwords remain usable, while password
+  rotation refuses an uninitialized vault rather than accidentally turning a
+  change-password request into setup.
+- Deleting credentials preserves the last usable legacy ciphertext while the
+  vault is locked, including its configuration reference, so the only
+  password-authenticated recovery authority cannot be erased accidentally.
+- Credential health now distinguishes uninitialized, locked with no live
+  references, ordinary locked, missing credentials, unlocked with zero
+  resolved references, unknown/incoherent, and healthy unlocked states.
+  Deploy readiness accepts an initialized locked vault with no consumers and
+  rejects uninitialized or incoherent states instead of laundering them. The
+  Secrets status endpoint reports damaged inventory as a structured integrity
+  error rather than an HTML 500 or a false empty key list.
+- FROZEN IMPORT-GRAPH BASELINE RE-DERIVED, AND THE NEW EDGES ARE NAMED HERE:
+    tests/test_row402_durable_vault_verifier.py -> bulk_downloader/app_health.py
+    tests/test_row402_durable_vault_verifier.py -> bulk_downloader/app_secrets.py
+    tests/test_row402_durable_vault_verifier.py -> bulk_downloader/auth_throttle.py
+    tests/test_row402_durable_vault_verifier.py -> bulk_downloader/secrets_store.py
+
 ## v3.66.1358 - defer configured site runtime until explicit boot
 
 - Row 409: importing the Flask app no longer restores configured sites or
