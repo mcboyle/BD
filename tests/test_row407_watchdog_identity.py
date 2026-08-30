@@ -416,6 +416,87 @@ def test_unique_census_publishes_complete_no_overwrite_adoption_record(
     }
 
 
+def test_new_duplicate_after_initial_unique_census_forbids_publication(
+    proc_case: ProcCase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-lock-style census is stale evidence by the time a record is linked."""
+
+    proc_case.add(200, ppid=1, start_ticks=2000)
+    record = tmp_path / "watchdog-adoption.json"
+    subject = _subject()
+    real_census = subject._take_census
+    calls = 0
+
+    def add_duplicate_after_first_census(*, script: Path, proc_root: Path):
+        nonlocal calls
+        result = real_census(script=script, proc_root=proc_root)
+        calls += 1
+        if calls == 1:
+            proc_case.add(300, ppid=1, start_ticks=3000)
+        return result
+
+    monkeypatch.setattr(subject, "_take_census", add_duplicate_after_first_census)
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=False,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+    )
+
+    assert body["status"] == "UNKNOWN"
+    assert body["reason_code"] == "ADOPTION_CENSUS_CHANGED"
+    assert not record.exists()
+
+
+def test_idempotent_adoption_revalidates_existing_record_inode_before_return(
+    proc_case: ProcCase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Equal bytes in a replacement inode are not the locked record first read."""
+
+    proc_case.add(200, ppid=1, start_ticks=2000)
+    record = tmp_path / "watchdog-adoption.json"
+    subject = _subject()
+    first = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=False,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+    )
+    assert first["status"] == "ADOPTED"
+    real_read = subject._read_existing_record
+    calls = 0
+
+    def replace_after_first_read(path: Path):
+        nonlocal calls
+        result = real_read(path)
+        calls += 1
+        if calls == 1:
+            retained = path.read_bytes()
+            path.unlink()
+            path.write_bytes(retained)
+        return result
+
+    monkeypatch.setattr(subject, "_read_existing_record", replace_after_first_read)
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=False,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+    )
+
+    assert body["status"] == "UNKNOWN"
+    assert body["reason_code"] == "ADOPTION_RECORD_CHANGED"
+
+
 def test_existing_adoption_remains_authority_when_a_newer_duplicate_appears(
     proc_case: ProcCase,
     tmp_path: Path,
