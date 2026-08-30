@@ -166,6 +166,17 @@ def credential_health(sites_config: dict | None) -> dict:
             references=references,
         )
 
+    if unlocked and not initialized:
+        # No key can be trusted as "unlocked" unless durable material commits
+        # the password it was derived from.  Refuse this incoherent pair as an
+        # unavailable measurement rather than resolving through it.
+        return _unknown_credential_health(
+            backend=backend_name,
+            initialized=initialized,
+            unlocked=unlocked,
+            references=references,
+        )
+
     base = {
         "backend": backend_name,
         "is_initialized": initialized,
@@ -173,8 +184,35 @@ def credential_health(sites_config: dict | None) -> dict:
         "reference_count": len(references),
         "stored_count": len(stored_keys),
     }
+    if not initialized:
+        # This is first-use setup, not credential deletion.  Classify it before
+        # examining references so refs=1/stored=0 cannot become "missing".
+        # Zero consumers do not make the absent durable password commitment
+        # ready: after a restart this vault would accept a new first password.
+        return {
+            **base,
+            "missing_count": len(references),
+            "ok": False,
+            "resolved_count": 0,
+            "state": "uninitialized",
+            "unavailable_count": 0,
+        }
+
     stored = set(stored_keys)
-    if initialized and not unlocked:
+    if not unlocked:
+        if not references:
+            # A locked vault cannot make credentials unavailable when the live
+            # configuration asks for none.  Stored but unreferenced keys are
+            # inventory, not a serving dependency, so this is explicitly
+            # healthy instead of a misleading credential_vault_locked 503.
+            return {
+                **base,
+                "missing_count": 0,
+                "ok": True,
+                "resolved_count": 0,
+                "state": "locked_no_references",
+                "unavailable_count": 0,
+            }
         # list_keys is deliberately available while the master key is locked,
         # so missing references remain measurable even though values cannot be
         # decrypted.  Hardcoding missing_count=0 here launders an absent key
@@ -214,12 +252,15 @@ def credential_health(sites_config: dict | None) -> dict:
     if unavailable_count:
         state = "unknown"
         ok = False
+    elif references and resolved_count == 0:
+        # Initialized and unlocked, but no configured reference resolved.  It
+        # is neither the ordinary restart lock nor a partially missing vault,
+        # and deploy must never accept it as either one.
+        state = "unlocked_zero_resolved"
+        ok = False
     elif missing_count:
         state = "missing_credentials"
         ok = False
-    elif not initialized and not references:
-        state = "uninitialized"
-        ok = True
     else:
         state = "unlocked"
         ok = True
@@ -242,6 +283,8 @@ def _attach_credential_health(payload: dict, sites_config: dict | None) -> None:
     degraded = {
         "locked": "credential_vault_locked",
         "missing_credentials": "credential_missing",
+        "uninitialized": "credential_vault_uninitialized",
+        "unlocked_zero_resolved": "credential_unlocked_zero_resolved",
         "unknown": "credential_state_unknown",
     }.get(credentials["state"], "credential_state_unknown")
     payload.setdefault("degraded", degraded)

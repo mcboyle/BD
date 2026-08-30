@@ -511,6 +511,17 @@ def evaluate(args, out, ev):
             "that returns no output is not reporting an empty board, it is not "
             "reporting; do not read this as 'no checks yet'")
 
+    # `gh pr checks` normally exits nonzero for pending or failed rows; those
+    # rows below remain a normal DO-NOT-MERGE result. But a command/filter that
+    # reports every row as passing and still exits nonzero did not complete its
+    # collection successfully. Its rows are not authority to merge.
+    if proc.returncode != 0 and all(status == "pass" for _, status in rows):
+        raise Refusal(
+            "REFUSE-GH-FAILED",
+            f"gh exited {proc.returncode} despite {total} check row(s), all "
+            "passing -- the check collection itself failed, so the board is "
+            "UNKNOWN rather than merge authority")
+
     counts = {tok: sum(1 for _, s in rows if s == tok) for tok in VOCAB}
     tally = " ".join(f"{k}={v}" for k, v in counts.items())
     out(f"rows: total={total} {tally} (denominator: expected>={expected})")
@@ -738,6 +749,9 @@ def selftest():
         # name, statuses, names, gh rc, gh stderr, want_exit, want_token, must_contain
         ("all-pass", ["pass"] * 12, None, 0, "", EXIT_SAFE, "MERGE-SAFE",
          "total=12 pass=12 fail=0 pending=0 skipping=0 names=12/12"),
+        ("all-pass-gh-error", ["pass"] * 12, None, 4,
+         "gh: transport closed after response\n", EXIT_REFUSE,
+         "REFUSE-GH-FAILED", "exited 4 despite 12 check row(s)"),
         ("excess-all-pass", ["pass"] * 15, None, 0, "", EXIT_SAFE, "MERGE-SAFE",
          "total=15 pass=15"),
         ("one-pending", ["pass"] * 11 + ["pending"], None, 8, "", EXIT_BLOCK,

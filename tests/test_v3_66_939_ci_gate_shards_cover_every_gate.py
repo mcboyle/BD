@@ -365,6 +365,10 @@ _DECLARED = {
     # headings are both tree-wide authorities. A worker can edit any row, so a
     # diff-derived module band cannot provide this reconciliation.
     "tests/test_register_closed_versions_exist.py",
+    # v3.66.1359 / row 402. The amendment suite is module-scoped, but its
+    # atomic compare-and-swap is the only sanctioned correction path for
+    # release-register prose, so it remains an explicit CI safety boundary.
+    "tests/test_register_content_amend.py",
     # Row 323. A human-review census expires when main moves, so this gate
     # drives the pytest collection hook before a stale row can spend its band.
     # It is tree-wide because the version comparison is about the row's base
@@ -840,8 +844,10 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # and scheduled; on top of main's 228 that is 229.
 # Row 386 (2026-08-29). One end-to-end download-chain gate is declared and
 # scheduled in its own browser-bearing shard; on top of main's 230 that is 231.
+# v3.66.1359 / row 402. The module-scoped register-amendment safety boundary is
+# explicitly declared and scheduled in toolchain, taking 231 to 232.
 # The integrator re-pins this if a concurrent cut also lands a gate.
-_EXPECTED_DECLARED_GATE_COUNT = 231
+_EXPECTED_DECLARED_GATE_COUNT = 232
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
