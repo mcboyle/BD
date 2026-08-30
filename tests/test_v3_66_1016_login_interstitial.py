@@ -248,25 +248,40 @@ def test_no_hand_rolled_dismissal_loop_survives_outside_the_helper():
 
 
 def test_the_per_url_path_delegates_to_the_gate_orchestrator_with_reporting():
-    """The half a census cannot see. Deleting the dismissal outright satisfies
-    'no hand-rolled loop survives' perfectly, and silently stops dismissing
-    cookie banners on every site -- the fix reproducing the shape of the
-    defect, which CLAUDE.md calls the highest-yield rule on the page."""
+    """The half a census cannot see: production must use the safe verdict.
+
+    Calling the legacy ``clear_gates`` helper satisfies the old delegation
+    census while discarding the structured UNKNOWN outcome.  The executable
+    row-371 worker tests cover both branches of this guard; this assertion
+    keeps the exact production call site bound to that tested orchestrator.
+    """
     fn = _fn_named("bulk_downloader/runner.py", "_process_one")
-    calls = [n for n in ast.walk(fn)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "clear_gates"]
-    assert len(calls) == 1, (
-        "_process_one must clear content gates through exactly one orchestrator: "
-        "%r" % [ast.unparse(call) for call in calls])
-    call = calls[0]
-    rendered = ast.unparse(call)
-    keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
-    assert PAGE_KEY in rendered, "the configured per-site gates were not passed"
-    assert ("url" in keywords and isinstance(keywords["url"], ast.Name)
-            and keywords["url"].id == "url"), (
-        "the original destination is required for origin checks and re-request")
-    assert "log" in keywords, "cleared gates would be silent to the operator"
+    legacy = [n for n in ast.walk(fn)
+              if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Attribute)
+              and n.func.attr == "clear_gates"]
+    assert legacy == [], (
+        "_process_one still bypasses structured gate safety via clear_gates: "
+        "%r" % [ast.unparse(call) for call in legacy])
+
+    guards = [n for n in ast.walk(fn)
+              if isinstance(n, ast.If)
+              and isinstance(n.test, ast.UnaryOp)
+              and isinstance(n.test.op, ast.Not)
+              and isinstance(n.test.operand, ast.Call)
+              and isinstance(n.test.operand.func, ast.Attribute)
+              and n.test.operand.func.attr == "_page_gates_are_safe"]
+    assert len(guards) == 1, (
+        "_process_one must hold on exactly one structured page-gate verdict: "
+        "%r" % [ast.unparse(guard.test) for guard in guards])
+    call = guards[0].test.operand
+    assert [ast.unparse(arg) for arg in call.args] == ["page", "url"], (
+        "the structured page-gate guard must receive the rendered page and "
+        "the original destination")
+    assert (len(guards[0].body) == 1
+            and isinstance(guards[0].body[0], ast.Return)
+            and guards[0].body[0].value is None), (
+        "a non-success page-gate verdict must return before extraction")
 
 
 # ── which consumer reads which key, and in what order ─────────────

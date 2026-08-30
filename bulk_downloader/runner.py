@@ -4043,19 +4043,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self._pause.wait()
                 if self._stop.is_set(): self._update_job(url,"stopped","Stopped"); return
                 time.sleep(0.5)
-            # Clear layered content gates before looking for the download.
-            # Configured selectors are the measured per-site tier and run
-            # first; conservative generic consent, age, and upsell tiers follow
-            # one click at a time.  The helper refuses exit/decline controls,
-            # restores the requested origin after any escape, and re-requests
-            # this exact URL after an upsell interstitial sends us home.
-            _interstitial.clear_gates(
-                page,
-                site_gates=self.config.get("dismiss_selectors", ""),
-                url=url,
-                log=lambda message: self.log_event(
-                    "gate", message, url=url),
-            )
+            # Clear layered content gates through the structured, reported
+            # orchestrator.  UNKNOWN is a hold: extraction must not inspect a
+            # page whose label, origin, click, or recovery was unmeasurable.
+            if not self._page_gates_are_safe(page, url):
+                return
             trigger=self.config.get("trigger_selector","").strip()
             # Phase 5.5: learned trigger selectors as fallback for the
             # configured one. If neither produces a click, the modal-based

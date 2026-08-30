@@ -1766,6 +1766,179 @@ class _RunnerGateHarness:
         return SiteRunner._dismiss_page_gates(self, page, url)
 
 
+class _ExtractionReached(BaseException):
+    """Stop the real worker immediately after its page-gate boundary."""
+
+
+class _NoControlLocator:
+    @property
+    def first(self):
+        return self
+
+    def count(self):
+        return 0
+
+
+class _ProcessPage:
+    def __init__(self, url):
+        self.url = url
+        self.close_count = 0
+
+    def goto(self, url, **_kwargs):
+        self.url = url
+
+    def evaluate(self, _script):
+        return None
+
+    def locator(self, _selector):
+        return _NoControlLocator()
+
+    def close(self):
+        self.close_count += 1
+
+
+class _ProcessContext:
+    def __init__(self, page):
+        self.page = page
+        self.new_page_count = 0
+
+    def new_page(self):
+        self.new_page_count += 1
+        return self.page
+
+
+class _ProcessOneGateHarness:
+    """Only the dependencies before ``_process_one``'s extraction seam."""
+
+    def __init__(self, target, *, gate_safe):
+        from contextlib import nullcontext
+
+        self.site_id = "row383-fixture"
+        self.config = {
+            "wait": 0,
+            "use_cluster_rate": False,
+            "use_library_extractor": False,
+            "use_jsonapi": False,
+            "use_scrapling_turnstile": False,
+            "use_flaresolverr": False,
+        }
+        self.jobs = {target: {}}
+        self._lock = nullcontext()
+        self._pause = SimpleNamespace(wait=lambda: None)
+        self._stop = SimpleNamespace(is_set=lambda: False)
+        self.gate_safe = gate_safe
+        self.trace = []
+        self.job_updates = []
+
+    def _update_job(self, url, state, message, **_kwargs):
+        self.job_updates.append((url, state, message))
+
+    def _dedup_preflight(self, _url, _job):
+        return None
+
+    def _handle_auto_teach_check(self, _url, _job):
+        return False
+
+    def _check_cookies_or_relogin(self, _url):
+        return True
+
+    def _stash_dedup_check(self, _url):
+        return False
+
+    def _try_plugin_extractor(self, _url):
+        return False
+
+    def _apply_stealth_library_to_page(self, _page):
+        return None
+
+    def _install_event_listeners(self, _page, _url):
+        return None
+
+    def _warm_session(self, _page):
+        return None
+
+    def _handle_captcha_check(self, _page, _url):
+        return True
+
+    def _check_redirect(self, _page, _url):
+        return None
+
+    def _page_gates_are_safe(self, page, url):
+        self.trace.append(("gate", page.url, url))
+        return self.gate_safe
+
+    def _draft_override_template(self):
+        return None
+
+
+def test_process_one_holds_before_extraction_when_page_gate_safety_is_unknown(
+        monkeypatch):
+    from bulk_downloader import runner as runner_module
+    from bulk_downloader.runner import SiteRunner
+
+    target = "https://members.example/scenes/383-unknown"
+    page = _ProcessPage(target)
+    context = _ProcessContext(page)
+    runner = _ProcessOneGateHarness(target, gate_safe=False)
+
+    def _extraction_started(*_args, **_kwargs):
+        runner.trace.append(("extract", page.url, target))
+        raise _ExtractionReached
+
+    monkeypatch.setattr(
+        runner_module, "merge_template_download_hints", _extraction_started)
+
+    # PRECONDITION: this is a browser-path job whose structured gate verdict
+    # is non-success; the extraction sentinel has not fired yet.
+    assert runner.gate_safe is False
+    assert runner.trace == []
+    assert context.new_page_count == 0
+
+    SiteRunner._process_one(
+        runner, browser=None, url=target, persistent_ctx=context)
+
+    assert runner.trace == [("gate", target, target)]
+    assert sum(kind == "gate" for kind, *_ in runner.trace) == 1
+    assert sum(kind == "extract" for kind, *_ in runner.trace) == 0
+    assert context.new_page_count == 1
+    assert page.close_count == 1
+
+
+def test_process_one_proceeds_to_extraction_after_safe_page_gate_verdict(
+        monkeypatch):
+    from bulk_downloader import runner as runner_module
+    from bulk_downloader.runner import SiteRunner
+
+    target = "https://members.example/scenes/383-safe"
+    page = _ProcessPage(target)
+    context = _ProcessContext(page)
+    runner = _ProcessOneGateHarness(target, gate_safe=True)
+
+    def _extraction_started(*_args, **_kwargs):
+        runner.trace.append(("extract", page.url, target))
+        raise _ExtractionReached
+
+    monkeypatch.setattr(
+        runner_module, "merge_template_download_hints", _extraction_started)
+
+    # NEGATIVE CONTROL: the same real worker path is allowed through when the
+    # structured orchestrator returns an explicit safe verdict.
+    assert runner.gate_safe is True
+    assert runner.trace == []
+    with pytest.raises(_ExtractionReached):
+        SiteRunner._process_one(
+            runner, browser=None, url=target, persistent_ctx=context)
+
+    assert runner.trace == [
+        ("gate", target, target),
+        ("extract", target, target),
+    ]
+    assert sum(kind == "gate" for kind, *_ in runner.trace) == 1
+    assert sum(kind == "extract" for kind, *_ in runner.trace) == 1
+    assert context.new_page_count == 1
+    assert page.close_count == 1
+
+
 def test_content_worker_rewaits_render_budget_only_after_destination_rerequest(
         monkeypatch):
     from bulk_downloader import runner as runner_module
