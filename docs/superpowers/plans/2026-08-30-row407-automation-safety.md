@@ -419,16 +419,16 @@ Run placeholder/contradiction scans, update the spec/plan only to match shipped 
 #### Execution evidence (2026-08-30)
 
 - Frozen base: `3aa5e2ce1fe75906381fdc7b29ca21f63a30f9e5`.
-- Source-code freeze: `b047e4b36cd34012ecdec76a0a044d055328bf36`;
-  final focused-test checkpoint before this documentation commit:
-  `947fc06d48df7a05d1bb6ce2c11d1609ec927222`.
+- Source and focused-test freeze:
+  `12f904cfd8b498e16b4431c4a5755d1f6046b10d`.
 - Checkpoints: `2a7ab01a` (replay transaction), `8333afe4` (adoption and
   integration proof), `4f302956` (watchdog identity), `d9a6e947` (publication
   revalidation), `bad7ece9` (independent-review gaps), `9bcfde3f` (replay
   derivation), `b047e4b3` (final adoption receipts), and `947fc06d`
-  (measurement-fault controls).
-- The focused four-module floor passed 81/81 with four local pytest workers:
-  replay 22, adoption 26, integration verdict 12, watchdog 21. All eight
+  (measurement-fault controls), and `12f904cf` (pre-existing registration
+  preservation).
+- The focused four-module floor passed 82/82 with four local pytest workers:
+  replay 23, adoption 26, integration verdict 12, watchdog 21. All eight
   changed Python files compile. The frozen virtual environment has no `ruff`
   module, so no lint pass is claimed and no package was installed.
 - Independent review identified process exec/argv races, late output claims,

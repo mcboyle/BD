@@ -48,6 +48,8 @@ source as immutable evidence:
    record, `.<output-name>.bd-replay.json`, opened with `O_EXCL`. The record
    carries a random token plus its file device/inode. A second replay targeting
    the same output refuses before it can create, inspect, or remove that output.
+   A pre-existing Git registration for an absent output is also refused before
+   `worktree add`; a failed add never transfers ownership of older evidence.
 4. Create a new detached output worktree at the exact resolved main SHA. Capture
    the output directory and registered Git-dir device/inode identities before
    any step that could require rollback.
