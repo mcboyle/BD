@@ -16,9 +16,9 @@ returns `values[0]` -- the shape an earlier design proposed -- silently feeds a
 single value to a multi-argument test. Measured over the same denominator:
 **45 of the 49 sites carry between 2 and 5 values**, so that design is wrong
 almost everywhere it is used, and the four single-value sites are the only ones
-that would look right. The runner's injection at run_tests_core.py already
-wraps a scalar and zips a tuple, so returning the tuple IS the correct
-semantics and needs no change there.
+that would look right. The stub therefore preserves a distinct ParameterSet
+shape: ordinary list/tuple values remain one value for one argname, while
+`pytest.param(...)` values expand deliberately across their argnames.
 
 THE STUB MUST STAY A STUB. `id=` is accepted and ignored, exactly as
 `parametrize` already ignores `ids=`, because the runner labels cases by index.

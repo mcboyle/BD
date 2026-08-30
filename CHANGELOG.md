@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1360 - make backlog intake an atomic transaction
+
+- Canonical-register append, amend, and close operations now serialize on the
+  same stable directory lock and publish through file fsync, atomic replace,
+  and directory fsync. A post-publication finalization failure reports COMMIT
+  UNCERTAIN instead of inviting a destructive retry.
+- The new guarded append command accepts only complete, numerically ordered
+  OPEN rows under a compare-and-swap header digest. It rejects control bytes,
+  non-ASCII input, stale requests, duplicate IDs, and any attempted historical
+  status claim without changing the register.
+- Deterministic cross-writer tests cover append versus amend and close, verify
+  the real lock rather than timing, and are scheduled directly in CI. The
+  code-evidence audit is recorded as OPEN row 411; no historical status cell
+  was rewritten, and the canonical census is mechanically derived as 360 rows
+  with 5 OPEN.
+- Release hygiene permits only the declared synthetic capture corpus to carry
+  WACZ fixtures. The extracted-package runner now preserves single list/tuple
+  parameters, loads test modules under spawn-importable names, and invokes
+  module-level setup before every function, so package verification exercises
+  the same state-isolation contract as pytest.
+
 ## v3.66.1359 - durably initialize and verify empty credential vaults
 
 - A successful first unlock of an empty master-password vault now commits

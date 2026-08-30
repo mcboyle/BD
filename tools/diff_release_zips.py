@@ -26,16 +26,18 @@ FORBIDDEN_SEGMENT = (
 )
 FORBIDDEN_SENSITIVE = re.compile(r'(\.env|\.pem$|\.key$|\.db($|-wal|-shm))')
 
-# Redacted recognizer fixtures under tests/fixtures/ are F2-scrubbed captures
-# (names/shapes only — produced by capture_scrub / capture_artifact_redact) and
-# are the intended in-repo regression corpus, so they are exempt from the .wacz
-# forbidden rule. A real (non-``.redacted``) .wacz, or any .wacz outside
-# tests/fixtures/, stays forbidden — the F2-LOCAL posture for real captures is
-# unchanged. (v3.66.321: the gate previously hard-failed on every shipped .wacz,
-# forcing baseline-less builds; the operator-confirmed vidstack fixtures now pass
-# while keeping the diff/regression hygiene gates on.)
+# Redacted recognizer fixtures under tests/fixtures/ and the explicitly
+# synthetic corpus under tests/capture_corpus_synthetic/ are the intended
+# in-repo regression captures, so they are exempt from the .wacz forbidden
+# rule. Every other .wacz stays forbidden — the F2-LOCAL posture for real
+# captures is unchanged.
 def _is_allowed_fixture(n: str) -> bool:
-    return n.startswith("tests/fixtures/") and n.endswith(".redacted.wacz")
+    return (
+        n.startswith("tests/fixtures/") and n.endswith(".redacted.wacz")
+    ) or (
+        n.startswith("tests/capture_corpus_synthetic/")
+        and n.endswith(".wacz")
+    )
 
 
 def shas(zip_path: str) -> Dict[str, str]:

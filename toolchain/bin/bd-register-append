@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Atomically append validated OPEN rows to the canonical register."""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Callable
+from contextlib import contextmanager
+import fcntl
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import tempfile
+from typing import Any
+
+
+_HEADER = re.compile(
+    r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
+    r"ids-sha256=[0-9a-f]{64} -->"
+)
+_REQUEST_KEYS = {"schema", "expected_ids_sha256", "rows"}
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_ROW = re.compile(r"\|\s*([1-9]\d*)\s*\|\s*([^|]*?)\s*\|\s*([^|]+?)\s*\|")
+
+
+class _PostReplaceOperationError(OSError):
+    """One or more named finalization operations failed."""
+
+    def __init__(self, failures: list[tuple[str, Exception]]) -> None:
+        self.failures = failures
+        super().__init__("; ".join(f"{operation}: {error}" for operation, error in failures))
+
+
+class CommitDurabilityUncertainError(RuntimeError):
+    """The replacement is visible but its finalization did not fully succeed."""
+
+    def __init__(self, operation: str, error: Exception) -> None:
+        super().__init__(
+            "COMMIT UNCERTAIN: the appended register was published, but "
+            f"{operation} failed: {error}. Inspect the register before retrying."
+        )
+
+
+def _derive_backlog(repo: Path, text: str) -> tuple[int, int, str, list[str]]:
+    source = repo / "project-knowledge" / "build_current_overlay.py"
+    spec = importlib.util.spec_from_file_location("_bd_current_overlay", source)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"cannot load canonical register parser from {source}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result = module.derive_backlog(text)
+    if result is None:
+        raise ValueError("canonical register parser examined zero rows")
+    return result
+
+
+def _marker(rows: int, opened: int, digest: str) -> str:
+    return f"<!-- canonical-task-register schema=1 rows={rows} open={opened} ids-sha256={digest} -->"
+
+
+def _assert_canonical_header(repo: Path, text: str) -> tuple[int, int, str, list[str]]:
+    matches = list(_HEADER.finditer(text))
+    if len(matches) != 1:
+        raise ValueError("canonical register header occurs other than once")
+    derived = _derive_backlog(repo, text)
+    if matches[0].group(0) != _marker(*derived[:3]):
+        raise ValueError("canonical register header does not match derived table")
+    return derived
+
+
+def _load_request(path: Path) -> tuple[str, list[tuple[int, str]]]:
+    try:
+        raw = path.read_bytes().decode("ascii")
+        payload = json.loads(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("request must be an ASCII JSON object") from exc
+    if not isinstance(payload, dict) or set(payload) != _REQUEST_KEYS:
+        raise ValueError("request must use exactly the bd-register-append/v1 schema")
+    if payload.get("schema") != "bd-register-append/v1":
+        raise ValueError("request schema must be bd-register-append/v1")
+    expected = payload.get("expected_ids_sha256")
+    if not isinstance(expected, str) or _SHA256.fullmatch(expected) is None:
+        raise ValueError("request expected_ids_sha256 must be lowercase SHA-256")
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("request rows must be a non-empty list of complete rows")
+
+    proposed: list[tuple[int, str]] = []
+    for value in rows:
+        if not isinstance(value, str):
+            raise ValueError("each proposed row must be an ASCII text row")
+        try:
+            value.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ValueError("each proposed row must be ASCII text without newline or pipe hazards") from exc
+        if "\n" in value or "\r" in value:
+            raise ValueError("each proposed row must be ASCII text without newline or pipe hazards")
+        if any(not 0x20 <= ord(character) <= 0x7E for character in value):
+            raise ValueError(
+                "each proposed row must use printable ASCII; TAB and control bytes are refused"
+            )
+        row = value.strip()
+        if row.count("|") != 4:
+            raise ValueError("each proposed row must have exactly four table pipes")
+        match = _ROW.fullmatch(row)
+        if match is None:
+            raise ValueError("each proposed row must be a complete numeric table row")
+        if match.group(2).strip() != "OPEN":
+            raise ValueError("each proposed row status must be exactly OPEN without evidence or version claim")
+        if not match.group(3).strip():
+            raise ValueError("each proposed row must have a non-empty item")
+        proposed.append((int(match.group(1)), row))
+
+    ids = [identity for identity, _ in proposed]
+    if len(ids) != len(set(ids)):
+        raise ValueError("proposed rows must use unique numeric IDs")
+    if ids != sorted(ids):
+        raise ValueError("proposed rows must use numeric insertion order")
+    return expected, proposed
+
+
+def _atomic_replace(path: Path, data: bytes, mode: int, mark_published: Callable[[], None]) -> None:
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    replaced = False
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        replaced = True
+        mark_published()
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except Exception as exc:
+            raise _PostReplaceOperationError([("directory open", exc)]) from exc
+        failures: list[tuple[str, Exception]] = []
+        try:
+            try:
+                os.fsync(directory_fd)
+            except Exception as exc:
+                failures.append(("directory fsync", exc))
+        finally:
+            try:
+                os.close(directory_fd)
+            except Exception as exc:
+                failures.append(("directory close", exc))
+        if failures:
+            raise _PostReplaceOperationError(failures) from failures[0][1]
+    finally:
+        if not replaced:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+
+@contextmanager
+def _exclusive_register_lock(directory: Path):
+    """Serialize CAS operations on the stable register directory inode."""
+    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        failures: list[tuple[str, Exception]] = []
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except Exception as exc:
+            failures.append(("lock unlock", exc))
+        try:
+            os.close(descriptor)
+        except Exception as exc:
+            failures.append(("lock close", exc))
+        if failures:
+            raise _PostReplaceOperationError(failures) from failures[0][1]
+
+
+def append(repo: Path, request_path: Path) -> int:
+    expected_digest, proposed = _load_request(request_path)
+    register = repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+    published = False
+
+    def mark_published() -> None:
+        nonlocal published
+        published = True
+
+    try:
+        with _exclusive_register_lock(register.parent):
+            original = register.read_bytes()
+            try:
+                text = original.decode("ascii")
+            except UnicodeDecodeError as exc:
+                raise ValueError("canonical register is not ASCII") from exc
+            if not text.endswith("\n"):
+                raise ValueError("canonical register must end with a newline before append")
+            rows, _, digest, _ = _assert_canonical_header(repo, text)
+            if digest != expected_digest:
+                raise ValueError("compare-and-swap canonical header digest mismatch")
+
+            existing_ids = {int(identity) for identity in re.findall(r"^\|\s*(\d+)\s*\|", text, re.MULTILINE)}
+            proposed_ids = [identity for identity, _ in proposed]
+            overlap = existing_ids.intersection(proposed_ids)
+            if overlap:
+                raise ValueError(f"proposed row ID already exists: {min(overlap)}")
+            if existing_ids and proposed_ids[0] <= max(existing_ids):
+                raise ValueError("proposed rows must use numeric insertion order after existing IDs")
+
+            appended = text + "".join(f"{row}\n" for _, row in proposed)
+            derived_rows, opened, new_digest, _ = _derive_backlog(repo, appended)
+            amended = _HEADER.sub(_marker(derived_rows, opened, new_digest), appended, count=1)
+            _assert_canonical_header(repo, amended)
+            normalized_expected = _HEADER.sub("<canonical-header>", appended, count=1)
+            normalized_amended = _HEADER.sub("<canonical-header>", amended, count=1)
+            if normalized_expected != normalized_amended:
+                raise ValueError("append would change a physical row outside the proposed suffix")
+            if derived_rows != rows + len(proposed):
+                raise ValueError("append did not produce exactly the proposed number of rows")
+
+            _atomic_replace(register, amended.encode("ascii"), stat.S_IMODE(register.stat().st_mode), mark_published)
+        print(f"{len(proposed)} row(s) appended; canonical header verified")
+    except CommitDurabilityUncertainError:
+        raise
+    except Exception as exc:
+        if published:
+            operation = "post-replace finalization"
+            if isinstance(exc, _PostReplaceOperationError):
+                operation = " and ".join(operation for operation, _ in exc.failures)
+            raise CommitDurabilityUncertainError(operation, exc) from exc
+        raise
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", required=True, type=Path)
+    parser.add_argument("--request", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        return append(args.repo.resolve(), args.request.resolve())
+    except CommitDurabilityUncertainError as exc:
+        print(str(exc), file=os.sys.stderr)
+        return 3
+    except (OSError, ValueError) as exc:
+        print(str(exc), file=os.sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

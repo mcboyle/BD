@@ -8,9 +8,15 @@ It runs after the release trio is written and after worker rows are merged.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+from contextlib import contextmanager
+import fcntl
 import importlib.util
+import os
 from pathlib import Path
 import re
+import stat
+import tempfile
 
 
 _HEADER = re.compile(
@@ -19,6 +25,24 @@ _HEADER = re.compile(
 )
 _VERSION = re.compile(r"v?\d+\.\d+\.(\d+)")
 _CLOSED_STATUS = re.compile(r"^CLOSED\b(?:\s+@\S+)?")
+
+
+class _PostReplaceOperationError(OSError):
+    """One or more named finalization operations failed."""
+
+    def __init__(self, failures: list[tuple[str, Exception]]) -> None:
+        self.failures = failures
+        super().__init__("; ".join(f"{operation}: {error}" for operation, error in failures))
+
+
+class CommitDurabilityUncertainError(RuntimeError):
+    """The replacement is visible but its finalization did not fully succeed."""
+
+    def __init__(self, operation: str, error: Exception) -> None:
+        super().__init__(
+            "COMMIT UNCERTAIN: the closed register was published, but "
+            f"{operation} failed: {error}. Inspect the register before retrying."
+        )
 
 
 def _derive_backlog(repo: Path, text: str) -> tuple[int, int, str, list[str]]:
@@ -34,6 +58,74 @@ def _derive_backlog(repo: Path, text: str) -> tuple[int, int, str, list[str]]:
     return result
 
 
+def _atomic_replace(
+    path: Path,
+    data: bytes,
+    mode: int,
+    mark_published: Callable[[], None],
+) -> None:
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    replaced = False
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        replaced = True
+        mark_published()
+        try:
+            directory_fd = os.open(
+                path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            )
+        except Exception as exc:
+            raise _PostReplaceOperationError([("directory open", exc)]) from exc
+        failures: list[tuple[str, Exception]] = []
+        try:
+            try:
+                os.fsync(directory_fd)
+            except Exception as exc:
+                failures.append(("directory fsync", exc))
+        finally:
+            try:
+                os.close(directory_fd)
+            except Exception as exc:
+                failures.append(("directory close", exc))
+        if failures:
+            raise _PostReplaceOperationError(failures) from failures[0][1]
+    finally:
+        if not replaced:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+
+@contextmanager
+def _exclusive_register_lock(directory: Path):
+    """Serialize all canonical-register writers on the stable directory inode."""
+    descriptor = os.open(
+        directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    )
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        failures: list[tuple[str, Exception]] = []
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except Exception as exc:
+            failures.append(("lock unlock", exc))
+        try:
+            os.close(descriptor)
+        except Exception as exc:
+            failures.append(("lock close", exc))
+        if failures:
+            raise _PostReplaceOperationError(failures) from failures[0][1]
+
+
 def close_row(repo: Path, row: int, version: str) -> tuple[int, int, str]:
     version_match = _VERSION.fullmatch(version)
     if version_match is None:
@@ -41,43 +133,65 @@ def close_row(repo: Path, row: int, version: str) -> tuple[int, int, str]:
     release = version_match.group(1)
 
     path = repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
-    text = path.read_text(encoding="ascii")
-    row_pattern = re.compile(
-        rf"^(?P<prefix>\|\s*{row}\s*\|\s*)(?P<status>[^|]+)(?P<suffix>\|)",
-        re.MULTILINE,
-    )
-    matches = list(row_pattern.finditer(text))
-    if len(matches) != 1:
-        raise ValueError(f"row {row} occurs {len(matches)} times in the register")
+    published = False
 
-    match = matches[0]
-    status = match.group("status").strip()
-    if _CLOSED_STATUS.match(status):
-        replacement = _CLOSED_STATUS.sub(f"CLOSED @{release}", status, count=1)
-    elif status == "OPEN":
-        replacement = f"CLOSED @{release}"
-    else:
-        raise ValueError(f"row {row} is {status!r}, not OPEN or CLOSED")
+    def mark_published() -> None:
+        nonlocal published
+        published = True
 
-    text = (
-        text[: match.start("status")]
-        + f"{replacement} "
-        + text[match.end("status") :]
-    )
-    rows, opened, digest, _ = _derive_backlog(repo, text)
-    marker = (
-        f"<!-- canonical-task-register schema=1 rows={rows} open={opened} "
-        f"ids-sha256={digest} -->"
-    )
-    header_count = len(_HEADER.findall(text))
-    if header_count != 1:
-        raise ValueError("canonical register header occurs other than once")
-    text = _HEADER.sub(marker, text, count=1)
+    try:
+        with _exclusive_register_lock(path.parent):
+            text = path.read_bytes().decode("ascii")
+            row_pattern = re.compile(
+                rf"^(?P<prefix>\|\s*{row}\s*\|\s*)(?P<status>[^|]+)(?P<suffix>\|)",
+                re.MULTILINE,
+            )
+            matches = list(row_pattern.finditer(text))
+            if len(matches) != 1:
+                raise ValueError(f"row {row} occurs {len(matches)} times in the register")
 
-    verify_rows, verify_opened, verify_digest, _ = _derive_backlog(repo, text)
-    if (rows, opened, digest) != (verify_rows, verify_opened, verify_digest):
-        raise ValueError("register header does not survive canonical re-derivation")
-    path.write_text(text, encoding="ascii")
+            match = matches[0]
+            status = match.group("status").strip()
+            if _CLOSED_STATUS.match(status):
+                replacement = _CLOSED_STATUS.sub(f"CLOSED @{release}", status, count=1)
+            elif status == "OPEN":
+                replacement = f"CLOSED @{release}"
+            else:
+                raise ValueError(f"row {row} is {status!r}, not OPEN or CLOSED")
+
+            text = (
+                text[: match.start("status")]
+                + f"{replacement} "
+                + text[match.end("status") :]
+            )
+            rows, opened, digest, _ = _derive_backlog(repo, text)
+            marker = (
+                f"<!-- canonical-task-register schema=1 rows={rows} open={opened} "
+                f"ids-sha256={digest} -->"
+            )
+            header_count = len(_HEADER.findall(text))
+            if header_count != 1:
+                raise ValueError("canonical register header occurs other than once")
+            text = _HEADER.sub(marker, text, count=1)
+
+            verify_rows, verify_opened, verify_digest, _ = _derive_backlog(repo, text)
+            if (rows, opened, digest) != (verify_rows, verify_opened, verify_digest):
+                raise ValueError("register header does not survive canonical re-derivation")
+            _atomic_replace(
+                path,
+                text.encode("ascii"),
+                stat.S_IMODE(path.stat().st_mode),
+                mark_published,
+            )
+    except CommitDurabilityUncertainError:
+        raise
+    except Exception as exc:
+        if published:
+            operation = "post-replace finalization"
+            if isinstance(exc, _PostReplaceOperationError):
+                operation = " and ".join(operation for operation, _ in exc.failures)
+            raise CommitDurabilityUncertainError(operation, exc) from exc
+        raise
     return rows, opened, digest
 
 
@@ -87,7 +201,11 @@ def main() -> int:
     parser.add_argument("--row", type=int, required=True)
     parser.add_argument("--version", required=True)
     args = parser.parse_args()
-    rows, opened, _ = close_row(args.repo, args.row, args.version)
+    try:
+        rows, opened, _ = close_row(args.repo, args.row, args.version)
+    except CommitDurabilityUncertainError as exc:
+        print(str(exc), file=os.sys.stderr)
+        return 3
     print(
         f"row {args.row} closed at @{args.version.split('.')[-1]}; "
         f"rows={rows} open={opened}"

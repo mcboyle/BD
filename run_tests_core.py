@@ -64,6 +64,13 @@ def _prepare_runner_state() -> None:
 _ABS = abs  # real builtin captured before any `abs=` param shadowing
 
 
+class _StubParameterSet:
+    """Distinguish pytest.param(...) from a list/tuple used as one value."""
+
+    def __init__(self, values):
+        self.values = tuple(values)
+
+
 class _PytestStub:
     @staticmethod
     def fixture(*args, **kwargs):
@@ -199,14 +206,9 @@ class _PytestStub:
         # "'_PytestStub' object has no attribute 'param'", and bd-band could
         # not run them at all.
         #
-        # RETURN THE TUPLE, NOT values[0]. Real pytest returns a ParameterSet
-        # whose .values tuple is zipped against argnames, and the injection in
-        # discover_and_run already wraps a scalar and zips a tuple -- so the
-        # tuple IS the correct semantics and that code needs no change. The
-        # tempting `return values[0]` silently feeds one value to a
-        # multi-argument test: measured over `git ls-files -- 'tests/*.py'`,
-        # 45 of the 49 sites carry 2-5 values, so it would be wrong nearly
-        # everywhere and right only on the 4 single-value sites.
+        # Keep a distinct ParameterSet-shaped value. A raw tuple is ambiguous:
+        # with one argname it may itself be the intended argument, while
+        # pytest.param(1, 2) must expand across two argnames.
         #
         # `id=` is accepted and ignored, exactly as parametrize ignores `ids=`,
         # because the runner labels cases by index. Anything else is REFUSED:
@@ -221,7 +223,7 @@ class _PytestStub:
                 f"pytest.param({', '.join(unsupported)}=...); it would change "
                 "which cases run. Use real pytest for this suite, or extend "
                 "the stub deliberately.")
-        return values
+        return _StubParameterSet(values)
 
     @staticmethod
     def importorskip(modname, minversion=None, reason=None):
@@ -585,7 +587,7 @@ def make_aiassist_module():
 
 # ── Test runner ────────────────────────────────────────────────────────
 def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
-             named_fixtures=None):
+             named_fixtures=None, setup_function=None, xunit_target=None):
     """Invoke a test function with appropriate fixtures.
 
     module_wipe: when True (the file carries
@@ -635,6 +637,17 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
         # latter was added in v3.43.60 to support tests that use class-based
         # state isolation patterns portable to real pytest.
         teardown_fn = None
+        if callable(setup_function):
+            try:
+                hook_params = inspect.signature(setup_function).parameters
+                if hook_params:
+                    setup_function(xunit_target or test_fn)
+                else:
+                    setup_function()
+            except _Skipped:
+                raise
+            except Exception as e:
+                return False, f"setup_function failed: {type(e).__name__}: {e}"
         if owner is not None:
             setup_fn = getattr(owner, "setup_method", None)
             if not callable(setup_fn):
@@ -889,11 +902,28 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
                 sys.modules.update(_wipe_saved)
 
 
+def _bind_parametrized_values(argnames_list, raw_values):
+    if isinstance(raw_values, _StubParameterSet):
+        values = raw_values.values
+    elif len(argnames_list) == 1:
+        values = (raw_values,)
+    elif isinstance(raw_values, (tuple, list)):
+        values = raw_values
+    else:
+        values = (raw_values,)
+    return dict(zip(argnames_list, values))
+
+
 def discover_and_run(test_file):
     """Import a test file and run every test_* function/method."""
     _prepare_runner_state()
+    test_parent = str(test_file.resolve().parent)
+    if test_parent not in sys.path:
+        sys.path.insert(0, test_parent)
+    module_name = test_file.stem
+    legacy_module_name = f"test_{test_file.stem}"
     spec = importlib.util.spec_from_file_location(
-        f"test_{test_file.stem}", test_file)
+        module_name, test_file)
     mod = importlib.util.module_from_spec(spec)
     # v3.66.910: register BEFORE executing. Anything that resolves a name via
     # sys.modules[cls.__module__] during import gets None otherwise -- most
@@ -903,6 +933,10 @@ def discover_and_run(test_file):
     # and took the whole suite with it. This is the step the importlib docs
     # call out and real pytest performs.
     sys.modules[spec.name] = mod
+    # Keep the historical alias for callers that inspected the runner's old
+    # synthetic name. The real, filename-derived name is what makes top-level
+    # test helpers importable in a multiprocessing ``spawn`` child.
+    sys.modules[legacy_module_name] = mod
     try:
         spec.loader.exec_module(mod)
     except Exception as e:
@@ -910,6 +944,7 @@ def discover_and_run(test_file):
         # same name would find it and skip re-running it, so a suite could
         # pass against a module whose import raised.
         sys.modules.pop(spec.name, None)
+        sys.modules.pop(legacy_module_name, None)
         # NOTE: must be a 4-tuple (name, err, ok, duration) to match
         # every other result row this function emits. A 3-tuple here
         # crashes the serial-retry classifier in _retry_failures_serial,
@@ -957,6 +992,8 @@ def discover_and_run(test_file):
         elif callable(obj) and getattr(obj, "_is_fixture", False):
             named_fixtures[name] = obj
 
+    module_setup_function = getattr(mod, "setup_function", None)
+
     results = []
     for name in dir(mod):
         obj = getattr(mod, name)
@@ -978,8 +1015,8 @@ def discover_and_run(test_file):
                         argnames_list = ([s.strip() for s in argnames.split(",")]
                                          if isinstance(argnames, str) else list(argnames))
                         for vi, vals in enumerate(argvalues):
-                            if not isinstance(vals, (tuple, list)): vals = (vals,)
-                            extra_kwargs = dict(zip(argnames_list, vals))
+                            extra_kwargs = _bind_parametrized_values(
+                                argnames_list, vals)
                             # Build a wrapper with a signature that EXCLUDES
                             # the parametrized arguments, so run_test's
                             # fixture introspection picks up the right
@@ -1031,8 +1068,8 @@ def discover_and_run(test_file):
                 argnames_list = ([s.strip() for s in argnames.split(",")]
                                  if isinstance(argnames, str) else list(argnames))
                 for vi, vals in enumerate(argvalues):
-                    if not isinstance(vals, (tuple, list)): vals = (vals,)
-                    extra_kwargs = dict(zip(argnames_list, vals))
+                    extra_kwargs = _bind_parametrized_values(
+                        argnames_list, vals)
                     sig = inspect.signature(obj)
                     new_params = [p for p in sig.parameters.values()
                                   if p.name not in argnames_list]
@@ -1048,7 +1085,9 @@ def discover_and_run(test_file):
                         ok, err = run_test(wrapped,
                                            autouse_fixtures=autouse_fixtures,
                                            module_wipe=_module_wipe,
-                                                   named_fixtures=named_fixtures)
+                                           named_fixtures=named_fixtures,
+                                           setup_function=module_setup_function,
+                                           xunit_target=obj)
                     except _Skipped as e:
                         _dt = time.perf_counter() - _t0
                         results.append((label, f"SKIP ({e})", None, _dt)); continue
@@ -1060,7 +1099,9 @@ def discover_and_run(test_file):
             try:
                 ok, err = run_test(obj, autouse_fixtures=autouse_fixtures,
                                module_wipe=_module_wipe,
-                                                   named_fixtures=named_fixtures)
+                               named_fixtures=named_fixtures,
+                               setup_function=module_setup_function,
+                               xunit_target=obj)
             except _Skipped as e:
                 # PT9 fix: mirror the class-method paths above. Without
                 # this catch, pytest.skip() inside a module-level test

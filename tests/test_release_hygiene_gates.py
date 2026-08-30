@@ -40,6 +40,78 @@ def _mktree(rel_files: dict) -> str:
     return root
 
 
+def _run_synthetic_with_custom_runner(tmp_path: Path, source: str):
+    test_file = tmp_path / "test_synthetic_runner_case.py"
+    test_file.write_text(source, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, str(_REPO / "run_tests.py"), str(test_file)],
+        cwd=_REPO,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+
+
+def test_custom_runner_keeps_a_single_list_parameter_as_one_value(tmp_path):
+    result = _run_synthetic_with_custom_runner(
+        tmp_path,
+        """
+import pytest
+
+@pytest.mark.parametrize("payload", [["left", "right"]])
+def test_list_payload(payload):
+    assert payload == ["left", "right"]
+""",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Total: 1 | Passed: 1 | Failed: 0" in result.stdout
+
+
+def test_custom_runner_spawn_can_import_the_loaded_test_module(tmp_path):
+    result = _run_synthetic_with_custom_runner(
+        tmp_path,
+        """
+import multiprocessing
+
+def _send_result(connection):
+    connection.send("spawn-ok")
+    connection.close()
+
+def test_spawn_import():
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe(duplex=False)
+    process = context.Process(target=_send_result, args=(child,))
+    process.start()
+    child.close()
+    assert parent.recv() == "spawn-ok"
+    process.join(timeout=10)
+    assert process.exitcode == 0
+""",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Total: 1 | Passed: 1 | Failed: 0" in result.stdout
+
+
+def test_custom_runner_runs_setup_function_before_each_test(tmp_path):
+    result = _run_synthetic_with_custom_runner(
+        tmp_path,
+        """
+state = []
+
+def setup_function():
+    state.clear()
+
+def test_first_dirties_module_state():
+    state.append("dirty")
+
+def test_second_starts_clean():
+    assert state == []
+""",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Total: 2 | Passed: 2 | Failed: 0" in result.stdout
+
+
 # ── scan_version_pins ──────────────────────────────────────────────
 def test_version_pin_matches_expected():
     root = _mktree({"tests/test_x.py": 'assert __version__ == "3.66.169"\n'})
@@ -97,6 +169,29 @@ def test_diff_flags_forbidden_artifacts():
     bad = DRZ.forbidden_artifacts(list(__import__("zipfile").ZipFile(new).namelist()))
     assert any("__pycache__" in b for b in bad), bad
     assert any(b.endswith(".wacz") for b in bad), bad
+
+
+def test_diff_allows_only_declared_synthetic_capture_corpus_wacz():
+    names = [
+        "tests/capture_corpus_synthetic/site.wacz",
+        "tests/capture_corpus_synthetic/nested/site.wacz",
+        "tests/fixtures/site.redacted.wacz",
+        "tests/capture_corpus_syntheticish/site.wacz",
+        "tests/capture_corpus/site.wacz",
+        "tests/fixtures/site.wacz",
+        "captures/site.wacz",
+    ]
+    bad = set(DRZ.forbidden_artifacts(names))
+
+    assert "tests/capture_corpus_synthetic/site.wacz" not in bad
+    assert "tests/capture_corpus_synthetic/nested/site.wacz" not in bad
+    assert "tests/fixtures/site.redacted.wacz" not in bad
+    assert bad == {
+        "tests/capture_corpus_syntheticish/site.wacz",
+        "tests/capture_corpus/site.wacz",
+        "tests/fixtures/site.wacz",
+        "captures/site.wacz",
+    }
 
 
 def test_diff_flags_frontend_drop():
