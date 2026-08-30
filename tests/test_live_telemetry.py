@@ -645,6 +645,102 @@ def test_stop_serializes_failure_side_effects_and_rejects_stale_repeat(
     assert runner.jobs[url]["status"] == "failed"
 
 
+def test_cancelled_running_job_rejects_late_worker_success(monkeypatch):
+    """A per-job cancel is terminal for the worker that already claimed it."""
+    from bulk_downloader import runner as runner_mod
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    persisted = []
+    monkeypatch.setattr(
+        runner_mod, "queue_upsert",
+        lambda _site_id, _url, **fields: persisted.append(dict(fields)))
+
+    # This is the canonical control-plane transition used by both queue cancel
+    # endpoints.  Unlike site-wide stop(), it does not invalidate the whole
+    # worker generation because unrelated URLs must keep running.
+    runner._update_job(url, "stopped", "Cancelled by user")
+    assert runner.jobs[url]["status"] == "stopped"
+    assert runner._worker_generation_is_current(1)
+    assert [row["status"] for row in persisted] == ["stopped"]
+
+    # The already-running worker returns success after cancellation.  Its
+    # generation is current, but its claim on this URL is no longer current.
+    accepted = runner._update_job(
+        url, "done", "late worker success", filename="late.mp4",
+        file_size=123, _run_generation=1)
+
+    assert accepted is False
+    assert runner.jobs[url]["status"] == "stopped"
+    assert runner.jobs[url]["message"] == "Cancelled by user"
+    assert [row["status"] for row in persisted] == ["stopped"]
+
+
+def test_current_worker_success_still_transitions_running_to_done(monkeypatch):
+    """The cancellation fence does not reject a worker's live claim."""
+    from bulk_downloader import runner as runner_mod
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    persisted = []
+    monkeypatch.setattr(
+        runner_mod, "queue_upsert",
+        lambda _site_id, _url, **fields: persisted.append(dict(fields)))
+
+    accepted = runner._update_job(
+        url, "done", "worker success", filename="video.mp4",
+        file_size=456, _run_generation=1)
+
+    assert accepted is not False
+    assert runner.jobs[url]["status"] == "done"
+    assert [row["status"] for row in persisted] == ["done"]
+
+
+def test_control_plane_can_requeue_a_stopped_job(monkeypatch):
+    """The worker-only fence does not make stopped jobs irreversible."""
+    from bulk_downloader import runner as runner_mod
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    persisted = []
+    monkeypatch.setattr(
+        runner_mod, "queue_upsert",
+        lambda _site_id, _url, **fields: persisted.append(dict(fields)))
+    runner._update_job(url, "stopped", "Cancelled by user")
+
+    accepted = runner._update_job(
+        url, "pending", "Requeued by user", _expected_status="stopped")
+
+    assert accepted is not False
+    assert runner.jobs[url]["status"] == "pending"
+    assert [row["status"] for row in persisted] == ["stopped", "pending"]
+
+
+def test_cancel_compare_and_set_preserves_a_concurrent_completion(monkeypatch):
+    """A stale endpoint read cannot change a newly-done job to stopped."""
+    from bulk_downloader import runner as runner_mod
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    persisted = []
+    monkeypatch.setattr(
+        runner_mod, "queue_upsert",
+        lambda _site_id, _url, **fields: persisted.append(dict(fields)))
+    endpoint_observed_status = runner.jobs[url]["status"]
+    assert endpoint_observed_status == "running"
+    runner._update_job(
+        url, "done", "worker won race", filename="video.mp4",
+        file_size=789, _run_generation=1)
+
+    accepted = runner._update_job(
+        url, "stopped", "Cancelled by user",
+        _expected_status=endpoint_observed_status)
+
+    assert accepted is False
+    assert runner.jobs[url]["status"] == "done"
+    assert [row["status"] for row in persisted] == ["done"]
+
+
 def test_start_refuses_replacement_when_old_worker_misses_teardown_budget(
         monkeypatch):
     """A wedged browser cannot hang start or permit profile overlap."""

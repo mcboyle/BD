@@ -2283,6 +2283,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         with self._run_lifecycle_lock:
             if not self._worker_generation_is_current(run_generation):
                 return False
+            extra["_worker_owned_write"] = True
             return self._update_job_current(url, status, message, **extra)
 
     def _update_job_current(self,url,status,message,**extra):
@@ -2303,6 +2304,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         _transition_prev_status = extra.pop("_transition_prev_status", None)
         _memory_already_updated = bool(
             extra.pop("_memory_already_updated", False))
+        _worker_owned_write = bool(extra.pop("_worker_owned_write", False))
+        _expected_status = extra.pop("_expected_status", None)
         now = time.time()
         # v3.43.80 Phase 86: friendly_error translates raw failure msgs.
         if status == "failed" and message:
@@ -2313,6 +2316,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         byte_advanced = False
         with self._job_status_writer() as mark_status_changed:
             prev_status = (self.jobs.get(url) or {}).get("status")
+            # A per-job cancel cannot invalidate the whole worker generation:
+            # other claimed URLs must keep running.  Fence only the cancelled
+            # URL so its already-running worker cannot publish progress or a
+            # terminal result over the control-plane ``stopped`` transition.
+            # The optional expected status also makes endpoint read -> write
+            # transitions compare-and-set under this same jobs lock.
+            if ((_worker_owned_write and prev_status == "stopped")
+                    or (_expected_status is not None
+                        and prev_status != _expected_status)):
+                return False
             prev_bytes = int((self.jobs.get(url) or {}).get("file_size", 0))
             # v3.43.80: auto-create entry for unknown URL so stale retry_one isn't a no-op.
             if url not in self.jobs:

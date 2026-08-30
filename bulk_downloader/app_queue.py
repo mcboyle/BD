@@ -286,7 +286,13 @@ def api_queue_v2_cancel():
             "ok": False,
             "error": f"can't cancel from status {current_status!r}",
         }), 400
-    runner._update_job(url, "stopped", "Cancelled by user")
+    accepted = runner._update_job(url, "stopped", "Cancelled by user",
+                                  _expected_status=current_status)
+    if accepted is False:
+        return jsonify({
+            "ok": False,
+            "error": "job status changed while cancellation was pending",
+        }), 409
     return jsonify({"ok": True, "previous_status": current_status})
 @queue_bp.route("/api/queue/v2/job_log")
 def api_queue_v2_job_log():
@@ -446,7 +452,14 @@ def api_queue_v2_bulk_cancel():
                     "error": f"can't cancel from status {current_status!r}",
                 })
                 continue
-            runner._update_job(url, "stopped", "Cancelled by user")
+            accepted = runner._update_job(url, "stopped", "Cancelled by user",
+                                          _expected_status=current_status)
+            if accepted is False:
+                results["errors"].append({
+                    "site_id": sid, "url": url,
+                    "error": "job status changed while cancellation was pending",
+                })
+                continue
             results["cancelled"] += 1
         except Exception as e:
             results["errors"].append({

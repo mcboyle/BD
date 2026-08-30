@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,43 @@ def test_d3_u5_cancel_rejects_unknown_site():
         json={"site_id": "does-not-exist", "url": "https://x.com/y"},
     )
     assert r.status_code in (400, 403)
+
+
+def test_d3_u5_cancel_reports_a_lost_status_race():
+    """The endpoint must not report success when its compare-and-set loses."""
+    from bulk_downloader import app as a
+
+    url = "https://x.example/video"
+
+    class RacingRunner:
+        def __init__(self):
+            self._lock = threading.Lock()
+            self.jobs = {url: {"status": "running"}}
+            self.calls = []
+
+        def _update_job(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return False
+
+    runner = RacingRunner()
+    a.runners["cancel-race"] = runner
+    try:
+        response = a.app.test_client().post(
+            "/api/queue/v2/cancel",
+            json={"site_id": "cancel-race", "url": url},
+        )
+    finally:
+        a.runners.pop("cancel-race", None)
+
+    assert len(runner.calls) == 1
+    args, kwargs = runner.calls[0]
+    assert args == (url, "stopped", "Cancelled by user")
+    assert kwargs == {"_expected_status": "running"}
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "ok": False,
+        "error": "job status changed while cancellation was pending",
+    }
 
 
 # ── job_log endpoint ─────────────────────────────────────────────────
