@@ -367,6 +367,53 @@ def work_affinity(page_url, candidate_url):
     return 1 if (n >= _WORK_MIN_TOKENS and c >= _WORK_MIN_CHARS) else 0
 
 # ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
+# Download-intent vocabulary. Module-level so both the candidate harvester in
+# find_best_download and is_chrome_resolution_ghost() read one definition.
+_DL_WORD_RE = re.compile(
+    r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",
+    re.I)
+
+
+def is_chrome_resolution_ghost(text, url):
+    """True when a candidate's ONLY claim to being a download is a resolution
+    WORD read out of SITE CHROME -- e.g. wowgirls' ``/films-6K/`` nav link,
+    where ``res_score`` reads "6K" out of the path segment (history row 125,
+    v3.66.1348: a photo gallery scored a 6K non-candidate and burned a minute
+    on a click that fires no download event).
+
+    The sibling of row 381 (a photo pixel dimension is not a video resolution):
+    there the tier came from an image caption, here from a navigation href. A
+    real download always carries at least one of -- a parseable byte size, a
+    download-intent word (``download``/``.mp4``/... -- which also keeps the
+    ``data-signed-url-key='downloads.6K'`` wowgirls tier, whose value contains
+    "download"), or a media / manifest / download-path / media-API URL signal. A
+    candidate that has NONE of those, yet bears a resolution label AND a URL, is
+    chrome and must not reach the ranker at all -- so a photo gallery yields zero
+    candidates rather than one ghost that outranks nothing.
+
+    ``url`` is load-bearing: a URL-LESS click target (a bare "6K" trigger button
+    whose modal fires on click) carries no chrome href to judge, so it is KEPT --
+    silently deleting a possible real control is the one outcome this must never
+    produce. Pure over ``(text, url)``; the harvested ``text`` already contains
+    the URL, but ``url`` is read separately so the has-URL gate cannot be faked
+    by a stray path in the text.
+    """
+    if not url:
+        return False                       # URL-less trigger/click-target: keep
+    t = text or ""
+    if parse_size_bytes(t) > 0:
+        return False                       # a real byte size is real evidence
+    if _DL_WORD_RE.search(t):
+        return False                       # a download word / media extension
+    from . import candidate_filter as _cf
+    for _rgx in (_cf.MEDIA_EXT_RE, _cf.MANIFEST_RE,
+                 _cf.DOWNLOAD_PATH_RE, _cf.API_PATTERN_RE):
+        if _rgx.search(t) or _rgx.search(url):
+            return False                   # a real media / download URL signal
+    # Got here only on a resolution LABEL with a chrome URL: the ghost shape.
+    return res_score(t) >= 0
+
+
 def find_best_download(page,custom="",learned=None,runner=None):
     """Locate the best download candidate on the page — defensively.
 
@@ -487,7 +534,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # (single env lookup); avoids per-candidate overhead in the hot loop.
     _dom_hp_mode=_dom_honeypot_mode()
     _dom_hp_filtered=[]   # accumulates dropped (locator, reason) for log emission
-    dl_re=re.compile(r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",re.I)
+    dl_re=_DL_WORD_RE
     res_re=re.compile(r"\d{3,4}\s*p|\d{3,4}\s*[x×]\s*\d{3,4}"
                       r"|\b(?:4k|2k|8k|hd|fhd|uhd|qhd|sd|lq|ultra|standard|"
                       r"mobile|low|medium|tiny|web\s*hd|full\s*hd)\b",re.I)
@@ -615,6 +662,15 @@ def find_best_download(page,custom="",learned=None,runner=None):
         # no quality info), keep it with score=0 — the file-size tiebreaker
         # will at least pick the largest one.
         if s<0 and not dl_re.search(t): return
+        # row 399: a site-chrome resolution ghost (a /films-6K/ nav link) is not
+        # a download. Read the element's OWN url and drop it before it can
+        # outrank an empty candidate list on a page that has no video at all.
+        _cand_url=""
+        for _a in _URL_ATTRS:
+            try: _v=el.get_attribute(_a)
+            except Exception: _v=None
+            if _v and _v.strip(): _cand_url=_v.strip(); break
+        if is_chrome_resolution_ghost(t,_cand_url): return
         seen.add(t)
         candidates.append({"locator":el,"text":t[:160],
                            "score":max(0,s),"size":parse_size_bytes(t),
