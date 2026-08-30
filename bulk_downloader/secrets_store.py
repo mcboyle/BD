@@ -448,7 +448,7 @@ class MasterPasswordBackend(_BackendBase):
         "iterations": 600000,
         "salt": "<base64>",
         "verifier": {"nonce": "<b64>", "ct": "<b64>"},
-        "commitment_authority": "__bd_vault_password_commitment_v1__",
+        "commitment_authority": "<internal ciphertext key>",
         "ciphertexts": {
             "bulkdl-wow":   {"nonce": "<b64>", "ct": "<b64>"},
             "bulkdl-ultraf": {"nonce": "<b64>", "ct": "<b64>"},
@@ -645,6 +645,44 @@ class MasterPasswordBackend(_BackendBase):
             "ct": base64.b64encode(ciphertext).decode(),
         }
 
+    def _commitment_authority_key_locked(
+        self, ciphertexts: dict[str, Any]
+    ) -> str | None:
+        """Return the marked internal entry, if its persisted link is valid."""
+        authority = self._data.get(self._COMMITMENT_AUTHORITY_FIELD)
+        if (
+            isinstance(authority, str)
+            and self._is_rollback_commitment_name(authority)
+            and authority in ciphertexts
+        ):
+            return authority
+        return None
+
+    def _unused_rollback_commitment_key(
+        self, ciphertexts: dict[str, Any]
+    ) -> str:
+        """Choose an internal name without overwriting a legacy user key."""
+        candidate = self._ROLLBACK_COMMITMENT_KEY
+        suffix = 1
+        while candidate in ciphertexts:
+            candidate = f"{self._ROLLBACK_COMMITMENT_KEY}.{suffix}"
+            suffix += 1
+        return candidate
+
+    def _is_rollback_commitment_name(self, name: str) -> bool:
+        """Whether *name* is one this release can allocate internally."""
+        if name == self._ROLLBACK_COMMITMENT_KEY:
+            return True
+        prefix = f"{self._ROLLBACK_COMMITMENT_KEY}."
+        if not name.startswith(prefix):
+            return False
+        suffix = name[len(prefix):]
+        return (
+            bool(suffix)
+            and suffix[0] != "0"
+            and all("0" <= character <= "9" for character in suffix)
+        )
+
     def _is_initialized_locked(self) -> bool:
         ciphertexts_present = "ciphertexts" in self._data
         ciphertexts = self._data.get("ciphertexts")
@@ -693,24 +731,16 @@ class MasterPasswordBackend(_BackendBase):
         authenticated rollback repair possible after unlock.
         """
         authority_present = self._COMMITMENT_AUTHORITY_FIELD in self._data
-        authority_valid = (
-            self._data.get(self._COMMITMENT_AUTHORITY_FIELD)
-            == self._ROLLBACK_COMMITMENT_KEY
-        )
-        commitment_present = self._ROLLBACK_COMMITMENT_KEY in ciphertexts
-        commitment = ciphertexts.get(self._ROLLBACK_COMMITMENT_KEY)
+        authority_key = self._commitment_authority_key_locked(ciphertexts)
         verifier_present = "verifier" in self._data
         verifier = self._data.get("verifier")
 
         if authority_present:
-            if not authority_valid:
+            if authority_key is None:
                 raise SecretsIntegrityError(
-                    "vault password commitment authority marker is invalid"
+                    "authoritative vault password commitment marker is invalid"
                 )
-            if (
-                not commitment_present
-                or not self._envelope_is_well_formed(commitment)
-            ):
+            if not self._envelope_is_well_formed(ciphertexts[authority_key]):
                 raise SecretsIntegrityError(
                     "authoritative rollback password commitment is missing "
                     "or malformed"
@@ -725,19 +755,10 @@ class MasterPasswordBackend(_BackendBase):
                 "vault verifier is malformed; password commitment integrity "
                 "cannot be established"
             )
-        if (
-            commitment_present
-            and not self._envelope_is_well_formed(commitment)
-        ):
-            raise SecretsIntegrityError(
-                "rollback password commitment is malformed; vault integrity "
-                "cannot be established"
-            )
-        user_entries = [
-            entry
-            for name, entry in ciphertexts.items()
-            if name != self._ROLLBACK_COMMITMENT_KEY
-        ]
+        # With no authority marker every name remains a possible pre-row402
+        # user key.  In particular, the preferred internal name was legal in
+        # older releases and must not be hidden or rejected by name alone.
+        user_entries = list(ciphertexts.values())
         if (
             user_entries
             and not any(
@@ -756,6 +777,7 @@ class MasterPasswordBackend(_BackendBase):
         *,
         add_verifier: bool,
         add_rollback_commitment: bool,
+        commitment_key: str | None = None,
         action: str,
     ) -> None:
         """Atomically add authenticated compatibility material.
@@ -776,19 +798,23 @@ class MasterPasswordBackend(_BackendBase):
         # therefore leave first-use and legacy-upgrade state byte-exact too.
         new_verifier = self._seal_verifier(key) if add_verifier else None
         new_ciphertexts = None
+        published_commitment_key = commitment_key
         if add_rollback_commitment:
             rollback_commitment = self._seal_rollback_commitment(key)
             current = self._data.get("ciphertexts")
             current = current if isinstance(current, dict) else {}
+            published_commitment_key = self._unused_rollback_commitment_key(
+                current
+            )
             # Reserved entry first: base44 verifies only next(iter(cts)).
             new_ciphertexts = {
-                self._ROLLBACK_COMMITMENT_KEY: rollback_commitment,
-                **{
-                    name: entry
-                    for name, entry in current.items()
-                    if name != self._ROLLBACK_COMMITMENT_KEY
-                },
+                published_commitment_key: rollback_commitment,
+                **current,
             }
+        if published_commitment_key is None:
+            raise SecretsIntegrityError(
+                "vault password commitment has no authoritative entry"
+            )
 
         if add_verifier:
             self._data["verifier"] = new_verifier
@@ -796,7 +822,7 @@ class MasterPasswordBackend(_BackendBase):
             self._data["ciphertexts"] = new_ciphertexts
         self._data[
             self._COMMITMENT_AUTHORITY_FIELD
-        ] = self._ROLLBACK_COMMITMENT_KEY
+        ] = published_commitment_key
         if self._save():
             return
 
@@ -878,26 +904,23 @@ class MasterPasswordBackend(_BackendBase):
             raise
         verifier_present = "verifier" in self._data
         verifier = self._data.get("verifier")
-        commitment_present = self._ROLLBACK_COMMITMENT_KEY in cts
-        commitment = cts.get(self._ROLLBACK_COMMITMENT_KEY)
+        authority_present = self._COMMITMENT_AUTHORITY_FIELD in self._data
+        commitment_key = self._commitment_authority_key_locked(cts)
+        commitment_present = commitment_key is not None
+        commitment = cts.get(commitment_key) if commitment_key else None
         user_cts = {
             name: entry
             for name, entry in cts.items()
-            if name != self._ROLLBACK_COMMITMENT_KEY
+            if name != commitment_key
         }
-        authority_present = self._COMMITMENT_AUTHORITY_FIELD in self._data
-        authority_valid = (
-            self._data.get(self._COMMITMENT_AUTHORITY_FIELD)
-            == self._ROLLBACK_COMMITMENT_KEY
-        )
+        authority_valid = authority_present and commitment_key is not None
 
         key = self._derive_key(password)
 
         if (
             not authority_present
             and not verifier_present
-            and not commitment_present
-            and not user_cts
+            and not cts
         ):
             self._persist_missing_commitments(
                 key,
@@ -926,9 +949,48 @@ class MasterPasswordBackend(_BackendBase):
             self._verify_ciphertext_with(entry, key)
             for entry in user_cts.values()
         )
+        # A stripped authority marker must not turn a candidate commitment
+        # into ordinary "any ciphertext" legacy authentication.  Candidate
+        # commitments always use the preferred name or its numeric collision
+        # suffixes.  Keep every unmarked entry as user data (all of those names
+        # were legal before row402), but if any candidate-family name survives,
+        # every well-formed envelope must authenticate under the same key.
+        # Wrong passwords still return False when no entry authenticates; sole
+        # and all-same-key legacy collisions remain backward compatible.
+        unmarked_commitment_name_present = (
+            not authority_present
+            and any(
+                self._is_rollback_commitment_name(name)
+                for name in user_cts
+            )
+        )
+        well_formed_user_entries = [
+            entry
+            for entry in user_cts.values()
+            if self._envelope_is_well_formed(entry)
+        ]
+        all_well_formed_user_entries_match = all(
+            self._verify_ciphertext_with(entry, key)
+            for entry in well_formed_user_entries
+        )
+        if (
+            unmarked_commitment_name_present
+            and legacy_ok
+            and not all_well_formed_user_entries_match
+        ):
+            self._key = None
+            raise SecretsIntegrityError(
+                "rollback password commitment and stored ciphertexts disagree"
+            )
 
         if authority_valid:
             if commitment_ok:
+                if not all_well_formed_user_entries_match:
+                    self._key = None
+                    raise SecretsIntegrityError(
+                        "authoritative rollback password commitment and "
+                        "stored ciphertexts disagree"
+                    )
                 if not verifier_ok and persist_compatibility:
                     self._repair_verifier_from_authoritative_commitment(key)
                 self._key = key
@@ -949,7 +1011,7 @@ class MasterPasswordBackend(_BackendBase):
                     "vault verifier and rollback password commitment disagree"
                 )
             if verifier_ok:
-                if user_cts and not legacy_ok:
+                if not all_well_formed_user_entries_match:
                     self._key = None
                     raise SecretsIntegrityError(
                         "vault verifier, rollback password commitment, and "
@@ -960,6 +1022,7 @@ class MasterPasswordBackend(_BackendBase):
                         key,
                         add_verifier=False,
                         add_rollback_commitment=False,
+                        commitment_key=commitment_key,
                         action="vault commitment-authority upgrade",
                     )
                 self._key = key
@@ -974,7 +1037,7 @@ class MasterPasswordBackend(_BackendBase):
 
         if verifier_present:
             if verifier_ok:
-                if user_cts and not legacy_ok:
+                if not all_well_formed_user_entries_match:
                     self._key = None
                     raise SecretsIntegrityError(
                         "vault verifier and stored ciphertexts disagree"
@@ -984,6 +1047,7 @@ class MasterPasswordBackend(_BackendBase):
                         key,
                         add_verifier=False,
                         add_rollback_commitment=True,
+                        commitment_key=commitment_key,
                         action="vault rollback-commitment upgrade",
                     )
                 self._key = key
@@ -998,7 +1062,7 @@ class MasterPasswordBackend(_BackendBase):
 
         if commitment_present:
             if commitment_ok:
-                if user_cts and not legacy_ok:
+                if not all_well_formed_user_entries_match:
                     self._key = None
                     raise SecretsIntegrityError(
                         "rollback password commitment and stored ciphertexts "
@@ -1009,6 +1073,7 @@ class MasterPasswordBackend(_BackendBase):
                         key,
                         add_verifier=True,
                         add_rollback_commitment=False,
+                        commitment_key=commitment_key,
                         action="vault verifier upgrade",
                     )
                 self._key = key
@@ -1114,13 +1179,14 @@ class MasterPasswordBackend(_BackendBase):
             return "incorrect_password"
         old_key = self._key
         cts = self._data.get("ciphertexts") or {}
+        commitment_key = self._commitment_authority_key_locked(cts)
         # All-or-nothing decrypt: a single failure aborts the whole rotation
         # before any compatibility upgrade or rotated state is published. The
         # old code skipped undecryptable entries to stderr and silently
         # dropped them.
         plaintexts = {}
         for k, entry in cts.items():
-            if k == self._ROLLBACK_COMMITMENT_KEY:
+            if k == commitment_key:
                 # _unlock_locked already authenticated the fixed reserved
                 # plaintext. Rotation reseals it directly below rather than
                 # treating internal compatibility material as a user secret.
@@ -1144,8 +1210,13 @@ class MasterPasswordBackend(_BackendBase):
             ).decode()
             new_key = self._derive_key_with_salt(new_salt, new_password)
             new_verifier = self._seal_verifier(new_key)
+            new_commitment_key = (
+                commitment_key
+                if commitment_key is not None
+                else self._unused_rollback_commitment_key(plaintexts)
+            )
             new_cts = {
-                self._ROLLBACK_COMMITMENT_KEY:
+                new_commitment_key:
                     self._seal_rollback_commitment(new_key),
             }
             for k, pt in plaintexts.items():
@@ -1185,18 +1256,17 @@ class MasterPasswordBackend(_BackendBase):
 
         self._data["salt"] = new_salt
         self._data["ciphertexts"] = {
-            self._ROLLBACK_COMMITMENT_KEY:
-                new_cts[self._ROLLBACK_COMMITMENT_KEY],
+            new_commitment_key: new_cts[new_commitment_key],
             **{
                 name: entry
                 for name, entry in new_cts.items()
-                if name != self._ROLLBACK_COMMITMENT_KEY
+                if name != new_commitment_key
             },
         }
         self._data["verifier"] = new_verifier
         self._data[
             self._COMMITMENT_AUTHORITY_FIELD
-        ] = self._ROLLBACK_COMMITMENT_KEY
+        ] = new_commitment_key
         self._key = new_key
         try:
             saved = self._save()
@@ -1233,30 +1303,82 @@ class MasterPasswordBackend(_BackendBase):
             )
 
     def set(self, key: str, password: str) -> None:
-        if key == self._ROLLBACK_COMMITMENT_KEY:
-            raise ValueError("reserved vault commitment key")
         if self._key is None:
             raise RuntimeError("backend is locked; call unlock() first")
         with self._lock:
             cts = self._data.setdefault("ciphertexts", {})
-            had = key in cts
-            prev = cts.get(key)
             nonce = _stdlib_secrets.token_bytes(12)
             ct = AESGCM(self._key).encrypt(nonce, password.encode("utf-8"), None)
-            cts[key] = {
+            new_entry = {
                 "nonce": base64.b64encode(nonce).decode(),
                 "ct": base64.b64encode(ct).decode(),
             }
-            if not self._save():
-                # B4/B13 (v3.66.38): roll the in-memory mutation back so a
-                # reader / restart sees a consistent store, and RAISE so the
-                # caller (e.g. migrate_from_plaintext) can't mistake a failed
-                # persist for success and drop the plaintext original.
-                if had:
-                    cts[key] = prev
-                else:
-                    cts.pop(key, None)
-                raise SecretsPersistError(f"failed to persist secret {key!r}")
+            authority_key = self._commitment_authority_key_locked(cts)
+            if key == authority_key:
+                # The internal name is not part of the public key namespace.
+                # If a caller legitimately uses it, relocate the commitment
+                # and publish both changes atomically instead of rejecting or
+                # overwriting either entry.
+                user_entries = {
+                    name: entry
+                    for name, entry in cts.items()
+                    if name != authority_key
+                }
+                user_entries[key] = new_entry
+                new_authority = self._unused_rollback_commitment_key(
+                    user_entries
+                )
+                new_ciphertexts = {
+                    new_authority: self._seal_rollback_commitment(self._key),
+                    **user_entries,
+                }
+                old_ciphertexts = cts
+                old_authority = self._data.get(
+                    self._COMMITMENT_AUTHORITY_FIELD
+                )
+                self._data["ciphertexts"] = new_ciphertexts
+                self._data[
+                    self._COMMITMENT_AUTHORITY_FIELD
+                ] = new_authority
+                try:
+                    saved = self._save()
+                except Exception:
+                    self._data["ciphertexts"] = old_ciphertexts
+                    self._data[
+                        self._COMMITMENT_AUTHORITY_FIELD
+                    ] = old_authority
+                    raise
+                if not saved:
+                    self._data["ciphertexts"] = old_ciphertexts
+                    self._data[
+                        self._COMMITMENT_AUTHORITY_FIELD
+                    ] = old_authority
+                    raise SecretsPersistError(
+                        f"failed to persist secret {key!r}"
+                    )
+            else:
+                had = key in cts
+                prev = cts.get(key)
+                cts[key] = new_entry
+                try:
+                    saved = self._save()
+                except Exception:
+                    if had:
+                        cts[key] = prev
+                    else:
+                        cts.pop(key, None)
+                    raise
+                if not saved:
+                    # B4/B13 (v3.66.38): roll the in-memory mutation back so
+                    # a reader / restart sees a consistent store, and RAISE so
+                    # callers cannot mistake failed persistence for success.
+                    if had:
+                        cts[key] = prev
+                    else:
+                        cts.pop(key, None)
+                    raise SecretsPersistError(
+                        f"failed to persist secret {key!r}"
+                    )
         # reached only after a successful persist (else raised above). Stamp the
         # rotation time OUTSIDE the vault lock -- it is independent best-effort
         # metadata (age only, never the value) and must not affect the vault.
@@ -1266,10 +1388,11 @@ class MasterPasswordBackend(_BackendBase):
         # B18 (v3.66.38): read under the lock so a get() can't observe a
         # half-swapped vault mid change_password (new ciphertexts vs old key).
         with self._lock:
-            if key == self._ROLLBACK_COMMITMENT_KEY:
+            cts = self._data.get("ciphertexts") or {}
+            if key == self._commitment_authority_key_locked(cts):
                 return None
             if self._key is None: return None
-            entry = (self._data.get("ciphertexts") or {}).get(key)
+            entry = cts.get(key)
             if not entry: return None
             try:
                 nonce = base64.b64decode(entry["nonce"])
@@ -1280,18 +1403,19 @@ class MasterPasswordBackend(_BackendBase):
 
     def delete(self, key: str) -> bool:
         with self._lock:
-            if key == self._ROLLBACK_COMMITMENT_KEY:
-                return False
             cts = self._data.get("ciphertexts") or {}
+            authority_key = self._commitment_authority_key_locked(cts)
+            if key == authority_key:
+                return False
             if key not in cts: return False
             user_keys = [
                 name for name in cts
-                if name != self._ROLLBACK_COMMITMENT_KEY
+                if name != authority_key
             ]
             other_user_entries = [
                 entry
                 for name, entry in cts.items()
-                if name not in {self._ROLLBACK_COMMITMENT_KEY, key}
+                if name not in {authority_key, key}
             ]
             removes_last_well_formed_user = (
                 self._envelope_is_well_formed(cts[key])
@@ -1341,10 +1465,11 @@ class MasterPasswordBackend(_BackendBase):
                 )
             self._validate_kdf_metadata_locked()
             self._validate_commitment_structure_locked(ciphertexts)
+            authority_key = self._commitment_authority_key_locked(ciphertexts)
             return sorted(
                 name
                 for name in ciphertexts
-                if name != self._ROLLBACK_COMMITMENT_KEY
+                if name != authority_key
             )
 
     def is_initialized(self) -> bool:
