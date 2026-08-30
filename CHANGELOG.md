@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1356 - the reviewed-template regression asserts the recorded modal contract
+
+- Corrected the v3.66.144 integration test to assert Reptyle's recorded modal
+  button selectors instead of obsolete download-resolution anchors.
+- The separate candidate-filter assertion still verifies that
+  download-resolution API URLs are accepted.
+- Production selectors remain unchanged; row 126's recorded-DOM gate continues
+  to cover the observed quality rows and modal fallback.
+
 ## v3.66.1355 - five reptyle selector kinds reviewed and tested against recorded DOM
 
 - Twelve reptyle download row selectors were valid CSS that resolved zero on 
