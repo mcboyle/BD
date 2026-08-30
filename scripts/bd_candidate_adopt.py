@@ -100,10 +100,15 @@ def _recorded_identity(value: object, label: str) -> FsIdentity:
 def _path_record(value: object, label: str) -> tuple[Path, FsIdentity]:
     body = _object(value, label)
     _exact_keys(body, {"path", "identity"}, label)
-    path = Path(_string(body["path"], f"{label}.path"))
-    if not path.is_absolute():
-        _unknown("MANIFEST_MALFORMED", f"{label}.path must be absolute")
+    path = _absolute_path(body["path"], f"{label}.path")
     return path, _recorded_identity(body["identity"], f"{label}.identity")
+
+
+def _absolute_path(value: object, label: str) -> Path:
+    path = Path(_string(value, label))
+    if not path.is_absolute():
+        _unknown("MANIFEST_MALFORMED", f"{label} must be absolute")
+    return path
 
 
 def _validate_manifest(payload: dict[str, object]) -> None:
@@ -133,7 +138,7 @@ def _validate_manifest(payload: dict[str, object]) -> None:
         {"path", "identity", "parent_identity"},
         "manifest identity",
     )
-    _string(manifest["path"], "manifest.path")
+    _absolute_path(manifest["path"], "manifest.path")
     _recorded_identity(manifest["identity"], "manifest.identity")
     _recorded_identity(
         manifest["parent_identity"],
@@ -152,7 +157,7 @@ def _validate_manifest(payload: dict[str, object]) -> None:
 
     source = _object(payload["source"], "source")
     _exact_keys(source, {"path", "identity", "head", "state_sha256"}, "source")
-    _string(source["path"], "source.path")
+    _absolute_path(source["path"], "source.path")
     _recorded_identity(source["identity"], "source.identity")
     _string(source["head"], "source.head")
     _string(source["state_sha256"], "source.state_sha256")
@@ -163,7 +168,7 @@ def _validate_manifest(payload: dict[str, object]) -> None:
         {"path", "identity", "git_dir", "head", "state_sha256"},
         "output",
     )
-    _string(output["path"], "output.path")
+    _absolute_path(output["path"], "output.path")
     _recorded_identity(output["identity"], "output.identity")
     _path_record(output["git_dir"], "output.git_dir")
     _string(output["head"], "output.head")
@@ -369,10 +374,54 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
                 == payload["main_sha"]
             )
 
+    repo_path_matches = repo_path_matches and _path_identity_matches(
+        repo,
+        repo_identity,
+    )
+    source_path_matches = source_path_matches and _path_identity_matches(
+        source,
+        source_identity,
+    )
+    output_path_matches = output_path_matches and _path_identity_matches(
+        output,
+        output_identity,
+    )
+    common_path_matches = common_path_matches and _path_identity_matches(
+        common_git,
+        common_git_identity,
+    )
+    output_git_matches = output_git_matches and _path_identity_matches(
+        output_git,
+        output_git_identity,
+    )
+    repository_matches = repository_matches and all(
+        (
+            repo_path_matches,
+            source_path_matches,
+            output_path_matches,
+            common_path_matches,
+            output_git_matches,
+        )
+    )
+
+    final_payload, final_manifest_identity, final_parent_identity = _read_manifest(
+        canonical_manifest
+    )
+    manifest_contents_match = final_payload == payload
+    manifest_identity_matches = (
+        manifest_identity_matches
+        and final_manifest_identity == recorded_manifest_identity
+    )
+    manifest_parent_matches = (
+        manifest_parent_matches
+        and final_parent_identity == recorded_parent_identity
+    )
+
     evidence = {
         "manifest_path_matches": manifest_path_matches,
         "manifest_identity_matches": manifest_identity_matches,
         "manifest_parent_matches": manifest_parent_matches,
+        "manifest_contents_match": manifest_contents_match,
         "repository_matches": repository_matches,
         "source_unchanged": source_unchanged,
         "output_unchanged": output_unchanged,
