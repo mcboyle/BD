@@ -696,10 +696,21 @@ class MasterPasswordBackend(_BackendBase):
         return sorted((self._data.get("ciphertexts") or {}).keys())
 
     def is_initialized(self) -> bool:
-        """True if at least one secret has been stored (meaning the
-        master password is committed). False on a fresh init where any
-        password would be accepted."""
-        return bool(self._data.get("ciphertexts"))
+        """True once a master password is committed for THIS process: either
+        durable ciphertexts exist on disk, OR a key has been derived and is
+        currently held (a fresh vault that has been unlocked but not yet
+        written to).
+
+        Row 402: the second disjunct enforces the invariant
+        ``is_unlocked ==> is_initialized``. unlock() on an empty vault accepts
+        any password (first-use) and holds the derived key; without counting a
+        held key as initialised, is_unlocked() would be True while
+        is_initialized() stayed False -- an incoherent pair reporting
+        "unlocked" over a vault that was never set up. A held key is exactly
+        what "initialised for this process" means, so it says so. The state is
+        point-in-time: after a restart the key is gone and, absent stored
+        ciphertexts, the vault correctly reads uninitialised again."""
+        return self._key is not None or bool(self._data.get("ciphertexts"))
 
 
 # ─── Module state + auto-detect ──────────────────────────────────────

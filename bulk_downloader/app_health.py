@@ -208,6 +208,15 @@ def credential_health(sites_config: dict | None) -> dict:
     if unavailable_count:
         state = "unknown"
         ok = False
+    elif unlocked and references and resolved_count == 0:
+        # Row 402: an unlocked vault that resolves NONE of its configured
+        # references is a distinct degradation from a partial miss. It is the
+        # shape of an empty vault that was "unlocked" (keyed) over nothing, and
+        # a caller reading is_unlocked alone could not tell it from a usable
+        # vault. Name it so the four states -- uninitialised / locked /
+        # unlocked / unlocked-but-zero-resolved -- stay distinguishable.
+        state = "unlocked_zero_resolved"
+        ok = False
     elif missing_count:
         state = "missing_credentials"
         ok = False
@@ -236,6 +245,7 @@ def _attach_credential_health(payload: dict, sites_config: dict | None) -> None:
     degraded = {
         "locked": "credential_vault_locked",
         "missing_credentials": "credential_missing",
+        "unlocked_zero_resolved": "credential_unlocked_zero_resolved",
         "unknown": "credential_state_unknown",
     }.get(credentials["state"], "credential_state_unknown")
     payload.setdefault("degraded", degraded)
