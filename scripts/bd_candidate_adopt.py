@@ -15,6 +15,7 @@ from typing import NoReturn
 from bd_candidate_replay import (
     FsIdentity,
     ReplayFailure,
+    _candidate_commits,
     _common_git_dir,
     _fingerprint,
     _git_text,
@@ -295,6 +296,8 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
     source_unchanged = False
     output_unchanged = False
     main_ref_unchanged = False
+    merge_base_matches = False
+    candidate_commits_match = False
     if all(
         (
             repo_path_matches,
@@ -319,6 +322,34 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
             and actual_output_git == output_git
         )
         if repository_matches:
+            recorded_source_head = _string(source_record["head"], "source.head")
+            recorded_main_sha = _string(payload["main_sha"], "main_sha")
+            source_commit = _resolve_commit(
+                source,
+                recorded_source_head,
+                "SOURCE_HEAD_UNREADABLE",
+            )
+            main_commit = _resolve_commit(
+                repo,
+                recorded_main_sha,
+                "MAIN_SHA_UNREADABLE",
+            )
+            actual_merge_base = _git_text(
+                repo,
+                "merge-base",
+                source_commit,
+                main_commit,
+            )
+            merge_base_matches = (
+                source_commit == recorded_source_head
+                and main_commit == recorded_main_sha
+                and actual_merge_base == payload["merge_base"]
+            )
+            candidate_commits_match = _candidate_commits(
+                source,
+                actual_merge_base,
+                source_commit,
+            ) == payload["candidate_commits"]
             source_unchanged = (
                 _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
                 == source_record["head"]
@@ -346,6 +377,8 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
         "source_unchanged": source_unchanged,
         "output_unchanged": output_unchanged,
         "main_ref_unchanged": main_ref_unchanged,
+        "merge_base_matches": merge_base_matches,
+        "candidate_commits_match": candidate_commits_match,
     }
     verdict = "ADOPTABLE" if all(evidence.values()) else "NOT_ADOPTABLE"
     return {
