@@ -128,7 +128,26 @@ def test_wide_sweep_winner_is_the_clickable_leaf_not_the_wrapper():
             "winner is clickable but not the highest tier: href=%r" % href)
 
 
-def test_a_real_wrapper_control_is_still_kept():
+@pytest.mark.parametrize(
+    "selector",
+    ["div", "body div", "div:has(a)"],
+)
+def test_learned_selector_cannot_resurrect_the_layout_wrapper(selector):
+    with _page() as pg:
+        best = find_best_download(
+            pg, "", learned={"row_selectors": [selector]}, runner=None)
+        assert best is not None
+        loc = best["locator"]
+        assert loc.evaluate("e => e.tagName") == "A", best["text"]
+        assert "7680x4320" in (loc.get_attribute("href") or "")
+
+
+@pytest.mark.parametrize(
+    "learned",
+    [None, {"row_selectors": ["div.download-button[data-href]"]}],
+    ids=["wide", "learned"],
+)
+def test_a_real_wrapper_control_is_still_kept(learned):
     """Negative control: a wrapper that IS the control must survive.
 
     wowgirls' own learned selector is `div.download-button[data-href]` — a DIV
@@ -142,7 +161,7 @@ def test_a_real_wrapper_control_is_still_kept():
       </div>
     </div></body></html>"""
     with _page(html) as pg:
-        best = find_best_download(pg, "", learned=None, runner=None)
+        best = find_best_download(pg, "", learned=learned, runner=None)
         assert best is not None, "the real control was dropped entirely"
         assert best["locator"].get_attribute("data-href") == \
             "https://cdn.example/dl/4320.mp4", best["text"]

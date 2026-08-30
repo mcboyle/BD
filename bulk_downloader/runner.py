@@ -105,6 +105,147 @@ except Exception as _e:
 # v3.66.390 (Track-K): fail-closed proxy selection for in-process payload
 # downloads. Pure decision; reuses the per-site VPN resolver the browser uses.
 from .download_egress import effective_download_proxy
+from .deep_detect.providers import (
+    PLAYER_LIBRARIES as _DEEP_DETECT_PLAYER_LIBRARIES,
+)
+
+
+# Row 399: a missing download candidate does not prove a missing video. Capture
+# structured DOM evidence so candidate_filter can make a conservative three-way
+# decision. Possible media includes ordinary elements, blob URLs, iframe/embed
+# surfaces, and player/video-labelled shells; any of them prevents an absence
+# claim even when no recognised href exists.
+_PAGE_MEDIA_PLAYER_MARKERS = tuple(sorted({
+    marker.strip().lower()
+    for _library, markers in _DEEP_DETECT_PLAYER_LIBRARIES
+    for marker in markers
+    if marker.strip()
+}))
+_PAGE_MEDIA_PLAYER_MARKERS_JSON = json.dumps(
+    _PAGE_MEDIA_PLAYER_MARKERS, separators=(",", ":"))
+_PAGE_MEDIA_SNAPSHOT_JS = r"""() => {
+  const knownPlayerMarkers = __BD_PLAYER_MARKERS__;
+  const affordances = new Set(document.querySelectorAll(
+    "a[href],button,[role='button'],[role='link'],[onclick]," +
+    "[download],[data-href],[data-url],[data-src],[data-download]," +
+    "[data-signed-url-key]"));
+  const galleryMarkers = new Set(document.querySelectorAll(
+    "main.gallery,main[class~='gallery'],[data-gallery]," +
+    "[role='main'][class*='gallery' i]"));
+  const photos = new Set();
+  for (const marker of galleryMarkers) {
+    for (const image of marker.querySelectorAll("img")) photos.add(image);
+  }
+  for (const image of document.querySelectorAll("a[href*='/photo/'] img")) {
+    photos.add(image);
+  }
+
+  const pendingShells = new Set();
+  const applicationRoot =
+    '#root,#__next,#app,#__nuxt,app-root,[data-reactroot],[data-v-app]';
+  const hasPendingState = element => {
+    if (element.matches(
+        '[aria-busy="true"],[data-loading],[data-hydrating]')) return true;
+    return String(element.getAttribute('class') || '')
+      .split(/\s+/)
+      .some(token => /^(?:loading|skeleton|is-loading|is-skeleton|loading-skeleton)$/i
+        .test(token));
+  };
+  for (const marker of document.querySelectorAll('*')) {
+    if (hasPendingState(marker)) {
+      pendingShells.add(marker.closest(applicationRoot) || marker);
+    }
+  }
+  for (const shell of document.querySelectorAll(applicationRoot)) {
+    const explicitlyPending = hasPendingState(shell) ||
+      Array.from(shell.querySelectorAll('*')).some(hasPendingState);
+    if (explicitlyPending || !shell.querySelector(
+        "img,video,audio,iframe,embed,object,a[href],button," +
+        "[role='button'],[data-gallery],main.gallery")) {
+      pendingShells.add(shell);
+    }
+  }
+
+  const possibleMedia = new Set(document.querySelectorAll(
+    "video,audio,source,track,iframe,embed,object," +
+    "[download],[data-download],[data-signed-url-key]," +
+    "[data-video],[data-stream],[data-player]"));
+  const mediaUrls = new Set();
+  const urlAttrs = ["href", "src", "data-href", "data-url", "data-src",
+                    "data-download", "data-video", "data-stream"];
+  const mediaUrl = /(?:blob:|\.m3u8(?:[?#]|$)|\.mpd(?:[?#]|$)|\.(?:mp4|m4v|mov|mkv|webm|ts)(?:[?#]|$)|\/hls\/|\/dash\/|\/manifest(?:[/?#]|$)|\/embed\/|\/player\/)/i;
+  for (const element of document.querySelectorAll("*")) {
+    const descriptor = [element.tagName, element.id, element.className,
+                        element.getAttribute && element.getAttribute("role"),
+                        element.getAttributeNames &&
+                          element.getAttributeNames().join(" ")]
+      .map(value => typeof value === "string" ? value : "")
+      .join(" ");
+    const descriptorLower = descriptor.toLowerCase();
+    if (element !== document.documentElement &&
+        (/(?:video|player|vjs)/i.test(descriptor) ||
+         knownPlayerMarkers.some(marker => descriptorLower.includes(marker)))) {
+      possibleMedia.add(element);
+    }
+    for (const attr of urlAttrs) {
+      const value = element.getAttribute && element.getAttribute(attr);
+      if (value && mediaUrl.test(String(value))) {
+        mediaUrls.add(element);
+        possibleMedia.add(element);
+      }
+    }
+  }
+  return {
+    ready_state: document.readyState,
+    location_url: String(location.href || ""),
+    affordance_count: affordances.size,
+    gallery_marker_count: galleryMarkers.size,
+    photo_count: photos.size,
+    possible_media_count: possibleMedia.size,
+    media_url_count: mediaUrls.size,
+    pending_shell_count: pendingShells.size,
+  };
+}""".replace("__BD_PLAYER_MARKERS__", _PAGE_MEDIA_PLAYER_MARKERS_JSON)
+
+
+def _page_media_state(page, page_url):
+    """Return candidate_filter's conservative page-media state."""
+    try:
+        snapshot = page.evaluate(_PAGE_MEDIA_SNAPSHOT_JS)
+        if not isinstance(snapshot, dict):
+            return "unknown"
+        from . import candidate_filter as _candidate_filter
+        return _candidate_filter.classify_page_media_snapshot(
+            snapshot, page_url)
+    except Exception:
+        return "unknown"
+
+
+def _handle_confirmed_no_video_page(runner, page, url, screenshot):
+    """Publish the distinct photo-gallery outcome, if positively proven.
+
+    Returns True only when it handled the job. The streak reset is part of this
+    outcome: a confirmed non-video page is not another broken-control miss, and
+    must not leave a resumed site one miss away from pausing again.
+    """
+    from . import candidate_filter as _candidate_filter
+    if (_page_media_state(page, url)
+            != _candidate_filter.PAGE_MEDIA_CONFIRMED_ABSENT):
+        return False
+    message = _candidate_filter.NO_VIDEO_ON_PAGE_MESSAGE
+    published = runner._update_job(
+        url, "needs_review", message, screenshot=screenshot)
+    if published is False:
+        return True
+    sys.stderr.write(
+        f"  download: no video on {url[-40:]} -- confirmed photo gallery; "
+        "needs_review.\n")
+    runner._consec_no_btn = 0
+    db_log(runner.site_id, runner.config.get("name", "?"), url,
+           "needs_review", "", 0, message, screenshot)
+    return True
+
+
 # F5 Phase 2 (v3.66.701): per-capture netns for the BROWSER launch. The engine
 # shipped @686 and the shim @699; this is the bracket that owns a worker's
 # namespace for its browser's whole lifetime (see _worker_loop).
@@ -1542,6 +1683,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         /api/resume_all defeat a hold that start() honours. Same fail-closed
         contract: an unmeasurable hold refuses."""
         if self._state in ("paused", "low_disk", "paused_no_button"):
+            reset_no_button_streak = self._state == "paused_no_button"
             _hold_allowed, _hold_state = _download_hold.downloads_allowed()
             if not _hold_allowed:
                 self._state = _download_hold.runner_state_token(_hold_state)
@@ -1553,6 +1695,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                            "hold_reason": _hold_state.get("reason")})
                 return
             self._state = "running"
+            if reset_no_button_streak:
+                self._consec_no_btn = 0
             self._pause.set()
 
     @_run_lifecycle_serialized
@@ -2275,7 +2419,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         explicit_generation = extra.pop("_run_generation", None)
         run_generation = self._worker_write_generation(explicit_generation)
         if run_generation is None:
-            return self._update_job_current(url, status, message, **extra)
+            result = self._update_job_current(url, status, message, **extra)
+            if result is not False and status == "done":
+                self._consec_no_btn = 0
+            return result
         # Fast stale rejection prevents an invalidated worker from waiting on
         # a replacement start's lifecycle transaction.
         if not self._worker_generation_is_current(run_generation):
@@ -2283,7 +2430,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         with self._run_lifecycle_lock:
             if not self._worker_generation_is_current(run_generation):
                 return False
-            return self._update_job_current(url, status, message, **extra)
+            result = self._update_job_current(url, status, message, **extra)
+            if result is not False and status == "done":
+                self._consec_no_btn = 0
+            return result
 
     def _update_job_current(self,url,status,message,**extra):
         """Central state-mutation: change a job's status/message, log
@@ -4274,6 +4424,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     # `best` as the live result).
             if not best:
                 ss=self._screenshot(page,url)
+                if _handle_confirmed_no_video_page(self, page, url, ss):
+                    return
                 self._consec_no_btn+=1
                 threshold=int(self.config.get("no_button_threshold",5))
                 if self._consec_no_btn>=threshold:

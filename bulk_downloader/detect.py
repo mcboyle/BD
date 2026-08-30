@@ -367,6 +367,523 @@ def work_affinity(page_url, candidate_url):
     return 1 if (n >= _WORK_MIN_TOKENS and c >= _WORK_MIN_CHARS) else 0
 
 # ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
+# Shared candidate admission. Learned selectors used to return before the wide
+# sweep's admission logic, so a broad learned ``a`` scored arbitrary anchors --
+# including the row-399 /films-6K/ site-navigation link. Keep this vocabulary at
+# module scope so both populations make the same basic score/download decision.
+_DL_WORD_RE = re.compile(
+    r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",
+    re.I)
+_EXPLICIT_VIDEO_HEIGHT_RE = re.compile(
+    r"\d{3,4}\s*p\b|\d{3,4}\s*[x×]\s*\d{3,4}(?!\d)(?!\s*px)|"
+    r"mp4_\d{3,4}", re.I)
+_CANDIDATE_URL_ATTRS = (
+    "href", "data-href", "data-url", "data-src", "data-download",
+    "data-signed-url-key")
+_NAV_DOWNLOAD_AUTHORITY_ATTRS = (
+    "download", "data-href", "data-url", "data-src",
+    "data-download", "data-signed-url-key", "data-link")
+_OWN_CONTROL_AFFORDANCE_ATTRS = (
+    "href", "download", "onclick", "data-href", "data-url", "data-src",
+    "data-download", "data-signed-url-key", "data-link")
+_CONTROL_DESCENDANT_SEL = (
+    "a[href],button,[onclick],[data-href],[data-url],[data-src],"
+    "[data-download],[data-signed-url-key],[role='button'],[role='link']")
+_SIGNED_DOWNLOAD_QUERY_KEY_RE = re.compile(
+    r"(?:^|[_-])(?:download|dl|file|media|video|stream|token|sig|signature|"
+    r"signed|expires?|key)(?:$|[_-])", re.I)
+_SELECTOR_CLASS_OR_ID_RE = re.compile(r"(?<!\\)[.#][A-Za-z_-]")
+_SELECTOR_AUTHORITY_WORD_RE = re.compile(
+    r"download|quality|resolution|media|stream|player|video|source|"
+    r"\.m(?:p4|4v|kv)|\.mov|\.webm|\.ts\b", re.I)
+_SELECTOR_AUTHORITY_ATTRS = {
+    "download", "data-href", "data-url", "data-src",
+    "data-download", "data-signed-url-key", "data-link", "data-video",
+    "data-stream", "data-player", "data-quality", "data-resolution",
+    "data-framerate",
+}
+_SELECTOR_CONTROL_ROLES = {
+    "button", "link", "menuitem", "option", "tab", "radio", "checkbox",
+}
+_SELECTOR_ALWAYS_CONTROL_ROLES = {"button", "link"}
+_SELECTOR_SCOPED_CONTROL_ROLES = {
+    "menuitem", "menuitemradio", "option", "tab", "radio", "checkbox",
+    "listitem", "row",
+}
+_SELECTOR_SCOPE_ROLES = {"dialog", "listbox", "menu", "toolbar"}
+_SELECTOR_POSITIVE_PSEUDOS = {
+    "eq", "first-child", "first-of-type", "has", "has-text", "last-child",
+    "last-of-type", "nth", "nth-child", "nth-of-type", "only-child", "text",
+    "text-is", "visible",
+}
+
+
+def _candidate_work_affinity(el, page_url):
+    """Return work affinity from URL-bearing attributes, or 0 if unknown."""
+    if not page_url:
+        return 0
+    for attr in _CANDIDATE_URL_ATTRS:
+        try:
+            value = el.get_attribute(attr)
+        except Exception:
+            continue
+        try:
+            if value and work_affinity(page_url, value):
+                return 1
+        except Exception:
+            continue
+    return 0
+
+
+def _split_selector_list(selector):
+    """Split top-level CSS alternatives, returning [] when syntax is unclear."""
+    parts, start = [], 0
+    parens = brackets = 0
+    quote = None
+    escaped = False
+    for index, char in enumerate(selector):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+        elif char == "[":
+            brackets += 1
+        elif char == "]":
+            brackets -= 1
+        elif not brackets and char == "(":
+            parens += 1
+        elif not brackets and char == ")":
+            parens -= 1
+        elif char == "," and not brackets and not parens:
+            part = selector[start:index].strip()
+            if not part:
+                return []
+            parts.append(part)
+            start = index + 1
+        if parens < 0 or brackets < 0:
+            return []
+    if quote or parens or brackets:
+        return []
+    final = selector[start:].strip()
+    if not final:
+        return []
+    parts.append(final)
+    return parts
+
+
+def _matching_selector_paren(selector, opening):
+    depth = 0
+    quote = None
+    escaped = False
+    for index in range(opening, len(selector)):
+        char = selector[index]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _outer_selector_functions(selector):
+    """Return outer ``:name(...)`` spans, or None for an unbalanced form."""
+    functions = []
+    index = 0
+    quote = None
+    escaped = False
+    brackets = 0
+    while index < len(selector):
+        char = selector[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if char == "\\":
+            escaped = True
+            index += 1
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in ("'", '"'):
+            quote = char
+            index += 1
+            continue
+        if char == "[":
+            brackets += 1
+            index += 1
+            continue
+        if char == "]":
+            brackets -= 1
+            if brackets < 0:
+                return None
+            index += 1
+            continue
+        if char == ":" and not brackets:
+            match = re.match(r":([A-Za-z][\w-]*)\s*\(", selector[index:])
+            if match:
+                opening = index + match.end() - 1
+                closing = _matching_selector_paren(selector, opening)
+                if closing is None:
+                    return None
+                functions.append((
+                    match.group(1).lower(), index, closing + 1,
+                    selector[opening + 1:closing]))
+                index = closing + 1
+                continue
+        index += 1
+    if quote or brackets:
+        return None
+    return functions
+
+
+def _without_selector_functions(selector, names=None):
+    functions = _outer_selector_functions(selector)
+    if functions is None:
+        return None
+    chunks = []
+    cursor = 0
+    for name, start, end, _argument in functions:
+        chunks.append(selector[cursor:start])
+        if names is not None and name not in names:
+            chunks.append(selector[start:end])
+        cursor = end
+    chunks.append(selector[cursor:])
+    return "".join(chunks)
+
+
+def _selector_attributes_and_mask(selector):
+    attributes = []
+    masked = list(selector)
+    index = 0
+    while index < len(selector):
+        if selector[index] != "[":
+            index += 1
+            continue
+        start = index
+        index += 1
+        quote = None
+        escaped = False
+        while index < len(selector):
+            char = selector[index]
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif quote:
+                if char == quote:
+                    quote = None
+            elif char in ("'", '"'):
+                quote = char
+            elif char == "]":
+                break
+            index += 1
+        if index >= len(selector) or quote:
+            return None
+        attributes.append(selector[start + 1:index])
+        for masked_index in range(start, index + 1):
+            masked[masked_index] = " "
+        index += 1
+    return attributes, "".join(masked)
+
+
+def _selector_direct_authority(selector):
+    functions = _outer_selector_functions(selector)
+    if functions is None:
+        return False
+    if any(name in _SELECTOR_POSITIVE_PSEUDOS
+           for name, _start, _end, _argument in functions):
+        return True
+    base = _without_selector_functions(selector)
+    if base is None:
+        return False
+    parsed = _selector_attributes_and_mask(base)
+    if parsed is None:
+        return False
+    attributes, masked = parsed
+    roles = set()
+    has_modal_scope = False
+    for attribute in attributes:
+        content = attribute.strip().lower()
+        name_match = re.match(r"([\w:-]+)", content)
+        name = name_match.group(1) if name_match else ""
+        if name in _SELECTOR_AUTHORITY_ATTRS:
+            return True
+        if name == "role":
+            for role in (_SELECTOR_CONTROL_ROLES
+                         | _SELECTOR_SCOPED_CONTROL_ROLES
+                         | _SELECTOR_SCOPE_ROLES):
+                if re.search(
+                        rf"(?:^|[^\w-]){role}(?:$|[^\w-])", content):
+                    roles.add(role)
+        if name == "aria-modal" and re.search(
+                r"(?:^|[^\w-])true(?:$|[^\w-])", content):
+            has_modal_scope = True
+        if _SELECTOR_AUTHORITY_WORD_RE.search(content):
+            return True
+    if roles.intersection(_SELECTOR_ALWAYS_CONTROL_ROLES):
+        return True
+    if (roles.intersection(_SELECTOR_SCOPED_CONTROL_ROLES)
+            and (roles.intersection(_SELECTOR_SCOPE_ROLES)
+                 or has_modal_scope)):
+        return True
+    return bool(_SELECTOR_CLASS_OR_ID_RE.search(masked)
+                or _SELECTOR_AUTHORITY_WORD_RE.search(masked))
+
+
+def _selector_branch_has_authority(selector):
+    positive = _without_selector_functions(selector, {"not"})
+    if positive is None:
+        return False
+    if _selector_direct_authority(positive):
+        return True
+    functions = _outer_selector_functions(positive)
+    if functions is None:
+        return False
+    alternatives = [item for item in functions if item[0] in {"is", "where"}]
+    if not alternatives:
+        return False
+    for _name, _start, _end, argument in alternatives:
+        branches = _split_selector_list(argument)
+        if not branches or not all(
+                _selector_branch_has_authority(branch) for branch in branches):
+            return False
+    return True
+
+
+def _learned_selector_requires_signal(selector):
+    """Whether every match needs its own media/download evidence.
+
+    Authority is evaluated per top-level branch and positive pseudo context;
+    one precise alternative cannot lend authority to a generic ``a`` branch.
+    Negations and quoted attribute values never manufacture positive intent.
+    Unparseable selector syntax stays conservative.
+    """
+    if not isinstance(selector, str):
+        return True
+    branches = _split_selector_list(selector.strip())
+    return not branches or not all(
+        _selector_branch_has_authority(branch) for branch in branches)
+
+
+def _selector_branch_authority_probe(selector):
+    """Return a CSS branch matching only its positive-authority alternatives."""
+    positive = _without_selector_functions(selector, {"not"})
+    if positive is None:
+        return None
+    if _selector_direct_authority(positive):
+        return selector
+    functions = _outer_selector_functions(selector)
+    if functions is None:
+        return None
+    replacements = []
+    for name, start, end, argument in functions:
+        if name not in {"is", "where"}:
+            continue
+        alternatives = _split_selector_list(argument)
+        if not alternatives:
+            return None
+        authoritative = [
+            branch for branch in alternatives
+            if _selector_branch_has_authority(branch)
+        ]
+        if not authoritative:
+            return None
+        replacements.append((
+            start, end, f":{name}({','.join(authoritative)})"))
+    if not replacements:
+        return None
+    probe = selector
+    for start, end, replacement in reversed(replacements):
+        probe = probe[:start] + replacement + probe[end:]
+    return probe
+
+
+def _learned_candidate_requires_signal(el, selector):
+    """Bind mixed-selector authority to the branch the live element matches."""
+    if not isinstance(selector, str):
+        return True
+    branches = _split_selector_list(selector.strip())
+    if not branches:
+        return True
+    if all(_selector_branch_has_authority(branch) for branch in branches):
+        return False
+    probes = [
+        probe for probe in (
+            _selector_branch_authority_probe(branch) for branch in branches)
+        if probe
+    ]
+    if not probes:
+        return True
+    try:
+        matches_authority = el.evaluate(
+            "(e, probes) => probes.some(probe => {"
+            "try { return e.matches(probe); } catch (_) { return false; }"
+            "})",
+            probes)
+        return not bool(matches_authority)
+    except Exception:
+        return True
+
+
+def _is_wrapper_not_control(el):
+    """True only for a measured wrapper with no affordance of its own."""
+    if _candidate_has_own_affordance(el):
+        return False
+    try:
+        return el.locator(_CONTROL_DESCENDANT_SEL).count() > 0
+    except Exception:
+        # Locator stubs and detached elements cannot prove wrapper status.
+        return False
+
+
+def _candidate_has_own_affordance(el):
+    """Whether a broad learned match is itself an interactive control.
+
+    Unknown locator implementations fail open so reviewed/stub paths are not
+    deleted merely because they cannot expose live DOM semantics.
+    """
+    try:
+        return bool(el.evaluate(
+            "(e, args) => args.tags.includes(e.tagName.toLowerCase()) || "
+            "args.attrs.some(attr => e.hasAttribute(attr)) || "
+            "args.roles.includes((e.getAttribute('role') || '').toLowerCase())",
+            {"tags": ["a", "button", "input", "option", "select"],
+             "attrs": list(_OWN_CONTROL_AFFORDANCE_ATTRS),
+             "roles": sorted(_SELECTOR_CONTROL_ROLES)}))
+    except Exception:
+        return True
+
+
+def _has_navigation_ancestor(el):
+    """True only when the live DOM proves semantic site-chrome ancestry.
+
+    A locator stub or detached element cannot prove context and therefore keeps
+    the candidate. This is intentionally narrower than guessing from URL shape.
+    """
+    try:
+        return bool(el.evaluate(
+            "e => Boolean(e.closest("
+            "'nav,header,footer,[role=\"navigation\"],"
+            "[class~=\"navigation\"],[class~=\"main_menu\"],"
+            "[class~=\"ps_main_menu\"]'))"))
+    except Exception:
+        return False
+
+
+def _is_navigation_resolution_ghost(el, text, page_url=""):
+    """Whether ``el`` is a resolution-only plain link in proven site chrome.
+
+    Every ambiguous or download-shaped case fails open (keeps the control).
+    In particular, opaque/signed data controls outside navigation are never
+    judged by URL shape alone -- the flaw in the historical row-399 candidate.
+    """
+    t = text or ""
+    # Prove that this is a weak resolution-only href before asking the live DOM
+    # about ancestry.  Besides keeping the common media path cheap, ordering
+    # the checks this way preserves cheap honeypot mode's contract: an obvious
+    # ``Download 1080p ...mp4`` candidate must not acquire an unrelated
+    # computed-style/evaluate probe merely because chrome filtering is enabled.
+    try:
+        href = (el.get_attribute("href") or "").strip()
+    except Exception:
+        return False
+    if not href or res_score(t) < 0:
+        return False
+    # The harvested candidate text includes href. Query decoration such as
+    # ``utm_campaign=download`` is not visible download intent, so judge the
+    # label separately and let URL-specific rules below inspect href.
+    visible_text = t.replace(href, " ")
+    if parse_size_bytes(visible_text) > 0 or _DL_WORD_RE.search(visible_text):
+        return False
+    if _EXPLICIT_VIDEO_HEIGHT_RE.search(visible_text):
+        return False
+
+    try:
+        from . import candidate_filter as _candidate_filter
+        strong = {
+            "media_extension", "manifest_url", "download_path", "api_pattern"
+        }
+        if strong.intersection(
+                _candidate_filter.positive_signals(href, t, "")):
+            return False
+    except Exception:
+        return False
+
+    try:
+        from urllib.parse import parse_qsl, urlsplit
+        href_parts = urlsplit(href)
+        if any(_SIGNED_DOWNLOAD_QUERY_KEY_RE.search(key or "")
+               for key, _value in parse_qsl(
+                   href_parts.query, keep_blank_values=True)):
+            return False
+        if _DL_WORD_RE.search(href_parts.fragment or ""):
+            return False
+        if href_parts.netloc:
+            page_host = urlsplit(page_url or "").netloc.lower()
+            if not page_host or href_parts.netloc.lower() != page_host:
+                return False
+        if work_affinity(page_url, href):
+            return False
+    except Exception:
+        return False
+
+    if not _has_navigation_ancestor(el):
+        return False
+    try:
+        context = el.evaluate(
+            "(e, attrs) => ({"
+            "tag: e.tagName.toLowerCase(), "
+            "hasOwnAuthority: attrs.some(attr => e.hasAttribute(attr)), "
+            "onclick: e.getAttribute('onclick') || '', "
+            "href: e.getAttribute('href') || ''"
+            "})",
+            list(_NAV_DOWNLOAD_AUTHORITY_ATTRS))
+        if not isinstance(context, dict) or context.get("tag") != "a":
+            return False
+        if context.get("hasOwnAuthority"):
+            return False
+        if _DL_WORD_RE.search(context.get("onclick") or ""):
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def _candidate_is_rankable(el, text, page_url="", require_signal=True):
+    """Shared learned/wide admission without overriding explicit selectors."""
+    t = (text or "").strip()
+    if NON_VIDEO_RE.search(t):
+        return False
+    if require_signal and (
+            not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
+        return False
+    return not _is_navigation_resolution_ghost(el, t, page_url)
+
+
 def find_best_download(page,custom="",learned=None,runner=None):
     """Locate the best download candidate on the page — defensively.
 
@@ -394,8 +911,8 @@ def find_best_download(page,custom="",learned=None,runner=None):
     Original selection rules unchanged (custom > direct media > general
     sweep > ancestor walk > resolution scoring + size tiebreaker)."""
     # Phase 5.5: learned-pattern fast path. If we have row_selectors,
-    # locate any matching elements and pick the one with the highest
-    # resolution score among them. Skip the full sweep when we hit.
+    # locate any matching elements and pick the strongest same-work row, then
+    # resolution/size. Skip the full sweep when we hit.
     #
     # v3.65.2: preserve ALL scored matches in _all_candidates, not just
     # the winner. The downstream _apply_quality_preference (Phase 67)
@@ -405,8 +922,17 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # Effect was that on every site where teaching had successfully
     # produced row_selectors (i.e. the cache was actually working),
     # the user's quality_preference setting was silently ignored.
+    try:
+        _page_url = page.url or ""
+    except Exception:
+        _page_url = ""
+    if not isinstance(_page_url, str):
+        _page_url = ""
+
     if learned and isinstance(learned, dict):
         row_sels = learned.get("row_selectors") or []
+        fallback_group = None
+        winning_group = None
         for sel in row_sels:
             try:
                 loc_all = page.locator(sel)
@@ -443,14 +969,25 @@ def find_best_download(page,custom="",learned=None,runner=None):
                     if not el.is_visible():
                         continue
                     _seen_visible += 1
+                    require_signal = _learned_candidate_requires_signal(
+                        el, sel)
                     txt_parts = [el.inner_text() or ""]
-                    for attr in ("data-href","data-url","data-src","title","aria-label"):
+                    for attr in _CANDIDATE_URL_ATTRS + (
+                            "title", "aria-label"):
                         try:
                             v = el.get_attribute(attr)
                             if v: txt_parts.append(v)
                         except Exception: pass
                     txt = " ".join(txt_parts)
-                    if NON_VIDEO_RE.search(txt): continue
+                    if _is_wrapper_not_control(el):
+                        continue
+                    if (require_signal
+                            and not _candidate_has_own_affordance(el)):
+                        continue
+                    if not _candidate_is_rankable(
+                            el, txt, _page_url,
+                            require_signal=require_signal):
+                        continue
                     score = res_score(txt)
                     size = parse_size_bytes(txt)
                     # Phase 17.17: opportunistically extract hash hints from
@@ -459,24 +996,40 @@ def find_best_download(page,custom="",learned=None,runner=None):
                     # bit-exact instead of just "looked plausible".
                     hash_info = _extract_hash_hint(el, txt)
                     entry = {"locator": el, "text": txt[:160].strip(),
-                             "score": max(0, score), "size": size}
+                             "score": max(0, score), "size": size,
+                             "work": _candidate_work_affinity(
+                                 el, _page_url)}
                     if hash_info:
                         entry["expected_hash_algo"] = hash_info[0]
                         entry["expected_hash_value"] = hash_info[1]
                     scored.append(entry)
                 except Exception: continue
             if scored:
-                scored.sort(key=lambda c: (c["score"], c["size"]),
+                scored.sort(key=lambda c: (
+                    c["work"], c["score"], c["size"]),
                             reverse=True)
-                best_match = dict(scored[0])  # copy so _all_candidates assign doesn't recurse
-                best_match["_via_learned"] = True
-                best_match["_learned_sel"] = sel
-                best_match["_all_candidates"] = [
-                    {"text": c["text"], "score": c["score"], "size": c["size"],
-                     "locator": c["locator"]}
-                    for c in scored[:10]
-                ]
-                return best_match
+                if scored[0]["work"]:
+                    winning_group = (sel, scored)
+                    break
+                if fallback_group is None:
+                    fallback_group = (sel, scored)
+        selected_group = winning_group or fallback_group
+        if selected_group:
+            # Work identity is global across the learned chain. The first group
+            # with same-work evidence is already the maximum (work is binary);
+            # absent that, retain the first reviewed selector as before.
+            # Resolution/size and quality alternatives stay within one selector
+            # so _learned_sel and _all_candidates describe the same route.
+            winning_sel, winning = selected_group
+            best_match = dict(winning[0])
+            best_match["_via_learned"] = True
+            best_match["_learned_sel"] = winning_sel
+            best_match["_all_candidates"] = [
+                {"text": c["text"], "score": c["score"], "size": c["size"],
+                 "work": c["work"], "locator": c["locator"]}
+                for c in winning[:10]
+            ]
+            return best_match
 
     if custom:
         loc=page.locator(custom).first
@@ -487,7 +1040,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # (single env lookup); avoids per-candidate overhead in the hot loop.
     _dom_hp_mode=_dom_honeypot_mode()
     _dom_hp_filtered=[]   # accumulates dropped (locator, reason) for log emission
-    dl_re=re.compile(r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",re.I)
+    dl_re=_DL_WORD_RE
     res_re=re.compile(r"\d{3,4}\s*p|\d{3,4}\s*[x×]\s*\d{3,4}"
                       r"|\b(?:4k|2k|8k|hd|fhd|uhd|qhd|sd|lq|ultra|standard|"
                       r"mobile|low|medium|tiny|web\s*hd|full\s*hd)\b",re.I)
@@ -501,39 +1054,16 @@ def find_best_download(page,custom="",learned=None,runner=None):
                     "data-title","data-tooltip","data-original-title",
                     "data-signed-url-key","data-download")
 
-    # v3.66.x row 388: the page's OWN identity, read once. A stub page or a
-    # `set_content` fixture has no usable url; page_work_tokens then derives
-    # nothing and every candidate scores work=0, which is byte-identical to the
-    # pre-388 (score,size) ordering.
-    try:
-        _page_url=page.url or ""
-    except Exception:
-        _page_url=""
-    if not isinstance(_page_url,str): _page_url=""
-
     # Only URL-bearing attributes decide the work. NOT the harvested text: an
     # ancestor-walk candidate inherits its descendants' inner_text, which on a
     # scene page includes the page's own title, and that would manufacture an
     # identity for a control that has none.
-    _URL_ATTRS=("href","data-href","data-url","data-src","data-download",
-                "data-signed-url-key")
-
     def gather_work(el):
         """1 when any URL this element carries names the page's work, else 0.
 
         Fails to 0 (unknown, rank unchanged) on any error -- never to a
         refusal, and never to a claim of identity it could not measure."""
-        if not _page_url: return 0
-        for a in _URL_ATTRS:
-            try:
-                v=el.get_attribute(a)
-            except Exception:
-                continue
-            try:
-                if v and work_affinity(_page_url,v): return 1
-            except Exception:
-                continue
-        return 0
+        return _candidate_work_affinity(el, _page_url)
 
     def gather_text(el):
         parts=[]
@@ -563,36 +1093,11 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # never delete a real control -- including wowgirls' own learned
     # `div.download-button[data-href]` shape (negative control in
     # tests/test_row380_wrapper_never_outranks_leaf.py).
-    _OWN_AFFORDANCE_ATTRS = ("href", "onclick", "data-href", "data-url",
-                             "data-src", "data-download",
-                             "data-signed-url-key")
-    _CONTROL_DESCENDANT_SEL = (
-        "a[href],button,[onclick],[data-href],[data-url],[data-src],"
-        "[data-download],[data-signed-url-key],[role='button'],[role='link']")
-
-    def is_wrapper_not_control(el):
-        """True when *el* only WRAPS controls and carries none of its own.
-
-        Deliberately built from get_attribute/locator rather than a page
-        evaluate: a stub page that lacks either raises, and the except below
-        fails OPEN (keeps the candidate). Silently deleting the operator's
-        real download is the one outcome this guard must never produce.
-        """
-        try:
-            for _a in _OWN_AFFORDANCE_ATTRS:
-                if el.get_attribute(_a): return False
-            if (el.get_attribute("role") or "") in ("button", "link"):
-                return False
-            return el.locator(_CONTROL_DESCENDANT_SEL).count() > 0
-        except Exception:
-            return False
-
     def add(el,text):
         t=(text or "").strip()
         if not t or t in seen: return
-        if NON_VIDEO_RE.search(t): return  # skip Zip/Photos/Trailer/etc.
         # v3.66.1340: a pure layout wrapper is not clickable-as-a-download.
-        if is_wrapper_not_control(el): return
+        if _is_wrapper_not_control(el): return
         # P5-3 DOM-honeypot filter at candidate-construction time.
         # Filter here (not at scoring) so invisible candidates don't
         # pollute the scoring list. Off by default — env var unset →
@@ -609,12 +1114,11 @@ def find_best_download(page,custom="",learned=None,runner=None):
                 # the operator a real download (mirrors R-P5-2's
                 # _apply_honeypot_filter exception handling).
                 pass
+        # Shared with the learned fast path: include only a scored/download-
+        # shaped control, and drop a weak resolution link only when its DOM
+        # ancestry positively proves site chrome.
+        if not _candidate_is_rankable(el, t, _page_url): return
         s=res_score(t)
-        # Include if it scored OR it has a download-shaped word.
-        # If only a download word matches (e.g. bare 'Download' button with
-        # no quality info), keep it with score=0 — the file-size tiebreaker
-        # will at least pick the largest one.
-        if s<0 and not dl_re.search(t): return
         seen.add(t)
         candidates.append({"locator":el,"text":t[:160],
                            "score":max(0,s),"size":parse_size_bytes(t),
