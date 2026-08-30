@@ -1,11 +1,28 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Transform control for row 285. This applies the identical F07 transform to a test that sources dev_capabilities.sh and checks only that the function definition loads. It must ESCAPE, proving the main CAUGHT verdict comes from the persistence assertion rather than invalid shell or an import failure.",
-  "subject": "row 285 transform control - sourcing the PostgreSQL helper does not judge DSN persistence",
+  "_comment": "Transform controls for row 285. The stop-recovery and unknown-state transforms are applied to a parser-only test, while the F07 transform is applied to a test that only sources dev_capabilities.sh. All must ESCAPE, proving the primary CAUGHT verdicts are behavioral rather than syntax, import, or collection failures.",
+  "subject": "row 285 transform controls do not judge stop recovery, unknown-state classification, or DSN persistence",
   "band": [
+    "tests/test_deploy_script.py::test_script_parses_clean",
     "tests/test_row_285_deploy_fail_open.py::test_transform_control_sources_dev_capabilities_without_testing_persistence"
   ],
   "mutants": [
+    {
+      "label": "TC2 arm recovery too late while deploy.sh still parses",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?=^state_exit=[0-9]+$)",
+      "new": "if [ \"$stop_exit\" -ne 0 ]; then SERVICE_STOPPED=0; fi\n",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_script_parses_clean"
+    },
+    {
+      "label": "TC3 classify unknown deploy-unit state as stopped while deploy.sh still parses",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?=^  inactive\\|failed\\)$)",
+      "new": "  *)\n    ;;\n",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_script_parses_clean"
+    },
     {
       "label": "TC1 ignore DSN-persistence failure while the source-only control stays green",
       "file": "scripts/lib/dev_capabilities.sh",

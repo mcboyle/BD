@@ -1,6 +1,6 @@
 """Row 285: deployment readiness must never collapse UNKNOWN into success.
 
-This gate executes the five confirmed seams.  In particular, F04 invokes a
+This gate executes the confirmed seams.  In particular, F04 invokes a
 deploy script from inside a real git clone, then lets ``git reset --hard``
 replace that same pathname.  The test therefore crosses the real open-inode
 boundary; it is not a source-text approximation of self replacement.
@@ -78,6 +78,76 @@ def test_f03_bare_failure_after_stop_attempts_exactly_one_recovery() -> None:
     assert service_calls.count("start bulkdownloader") == 1, service_calls
     assert result.returncode != 0, _combined(result)
     assert _combined(result).count("RESTARTED-PARTIAL-DEPLOY") == 1
+
+
+def test_f03_failed_stop_that_took_effect_attempts_exactly_one_recovery(
+    tmp_path: Path,
+) -> None:
+    """A nonzero stop request can still leave the unit inactive."""
+    stop_effect_log = tmp_path / "stop-effect.log"
+    fx = deploy_support._setup(
+        STOP_EXIT="71",
+        STOP_EFFECT_LOG=str(stop_effect_log),
+    )
+    deploy_support._bundle_current(fx)
+    stale = deploy_support._write(
+        Path(fx.clone) / "bulk_downloader" / "__pycache__" / "stop-failed.pyc",
+        "fixture-only stale bytecode\n",
+    )
+
+    result = deploy_support._deploy(fx)
+
+    service_calls = deploy_support._lines(fx.logs["systemctl"])
+    assert deploy_support._lines(stop_effect_log) == ["inactive"], (
+        "fixture did not prove that the failing stop request took effect"
+    )
+    assert service_calls.count("stop bulkdownloader") == 1, service_calls
+    assert service_calls.count("is-active bulkdownloader") == 1, service_calls
+    assert stale.is_file(), "the unsafe stopped window ran after stop failure"
+    assert deploy_support._lines(fx.logs["inv"]) == []
+    assert result.returncode != 0, _combined(result)
+    assert "stop exit=71" in _combined(result), _combined(result)
+    assert service_calls.count("start bulkdownloader") == 1, service_calls
+    assert deploy_support._read(fx.env["SVC_STATE"]).strip() == "active"
+    assert _combined(result).count("RESTARTED-PARTIAL-DEPLOY") == 1
+    assert "DEPLOY OK" not in _combined(result)
+
+
+def test_f03_unknown_stop_state_fails_closed_and_attempts_recovery(
+    tmp_path: Path,
+) -> None:
+    stop_effect_log = tmp_path / "stop-effect.log"
+    fx = deploy_support._setup(
+        STOP_STATE="unknown",
+        IS_ACTIVE_EXIT="4",
+        STOP_EFFECT_LOG=str(stop_effect_log),
+    )
+    deploy_support._bundle_current(fx)
+    stale = deploy_support._write(
+        Path(fx.clone) / "bulk_downloader" / "__pycache__" / "unknown-stop.pyc",
+        "fixture-only stale bytecode\n",
+    )
+
+    result = deploy_support._deploy(fx)
+
+    service_calls = deploy_support._lines(fx.logs["systemctl"])
+    assert deploy_support._lines(stop_effect_log) == ["unknown"], (
+        "fixture did not make the post-stop unit state unknown"
+    )
+    assert service_calls.count("stop bulkdownloader") == 1, service_calls
+    assert service_calls.count("is-active bulkdownloader") == 1, service_calls
+    assert stale.is_file(), "UNKNOWN state entered the unsafe stopped window"
+    assert deploy_support._lines(fx.logs["inv"]) == []
+    assert result.returncode != 0, (
+        "UNKNOWN unit state was converted to stopped/deploy success\n"
+        + _combined(result)
+    )
+    assert "UNKNOWN" in _combined(result), _combined(result)
+    assert "is-active exit=4" in _combined(result), _combined(result)
+    assert service_calls.count("start bulkdownloader") == 1, service_calls
+    assert deploy_support._read(fx.env["SVC_STATE"]).strip() == "active"
+    assert _combined(result).count("RESTARTED-PARTIAL-DEPLOY") == 1
+    assert "DEPLOY OK" not in _combined(result)
 
 
 def test_f04_reset_hands_off_to_the_new_script_body_exactly_once() -> None:
