@@ -50,6 +50,7 @@ is a rule for humans reading the comment, not a test.
 from __future__ import annotations
 
 import ast
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -64,6 +65,147 @@ yaml = pytest.importorskip(
 
 _REPO = Path(__file__).resolve().parent.parent
 _CI = _REPO / ".github" / "workflows" / "ci.yml"
+_PIN_NAME = re.compile(r"^_EXPECTED_[A-Z0-9_]+$")
+
+
+def _assigned_names(node: ast.stmt) -> list[str]:
+    """Return direct names assigned by one assignment statement."""
+    targets: list[ast.expr] = []
+    if isinstance(node, ast.Assign):
+        targets.extend(node.targets)
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        targets.append(node.target)
+
+    def names(target: ast.expr) -> list[str]:
+        if isinstance(target, ast.Name):
+            return [target.id]
+        if isinstance(target, (ast.Tuple, ast.List)):
+            return [name for item in target.elts for name in names(item)]
+        if isinstance(target, ast.Starred):
+            return names(target.value)
+        return []
+
+    return [name for target in targets for name in names(target)]
+
+
+def _duplicate_top_level_pin_assignments(source: str) -> dict[str, int]:
+    """Count duplicated ``_EXPECTED_*`` assignments in one Python module.
+
+    Parsing is load-bearing: comments, docstrings, examples, and function-local
+    variables are prose or nested state, not module-level pin assignments.
+    ``ast.parse`` errors deliberately propagate so an unreadable module is
+    UNKNOWN to the caller rather than silently clean.
+    """
+    class ModuleAssignmentVisitor(ast.NodeVisitor):
+        """Walk module control flow without entering nested namespaces."""
+
+        def __init__(self) -> None:
+            self.nodes: list[ast.stmt] = []
+
+        def visit_Assign(self, node: ast.Assign) -> None:
+            self.nodes.append(node)
+
+        def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+            self.nodes.append(node)
+
+        def visit_AugAssign(self, node: ast.AugAssign) -> None:
+            self.nodes.append(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            return
+
+    visitor = ModuleAssignmentVisitor()
+    visitor.visit(ast.parse(source))
+    counts: dict[str, int] = {}
+    for node in visitor.nodes:
+        for name in _assigned_names(node):
+            if _PIN_NAME.fullmatch(name):
+                counts[name] = counts.get(name, 0) + 1
+    return {name: count for name, count in counts.items() if count > 1}
+
+
+def _tracked_python_files() -> list[Path]:
+    measured = subprocess.run(
+        ["git", "-C", str(_REPO), "ls-files", "-z", "--", "*.py"],
+        capture_output=True,
+    )
+    if measured.returncode != 0:
+        raise RuntimeError(
+            "tracked Python population is unavailable: "
+            + measured.stderr.decode("utf-8", errors="replace").strip())
+    names = [name for name in measured.stdout.split(b"\0") if name]
+    if not names:
+        raise RuntimeError("tracked Python population is empty")
+    return [_REPO / name.decode("utf-8", errors="strict") for name in names]
+
+
+def test_duplicate_module_pin_assignments_are_detected_from_ast():
+    """Row 387: the last duplicate assignment must not silently win."""
+    pin = "_EX" + "PECTED_SAMPLE_COUNT"
+    body = (f'"""{pin} = 9 is prose, not an assignment."""\n'
+            f"{pin} = 8\n"
+            f"# {pin} = 7 is a comment, not an assignment.\n"
+            f"{pin} = 6\n")
+    assert body.count(f"\n{pin} = ") == 2, (
+        "the fixture stopped containing exactly the duplicate top-level pin "
+        "shape this regression is about")
+    assert _duplicate_top_level_pin_assignments(body) == {pin: 2}
+
+
+def test_pin_names_in_prose_or_nested_scopes_are_negative_controls():
+    pin = "_EX" + "PECTED_SAMPLE_COUNT"
+    other = "_EX" + "PECTED_OTHER_DIGEST"
+    body = (f'"""{pin} = 9"""\n'
+            f"# {pin} = 8\n"
+            "def local_only():\n"
+            f"    {pin} = 7\n"
+            f'{other} = "one"\n')
+    assert body.count(pin) == 3, (
+        "the negative control no longer names the pin in all three non-module "
+        "assignment contexts")
+    assert _duplicate_top_level_pin_assignments(body) == {}
+
+
+def test_module_control_flow_and_destructuring_are_still_module_assignments():
+    """A pin cannot hide in an if/try block or tuple target."""
+    pin = "_EX" + "PECTED_SAMPLE_COUNT"
+    body = (f"{pin}, ignored = (8, 0)\n"
+            "if True:\n"
+            f"    {pin} = 7\n"
+            "def local_only():\n"
+            f"    {pin} = 6\n"
+            "class LocalOnly:\n"
+            f"    {pin} = 5\n")
+    assert _duplicate_top_level_pin_assignments(body) == {pin: 2}
+
+
+def test_every_tracked_python_module_assigns_each_expected_pin_once():
+    paths = _tracked_python_files()
+    assert len(paths) > 1000, (
+        f"tracked Python denominator unexpectedly collapsed to {len(paths)}")
+    unparsable = []
+    duplicates = {}
+    for path in paths:
+        try:
+            found = _duplicate_top_level_pin_assignments(
+                path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, SyntaxError) as exc:
+            unparsable.append(f"{path.relative_to(_REPO)}: {exc}")
+            continue
+        if found:
+            duplicates[str(path.relative_to(_REPO))] = found
+    assert not unparsable, (
+        "pin census could not parse its complete tracked-Python denominator; "
+        "this is UNKNOWN, not permission:\n  " + "\n  ".join(unparsable))
+    assert duplicates == {}, (
+        "module-level _EXPECTED_* pins assigned more than once; Python silently "
+        f"uses the last assignment: {duplicates}")
 
 # Files that cannot share one serial Actions runner without recreating the
 # measured measurement-tools long pole. This is a scheduling constraint, not a

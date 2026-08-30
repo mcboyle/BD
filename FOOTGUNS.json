@@ -214,6 +214,25 @@
       }
     },
     {
+      "id": "FG-DUPLICATE-MODULE-PIN-ASSIGNMENT",
+      "severity": "blocking",
+      "status": "active",
+      "rule": "A Python module assigns each _EXPECTED_* pin at module scope at most once. Python silently uses the last duplicate assignment, so an appended stale count can shrink a gate denominator while every ordinary import and test still succeeds.",
+      "detector": {
+        "kind": "insync",
+        "test": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py"
+      },
+      "protects": [
+        "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+        "bd-precut --gate"
+      ],
+      "fix": "Edit the existing module-level pin assignment instead of appending another. The detector parses the complete tracked Python population with ast, so comments, docstrings, examples, and nested assignments do not count.",
+      "provenance": {
+        "row": 387,
+        "evidence": "Rows 309, 310, 312 and 313 carried six to eight _EXPECTED_DECLARED_GATE_COUNT assignments; row 312 would have used the final stale value 177 instead of current 228. The row-377 worker independently repeated the same shape."
+      }
+    },
+    {
       "id": "FG-DEAD-CONTROL-BODY",
       "severity": "blocking",
       "status": "active",
