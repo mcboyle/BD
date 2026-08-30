@@ -272,6 +272,39 @@ def test_expected_head_mismatch_refuses_before_output_is_created(
     assert _source_snapshot(repo_case.source) == source_before
 
 
+def test_failed_worktree_creation_reaps_partial_output_and_preserves_source(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "failing-bin"
+    bin_dir.mkdir()
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "result = subprocess.run([os.environ['BD_REAL_GIT'], *args], check=False)\n"
+        "if 'worktree' in args and 'add' in args and result.returncode == 0:\n"
+        "    raise SystemExit(77)\n"
+        "raise SystemExit(result.returncode)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    source_before = _source_snapshot(repo_case.source)
+
+    result = repo_case.run_replay(env=env)
+
+    assert result.returncode == 2
+    body = json.loads(result.stdout)
+    assert body["reason_code"] == "OUTPUT_CREATE_FAILED"
+    assert not repo_case.output.exists()
+    assert _source_snapshot(repo_case.source) == source_before
+
+
 def test_source_worker_never_receives_a_destructive_git_command(
     repo_case: RepoCase,
     tmp_path: Path,
@@ -284,7 +317,10 @@ def test_source_worker_never_receives_a_destructive_git_command(
         "#!/usr/bin/env python3\n"
         "import json, os, sys\n"
         "with open(os.environ['BD_GIT_ARGV_LOG'], 'a', encoding='utf-8') as out:\n"
-        "    out.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "    out.write(json.dumps({\n"
+        "        'argv': sys.argv[1:],\n"
+        "        'optional_locks': os.environ.get('GIT_OPTIONAL_LOCKS'),\n"
+        "    }) + '\\n')\n"
         "os.execv(os.environ['BD_REAL_GIT'], [os.environ['BD_REAL_GIT'], *sys.argv[1:]])\n"
     )
     wrapper.chmod(0o755)
@@ -300,8 +336,13 @@ def test_source_worker_never_receives_a_destructive_git_command(
     assert result.returncode == 0, result.stderr
     calls = [json.loads(line) for line in git_log.read_text().splitlines()]
     source = str(repo_case.source.resolve())
-    source_calls = [call for call in calls if len(call) >= 3 and call[:2] == ["-C", source]]
+    source_calls = [
+        call
+        for call in calls
+        if len(call["argv"]) >= 3 and call["argv"][:2] == ["-C", source]
+    ]
     assert source_calls, "the forwarding Git wrapper did not observe source reads"
+    assert {call["optional_locks"] for call in source_calls} == {"0"}
     forbidden = {
         "add",
         "apply",
@@ -312,9 +353,11 @@ def test_source_worker_never_receives_a_destructive_git_command(
         "rm",
         "stash",
     }
-    assert not [call for call in source_calls if call[2] in forbidden]
+    assert not [call for call in source_calls if call["argv"][2] in forbidden]
     output = str(repo_case.output.resolve())
     assert any(
-        len(call) >= 3 and call[:2] == ["-C", output] and call[2] == "cherry-pick"
+        len(call["argv"]) >= 3
+        and call["argv"][:2] == ["-C", output]
+        and call["argv"][2] == "cherry-pick"
         for call in calls
     )
