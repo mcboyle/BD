@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-29T21:39:19+00:00",
- "version_context": "v3.66.1354",
+ "generated": "2026-08-29T23:56:14+00:00",
+ "version_context": "v3.66.1355",
  "file_count": 91,
  "files": {
   "0_INDEX.md": {
@@ -253,16 +253,16 @@
    "bytes": 1594
   },
   "SANDBOX.md": {
-   "sha256": "1a101391f60c7b02270e3e90d4a10fc368f450bcf7bffd8924733df416aa2b56",
-   "bytes": 34497
+   "sha256": "8b21c7f4ed4509f1859def17beb78c73b725a8f786ef27671ed6db533731d28b",
+   "bytes": 34533
   },
   "SANDBOX_CAPABILITY_LAYER.md": {
    "sha256": "0e3207a808c0e64ba939a5b308fa20416423089c695cfed48b42e80242bd8bb1",
    "bytes": 8449
   },
   "SCHEMAS.md": {
-   "sha256": "6bddb0bc6c012902b7261b2fb782f1e3a5713e1115114f017a22febb22aad1aa",
-   "bytes": 14504
+   "sha256": "88cdac03e9c8701c0aba905fa5acc7b1655e44ac139887cb69ff64ca3ea99923",
+   "bytes": 14537
   },
   "STATE_schema.json": {
    "sha256": "1cdf5cdb8c7ec89b8d3a4a9289ec5e4897abf4a00ea5e37c760501bd6554c225",

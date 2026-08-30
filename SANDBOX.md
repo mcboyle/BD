@@ -508,7 +508,8 @@ as nav chrome). Nav-rejection `bulk_downloader/candidate_filter.py`; runtime gat
 
 **Gold reference:** `templates/reviewed/app.reptyle.com.template.json` (enabled).
 `api{base: https://api2.reptyle.com/api/v1, …}`, login/player/quality/download
-selectors, 12 modal-scoped `row_selectors` (`[role="dialog"]` + `.ant-modal`),
+selectors, 4 modal-scoped `row_selectors` (`.ant-modal.download-modal`, resolved
+against recorded DOM at row 126),
 ladder `[2160…240]`. **Back it up before any promote** — promote writes to that
 exact path. Turnkey on-stash regeneration: `REPTYLE_CAPTURE_RUNBOOK_v3_66_158.md`.
 The three schemas (draft / review-candidate / reviewed) are documented

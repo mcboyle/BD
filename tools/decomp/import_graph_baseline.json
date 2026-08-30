@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4065,
+  "edge_count": 4070,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3534,6 +3534,12 @@
       "bulk_downloader/session_capture.py",
       "tools/capture_session.py"
     ],
+    "tests/test_row126_reptyle_selectors_resolve_on_recorded_dom.py": [
+      "bulk_downloader/dom_serialize.py",
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_selector_verifier.py",
+      "tools/build_recorded_dom_fixture.py"
+    ],
     "tests/test_row339_measurement_noise_bounds.py": [
       "tools/verify_release.py"
     ],
@@ -6807,6 +6813,9 @@
     ],
     "tools/build_recognizer_corpus.py": [
       "tools/build_template_from_wacz.py"
+    ],
+    "tools/build_recorded_dom_fixture.py": [
+      "bulk_downloader/dom_serialize.py"
     ],
     "tools/build_release.py": [
       "bulk_downloader/global_config.py"
