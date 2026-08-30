@@ -70,6 +70,26 @@ const isSecretPresent = (d: FieldDescriptor) =>
   d.secret && typeof d.current === "object" && d.current !== null &&
   (d.current as { present?: boolean }).present === true;
 
+const CAPTCHA_PROVIDER_DISCLOSURES: Record<string, {
+  name: string;
+  termsUrl: string;
+  pricingUrl: string;
+  cost: string;
+}> = {
+  "2captcha": {
+    name: "2Captcha",
+    termsUrl: "https://2captcha.com/terms-of-service",
+    pricingUrl: "https://2captcha.com/pricing",
+    cost: "$0.001–$0.00299 per solve for published reCAPTCHA prices; Turnstile is $0.00145 per solve",
+  },
+  capsolver: {
+    name: "CapSolver",
+    termsUrl: "https://www.capsolver.com/legal/terms",
+    pricingUrl: "https://docs.capsolver.com/en/pricing/",
+    cost: "$0.0008–$0.0012 per solve for published reCAPTCHA and Turnstile prices",
+  },
+};
+
 export function SiteSettings() {
   const { siteId = "" } = useParams();
   const qc = useQueryClient();
@@ -151,6 +171,20 @@ export function SiteSettings() {
   const touchesSensitive = Object.keys(patch).some(
     (k) => allMeta[k]?.secret || !!data?.gated_meta?.[k],
   );
+  const changesCaptchaKey = Object.prototype.hasOwnProperty.call(patch, "captcha_api_key");
+  const movesConfiguredCaptchaProvider =
+    Object.prototype.hasOwnProperty.call(patch, "captcha_provider") &&
+    !!allMeta.captcha_api_key && isSecretPresent(allMeta.captcha_api_key);
+  const enablesCaptchaEgress = changesCaptchaKey || movesConfiguredCaptchaProvider;
+  const selectedCaptchaProvider = String(
+    patch.captcha_provider ?? allMeta.captcha_provider?.current ?? "2captcha",
+  ).trim().toLowerCase();
+  const captchaDisclosure = CAPTCHA_PROVIDER_DISCLOSURES[selectedCaptchaProvider] ?? {
+    name: selectedCaptchaProvider || "selected provider",
+    termsUrl: "",
+    pricingUrl: "",
+    cost: "Provider-controlled pricing varies per solve; review the provider's current price before enabling.",
+  };
 
   const onSave = () => {
     if (!dirty) return;
@@ -347,19 +381,73 @@ export function SiteSettings() {
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm sensitive change</DialogTitle>
-            <DialogDescription>
-              This save changes credential / login / selector fields. Clearing or
-              mis-setting a credential can lock the site's authenticated session out
-              of the running instance. The change is audited. Continue?
-            </DialogDescription>
+            <DialogTitle>
+              {enablesCaptchaEgress
+                ? "Enable paid third-party captcha solving"
+                : "Confirm sensitive change"}
+            </DialogTitle>
+            {enablesCaptchaEgress ? (
+              <DialogDescription asChild>
+                <div className="space-y-3 text-sm">
+                  <p>
+                    Enabling {captchaDisclosure.name} sends the target page URL,
+                    captcha site key, challenge type, and reCAPTCHA action when present
+                    to that third party. Your solver API credential is sent for billing.
+                  </p>
+                  <p>
+                    Each submitted challenge can incur a charge. Current published cost:
+                    {" "}{captchaDisclosure.cost}. Prices vary by challenge and can change;
+                    the provider's pricing page is authoritative.
+                  </p>
+                  <p className="flex flex-wrap gap-x-3 gap-y-1">
+                    {captchaDisclosure.termsUrl && (
+                      <a
+                        href={captchaDisclosure.termsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline"
+                      >
+                        {captchaDisclosure.name} terms
+                      </a>
+                    )}
+                    {captchaDisclosure.pricingUrl && (
+                      <a
+                        href={captchaDisclosure.pricingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline"
+                      >
+                        {captchaDisclosure.name} current pricing
+                      </a>
+                    )}
+                  </p>
+                </div>
+              </DialogDescription>
+            ) : (
+              <DialogDescription>
+                This save changes credential / login / selector fields. Clearing or
+                mis-setting a credential can lock the site's authenticated session out
+                of the running instance. The change is audited. Continue?
+              </DialogDescription>
+            )}
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => saveMut.mutate(patch)} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Saving…" : "Save changes"}
+            <Button
+              onClick={() => saveMut.mutate(
+                enablesCaptchaEgress
+                  ? { ...patch, captcha_egress_disclosure_ack: true }
+                  : patch,
+              )}
+              disabled={saveMut.isPending}
+            >
+              {saveMut.isPending
+                ? "Saving…"
+                : enablesCaptchaEgress
+                  ? "Acknowledge and enable"
+                  : "Save changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

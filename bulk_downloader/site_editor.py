@@ -585,6 +585,8 @@ _FIELD_TYPES = {
     "use_persistent_profile": ("boolean", "Persist the browser profile"),
     "log_network": ("boolean", "Log every network response"),
     "use_curl_cffi": ("boolean", "TLS-impersonating HTTP downloads"),
+    "captcha_provider": ("string", "Paid third-party captcha solver provider"),
+    "captcha_api_key": ("string", "API key that enables paid third-party captcha solving"),
     # v3.66.468 WS4b: type the download-backend selector + JD connection fields
     # so SiteSettings renders a dropdown + labelled inputs (they were free-text
     # before, so JD was config-file-only in practice). `backend` stays a STRING
@@ -614,6 +616,7 @@ _FIELD_TYPES = {
 # is_jd_backend / qb_bridge (the runner reads `backend` as teach|jd|qb).
 _FIELD_ENUMS = {
     "backend": ["teach", "jd", "qb"],
+    "captcha_provider": ["2captcha", "capsolver"],
 }
 
 
