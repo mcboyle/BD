@@ -90,6 +90,7 @@ from __future__ import annotations
 import argparse
 import ast
 import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -2670,10 +2671,29 @@ def _report(rows: list[dict]) -> None:
               "that passes in both states is not a test.")
 
 
+def _cleanup_selftest_directory(cleanup) -> None:
+    """Retry one ENOTEMPTY from the selftest's own temporary-directory cleanup."""
+    for attempt in range(2):
+        try:
+            cleanup()
+            return
+        except OSError as exc:
+            if exc.errno == errno.ENOTEMPTY and attempt == 0:
+                continue
+            raise
+
+
+class _SelftestTemporaryDirectory(tempfile.TemporaryDirectory):
+    """A selftest root may race one late writer after the final battery exits."""
+
+    def cleanup(self):
+        _cleanup_selftest_directory(super().cleanup)
+
+
 def _selftest(work: Path) -> int:
     """Prove the harness catches its own four historical failures."""
     ok = True
-    with tempfile.TemporaryDirectory() as td:
+    with _SelftestTemporaryDirectory() as td:
         t = Path(td)
         (t / "tests").mkdir()
         (t / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
