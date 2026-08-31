@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1364 - three revalidated worker candidates, one cut
+
+The first width-3 batch since the 2026-08-27 single-row ruling, run under the
+repaired batch mechanics (the drain argv fix, the per-row merge classifier,
+and the empty-slug guard) and the operator's 2026-08-31 width-3 ruling. All
+three are file-disjoint; each was independently revalidated green against
+current main before stacking, and the stacked candidate carries one combined
+remote band.
+
+- HISTORICAL LABEL 097: a hermetic bare-host apt installation verification
+  path -- tests/test_row097_real_apt_sandbox.py exercises provisioning in a
+  temporary apt/dpkg root without installing anything on the host.
+- HISTORICAL LABEL 212: the live OpenSSH transport blind spot --
+  toolchain/bin/bd-jobs is accepted over a real loopback sshd in an isolated
+  one-shot harness, so the transport path is measured rather than assumed.
+- HISTORICAL LABEL 379: byte-safe remote source transport -- a repository
+  CLAUDE rule and toolchain/bin/bd-sweep-run change replace nested shell
+  heredocs with byte transport, with the regression pinned by test.
+
+These three carry no canonical register rows; their registration belongs to
+the row 411 reconciliation and is deliberately not laundered here.
+
 ## v3.66.1363 - split the CI critical path where it was measured
 
 - ROW 420. CI wall clock was 497s at run 33344249420's predecessor 33344209740,

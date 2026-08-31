@@ -4715,10 +4715,26 @@ def _unsafe_target(target):
     return None
 
 
-def _ssh_argv(target, command):
+def _ssh_argv(target, command, *, config=None):
     """`--` TERMINATES SSH'S OWN OPTIONS. Without it a target that begins with
     a dash is read by ssh as a flag, which is a way to make the launcher run
-    something the operator did not ask for."""
+    something the operator did not ask for.
+
+    ``config`` is the isolated acceptance-harness seam.  Production callers
+    leave it unset and retain their byte-for-byte argv; the live OpenSSH test
+    passes one exact temporary file so it need not read or modify operator SSH
+    configuration or bind a test daemon to port 22.
+    """
+    if config is not None:
+        return ["ssh", "-F", os.fspath(config), "-o", "BatchMode=yes", "-o",
+                _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
+    # THE PRODUCTION ARGV STAYS BYTE-IDENTICAL. tests/mutants/
+    # v3_66_1207_jobs_registration.json::N12 anchors on exactly this line to
+    # prove ssh still terminates its own option parsing, and row357 accepts a
+    # new anchor only when it is structural -- this one is not, it is quoted
+    # values. Rewriting the line would have forced either a laundered
+    # stable-value exception or a census bump, so the seam is a separate
+    # branch above and the anchored return is untouched.
     return ["ssh", "-o", "BatchMode=yes", "-o",
             _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
 
