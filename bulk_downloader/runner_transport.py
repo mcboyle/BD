@@ -25,7 +25,7 @@ from .runner_util import (
     _bump_learned_stat, gate_candidate_url, record_bandwidth,
     resolve_url_attribute,
 )
-from .db import db_log
+from .db import db_log, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template
 from .website_title import history_title_kwargs
@@ -1186,18 +1186,42 @@ class TransportMixin:
         final_path.parent.mkdir(parents=True,exist_ok=True)
 
         # ── "Already have" pre-download check ────────────────────────────
+        # EXISTENCE IS NOT IDENTITY. This branch used to skip on
+        # `final_path.exists()` alone and write a 'done' row -- which, through
+        # db_log's done path and library_record's `title = CASE WHEN ?<>''`
+        # UPDATE, also RETITLED whatever was already on disk to this page's
+        # title. Two scenes that render one filename (a `{site} - {resolution}`
+        # template is enough) therefore produced scene B's history row over
+        # scene A's bytes, and scene A's library row titled as scene B. Wrong
+        # file, right title.
+        #
+        # db_skip_identity answers the question this branch actually needs, in
+        # three states. Only a PROVABLE same-work hit skips; "different" and
+        # "unknown" alike fall through to the safe_dest below, which is what
+        # exists to resolve same-name-different-content. UNKNOWN is a failing
+        # third state, never permission (CLAUDE.md A7).
         if self.config.get("skip_if_exists",True) and final_path.exists():
-            existing_size=final_path.stat().st_size
+            _identity,_owned=db_skip_identity(page_url,str(final_path))
+        else:
+            _identity,_owned="",None
+        if _identity=="same":
+            # Report the file this url actually owns, not the freshly rendered
+            # name. They differ whenever an earlier run landed on a safe_dest
+            # suffix, and passing final_path here would hand db_log -- and so
+            # library_record's title UPDATE -- the wrong row: the very defect
+            # this branch is being corrected for.
+            existing_path=Path(_owned)
+            existing_size=existing_path.stat().st_size
             with self._lock:
                 if page_url in self.jobs: self.jobs[page_url].pop("force_download",None)
             self._update_job(page_url,"done",
-                             f"Already have: {final_path.name} ({fmt_bytes(existing_size)})",
-                             filename=final_path.name,file_size=existing_size)
+                             f"Already have: {existing_path.name} ({fmt_bytes(existing_size)})",
+                             filename=existing_path.name,file_size=existing_size)
             db_log(self.site_id,self.config.get("name","?"),page_url,"done",
-                   final_path.name,existing_size,"already on disk",
+                   existing_path.name,existing_size,"already on disk",
                    honeypot_score=best.get("_honeypot_score"),  # P5-2b
                    bytes_fetched=0,  # skip_if_exists: dl.cancel(), nothing fetched
-                   file_path=str(final_path),
+                   file_path=str(existing_path),
                    **history_title_kwargs(self, page_url))
             try: dl.cancel()
             except Exception: pass

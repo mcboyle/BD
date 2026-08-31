@@ -1733,6 +1733,83 @@ def db_find_filename_duplicate(filename, file_size=None, exclude_site=None):
                 return None
         return dict(row)
 
+def db_skip_identity(page_url, final_path):
+    """Is the file already on disk PROVABLY the same work as ``page_url``?
+
+    The "already have" pre-download check used to ask only whether a file sat
+    at the rendered path, and then answer a different question: "this page's
+    work is already downloaded". Those are the same question only while the
+    filename template varies per scene. Under a template like
+    ``{site} - {resolution}``, or on a site whose ``?filename=`` basename is
+    generic, every scene renders one name -- so scene B's history row was
+    written 'done' over scene A's bytes, and db_log's done path then handed
+    scene B's title to ``library_record``, whose
+
+        title = CASE WHEN ?<>'' THEN ? ELSE title END
+
+    RETITLED scene A's library row to scene B. Wrong file, right title: the
+    shape of the 2026-08-29 incident, recorded twice over.
+
+    Existence is therefore not identity, and this returns three states rather
+    than a boolean, per CLAUDE.md A7 -- an unmeasurable identity is UNKNOWN,
+    and UNKNOWN is never permission:
+
+        ("same", path)     a prior 'done' row for THIS url recorded ``path``
+                           through the library, and ``path`` is still on disk.
+                           Skipping is correct, and ``path`` -- NOT the freshly
+                           rendered one -- is the file to report and to hand to
+                           db_log, because they differ whenever an earlier run
+                           landed at a ``safe_dest`` suffix.
+        ("different", None) the library attributes ``final_path`` to another
+                           page url. Provably not this work; the caller must
+                           neither skip nor overwrite it.
+        ("unknown", None)  nothing attributes ``final_path`` to anything -- a
+                           hand-copied file, a scanner row with no history, a
+                           pruned history, or a table this schema lacks. Not
+                           provably the same work, so not a skip.
+
+    KEYED ON THE ATTRIBUTED PATH, NOT ON ``final_path``. That is what stops the
+    UNKNOWN arm from accreting a copy forever: run 1 leaves an unprovable file
+    alone and lands at ``name_1``; run 2 renders ``name`` again, but the url now
+    owns ``name_1``, so it answers "same" and skips.
+
+    Attribution is read through ``history.library_id``/``library.history_id``,
+    which db_log and library_record backfill on both the insert and the update
+    path. ``history.filename`` cannot answer it: that column holds a basename
+    with template subdirectories already stripped, never a path.
+    """
+    final_path = str(final_path or "")
+    if not page_url or not final_path:
+        return ("unknown", None)
+    import os as _os
+    try:
+        with db_conn() as cx:
+            owned = cx.execute(
+                "SELECT l.file_path AS fp FROM history h "
+                "JOIN library l ON l.id = h.library_id "
+                "WHERE h.url = ? AND h.status = 'done' "
+                "AND COALESCE(l.file_path,'') <> '' "
+                "ORDER BY h.id DESC",
+                (page_url,)).fetchall()
+            for row in owned:
+                # A recorded path whose file has since been deleted proves
+                # nothing about what is on disk NOW, so keep looking rather
+                # than skipping on the strength of a row alone.
+                if _os.path.isfile(row["fp"]):
+                    return ("same", row["fp"])
+            attributed = cx.execute(
+                "SELECT h.url AS url FROM library l "
+                "LEFT JOIN history h ON h.id = l.history_id "
+                "WHERE l.file_path = ?",
+                (final_path,)).fetchone()
+    except Exception:
+        # A measurement that could not be taken is UNKNOWN, not OK.
+        return ("unknown", None)
+    if attributed is not None and attributed["url"] and attributed["url"] != page_url:
+        return ("different", None)
+    return ("unknown", None)
+
+
 def db_stats(site_id=None):
     """Aggregate history counts and total downloaded bytes for the
     dashboard. Returns `{"counts": {status: n, ...}, "bytes": total_done_bytes}`.

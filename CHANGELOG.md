@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1368 - a skip must prove it is the same work
+
+The highest-severity finding of the 2026-08-31 defect hunt, and the one that
+reproduces the 2026-08-29 incident from code rather than from a post-mortem.
+
+- EXISTENCE IS NOT IDENTITY. The pre-download "already have" check asked only
+  whether a file sat at the rendered path, then answered a different question:
+  whether THIS page's work was already downloaded. Those coincide only while
+  the filename template varies per scene. Under a template like
+  '{site} - {resolution}', or on a site whose ?filename= basename is generic,
+  every scene renders one name.
+- MEASURED ON THE DEFECTIVE TREE, two scenes, one rendered name: history id=2
+  carried scene B's url with status done, filename 'Example Site - 1080p.mp4'
+  (scene A's file), message 'already on disk', bytes_fetched 0; library id=1
+  kept scene A's file_path but its title read 'Second Scene'. One transfer,
+  one file on disk. Scene B was never downloaded and scene A was retitled --
+  wrong file, right title, recorded twice over.
+- db_skip_identity() replaces the bare exists() probe with three states, per
+  CLAUDE.md A7: 'same' only when a prior done row for THIS url recorded a path
+  through the library AND that path is still on disk; 'different' when the
+  library attributes the path to another url, which must neither skip nor
+  overwrite; 'unknown' for anything unattributable -- a hand-copied file, a
+  scanner row with no history, a pruned history. An unmeasurable identity is
+  UNKNOWN and UNKNOWN is never permission to skip.
+- KEYED ON THE ATTRIBUTED PATH, NOT THE RENDERED ONE, which is what stops the
+  unknown arm from accreting a copy per run: run 1 leaves an unprovable file
+  alone and lands at a safe_dest suffix, run 2 renders the same name but the
+  url now owns the suffixed path, so it answers 'same' and skips. The 'same'
+  arm also reports the ATTRIBUTED path rather than the freshly rendered one,
+  because they differ exactly when an earlier run took that suffix.
+
 ## v3.66.1367 - file what an adversarial defect hunt actually confirmed
 
 - THIRTY-ONE ROWS, 421 THROUGH 451, appended atomically through
