@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4124,
+  "edge_count": 4126,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3675,6 +3675,10 @@
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/website_title.py"
+    ],
+    "tests/test_row387_ast_version_pin_guard.py": [
+      "bulk_downloader/__init__.py",
+      "tools/build_pin_index.py"
     ],
     "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py": [
       "bulk_downloader/detect.py",
