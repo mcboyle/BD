@@ -137,7 +137,7 @@
     {
       "bytes": 10020,
       "key": "tests/test_v3_43_31_rate_limit.py::test_runner_acquires_slot_in_http_download::src[fn_pos:fn_pos + 10000]::1",
-      "sha256": "b5aae4bff5e02ed4a298e757d35ea96de83f9c8d02817a191ad1e092c819f2ea"
+      "sha256": "0f7d00797ae153b1e6f5bdee11e8a5e74536d21f9b29d7a2b1bcfef197b8a2db"
     },
     {
       "bytes": 2502,
