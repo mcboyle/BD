@@ -4725,11 +4725,18 @@ def _ssh_argv(target, command, *, config=None):
     passes one exact temporary file so it need not read or modify operator SSH
     configuration or bind a test daemon to port 22.
     """
-    argv = ["ssh"]
     if config is not None:
-        argv += ["-F", os.fspath(config)]
-    return argv + ["-o", "BatchMode=yes", "-o",
-                   _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
+        return ["ssh", "-F", os.fspath(config), "-o", "BatchMode=yes", "-o",
+                _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
+    # THE PRODUCTION ARGV STAYS BYTE-IDENTICAL. tests/mutants/
+    # v3_66_1207_jobs_registration.json::N12 anchors on exactly this line to
+    # prove ssh still terminates its own option parsing, and row357 accepts a
+    # new anchor only when it is structural -- this one is not, it is quoted
+    # values. Rewriting the line would have forced either a laundered
+    # stable-value exception or a census bump, so the seam is a separate
+    # branch above and the anchored return is untouched.
+    return ["ssh", "-o", "BatchMode=yes", "-o",
+            _REMOTE_CONNECT_TIMEOUT_OPTION, "--", target, command]
 
 
 def _new_request_id():
