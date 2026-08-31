@@ -141,10 +141,15 @@ class _Boundary:
     """Both stubs plus the faked netns command runner."""
 
     def __init__(self, ffmpeg: _ArgvRecorder, ip: _ArgvRecorder,
-                 netns_cmds: list, rc_holder: dict):
+                 netns_cmds: list, netns_cmd_spawns: list, rc_holder: dict):
         self.ffmpeg = ffmpeg
         self.ip = ip
         self.netns_cmds = netns_cmds
+        # ffmpeg's spawn count AT THE MOMENT each netns command ran. This is
+        # what turns "the bracket encloses the transfer" from a structural
+        # argument into an ordering MEASUREMENT: teardown must observe the
+        # spawn that setup made possible.
+        self.netns_cmd_spawns = netns_cmd_spawns
         self._rc = rc_holder
 
     # convenience passthroughs -- every assertion below reads a MEASUREMENT
@@ -190,6 +195,7 @@ def ffmpeg_boundary(tmp_path, monkeypatch):
     # (or fail) with no root and no real namespace, while still recording the
     # exact argv the module generated.
     netns_cmds: list = []
+    netns_cmd_spawns: list = []
     rc_holder = {"code": 0}
 
     class _FakeCompleted:
@@ -202,6 +208,7 @@ def ffmpeg_boundary(tmp_path, monkeypatch):
         @staticmethod
         def run(argv, **kw):
             netns_cmds.append(list(argv))
+            netns_cmd_spawns.append(ff.spawn_count)
             return _FakeCompleted(rc_holder["code"])
 
     monkeypatch.setattr(netns_isolation, "subprocess", _FakeSubprocess)
@@ -211,7 +218,7 @@ def ffmpeg_boundary(tmp_path, monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", _AMBIENT_PROXY)
 
     try:
-        yield _Boundary(ff, ip, netns_cmds, rc_holder)
+        yield _Boundary(ff, ip, netns_cmds, netns_cmd_spawns, rc_holder)
     finally:
         hls_downloader._reset_ffmpeg_cache_for_tests()
 
@@ -509,10 +516,23 @@ def test_tunnel_mapped_site_transfers_confined_rather_than_refusing(
             f"{_env_proxy_values(spawn['env'])}")
         assert _SOCKS not in json.dumps(spawn), (
             "the unusable socks url must not reach the ffmpeg child anywhere")
-        # The namespace was really created and really torn down.
-        assert ["ip", "netns", "add", ns] in ffmpeg_boundary.netns_cmds
-        assert ["ip", "netns", "del", ns] in ffmpeg_boundary.netns_cmds, (
-            "the namespace must be torn down after the transfer")
+        # The namespace was really created and really torn down -- and the
+        # ORDER is measured, not argued: setup ran before any spawn existed,
+        # teardown ran after the one spawn it enclosed, and teardown was last.
+        cmds = ffmpeg_boundary.netns_cmds
+        at = ffmpeg_boundary.netns_cmd_spawns
+        assert len(cmds) == len(at) and cmds, (
+            f"the netns command recorder must be non-empty and aligned: {cmds}")
+        assert cmds[0] == ["ip", "netns", "add", ns], (
+            f"the namespace must be created first: {cmds}")
+        assert at[0] == 0, (
+            "the namespace must exist BEFORE ffmpeg spawns; the recorder saw "
+            f"{at[0]} spawn(s) already at `netns add`")
+        assert cmds[-1] == ["ip", "netns", "del", ns], (
+            f"the namespace must be torn down last: {cmds}")
+        assert at[-1] == 1, (
+            "teardown must run AFTER the transfer it enclosed; the recorder "
+            f"saw {at[-1]} spawn(s) at `netns del`, expected 1")
         assert len(runner._row439_history) == 1, (
             "a confined transfer still logs its history row")
     finally:
