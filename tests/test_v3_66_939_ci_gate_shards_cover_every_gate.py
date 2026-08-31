@@ -158,6 +158,11 @@ _DECLARED = {
     # ever reached them. This gate has the same property and is declared for
     # the same reason.
     "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
+    # @1378, the same tool, the other half of the same question. 1239 pins that
+    # bd-precut RUNS the gates a diff cannot select; this one pins that its
+    # version/pin/surface check can be MEASURED AT ALL. It judges the tool and
+    # the tree rather than a diff, so no changed path selects it either.
+    "tests/test_row463_precut_derives_its_baseline.py",
     # @1222, the budget ratchet. An inner budget at or above the bound
     # governing its item has a dead error path, so a hang kills the process
     # instead of failing the test -- twice over on 2026-08-24. The frozen
@@ -859,8 +864,9 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # the toolchain shard, taking 232 to 233. Row 387 adds the live AST
 # duplicate-version-pin guard once in artifacts-pins, taking 233 to 234.
 # Keeping only one comment would leave the count right and the reason wrong.
+# @1378 adds test_row463_precut_derives_its_baseline, taking 234 to 235.
 # The integrator re-pins this if a concurrent cut also lands a gate.
-_EXPECTED_DECLARED_GATE_COUNT = 234
+_EXPECTED_DECLARED_GATE_COUNT = 235
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",

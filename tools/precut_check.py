@@ -82,6 +82,31 @@ def _sha(b):
     return hashlib.sha256(b).hexdigest()
 
 
+def _git_tracked_files(root):
+    """The TRACKED denominator, for a baseline derived from git rather than a zip.
+
+    _tree_files reuses build_release's walk, so its denominator is "what the
+    release zip would contain" -- which includes generated artifacts that are
+    gitignored. Compared against a git-derived baseline those all read as ADDED,
+    and a surface report where every generated file is new says nothing. When
+    both sides come from git, both sides must be the tracked set.
+    """
+    import subprocess as _sp
+    r = _sp.run(["git", "-C", str(root), "ls-files", "-z"],
+                capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    out = {}
+    for rel in r.stdout.split("\0"):
+        if not rel:
+            continue
+        f = os.path.join(root, rel)
+        if os.path.isfile(f) and not os.path.islink(f):
+            with open(f, "rb") as fh:
+                out[rel] = _sha(fh.read())
+    return out
+
+
 def _tree_files(root):
     # Authoritative: reuse build_release's exclusion walk so the predicted file
     # set matches what the build will actually zip (no ad-hoc divergence).
@@ -151,8 +176,11 @@ def _version_consistency(root):
     }
 
 
-def predict(root, baseline):
-    tree = _tree_files(root)
+def predict(root, baseline, tracked_only=False):
+    tree = _git_tracked_files(root) if tracked_only else _tree_files(root)
+    if tree is None:
+        raise SystemExit("UNKNOWN: --tracked-only was asked for and git ls-files "
+                         "failed, so there is no denominator to compare against")
     base = _zip_files(baseline)
     added = sorted(p for p in tree if p not in base)
     removed = sorted(p for p in base if p not in tree)
@@ -190,8 +218,11 @@ def main(argv=None):
     ap.add_argument("--root", default=".")
     ap.add_argument("--baseline", required=True)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--tracked-only", action="store_true",
+                    help="compare the TRACKED file set on both sides; required when "
+                         "the baseline is a git archive rather than a release zip")
     a = ap.parse_args(argv)
-    r = predict(a.root, a.baseline)
+    r = predict(a.root, a.baseline, a.tracked_only)
     if a.json:
         print(json.dumps(r, indent=2)); return 0
     v = r["version"]
