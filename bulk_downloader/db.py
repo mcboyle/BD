@@ -1736,6 +1736,18 @@ def db_find_filename_duplicate(filename, file_size=None, exclude_site=None):
 def db_skip_identity(page_url, final_path):
     """Is the file already on disk PROVABLY the same work as ``page_url``?
 
+    Four states, not three (row 479):
+
+        "same"      a done row for this url records a REAL transfer and its
+                    file is on disk now
+        "different" the file on disk is attributed to another url
+        "unproven"  a done row points at a file that exists, but its
+                    ``bytes_fetched`` is 0 (nothing transferred) or NULL (a
+                    pre-v8 row, unmeasurable). The caller must surface this;
+                    it is not ownership.
+        "unknown"   nothing is known either way
+
+
     The "already have" pre-download check used to ask only whether a file sat
     at the rendered path, and then answer a different question: "this page's
     work is already downloaded". Those are the same question only while the
@@ -1784,19 +1796,50 @@ def db_skip_identity(page_url, final_path):
     import os as _os
     try:
         with db_conn() as cx:
+            # Row 479. This query used to ask for a done status and a library
+            # link and NOTHING about a transfer -- and the skip arm WRITES such
+            # a row itself (runner_transport.py, db_log(..., bytes_fetched=0,
+            # 'already on disk')), with library_record backfilling its
+            # library_id, so every skip manufactured the proof the next run
+            # read. That is A7's shape: deriving the expected set from the
+            # artifact under test. bytes_fetched is fetched here because
+            # db_log's own contract names it as the ONLY column that can answer
+            # whether BD moved bytes.
             owned = cx.execute(
-                "SELECT l.file_path AS fp FROM history h "
+                "SELECT l.file_path AS fp, h.bytes_fetched AS bf FROM history h "
                 "JOIN library l ON l.id = h.library_id "
                 "WHERE h.url = ? AND h.status = 'done' "
                 "AND COALESCE(l.file_path,'') <> '' "
                 "ORDER BY h.id DESC",
                 (page_url,)).fetchall()
+            # SCAN for transfer evidence rather than trusting the newest row.
+            # The healthy steady state is one real transfer followed by any
+            # number of bytes_fetched=0 skips, so a fix that inspected only the
+            # newest owned row would turn every legitimate skip into a
+            # re-download.
+            unproven = None
             for row in owned:
                 # A recorded path whose file has since been deleted proves
                 # nothing about what is on disk NOW, so keep looking rather
                 # than skipping on the strength of a row alone.
-                if _os.path.isfile(row["fp"]):
+                if not _os.path.isfile(row["fp"]):
+                    continue
+                bf = row["bf"]
+                if bf is not None and bf > 0:
                     return ("same", row["fp"])
+                # bf == 0: BD is certain nothing was transferred for this row.
+                # bf is None: a pre-v8 row, where the column did not exist --
+                # UNKNOWN, and db_log's contract says never proof of a
+                # download. Both are recorded, neither is ownership.
+                if unproven is None:
+                    unproven = row["fp"]
+            if unproven is not None:
+                # A file IS there and a done row DOES point at it, but nothing
+                # in the record says BD ever fetched it. Naming this state
+                # separately is the point: "unknown" would send the job down
+                # the transfer path silently, and the operator would never learn
+                # that an existing attribution was unproven.
+                return ("unproven", unproven)
             attributed = cx.execute(
                 "SELECT h.url AS url FROM library l "
                 "LEFT JOIN history h ON h.id = l.history_id "

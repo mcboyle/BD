@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4167,
+  "edge_count": 4168,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3147,7 +3147,8 @@
       "bulk_downloader/runner_scheduler.py",
       "bulk_downloader/runner_telemetry.py",
       "bulk_downloader/runner_transport.py",
-      "bulk_downloader/sse_broker.py"
+      "bulk_downloader/sse_broker.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_login_classify_submit_shape.py": [
       "bulk_downloader/learn.py"

@@ -473,3 +473,159 @@ def test_the_three_arms_are_each_reached_exactly_once(scene_runner):
         _COLLIDING_NAME, "Example Site - 1080p_1.mp4"]
     assert _media(other_dir) == [
         _COLLIDING_NAME, "Example Site - 1080p_1.mp4"]
+
+
+# ── Row 479: a done row that recorded NO transfer is not ownership ──────────
+#
+# db_skip_identity's SAME arm asked for a done status and a library link and
+# NOTHING about a transfer. db_log's own contract says bytes_fetched is the only
+# column that can answer whether BD moved bytes: >0 a real transfer, 0 nothing
+# transferred, None UNKNOWN and never proof of a download. The skip arm WRITES a
+# bytes_fetched=0 done row itself, and library_record backfills its library_id,
+# so every skip manufactured the proof the next run read -- A7's shape of
+# deriving the expected set from the artifact under test.
+#
+# The state seeded below is the one an upgraded host actually carries, not the
+# clean database every test above builds: before the v3.66.1368 skip-identity
+# cut the branch skipped on final_path.exists() alone and logged done,
+# bytes_fetched=0, "already on disk" over whatever file sat there.
+
+
+def _seed_a_pre_cut_wrong_file_row(url, library_id):
+    """The row a pre-v3.66.1368 build wrote: done, no transfer, someone else's file."""
+    from bulk_downloader.db import db_conn
+
+    with db_conn() as cx:
+        cx.execute(
+            "INSERT INTO history (site_id, site_name, url, status, filename, "
+            "file_size, message, bytes_fetched, library_id, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))",
+            (_SITE_ID, "Example Site", url, "done", _COLLIDING_NAME, 18,
+             "already on disk", 0, library_id))
+        cx.commit()
+
+
+def test_a_done_row_recording_no_transfer_is_not_proof_of_ownership(scene_runner):
+    """RED on the defective parent.
+
+    Preconditions are asserted before any verdict, because the whole defect is a
+    verdict reached over a state nobody measured.
+    """
+    runner, transport, download_dir, payloads = scene_runner
+
+    # Scene A is downloaded for real: one transfer, one file, one library row.
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+    history, library = _rows()
+    assert len(transport.calls) == 1
+    assert _media(download_dir) == [_COLLIDING_NAME]
+    assert len(library) == 1, library
+    scene_a_path = library[0]["file_path"]
+    assert Path(scene_a_path).is_file()
+    assert Path(scene_a_path).read_bytes() == payloads[_URL_A]
+
+    # Now the state an upgraded host carries: scene B has a done row over scene
+    # A's file, recording no transfer at all.
+    _seed_a_pre_cut_wrong_file_row(_URL_B, library[0]["id"])
+
+    history, library = _rows()
+    b_rows = [r for r in history if r["url"] == _URL_B]
+    assert len(b_rows) == 1, b_rows
+    assert b_rows[0]["status"] == "done"
+    assert b_rows[0]["bytes_fetched"] == 0
+    assert b_rows[0]["library_id"] == library[0]["id"]
+    assert [r for r in history
+            if r["url"] == _URL_B and (r["bytes_fetched"] or 0) > 0] == [], (
+        "the fixture must seed ZERO transfers for scene B, or the defect below "
+        "is not the one being measured")
+    assert len(_media(download_dir)) == 1
+
+    transfers_before = len(transport.calls)
+
+    _run(runner, download_dir, _URL_B, _TITLE_B)
+
+    history, library = _rows()
+
+    # GREEN: scene B is not handed scene A's file. It reaches the transfer path
+    # exactly once, and scene A's row is untouched.
+    assert len(transport.calls) == transfers_before + 1, (
+        "scene B was skipped over a done row that recorded no transfer: the "
+        f"row manufactured its own proof. transfers={transport.calls}")
+    a_row = [r for r in library if r["file_path"] == scene_a_path]
+    assert len(a_row) == 1, library
+    assert a_row[0]["title"] == _TITLE_A, (
+        "scene A's library row was retitled by scene B, which is the "
+        "wrong-file-right-title shape this whole file exists for")
+    assert Path(scene_a_path).read_bytes() == payloads[_URL_A]
+
+    # A pre-existing no-transfer attribution must become OPERATOR-VISIBLE rather
+    # than a silent re-download.
+    review = [r for r in history if r["status"] == "needs_review"]
+    assert len(review) == 1, (
+        f"expected exactly 1 needs_review diagnostic for the unproven "
+        f"attribution, got {len(review)}: {review}")
+    assert review[0]["url"] == _URL_B
+    assert "no transfer" in (review[0]["message"] or "").lower(), review[0]
+    assert scene_a_path in (review[0]["message"] or ""), (
+        "the diagnostic must NAME the row it is about; a refusal an operator "
+        "cannot act on is barely better than a silent one")
+
+
+def test_an_unmeasurable_transfer_is_unknown_and_never_proof(scene_runner):
+    """A pre-v8 row carries bytes_fetched NULL. UNKNOWN is a failing third
+    state, never permission (A2)."""
+    runner, transport, download_dir, payloads = scene_runner
+    from bulk_downloader.db import db_conn
+
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+    _history, library = _rows()
+    with db_conn() as cx:
+        cx.execute(
+            "INSERT INTO history (site_id, site_name, url, status, filename, "
+            "file_size, message, bytes_fetched, library_id, ts) "
+            "VALUES (?,?,?,?,?,?,?,NULL,?, datetime('now'))",
+            (_SITE_ID, "Example Site", _URL_B, "done", _COLLIDING_NAME, 18,
+             "pre-v8 row with no bytes_fetched column", library[0]["id"]))
+        cx.commit()
+
+    history, _library = _rows()
+    assert [r for r in history
+            if r["url"] == _URL_B and r["bytes_fetched"] is None], history
+
+    before = len(transport.calls)
+    _run(runner, download_dir, _URL_B, _TITLE_B)
+    assert len(transport.calls) == before + 1, (
+        "a NULL bytes_fetched was read as proof of a download; db_log's own "
+        "contract says None is UNKNOWN and never proof")
+
+
+def test_the_healthy_steady_state_still_skips(scene_runner):
+    """NEGATIVE CONTROL, and the one that separates a real fix from a lazy one.
+
+    One done row recording a REAL transfer, then two later bytes_fetched=0 skip
+    rows for that same url. A fix that inspects only the newest owned row is
+    caught here; a fix that scans for transfer evidence passes.
+    """
+    runner, transport, download_dir, payloads = scene_runner
+
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+    for _ in range(2):
+        _run(runner, download_dir, _URL_A, _TITLE_A)
+
+    history, _library = _rows()
+    a_rows = [r for r in history if r["url"] == _URL_A]
+    assert len([r for r in a_rows if (r["bytes_fetched"] or 0) > 0]) == 1, a_rows
+    assert len([r for r in a_rows if r["bytes_fetched"] == 0]) == 2, a_rows
+    assert a_rows[-1]["bytes_fetched"] == 0, (
+        "the NEWEST row must be a no-transfer skip, or this control does not "
+        "distinguish a newest-row fix from a scanning one")
+
+    before = len(transport.calls)
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+    assert len(transport.calls) == before, (
+        "the healthy steady state stopped skipping: the fix turned every "
+        f"legitimate resume into a re-download. transfers={transport.calls}")
+    assert _media(download_dir) == [_COLLIDING_NAME]
+    history, library = _rows()
+    assert len(library) == 1, library
+    assert [r for r in history if r["status"] == "needs_review"] == [], (
+        "a healthy history produced a needs_review diagnostic")

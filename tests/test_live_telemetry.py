@@ -1489,8 +1489,18 @@ def test_sequential_resume_progress_reports_absolute_file_size(monkeypatch, tmp_
     runner._update_job = lambda *args, **extra: updates.append(extra["file_size"])
 
     final_path = Path(tmp_path) / "resume.mp4"
-    part_path = final_path.with_suffix(final_path.suffix + ".part")
+    # Row 481: this fixture used to write the .part DIRECTLY to disk, with no
+    # claim -- which is precisely the ownerless-bytes state that let one job
+    # resume onto another scene's file. staging_claim now sets such bytes aside
+    # and the transfer restarts at zero, so writing them raw here would assert
+    # the DEFECT as the expected behaviour. The .part is staged THROUGH the
+    # protocol instead, so this test still measures what it is named for: that
+    # a resume reports the ABSOLUTE file size and not the bytes it moved.
+    from bulk_downloader import staging_claim as _sc
+    part_path = _sc.claim(final_path, _sc.job_identity("https://page.test/v"))
+    assert part_path == final_path.with_suffix(final_path.suffix + ".part")
     part_path.write_bytes(b"abcd")
+    assert part_path.stat().st_size == 4
     response = _StreamResponse(
         [b"ef", b"gh"], status_code=206, content_length=4)
     monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: response)
