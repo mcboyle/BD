@@ -40,6 +40,23 @@ archive is not present in this repository; consult source-control history.
   left alone -- it is the forgot-to-bump tripwire, which is the one place the
   chore is the point.
 
+- AND A MUTANT RETIRED WITH ITS SUBJECT. row348's M4 set the declared-gate
+  literal to a stale value, and it was catchable for one reason: a
+  hand-maintained number can be wrong about the population all by itself. With
+  the expectation derived, no such number is left. A mutant aimed at the
+  derivation would leave a consistent tree consistent and ESCAPE, which is a
+  false negative dressed as coverage, so the spec stops claiming it -- M1, M2 and
+  M3 still sever scope, declaration and shard by making the TREE inconsistent,
+  which is what row348 is actually for. The removal is guarded rather than quiet:
+  test_row353 now asserts the retired constant is not re-bound, the six remaining
+  mutants are present, and the floor refuses a population below it.
+
+- THE GATE'S OWN COMMENT REPORTED ITSELF. The first version of that retirement
+  check read the module as text, and the comment explaining the retirement names
+  the retired constant, so it failed on its own explanation. It parses the module
+  now. A7 says this in general terms; this is the fourth time this tree has paid
+  for it.
+
 ## v3.66.1380 - what the review found, written down where it will be read
 
 - SIXTY-FIVE ROWS. The bd3 ultrareview produced 67 findings; 65 were still

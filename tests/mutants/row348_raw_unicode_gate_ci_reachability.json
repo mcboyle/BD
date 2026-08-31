@@ -1,68 +1,60 @@
 {
-  "schema": "bd-mutate-spec/1",
-  "_comment": "Row 348. Re-run from a detached standalone scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/row348_raw_unicode_gate_ci_reachability.json --work SCRATCH --timeout 300. The seven mutants independently sever the live gate's scope, declaration, workflow execution, exact count, legacy-baseline removal, and the two additions that complete the seven-member H15 family census. M4 is regex-anchored to the census declaration's stable shape so later gates may move the mutable whole-tree count without invalidating this unchanged spec; its replacement remains nonzero so the intended exact-count comparison catches it. The separate transform-control spec applies M2 to an import-only node and must ESCAPE.",
-  "subject": "the raw-Unicode TSX live-tree gate and every H15 CI-coverage sibling remain explicitly scoped, declared, counted, and scheduled",
-  "band": [
-    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact",
-    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check",
-    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_the_baseline_is_frozen_legacy_that_may_only_shrink"
-  ],
-  "mutants": [
-    {
-      "label": "M1 raw-Unicode gate loses repo-wide scope",
-      "file": "tests/test_no_raw_unicode_escape_in_jsx.py",
-      "old": "BD_GATE_SCOPE = \"repo-wide\"",
-      "new": "BD_GATE_SCOPE = \"module\"",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
-    },
-    {
-      "label": "M2 raw-Unicode gate disappears from the independent declaration",
-      "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-      "old": "    \"tests/test_no_raw_unicode_escape_in_jsx.py\",\n    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
-      "new": "    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
-    },
-    {
-      "label": "M3 raw-Unicode gate disappears from the CI shard",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_no_raw_unicode_escape_in_jsx.py\n",
-      "new": "              # Row 348 mutant: raw-Unicode gate omitted\n",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
-    },
-    {
-      "label": "M4 exact declared-gate count stays at the pre-row denominator",
-      "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-      "old_regex": "_EXPECTED_DECLARED_GATE_COUNT = [0-9]+",
-      "new": "_EXPECTED_DECLARED_GATE_COUNT = 1",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
-    },
-    {
-      "label": "M5 H15 family census forgets the raw-Unicode sibling",
-      "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-      "old": "    \"tests/test_home_config_stores_are_guarded.py\",\n    \"tests/test_no_raw_unicode_escape_in_jsx.py\",\n    \"tests/test_v3_66_285_cloak_parity.py\",",
-      "new": "    \"tests/test_home_config_stores_are_guarded.py\",\n    \"tests/test_v3_66_285_cloak_parity.py\",",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
-    },
-    {
-      "label": "M6 H15 family census forgets the capture-lane sibling",
-      "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-      "old": "_CONFIRMED_SAFETY_GATES = {\n    \"tests/test_capture_execution_lanes.py\",\n    \"tests/test_capture_csrf_diag_redacts_cookies.py\",",
-      "new": "_CONFIRMED_SAFETY_GATES = {\n    \"tests/test_capture_csrf_diag_redacts_cookies.py\",",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
-    },
-    {
-      "label": "M7 raw-Unicode gate regains a legacy-baseline exemption",
-      "file": "tests/gate_scope_baseline.txt",
-      "old": "tests/test_negative.py\ntests/test_no_test_writes_the_real_vpn_config.py",
-      "new": "tests/test_negative.py\ntests/test_no_raw_unicode_escape_in_jsx.py\ntests/test_no_test_writes_the_real_vpn_config.py",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_the_baseline_is_frozen_legacy_that_may_only_shrink"
-    }
-  ]
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 348, M4 retired at row 531 (v3.66.1381). Re-run from a detached standalone scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/row348_raw_unicode_gate_ci_reachability.json --work SCRATCH --timeout 300. The remaining six mutants independently sever the live gate's scope, declaration, workflow execution, legacy-baseline removal, and the two additions that complete the seven-member H15 family census. M4 SEVERED A DEFECT THAT NO LONGER EXISTS. It set _EXPECTED_DECLARED_GATE_COUNT to a stale value, and the catcher fired because a hand-maintained literal can be wrong about the population all by itself. Row 531 replaced that literal with an expectation derived from the declared set, so there is no longer a number that can be stale: a mutant aimed at the derivation would leave a consistent tree consistent and ESCAPE, which is a false negative rather than a gate. M1, M2 and M3 still cover the reachability properties by making the TREE inconsistent -- a gate that loses its scope, its declaration, or its shard -- and those are the failures this spec exists for. The separate transform-control spec applies M2 to an import-only node and must ESCAPE.",
+ "subject": "the raw-Unicode TSX live-tree gate and every H15 CI-coverage sibling remain explicitly scoped, declared, counted, and scheduled",
+ "band": [
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact",
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check",
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_the_baseline_is_frozen_legacy_that_may_only_shrink"
+ ],
+ "mutants": [
+  {
+   "label": "M1 raw-Unicode gate loses repo-wide scope",
+   "file": "tests/test_no_raw_unicode_escape_in_jsx.py",
+   "old": "BD_GATE_SCOPE = \"repo-wide\"",
+   "new": "BD_GATE_SCOPE = \"module\"",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+  },
+  {
+   "label": "M2 raw-Unicode gate disappears from the independent declaration",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "    \"tests/test_no_raw_unicode_escape_in_jsx.py\",\n    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
+   "new": "    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+  },
+  {
+   "label": "M3 raw-Unicode gate disappears from the CI shard",
+   "file": ".github/workflows/ci.yml",
+   "old": "              tests/test_no_raw_unicode_escape_in_jsx.py\n",
+   "new": "              # Row 348 mutant: raw-Unicode gate omitted\n",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+  },
+  {
+   "label": "M5 H15 family census forgets the raw-Unicode sibling",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "    \"tests/test_home_config_stores_are_guarded.py\",\n    \"tests/test_no_raw_unicode_escape_in_jsx.py\",\n    \"tests/test_v3_66_285_cloak_parity.py\",",
+   "new": "    \"tests/test_home_config_stores_are_guarded.py\",\n    \"tests/test_v3_66_285_cloak_parity.py\",",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+  },
+  {
+   "label": "M6 H15 family census forgets the capture-lane sibling",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "_CONFIRMED_SAFETY_GATES = {\n    \"tests/test_capture_execution_lanes.py\",\n    \"tests/test_capture_csrf_diag_redacts_cookies.py\",",
+   "new": "_CONFIRMED_SAFETY_GATES = {\n    \"tests/test_capture_csrf_diag_redacts_cookies.py\",",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+  },
+  {
+   "label": "M7 raw-Unicode gate regains a legacy-baseline exemption",
+   "file": "tests/gate_scope_baseline.txt",
+   "old": "tests/test_negative.py\ntests/test_no_test_writes_the_real_vpn_config.py",
+   "new": "tests/test_negative.py\ntests/test_no_raw_unicode_escape_in_jsx.py\ntests/test_no_test_writes_the_real_vpn_config.py",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_the_baseline_is_frozen_legacy_that_may_only_shrink"
+  }
+ ]
 }
