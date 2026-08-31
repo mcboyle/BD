@@ -102,6 +102,23 @@ class _HTTPDownloadFailed(Exception):
     pass
 
 
+class _StagingUnavailable(Exception):
+    """part-staging-collision: raised when a transfer cannot RESERVE the
+    ``.part`` it would stage into -- because a different live download owns
+    it, or because ownership cannot be measured at all.
+
+    The transfer refuses; it never writes into a staging path it does not own.
+    That is the whole defect: two workers derived one ``.part`` from one final
+    name, the second read the first's partial bytes as a resume position, and
+    appended a different scene onto it.
+
+    Kept deliberately NOT a subclass of ``_HTTPDownloadFailed`` for the same
+    reason ``_DownloadTruncated`` is not: the Playwright fallback would happily
+    write the browser's bytes to the very destination this refusal is
+    protecting. The caller routes the URL to ``needs_review`` instead."""
+    pass
+
+
 class _DownloadTruncated(Exception):
     """BP-INT (v3.66.284): raised when a transfer's stream ends before the
     advertised Content-Length is satisfied. The .part is NOT promoted to the

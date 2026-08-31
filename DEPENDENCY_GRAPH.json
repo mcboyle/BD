@@ -2364,7 +2364,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1696,
+    "edge_count": 1698,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4533,6 +4533,10 @@
         "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/runner_transport.py"
       ],
+      "bulk_downloader/staging_claim.py": [
+        "bulk_downloader/crash_recovery.py",
+        "bulk_downloader/runner_transport.py"
+      ],
       "bulk_downloader/stash_deep.py": [
         "bulk_downloader/app_sites_integrations.py",
         "bulk_downloader/runner_integrations.py",
@@ -6275,7 +6279,8 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/crash_recovery.py": [
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/staging_claim.py"
       ],
       "bulk_downloader/cross_site_selectors.py": [
         "bulk_downloader/global_config.py"
@@ -7055,6 +7060,7 @@
         "bulk_downloader/resume.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/sse_broker.py",
+        "bulk_downloader/staging_claim.py",
         "bulk_downloader/stash_deep.py",
         "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/website_title.py"

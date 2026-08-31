@@ -200,8 +200,8 @@ def mark_decision(path: str, decision: str, *,
 
 
 def delete_orphan(path: str) -> dict:
-    """Delete a .part file + its .meta sidecar. Idempotent — missing
-    files don't raise. Returns {ok, deleted_bytes}."""
+    """Delete a .part file + its .meta and .owner sidecars. Idempotent —
+    missing files don't raise. Returns {ok, deleted_bytes}."""
     p = Path(path)
     if not p.exists():
         return {"ok": True, "deleted_bytes": 0,
@@ -212,6 +212,11 @@ def delete_orphan(path: str) -> dict:
         # Sidecar
         meta_path = p.with_suffix(p.suffix + ".meta")
         meta_path.unlink(missing_ok=True)
+        # part-staging-collision: the staging claim's lifetime is the .part's
+        # lifetime, so purging the orphan purges its claim. Leaving it behind
+        # would push a later download of the same name onto `_1` for no reason.
+        from . import staging_claim as _sc
+        _sc.release(p)
         mark_decision(path, "deleted")
         return {"ok": True, "deleted_bytes": deleted_bytes}
     except OSError as e:
