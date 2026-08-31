@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -71,6 +72,34 @@ STATE_HELD = "download_held"
 STATE_UNKNOWN = "download_hold_unknown"
 
 DEFAULT_REASON = "operator"
+
+# THE BARRIER (row 433). Recording a hold and arming a worker pool are two
+# transactions over the same fact, and reading the hold is not the same
+# instant as acting on it.
+#
+#   runner.start() reads downloads_allowed() early, then does the window,
+#   maintenance, admission, disk and quota work and sorts every pending URL
+#   before it sets _state = "running". A hold POST landing in that gap writes
+#   its durable record, walks the runners, finds this one NOT yet running --
+#   pause() is state-gated, so it no-ops -- and start() then arms the pool
+#   anyway, against a hold that answered ok.
+#
+# So the two sides take this lock: the POST holds it across (write the record,
+# enumerate and pause the runners) and a runner holds it across (re-read the
+# hold, transition to running). Only two orderings then exist: the runner
+# transitions first and the POST's walk finds it running, or the record lands
+# first and the runner's re-read sees it. There is no interleaving in which a
+# starting runner slips past a recorded hold.
+#
+# LOCK ORDER: this is the OUTERMOST lock. Acquire it before any runner lock
+# (_run_lifecycle_lock, _worker_heartbeats_lock, the jobs lock), never while
+# holding one. Re-entrant so a nested read on the same thread cannot self-lock.
+_BARRIER = threading.RLock()
+
+
+def barrier() -> threading.RLock:
+    """The process-wide hold barrier. See the comment above for lock order."""
+    return _BARRIER
 
 
 def _store_path(path: Optional[os.PathLike | str] = None) -> Path:
