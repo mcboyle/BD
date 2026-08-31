@@ -295,6 +295,16 @@ Release packaging must include required gitignored generated artifacts and
 exclude runtime/private/retired residue, and retain raw verifier status. Missing
 generated or frontend artifacts are failures, not permission to omit them.
 
+A FETCH EXITING 0 IS NOT DELIVERY. Two hosts fetch from a per-host bare mirror
+rather than the official origin, and nothing in the release path pushes into it,
+so v3.66.1378 refused on both with INTENDED-COMMIT-ABSENT -- the second time
+that shape had fired in two days. deploy.sh is right to refuse and names the
+remedy; the fleet is not right to need it. Three more hosts pointed at their own
+mirrors and sat 18 to 29 releases behind while every fetch exited 0, which is a
+stale checkout reporting itself current. Prove the intended commit is PRESENT on
+the host before deploying it, and read `docs/repo/FLEET_TOPOLOGY.md` for which
+hosts fetch from where.
+
 Git moves tracked files; it does not update a running process, clear bytecode,
 regenerate gitignored artifacts, rebuild the SPA, or restart the service. Use
 `scripts/deploy.sh` for an existing host and
@@ -371,6 +381,26 @@ URL and a destination, printing the page title and every media link it can see.
 It is harness rather than `toolchain/bin` deliberately -- it drives a real
 browser against an authenticated site, which A6 forbids a repository test from
 doing, so it is an operator instrument and never a gate.
+
+A CONTAINMENT TEST IS A DENOMINATOR CHOICE, exactly as a glob is. Asking whether
+a candidate has shipped has three answers of increasing strength, and the weak
+ones fail in one direction only. SHA ancestry decided ZERO of 24 tagged
+candidates because every cut is rebased before it lands. Patch-id then reported
+three fully-landed tags as unmerged, because resolving a trio collision changes
+the patch. Only comparing THIS BLOB for every file the candidate touched
+answered correctly -- and that is the check whose absence let four rows be
+reported merged when they were only tagged, and let a fifth release be reported
+as shipped when its version number never reached main. Pick the test that can
+answer the question asked, and say which one you used.
+
+A DIAGNOSTIC THAT COLLAPSES DISTINCT FAILURES COSTS THE INVESTIGATION, not just
+the message. `bd-vault-unlock` wrapped a four-request flow in one
+`except Exception` printing "pairing fallback failed", so an unlock returning
+401 incorrect password was indistinguishable from a broken pairing endpoint.
+Those two diagnoses lead to opposite actions -- repair the service, or find the
+right password -- and the wrong one was pursued first. Name the step that
+failed and carry the server's own words; a refusal that cannot be acted on is
+barely better than a silent one.
 
 Environment-changing tests remove inherited values rather than merely declining
 to set them. To ask whether importing code touches a resource, instrument the
