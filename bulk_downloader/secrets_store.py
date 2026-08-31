@@ -532,8 +532,9 @@ class MasterPasswordBackend(_BackendBase):
                     f"  secrets.json at {SECRETS_FILE} could not be read: "
                     f"{e}; left untouched. The vault is UNREADABLE, not "
                     f"uninitialized: every unlock, set, delete and password "
-                    f"change is refused until the file is repaired or "
-                    f"restored.\n")
+                    f"change is refused. Repair or restore the file, then "
+                    f"RESTART the service -- this state is fixed for the "
+                    f"life of the process.\n")
                 return {}
         # Fresh init: random salt, no ciphertexts
         # AUDIT v3.43.47: 600,000 iterations follows OWASP 2023 guidance
@@ -717,7 +718,10 @@ class MasterPasswordBackend(_BackendBase):
             raise SecretsUnreadableError(
                 f"{operation} refused: the credential vault file exists but "
                 f"is unreadable ({self._load_error}). It was left untouched "
-                f"and NOT reinitialized. Repair or restore it, then retry."
+                f"and NOT reinitialized. Repair or restore the file, then "
+                f"RESTART the service -- the store is read once at backend "
+                f"construction and get_backend() caches that instance, so "
+                f"retrying against this process cannot pick up the repair."
             )
 
     def store_state(self) -> str:

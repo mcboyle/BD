@@ -440,6 +440,13 @@ def api_secrets_change_password():
     except ss.SecretsUninitializedError as e:
         return jsonify({"ok": False, "state": "uninitialized",
                         "error": str(e)}), 409
+    except ss.SecretsUnreadableError as e:
+        # Row 432: the generic SecretsIntegrityError handler below already
+        # fails closed on this subclass, but rotation must name the condition
+        # -- "integrity_error" reads as damaged CONTENT, and this file could
+        # not be read at all. No password was committed and nothing rotated.
+        return jsonify({"ok": False, "state": "unreadable",
+                        "error": str(e)}), 409
     except ss.SecretsIntegrityError as e:
         return jsonify({"ok": False, "state": "integrity_error",
                         "error": str(e)}), 409
