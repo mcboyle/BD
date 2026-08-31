@@ -508,12 +508,47 @@ class MasterPasswordBackend(_BackendBase):
         # Row 432: set before _load_or_init so the loader can record why the
         # durable store could not be read. None means "the store was read".
         self._load_error: str | None = None
+        # Row 482: True only when _load_or_init saw NO file. The first-use
+        # branch re-probes before it writes, because this snapshot can go stale
+        # while the process lives.
+        self._constructed_over_absent_file = False
         self._data: dict[str, Any] = self._load_or_init()
 
     def _load_or_init(self) -> dict[str, Any]:
-        if SECRETS_FILE.exists():
+        # Row 487: the exists() probe used to sit OUTSIDE this try. CPython's
+        # pathlib swallows only ENOENT/ENOTDIR/EBADF/ELOOP, so EACCES from a
+        # chmod-000 CONTAINING DIRECTORY re-raises straight out of __init__
+        # before any classification can exist -- configure_backend swallows it,
+        # _backend stays None, and get_backend() hands back a PLAINTEXT
+        # backend. An unreadable encrypted vault presented as a confident empty
+        # plaintext store, and the next set() would have written secrets in
+        # clear beside the vault it could not read.
+        try:
+            present = SECRETS_FILE.exists()
+        except OSError as e:
+            self._load_error = f"{type(e).__name__}: {e}"
+            sys.stderr.write(
+                f"  secrets.json at {SECRETS_FILE} cannot even be probed: "
+                f"{e}. The vault is UNREADABLE, not uninitialized: every "
+                f"unlock, set, delete and password change is refused. Fix the "
+                f"permissions on the containing directory, then RESTART the "
+                f"service -- this state is fixed for the life of the "
+                f"process.\n")
+            return {}
+        if present:
             try:
-                return json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
+                loaded = json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
+                # Row 510: json.loads was bound straight to self._data with no
+                # isinstance check, so a vault holding valid JSON that is not
+                # an object parsed, left _load_error None -- the sentinel
+                # documented as "the store was read" -- and then made
+                # store_state raise TypeError or AttributeError out of a
+                # function whose contract is to return one of four strings.
+                if not isinstance(loaded, dict):
+                    raise ValueError(
+                        f"vault root is {type(loaded).__name__}, not a JSON "
+                        "object")
+                return loaded
             except Exception as e:
                 # AF2 (v3.66.41) moved the unreadable file aside and reinit'd
                 # fresh so the next set() could not overwrite it. Row 432
@@ -536,6 +571,15 @@ class MasterPasswordBackend(_BackendBase):
                     f"RESTART the service -- this state is fixed for the "
                     f"life of the process.\n")
                 return {}
+        # Row 482: a vault that does not exist AT CONSTRUCTION used to leave
+        # no trace of that fact, and get_backend caches the instance for the
+        # life of the process. BD itself makes the file appear inside that
+        # window with no restart -- POST /api/backup/restore writes secrets.json
+        # into the working directory -- and the first-use branch of
+        # _unlock_locked then evaluated a stale snapshot and overwrote whatever
+        # now occupied the path, under ANY password. Recording the snapshot's
+        # age is what lets that branch re-probe before it destroys anything.
+        self._constructed_over_absent_file = True
         # Fresh init: random salt, no ciphertexts
         # AUDIT v3.43.47: 600,000 iterations follows OWASP 2023 guidance
         # for PBKDF2-HMAC-SHA256. Previously 200,000 (the 2018 baseline).
@@ -985,6 +1029,30 @@ class MasterPasswordBackend(_BackendBase):
             and not verifier_present
             and not cts
         ):
+            # Row 482. This branch ends in tmp.replace(SECRETS_FILE), an
+            # unconditional overwrite of whatever occupies the path NOW. The
+            # emptiness above is a construction-time snapshot, and BD itself
+            # can make a real vault appear since then with no restart. Re-probe
+            # before destroying anything: a file that exists now, over a
+            # snapshot that said it did not, is UNKNOWN, and UNKNOWN is never
+            # permission to initialize (A2).
+            if self._constructed_over_absent_file:
+                try:
+                    reappeared = SECRETS_FILE.exists()
+                except OSError as exc:
+                    raise SecretsUnreadableError(
+                        f"the vault path {SECRETS_FILE} cannot be probed "
+                        f"({type(exc).__name__}: {exc}), so this unlock cannot "
+                        "prove it would not overwrite a vault. Fix the "
+                        "permissions and RESTART the service."
+                    ) from exc
+                if reappeared:
+                    raise SecretsUnreadableError(
+                        f"a vault appeared at {SECRETS_FILE} after this "
+                        "process read the path as empty, so initializing here "
+                        "would overwrite it under a password nobody had to "
+                        "know. RESTART the service so the vault is read, then "
+                        "unlock it with its own password.")
             self._persist_missing_commitments(
                 key,
                 add_verifier=True,

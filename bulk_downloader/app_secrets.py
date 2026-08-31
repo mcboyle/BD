@@ -624,6 +624,19 @@ def api_secrets_delete():
         return jsonify({"ok": False, "error": "key or site_id required"}), 400
     try:
         removed = ss.get_backend().delete(key)
+    except ss.SecretsIntegrityError as e:
+        # Row 502. SecretsUnreadableError subclasses SecretsIntegrityError, not
+        # SecretsUnlockRequiredError, so this route caught nothing and the
+        # guard's entire operator remedy -- the vault exists but is unreadable,
+        # it was left untouched and NOT reinitialized, repair or restore it and
+        # then RESTART because get_backend caches the instance -- escaped as an
+        # unhandled 500 with none of that in it.
+        return jsonify({
+            "ok": False,
+            "state": "unreadable",
+            "requires_restart": True,
+            "error": str(e),
+        }), 409
     except ss.SecretsUnlockRequiredError as e:
         # The final raw user ciphertext -- or final structurally usable legacy
         # ciphertext -- is a destructive boundary regardless of verifier

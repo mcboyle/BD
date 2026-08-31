@@ -4,6 +4,51 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1384 - the vault's state is measured, never inferred
+
+store_state documents four mutually exclusive states. Four measured paths
+reached none of them, and each landed somewhere worse than an error.
+
+- ROW 487, AN UNREADABLE VAULT BECAME A CONFIDENT EMPTY PLAINTEXT STORE. The
+  SECRETS_FILE.exists() probe sat OUTSIDE the try. CPython's pathlib swallows
+  only ENOENT, ENOTDIR, EBADF and ELOOP, so EACCES from a chmod-000 CONTAINING
+  DIRECTORY re-raised straight out of __init__ before any classification could
+  exist. configure_backend swallowed it with one stderr line, _backend stayed
+  None, and get_backend handed back a PlaintextBackend -- so the next set()
+  would have written secrets in clear beside the encrypted vault it could not
+  read. The probe is inside the try now and an unprobeable path is UNREADABLE.
+
+- ROW 510, A JSON ROOT THAT IS NOT AN OBJECT ESCAPED ALL FOUR STATES. json.loads
+  was bound straight to self._data with no isinstance check, so a vault holding
+  null, a number, a boolean, an array or a string parsed cleanly and left
+  _load_error None -- the sentinel documented as "the store was read". store_state
+  then raised TypeError or AttributeError out of a function whose contract is to
+  return one of four strings. All five roots now classify as unreadable, and a
+  control proves a well-formed object root is still read.
+
+- ROW 482, A VAULT THAT APPEARED AFTER CONSTRUCTION WAS DESTROYED BY ANY
+  PASSWORD. A missing file at construction left no trace of that fact, and
+  get_backend caches the instance for the life of the process. BD itself makes
+  the file appear inside that window with no restart: POST /api/backup/restore
+  writes secrets.json into the working directory. The first-use branch of
+  _unlock_locked then evaluated that stale snapshot and ended in
+  tmp.replace(SECRETS_FILE) -- an unconditional overwrite -- under any password
+  of eight characters. It re-probes before writing now, and a vault that
+  reappeared is a refusal naming the remedy. A control proves a genuinely fresh
+  vault still initializes, so a data-loss bug has not been traded for a lockout.
+
+- ROW 502, THE DELETE ROUTE THREW THE REFUSAL AWAY. SecretsUnreadableError
+  subclasses SecretsIntegrityError, not SecretsUnlockRequiredError, and the
+  route caught only the latter -- so the guard's entire operator remedy escaped
+  as an unhandled 500 with none of it in the response. It returns 409 with the
+  remedy now.
+
+- ROW 432 WAS ALREADY CLOSED, re-derived here rather than inherited: its rename
+  half was fixed at v3.66.1363, which preserves the file in place and sets
+  _load_error, and _unlock_locked calls _refuse_if_unreadable_locked. A test
+  now pins that closure so it cannot silently regress, which is the only reason
+  the row is touched at all.
+
 ## v3.66.1382 - a mutant anchor that resolves into a comment is not a mutant
 
 - bd-mutate finds its anchor by TEXT and never asks whether that text is
