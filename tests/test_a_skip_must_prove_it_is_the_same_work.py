@@ -228,7 +228,7 @@ def test_a_second_scene_never_inherits_the_first_scenes_file_or_title(
 ):
     """RED on the defective tree, and the whole point of the cut.
 
-    Before the fix this test recorded, at v3.66.1362:
+    Before the fix this test recorded, at v3.66.1363 (base 94d9f608):
       history[1] = url=<scene B>, status='done', filename='Example Site -
                    1080p.mp4', message='already on disk'  -- scene A's bytes
       library[0] = file_path=<scene A's file>, title='Second Scene'
