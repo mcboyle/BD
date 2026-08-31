@@ -29,7 +29,10 @@ from .db import db_log
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template
 from .website_title import history_title_kwargs
-from .constants import _HTTPDownloadFailed, _DownloadTruncated
+from .constants import (
+    _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable,
+)
+from . import staging_claim
 from .download_egress import effective_download_proxy
 from . import proxy_pool
 
@@ -816,6 +819,9 @@ class TransportMixin:
                     continue
                 try: Path(_p).unlink(missing_ok=True)
                 except Exception: pass
+            # part-staging-collision: the claim's lifetime is the .part's
+            # lifetime. The .part is gone, so the claim goes with it.
+            staging_claim.release(tmp_path)
             raise _DownloadTruncated(
                 f"truncated: received {downloaded} of {total} bytes "
                 f"(Content-Length); not promoting to final")
@@ -823,6 +829,7 @@ class TransportMixin:
         if meta_path:
             try: Path(meta_path).unlink(missing_ok=True)
             except Exception: pass
+        staging_claim.release(tmp_path)
         return final_path
     def _do_probe_fetch(self,page_url,page,ctx,dl,best,res_lbl,suggested):
         """GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
@@ -1203,8 +1210,31 @@ class TransportMixin:
             except Exception: pass
             return
 
-        # Resolve filename collisions (different content, same name) by suffix
-        final_path=safe_dest(final_path)
+        # Resolve filename collisions (different content, same name) by suffix.
+        #
+        # part-staging-collision: this was `safe_dest(final_path)`, which asks
+        # "is this final name free RIGHT NOW". Two workers on one site ask that
+        # a millisecond apart and both are told yes, because neither has
+        # promoted anything yet -- and then both stage into one `.part`, the
+        # second reading the first's partial bytes as a resume offset and
+        # appending a different scene onto them. Reserving the name takes it,
+        # atomically, keyed to this job's identity, so only one worker can be
+        # told yes and a restart of THIS job still reclaims its own `.part`.
+        try:
+            final_path, _staging_path = staging_claim.reserve(
+                final_path, staging_claim.job_identity(page_url))
+        except staging_claim.StagingUnavailable as e:
+            # UNKNOWN is not permission. Refuse rather than stage into a path
+            # whose ownership we cannot prove.
+            note = f"staging unavailable: {e}"
+            self._update_job(page_url, "needs_review", note,
+                             filename=final_path.name, file_size=0)
+            db_log(self.site_id, self.config.get("name","?"), page_url,
+                   "needs_review", final_path.name, 0, note,
+                   bytes_fetched=0)
+            try: dl.cancel()
+            except Exception: pass
+            return
 
         # ── Download path selection ──────────────────────────────────────
         use_http=self.config.get("use_http_dl",True) and _HTTPX_AVAILABLE
@@ -1234,6 +1264,7 @@ class TransportMixin:
                 db_log(self.site_id, self.config.get("name", "?"), page_url,
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=0)
+                staging_claim.release(_staging_path)
                 return
             res = _hls.download(
                 direct_url, str(final_path), referer=page_url,
@@ -1261,12 +1292,18 @@ class TransportMixin:
                 db_log(self.site_id, self.config.get("name", "?"), page_url,
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=max(0, int(res.bytes_written or 0)))
+                staging_claim.release(_staging_path)
                 return
             try:
                 downloaded_size = final_path.stat().st_size
             except Exception:
                 downloaded_size = int(res.bytes_written or 0)
             bytes_fetched = max(0, int(res.bytes_written or 0))
+            # part-staging-collision: the segmented path muxes straight to
+            # the reserved final name and never stages a `.part`, so the
+            # reservation has done its job and is released here rather than
+            # left beside the finished file.
+            staging_claim.release(_staging_path)
         # elif, NOT a second `if`. v3.66.819 shipped these as two independent
         # ifs with `use_http = False` in the stream branch, and that did not skip
         # the transfer selection -- it SELECTED THE ELSE. Measured on the deploy
@@ -1313,6 +1350,19 @@ class TransportMixin:
                         continue
                 if downloaded_size == 0 and last_err is not None:
                     raise last_err
+            except _StagingUnavailable as e:
+                # part-staging-collision: another live download owns the .part
+                # this transfer would have staged into, or ownership could not
+                # be measured. Deliberately NOT the Playwright fallback: the
+                # browser would write its bytes to the very destination this
+                # refusal is protecting. needs_review, so the operator sees it.
+                note = f"staging unavailable: {e}"
+                self._update_job(page_url, "needs_review", note,
+                                 filename=final_path.name, file_size=0)
+                db_log(self.site_id, self.config.get("name","?"), page_url,
+                       "needs_review", final_path.name, 0, note,
+                       bytes_fetched=0)
+                return
             except _DownloadTruncated as e:
                 # BP-INT (v3.66.284): the transfer ended short of the
                 # advertised Content-Length. The .part was already removed and
@@ -1342,9 +1392,14 @@ class TransportMixin:
                 # failure as the message prose this column replaces.
                 transfer_mode="browser"
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
+                # part-staging-collision: the browser wrote straight to
+                # the reserved final name, so the reservation has done
+                # its job and is released.
+                staging_claim.release(_staging_path)
         else:
             transfer_mode="browser"
             downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
+            staging_claim.release(_staging_path)
 
         # ── Phase 17.20: Size sanity check ───────────────────────────────
         # If the page advertised a file size and we got back something
@@ -1647,7 +1702,23 @@ class TransportMixin:
         ua=(self.config.get("fingerprint") or {}).get("user_agent") or \
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         headers={"User-Agent":ua,"Referer":page_url,"Accept":"*/*"}
-        tmp_path=final_path.with_suffix(final_path.suffix+".part")
+        # part-staging-collision: the staging path is CLAIMED, not derived and
+        # hoped for. `_do_download` already reserved this exact name for this
+        # exact job, so the claim below normally just re-reads our own -- but
+        # this method is also the last thing standing between a second job and
+        # somebody else's half-written `.part`, and a defence that only works
+        # when the caller remembered to call it is not a defence. A claim held
+        # by a different job refuses here; there is no alternative name to
+        # divert to at this depth.
+        try:
+            tmp_path = staging_claim.claim(
+                final_path, staging_claim.job_identity(page_url))
+        except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingUnavailable) as e:
+            raise _StagingUnavailable(str(e))
+        # The claim guards the ON-DISK staging name and is released with it,
+        # even when the bytes are staged in RAM below.
+        owner_path = staging_claim.owner_path_for(tmp_path)
         # v3.45.6 Phase 183: opt-in RAM-disk staging. If enabled AND
         # this file is sized to fit, redirect tmp_path to the ram
         # staging path. Meta sidecar moves with it (volatile — crash
@@ -1780,6 +1851,7 @@ class TransportMixin:
                         # moved nothing, which is why the size alone cannot be
                         # read as evidence of a download.
                         tmp_path.rename(final_path)
+                        staging_claim.release(tmp_path)
                         return final_path.stat().st_size, 0
                     raise _HTTPDownloadFailed("HTTP 416 with no resume position")
                 if resp.status_code==206:  # partial content — resume worked
@@ -1977,6 +2049,11 @@ class TransportMixin:
                         continue
                     try: Path(_p).unlink(missing_ok=True)
                     except Exception: pass
+                # part-staging-collision: the .part is gone, so its claim goes
+                # with it. owner_path names the ON-DISK staging file even when
+                # the bytes were staged in RAM.
+                try: owner_path.unlink(missing_ok=True)
+                except Exception: pass
                 raise _DownloadTruncated(
                     f"truncated: received {downloaded} of {total} bytes "
                     f"(Content-Length); not promoting to final")
@@ -2006,6 +2083,11 @@ class TransportMixin:
         # Phase 62: cleanup the resume-meta sidecar now that the download
         # is complete and the .part no longer exists.
         try: meta_path.unlink(missing_ok=True)
+        except Exception: pass
+        # part-staging-collision: and the staging claim with it. Idempotent --
+        # the direct path already released inside _promote_or_abort; this also
+        # covers the ramdisk promote, which never goes through that helper.
+        try: owner_path.unlink(missing_ok=True)
         except Exception: pass
         # Phase 17.19: feed this download's measured throughput into the
         # EWMA so the next download picks a better chunk size. Only count
@@ -2116,7 +2198,17 @@ class TransportMixin:
             else: _cffi = None
         except ImportError: _cffi = None
 
-        tmp_path = final_path.with_suffix(final_path.suffix + ".part")
+        # part-staging-collision: the segmented downloader stages into the
+        # SAME `<final>.part` the sequential path uses, so it claims it the
+        # same way. _do_download already reserved this name for this job, so
+        # this normally re-reads our own claim; a claim held by a different
+        # live download refuses rather than pwrite into its bytes.
+        try:
+            tmp_path = staging_claim.claim(
+                final_path, staging_claim.job_identity(page_url))
+        except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingUnavailable) as e:
+            raise _StagingUnavailable(str(e))
         # v3.43.27: per-file resume checkpoint. Replaces the previous
         # "always delete .part" behavior — now we check for a valid
         # resume point and only restart from scratch when validators
@@ -2426,6 +2518,8 @@ class TransportMixin:
         except Exception as e:
             _daily_bytes.flush()
             raise _HTTPDownloadFailed(f"rename failed: {e}")
+        # part-staging-collision: the .part is gone, so its claim goes too.
+        staging_claim.release(tmp_path)
         # v3.43.27: file is complete; clean up the checkpoint sidecar.
         _resume.cleanup(final_path)
         # (size_on_disk, bytes_transferred_this_call) -- `progress` holds the

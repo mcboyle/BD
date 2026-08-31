@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "resolved": 113,
+  "resolved": 105,
   "schema_version": 1,
   "unresolved": [],
   "windows": [
@@ -80,46 +80,6 @@
       "sha256": "dcfcf82d02a58aff7625fd0f35418fcf5f9fef6943d3dd98ad39c6676b8722f6"
     },
     {
-      "bytes": 10012,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_checks_is_resumable::src[parallel_pos:parallel_pos + 10000]::1",
-      "sha256": "ad0f004d27a144edc863ae39773c977f0b950248196575b14f8aa1eba5f3bd66"
-    },
-    {
-      "bytes": 15022,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_cleans_up_checkpoint_on_success::src[parallel_pos:parallel_pos + 15000]::1",
-      "sha256": "9cbe5ea2dfb97953d16d6d6e070f101955c56a625111d5f8927304c41b650936"
-    },
-    {
-      "bytes": 10012,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_imports_resume_module::src[parallel_pos:parallel_pos + 10000]::1",
-      "sha256": "ad0f004d27a144edc863ae39773c977f0b950248196575b14f8aa1eba5f3bd66"
-    },
-    {
-      "bytes": 15022,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_periodic_checkpoint_save::src[parallel_pos:parallel_pos + 15000]::1",
-      "sha256": "9cbe5ea2dfb97953d16d6d6e070f101955c56a625111d5f8927304c41b650936"
-    },
-    {
-      "bytes": 15022,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_resume_offset_added_to_total::src[parallel_pos:parallel_pos + 15000]::1",
-      "sha256": "9cbe5ea2dfb97953d16d6d6e070f101955c56a625111d5f8927304c41b650936"
-    },
-    {
-      "bytes": 15022,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_saves_checkpoint_on_failure::src[parallel_pos:parallel_pos + 15000]::1",
-      "sha256": "9cbe5ea2dfb97953d16d6d6e070f101955c56a625111d5f8927304c41b650936"
-    },
-    {
-      "bytes": 10012,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_uses_head_probe::src[parallel_pos:parallel_pos + 10000]::1",
-      "sha256": "ad0f004d27a144edc863ae39773c977f0b950248196575b14f8aa1eba5f3bd66"
-    },
-    {
-      "bytes": 15022,
-      "key": "tests/test_v3_43_27_resume.py::test_parallel_downloader_worker_seeks_past_resumed_bytes::src[parallel_pos:parallel_pos + 15000]::1",
-      "sha256": "9cbe5ea2dfb97953d16d6d6e070f101955c56a625111d5f8927304c41b650936"
-    },
-    {
       "bytes": 1604,
       "key": "tests/test_v3_43_27_resume.py::test_save_is_atomic::src[save_start:save_start + 1500]::1",
       "sha256": "e4f0bf665f436dde14b58dcc8c3dd348ffe7e26317d495ab99c8351efcc57505"
@@ -177,7 +137,7 @@
     {
       "bytes": 10020,
       "key": "tests/test_v3_43_31_rate_limit.py::test_runner_acquires_slot_in_http_download::src[fn_pos:fn_pos + 10000]::1",
-      "sha256": "9df86a96e2920d095d2f294084d0dcd7509e1e43fb14253a946f4394d3aa5a4d"
+      "sha256": "b5aae4bff5e02ed4a298e757d35ea96de83f9c8d02817a191ad1e092c819f2ea"
     },
     {
       "bytes": 2502,

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4124,
+  "edge_count": 4130,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1107,7 +1107,8 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/crash_recovery.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "bulk_downloader/cross_site_selectors.py": [
       "bulk_downloader/global_config.py"
@@ -1887,6 +1888,7 @@
       "bulk_downloader/resume.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/sse_broker.py",
+      "bulk_downloader/staging_claim.py",
       "bulk_downloader/stash_deep.py",
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/website_title.py"
@@ -3298,6 +3300,12 @@
     ],
     "tests/test_parity_method_aware.py": [
       "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_part_staging_collision.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_password_import.py": [
       "bulk_downloader/password_import.py"
