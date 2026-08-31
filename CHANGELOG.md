@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1362 - file what the row 399 band found on main
+
+- EIGHT ROWS APPENDED THROUGH bd-register-append, none of them laundered. The
+  v3.66.1361 affected band finished 496 of 502 suites green, and every one of
+  the six failures was reproduced on clean main with the candidate absent, so
+  none belonged to row 399. Recording them as rows is the alternative to
+  re-adjudicating the same six by hand on every future band.
+- 412 is the canonical row for the photo-gallery work itself, which shipped at
+  1361 under the historical unregistered label 399 and is CLOSED @1361 here.
+  bd-register-append requires numeric insertion order after existing ids, so
+  399 could not be appended under its own number.
+- 413 health conflates vault state with the download hold: downloads_allowed is
+  False while the hold is CLEAR, so an operator cannot tell a deliberate hold
+  from an uninitialised vault. The operator ruling is to separate the two.
+- 414 the phase6 suite cannot start its Flask server -- 15 failures, one cause.
+- 415 the vitest gate asserts a precondition nothing provisions in a fresh
+  worktree.
+- 416 bd-band's 240s per-suite bound no longer covers its slowest suite, which
+  runs 244.57s alone, and a timeout there prints a bare FAIL with NO summary --
+  a failure carrying no denominator at all.
+- 417 the body-contract UNKNOWN ratchet is not holding on shipped code.
+- 418 the positive control in the app-import gate fails, so that gate currently
+  cannot distinguish deferred initialisation from none.
+- 419 the band hosts and the integrator disagree about the display, so a remote
+  band can report a candidate red for a property of the machine that took it.
+- No historical status was rewritten and no PARTIAL prose was stripped. The
+  register goes 360 rows/5 open to 368/12 with a recomputed ids-sha256.
+
 ## v3.66.1361 - a photo gallery is not a failed video page
 
 - ROW 399. A rendered page carrying no recognised media URL was reported as a
