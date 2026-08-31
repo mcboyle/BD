@@ -105,14 +105,39 @@ class TestAF3RevokePersistence:
         assert ev.validate_vault_token(vt) is None
 
 
-# ── AF4: malformed vault_tokens.json backed up, never wiped ─────────
+# ── AF4: malformed vault_tokens.json preserved in place, never wiped ─
 class TestAF4VaultTokensBackup:
-    def test_malformed_file_is_backed_up(self, monkeypatch, tmp_path):
+    def test_malformed_file_is_preserved_in_place(self, monkeypatch, tmp_path):
+        """AF4's guarantee, strengthened by the row-432 family.
+
+        AF4 required that a malformed vault_tokens.json never be wiped; it met
+        that by renaming the file to ``vault_tokens.json.corrupt-<ts>`` and
+        returning fresh-empty state. The rename WAS the defect:
+        ``Path.replace()`` needs directory permission rather than file
+        permission, so a chmod-000 file or a transient EIO renamed the
+        operator's LIVE token store away exactly as readily as a torn write
+        did -- and the fresh dict then reported 0 paired extensions, reported
+        revocation of a still-live token as a no-op, and let the next
+        ``issue_pairing_token()`` publish a new store under the real name.
+
+        Preservation is now strictly stronger: byte-identical, in place, under
+        its own name, with no reinit and every store-touching call refused.
+        """
         f = tmp_path / "vault_tokens.json"
         f.write_text("totally not json", encoding="utf-8")
         monkeypatch.setattr(ev, "VAULT_TOKENS_FILE", f)
-        data = ev._load_tokens()
-        backups = list(tmp_path.glob("vault_tokens.json.corrupt-*"))
-        assert backups, "malformed vault_tokens.json must be preserved"
-        assert backups[0].read_text(encoding="utf-8") == "totally not json"
-        assert data == {"pairing": {}, "redeemed": {}}
+        mtime = f.stat().st_mtime_ns
+        with pytest.raises(ev.VaultTokensUnreadableError):
+            ev._load_tokens()
+        # Preserved in place, byte-identical, under its own name.
+        assert f.exists(), "malformed vault_tokens.json must be preserved"
+        assert f.read_text(encoding="utf-8") == "totally not json"
+        assert f.stat().st_mtime_ns == mtime
+        # No move-aside sibling: the rename is what this change removed.
+        assert list(tmp_path.glob("vault_tokens.json.corrupt-*")) == []
+        # UNREADABLE is its own state -- never "absent", never empty.
+        assert ev.store_state() == "unreadable"
+        # And nothing may write a fresh store over it.
+        with pytest.raises(ev.VaultTokensUnreadableError):
+            ev.issue_pairing_token()
+        assert f.read_text(encoding="utf-8") == "totally not json"
