@@ -89,6 +89,12 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Row 532. bd-mutate finds its anchor by TEXT and never asks whether the
+    # text is executable, so an anchor can resolve exactly once onto a comment:
+    # the mutation edits prose, behaviour is unchanged, the catcher passes, and
+    # the battery records a caught regression it never caused. Its subject is
+    # every tracked mutant spec, so no diff selects it.
+    "tests/test_row532_a_mutant_anchor_must_resolve_into_code.py",
     # Row 346. The plugin sandbox checker judges an exact tree-wide population
     # of three bridges/six launches, while the runtime cases execute both
     # launch shapes with leaked and benign environment controls.
@@ -784,8 +790,8 @@ _DECLARED = {
 
 # TWO FLOORS, NOT TWO EXACT COUNTS (row 531, v3.66.1381).
 #
-# This block held `_EXPECTED_DECLARED_GATE_COUNT = 235` and
-# `_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7` behind eighty lines of bump
+# This block held two exact-count literals -- one for the declared gate census
+# and one for the seven-member H15 safety family -- behind eighty lines of bump
 # comments -- "208 -> 209", "233 -> 234", "the integrator re-pins this if a
 # concurrent cut also lands a gate". Every cut that declared a gate had to edit
 # the number, and on 2026-08-31 forgetting to do so cost a full CI round-trip

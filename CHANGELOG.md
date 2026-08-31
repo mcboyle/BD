@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1382 - a mutant anchor that resolves into a comment is not a mutant
+
+- bd-mutate finds its anchor by TEXT and never asks whether that text is
+  executable. An anchor can therefore resolve exactly once onto a line of prose:
+  the mutation edits a comment, the subject's behaviour is unchanged, the catcher
+  passes, and the battery records a caught regression it never caused. Nothing
+  in the pipeline could see the difference.
+
+- MEASURED BEFORE ADOPTING. 536 python-subject anchors across the tracked specs;
+  ZERO resolve comment-only and zero resolve partly in a comment. The ratchet
+  starts on a clean population, which is the only kind anyone can keep. The
+  broader rule that suggested itself first -- "no comment may contain
+  assignment-shaped text" -- was measured and REJECTED: 446 occurrences across
+  226 tracked files, nearly all ordinary prose like `nargs='+'` or `exit=1`.
+
+- A STRING LITERAL IS CODE. Only comments are inert. Treating docstrings and
+  string constants as prose would have rejected seven legitimate anchors that
+  mutate real string values, so the rule is scoped to COMMENT tokens alone and
+  a control asserts a docstring match still classifies as CODE.
+
+- NO RED-FIRST PROVENANCE, AND THAT IS STATED RATHER THAN MANUFACTURED. There is
+  no defect to replay on the parent; this is a new ratchet. What stands in for it
+  is a negative control that refuses a synthetic comment-anchored spec, so the
+  check is proven capable of failing before its green verdict means anything, and
+  a denominator floor of 500 so a survey that stops seeing its subject cannot
+  read as clean.
+
+- AND THE PROSE THAT PROMPTED IT. v3.66.1381's explanation of a retired literal
+  named that literal with its old value, in a comment. Nothing anchors there, so
+  it was a hazard rather than a defect -- the first draft of this note called it
+  a live finding and the measurement above says otherwise. The comment is
+  reworded anyway, and the new gate is what keeps the class closed.
+
+- The declared-gate population went 235 -> 236 with this gate and NO literal was
+  bumped, which is v3.66.1381 paying for itself one release later.
+
 ## v3.66.1381 - a denominator that must be hand-bumped is a chore, not a gate
 
 - THREE EXACT-EQUALITY LITERALS RETIRED. `_EXPECTED_DECLARED_GATE_COUNT = 235`

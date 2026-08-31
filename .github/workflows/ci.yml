@@ -653,6 +653,7 @@ jobs:
           # therefore absent from every PR shard even though each gate worked.
           - name: safety-censuses
             suites: >-
+              tests/test_row532_a_mutant_anchor_must_resolve_into_code.py
               tests/test_capture_csrf_diag_redacts_cookies.py
               tests/test_home_config_stores_are_guarded.py
               tests/test_v3_66_1009_live_results_are_bundled.py
