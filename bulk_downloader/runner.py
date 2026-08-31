@@ -56,6 +56,13 @@ from .constants import (
 # the standard library at module scope, so there is no cycle to dodge.
 from . import download_hold as _download_hold
 
+# Row 434: the two runner states a hold refusal publishes. A runner sitting in
+# one of these is NOT resumable on the token alone -- start() publishes the same
+# tokens and refuses before spawning any worker -- so resume() consults the
+# state it recorded when IT refused (see SiteRunner.resume).
+_DOWNLOAD_HOLD_STATE_TOKENS = (
+    _download_hold.STATE_HELD, _download_hold.STATE_UNKNOWN)
+
 # A0 / BEH-1 + BEH-2 (v3.66.322): canonical creation-time defaults. These are the
 # values the legacy Add-Site form stored at create time; the SPA wizard stores no
 # defaults, so SPA-added sites fall back to these read-time defaults. Every read
@@ -644,6 +651,110 @@ class StartOutcome(str, enum.Enum):
     TEARDOWN_PENDING = "worker_teardown"
 
 
+# ── Row 446: the download trigger must not race the modal it opened ─────────
+#
+# The trigger path used to synchronize on a fixed time.sleep(1.5) between the
+# click and a SINGLE find_best_download DOM read. The modal or tier list the
+# click opens is appended by the site's handler at Chromium's next rendering or
+# XHR opportunity, which is NOT ordered against the CDP round trip that reads
+# the DOM back, so on a contended host or a slow AJAX menu the scrape observed
+# the PRE-CLICK page -- scoring whatever anchors happened to exist (on a page
+# carrying direct media links outside the modal, that is a wrong file filed
+# under the right title) and charging the miss to the learned selectors.
+#
+# This is the same scroll-dispatch race rows 385/397 named, and it gets the same
+# two-part answer scene_crawler uses: a rendered-frame barrier closes the
+# DISPATCH half CAUSALLY, and observed stability -- not a duration -- is the
+# settle condition for the CONTENT half. The budget is a refusal to hang, not
+# the mechanism; when it expires the read is UNKNOWN and the caller refuses
+# rather than scoring a page it could not observe (CLAUDE.md A7).
+DOWNLOAD_SETTLE_POLL_S = 0.15
+DOWNLOAD_SETTLE_QUIET_POLLS = 2
+DOWNLOAD_SETTLE_BUDGET_S = 8.0
+
+SETTLE_SETTLED = "settled"
+SETTLE_UNKNOWN = "unknown"
+
+# Resolving inside a frame callback PROVES the click listener already ran: click
+# handlers are dispatched before "update the rendering", which precedes
+# animation-frame callbacks. The timer is a ceiling for a document that never
+# renders a frame -- a refusal to hang, not the settle mechanism.
+_TRIGGER_FRAME_JS = """
+() => new Promise((resolve) => {
+  let done = false;
+  const finish = () => { if (!done) { done = true; resolve(true); } };
+  setTimeout(finish, 1000);
+  requestAnimationFrame(() => requestAnimationFrame(finish));
+})
+"""
+
+# Counts the elements a download scrape can actually rank, so a modal that
+# appends tier rows moves this number. Height alone would miss a modal that
+# overlays the page without extending it.
+_TRIGGER_METRICS_JS = (
+    "() => [Math.max(document.body?.scrollHeight || 0, "
+    "document.documentElement?.scrollHeight || 0), "
+    "document.querySelectorAll("
+    "'a[href],[data-href],[data-url],[data-src],button,[role=\"button\"]'"
+    ").length]"
+)
+
+
+def _trigger_dom_metrics(page):
+    result = page.evaluate(_TRIGGER_METRICS_JS)
+    return int(result[0]), int(result[1])
+
+
+def settle_after_trigger(page, *, poll_s=None, quiet_polls=None,
+                         budget_s=None):
+    """Wait for a triggered menu to stop changing. Returns a settle state.
+
+    NEVER RAISES. The learned trigger loop's click sits inside a bare
+    ``except Exception: continue``, so a raising settle would be swallowed into
+    "try the next selector" and the scrape would still run against the
+    unobserved page -- the fix reproducing the defect's own shape. Every failure
+    to observe returns ``SETTLE_UNKNOWN`` instead, and the caller refuses.
+
+    ``SETTLE_SETTLED`` is a bounded claim and says so: the ranked-element count
+    and document height did not move across ``quiet_polls`` consecutive reads
+    after a rendered frame. A menu that appends later than that window is not
+    observable by any bounded wait, which is why the frame barrier closes the
+    dispatch race causally instead of leaning on this window for it.
+    """
+    poll_s = DOWNLOAD_SETTLE_POLL_S if poll_s is None else poll_s
+    quiet_polls = max(
+        1, int(DOWNLOAD_SETTLE_QUIET_POLLS if quiet_polls is None
+               else quiet_polls))
+    budget_s = DOWNLOAD_SETTLE_BUDGET_S if budget_s is None else budget_s
+    try:
+        page.evaluate(_TRIGGER_FRAME_JS)
+    except Exception:
+        # A page that cannot run the frame barrier has not proven its handler
+        # ran; the stability poll below remains the settle condition, and an
+        # unreadable page falls through to UNKNOWN on the very next read.
+        pass
+    try:
+        current = _trigger_dom_metrics(page)
+    except Exception:
+        return SETTLE_UNKNOWN
+    deadline = time.monotonic() + max(0.0, float(budget_s))
+    stable = 1
+    while stable < quiet_polls:
+        if time.monotonic() >= deadline:
+            return SETTLE_UNKNOWN
+        try:
+            page.wait_for_timeout(max(1, int(float(poll_s) * 1000)))
+            latest = _trigger_dom_metrics(page)
+        except Exception:
+            return SETTLE_UNKNOWN
+        if latest == current:
+            stable += 1
+        else:
+            current = latest
+            stable = 1
+    return SETTLE_SETTLED
+
+
 def _run_lifecycle_serialized(method):
     """Serialize public run transitions through one re-entrant lock."""
     @functools.wraps(method)
@@ -699,6 +810,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._url_queue=queue.Queue()
         self._worker_threads=[]
         self._state="idle"; self._login_thread=None; self._login_status=""
+        # Row 434: the resumable state resume() was in when a download hold
+        # refused it, or None. Only resume() writes it; start() and stop()
+        # clear it, because after either there is nothing to resume BACK into.
+        self._hold_refused_resumable_state = None
         # Phase 18.fix: session-recovery gate. Cleared while a re-login is
         # in flight; workers wait on this before pulling the next URL so
         # they don't drain the queue with auth-failure repeats.
@@ -1303,6 +1418,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # carry on"), and never raises, so there is no fail-open branch to add.
         _hold_allowed, _hold_state = _download_hold.downloads_allowed()
         if not _hold_allowed:
+            # Row 434: start() refuses BEFORE any worker exists, so a runner
+            # refused here has nothing for resume() to resume back into. Clear
+            # any recovery state a previous resume() refusal recorded, so the
+            # token published below can never be turned into a worker-less
+            # "running" by a later Resume click.
+            self._hold_refused_resumable_state = None
             _token = _download_hold.runner_state_token(_hold_state)
             if self._state != _token:
                 self._state = _token
@@ -1478,6 +1599,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if run_generation != self._worker_run_generation:
                 return
             self._stop.clear(); self._pause.set(); self._state="running"; self._consec_no_btn=0
+            self._hold_refused_resumable_state = None  # row 434
             self._drain_url_queue()
             for u in pending:
                 self._url_queue.put((run_generation, u))
@@ -1681,11 +1803,34 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         Row 390: gated by the durable download hold. resume() flips paused ->
         running WITHOUT passing through start(), so leaving it ungated would let
         /api/resume_all defeat a hold that start() honours. Same fail-closed
-        contract: an unmeasurable hold refuses."""
-        if self._state in ("paused", "low_disk", "paused_no_button"):
-            reset_no_button_streak = self._state == "paused_no_button"
+        contract: an unmeasurable hold refuses.
+
+        Row 434: resume()'s OWN refusal used to be a one-way door. It published
+        "download_held"/"download_hold_unknown", neither of which is in the
+        resumable tuple, so one hold-refused Resume click converted a resumable
+        runner into a state resume() could never leave -- and lifting the hold
+        recovered nothing, because the lift endpoint touches no runner. The
+        operator got ok:true while the runner kept publishing a hold that
+        /api/download_hold reported CLEAR, and /api/resume_all skipped it
+        forever; recovery needed stop()+start().
+
+        The token alone cannot be the key to the door, because start() publishes
+        the SAME tokens and start() refuses BEFORE spawning any worker. Flipping
+        one of those to "running" would trade the old lie for a worse one: a
+        runner reporting "running" with zero worker threads. So the refusal
+        remembers the state it interrupted, and only a resume-refused runner is
+        recoverable -- back into exactly the state it came from."""
+        resumable = ("paused", "low_disk", "paused_no_button")
+        prior_state = self._state
+        if prior_state in _DOWNLOAD_HOLD_STATE_TOKENS:
+            # Only resume() records this; a start()-refused runner has None
+            # here and stays refused, because it has no workers to resume.
+            prior_state = getattr(self, "_hold_refused_resumable_state", None)
+        if prior_state in resumable:
+            reset_no_button_streak = prior_state == "paused_no_button"
             _hold_allowed, _hold_state = _download_hold.downloads_allowed()
             if not _hold_allowed:
+                self._hold_refused_resumable_state = prior_state
                 self._state = _download_hold.runner_state_token(_hold_state)
                 self.log_event(
                     "download_hold",
@@ -1694,6 +1839,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     extra={"hold_state": _hold_state.get("state"),
                            "hold_reason": _hold_state.get("reason")})
                 return
+            self._hold_refused_resumable_state = None
             self._state = "running"
             if reset_no_button_streak:
                 self._consec_no_btn = 0
@@ -1702,6 +1848,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     @_run_lifecycle_serialized
     def stop(self):
         self._rl_autostart=False  # P3-A: operator stop cancels a pending rate-limit resume
+        self._hold_refused_resumable_state = None  # row 434: nothing to resume into
         self._stop.set(); self._pause.set()
         _flush_pending = getattr(self, "_flush_daily_byte_accumulators", None)
         if _flush_pending:
@@ -3574,11 +3721,26 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # non-login cookies (Cloudflare __cf_bm, GA, etc.) that build
                 # trust over time. The previous "skip if name exists" filter
                 # was the actual bug: it left STALE login cookies in place.
+                #
+                # Row 448: SNAPSHOT THE TIMESTAMP BEFORE THE ROUND TRIP.
+                # add_cookies is a CDP round trip taking tens of milliseconds.
+                # Stamping my_cookie_ts from self._cookies_updated_at AFTER it
+                # returned recorded a version this context never received: a
+                # re-login thread or the session keeper publishing v2 inside
+                # that window landed after the v1 list was read and before the
+                # stamp, so the comparison above went false while the context
+                # still held v1 -- and v2 was never injected into this worker
+                # until an unrelated third update arrived. Reading the stamp
+                # FIRST makes a publish that lands during injection stay newer
+                # than my_cookie_ts, so it wins the next comparison. The worst
+                # case is now one redundant re-inject, never a skipped one.
                 if (persistent_ctx is not None and self.cookies
                         and self._cookies_updated_at > my_cookie_ts):
+                    pending_cookie_ts = self._cookies_updated_at
+                    cookies_to_inject = list(self.cookies)
                     try:
-                        persistent_ctx.add_cookies(self.cookies)
-                        my_cookie_ts = self._cookies_updated_at
+                        persistent_ctx.add_cookies(cookies_to_inject)
+                        my_cookie_ts = pending_cookie_ts
                     except Exception as e:
                         sys.stderr.write(f"[{self.site_id}] cookie refresh failed: {e}\n")
                 try: url=self._url_queue.get(timeout=1)
@@ -4245,6 +4407,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     f"defaulting to click\n")
                 trigger_action = "click"
             trigger_clicked = False
+            # Row 446: nothing has been opened yet, so there is nothing to
+            # settle. Only a trigger that actually fired can leave this UNKNOWN.
+            trigger_settle_state = SETTLE_SETTLED
             for tsel in triggers_to_try:
                 try:
                     loc = page.locator(tsel).first
@@ -4258,10 +4423,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         time.sleep(0.3)
                     if trigger_action != "hover":
                         loc.click()
-                    time.sleep(1.5)
+                    # Row 446: observed stability, not a fixed 1.5s sleep.
+                    trigger_settle_state = settle_after_trigger(page)
                     sys.stderr.write(
                         f"  download: triggered via [{tsel}] "
-                        f"action={trigger_action}\n")
+                        f"action={trigger_action} "
+                        f"settle={trigger_settle_state}\n")
                     trigger_clicked = True
                     break
                 except Exception: continue
@@ -4296,15 +4463,38 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 time.sleep(0.3)
                             if trigger_action != "hover":
                                 rloc.click()
-                            time.sleep(1.5)
+                            # Row 446: the recovered path opens the same modal
+                            # and raced it the same way.
+                            trigger_settle_state = settle_after_trigger(page)
                             sys.stderr.write(
                                 f"  download: recovered trigger via "
-                                f"[{new_sel}] action={trigger_action}\n")
+                                f"[{new_sel}] action={trigger_action} "
+                                f"settle={trigger_settle_state}\n")
                             trigger_clicked = True
                         except Exception as _re:
                             sys.stderr.write(
                                 f"  download: recovered selector "
                                 f"[{new_sel}] still failed: {_re}\n")
+            # Row 446 / CLAUDE.md A7: a trigger fired but the page never stopped
+            # changing, so we cannot say what the click opened. Scoring it would
+            # rank the pre-click page's anchors -- the wrong-file shape -- and
+            # charge the miss to healthy learned selectors. Refuse instead, with
+            # a diagnostic of its own so this is never confused with the
+            # no-download-button refusal below, and leave the URL pending for a
+            # later pass rather than failing it.
+            if trigger_clicked and trigger_settle_state != SETTLE_SETTLED:
+                self.log_event(
+                    "download_trigger_unsettled",
+                    "Download menu did not settle within "
+                    f"{DOWNLOAD_SETTLE_BUDGET_S}s; refusing to score a page "
+                    "that could not be observed",
+                    url=url,
+                    extra={"settle_state": trigger_settle_state,
+                           "trigger_action": trigger_action})
+                self._update_job(
+                    url, "pending",
+                    "Download menu did not settle; will retry")
+                return
             chk=self._check_redirect(page,url)
             if chk=="rl":
                 self.trigger_rate_limit(url,f"Rate limit at {page.url}"); return

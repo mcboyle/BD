@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4135,
+  "edge_count": 4146,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3714,6 +3714,23 @@
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py": [
+      "bulk_downloader/download_hold.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_row446_download_trigger_races_the_modal.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_row448_cookie_update_during_injection.py": [
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/netns_isolation.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/smart_wakeup.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
