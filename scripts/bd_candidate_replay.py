@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import secrets
 import shutil
@@ -129,6 +130,20 @@ def _git_bytes(cwd: Path, *args: str) -> bytes:
     return result.stdout
 
 
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+# Git's refusals when the output path or its registration ALREADY EXISTS -- the
+# cases where `git worktree add` creates nothing at all, so nothing there is
+# ours. Row 480.
+_FOREIGN_ADD_REFUSAL = re.compile(
+    r"already exists|already registered|already used by worktree|"
+    r"is already checked out|missing but already registered|"
+    r"cannot create directory",
+    re.IGNORECASE,
+)
+
+# Git's refusals when the path or its registration ALREADY EXISTS -- i.e. when
+# `git worktree add` created nothing at all. Row 480.
 def _git_text(cwd: Path, *args: str) -> str:
     return _git_bytes(cwd, *args).decode("utf-8", "strict").strip()
 
@@ -792,7 +807,21 @@ def replay(
         _require_supported_source_state(source)
 
         source_head = _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
-        expected = _resolve_commit(source, expect_head, "EXPECTED_HEAD_UNREADABLE")
+        # ROW 500. BOTH SIDES USED TO BE RESOLVED INSIDE THE ONE WORKTREE THE
+        # ARGUMENT EXISTS TO CERTIFY, which makes the comparison tautological
+        # for any value derived from the source: --expect-head HEAD, @, or any
+        # branch name that happens to point there all "certify" whatever the
+        # tree currently is. A certification must be against a value the CALLER
+        # supplied, so the argument is now required to be a literal 40-hex
+        # object name and is never handed to git rev-parse.
+        expected = expect_head.strip()
+        if not _FULL_SHA.fullmatch(expected):
+            raise ReplayFailure(
+                "EXPECTED_HEAD_NOT_LITERAL",
+                "--expect-head must be a full 40-character object name, not a "
+                f"revision this tool would resolve inside the very worktree it "
+                f"is certifying; got {expect_head!r}",
+            )
         if source_head != expected:
             raise ReplayFailure(
                 "SOURCE_HEAD_MISMATCH",
@@ -833,20 +862,83 @@ def replay(
         source_identity = _identity_at(source)
         common_git_identity = _identity_at(repo_common_git)
         worktree_add_attempted = True
+        # ROW 480: CLOSE THE WINDOW, THEN MEASURE IT. The pre-checks that prove
+        # the output path is free run BEFORE three complete fingerprint passes,
+        # each reading every untracked file's bytes -- seconds to minutes on a
+        # real tree. A foreign creator registering a linked worktree of this
+        # same repo at --output inside that window used to be indistinguishable
+        # from our own partial output. This re-probe costs one stat and reduces
+        # the window to the add itself, and its answer is the discriminator:
+        # occupied BEFORE means somebody else put it there.
+        try:
+            occupied_before_add = output.exists() or output.is_symlink()
+        except OSError:
+            occupied_before_add = True      # unmeasurable is foreign, never ours
         add_result = _git_result(
             repo, "worktree", "add", "--detach", str(output), main_sha
         )
+        # ROW 480. OWNERSHIP IS CREATED-BY-THIS-TRANSACTION, NOT
+        # SAME-INODE-AS-AFTER-THE-ADD. This block used to capture ownership
+        # BEFORE testing the return code, so an add that failed because a
+        # foreign creator had registered a linked worktree of the same repo at
+        # --output during the window recorded THAT directory's inode as this
+        # transaction's output. The identity guard then compared the live inode
+        # against the identity it had just captured from the foreign tree, so it
+        # PASSED, and rollback ran `git worktree remove --force` on another
+        # worker's tree -- taking its uncommitted and untracked files with it,
+        # and reporting nothing, because _fail emits only status, reason_code
+        # and message.
+        #
+        # The window is not narrow: between the pre-checks and this add the tool
+        # runs three complete fingerprint passes, each reading every untracked
+        # file's bytes. Seconds to minutes on a real tree.
+        if add_result.returncode != 0:
+            detail = add_result.stderr.decode("utf-8", "replace").strip()
+            # WHICH FAILURE IS THIS? Two shapes reach here and they demand
+            # opposite actions, and the discriminator is the re-probe above --
+            # not git's refusal text, which is empty in the case where git
+            # created the tree and the caller failed afterwards. Occupied
+            # BEFORE the add means a foreign creator; absent before and present
+            # after means git made it and it is ours to reap.
+            occupied = output.exists() or output.is_symlink()
+            # TIMING ALONE CANNOT DECIDE THIS. The re-probe closes the window
+            # up to the add, but a foreign creator can still win INSIDE the add
+            # itself -- measured: a wrapper that creates the tree and then lets
+            # real git refuse. Git's refusal text is the second, independent
+            # signal, and it is decisive in exactly that case: when the path or
+            # its registration already exists git creates NOTHING and says so.
+            # Either signal is enough to withhold ownership. Both being absent
+            # is the only shape that means git made a partial output of ours.
+            if occupied_before_add or _FOREIGN_ADD_REFUSAL.search(detail):
+                # Ownership that cannot be proven is retained and reads
+                # UNKNOWN, never removed (A7). No ownership is captured, so
+                # rollback has nothing it believes it owns and removes nothing.
+                # The reason code is distinct from the created-then-failed case
+                # because the two diagnoses -- "reap my own partial output" and
+                # "somebody else's tree is in the way" -- lead to opposite
+                # actions, and collapsing them is what let a rollback delete
+                # another worker's uncommitted and untracked files while
+                # reporting only REFUSED OUTPUT_CREATE_FAILED.
+                raise ReplayFailure(
+                    "OUTPUT_FOREIGN_AT_PATH",
+                    "the output path is occupied and this run cannot prove it "
+                    "created what is there, so nothing will be removed: "
+                    + (detail or str(output)),
+                )
+            if occupied:
+                ownership = _capture_output_ownership(output)
+            else:
+                ownership = _registered_output_ownership(repo_common_git, output)
+                registration_absence_proven = ownership is None
+            raise ReplayFailure(
+                "OUTPUT_CREATE_FAILED",
+                detail or f"could not create output worktree {output}",
+            )
         if output.exists() or output.is_symlink():
             ownership = _capture_output_ownership(output)
         else:
             ownership = _registered_output_ownership(repo_common_git, output)
             registration_absence_proven = ownership is None
-        if add_result.returncode != 0:
-            detail = add_result.stderr.decode("utf-8", "replace").strip()
-            raise ReplayFailure(
-                "OUTPUT_CREATE_FAILED",
-                detail or f"could not create output worktree {output}",
-            )
         if ownership is None:
             raise ReplayFailure(
                 "OUTPUT_CREATE_FAILED",

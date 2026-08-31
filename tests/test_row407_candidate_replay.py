@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -958,3 +959,133 @@ def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
         for call in calls
         if "worktree" in call["argv"] and "remove" in call["argv"]
     ]
+
+
+# ── Row 480: ownership is created-by-this-transaction ───────────────────────
+#
+# The module docstring states the contract -- a failed replay removes only that
+# new output -- and it did not hold. replay() captured ownership BEFORE it
+# tested the worktree add's return code, so an add that failed because a
+# FOREIGN creator had registered a linked worktree of the same repo at --output
+# during the window recorded THAT directory's inode as this transaction's
+# output. The identity guard then compared the live inode against the identity
+# it had just captured from the foreign tree, passed, and rollback ran
+# `git worktree remove --force` on another worker's tree.
+#
+# A second bd_candidate_replay cannot be the victim: the O_EXCL claim makes the
+# loser refuse OUTPUT_CLAIMED before the add. The reachable adversary is any
+# creator that does not take that claim -- a bare `git worktree add`, another
+# harness, or the operator.
+#
+# The window was not narrow. Between the pre-checks and the add the tool runs
+# three complete fingerprint passes, each reading every untracked file's bytes.
+# It is narrow now: the path is re-probed one stat before the add, and that
+# probe is the discriminator.
+
+def test_a_foreign_worktree_created_inside_the_window_is_never_removed(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """RED on the defective parent.
+
+    The foreign tree must appear INSIDE the window -- between the pre-checks
+    that prove the output path is free and the `worktree add` itself -- or the
+    pre-checks catch it and nothing is measured. A PATH wrapper does exactly
+    that: it passes every other git invocation through, and on the single
+    `worktree add` it first has a DISTINCT process create a genuine linked
+    worktree of the same repo at --output, then returns real git's own refusal.
+    """
+    bin_dir = tmp_path / "racing-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "race-fired"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "marker = pathlib.Path(os.environ['BD_RACE_MARKER'])\n"
+        "out = os.environ['BD_RACE_OUTPUT']\n"
+        "repo = os.environ['BD_RACE_REPO']\n"
+        "if 'worktree' in args and 'add' in args and not marker.exists():\n"
+        "    marker.write_text('1')\n"
+        # A DISTINCT PROCESS, so nothing about this is the tool's own doing.
+        "    subprocess.run([real, '-C', repo, 'worktree', 'add', '--detach',\n"
+        "                    out, 'HEAD'], check=True,\n"
+        "                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        "    pathlib.Path(out, 'main.txt').write_text('foreign worker edit\\n')\n"
+        "    pathlib.Path(out, 'foreign-untracked.txt').write_text(\n"
+        "        'foreign untracked bytes\\n')\n"
+        "result = subprocess.run([real, *args], check=False)\n"
+        "raise SystemExit(result.returncode)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_RACE_MARKER=str(marker),
+        BD_RACE_OUTPUT=str(repo_case.output),
+        BD_RACE_REPO=str(repo_case.repo),
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+
+    # Preconditions: the path is free and this transaction owns nothing yet.
+    assert not repo_case.output.exists()
+
+    result = repo_case.run_replay(env=env)
+
+    assert marker.exists(), (
+        "the race never fired, so the foreign tree was created outside the "
+        "window and the pre-checks -- not the fix -- would explain any refusal")
+    assert repo_case.output.is_dir(), (
+        "the foreign worktree directory was REMOVED by a rollback that had "
+        "captured its inode as this transaction's own output")
+    tracked = repo_case.output / "main.txt"
+    untracked = repo_case.output / "foreign-untracked.txt"
+    assert tracked.is_file() and untracked.is_file(), (
+        "another worker's tracked and untracked files were destroyed")
+    assert tracked.read_text(encoding="utf-8") == "foreign worker edit\n"
+    assert untracked.read_text(encoding="utf-8") == "foreign untracked bytes\n"
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    body = json.loads(result.stdout)
+    assert body["reason_code"] == "OUTPUT_FOREIGN_AT_PATH", (
+        f"the foreign case reports {body.get('reason_code')!r}; a code distinct "
+        "from the created-then-failed case is the point, because the two "
+        "diagnoses -- reap my own partial output, versus somebody else's tree "
+        "is in the way -- lead to opposite actions")
+
+
+# ── Row 500: --expect-head must be a value the CALLER supplied ──────────────
+
+def test_expect_head_may_not_be_a_revision_resolved_in_the_source(
+    repo_case: RepoCase,
+) -> None:
+    """Both sides used to be resolved inside the one worktree the argument
+    exists to certify, so the comparison was tautological for anything derived
+    from the source."""
+    for tautology in ("HEAD", "@", "HEAD^{commit}"):
+        result = repo_case.run_replay(expect_head=tautology)
+        assert result.returncode != 0, (
+            f"--expect-head {tautology!r} certified the source against itself")
+        body = json.loads(result.stdout)
+        assert body["reason_code"] == "EXPECTED_HEAD_NOT_LITERAL", body
+
+
+def test_expect_head_still_accepts_the_literal_object_name(
+    repo_case: RepoCase,
+) -> None:
+    """POSITIVE CONTROL: the real certification path must keep working, or the
+    refusal above has traded a tautology for a lockout."""
+    result = repo_case.run_replay(expect_head=repo_case.source_head)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_expect_head_refuses_a_wrong_literal(repo_case: RepoCase) -> None:
+    """NEGATIVE CONTROL: a full object name that is not the source HEAD is still
+    a mismatch, so the shape check has not replaced the comparison."""
+    wrong = "0" * 40
+    result = repo_case.run_replay(expect_head=wrong)
+    assert result.returncode != 0
+    body = json.loads(result.stdout)
+    assert body["reason_code"] == "SOURCE_HEAD_MISMATCH", body
