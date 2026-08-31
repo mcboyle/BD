@@ -1221,28 +1221,262 @@ def test_concurrent_boot_runs_the_work_exactly_once(tmp_path):
         f"lock moves the race instead of removing it.")
 
 
+# Zero-entropy fixture password (CLAUDE.md A4). It unlocks nothing outside the
+# per-test tmp_path vault created below, and is never a default anywhere.
+_FIXTURE_MASTER_PASSWORD = "row418-synthetic-master-password"
+
+
+# The boundary instrument shared by the two /api/health tests below. It counts
+# REAL sqlite3 connections per phase via the interpreter's own audit event, so
+# "import does not boot" and "a request does" are measured at the driver rather
+# than inferred from app.py -- CLAUDE.md A7, source reading is not runtime
+# evidence. A hook cannot be removed once installed, which is exactly why each
+# phase is a separate label rather than a separate hook.
+#
+# The eight-space indentation is load-bearing: _run_isolated() textwrap.dedents
+# the assembled body, so this prefix must match the indentation of the
+# function-level literals it is concatenated with or dedent strips less than a
+# full level and the subprocess dies on an IndentationError.
+_DB_BOUNDARY_INSTRUMENT = """
+        import glob, os, sqlite3, sys
+        sys.path.insert(0, {repo!r})
+
+        PHASE = ['vault']
+        CONNECTS = dict()
+
+        def _audit(event, args):
+            if event == 'sqlite3.connect':
+                CONNECTS[PHASE[0]] = CONNECTS.get(PHASE[0], 0) + 1
+
+        sys.addaudithook(_audit)
+"""
+
+
 def test_an_ordinary_request_boots_the_database(tmp_path):
     """POS: the service is unchanged.
 
     Nothing about this cut may require the operator to call anything new. A
     plain request through the app must find a booted database.
+
+    THE STATUS CODE IS A COMPOSITE VERDICT, NOT A DB VERDICT, and row 418 is
+    the bill for reading it as one. v3.66.1359 made /api/health return 503 for
+    an *uninitialized credential vault* -- a pristine tmp_path has no vault, so
+    from that release this test failed on `STATUS == 200` while the request it
+    made was booting the database perfectly (`db_ok: true`, 10 migrations, the
+    file on disk). The positive control of a file whose whole subject is
+    "deferred is not never" was therefore dark, and a genuine boot-on-import
+    regression would have passed here.
+
+    So the credential refusal is SATISFIED rather than tolerated, per
+    CLAUDE.md A5: several unrelated refusals share HTTP 503, so make the later
+    ones pass and assert the distinctive diagnostic. The vault is initialized
+    through the product's own first-use path before the app is imported, which
+    also buys a second precondition for free -- initializing a vault must not
+    touch the database either. `STATUS == 200` then means what it says, and
+    every DB claim below it is measured at the boundary as well.
     """
-    cp = _run_isolated("""
-        import sys, glob
-        sys.path.insert(0, {repo!r})
+    cp = _run_isolated((_DB_BOUNDARY_INSTRUMENT + """
+        # PRECONDITION: remove the credential refusal so it cannot launder the
+        # DB verdict. The first unlock of a fresh vault IS the product's
+        # first-use setup (v3.66.1359), so this calls nothing an operator does
+        # not already call, and it is a direct store call rather than a
+        # request -- a /api/secrets request would itself be the first request
+        # and would boot the database before the measured GET.
+        import bulk_downloader.secrets_store as SS
+        _be = SS.get_backend()
+        _is_init = getattr(_be, 'is_initialized', None)
+        _initable = callable(_is_init)
+        print('VAULT_BACKEND=%s' % getattr(_be, 'name', 'unknown'))
+        print('VAULT_WAS_INITIALIZED=%s' % (_is_init() if _initable else 'n/a'))
+        if _initable and not _is_init():
+            print('VAULT_UNLOCK=%s' % _be.unlock({password!r}))
+        print('VAULT_INITIALIZED=%s' % (_is_init() if _initable else True))
+        _vault_abs = os.path.abspath(str(SS.SECRETS_FILE))
+        _vault_dir = os.path.dirname(_vault_abs)
+        print('VAULT_UNDER_CWD=%s' % (_vault_dir == os.getcwd()))
+        print('DB_AFTER_VAULT=' + ','.join(sorted(glob.glob('*.db'))))
+
+        PHASE[0] = 'import'
         import bulk_downloader.app as A
         assert glob.glob('*.db') == [], 'import already booted it'
+        print('BOOTED_PATHS_AFTER_IMPORT=%d' % len(A._BOOTED_PATHS))
+
+        # The before_request hook calls `boot_once()` and boot_once calls
+        # `db_init()`, both as module globals resolved at call time, so
+        # rebinding them here counts the real seam rather than a copy of it.
+        COUNTS = [0, 0, 0]
+        _real_boot = A.boot_once
+        _real_db_init = A.db_init
+
+        def _boot(*a, **k):
+            COUNTS[0] += 1
+            r = _real_boot(*a, **k)
+            if r:
+                COUNTS[1] += 1
+            return r
+
+        def _db_init(*a, **k):
+            COUNTS[2] += 1
+            return _real_db_init(*a, **k)
+
+        A.boot_once = _boot
+        A.db_init = _db_init
+
         c = A.app.test_client()
+        PHASE[0] = 'request'
         r = c.get('/api/health')
+        body = r.get_json()
         print('STATUS=%d' % r.status_code)
         print('DBFILES=' + ','.join(sorted(glob.glob('*.db'))))
-    """.format(repo=str(_REPO)), tmp_path, BD_DISABLE_KEEPALIVE="1")
+        print('DB_OK=%s' % body.get('db_ok'))
+        print('CRED_OK=%s' % body.get('credentials', dict()).get('ok'))
+        print('DEGRADED=%s' % body.get('degraded', ''))
+        print('BOOT_CALLS=%d' % COUNTS[0])
+        print('BOOT_DID_WORK=%d' % COUNTS[1])
+        print('DB_INIT_CALLS=%d' % COUNTS[2])
+
+        PHASE[0] = 'second'
+        r2 = c.get('/api/health')
+        print('STATUS2=%d' % r2.status_code)
+        print('BOOT_CALLS_2=%d' % COUNTS[0])
+        print('BOOT_DID_WORK_2=%d' % COUNTS[1])
+        print('DB_INIT_CALLS_2=%d' % COUNTS[2])
+
+        PHASE[0] = 'schema'
+        _cx = sqlite3.connect('downloader_history.db')
+        _names = sorted(row[0] for row in _cx.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"))
+        _cx.close()
+        print('TABLE_COUNT=%d' % len(_names))
+        print('HAS_MIGRATIONS=%s' % ('schema_migrations' in _names))
+
+        print('VAULT_CONNECTS=%d' % CONNECTS.get('vault', 0))
+        print('IMPORT_CONNECTS=%d' % CONNECTS.get('import', 0))
+        print('REQUEST_CONNECTS=%d' % CONNECTS.get('request', 0))
+    """).format(repo=str(_REPO), password=_FIXTURE_MASTER_PASSWORD),
+        tmp_path, BD_DISABLE_KEEPALIVE="1")
     assert cp.returncode == 0, cp.stdout + cp.stderr
     out = dict(l.split("=", 1) for l in cp.stdout.splitlines() if "=" in l)
+
+    # PRECONDITIONS FIRST. A verdict below is only worth reading once the
+    # fixture is proven to have built the shape it claims (CLAUDE.md A7).
+    assert out.get("VAULT_INITIALIZED") == "True", (
+        "the credential vault precondition did not hold, so a 503 here would "
+        f"be the vault's refusal rather than the database's.\n{cp.stdout}")
+    assert out.get("VAULT_UNDER_CWD") == "True", (
+        "the fixture vault is not inside the isolated cwd -- this test would "
+        f"be writing to a vault it does not own.\n{cp.stdout}")
+    assert out.get("DB_AFTER_VAULT") == "", (
+        "initializing the credential vault created a database file; the "
+        f"import measurement below is no longer about the import.\n{cp.stdout}")
+
+    # NEG half, measured at the boundary rather than at the filesystem alone.
+    assert out.get("VAULT_CONNECTS") == "0", cp.stdout + cp.stderr
+    assert out.get("IMPORT_CONNECTS") == "0", (
+        "importing the application opened a sqlite connection -- the defect "
+        f"this whole file exists to prevent.\n{cp.stdout}")
+    assert out.get("BOOTED_PATHS_AFTER_IMPORT") == "0", cp.stdout + cp.stderr
+
+    # POS half. The status assertion is unchanged and now measures the service
+    # rather than the vault.
     assert out.get("STATUS") == "200", cp.stdout + cp.stderr
     assert out.get("DBFILES"), (
         "a request did not boot the database -- deferring must not mean "
         "never. The service would serve against an unmigrated schema.")
+    assert out.get("DB_OK") == "True", cp.stdout + cp.stderr
+    assert out.get("CRED_OK") == "True", cp.stdout + cp.stderr
+    assert int(out.get("REQUEST_CONNECTS", "0")) > 0, (
+        "the request opened no sqlite connection, so the database file it "
+        f"left behind did not come from serving this request.\n{cp.stdout}")
+
+    # EXACT COUNTS AT THE SEAM, not merely "something happened".
+    assert out.get("BOOT_CALLS") == "1", cp.stdout + cp.stderr
+    assert out.get("BOOT_DID_WORK") == "1", (
+        "the first request did not run the boot work itself.\n" + cp.stdout)
+    assert out.get("DB_INIT_CALLS") == "1", cp.stdout + cp.stderr
+
+    # The schema is real, not an empty file. `DBFILES` alone cannot tell a
+    # migrated database from a touched one.
+    assert int(out.get("TABLE_COUNT", "0")) > 5, (
+        f"the booted database has {out.get('TABLE_COUNT')} tables -- the "
+        f"request created the file without migrating it.\n{cp.stdout}")
+    assert out.get("HAS_MIGRATIONS") == "True", cp.stdout + cp.stderr
+
+    # Idempotent: a second request re-enters the hook and does no more work.
+    assert out.get("STATUS2") == "200", cp.stdout + cp.stderr
+    assert out.get("BOOT_CALLS_2") == "2", cp.stdout + cp.stderr
+    assert out.get("BOOT_DID_WORK_2") == "1", (
+        "the second request re-ran the boot work; the latch is not holding."
+        f"\n{cp.stdout}")
+    assert out.get("DB_INIT_CALLS_2") == "1", cp.stdout + cp.stderr
+
+
+def test_a_degraded_health_verdict_is_not_a_boot_failure(tmp_path):
+    """The confusion row 418 caught, pinned so it cannot recur silently.
+
+    The test above needs a vault precondition for a reason, and a reader who
+    cannot see the reason will eventually delete it. This is the reason: on a
+    pristine host /api/health answers 503 for `credential_vault_uninitialized`
+    (v3.66.1359; owned and independently pinned by row 402's suite) while the
+    very same request has booted the database. Several unrelated refusals share
+    that one status code, so it answers the DB question in NEITHER direction --
+    a degraded verdict is not a boot failure, and this file must never read it
+    as one again.
+    """
+    cp = _run_isolated((_DB_BOUNDARY_INSTRUMENT + """
+        # Deliberately NO vault setup: this is the pristine-host state.
+        # CRYPTO and PRISTINE are reported SEPARATELY on purpose. A single
+        # combined flag would let "the vault was somehow already initialized"
+        # skip under the same banner as "this interpreter has no cryptography",
+        # and a silent skip is the fail-open this file exists to refuse.
+        import bulk_downloader.secrets_store as SS
+        _be = SS.get_backend()
+        _is_init = getattr(_be, 'is_initialized', None)
+        print('CRYPTO=%s' % bool(SS._CRYPTO_AVAILABLE))
+        print('PRISTINE=%s' % (callable(_is_init) and not _is_init()))
+
+        PHASE[0] = 'import'
+        import bulk_downloader.app as A
+        assert glob.glob('*.db') == [], 'import already booted it'
+
+        c = A.app.test_client()
+        PHASE[0] = 'request'
+        r = c.get('/api/health')
+        body = r.get_json()
+        print('STATUS=%d' % r.status_code)
+        print('DEGRADED=%s' % body.get('degraded', ''))
+        print('DB_OK=%s' % body.get('db_ok'))
+        print('CRED_STATE=%s' % body.get('credentials', dict()).get('state'))
+        print('DBFILES=' + ','.join(sorted(glob.glob('*.db'))))
+        print('IMPORT_CONNECTS=%d' % CONNECTS.get('import', 0))
+        print('REQUEST_CONNECTS=%d' % CONNECTS.get('request', 0))
+    """).format(repo=str(_REPO)), tmp_path, BD_DISABLE_KEEPALIVE="1")
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    out = dict(l.split("=", 1) for l in cp.stdout.splitlines() if "=" in l)
+
+    if out.get("CRYPTO") != "True":
+        pytest.skip("cryptography is unavailable, so there is no vault to "
+                    "leave uninitialized")
+    assert out.get("PRISTINE") == "True", (
+        "a freshly isolated cwd reported an already-initialized vault, so the "
+        f"degraded state this test is about was never reached.\n{cp.stdout}")
+
+    # The precondition of the whole point: the service says it is unhealthy.
+    assert out.get("STATUS") == "503", cp.stdout + cp.stderr
+    assert out.get("DEGRADED") == "credential_vault_uninitialized", (
+        "the pristine-host degradation changed shape. The test above satisfies "
+        "the credential refusal on purpose; if the refusal moved, that "
+        f"precondition needs to move with it.\n{cp.stdout}")
+    assert out.get("CRED_STATE") == "uninitialized", cp.stdout + cp.stderr
+
+    # And the database booted anyway. This is the pair that the bare status
+    # code cannot express.
+    assert out.get("DB_OK") == "True", cp.stdout + cp.stderr
+    assert out.get("DBFILES"), (
+        "a degraded health verdict came with no database -- then 503 really "
+        f"would have been a boot failure.\n{cp.stdout}")
+    assert out.get("IMPORT_CONNECTS") == "0", cp.stdout + cp.stderr
+    assert int(out.get("REQUEST_CONNECTS", "0")) > 0, cp.stdout + cp.stderr
 
 
 def test_isolated_home_restores_process_state_after_runtime_reset_failure(
