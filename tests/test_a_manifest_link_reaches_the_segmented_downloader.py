@@ -200,14 +200,18 @@ def test_the_click_is_skipped_for_a_manifest():
 def test_the_transfer_goes_through_hls_downloader():
     fn = _rt_fn("_do_download")
     src = ast.unparse(fn)
+    # Row 439: the arm now reaches ffmpeg through `self._hls_download(_hls, ...)`,
+    # the fail-closed egress seam, rather than calling `_hls.download` itself.
+    # Both shapes count -- what this gate is about is that the manifest reaches
+    # the segmented downloader at all, not which name the hop wears.
     calls = [n for n in ast.walk(fn)
              if isinstance(n, ast.Call)
              and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "download"]
+             and n.func.attr in ("download", "_hls_download")]
     assert calls, (
-        "_do_download never calls a .download(...) -- the manifest is "
-        "recognised and then handed to the ordinary HTTP transfer, which would "
-        "save the manifest text as if it were the video.")
+        "_do_download never calls a .download(...) / ._hls_download(...) -- the "
+        "manifest is recognised and then handed to the ordinary HTTP transfer, "
+        "which would save the manifest text as if it were the video.")
     assert "hls_downloader" in src or "_hls" in src, (
         "_do_download does not reference hls_downloader")
 

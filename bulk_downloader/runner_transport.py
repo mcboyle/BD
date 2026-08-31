@@ -268,6 +268,66 @@ class TransportMixin:
             sys.stderr.write(
                 f"  vpn download-proxy resolution raised (continuing unproxied): {e}\n")
             return explicit or None
+
+    def _hls_download(self, hls_mod, manifest_url, output_path, **kwargs):
+        """Row 439: THE fail-closed seam for every segmented (ffmpeg) transfer.
+
+        All six segmented arms -- jsonapi, vixen, aylo, plugin and library in
+        ``runner_extractors``, plus ``_do_download``'s scrape-and-click arm --
+        used to call ``hls_downloader.download(...)`` directly. That was the one
+        outbound path in the download chain with NO egress gate: every sibling
+        (the yt-dlp and gallery-dl fallbacks, the direct-HTTP download, the
+        media probe) resolves ``_download_proxy_url()`` first and lets
+        ``VPNRequiredError`` propagate so no unproxied client or subprocess is
+        ever built. A ``vpn_required`` site whose tunnel was down still had its
+        HLS media fetched by ffmpeg on the clear host interface, and the
+        operator had no signal that it happened -- the gate's silence was
+        indistinguishable from a pass.
+
+        Contract, mirroring the siblings exactly:
+
+          * resolver raises ``VPNRequiredError`` -> REFUSE, spawn nothing;
+          * resolver returns a proxy -> hand it to ``hls_downloader``, which
+            carries an http(s) one into argv+env and REFUSES a scheme ffmpeg
+            cannot honour (``socks5://``, which is what a BD tunnel exposes);
+          * resolver returns ``None`` (no tunnel / not required / runtime
+            unavailable) -> proceed unproxied, byte-identical to before.
+
+        Returns a ``DownloadResult`` and never raises: the callers all branch on
+        ``res.ok`` / ``res.error``, and this module's documented contract
+        (INV-003) is that a segmented transfer failure never crashes the worker.
+        """
+        from . import hls_downloader as _hls_result_mod
+        try:
+            proxy_url = self._download_proxy_url()
+        except Exception as e:
+            # Any failure to ESTABLISH the egress posture refuses. A7: an
+            # unavailable measurement is UNKNOWN, never permission.
+            if _VPN_RUNTIME_AVAILABLE and isinstance(
+                    e, vpn_runtime.VPNRequiredError):
+                sys.stderr.write(
+                    f"  segmented: VPN required for {self.site_id}, tunnel "
+                    f"unavailable -- failing closed, ffmpeg not spawned: {e}\n")
+                return _hls_result_mod.DownloadResult(
+                    ok=False, error="vpn_required",
+                    error_detail=(f"site {self.site_id} requires its VPN tunnel "
+                                  f"and it is unavailable: {e}"))
+            sys.stderr.write(
+                f"  segmented: egress proxy for {self.site_id} could not be "
+                f"measured -- failing closed, ffmpeg not spawned: "
+                f"{type(e).__name__}: {e}\n")
+            return _hls_result_mod.DownloadResult(
+                ok=False, error="egress_unknown",
+                error_detail=(f"egress posture for {self.site_id} is unmeasured "
+                              f"({type(e).__name__}: {e})"))
+        result = hls_mod.download(
+            manifest_url, output_path, proxy_url=proxy_url, **kwargs)
+        if getattr(result, "error", "") == "proxy_unsupported":
+            sys.stderr.write(
+                f"  segmented: {self.site_id} resolved egress proxy "
+                f"{proxy_url} -- {result.error_detail}\n")
+        return result
+
     def _do_direct_http_download(
         self, page_url: str, file_url: str, output_path: str, referer: str = "",
     ) -> bool:
@@ -1235,8 +1295,9 @@ class TransportMixin:
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=0)
                 return
-            res = _hls.download(
-                direct_url, str(final_path), referer=page_url,
+            # Row 439: through the fail-closed egress seam, never _hls directly.
+            res = self._hls_download(
+                _hls, direct_url, str(final_path), referer=page_url,
                 cancel_check=lambda: self._stop.is_set())
             if not res.ok:
                 # ffmpeg_not_installed is a DISTINCT code and gets a distinct

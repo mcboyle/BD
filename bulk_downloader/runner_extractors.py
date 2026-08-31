@@ -1057,8 +1057,9 @@ class ExtractorsMixin:
                     f"JsonAPI HLS{pct} • {fmt_bytes(p.get('bytes', 0))}",
                 )
 
-            dl_result = _hls.download(
-                src.url, output_path,
+            # Row 439: through the fail-closed egress seam, never _hls directly.
+            dl_result = self._hls_download(
+                _hls, src.url, output_path,
                 user_agent=user_agent, referer=referer,
                 progress_callback=_progress,
                 cancel_check=lambda: self._stop.is_set(),
@@ -1305,8 +1306,9 @@ class ExtractorsMixin:
                     f"Vixen HLS{pct} • {fmt_bytes(p.get('bytes', 0))}",
                 )
 
-            dl_result = _hls.download(
-                upgraded_url, output_path,
+            # Row 439: through the fail-closed egress seam, never _hls directly.
+            dl_result = self._hls_download(
+                _hls, upgraded_url, output_path,
                 user_agent=user_agent, referer=referer,
                 progress_callback=_progress,
                 cancel_check=lambda: self._stop.is_set(),
@@ -1791,8 +1793,9 @@ class ExtractorsMixin:
                     f"Aylo HLS{pct} • {fmt_bytes(p.get('bytes', 0))}",
                 )
 
-            dl_result = _hls.download(
-                variant.url, output_path,
+            # Row 439: through the fail-closed egress seam, never _hls directly.
+            dl_result = self._hls_download(
+                _hls, variant.url, output_path,
                 user_agent=user_agent, referer=referer,
                 progress_callback=_progress,
                 cancel_check=lambda: self._stop.is_set(),
@@ -2106,8 +2109,9 @@ class ExtractorsMixin:
             self._update_job(url, "running",
                              f"Extracting HLS via plugin [{self.site_id}]...")
             try:
-                dl_result = _hls.download(
-                    video_url, output_path, referer=url,
+                # Row 439: fail-closed egress seam, never _hls directly.
+                dl_result = self._hls_download(
+                    _hls, video_url, output_path, referer=url,
                     cancel_check=lambda: self._stop.is_set())
             except Exception as e:
                 sys.stderr.write(f"  plugin_extractor: hls path raised {e}\n")
@@ -2326,7 +2330,9 @@ class ExtractorsMixin:
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
-            dl_result = _hls.download(
+            # Row 439: through the fail-closed egress seam, never _hls directly.
+            dl_result = self._hls_download(
+                _hls,
                 result.file_url,
                 output_path,
                 user_agent=user_agent,

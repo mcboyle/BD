@@ -229,6 +229,54 @@ def _parse_ffmpeg_progress(line: str) -> Optional[dict]:
 # ─── Command builder ────────────────────────────────────────────────
 
 
+# ─── Egress: proxy carriage + ambient-environment scrub ─────────────
+#
+# Row 439 (v3.66.1362): this module's Popen passed no ``env=``, so ffmpeg
+# inherited the whole ambient environment -- including any ``http_proxy`` set in
+# the service environment, which silently rerouted every http:// segment fetch.
+# It also had no way to be TOLD a proxy, so BD's configured per-site proxy /
+# tunnel SOCKS url never reached a segmented transfer at all. Both halves are
+# fixed here, at the boundary that owns the subprocess.
+#
+# Every case variant is scrubbed: the child's resolver is case-insensitive on
+# some platforms and libcurl-style tooling reads both spellings.
+_PROXY_ENV_KEYS = frozenset({
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy", "ftp_proxy",
+})
+
+# ffmpeg's HTTP protocol implements an HTTP proxy (``-http_proxy`` /
+# ``http_proxy``) and nothing else. It has NO SOCKS support, which is exactly
+# what BD's tunnels expose (``vpn_socks`` -> ``socks5://127.0.0.1:PORT``). A
+# proxy we cannot carry is an egress claim we cannot establish, so per
+# CLAUDE.md A7 the transfer REFUSES rather than proceeding on the clear
+# interface and reporting OK.
+_FFMPEG_PROXY_SCHEMES = ("http", "https")
+
+
+def _proxy_scheme(proxy_url: str) -> str:
+    try:
+        return (urlparse(proxy_url).scheme or "").lower()
+    except Exception:
+        return ""
+
+
+def _scrubbed_env(proxy_url: str = "") -> dict:
+    """The environment the ffmpeg child gets: ambient proxy variables removed,
+    and the resolved proxy (if any) injected explicitly.
+
+    Nothing else is altered -- PATH, HOME and the locale are inherited exactly
+    as before, because narrowing them is a different change with its own
+    failure modes.
+    """
+    env = dict(os.environ)
+    for key in [k for k in env if k.lower() in _PROXY_ENV_KEYS]:
+        del env[key]
+    if proxy_url:
+        env["http_proxy"] = proxy_url
+        env["https_proxy"] = proxy_url
+    return env
+
+
 def _build_ffmpeg_cmd(
     ffmpeg_path: str,
     input_url: str,
@@ -238,6 +286,7 @@ def _build_ffmpeg_cmd(
     extra_headers: Optional[dict[str, str]] = None,
     threads: int = 1,
     extra_args: Optional[list[str]] = None,
+    proxy_url: str = "",
 ) -> list[str]:
     """Construct an ffmpeg argv that downloads `input_url` (HLS or DASH)
     into `output_path`. Designed to be robust on flaky CDNs:
@@ -264,6 +313,9 @@ def _build_ffmpeg_cmd(
         "-reconnect_streamed", "1",
         "-reconnect_delay_max", str(RECONNECT_DELAY_MAX_S),
     ]
+    # Row 439: an INPUT option, so it must precede -i (ffmpeg argv ordering).
+    if proxy_url:
+        cmd += ["-http_proxy", proxy_url]
     if user_agent:
         cmd += ["-user_agent", user_agent]
     if referer:
@@ -302,6 +354,7 @@ def download(
     cancel_check: Optional[Callable[[], bool]] = None,
     max_runtime_s: Optional[int] = None,
     extra_ffmpeg_args: Optional[list[str]] = None,
+    proxy_url: Optional[str] = None,
 ) -> DownloadResult:
     """Download an HLS/DASH stream at `manifest_url` to `output_path`.
 
@@ -315,6 +368,15 @@ def download(
 
     `max_runtime_s` overrides the hls_max_runtime_s default for this call.
 
+    `proxy_url` (row 439) is the egress proxy the caller resolved fail-closed.
+    An http(s):// proxy is carried into BOTH the argv (``-http_proxy``) and the
+    child environment. A proxy ffmpeg cannot honour -- notably the
+    ``socks5://`` url a BD tunnel exposes -- returns ``proxy_unsupported``
+    WITHOUT spawning anything: an egress claim that cannot be established is
+    UNKNOWN, never OK. ``None``/empty means "no proxy resolved"; the child's
+    environment is scrubbed of ambient proxy variables either way, so an
+    ambient ``http_proxy`` can no longer reroute segment fetches unnoticed.
+
     Returns a DownloadResult. Never raises.
     """
     ff = _find_ffmpeg()
@@ -327,6 +389,16 @@ def download(
     if not output_path:
         return DownloadResult(ok=False, error="bad_output_path",
                               error_detail="output_path is empty")
+    # Row 439: refuse BEFORE any filesystem or process side effect when the
+    # caller handed us a proxy ffmpeg has no support for.
+    prox = (proxy_url or "").strip()
+    if prox and _proxy_scheme(prox) not in _FFMPEG_PROXY_SCHEMES:
+        return DownloadResult(
+            ok=False, error="proxy_unsupported",
+            error_detail=(
+                f"ffmpeg cannot honour a {_proxy_scheme(prox) or '(schemeless)'}"
+                f":// egress proxy ({prox}); refusing the segmented transfer "
+                "rather than fetching the media outside it"))
     # Make sure the output dir exists.
     try:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -344,7 +416,7 @@ def download(
         ff, manifest_url, output_path,
         user_agent=user_agent, referer=referer,
         extra_headers=extra_headers, threads=threads,
-        extra_args=extra_ffmpeg_args,
+        extra_args=extra_ffmpeg_args, proxy_url=prox,
     )
 
     # Launch in its own process group so we can kill the whole tree on
@@ -355,6 +427,9 @@ def download(
         "stdin": subprocess.DEVNULL,
         "text": True,
         "bufsize": 1,           # line-buffered
+        # Row 439: an EXPLICIT environment. Inheriting the ambient one let a
+        # service-level http_proxy reroute every segment fetch with no signal.
+        "env": _scrubbed_env(prox),
     }
     if sys.platform == "win32":
         popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

@@ -52,13 +52,23 @@ def _fake_runner(site_id, config, http_calls):
         except Exception:
             pass
         return True
-    return types.SimpleNamespace(
+    fs = types.SimpleNamespace(
         site_id=site_id, config=config,
         _do_direct_http_download=_ddhd,
         _update_job=lambda *a, **k: None,
         log_event=lambda *a, **k: None,
         _stop=threading.Event(),
     )
+    # Row 439: the segmented arm reaches ffmpeg through the fail-closed egress
+    # seam on TransportMixin, so this stand-in must carry the REAL wrapper and
+    # the real proxy resolver it consults -- a stub that merely forwarded would
+    # let this file pass over a bypassed gate. `_download_proxy_url` resolves
+    # None here (no `proxy` in config, no tunnel), which is the unconfigured
+    # posture these tests are about.
+    from bulk_downloader.runner_transport import TransportMixin
+    fs._download_proxy_url = TransportMixin._download_proxy_url.__get__(fs)
+    fs._hls_download = TransportMixin._hls_download.__get__(fs)
+    return fs
 
 
 def _call(fs, url):
