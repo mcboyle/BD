@@ -61,19 +61,39 @@ class TestAF1ConstantTime:
 
 # ── AF2: malformed secrets.json backed up, never wiped ──────────────
 class TestAF2SecretsBackup:
-    def test_malformed_file_is_backed_up(self, monkeypatch, tmp_path):
+    def test_malformed_file_is_preserved_in_place(self, monkeypatch, tmp_path):
+        """AF2's guarantee, strengthened by row 432 (v3.66.1363).
+
+        AF2 required that a malformed secrets.json never be wiped; it met that
+        by renaming the file aside and reinitializing fresh. Row 432 measured
+        that the rename WAS the defect: SECRETS_FILE.replace() needs directory
+        permission rather than file permission, so a transient unreadable file
+        renamed the operator's live vault away, and the fresh dict then
+        classified an INITIALIZED host as UNINITIALIZED -- the one state in
+        which any password durably commits a new empty vault.
+
+        Preservation is now strictly stronger: byte-identical, in place, under
+        its own name, with no reinit and no mutation permitted.
+        """
         if not ss._CRYPTO_AVAILABLE:
             pytest.skip("cryptography not available")
         f = tmp_path / "secrets.json"
         f.write_text("{not valid json", encoding="utf-8")
         monkeypatch.setattr(ss, "SECRETS_FILE", f)
         b = ss.MasterPasswordBackend()              # triggers _load_or_init
-        backups = list(tmp_path.glob("secrets.json.corrupt-*"))
-        assert backups, "malformed secrets.json must be preserved, not wiped"
-        # Original content survived in the backup.
-        assert backups[0].read_text(encoding="utf-8") == "{not valid json"
-        # Backend came up fresh/empty (no crash, no silent reuse).
-        assert b._data.get("ciphertexts") == {}
+        # Preserved in place, byte-identical, under its own name.
+        assert f.exists(), "malformed secrets.json must be preserved, not wiped"
+        assert f.read_text(encoding="utf-8") == "{not valid json"
+        # No move-aside sibling: the rename is what row 432 removed.
+        assert list(tmp_path.glob("secrets.json.corrupt-*")) == []
+        # No silent reinit: the store is UNREADABLE, never uninitialized.
+        assert b.store_state() == "unreadable"
+        assert b.is_initialized() is True
+        assert b._data.get("ciphertexts") is None
+        # And nothing may write over it.
+        with pytest.raises(ss.SecretsUnreadableError):
+            b.unlock("af2-synthetic-zero-entropy-password")
+        assert f.read_text(encoding="utf-8") == "{not valid json"
 
 
 # ── AF3: revocation must persist or report failure ──────────────────
