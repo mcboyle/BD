@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1363 - split the CI critical path where it was measured
+
+- ROW 420. CI wall clock was 497s at run 33344249420's predecessor 33344209740,
+  and 425s of it was one job: gate-suites parity-graph. The four slowest shards
+  (parity-graph 425s, tree-gates-4 400s, toolchain 351s, mutation-tools 318s)
+  each carried more than twice the median job, so every cut paid the heaviest
+  shard serially while 26 jobs finished under 110s.
+- MEASURED, THEN SPLIT -- NEVER TRIMMED. All 117 member suites were timed
+  per-suite with bd-parband on an idle capacity host at the exact main SHA.
+  parity-graph becomes three shards: its 14 Vitest delegators split across two
+  node-provisioned runners (test_v3_66_1218 re-derives that population, and
+  the setup-node/npm condition names both), and its 22 pure-python suites move
+  to parity-static, which never pays npm ci at all. tree-gates-4, toolchain,
+  and mutation-tools each split into two balanced halves. The declared-gate
+  union and count are UNCHANGED; the shard-census, long-pole independence, and
+  node-provisioning gates all pass against the new matrix.
+- Predicted critical path drops to the largest unsplit shard, tree-gates-1 at
+  252s; the next main run's slowest gate-suites job is the acceptance check.
+
 ## v3.66.1362 - file what the row 399 band found on main
 
 - EIGHT ROWS APPENDED THROUGH bd-register-append, none of them laundered. The
