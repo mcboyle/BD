@@ -400,7 +400,67 @@ def test_hls_downloader_refuses_an_unhonourable_proxy_at_the_module_seam(
         "the refusal must happen BEFORE the spawn")
 
 
-# ─── 5. Every arm is on the guarded seam (AST, not text) ─────────────
+# ─── 5. An UNMEASURABLE egress posture refuses too ───────────────────
+
+def test_an_unmeasurable_egress_posture_refuses_rather_than_proceeding(
+        ffmpeg_boundary, tmp_path, monkeypatch, capsys):
+    """The fourth outcome of the seam, proved reachable.
+
+    ``_hls_download`` has four outcomes: ``vpn_required``, ``egress_unknown``,
+    a resolved proxy, and no proxy.  The other three are exercised above; this
+    one is the row's "when tunnel or proxy state cannot be measured the gate
+    returns UNKNOWN and refuses the transfer rather than reporting OK".
+
+    NO RED PROVENANCE IS CLAIMED FOR THIS BRANCH and none is manufactured: the
+    seam does not exist on the defective parent, so there is nothing to replay.
+    This is outcome-reachability for new code, which A5 requires separately
+    from the defect replay.
+    """
+    from bulk_downloader import hls_downloader
+
+    site = "row439-unmeasurable"
+    unregister = _register_hls_plugin(site)
+    try:
+        runner = _plugin_runner(
+            site, {"download_dir": str(tmp_path / "dl")}, monkeypatch)
+
+        raises = []
+
+        def _unmeasurable():
+            raises.append(1)
+            raise RuntimeError("row439 tunnel state is unreadable")
+
+        runner._download_proxy_url = _unmeasurable
+
+        ok = _drive_segmented_arm(runner)
+
+        assert raises == [1], (
+            "precondition: the resolution must actually have been attempted "
+            f"exactly once, got {len(raises)}")
+        assert ffmpeg_boundary.spawn_count == 0, (
+            "an unmeasurable egress posture must refuse, not egress: "
+            f"{ffmpeg_boundary.spawns}")
+        assert ok is False
+        assert runner._row439_history == []
+        err = capsys.readouterr().err
+        assert "could not be measured" in err and site in err, (
+            f"the refusal must say the measurement failed; got {err!r}")
+
+        # The distinctive code, read straight off the seam's own result -- the
+        # arm swallows it, and 'refused' must be distinguishable from
+        # 'vpn_required' for an operator acting on it.
+        raises.clear()
+        res = runner._hls_download(
+            hls_downloader, _MANIFEST, str(tmp_path / "direct.mp4"))
+        assert raises == [1]
+        assert res.ok is False
+        assert res.error == "egress_unknown", res
+        assert ffmpeg_boundary.spawn_count == 0
+    finally:
+        unregister()
+
+
+# ─── 6. Every arm is on the guarded seam (AST, not text) ─────────────
 
 def _call_census(rel_path: str):
     """Count guarded/unguarded segmented-download CALLS.
