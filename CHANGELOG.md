@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1370 - reserve the .part staging path instead of deriving and hoping
+
+- MEASURED AT THE BYTE LEVEL against a loopback origin serving Range with no
+  validator, so the resume is optimistic -- the production shape. Two scenes
+  whose filename template renders one name: scene A staged 1 MiB, scene B
+  computed the same final path, saw a nonzero .part, sent Range bytes=1048576-,
+  got 206, opened the SAME .part in append mode and streamed on top. The
+  promoted file was 2,097,152 bytes with census {0xAA: 1048576, 0xBB: 1048576}
+  and was recorded done. AND SCENE A DIED WITH IT: its own promote then failed
+  ENOENT because B's rename had consumed the staging file. One collision loses
+  one scene and corrupts the other.
+- The staging name was derived from final_path, and safe_dest uniquified only
+  against files that ALREADY EXIST -- check-then-act with no reservation. Two
+  workers per site is the default and sites without their own download_dir all
+  resolve to one deployment directory, so the collision is routine.
+- OWNERSHIP IS NOW TAKEN BY ONE ATOMIC OPERATION, so there is no window between
+  asking whether a name is free and taking it -- there is no separate question.
+  The claim is written to a private temp name, fsynced, then published with
+  os.link, which is atomic and refuses an existing target; the instant it is
+  visible it is already complete. Filesystems without hardlinks fall back to
+  O_CREAT|O_EXCL, still exclusive. Proven: 16 threads through one barrier give
+  exactly 1 winner and 15 lost, and 12 threads with os.link forced to ENOSYS
+  give exactly 1 winner and 11 lost, with no residue.
+- AN UNMEASURABLE CLAIM REFUSES rather than diverting. An unreadable claim, a
+  malformed one, a claim that cannot be created, and a name owned by a job
+  whose record cannot be read all raise a distinct staging-unavailable refusal
+  naming the exact owner path and leave no residue. That refusal is
+  deliberately NOT a subclass of the HTTP download failure, because the
+  Playwright fallback would otherwise write the browser's bytes to the very
+  destination the refusal protects.
+- THE RESUME CONTROL HAS TEETH. A genuine interruption of the SAME work still
+  resumes: after a production stop at 1 MiB the second call returns
+  (2097152, 1048576) -- 2 MiB on disk, 1 MiB transferred this call -- with
+  exactly one Range request, landing on the original name rather than a suffix.
+  A forced restart would have returned (2097152, 2097152).
+
 ## v3.66.1369 - an unreadable vault is UNKNOWN, never uninitialized
 
 Row 432, and the defect is worse than the row that filed it. The row said an

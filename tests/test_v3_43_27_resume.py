@@ -15,6 +15,7 @@ Coverage:
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 # [SAST 3:13pm 13 may] removed unused: import time
 from pathlib import Path
@@ -32,6 +33,28 @@ def _bd_runner_src():
     _pd = _P(_R.__file__).parent
     return "\n".join(q.read_text(encoding="utf-8")
                      for q in [_pd / "runner.py"] + sorted(_pd.glob("runner_*.py")))
+
+
+def _parallel_body():
+    """The COMPLETE text of ``_http_download_parallel``, not a fixed-width prefix.
+
+    These checks read ``src[pos:pos + 15000]``, and 15,000 characters is a
+    denominator nobody re-measured. The part-staging-collision cut added a
+    staging claim near the top of the function and pushed
+    ``_resume.save(final_path, checkpoint)`` -- which sat at offset 15,427 --
+    out the far end, so a gate went red over source it never stopped
+    containing. Slicing to the NEXT method definition makes the window the
+    function itself, which is the thing these tests claim to judge, and no
+    ordinary edit above can truncate it again.
+    """
+    src = _bd_runner_src()
+    pos = src.find("def _http_download_parallel(")
+    assert pos > 0, "_http_download_parallel is not in the runner package"
+    nxt = re.search(r"\n    def ", src[pos:])
+    assert nxt is not None, (
+        "no method follows _http_download_parallel, so the slice would run to "
+        "the end of the concatenated package -- refusing to judge that window")
+    return src[pos:pos + nxt.start()]
 _RESUME_PY = _REPO_ROOT / "bulk_downloader" / "resume.py"
 
 
@@ -305,28 +328,21 @@ def test_cleanup_silent_when_already_gone():
 def test_parallel_downloader_imports_resume_module():
     """The retrofit in _http_download_parallel must import from
     .resume. Without this import the resume logic doesn't run."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    assert parallel_pos > 0
-    body = src[parallel_pos:parallel_pos + 10000]
+    body = _parallel_body()
     assert "from . import resume as _resume" in body
 
 
 def test_parallel_downloader_uses_head_probe():
     """Resume validation requires ETag/Last-Modified from a HEAD probe
     before starting the download."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 10000]
+    body = _parallel_body()
     assert "head_probe" in body
 
 
 def test_parallel_downloader_checks_is_resumable():
     """The validator check must run before the download starts.
     Without this, a stale checkpoint would corrupt the download."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 10000]
+    body = _parallel_body()
     assert "is_resumable" in body
     assert "reconcile_with_disk" in body
 
@@ -335,9 +351,7 @@ def test_parallel_downloader_saves_checkpoint_on_failure():
     """On worker error, the checkpoint MUST be saved before raising —
     otherwise partial progress is lost. This is the core resume
     guarantee."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 15000]
+    body = _parallel_body()
     # Find the error-handling block specifically
     err_block_pos = body.find("worker_errors")
     assert err_block_pos > 0
@@ -352,9 +366,7 @@ def test_parallel_downloader_cleans_up_checkpoint_on_success():
     """The sidecar must be removed after successful rename, otherwise
     the next download of the same filename would see a stale
     'complete' checkpoint."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 15000]
+    body = _parallel_body()
     # cleanup must happen after the atomic rename, before the return
     assert "_resume.cleanup(final_path)" in body
 
@@ -362,9 +374,7 @@ def test_parallel_downloader_cleans_up_checkpoint_on_success():
 def test_parallel_downloader_worker_seeks_past_resumed_bytes():
     """The worker's seek position must include resume_offset[idx],
     otherwise resumed chunks overwrite their own completed bytes."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 15000]
+    body = _parallel_body()
     # The retrofit defines effective_start = byte_start + resume_offset[idx]
     assert "effective_start = byte_start + resume_offset[idx]" in body
     # And uses it in the Range header
@@ -374,9 +384,7 @@ def test_parallel_downloader_worker_seeks_past_resumed_bytes():
 def test_parallel_downloader_periodic_checkpoint_save():
     """Every 5MB of progress, a save() must fire so a crash loses
     bounded work."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 15000]
+    body = _parallel_body()
     assert "CHECKPOINT_SAVE_EVERY_BYTES" in body
     # 5MB = 5 * 1024 * 1024
     assert "5 * 1024 * 1024" in body
@@ -386,9 +394,7 @@ def test_parallel_downloader_resume_offset_added_to_total():
     """The user-visible progress in the UI must include the resumed
     bytes, not just the bytes downloaded in this run. Otherwise the
     user thinks the download is starting fresh when it isn't."""
-    src = _bd_runner_src()
-    parallel_pos = src.find("def _http_download_parallel(")
-    body = src[parallel_pos:parallel_pos + 15000]
+    body = _parallel_body()
     assert "pre_resume_total" in body
     # The variable is summed into total_bytes
     assert "total_bytes = pre_resume_total + this_run" in body
