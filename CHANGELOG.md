@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1380 - what the review found, written down where it will be read
+
+- SIXTY-FIVE ROWS. The bd3 ultrareview produced 67 findings; 65 were still
+  present on this tree when each was re-read against origin/main rather than
+  taken from the report. They are filed here after a merge pass folded 72 drafts
+  into 51 rows, dropping one the drafters had themselves refuted and recovering
+  one the merge lost silently -- caught only because a critic was asked what was
+  MISSING rather than what was wrong. The merge recorded 437 corrections to the
+  drafts' own evidence, so the rows cite what the code says today.
+- ROWS 465-470 carry forward six rows staged in an earlier cut, renumbered
+  because 463 and 464 landed ahead of them, and byte-identical otherwise.
+- ROWS 471-475 are what this session's own operation exposed: a release path
+  that never updates the mirror it later fetches from, an advisory reviewer
+  sitting inside a merge gate's denominator, a register that disagrees with the
+  tree in both directions, a service that outlived its checkout by 21 releases
+  with nothing measuring the gap, and a vault password that could only be tested
+  by spending an unlock attempt against a throttle.
+- ROWS 476-478 are the operator harness: 129 load-bearing scripts of which 7
+  have any test, no map of what exists, and a deploy that passes every host
+  through a 503 window the summary never mentions.
+- DOCS. docs/repo/FLEET_TOPOLOGY.md is new and records what nothing wrote down:
+  which hosts fetch from where, what each role excludes and why, the single
+  vault credential, and how to verify a vault password OFFLINE against the
+  stored verifier rather than by spending a throttled attempt.
+- CLAUDE.md A6 gains the mirror hazard -- a fetch exiting 0 is not delivery.
+- CLAUDE.md A7 gains two invariants this session measured: a containment test is
+  a denominator choice, where SHA ancestry, patch-id and blob equality give
+  different answers and only the last one answers "has this shipped"; and a
+  diagnostic that collapses distinct failures costs the investigation, not just
+  the message.
+
 ## v3.66.1379 - the four fixtures v3.66.1359 broke
 
 Rows 413, 414, 417 and 418 in one cut. They are file-disjoint and share one

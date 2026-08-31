@@ -209,7 +209,7 @@ def test_current_markdown_denominator_is_explicit_and_nonzero():
         subprocess.check_output(["git", "ls-files", "--deleted"], cwd=REPO, text=True).splitlines()
     )
     current = [p for p in current if p not in deleted]
-    assert len(current) == 138  # +1: project-knowledge/CUT_TIERING.md added @1196
+    assert len(current) == 139  # +1: docs/repo/FLEET_TOPOLOGY.md added @1380
     assert len(historical) == 14
     assert len(current) == len(set(current))
 
@@ -266,7 +266,7 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
         if rel != "project-knowledge/IMPROVEMENT_BACKLOG.md"
     )
     offenders = {}
-    assert len(current_docs) == 137  # +1: project-knowledge/CUT_TIERING.md added @1196
+    assert len(current_docs) == 138  # +1: docs/repo/FLEET_TOPOLOGY.md added @1380
     for rel in current_docs:
         matches = sorted(set(token.findall((REPO / rel).read_text(encoding="utf-8"))))
         if matches:
