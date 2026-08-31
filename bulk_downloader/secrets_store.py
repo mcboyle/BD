@@ -437,6 +437,23 @@ class SecretsPasswordPolicyError(ValueError):
     """Raised when first-use password setup does not meet local policy."""
 
 
+class SecretsUnreadableError(SecretsIntegrityError):
+    """Raised when the durable store exists but could not be read or parsed.
+
+    Row 432 (v3.66.1363): an unreadable or unparseable ``secrets.json`` is an
+    UNAVAILABLE MEASUREMENT, not a state (CLAUDE.md A7). Reporting it as
+    "uninitialized" is the most dangerous direction the error can take,
+    because uninitialized is the one state the product treats as safe to
+    initialize: a transient read failure would let ANY password durably
+    commit a new empty vault over a host that already holds credentials.
+    Reporting it as a clean "initialized" is wrong in the other direction.
+
+    Subclassing :class:`SecretsIntegrityError` is deliberate: every existing
+    ``except SecretsIntegrityError`` handler already fails closed, so a caller
+    that has not learned this state cannot fall through to a fail-open path.
+    Callers that can distinguish it catch this class first."""
+
+
 class MasterPasswordBackend(_BackendBase):
     """AES-GCM encrypted blob, keyed off a PBKDF2-derived master key.
 
@@ -488,6 +505,9 @@ class MasterPasswordBackend(_BackendBase):
         # stays lock-free by design (cheap bool, called on hot paths).
         self._lock = threading.RLock()
         self._key: bytes | None = None
+        # Row 432: set before _load_or_init so the loader can record why the
+        # durable store could not be read. None means "the store was read".
+        self._load_error: str | None = None
         self._data: dict[str, Any] = self._load_or_init()
 
     def _load_or_init(self) -> dict[str, Any]:
@@ -495,22 +515,27 @@ class MasterPasswordBackend(_BackendBase):
             try:
                 return json.loads(SECRETS_FILE.read_text(encoding="utf-8"))
             except Exception as e:
-                # AF2 (v3.66.41): never silently discard a vault we couldn't
-                # parse — a transient/partial read must not become permanent
-                # loss when the next set() overwrites the file. Move the
-                # unparseable file aside, then reinit fresh.
-                try:
-                    bak = SECRETS_FILE.with_name(
-                        SECRETS_FILE.name
-                        + f".corrupt-{_stdlib_secrets.token_hex(4)}")
-                    SECRETS_FILE.replace(bak)
-                    sys.stderr.write(
-                        f"  secrets.json malformed: {e}; backed up to "
-                        f"{bak} and reinit\n")
-                except Exception as e2:
-                    sys.stderr.write(
-                        f"  secrets.json malformed: {e}; backup failed: "
-                        f"{e2}; reinit\n")
+                # AF2 (v3.66.41) moved the unreadable file aside and reinit'd
+                # fresh so the next set() could not overwrite it. Row 432
+                # (v3.66.1363) keeps AF2's guarantee and strengthens it: the
+                # file is now preserved IN PLACE, byte-identical, and nothing
+                # reinitializes. The rename was itself the defect --
+                # SECRETS_FILE.replace() needs directory permission, not file
+                # permission, so a chmod-000 or EIO read renamed the
+                # operator's live vault away, and the fresh dict then
+                # classified an INITIALIZED host as UNINITIALIZED. A blank
+                # _data plus _load_error makes every reader and every writer
+                # fail closed instead (CLAUDE.md A7: an unavailable
+                # measurement is UNKNOWN, never OK).
+                self._load_error = f"{type(e).__name__}: {e}"
+                sys.stderr.write(
+                    f"  secrets.json at {SECRETS_FILE} could not be read: "
+                    f"{e}; left untouched. The vault is UNREADABLE, not "
+                    f"uninitialized: every unlock, set, delete and password "
+                    f"change is refused. Repair or restore the file, then "
+                    f"RESTART the service -- this state is fixed for the "
+                    f"life of the process.\n")
+                return {}
         # Fresh init: random salt, no ciphertexts
         # AUDIT v3.43.47: 600,000 iterations follows OWASP 2023 guidance
         # for PBKDF2-HMAC-SHA256. Previously 200,000 (the 2018 baseline).
@@ -683,6 +708,35 @@ class MasterPasswordBackend(_BackendBase):
             and all("0" <= character <= "9" for character in suffix)
         )
 
+    def _refuse_if_unreadable_locked(self, operation: str) -> None:
+        """Row 432: refuse any operation over a store we could not read.
+
+        This is the guarantee AF2's move-aside used to provide by renaming.
+        The file is now preserved in place, so nothing may write over it and
+        no password may be committed against it."""
+        if self._load_error is not None:
+            raise SecretsUnreadableError(
+                f"{operation} refused: the credential vault file exists but "
+                f"is unreadable ({self._load_error}). It was left untouched "
+                f"and NOT reinitialized. Repair or restore the file, then "
+                f"RESTART the service -- the store is read once at backend "
+                f"construction and get_backend() caches that instance, so "
+                f"retrying against this process cannot pick up the repair."
+            )
+
+    def store_state(self) -> str:
+        """Classify the durable store: the four states are mutually exclusive.
+
+        ``unreadable`` is an unavailable measurement and is deliberately
+        neither ``uninitialized`` nor ``locked``/``unlocked`` (CLAUDE.md A7).
+        """
+        with self._lock:
+            if self._load_error is not None:
+                return "unreadable"
+            if not self._is_initialized_locked():
+                return "uninitialized"
+            return "unlocked" if self._key is not None else "locked"
+
     def _is_initialized_locked(self) -> bool:
         ciphertexts_present = "ciphertexts" in self._data
         ciphertexts = self._data.get("ciphertexts")
@@ -693,7 +747,12 @@ class MasterPasswordBackend(_BackendBase):
             not ciphertexts_present or not isinstance(ciphertexts, dict)
         )
         return (
-            malformed_ciphertexts
+            # Row 432: a store we could not read may hold a committed
+            # password. Fail closed on the only question this predicate
+            # answers -- "may a new password be chosen?" -- and let
+            # store_state()/SecretsUnreadableError carry the distinction.
+            self._load_error is not None
+            or malformed_ciphertexts
             or self._COMMITMENT_AUTHORITY_FIELD in self._data
             or "verifier" in self._data
             or bool(ciphertexts)
@@ -889,6 +948,10 @@ class MasterPasswordBackend(_BackendBase):
         # before validation/derivation/sealing so an unexpected exception can
         # never leave a failed unlock with old access still enabled.
         self._key = None
+        # Row 432: refuse BEFORE the first-use branch below. A store we could
+        # not read must never reach it, or any password commits a new empty
+        # vault over the operator's real one.
+        self._refuse_if_unreadable_locked("unlock")
         raw_cts = self._data.get("ciphertexts")
         if "ciphertexts" not in self._data or not isinstance(raw_cts, dict):
             self._key = None
@@ -1165,6 +1228,7 @@ class MasterPasswordBackend(_BackendBase):
         self, old_password: str, new_password: str
     ) -> str:
         """Return changed/incorrect_password/corrupt while holding the lock."""
+        self._refuse_if_unreadable_locked("password change")
         if not self._is_initialized_locked():
             raise SecretsUninitializedError(
                 "initialize the vault through /api/secrets/unlock before "
@@ -1303,6 +1367,10 @@ class MasterPasswordBackend(_BackendBase):
             )
 
     def set(self, key: str, password: str) -> None:
+        # Row 432: ahead of the locked check, so an unreadable store names its
+        # own condition instead of the generic "backend is locked".
+        with self._lock:
+            self._refuse_if_unreadable_locked("set")
         if self._key is None:
             raise RuntimeError("backend is locked; call unlock() first")
         with self._lock:
@@ -1403,6 +1471,9 @@ class MasterPasswordBackend(_BackendBase):
 
     def delete(self, key: str) -> bool:
         with self._lock:
+            # Row 432: a store we could not read cannot say what it holds, so
+            # "not present" must not be reported as a successful no-op.
+            self._refuse_if_unreadable_locked("delete")
             cts = self._data.get("ciphertexts") or {}
             authority_key = self._commitment_authority_key_locked(cts)
             if key == authority_key:
@@ -1450,6 +1521,10 @@ class MasterPasswordBackend(_BackendBase):
 
     def list_keys(self) -> list[str]:
         with self._lock:
+            # Row 432: inventory over an unread store is not zero. Raise the
+            # distinctive subclass ahead of the generic container check so
+            # readers can name the condition.
+            self._refuse_if_unreadable_locked("inventory")
             ciphertexts = self._data.get("ciphertexts")
             if (
                 "ciphertexts" not in self._data
