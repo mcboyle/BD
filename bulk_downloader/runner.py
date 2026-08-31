@@ -1177,6 +1177,23 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 continue
             return outcome
 
+    def _refuse_for_download_hold(self, hold_state, verb):
+        """Publish the runner-visible refusal for a held/unmeasurable hold.
+
+        One publisher for all three gates (start's pre-check, start's running
+        transition, resume) so a refusal cannot be visible on one path and
+        silent on another."""
+        token = _download_hold.runner_state_token(hold_state)
+        if self._state != token:
+            self._state = token
+            self.log_event(
+                "download_hold",
+                f"Downloads are held; refusing to {verb} workers "
+                f"({hold_state.get('state')}: {hold_state.get('reason')})",
+                extra={"hold_state": hold_state.get("state"),
+                       "hold_reason": hold_state.get("reason"),
+                       "hold_detail": hold_state.get("detail")})
+
     @_run_lifecycle_serialized
     def _start_serialized(self, _teardown_generation=None):
         if getattr(self, "_run_retired", False):
@@ -1303,16 +1320,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # carry on"), and never raises, so there is no fail-open branch to add.
         _hold_allowed, _hold_state = _download_hold.downloads_allowed()
         if not _hold_allowed:
-            _token = _download_hold.runner_state_token(_hold_state)
-            if self._state != _token:
-                self._state = _token
-                self.log_event(
-                    "download_hold",
-                    "Downloads are held; refusing to start workers "
-                    f"({_hold_state.get('state')}: {_hold_state.get('reason')})",
-                    extra={"hold_state": _hold_state.get("state"),
-                           "hold_reason": _hold_state.get("reason"),
-                           "hold_detail": _hold_state.get("detail")})
+            self._refuse_for_download_hold(_hold_state, "start")
             return
         dl_dir=self.config.get("download_dir","")
         threshold=_finite_config_float(self.config.get("disk_threshold_gb",2.0), 2.0)
@@ -1474,13 +1482,28 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # Drain any leftover items from a previous run, then enqueue. (F1:
         # the drain repays unfinished_tasks so _watch_done's `==0` gate stays
         # reachable after a stop->start mid-queue.)
-        with self._worker_heartbeats_lock:
-            if run_generation != self._worker_run_generation:
+        # Row 433: RE-READ THE HOLD, UNDER THE BARRIER, AT THE TRANSITION.
+        # The check above ran before the window/admission/disk/quota work and
+        # before sorting every pending URL; a hold POST that lands in that gap
+        # finds this runner not yet "running", so its pause() no-ops, and this
+        # block would arm the pool against a durable hold the operator has
+        # already been told was applied. Holding the barrier across the re-read
+        # AND the transition is what makes it a barrier rather than a second
+        # sample: the POST takes the same lock across (write, pause), so a
+        # start cannot be recorded-as-running after the walk that was supposed
+        # to stop it. Lock order: barrier OUTSIDE _worker_heartbeats_lock.
+        with _download_hold.barrier():
+            _arm_allowed, _arm_hold_state = _download_hold.downloads_allowed()
+            if not _arm_allowed:
+                self._refuse_for_download_hold(_arm_hold_state, "start")
                 return
-            self._stop.clear(); self._pause.set(); self._state="running"; self._consec_no_btn=0
-            self._drain_url_queue()
-            for u in pending:
-                self._url_queue.put((run_generation, u))
+            with self._worker_heartbeats_lock:
+                if run_generation != self._worker_run_generation:
+                    return
+                self._stop.clear(); self._pause.set(); self._state="running"; self._consec_no_btn=0
+                self._drain_url_queue()
+                for u in pending:
+                    self._url_queue.put((run_generation, u))
         n=max(1,int(self.config.get("max_concurrent", DEFAULT_MAX_CONCURRENT)))
         # Spawn N persistent worker threads. Each owns one playwright/browser
         # and serves URLs from the queue until stop or queue exhaustion.
@@ -1684,20 +1707,20 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         contract: an unmeasurable hold refuses."""
         if self._state in ("paused", "low_disk", "paused_no_button"):
             reset_no_button_streak = self._state == "paused_no_button"
-            _hold_allowed, _hold_state = _download_hold.downloads_allowed()
-            if not _hold_allowed:
-                self._state = _download_hold.runner_state_token(_hold_state)
-                self.log_event(
-                    "download_hold",
-                    "Downloads are held; refusing to resume workers "
-                    f"({_hold_state.get('state')}: {_hold_state.get('reason')})",
-                    extra={"hold_state": _hold_state.get("state"),
-                           "hold_reason": _hold_state.get("reason")})
-                return
-            self._state = "running"
-            if reset_no_button_streak:
-                self._consec_no_btn = 0
-            self._pause.set()
+            # Row 433: resume() is the OTHER path that arms a pool, and it has
+            # the same shape -- read the hold, then transition. Under the same
+            # barrier the check and the transition are one step, so a hold
+            # recorded concurrently either precedes the read (and refuses) or
+            # follows the transition (and the POST's pause() sees "running").
+            with _download_hold.barrier():
+                _hold_allowed, _hold_state = _download_hold.downloads_allowed()
+                if not _hold_allowed:
+                    self._refuse_for_download_hold(_hold_state, "resume")
+                    return
+                self._state = "running"
+                if reset_no_button_streak:
+                    self._consec_no_btn = 0
+                self._pause.set()
 
     @_run_lifecycle_serialized
     def stop(self):
