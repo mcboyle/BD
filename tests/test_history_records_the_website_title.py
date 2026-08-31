@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from html.parser import HTMLParser
+from pathlib import Path
 
 import pytest
 
@@ -87,6 +88,9 @@ class _DownloadLocator:
         return self.href if name == "href" else None
 
 
+_PAYLOAD = b"already present"
+
+
 def _runner_and_page(clean_workdir, *, html: str, filename: str, url: str):
     from bulk_downloader.db import db_init
     from bulk_downloader.migrations import apply_pending
@@ -99,7 +103,6 @@ def _runner_and_page(clean_workdir, *, html: str, filename: str, url: str):
     download_dir = clean_workdir / "downloads"
     download_dir.mkdir()
     target = download_dir / filename
-    target.write_bytes(b"already present")
 
     runner = SiteRunner(
         "ultrafilms",
@@ -108,6 +111,15 @@ def _runner_and_page(clean_workdir, *, html: str, filename: str, url: str):
             "download_dir": str(download_dir),
             "filename_template": "{filename}",
             "skip_if_exists": True,
+            # This fixture stands in for the transfer itself, so ffprobe and
+            # hash verification -- separate contracts, and host-dependent --
+            # must not decide whether a completion is recorded. Neither ran
+            # before either: the destination used to be pre-created so the
+            # skip_if_exists branch stood in for the download, and that branch
+            # returned before both checks.
+            "verify_integrity": False,
+            "verify_hash": False,
+            "use_http_dl": True,
             "learned": {
                 "download": {
                     "row_selectors": ["a.download"],
@@ -116,12 +128,33 @@ def _runner_and_page(clean_workdir, *, html: str, filename: str, url: str):
             },
         },
     )
+
+    # THE TRANSFER, faked at the seam. These tests are about what a COMPLETED
+    # download records, and they used to obtain a completion by pre-creating
+    # the destination and letting the "already have" branch mark the job done.
+    # That branch now refuses to claim a completion it cannot attribute -- a
+    # file of unknown provenance is UNKNOWN, not this scene -- so the fixture
+    # has to supply a real completion instead of borrowing a skip. Every
+    # assertion below is unchanged; only the way the bytes arrive is.
+    def _http_download(page_url, page_, ctx_, file_url, final_path):
+        Path(final_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(final_path).write_bytes(_PAYLOAD)
+        return len(_PAYLOAD), len(_PAYLOAD)
+
+    def _pw_save(dl, final_path):  # pragma: no cover - pins the HTTP arm
+        raise AssertionError("the browser arm ran; this fixture pins the HTTP arm")
+
+    runner._http_download = _http_download
+    runner._pw_save = _pw_save
+
     page = _FixturePage(url, html)
     best = {
         "locator": _DownloadLocator(f"https://cdn.ultrafilms.example/{filename}"),
         "text": "Download 1080p",
         "score": 1080,
-        "size": target.stat().st_size,
+        # 0 keeps the Phase 17.20 size-sanity check inert, exactly as the
+        # 15-byte pre-created file did (it only fires above 1MB advertised).
+        "size": 0,
         "_via_learned": True,
         "_learned_sel": "a.download",
         "_all_candidates": [],
