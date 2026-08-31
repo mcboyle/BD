@@ -61,6 +61,16 @@ def api_secrets_status():
     }
     try:
         stored_keys = backend.list_keys()
+    except ss.SecretsUnreadableError as error:
+        # Row 432: distinct from ordinary integrity damage. The file could not
+        # be read at all, so the settings UI must not offer first-use setup.
+        return jsonify({
+            **status,
+            "ok": False,
+            "state": "unreadable",
+            "stored_keys": None,
+            "error": str(error)[:240],
+        }), 409
     except ss.SecretsIntegrityError as error:
         # The settings surface must retain a machine-readable diagnosis when
         # inventory cannot be trusted. An HTML 500 hides the damaged-vault
@@ -200,6 +210,21 @@ def api_secrets_unlock():
     except ss.SecretsPasswordPolicyError as e:
         return jsonify({"ok": False, "state": "uninitialized",
                         "error": str(e)}), 400
+    except ss.SecretsUnreadableError as e:
+        # Row 432: this refusal is neither a bad password nor a success. The
+        # durable store could not be read, so no password was committed and
+        # the operator's file was left untouched. Do not throttle it -- it is
+        # a storage failure, not an authentication attempt.
+        return jsonify({
+            "ok": False,
+            "state": "unreadable",
+            "is_initialized": True,
+            "is_unlocked": bool(
+                backend.is_unlocked()
+                if hasattr(backend, "is_unlocked") else False
+            ),
+            "error": str(e),
+        }), 409
     except ss.SecretsIntegrityError as e:
         failure_status = getattr(e, "vault_status", {})
         if "is_initialized" in failure_status:

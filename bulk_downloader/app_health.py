@@ -155,6 +155,19 @@ def credential_health(sites_config: dict | None) -> dict:
         initialized_fn = getattr(backend, "is_initialized", None)
         initialized = bool(initialized_fn()) if callable(initialized_fn) else True
         unlocked = bool(backend.is_unlocked())
+        # Row 432: an unreadable durable store is an unavailable measurement,
+        # not a state. Classify it before any reference branching --
+        # a damaged vault with zero references otherwise reached
+        # "locked_no_references" and published ok=True over a store nothing
+        # had read (CLAUDE.md A7).
+        state_fn = getattr(backend, "store_state", None)
+        if callable(state_fn) and state_fn() == "unreadable":
+            return _unknown_credential_health(
+                backend=backend_name,
+                initialized=initialized,
+                unlocked=unlocked,
+                references=references,
+            )
         # Enumeration is independently required: without it, None from get()
         # cannot be classified as missing versus unreadable.
         stored_keys = list(backend.list_keys())

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4124,
+  "edge_count": 4128,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3693,6 +3693,12 @@
       "bulk_downloader/runner.py"
     ],
     "tests/test_row402_durable_vault_verifier.py": [
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row432_unreadable_vault_is_not_uninitialized.py": [
       "bulk_downloader/app_health.py",
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
