@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import ast
 import importlib.util
 import json
 import os
@@ -278,52 +279,82 @@ def _assert_literal_exactly_once(text: str, anchor: str) -> None:
     assert count == 1, f"literal anchor occurs {count} times, expected exactly 1"
 
 
-def test_row348_m4_regex_anchor_survives_an_actually_moved_census(
-        tmp_path: Path) -> None:
+def test_row348_m4_was_retired_with_the_literal_it_severed() -> None:
+    """M4 is gone, and this proves the removal was honest rather than quiet.
+
+    Row 353 wrote a regex anchor for M4 so a moving census could not invalidate
+    the spec. Row 531 removed the census literal itself: the declared-gate
+    expectation is now derived from the declared set, so there is no number left
+    that can be stale. A mutant aimed at the derivation would leave a consistent
+    tree consistent and ESCAPE -- a false negative dressed as coverage -- so the
+    spec stops claiming it.
+
+    Deleting a mutant is exactly the move that should be hard to do quietly, so
+    the assertions below are the ones that would catch it being done for the
+    wrong reason: the literal really is absent from the gate, the six mutants
+    that sever the TREE are still there, and the property M4 stood in front of
+    is still enforced -- by a live floor that refuses a population below it, and
+    by a derivation that needs no literal at all.
+    """
     assert _ROW348_SPEC.is_file()
     assert _CENSUS_GATE.is_file()
     document = json.loads(_ROW348_SPEC.read_text(encoding="utf-8"))
-    mutants = [mutant for mutant in document["mutants"] if mutant["label"].startswith("M4 ")]
-    assert len(mutants) == 1
-    mutant = mutants[0]
-    assert "old" not in mutant
-    assert mutant["old_regex"] == r"_EXPECTED_DECLARED_GATE_COUNT = [0-9]+"
-    assert mutant["new"] == "_EXPECTED_DECLARED_GATE_COUNT = 1"
 
+    labels = [mutant["label"] for mutant in document["mutants"]]
+    assert not [label for label in labels if label.startswith("M4 ")], labels
+    assert len(labels) == 6, labels
+    # The three that make the TREE inconsistent are what row348 is really for.
+    for prefix in ("M1 ", "M2 ", "M3 "):
+        assert len([label for label in labels if label.startswith(prefix)]) == 1, labels
+    assert "M4 SEVERED A DEFECT THAT NO LONGER EXISTS" in document["_comment"]
+
+    # PARSED, not grepped. The gate module explains the retirement in a comment
+    # that necessarily NAMES the retired constant, and a text scan reports its
+    # own explanation -- A7's "if a gate scans source text, remember its comments
+    # and examples are inside that denominator". Caught here by this very
+    # assertion failing on its first run.
     current = _CENSUS_GATE.read_text(encoding="utf-8")
-    current_matches = list(re.finditer(mutant["old_regex"], current))
-    assert len(current_matches) == 1
-    current_value = int(current_matches[0].group(0).rsplit(" ", 1)[1])
-    assert current_value > 1
-    stale_literal = current_matches[0].group(0)
-    _assert_literal_exactly_once(current, stale_literal)
-
-    scratch = tmp_path / _CENSUS_GATE.name
-    moved_value = current_value + 37
-    assert moved_value != current_value
-    match = current_matches[0]
-    moved = current[:match.start()] + (
-        f"_EXPECTED_DECLARED_GATE_COUNT = {moved_value}"
-    ) + current[match.end():]
-    scratch.write_text(moved, encoding="utf-8")
-    assert scratch.read_text(encoding="utf-8") == moved
-    moved_matches = list(re.finditer(mutant["old_regex"], moved))
-    assert len(moved_matches) == 1
-    assert moved_matches[0].group(0).endswith(str(moved_value))
-
-    with pytest.raises(
-        AssertionError,
-        match="literal anchor occurs 0 times, expected exactly 1",
-    ):
-        _assert_literal_exactly_once(moved, stale_literal)
+    bindings = {
+        target.id
+        for node in ast.parse(current, filename=str(_CENSUS_GATE)).body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    assert "_EXPECTED_DECLARED_GATE_COUNT" not in bindings, (
+        "the retired literal came back as a real binding; M4 was removed on the "
+        "premise that it cannot be stale because it no longer exists"
+    )
+    assert "_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT" not in bindings
+    assert "_DECLARED_GATE_FLOOR" in bindings, (
+        "the population floor that replaced the literal is not bound at module "
+        "scope, so nothing carries the removal tripwire"
+    )
 
     gate = _load_census_gate()
     declared_count = len(gate._DECLARED)
     assert declared_count > 1
     shards = gate._shard_lists()
     assert len(shards) > 0
-    with pytest.raises(AssertionError, match=r"declared [0-9]+ gates, expected exactly 1"):
-        gate._assert_exact_gate_coverage(gate._DECLARED, shards, expected_count=1)
+
+    # NEGATIVE CONTROL: a floor above the real population is refused, and the
+    # refusal names both numbers rather than saying only that something is wrong.
+    with pytest.raises(
+        AssertionError,
+        match=r"the declared gate population fell from at least 999999 to [0-9]+",
+    ):
+        gate._assert_exact_gate_coverage(gate._DECLARED, shards, floor=999999)
+
+    # POSITIVE CONTROL: the same call at the true population passes, with no
+    # literal anywhere -- which is the whole reason M4 has nothing left to sever.
+    gate._assert_exact_gate_coverage(gate._DECLARED, shards, floor=declared_count)
+
+    # And the derivation still refuses the failure the spec exists for: a gate
+    # that is declared and that no shard runs.
+    with pytest.raises(AssertionError, match="missing from CI"):
+        gate._assert_exact_gate_coverage(
+            gate._DECLARED, {"one": sorted(gate._DECLARED)[:-1]},
+            floor=declared_count)
 
 
 def test_transform_control_only_confirms_the_mutation_tool_exists() -> None:

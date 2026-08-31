@@ -278,14 +278,15 @@ _FRAGILE_RULES = (
         r"(?<=_STANDARD_TEST_FILE_TIMEOUT_S = )[0-9]+",
         "the transform duplicates row 339's measurement-derived verifier wall",
     ),
-    *_family(
-        "tests/mutants/row348_raw_unicode_gate_ci_reachability.json",
-        ("M4 ",),
-        "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-        r"(?m)^    assert len\(declared\) == expected_count, \($",
-        r"(?<=_EXPECTED_DECLARED_GATE_COUNT = )[0-9]+",
-        "the integrator re-pins this whole-tree declaration census on every gate cut",
-    ),
+    # Row 531 (v3.66.1381) retired row348's M4 rather than re-pointing it.
+    # M4 set _EXPECTED_DECLARED_GATE_COUNT to a stale value, and it was catchable
+    # only because a hand-maintained literal can be wrong about the population by
+    # itself. That literal is gone: the expectation is now derived from the
+    # declared set. A mutant aimed at the derivation leaves a consistent tree
+    # consistent and ESCAPES, which would be a false negative dressed as a
+    # mutant, so the honest move is to stop claiming the coverage. row348's M1,
+    # M2 and M3 still sever scope, declaration and shard by making the TREE
+    # inconsistent, which is what that spec is for.
     *_family(
         "tests/mutants/v3_66_1111_capture_stage_cap.json",
         ("the default cap ",),
@@ -1248,9 +1249,11 @@ def test_every_tracked_mutant_anchor_has_an_honest_classification():
         _STABLE_VALUE_EXCEPTIONS,
         _STABLE_VALUE_EXCEPTION_MAX,
     )
-    assert len(_FRAGILE_RULES) == 49, "the measured fragile denominator drifted"
+    # 49 -> 48 at row 531: row348::M4 retired with its subject, not dropped
+    # silently. See the comment beside the removed _family entry above.
+    assert len(_FRAGILE_RULES) == 48, "the measured fragile denominator drifted"
     _assert_compliant(audits, errors)
-    assert sum(audit.state is State.FRAGILE for audit in audits) >= 49
+    assert sum(audit.state is State.FRAGILE for audit in audits) >= 48
     assert all(audit.state is not State.UNKNOWN for audit in audits)
 
 
@@ -1282,9 +1285,8 @@ def _semantic_intent(rule: FragileRule, before: str, replacement: str) -> None:
         old = int(re.search(rule.value_regex, before).group().replace("_", ""))
         numbers = [int(value.replace("_", "")) for value in re.findall(r"[0-9][0-9_]*", replacement)]
         assert numbers and numbers[-1] < old
-    elif spec.startswith("row348_"):
-        assert "_EXPECTED_DECLARED_GATE_COUNT = 1" == replacement
-        assert int(re.search(rule.value_regex, before).group()) > 1
+    # row348_ had a branch here for M4; the mutant was retired at row 531 with
+    # the literal it severed, so no rule for that spec reaches this function.
     elif spec.startswith("v3_66_1111_"):
         assert "5400" in before and "200" in replacement
     elif spec.startswith("v3_66_1204_"):

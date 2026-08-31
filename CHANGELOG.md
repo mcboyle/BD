@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1381 - a denominator that must be hand-bumped is a chore, not a gate
+
+- THREE EXACT-EQUALITY LITERALS RETIRED. `_EXPECTED_DECLARED_GATE_COUNT = 235`
+  sat behind eighty lines of bump comments -- "208 -> 209", "233 -> 234", "the
+  integrator re-pins this if a concurrent cut also lands a gate". Beside it,
+  `_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7`, and in the freshness gate the
+  tracked-Markdown totals 139 and 138. Every cut that added a gate or a document
+  had to edit a number, and on 2026-08-31 forgetting to do so turned a green
+  candidate red twice for no defect at all -- once for a new repo-wide test file,
+  once for docs/repo/FLEET_TOPOLOGY.md -- costing a full CI round-trip and a
+  re-freeze each time.
+
+- THE LITERAL WAS BLIND TO THE CASE IT NAMED. Its own comment said it was
+  "intentionally exact" so that a SAME-SIZE SUBSTITUTION would be visible. A
+  substitution leaves the total unchanged, so the number could never see one.
+  What it actually caught was a REMOVAL -- and a monotonic floor catches a
+  removal too, while ordinary growth never touches it.
+
+- WHAT REPLACES THEM. The declared/executed correspondence now derives its
+  expectation from the declared set itself and still asserts NONZERO,
+  MEMBERSHIP in both directions, and UNIQUENESS, so the execution count cannot
+  match the declaration count while a gate silently never runs. The Markdown
+  corpus keeps an EXACT denominator, but an independent one: a second derivation
+  of the same rule, compared set to set, so a drift is a named disagreement
+  rather than an off-by-one to bump away.
+
+- AND A RULE SO IT DOES NOT GROW BACK.
+  tests/test_row531_denominators_are_derived_not_pinned.py refuses any new
+  `len(...) == <literal>` or `len(...) == _..._COUNT` in either module. It parses
+  the modules rather than grepping them: this file's own docstring names all
+  three retired literals, so a text scan would report itself. RED-first at
+  20f72e42 with seven failures; growth is proven green and removal proven still
+  red. The version pin in tests/test_settings_center_slice4.py is deliberately
+  left alone -- it is the forgot-to-bump tripwire, which is the one place the
+  chore is the point.
+
+- AND A MUTANT RETIRED WITH ITS SUBJECT. row348's M4 set the declared-gate
+  literal to a stale value, and it was catchable for one reason: a
+  hand-maintained number can be wrong about the population all by itself. With
+  the expectation derived, no such number is left. A mutant aimed at the
+  derivation would leave a consistent tree consistent and ESCAPE, which is a
+  false negative dressed as coverage, so the spec stops claiming it -- M1, M2 and
+  M3 still sever scope, declaration and shard by making the TREE inconsistent,
+  which is what row348 is actually for. The removal is guarded rather than quiet:
+  test_row353 now asserts the retired constant is not re-bound, the six remaining
+  mutants are present, and the floor refuses a population below it.
+
+- THE GATE'S OWN COMMENT REPORTED ITSELF. The first version of that retirement
+  check read the module as text, and the comment explaining the retirement names
+  the retired constant, so it failed on its own explanation. It parses the module
+  now. A7 says this in general terms; this is the fourth time this tree has paid
+  for it.
+
 ## v3.66.1380 - what the review found, written down where it will be read
 
 - SIXTY-FIVE ROWS. The bd3 ultrareview produced 67 findings; 65 were still

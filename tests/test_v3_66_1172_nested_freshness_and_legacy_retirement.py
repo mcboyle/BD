@@ -202,6 +202,11 @@ def test_freshcheck_refuses_an_ambiguous_basename_anchor(tmp_path: Path):
     assert "ambiguous basename" in result["detail"]
 
 
+# Row 531: a monotonic floor, not a hand-bumped total. Lower it only when
+# documents are deliberately retired; adding one must never edit this file.
+_CURRENT_MARKDOWN_FLOOR = 139
+
+
 def test_current_markdown_denominator_is_explicit_and_nonzero():
     sec = _load("bdtools_sec_v1172", BIN / "bdtools_sec.py")
     current, historical = sec.tracked_markdown_corpus(REPO)
@@ -209,9 +214,20 @@ def test_current_markdown_denominator_is_explicit_and_nonzero():
         subprocess.check_output(["git", "ls-files", "--deleted"], cwd=REPO, text=True).splitlines()
     )
     current = [p for p in current if p not in deleted]
-    assert len(current) == 139  # +1: docs/repo/FLEET_TOPOLOGY.md added @1380
+    # Row 531: this was `== 139`, hand-bumped on every cut that added a
+    # document, and it turned a green candidate red twice on 2026-08-31 for no
+    # defect at all. NONZERO, UNIQUE, DISJOINT and a monotonic FLOOR are what
+    # the gate was actually for. The exact denominator is still checked -- in
+    # test_row531_denominators_are_derived_not_pinned, against a SECOND
+    # independent derivation of the same rule rather than against a number
+    # somebody typed.
+    assert current, "the current Markdown denominator collapsed to zero"
+    assert len(current) >= _CURRENT_MARKDOWN_FLOOR, (
+        f"the current Markdown corpus fell from at least "
+        f"{_CURRENT_MARKDOWN_FLOOR} to {len(current)}; document(s) were removed")
     assert len(historical) == 14
     assert len(current) == len(set(current))
+    assert not set(current) & set(historical)
 
 
 def test_the_audit_is_retired_only_after_every_live_finding_has_an_owner():
@@ -266,7 +282,12 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
         if rel != "project-knowledge/IMPROVEMENT_BACKLOG.md"
     )
     offenders = {}
-    assert len(current_docs) == 138  # +1: docs/repo/FLEET_TOPOLOGY.md added @1380
+    # Row 531: the same retired literal, one document smaller. What this scan
+    # needs is a nonzero denominator it can prove it covered -- not a total.
+    assert current_docs, "the retired-tool scan has nothing to scan"
+    assert len(current_docs) >= _CURRENT_MARKDOWN_FLOOR - 1, (
+        f"the scanned document population fell to {len(current_docs)}, below "
+        f"the floor {_CURRENT_MARKDOWN_FLOOR - 1}")
     for rel in current_docs:
         matches = sorted(set(token.findall((REPO / rel).read_text(encoding="utf-8"))))
         if matches:
