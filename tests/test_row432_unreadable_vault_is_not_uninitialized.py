@@ -226,6 +226,9 @@ def test_unlock_over_an_unparseable_store_refuses_with_a_named_diagnostic(
         assert "unreadable" in diagnostic.lower(), "distinctive named state"
         assert "incorrect password" not in diagnostic.lower(), "not bad-password"
         assert _MASTER_A not in diagnostic and _MASTER_B not in diagnostic
+        # get_backend() caches one instance and the store is read once at
+        # construction, so repairing the file cannot help this process.
+        assert "restart" in diagnostic.lower(), "the remedy must be reachable"
         refusals += 1
 
     assert refusals == 2, "both the right and the wrong password are refused"
@@ -272,6 +275,27 @@ def test_unlock_endpoint_reports_the_damaged_state(unparseable_vault, monkeypatc
     assert body["is_initialized"] is True
     assert body["is_unlocked"] is False
     assert _digest(path) == digest_before
+
+
+def test_change_password_endpoint_reports_the_damaged_state(
+    unparseable_vault, monkeypatch
+):
+    """Rotation must not read as damaged CONTENT, nor as uninitialized."""
+    path = unparseable_vault
+    digest_before = _digest(path)
+    _open_backend(monkeypatch)
+    client = _secrets_client()
+
+    response = client.post(
+        "/api/secrets/change_password",
+        json={"old_password": _MASTER_A, "new_password": _MASTER_B},
+    )
+    body = response.get_json()
+
+    assert response.status_code == 409
+    assert body["ok"] is False
+    assert body["state"] == "unreadable", "not 'uninitialized', not 'integrity_error'"
+    assert _digest(path) == digest_before, "nothing rotated, nothing written"
 
 
 # ── the four states, each reachable and distinguishable ─────────────
