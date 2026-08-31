@@ -67,30 +67,101 @@ def _now() -> float:
 
 # ─── Token storage ───────────────────────────────────────────────
 
+class VaultTokensUnreadableError(RuntimeError):
+    """Raised when vault_tokens.json exists but could not be read or parsed.
+
+    An unreadable token store is an UNAVAILABLE MEASUREMENT, not a state
+    (CLAUDE.md A7). It is deliberately neither "absent" nor "empty":
+
+      - "absent" is the one classification the product treats as safe to
+        initialize, so a transient read failure would let the next
+        ``issue_pairing_token`` durably publish a NEW empty store over a
+        host that already holds live bearer tokens;
+      - "empty" would report "0 extensions paired" to the settings UI and
+        report a revocation as a completed no-op while the leaked token is
+        still live on disk.
+
+    Every store-touching entry point raises this rather than guessing, so a
+    caller that has not learned the state cannot fall through to a fail-open
+    path. Unlike ``secrets_store``, nothing here caches the load: the store
+    is re-read on every call, so repairing the file takes effect on the very
+    next request WITHOUT restarting the service.
+    """
+
+
+def _unreadable(exc: Exception) -> "VaultTokensUnreadableError":
+    return VaultTokensUnreadableError(
+        f"the extension vault token store at {VAULT_TOKENS_FILE} exists but "
+        f"could not be read ({type(exc).__name__}: {exc}). It was left "
+        f"untouched and NOT reinitialized, so no paired extension was "
+        f"unpaired and no token was revoked or issued. Repair or restore the "
+        f"file; the store is re-read on every request, so no restart is "
+        f"needed."
+    )
+
+
 def _load_tokens() -> dict:
-    """Read vault_tokens.json. Missing/malformed -> empty dict."""
-    if not VAULT_TOKENS_FILE.exists():
+    """Read vault_tokens.json.
+
+    Missing -> a fresh empty structure (genuine first use). Present but
+    unreadable/unparseable -> :class:`VaultTokensUnreadableError`.
+
+    AF4 (v3.66.41) refused to silently WIPE an unparseable store; it met
+    that by renaming the file to ``vault_tokens.json.corrupt-<ts>`` and
+    reinitializing fresh. The rename was itself the defect. ``Path.replace``
+    needs DIRECTORY permission, not file permission, so a chmod-000 file or a
+    transient EIO renamed the operator's LIVE token store away exactly as
+    readily as a torn write did -- measured on the defective tree, a mere
+    ``list_vault_tokens()`` moved the store aside and reported 0 paired
+    extensions, ``revoke_vault_token()`` on a still-live token reported
+    False, and the next ``issue_pairing_token()`` published a fresh store
+    under the real name. AF4's guarantee is kept and strengthened: the file
+    is now preserved IN PLACE, byte-identical, under its own name, and
+    nothing reinitializes.
+    """
+    try:
+        present = VAULT_TOKENS_FILE.exists()
+    except OSError as e:
+        # Path.exists() only swallows ENOENT/ENOTDIR/EBADF/ELOOP; an
+        # unreadable PARENT DIRECTORY raises here. Unmeasurable is never
+        # absent, so classify rather than let a bare OSError escape.
+        raise _unreadable(e) from e
+    if not present:
         return {"pairing": {}, "redeemed": {}}
     try:
         data = json.loads(VAULT_TOKENS_FILE.read_text(encoding="utf-8"))
         if not isinstance(data, dict): raise ValueError("not a dict")
-        data.setdefault("pairing", {})
-        data.setdefault("redeemed", {})
-        return data
     except Exception as e:
-        # AF4 (v3.66.41): don't silently wipe an unparseable token store —
-        # that would drop every paired extension and let the next save
-        # overwrite recoverable data. Move it aside, then reinit fresh.
-        try:
-            bak = VAULT_TOKENS_FILE.with_name(
-                VAULT_TOKENS_FILE.name + f".corrupt-{int(_now())}")
-            VAULT_TOKENS_FILE.replace(bak)
-            sys.stderr.write(
-                f"  vault_tokens.json malformed: {e}; backed up to {bak}; reinit\n")
-        except Exception as e2:
-            sys.stderr.write(
-                f"  vault_tokens.json malformed: {e}; backup failed: {e2}; reinit\n")
-        return {"pairing": {}, "redeemed": {}}
+        sys.stderr.write(
+            f"  vault_tokens.json at {VAULT_TOKENS_FILE} could not be read: "
+            f"{e}; left untouched. The extension vault token store is "
+            f"UNREADABLE, not empty: every pair, redeem, revoke, list and "
+            f"validate is refused until the file is repaired or restored.\n")
+        raise _unreadable(e) from e
+    data.setdefault("pairing", {})
+    data.setdefault("redeemed", {})
+    return data
+
+
+def store_state() -> str:
+    """Classify the durable token store. The three states are exclusive.
+
+    ``absent`` (no file yet -- genuine first use), ``ok`` (read and parsed),
+    ``unreadable`` (present but unmeasurable). ``unreadable`` is an
+    unavailable measurement and is deliberately neither of the other two
+    (CLAUDE.md A7). Never raises, so a status surface can report the state
+    instead of failing.
+    """
+    try:
+        if not VAULT_TOKENS_FILE.exists():
+            return "absent"
+    except OSError:
+        return "unreadable"
+    try:
+        _load_tokens()
+    except VaultTokensUnreadableError:
+        return "unreadable"
+    return "ok"
 
 
 def _save_tokens(data: dict) -> bool:
@@ -195,7 +266,11 @@ def redeem_pairing_token(pairing_token: str, extension_label: str = "") -> str |
 
 def revoke_vault_token(vault_token: str) -> bool:
     """Permanently invalidate a vault token. Returns True if it existed
-    and was removed."""
+    and was removed.
+
+    Raises VaultTokensUnreadableError rather than returning False when the
+    store could not be read -- False would read as "already gone" while the
+    token is still live on disk."""
     with _lock:
         data = _load_tokens()
         if vault_token in (data.get("redeemed") or {}):
@@ -210,7 +285,10 @@ def list_vault_tokens() -> list[dict]:
     """Return all redeemed vault tokens with metadata (labels,
     timestamps). Used by the settings UI to show 'You have 2 extensions
     paired' with revoke buttons. Does NOT return the raw token values —
-    just shortened prefixes for identification."""
+    just shortened prefixes for identification.
+
+    Raises VaultTokensUnreadableError rather than returning [] when the store
+    could not be read: inventory over an unread store is not zero."""
     data = _load_tokens()
     out = []
     for tok, meta in (data.get("redeemed") or {}).items():
@@ -225,7 +303,7 @@ def list_vault_tokens() -> list[dict]:
 
 def revoke_by_prefix(prefix: str) -> bool:
     """Revoke a vault token by its short ID prefix. UI-friendly version
-    of revoke_vault_token."""
+    of revoke_vault_token. Raises VaultTokensUnreadableError like it."""
     # B9 (v3.66.43): str.startswith("") is True for every token, so an
     # empty/very-short prefix would revoke an arbitrary token. Require
     # >=4 chars — any 4-char slice of a token_urlsafe(32) prefix is
@@ -248,7 +326,12 @@ def revoke_by_prefix(prefix: str) -> bool:
 
 def validate_vault_token(vault_token: str) -> dict | None:
     """Check a token presented in a request. Returns the token's metadata
-    dict if valid, None if not. Updates last_used_at as a side effect."""
+    dict if valid, None if not. Updates last_used_at as a side effect.
+
+    Raises VaultTokensUnreadableError rather than returning None when the
+    store could not be read. None is indistinguishable from "revoked", and a
+    caller that maps it to 401 would tell a still-paired extension to discard
+    a token that is very probably still live."""
     if not vault_token: return None
     with _lock:
         data = _load_tokens()

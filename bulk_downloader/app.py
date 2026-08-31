@@ -5766,7 +5766,15 @@ def _require_vault_token():
         return None, None, (jsonify({"ok": False,
             "error": "Authorization: Bearer <vault_token> required"}), 401)
     vt = auth[7:].strip()
-    meta = _ev.validate_vault_token(vt)
+    try:
+        meta = _ev.validate_vault_token(vt)
+    except _ev.VaultTokensUnreadableError as e:
+        # The token store is unmeasurable, so this token is neither proven
+        # valid nor proven revoked. 503, never 401: a 401 tells the
+        # extension its pairing is gone and invites it to discard a token
+        # that is very probably still live on disk.
+        return None, None, (jsonify({"ok": False, "state": "unreadable",
+            "error": str(e)}), 503)
     if meta is None:
         return None, None, (jsonify({"ok": False,
             "error": "invalid or expired vault token"}), 401)
@@ -5787,7 +5795,19 @@ def _reject_if_vault_token():
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         vt = auth[7:].strip()
-        if vt and _ev.validate_vault_token(vt) is not None:
+        try:
+            is_vault_token = vt and _ev.validate_vault_token(vt) is not None
+        except _ev.VaultTokensUnreadableError:
+            # Fail closed: this gate's whole job is to prove the presented
+            # bearer is NOT a vault token, and an unreadable store cannot
+            # prove it. Refuse rather than let the bearer through. The
+            # legitimate operator authenticates with a session cookie +
+            # CSRF and sends no Bearer at all, so this never fires for them.
+            return (jsonify({"ok": False, "state": "unreadable",
+                "error": "the extension vault token store is unreadable, so "
+                         "this bearer cannot be proven not to be a vault "
+                         "token; management route refused"}), 403)
+        if is_vault_token:
             return (jsonify({"ok": False,
                 "error": "vault tokens cannot access management routes"}), 403)
     return None
