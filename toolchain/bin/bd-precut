@@ -18,7 +18,7 @@ Usage:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
-import argparse, glob, os, pathlib, re, subprocess, sys, tempfile
+import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile
 
 # Placed AFTER the whole import block on purpose: inserting above `import sys`
 # leaves sys undefined at the insertion point and --help dies with NameError,
@@ -56,6 +56,40 @@ def _auto_baseline(root=None):
     found = [f for f in glob.glob(os.path.join(root, "out", "BulkDownloader_v*.zip"))
              if "overlay" not in os.path.basename(f).lower()]
     return max(found, key=_version) if found else None
+
+
+def _derive_baseline(root, tmpdir):
+    """Build the previous tree from git when there is no release zip.
+
+    WHY THIS EXISTS. precut_check needs a snapshot of the tree the cut is being
+    measured against; it happens to READ that snapshot from a zip. The release
+    zip flow is retired here, so in a git checkout there was never a baseline
+    and the version/pin/surface check NEVER RAN -- reported honestly as UNKNOWN,
+    on every cut, forever. A permanent UNKNOWN is not a measurement: it held
+    v3.66.1360 for hours and blocked v3.66.1378, and a verdict nobody can ever
+    satisfy is one people learn to step over, which is worse than no verdict.
+
+    origin/main is the snapshot the cut is actually measured against, and git
+    can produce it exactly. THIS DOES NOT REVIVE THE RELEASE ZIP FLOW: the
+    archive is a private temp file, never published, never a release artifact.
+
+    Returns (path, reason). Exactly one is None. A failure returns the reason so
+    the caller can keep saying UNKNOWN out loud instead of guessing.
+    """
+    if not os.path.isdir(os.path.join(root, ".git")) and not os.path.isfile(
+            os.path.join(root, ".git")):
+        return None, "not a git checkout, so no baseline can be derived"
+    rev = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q",
+                          "origin/main^{commit}"], capture_output=True, text=True)
+    if rev.returncode != 0 or not rev.stdout.strip():
+        return None, "origin/main does not resolve here, so no baseline can be derived"
+    sha = rev.stdout.strip()
+    out = os.path.join(tmpdir, "baseline-origin-main.zip")
+    ar = subprocess.run(["git", "-C", root, "archive", "--format=zip", "-o", out, sha],
+                        capture_output=True, text=True)
+    if ar.returncode != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0:
+        return None, f"git archive of {sha[:12]} produced no usable baseline"
+    return out, None
 
 
 def _auto_root():
@@ -142,10 +176,18 @@ def main(argv=None):
         return selftest()
 
     root = a.root or _auto_root()
+    tmpdir = tempfile.mkdtemp(prefix="bd-precut-baseline.")
+    atexit.register(shutil.rmtree, tmpdir, True)
+    derived_reason = None
+    tracked_only = False
     baseline = a.baseline or _auto_baseline(root)
+    if not baseline:
+        baseline, derived_reason = _derive_baseline(root, tmpdir)
+        tracked_only = baseline is not None
     print(f"== bd-precut{' --gate' if a.gate else ''} :: root={root}")
     if baseline:
-        print(f"               baseline={os.path.basename(baseline)}\n")
+        kind = "derived from origin/main" if tracked_only else "release zip"
+        print(f"               baseline={os.path.basename(baseline)} ({kind})\n")
 
     blocking = []
     unknown = []          # checks that did NOT run -- never fold these into "OK"
@@ -153,8 +195,15 @@ def main(argv=None):
     # 1. precut_check (version/pin/surface)
     tool = os.path.join(root, "tools", "precut_check.py")
     if os.path.isfile(tool) and baseline:
-        rc = subprocess.run([sys.executable, tool, "--baseline", baseline,
-                             "--root", root], timeout=900).returncode
+        cmd = [sys.executable, tool, "--baseline", baseline, "--root", root]
+        if tracked_only:
+            # BOTH SIDES MUST USE THE SAME DENOMINATOR. A git archive holds the
+            # tracked set; build_release's walk holds the tracked set PLUS the
+            # generated artifacts it would package. Comparing one against the
+            # other reports every generated file as newly added, which is a
+            # surface report that describes the tooling rather than the cut.
+            cmd.append("--tracked-only")
+        rc = subprocess.run(cmd, timeout=900).returncode
         if rc != 0:
             blocking.append("precut_check (version/pin/surface)")
     else:
@@ -164,7 +213,7 @@ def main(argv=None):
         # a check that never ran is exactly the gate-that-cannot-see-its-subject
         # shape. Record it as UNKNOWN and say so in the RESULT line.
         why = "no tools/precut_check.py" if not os.path.isfile(tool) else \
-              "no baseline zip (pass --baseline; the zip flow is retired here)"
+              (derived_reason or "no baseline available")
         print(f"  [precut_check NOT RUN -- {why}]\n")
         unknown.append(f"version/pin/surface (precut_check did not run: {why})")
 

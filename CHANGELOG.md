@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1378 - a check that can never run is not a measurement
+
+- BD-PRECUT DERIVES ITS BASELINE FROM origin/main. precut_check needs a
+  snapshot of the tree a cut is measured against and reads it from a zip. The
+  release zip flow is retired here, so in a git checkout there was never a
+  baseline: every run printed "precut_check NOT RUN -- no baseline zip" and
+  ended "1 check(s) NOT RUN, so UNKNOWN, not OK". Reporting an unmeasured check
+  as UNKNOWN is correct. Being unable to EVER measure it is not -- that UNKNOWN
+  held v3.66.1360 for hours and blocked v3.66.1378 itself, and a verdict nobody
+  can satisfy is one people learn to step over.
+- origin/main IS that snapshot, and git can produce it exactly, so bd-precut
+  now builds it with git archive into a private temp file. THIS DOES NOT REVIVE
+  THE RELEASE ZIP FLOW: the archive is never published and is never a release
+  artifact.
+- IT STILL FAILS CLOSED. No git checkout, or no resolvable origin/main, still
+  reports UNKNOWN with the reason named. The change replaces an unmeasurable
+  UNKNOWN with a measurement; it does not remove the UNKNOWN state.
+- BOTH SIDES NOW SHARE ONE DENOMINATOR. A git archive holds the tracked set;
+  build_release's walk holds the tracked set plus the generated artifacts it
+  would package. Compared against each other every generated file reads as
+  newly ADDED -- a check that runs and describes the tooling rather than the
+  cut. precut_check gained --tracked-only, and bd-precut passes it whenever the
+  baseline was derived, so the two sides reconcile. An unmeasurable tracked set
+  refuses rather than comparing against an empty one.
+
 ## v3.66.1377 - a budget that cannot be read is not a budget of zero
 
 Row 422. current_period_usage() wrapped its SUM(file_size) query in a bare
