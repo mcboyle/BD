@@ -140,8 +140,14 @@ def current_period_usage(config: dict) -> dict:
     Config fields:
       budget_reset_day: 1-28 (day of month, default 1)
 
-    Returns {used_bytes, used_gb, period_start_iso, period_end_iso}.
-    Always returns a valid dict; on DB failure used_bytes=0.
+    Returns {used_bytes, used_gb, period_start, period_end, reset_day,
+    unknown, error}.
+
+    Always returns a valid dict.  An UNREADABLE database is NOT zero usage:
+    when the history query cannot run, used_bytes/used_gb are None and
+    unknown=True, matching daily_budget._budget_report()'s refusal to equate
+    an unreadable counter with a measured zero (CLAUDE.md A7: an unavailable
+    measurement returns UNKNOWN, never OK).
     """
     reset_day = int((config or {}).get("budget_reset_day", 1) or 1)
     reset_day = max(1, min(28, reset_day))  # clamp to safe range
@@ -161,7 +167,8 @@ def current_period_usage(config: dict) -> dict:
         period_end = period_start.replace(year=period_start.year + 1, month=1)
     else:
         period_end = period_start.replace(month=period_start.month + 1)
-    used = 0
+    used = None
+    error = ""
     try:
         from . import db as _db
         with _db.db_conn() as cx:
@@ -170,14 +177,20 @@ def current_period_usage(config: dict) -> dict:
                                 WHERE status='done' AND ts >= ?""",
                               (period_start.strftime("%Y-%m-%dT%H:%M:%S"),)).fetchone()
         used = int(row[0] if not hasattr(row, "keys") else row["b"]) or 0
-    except Exception:
-        pass
+    except Exception as exc:
+        # A locked, missing, or corrupt history database means usage was never
+        # measured. Reporting 0 here turned a hard-cap stop into unthrottled
+        # downloading at exactly the moment usage cannot be seen.
+        used = None
+        error = f"history usage counter unavailable: {str(exc)[:120]}"
     return {
         "used_bytes": used,
-        "used_gb": round(used / (1024**3), 2),
+        "used_gb": None if used is None else round(used / (1024**3), 2),
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
         "reset_day": reset_day,
+        "unknown": used is None,
+        "error": error,
     }
 
 
@@ -191,18 +204,30 @@ def budget_state(config: dict) -> dict:
       hard_cap_pct: int 1-100, default 100
 
     Returns:
-      {state: 'unset' | 'ok' | 'soft' | 'hard',
+      {state: 'unset' | 'ok' | 'soft' | 'hard' | 'unknown',
        used_gb, budget_gb, pct, throttle_factor: 0.0-1.0,
-       period_start, period_end}
+       unknown, error, period_start, period_end}
 
     Caller uses throttle_factor: 1.0 = no throttle, 0.0 = full stop.
     Between soft and hard cap, linearly scales workers down.
+
+    'unknown' is a distinct FOURTH state, not a flavour of 'ok': the usage
+    counter could not be read, so this process cannot tell whether the cap is
+    already exceeded. used_gb and pct are None (never 0 -- that was the
+    fail-open this state replaces) and throttle_factor is 0.0, because a
+    configured cap plus an unmeasurable counter is the one combination in
+    which full-speed downloading may already be over budget. With no budget
+    configured the verdict stays 'unset' -- there is nothing to enforce -- but
+    used_gb/pct are still None rather than a fabricated zero.
     """
     budget = float((config or {}).get("monthly_budget_gb", 0) or 0)
     if budget <= 0:
         usage = current_period_usage(config or {})
+        unknown = bool(usage.get("unknown"))
         return {"state": "unset", "used_gb": usage["used_gb"],
-                "budget_gb": 0, "pct": 0, "throttle_factor": 1.0,
+                "budget_gb": 0, "pct": None if unknown else 0,
+                "throttle_factor": 1.0,
+                "unknown": unknown, "error": usage.get("error", ""),
                 "period_start": usage["period_start"],
                 "period_end": usage["period_end"]}
     soft_pct = int((config or {}).get("soft_cap_pct", 80) or 80)
@@ -211,6 +236,23 @@ def budget_state(config: dict) -> dict:
     hard_pct = max(soft_pct + 1, min(100, hard_pct))
     usage = current_period_usage(config or {})
     used_gb = usage["used_gb"]
+    if used_gb is None:
+        # UNKNOWN, never OK: refuse to compute a percentage from a measurement
+        # that was never taken, and refuse to hand the caller full throttle
+        # over it. Same contract as daily_budget._budget_report().
+        return {
+            "state": "unknown",
+            "used_gb": None,
+            "budget_gb": round(budget, 2),
+            "pct": None,
+            "soft_pct": soft_pct,
+            "hard_pct": hard_pct,
+            "throttle_factor": 0.0,
+            "unknown": True,
+            "error": usage.get("error") or "usage counter unavailable",
+            "period_start": usage["period_start"],
+            "period_end": usage["period_end"],
+        }
     pct = round(100 * used_gb / budget, 1)
     if pct >= hard_pct:
         state = "hard"; throttle = 0.0
@@ -232,6 +274,8 @@ def budget_state(config: dict) -> dict:
         "soft_pct": soft_pct,
         "hard_pct": hard_pct,
         "throttle_factor": round(throttle, 3),
+        "unknown": False,
+        "error": "",
         "period_start": usage["period_start"],
         "period_end": usage["period_end"],
     }

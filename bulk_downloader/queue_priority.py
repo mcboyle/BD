@@ -81,7 +81,14 @@ def _score_one(row: dict, *,
 
     # 5. Account quota — if site is at its monthly budget cap,
     # punish that site's jobs heavily
-    if context and "budget_pcts" in context:
+    if context and sid in context.get("budget_unknown", {}):
+        # Unlike cookie quality above, an unmeasured BUDGET is a cap that may
+        # already be exceeded, so "no penalty" would be the same fail-open as
+        # recording 0% used. Deprioritize while usage cannot be seen, and keep
+        # the reason visible in the explanation.
+        breakdown["budget_unmeasured_penalty"] = -30
+        base -= 30
+    elif context and "budget_pcts" in context:
         bp = context["budget_pcts"].get(sid)
         if bp is not None and bp > 90:
             breakdown["budget_exhausted_penalty"] = -30
@@ -122,12 +129,25 @@ def _gather_context(s_cfg: Optional[dict] = None) -> dict:
     try:
         from . import policy_gates as _pg
         ctx["budget_pcts"] = {}
+        ctx["budget_unknown"] = {}
         for sid, cfg in (s_cfg or {}).items():
             bs = _pg.budget_state(cfg or {})
-            if bs.get("state") != "unset":
-                ctx["budget_pcts"][sid] = bs.get("pct", 0)
+            if bs.get("state") == "unset":
+                continue
+            pct = bs.get("pct")
+            if pct is None or bs.get("unknown"):
+                # An unreadable usage counter is not "0% used". Recording it
+                # as a pct would rank a site that may already be over its cap
+                # as the freshest thing in the queue.
+                ctx["budget_unknown"][sid] = (
+                    bs.get("error") or "budget usage counter unavailable")
+            else:
+                ctx["budget_pcts"][sid] = pct
     except Exception:
         ctx["budget_pcts"] = {}
+        ctx["budget_unknown"] = {
+            sid: "budget census unavailable" for sid in (s_cfg or {})
+        }
     return ctx
 
 
