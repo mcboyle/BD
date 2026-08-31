@@ -112,13 +112,40 @@ def verify_db_dump(path: str) -> dict:
         return result
 
 
+# -- Row 423: the archive verdict is a TRISTATE, and the third state is not a pass.
+#
+# "ok"      the measurement ran and the archive is healthy
+# "failed"  the measurement ran and the archive is BAD (missing, empty, or short
+#           an expected member)
+# "unknown" the measurement was NOT AVAILABLE -- a type we cannot open, or an
+#           unreadable/truncated archive. CLAUDE.md A7: an unavailable
+#           measurement reports UNKNOWN rather than OK.
+#
+# `ok` stays False for BOTH refusing states, so every existing consumer that
+# reads only `ok` fails closed; `state` is what lets an operator tell "this
+# backup is bad" apart from "I could not tell you whether it is".
+#
+# String literals rather than an import of automation_status.OK/FAILED/UNKNOWN
+# on purpose: that module imports THIS one, so importing it back would close a
+# cycle. The values are identical to it.
+_STATE_OK = "ok"
+_STATE_FAILED = "failed"
+_STATE_UNKNOWN = "unknown"
+
+
 def verify_tarball(path: str, *, expected_members: Optional[list] = None) -> dict:
     """Open `path` as a tar/zip and check structure.
     `expected_members` is a list of substrings to require in the
-    archive (e.g. ['history.csv', 'README.txt'])."""
+    archive (e.g. ['history.csv', 'README.txt']).
+
+    Returns {ok, state, size_bytes, member_count, sample_members, error}. An
+    archive that OPENS is not thereby verified: a backup job that dies after
+    writing the archive header leaves a readable archive with ZERO members, and
+    that is the loudest possible backup failure, not a pass."""
     started = time.time()
     if not os.path.isfile(path):
-        result = {"ok": False, "error": f"file not found: {path}"}
+        result = {"ok": False, "state": _STATE_FAILED,
+                  "error": f"file not found: {path}"}
         _record(path, "tarball", result, started)
         return result
     try:
@@ -131,26 +158,44 @@ def verify_tarball(path: str, *, expected_members: Optional[list] = None) -> dic
             with zipfile.ZipFile(path) as zf:
                 members = zf.namelist()
         else:
-            result = {"ok": False,
+            # Not a measured failure: we never got to look inside it.
+            result = {"ok": False, "state": _STATE_UNKNOWN,
                       "error": f"unsupported archive type: {path}"}
             _record(path, "tarball", result, started)
             return result
         result: dict = {
             "ok": True,
+            "state": _STATE_OK,
             "size_bytes": size,
             "member_count": len(members),
             "sample_members": members[:10],
         }
+        if not members:
+            # THE zero-member refusal. Downgraded BEFORE _record, so the audit
+            # row an operator reads back months later carries it too. The
+            # message NAMES the emptiness: a missing file and an unreadable
+            # archive are also falsy, and a refusal that cannot be told apart
+            # from those is how a dead backup job reads as a verified one.
+            result["ok"] = False
+            result["state"] = _STATE_FAILED
+            result["error"] = (
+                f"backup archive is EMPTY: 0 members in {path} "
+                f"({size} bytes) -- there is nothing here to restore")
         if expected_members:
             missing = [exp for exp in expected_members
                        if not any(exp in m for m in members)]
             result["missing_expected"] = missing
             if missing:
+                # A measured miss, not an unavailable measurement.
                 result["ok"] = False
+                result["state"] = _STATE_FAILED
         _record(path, "tarball", result, started)
         return result
     except Exception as e:
-        result = {"ok": False, "error": str(e)[:300]}
+        # The archive would not open (truncated, corrupt, wrong magic): the
+        # measurement is UNAVAILABLE, which is never OK and is not the same
+        # claim as "measured, and bad".
+        result = {"ok": False, "state": _STATE_UNKNOWN, "error": str(e)[:300]}
         _record(path, "tarball", result, started)
         return result
 
@@ -211,11 +256,14 @@ def smoke_restore(path: str, *, expected_tables: Optional[list] = None) -> dict:
                 v["extracted_files"] = os.listdir(sandbox)[:20]
             _record(path, "smoke_restore", v, started)
             return v
-        result = {"ok": False, "error": f"unknown backup format: {path}"}
+        result = {"ok": False, "state": _STATE_UNKNOWN,
+                  "error": f"unknown backup format: {path}"}
         _record(path, "smoke_restore", result, started)
         return result
     except Exception as e:
-        result = {"ok": False, "error": str(e)[:300]}
+        # The restore was ATTEMPTED and did not succeed (an escaping member, a
+        # write that failed): measured, so failed rather than unknown.
+        result = {"ok": False, "state": _STATE_FAILED, "error": str(e)[:300]}
         _record(path, "smoke_restore", result, started)
         return result
 
