@@ -18,7 +18,8 @@ Metrics exposed:
   • bd_bitrot_issues_total{kind}          gauge (open issues)
   • bd_provenance_rows_total              gauge
   • bd_yt_dlp_age_days                    gauge
-  • bd_budget_pct_used{site}              gauge
+  • bd_budget_pct_used{site}              gauge (omitted when unreadable)
+  • bd_budget_usage_unknown{site}         gauge (1 = usage counter unreadable)
   • bd_uptime_seconds                     counter
   • bd_dd_budget_truncated_total          counter  (v3.66.12 P0.5)
   • bd_dd_manifests_followed_total        counter  (v3.66.12 P0.5)
@@ -296,14 +297,31 @@ def render(s_cfg: Optional[dict] = None,
     # ── Bandwidth budget (Phase 103) ─────────────────────────────────
     try:
         from . import policy_gates as _pg
+        unknown_sites = []
         for sid, cfg in s_cfg.items():
             bs = _pg.budget_state(cfg or {})
-            if bs.get("state") != "unset":
-                lines.append(_line("bd_budget_pct_used", bs.get("pct", 0),
-                                  labels={"site": sid}))
+            if bs.get("state") == "unset":
+                continue
+            pct = bs.get("pct")
+            if pct is None or bs.get("unknown"):
+                # The usage counter could not be read. Exporting 0 here would
+                # publish an untaken measurement as a real sample and let a
+                # cap alert read "0% used" from a locked database, so the
+                # sample is OMITTED and the gap is named explicitly instead.
+                unknown_sites.append(sid)
+                continue
+            lines.append(_line("bd_budget_pct_used", pct,
+                              labels={"site": sid}))
         if s_cfg:
             lines.extend(_help("bd_budget_pct_used",
                               "Percent of monthly bandwidth budget used per site"))
+        if unknown_sites:
+            lines.extend(_help("bd_budget_usage_unknown",
+                              "1 when a site's budget usage counter could not "
+                              "be read (no bd_budget_pct_used sample exists)"))
+            for sid in unknown_sites:
+                lines.append(_line("bd_budget_usage_unknown", 1,
+                                  labels={"site": sid}))
     except Exception:
         pass
 

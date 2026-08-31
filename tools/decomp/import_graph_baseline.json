@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4150,
+  "edge_count": 4156,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3720,6 +3720,14 @@
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row422_budget_unknown_is_not_zero_usage.py": [
+      "bulk_downloader/app_budget.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/metrics_prom.py",
+      "bulk_downloader/policy_gates.py",
+      "bulk_downloader/queue_priority.py"
     ],
     "tests/test_row423_empty_backup_archive_is_not_ok.py": [
       "bulk_downloader/backup_verify.py"
