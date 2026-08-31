@@ -331,14 +331,62 @@ def test_resume_refuses_under_a_hold(clean_workdir):
 
 # ── 6. the hold is VISIBLE on the health surface ────────────────────────────
 
-def test_health_reports_the_hold_distinctly_from_idle(clean_workdir):
+# Zero-entropy documented fixture value (CLAUDE.md A4). It unlocks a vault that
+# exists only inside this test's tmp_path and stores nothing.
+_VAULT_PASSWORD = "row390-synthetic-master-password"
+
+
+def _make_the_vault_ready(monkeypatch, root: Path):
+    """Install an initialized + unlocked master-password vault under `root`.
+
+    ROW 413. /api/health's ``ok`` is a CONJUNCTION over every subsystem, so it
+    can only speak about the download hold's contribution when every other
+    subsystem is provably healthy. A fresh tmpdir has no vault at all, and row
+    402 correctly reports an uninitialised vault as ``ok: false`` with
+    ``degraded: credential_vault_uninitialized`` -- which is how the assertion
+    below started failing for a reason that has nothing to do with the hold.
+    Build the vault, prove it ready, and the assertion measures the hold alone.
+    """
+    from bulk_downloader import auth_throttle as at
+    from bulk_downloader import secrets_store as ss
+    assert ss._CRYPTO_AVAILABLE, (
+        "cryptography is required to build a READY vault; without it this test "
+        "cannot isolate the download hold's contribution to health ok")
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.delenv("BD_SECRETS_AUDIT", raising=False)
+    monkeypatch.delenv("BD_AUTH_THROTTLE", raising=False)
+    monkeypatch.setattr(ss, "SECRETS_FILE", root / "secrets.json")
+    monkeypatch.setattr(ss, "SECRETS_META_FILE", root / "secrets_meta.json")
+    backend = ss.MasterPasswordBackend()
+    backend._data["iterations"] = 1_000        # test-only KDF cost
+    monkeypatch.setattr(ss, "_backend", backend)
+    monkeypatch.setattr(ss, "_backend_pref", "master_password")
+    monkeypatch.setattr(ss, "_audited_cache", None)
+    at.reset()
+    # PRECONDITIONS: brand new first, then genuinely initialized and unlocked.
+    assert backend.is_initialized() is False and backend.is_unlocked() is False
+    assert backend.unlock(_VAULT_PASSWORD) is True   # first-use setup path
+    assert backend.is_initialized() is True
+    assert backend.is_unlocked() is True
+    return backend
+
+
+def test_health_reports_the_hold_distinctly_from_idle(clean_workdir, monkeypatch):
     from bulk_downloader import download_hold as dh
     import bulk_downloader.app as a
+    _make_the_vault_ready(monkeypatch, clean_workdir / "row390_vault")
     client = a.app.test_client()
 
     clear = client.get("/api/health").get_json()
     assert clear["download_hold"]["state"] == dh.CLEAR, clear["download_hold"]
     assert clear["download_hold"]["downloads_allowed"] is True
+    # PRECONDITION (row 413): the OTHER half of the health surface is healthy
+    # and SAYS SO in its own named field, so every ok verdict below is
+    # attributable to the hold rather than to the vault.
+    assert clear["vault_ready"] is True, clear
+    assert clear["credentials"]["ok"] is True, clear["credentials"]
+    assert clear["credentials"]["reference_count"] == 0, clear["credentials"]
+    assert clear["ok"] is True, clear
 
     assert dh.hold("row390-health", note="wrong scene") is True
     held = client.get("/api/health").get_json()
@@ -351,6 +399,9 @@ def test_health_reports_the_hold_distinctly_from_idle(clean_workdir):
     # A deliberate hold must NOT report the host unhealthy: /api/health is what
     # scripts/deploy.sh checks, and the fleet is held right now.
     assert held["ok"] is True, held
+    # Row 413: and the vault is still separately, positively ready -- so ok
+    # staying true is the hold's own property, not a vault coincidence.
+    assert held["vault_ready"] is True, held
     # ...and it is distinguishable from "nothing queued".
     assert "queue_depth" in held and block["state"] != "idle"
 
@@ -361,6 +412,9 @@ def test_health_reports_the_hold_distinctly_from_idle(clean_workdir):
     assert unknown["download_hold"]["downloads_allowed"] is False
     assert unknown["ok"] is False, unknown
     assert unknown.get("degraded") == "download_hold_unknown", unknown
+    # Row 413: the vault is READY here, so this degradation cannot be the
+    # vault's -- the two states are separately readable in the same payload.
+    assert unknown["vault_ready"] is True, unknown
 
 
 def test_health_v2_reports_the_hold(clean_workdir):
