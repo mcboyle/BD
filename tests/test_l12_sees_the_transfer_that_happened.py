@@ -399,12 +399,40 @@ def _innermost(funcs, lineno):
     return best
 
 
+# Row 439 (v3.66.1362): the six segmented arms no longer call
+# `_hls.download(...)` themselves. They call `self._hls_download(_hls, ...)`,
+# the fail-closed egress seam on TransportMixin, which resolves the VPN/proxy
+# posture and only then delegates. THIS SCAN HAD TO LEARN THE NEW SEAM OR GO
+# BLIND: the moment the arms moved behind the wrapper the denominator fell from
+# six functions to one, and every ratchet below would have certified a
+# population it could no longer see. The wrapper's own delegating call is
+# excluded so the producer set stays the six arms rather than the seam.
+_SEG_SEAM = "_hls_download"
+_SEG_SEAM_OWNER = ("runner_transport.py", _SEG_SEAM)
+
+
+def _is_segmented_call(n):
+    """A Call that performs (or commissions) a segmented transfer.
+
+    Two accepted shapes, both structural rather than textual:
+      * `<name containing 'hls'>.download(...)` -- the owner module's entry
+        point, still how the seam itself and any direct caller reaches ffmpeg;
+      * `self._hls_download(...)` -- the fail-closed seam every arm now uses.
+    """
+    if not isinstance(n, ast.Call) or not isinstance(n.func, ast.Attribute):
+        return False
+    if (n.func.attr == "download" and isinstance(n.func.value, ast.Name)
+            and "hls" in n.func.value.id):
+        return True
+    return (n.func.attr == _SEG_SEAM and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "self")
+
+
 def _hls_download_functions():
     """Every function that performs a segmented transfer, by AST.
 
-    The predicate is a Call whose func is `<name containing 'hls'>.download`.
-    AST fixes the denominator; naming the attribute `download` rather than
-    matching the string 'hls' anywhere fixes the subject -- CLAUDE.md section 1.
+    AST fixes the denominator; matching call structure rather than the string
+    'hls' anywhere fixes the subject -- CLAUDE.md section 1.
     """
     found = {}
     for fname, tree in _module_trees().items():
@@ -412,14 +440,14 @@ def _hls_download_functions():
             continue
         funcs = _functions(tree)
         for n in ast.walk(tree):
-            if (isinstance(n, ast.Call)
-                    and isinstance(n.func, ast.Attribute)
-                    and n.func.attr == "download"
-                    and isinstance(n.func.value, ast.Name)
-                    and "hls" in n.func.value.id):
-                owner = _innermost(funcs, n.lineno)
-                if owner is not None:
-                    found.setdefault((fname, owner.name), owner)
+            if not _is_segmented_call(n):
+                continue
+            owner = _innermost(funcs, n.lineno)
+            if owner is None:
+                continue
+            if (fname, owner.name) == _SEG_SEAM_OWNER:
+                continue    # the seam delegates; it is not a producer
+            found.setdefault((fname, owner.name), owner)
     return found
 
 
@@ -584,10 +612,7 @@ def test_nothing_claims_segmented_without_a_segmented_transfer():
 
 
 def _hls_calls_in(node):
-    return [n for n in ast.walk(node)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-            and n.func.attr == "download" and isinstance(n.func.value, ast.Name)
-            and "hls" in n.func.value.id]
+    return [n for n in ast.walk(node) if _is_segmented_call(n)]
 
 
 def _innermost_branch(fn, target):

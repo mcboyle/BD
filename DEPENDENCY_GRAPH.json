@@ -2364,7 +2364,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1696,
+    "edge_count": 1698,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4079,8 +4079,10 @@
       ],
       "bulk_downloader/netns_isolation.py": [
         "bulk_downloader/cloak.py",
+        "bulk_downloader/hls_downloader.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/notify_apprise.py": [
@@ -6566,6 +6568,7 @@
       ],
       "bulk_downloader/hls_downloader.py": [
         "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/netns_isolation.py",
         "bulk_downloader/runtime_flags.py"
       ],
       "bulk_downloader/honeypot_threshold.py": [
@@ -7048,6 +7051,7 @@
         "bulk_downloader/hooks.py",
         "bulk_downloader/jellyfin_deep.py",
         "bulk_downloader/multi_conn.py",
+        "bulk_downloader/netns_isolation.py",
         "bulk_downloader/plex_deep.py",
         "bulk_downloader/proxy_pool.py",
         "bulk_downloader/ramdisk_stage.py",

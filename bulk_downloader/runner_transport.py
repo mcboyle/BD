@@ -268,6 +268,114 @@ class TransportMixin:
             sys.stderr.write(
                 f"  vpn download-proxy resolution raised (continuing unproxied): {e}\n")
             return explicit or None
+
+    def _hls_download(self, hls_mod, manifest_url, output_path, **kwargs):
+        """Row 439: THE fail-closed seam for every segmented (ffmpeg) transfer.
+
+        All six segmented arms -- jsonapi, vixen, aylo, plugin and library in
+        ``runner_extractors``, plus ``_do_download``'s scrape-and-click arm --
+        used to call ``hls_downloader.download(...)`` directly. That was the one
+        outbound path in the download chain with NO egress gate: every sibling
+        (the yt-dlp and gallery-dl fallbacks, the direct-HTTP download, the
+        media probe) resolves ``_download_proxy_url()`` first and lets
+        ``VPNRequiredError`` propagate so no unproxied client or subprocess is
+        ever built, and the two SUBPROCESS siblings additionally confine their
+        child to a per-capture network namespace (F5, v3.66.689). A
+        ``vpn_required`` site whose tunnel was down still had its HLS media
+        fetched by ffmpeg on the clear host interface, and the operator had no
+        signal that it happened -- the gate's silence was indistinguishable
+        from a pass.
+
+        CONFINE, DON'T REFUSE (operator ruling, 2026-08-31). ffmpeg has no
+        SOCKS support and a BD tunnel exposes ``socks5://127.0.0.1:PORT``
+        (``vpn_socks``), so refusing every tunnel-mapped site would stop
+        segmented transfers working exactly where they matter most. Instead
+        this seam extends the SAME ``capture_netns`` bracket + ``netns_exec_argv``
+        wrap that already confines yt-dlp and gallery-dl to the ffmpeg child:
+        the namespace's own route IS the egress, so the transfer keeps working
+        AND stays inside the tunnel.
+
+        Contract, outcome by outcome:
+
+          * resolver raises ``VPNRequiredError`` -> REFUSE ``vpn_required``,
+            spawn nothing. There is no tunnel to confine into, so this is the
+            one refusal the ruling does not overturn;
+          * resolver raises anything else -> REFUSE ``egress_unknown``. A7: an
+            unmeasurable posture is UNKNOWN, never permission;
+          * confinement requested but unavailable (``NetnsRequiredError``,
+            typically no ``CAP_NET_ADMIN``) -> REFUSE ``netns_required``;
+          * confined -> wrap the ffmpeg argv into the namespace. A proxy ffmpeg
+            cannot carry is DROPPED there rather than refused (the ns route is
+            the egress); an http(s) one is still carried, mirroring yt-dlp,
+            which passes both ``--proxy`` and the netns wrap;
+          * unconfined + a proxy ffmpeg cannot carry -> REFUSE
+            ``confinement_unavailable``, naming the config that would fix it.
+            Neither egress mechanism can be established, and fetching the media
+            outside the tunnel it was mapped to is the one thing we must not
+            do;
+          * unconfined + an http(s) proxy -> carried into argv and env;
+          * unconfined + no proxy -> proceed exactly as before.
+
+        Returns a ``DownloadResult`` and never raises: the callers all branch on
+        ``res.ok`` / ``res.error``, and this module's documented contract
+        (INV-003) is that a segmented transfer failure never crashes the worker.
+        """
+        from . import hls_downloader as _hls_result_mod
+        from . import netns_isolation
+        try:
+            proxy_url = self._download_proxy_url()
+        except Exception as e:
+            # Any failure to ESTABLISH the egress posture refuses. A7: an
+            # unavailable measurement is UNKNOWN, never permission.
+            if _VPN_RUNTIME_AVAILABLE and isinstance(
+                    e, vpn_runtime.VPNRequiredError):
+                sys.stderr.write(
+                    f"  segmented: VPN required for {self.site_id}, tunnel "
+                    f"unavailable -- failing closed, ffmpeg not spawned: {e}\n")
+                return _hls_result_mod.DownloadResult(
+                    ok=False, error="vpn_required",
+                    error_detail=(f"site {self.site_id} requires its VPN tunnel "
+                                  f"and it is unavailable: {e}"))
+            sys.stderr.write(
+                f"  segmented: egress proxy for {self.site_id} could not be "
+                f"measured -- failing closed, ffmpeg not spawned: "
+                f"{type(e).__name__}: {e}\n")
+            return _hls_result_mod.DownloadResult(
+                ok=False, error="egress_unknown",
+                error_detail=(f"egress posture for {self.site_id} is unmeasured "
+                              f"({type(e).__name__}: {e})"))
+        carriable = _hls_result_mod.proxy_is_carriable(proxy_url)
+        try:
+            # The bracket must ENCLOSE the whole blocking transfer: the
+            # namespace has to outlive ffmpeg, and teardown-on-exit then covers
+            # success, refusal and exception alike.
+            with netns_isolation.capture_netns(
+                    self.config, "dl", manifest_url) as ns:
+                if not ns and proxy_url and not carriable:
+                    sys.stderr.write(
+                        f"  segmented: {self.site_id} is mapped to an egress "
+                        f"proxy ffmpeg cannot carry ({proxy_url}) and no netns "
+                        f"confines it -- failing closed, ffmpeg not spawned. "
+                        f"Set netns_isolation on this site to confine the "
+                        f"transfer instead.\n")
+                    return _hls_result_mod.DownloadResult(
+                        ok=False, error="confinement_unavailable",
+                        error_detail=(
+                            f"site {self.site_id} resolves {proxy_url}, which "
+                            f"ffmpeg cannot honour, and has no netns_isolation "
+                            f"config to confine the transfer instead"))
+                return hls_mod.download(
+                    manifest_url, output_path,
+                    proxy_url=proxy_url, netns=ns, **kwargs)
+        except netns_isolation.NetnsRequiredError as e:
+            sys.stderr.write(
+                f"  segmented: netns confinement required for {self.site_id} "
+                f"but unavailable -- failing closed, ffmpeg not spawned: {e}\n")
+            return _hls_result_mod.DownloadResult(
+                ok=False, error="netns_required",
+                error_detail=(f"site {self.site_id} requires netns confinement "
+                              f"and it could not be established: {e}"))
+
     def _do_direct_http_download(
         self, page_url: str, file_url: str, output_path: str, referer: str = "",
     ) -> bool:
@@ -1259,8 +1367,9 @@ class TransportMixin:
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=0)
                 return
-            res = _hls.download(
-                direct_url, str(final_path), referer=page_url,
+            # Row 439: through the fail-closed egress seam, never _hls directly.
+            res = self._hls_download(
+                _hls, direct_url, str(final_path), referer=page_url,
                 cancel_check=lambda: self._stop.is_set())
             if not res.ok:
                 # ffmpeg_not_installed is a DISTINCT code and gets a distinct

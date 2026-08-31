@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4131,
+  "edge_count": 4144,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1398,6 +1398,7 @@
     ],
     "bulk_downloader/hls_downloader.py": [
       "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/netns_isolation.py",
       "bulk_downloader/runtime_flags.py"
     ],
     "bulk_downloader/honeypot_threshold.py": [
@@ -1880,6 +1881,7 @@
       "bulk_downloader/hooks.py",
       "bulk_downloader/jellyfin_deep.py",
       "bulk_downloader/multi_conn.py",
+      "bulk_downloader/netns_isolation.py",
       "bulk_downloader/plex_deep.py",
       "bulk_downloader/proxy_pool.py",
       "bulk_downloader/ramdisk_stage.py",
@@ -3708,6 +3710,18 @@
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row439_segmented_transfer_honours_the_vpn_gate.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/netns_isolation.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_runtime.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
@@ -6128,7 +6142,8 @@
     "tests/test_v3_66_695_plugin_extractor_hls.py": [
       "bulk_downloader/hls_downloader.py",
       "bulk_downloader/plugins.py",
-      "bulk_downloader/runner_extractors.py"
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_v3_66_696_jd_coverage_button.py": [
       "tools/gui_parity_inventory.py"
