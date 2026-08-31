@@ -782,91 +782,31 @@ _DECLARED = {
     "tests/test_desandbox_tool_verifiers.py",
 }
 
-# Row 259 closes the equal-but-incomplete denominator that left five real
-# safety gates out of both lists.  This is intentionally exact: adding a gate
-# is a three-part change (scope, declaration, shard), and the count makes a
-# same-size substitution visible instead of accepting whatever population the
-# two mutable collections happen to share.
-# 161 -> 170 at row 262 (2026-08-26). This cut's whole subject is that every
-# declared gate is REACHABLE by a shard, so it registers the gates that were
-# declared but unrun. The refusal that caught this reported
-# 'missing from CI: []; extra in CI: []' -- the SET was already correct and
-# only this pinned count was stale. Do not raise this number to silence a
-# failure whose set is NOT empty; that would be hiding a real gap.
-# 170 -> 171 at row 268 (2026-08-26). This cut declares exactly one new gate,
-# tests/test_child_test_install_dir_isolation.py, so the population grew by one.
-# The refusal again reported 'missing from CI: []; extra in CI: []' -- the SET
-# was correct and only the count was stale, which is the case this pin exists to
-# allow. Verified: the cut adds exactly ONE entry to the declared list.
-# 176 -> 177 at row 298. This cut classifies one legacy gate, removes its one
-# frozen-baseline exemption, declares it here, and gives it one dedicated CI
-# shard because its real two-pass regen chain is an independent long pole.
-# 176 -> 177 at row 299 (2026-08-27). This cut adds exactly one repo-wide
-# collection-isolation gate and schedules it directly in tree-gates-2.
-# 176 -> 177 at row 297 (2026-08-27). The real-corpus credential census is now
-# a repo-wide gate and this cut adds exactly one declaration and shard entry.
-# 177 -> 178 at row 313. The cut adds exactly one module-scoped bd-job
-# identity gate to both the independent declaration and the toolchain shard.
-# 176 -> 177 at row 300: the display-ownership gate is declared and scheduled
-# in the isolation shard in the same cut.
-# 176 -> 177 at row 310 (2026-08-27). The legacy secret-display gate now
-# declares its repo-wide scope and is executed in exactly one shard.
-# 176 -> 177 at row 312 (2026-08-27). The one new pidfd identity gate is named
-# once in this declaration and once in the jobs-determinism shard.
-# 187 -> 188 at backlog row 311. The new real-process app_config transaction
-# gate is one module-scoped safety boundary pinned into application-safety.
-# 188 -> 189 at row 261. The real-process replication lifecycle gate is one
-# module-scoped PID-signal safety boundary pinned into application-safety.
-# 188 -> 189 at row 295. The bd-claim atomic-publication gate is declared and
-# scheduled alongside the existing registry-transaction gate.
-# 188 -> 189 at row 308 (2026-08-27). This cut adds exactly one repo-wide
-# visual-audit identity gate to the declaration and tree-gates-3 shard.
-# 192 -> 193 at row 292 (2026-08-27). The existing capture-lane gate now
-# declares its tree-wide census scope and runs directly in tree-gates-1.
-# 192 -> 193 at row 243 rebuild (2026-08-28). The deterministic registration
-# gate is declared once and scheduled once in toolchain-verifiers.
-# 196 -> 197 at row 331 (2026-08-28). The mechanically derived application
-# dependency-declaration gate is declared once and scheduled beside the older
-# whole-tree dependency-freshness gate.
-# 201 -> 203 at row 334 (2026-08-28). This cut classifies exactly two legacy
-# runtime health-measurement gates and schedules both in application-safety.
-# 201 -> 202 at row 335 (2026-08-28). Exactly one module-scoped release-gate
-# population test is declared here and scheduled once in artifacts-pins.
-# 201 -> 202 at row 336 (2026-08-28). One repo-wide verifier/scanner evidence
-# gate is declared once and scheduled in toolchain-verifiers.
-# 201 -> 202 at row 340 (2026-08-28). The existing production deploy-process
-# suite gains a declared scope and an explicit independent CI runner; on top
-# of main's 209 that is 210.
-# 207 -> 208 at row 342 (2026-08-28). This cut schedules exactly one existing
-# module-scoped capture preflight gate and adds one declaration for it.
-# 207 -> 208 at row 343 (2026-08-28). This cut adds exactly one repo-wide
-# fresh-host execution gate and schedules it once in tree-gates-3.
-# 208 -> 209 at row 345 (2026-08-28). Exactly one module-scoped OPV A11Y
-# availability/identity gate is declared and scheduled once in toolchain.
-# 208 -> 209 at row 346 (2026-08-28). Exactly one repo-wide plugin sandbox
-# runtime/checker gate is declared here and scheduled once in application-safety.
-# 208 -> 209 at row 350 (2026-08-28): one job-lifecycle truth gate.
-# Row 341 (2026-08-28). One cloud-setup truthfulness gate is declared and
-# scheduled; on top of main's 215 that is 216.
-# Row 348 (2026-08-28). The raw-Unicode JSX gate existed in the tree and was
-# scheduled nowhere; declaring and scheduling it takes main's 216 to 217.
-_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
-# Row 349 (2026-08-28). One shared-cache identity gate is declared and
-# scheduled; on top of main's 217 that is 218.
-# Row 377 (2026-08-29). One installed-layout selftest-state gate is declared
-# and scheduled; on top of main's 228 that is 229.
-# Row 386 (2026-08-29). One end-to-end download-chain gate is declared and
-# scheduled in its own browser-bearing shard; on top of main's 230 that is 231.
-# v3.66.1359 / row 402. The module-scoped register-amendment safety boundary is
-# explicitly declared and scheduled in toolchain, taking 231 to 232.
-# TWO INDEPENDENT GATES LANDED ON THIS DENOMINATOR, so it carries both.
-# v3.66.1360 declared and scheduled the cross-writer append safety boundary in
-# the toolchain shard, taking 232 to 233. Row 387 adds the live AST
-# duplicate-version-pin guard once in artifacts-pins, taking 233 to 234.
-# Keeping only one comment would leave the count right and the reason wrong.
-# @1378 adds test_row463_precut_derives_its_baseline, taking 234 to 235.
-# The integrator re-pins this if a concurrent cut also lands a gate.
-_EXPECTED_DECLARED_GATE_COUNT = 235
+# TWO FLOORS, NOT TWO EXACT COUNTS (row 531, v3.66.1381).
+#
+# This block held `_EXPECTED_DECLARED_GATE_COUNT = 235` and
+# `_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7` behind eighty lines of bump
+# comments -- "208 -> 209", "233 -> 234", "the integrator re-pins this if a
+# concurrent cut also lands a gate". Every cut that declared a gate had to edit
+# the number, and on 2026-08-31 forgetting to do so cost a full CI round-trip
+# and a re-freeze.
+#
+# The exact total never answered the question it was written for. Its stated
+# purpose was to make a SAME-SIZE SUBSTITUTION visible, and a substitution
+# leaves the total unchanged, so the literal was blind to exactly the case it
+# named. What it actually caught was a REMOVAL -- and a floor catches a removal
+# too, while ordinary growth never touches it.
+#
+# What still holds, unchanged, in _assert_exact_gate_coverage below: the
+# declared set is NONZERO; every declared gate is executed by some shard
+# (MEMBERSHIP); no shard names an undeclared suite (MEMBERSHIP, the other
+# direction); and no suite is executed twice (UNIQUENESS), so the execution
+# count cannot match the declaration count while a gate silently never runs.
+#
+# Raise either floor ONLY when a gate is deliberately retired, and argue that
+# retirement in the cut. Adding a gate must never require an edit here.
+_DECLARED_GATE_FLOOR = 235
+_CONFIRMED_SAFETY_GATE_FLOOR = 7
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
@@ -1072,17 +1012,25 @@ def _coverage_delta(declared: set[str], got: set[str]) -> tuple[list[str], list[
 
 
 def _assert_exact_gate_coverage(
-        declared: set[str], shards: dict[str, list[str]], expected_count: int
+        declared: set[str], shards: dict[str, list[str]], floor: int = 0
 ) -> None:
-    """Assert an exact, nonzero one-to-one declaration/execution population."""
+    """Assert a nonzero, one-to-one declaration/execution population.
+
+    The expected size is the DECLARED set itself, not a literal a human keeps in
+    step by hand (row 531). `floor` is an optional monotonic ratchet: ordinary
+    growth never trips it, and a silent removal still does.
+    """
     executed = [suite for suites in shards.values() for suite in suites]
     missing, extra = _coverage_delta(declared, set(executed))
     duplicate_count = len(executed) - len(set(executed))
 
+    assert declared, "the declared gate denominator is empty, so this proves nothing"
+    expected_count = len(declared)
     assert expected_count > 0, "the expected gate denominator must be nonzero"
-    assert len(declared) == expected_count, (
-        f"declared {len(declared)} gates, expected exactly {expected_count}; "
-        f"missing from CI: {missing}; extra in CI: {extra}")
+    assert expected_count >= floor, (
+        f"the declared gate population fell from at least {floor} to "
+        f"{expected_count}; a gate was removed. If that is intended, lower the "
+        f"floor in the same cut and say why.")
     assert len(executed) == expected_count, (
         f"CI would execute {len(executed)} gate paths, expected exactly "
         f"{expected_count}; missing from CI: {missing}; extra in CI: {extra}; "
@@ -1102,15 +1050,15 @@ def test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check():
     with pytest.raises(AssertionError, match=(
             r"CI would execute 1 gate paths, expected exactly 2; "
             r"missing from CI: \['tests/test_newly_added_gate.py'\]")):
-        _assert_exact_gate_coverage(declared, shards, expected_count=2)
+        _assert_exact_gate_coverage(declared, shards)
 
 
 def test_declared_and_ci_executed_gate_denominators_are_exact():
     """All seven H15 CI-coverage gates belong to the exact live population."""
-    assert len(_CONFIRMED_SAFETY_GATES) == _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT, (
-        "the confirmed H15 safety-gate denominator changed from exactly "
-        f"{_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT}: "
-        f"{sorted(_CONFIRMED_SAFETY_GATES)}")
+    assert _CONFIRMED_SAFETY_GATES, "the confirmed H15 safety-gate set is empty"
+    assert len(_CONFIRMED_SAFETY_GATES) >= _CONFIRMED_SAFETY_GATE_FLOOR, (
+        "the confirmed H15 safety-gate denominator shrank below "
+        f"{_CONFIRMED_SAFETY_GATE_FLOOR}: {sorted(_CONFIRMED_SAFETY_GATES)}")
     wrong_scopes = sorted(
         f"{rel}: {_declared_scope(_REPO / rel)!r}"
         for rel in _CONFIRMED_SAFETY_GATES
@@ -1124,7 +1072,7 @@ def test_declared_and_ci_executed_gate_denominators_are_exact():
         "confirmed safety gate(s) remain undeclared and therefore unreachable "
         f"from every CI shard: {missing_required}")
     _assert_exact_gate_coverage(
-        _DECLARED, _shard_lists(), _EXPECTED_DECLARED_GATE_COUNT)
+        _DECLARED, _shard_lists(), floor=_DECLARED_GATE_FLOOR)
 
 
 def test_transform_control_imports_ci_gate_without_judging_row348_reachability():
