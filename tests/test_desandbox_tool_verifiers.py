@@ -62,6 +62,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -2371,6 +2372,75 @@ def test_the_mutation_engine_selftest_still_passes():
                   cwd=REPO)
     assert r.returncode == 0, f"selftest exit={r.returncode}\n{r.stdout[-2000:]}"
     assert "SELFTEST PASS" in r.stdout, r.stdout[-2000:]
+
+
+def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(tmp_path, monkeypatch):
+    """RED: removing the retry leaves a known selftest-owned tree behind.
+
+    The real selftest exits its TemporaryDirectory context after its last
+    battery.  This one-shot replacement models the only cleanup race at that
+    seam: a writer creates a file after the remover's traversal and the first
+    removal reports ENOTEMPTY.  A second removal must reclaim that same owned
+    directory.  It is deterministic rather than a timed competing thread.
+    """
+    mutate = _load_bd_mutate()
+    real_mkdtemp = tempfile.mkdtemp
+    rmtree_globals = tempfile.TemporaryDirectory._rmtree.__globals__
+    real_rmtree = rmtree_globals.get("_rmtree", tempfile._shutil.rmtree)
+    selftest_roots = []
+    removals = []
+    fired = []
+
+    def track_selftest_mkdtemp(*args, **kwargs):
+        directory = kwargs.get("dir", args[2] if len(args) > 2 else None)
+        prefix = kwargs.get("prefix", args[1] if len(args) > 1 else None)
+        made = Path(real_mkdtemp(*args, **kwargs))
+        if directory is None and prefix is None:
+            selftest_roots.append(made)
+        return str(made)
+
+    def late_writer_rmtree(path, *args, **kwargs):
+        candidate = Path(path)
+        if candidate in selftest_roots:
+            removals.append(candidate)
+            if not fired:
+                fired.append(candidate)
+                (candidate / "late-writer.txt").write_text(
+                    "contended\n", encoding="utf-8")
+                raise OSError(errno.ENOTEMPTY, "injected late writer")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(mutate.tempfile, "mkdtemp", track_selftest_mkdtemp)
+    if "_rmtree" in rmtree_globals:
+        monkeypatch.setattr(tempfile, "_rmtree", late_writer_rmtree)
+    else:
+        monkeypatch.setattr(tempfile._shutil, "rmtree", late_writer_rmtree)
+
+    assert mutate._selftest(tmp_path) == 0
+    assert len(selftest_roots) == 1
+    assert fired == selftest_roots, "the late-writer cleanup race never fired"
+    assert removals == [selftest_roots[0], selftest_roots[0]], removals
+    assert not selftest_roots[0].exists(), "the contended selftest root leaked"
+
+
+def test_bd_mutate_selftest_cleanup_retries_only_enotempty():
+    """The bounded contention retry must not launder an unrelated cleanup fault."""
+    mutate = _load_bd_mutate()
+    attempts = []
+
+    def late_writer_cleanup():
+        attempts.append("cleanup")
+        if len(attempts) == 1:
+            raise OSError(errno.ENOTEMPTY, "late writer")
+
+    mutate._cleanup_selftest_directory(late_writer_cleanup)
+    assert attempts == ["cleanup", "cleanup"]
+
+    def denied_cleanup():
+        raise PermissionError(errno.EACCES, "not a contention race")
+
+    with pytest.raises(PermissionError, match="not a contention race"):
+        mutate._cleanup_selftest_directory(denied_cleanup)
 
 
 def _one_mutation_result(process, *, expected_id=None):

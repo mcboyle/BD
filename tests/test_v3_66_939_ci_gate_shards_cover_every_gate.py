@@ -215,6 +215,10 @@ _DECLARED = {
     "tests/test_u45_capture_sh_shipped.py",
     "tests/test_all_sources_parse.py",
     "tests/test_pin_index_in_sync.py",
+    # Row 387. A release-time versync check is not enough to prevent a
+    # same-valued duplicate version pin from becoming another bump site. This
+    # gate AST-scans the live test population, so it must run on every PR.
+    "tests/test_row387_ast_version_pin_guard.py",
     "tests/test_route_index_in_sync.py",
     "tests/test_import_graph_no_new_edges.py",
     "tests/test_source_windows_do_not_shift.py",
@@ -850,10 +854,13 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # scheduled in its own browser-bearing shard; on top of main's 230 that is 231.
 # v3.66.1359 / row 402. The module-scoped register-amendment safety boundary is
 # explicitly declared and scheduled in toolchain, taking 231 to 232.
-# The cross-writer append safety boundary is declared and scheduled in the
-# same toolchain shard, taking 232 to 233.
+# TWO INDEPENDENT GATES LANDED ON THIS DENOMINATOR, so it carries both.
+# v3.66.1360 declared and scheduled the cross-writer append safety boundary in
+# the toolchain shard, taking 232 to 233. Row 387 adds the live AST
+# duplicate-version-pin guard once in artifacts-pins, taking 233 to 234.
+# Keeping only one comment would leave the count right and the reason wrong.
 # The integrator re-pins this if a concurrent cut also lands a gate.
-_EXPECTED_DECLARED_GATE_COUNT = 233
+_EXPECTED_DECLARED_GATE_COUNT = 234
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
