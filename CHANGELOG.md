@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1385 - the replay tool owns only what it made, and certifies against the caller
+
+- ROW 480, A ROLLBACK DELETED A WORKTREE IT NEVER CREATED. The module docstring
+  states the contract -- a failed replay removes only that new output -- and it
+  did not hold. replay() captured ownership BEFORE testing the worktree add's
+  return code, so an add that failed because a FOREIGN creator had registered a
+  linked worktree of the same repo at --output recorded THAT directory's inode
+  as this transaction's output. The identity guard then compared the live inode
+  against the identity it had just captured from the foreign tree, so it PASSED,
+  and rollback ran `git worktree remove --force` on another worker's tree,
+  taking its uncommitted and untracked files. The removal was also invisible:
+  _fail emits only status, reason_code and message, so the operator saw
+  REFUSED OUTPUT_CREATE_FAILED and no removed path anywhere.
+
+  A second bd_candidate_replay could never be the victim -- the O_EXCL claim
+  makes the loser refuse OUTPUT_CLAIMED before the add. The reachable adversary
+  is any creator that does not take that claim: a bare `git worktree add`,
+  another harness, or the operator.
+
+  OWNERSHIP IS NOW CREATED-BY-THIS-TRANSACTION. Two independent signals decide
+  it, because timing alone cannot: the path is re-probed one stat before the
+  add, which closes a window that previously spanned three complete fingerprint
+  passes; and git's own refusal text is read, which is decisive in the case the
+  re-probe cannot see -- a creator winning INSIDE the add, where git creates
+  nothing and says the path already exists. Either signal withholds ownership.
+  Only both being absent means git left a partial output of ours, which is
+  still captured and still reaped. The foreign case gets its own reason code,
+  OUTPUT_FOREIGN_AT_PATH, because "reap my own partial output" and "somebody
+  else's tree is in the way" lead to opposite actions.
+
+- ROW 500, EXPECT-HEAD WAS RESOLVED IN THE WORKTREE IT CERTIFIES. Both sides of
+  the comparison were resolved inside the source, so the check was tautological
+  for any value derived from it: --expect-head HEAD, @, or any branch pointing
+  there all "certified" whatever the tree happened to be. The argument must now
+  be a literal 40-character object name and is never handed to git rev-parse --
+  a certification is against a value the CALLER supplied. A control proves the
+  real path still works, and another proves a wrong literal is still a
+  SOURCE_HEAD_MISMATCH, so the shape check has not replaced the comparison.
+
+- THE RED IS A REAL RACE, not a tree placed beforehand. A PATH wrapper passes
+  every git invocation through and, on the single `worktree add`, has a DISTINCT
+  process create a genuine linked worktree at --output before letting real git
+  refuse. Placing it earlier would have been caught by the pre-checks and would
+  have measured nothing. Every pre-existing control in the suite still passes,
+  including the one where git itself created a partial output and the run then
+  failed, which must still be reaped.
+
 ## v3.66.1384 - the vault's state is measured, never inferred
 
 store_state documents four mutually exclusive states. Four measured paths
