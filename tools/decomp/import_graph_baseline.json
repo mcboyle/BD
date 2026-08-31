@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4156,
+  "edge_count": 4165,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3705,10 +3705,12 @@
     ],
     "tests/test_row390_download_hold_survives_restart.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/auth_throttle.py",
       "bulk_downloader/db.py",
       "bulk_downloader/download_hold.py",
       "bulk_downloader/global_config.py",
-      "bulk_downloader/runner.py"
+      "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row399_a_photo_gallery_is_not_a_failed_video_page.py": [
       "bulk_downloader/candidate_filter.py",
@@ -3719,6 +3721,12 @@
       "bulk_downloader/app_health.py",
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row413_health_separates_vault_state_from_the_hold.py": [
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/download_hold.py",
       "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row422_budget_unknown_is_not_zero_usage.py": [
@@ -4619,7 +4627,8 @@
       "bulk_downloader/site_editor.py"
     ],
     "tests/test_v3_53_phase6.py": [
-      "bulk_downloader/app.py"
+      "bulk_downloader/app.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_v3_54_phase7.py": [
       "bulk_downloader/app.py",
@@ -6290,6 +6299,8 @@
     ],
     "tests/test_v3_66_729_body_contract_fixtures.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py",
       "tools/body_contract.py",
       "tools/body_contract_fixtures.py",
       "tools/onboard_site_template.py"

@@ -29,6 +29,7 @@ state instead of laundering a guess into a verdict.
 """
 from __future__ import annotations
 
+import importlib
 import os
 import uuid
 
@@ -145,6 +146,29 @@ class _StubRunner:
 class Fixtures:
     """A real world for the replay to run against. Values are resolved by key."""
 
+    # Row 417 -- THE WORLD OWNS THE CREDENTIAL VAULT'S MASTER PASSWORD.
+    #
+    # A ZERO-ENTROPY, DOCUMENTED fixture value (CLAUDE.md A4): it is a literal
+    # description of itself, not a realistic-looking secret, and it names no
+    # real account. Its only load-bearing property is LENGTH.
+    #
+    # v3.66.1359 made a fresh vault DURABLY INITIALIZE on first unlock and
+    # refuse a first-use password shorter than eight characters
+    # (app_secrets.api_secrets_unlock -> unlock_with_status(
+    # minimum_initial_length=8)). The probe's type-directed placeholder for
+    # `password` is the one-character "x", so from 1359 onward the first-use
+    # unlock 400'd, the vault never opened, and every vault-dependent control
+    # answered 401 "secrets backend is locked; unlock it first". Two controls
+    # that had been decisively OK -- AddSiteWizard's /api/secrets/unlock and
+    # CaptureWorkflow's /api/captures/setup_site -- became UNKNOWN, and the
+    # UNKNOWN ratchet correctly refused 138 against its 136 baseline.
+    #
+    # The fix is not a bigger baseline. It is the same shape as the v3.66.750
+    # global-config fix one field over: the world must INCLUDE the vault, so
+    # that whether a control is judgeable does not depend on which probe ran
+    # first.
+    MASTER_PASSWORD = "fixture-master-password"   # zero-entropy; >= 8 chars
+
     def __init__(self, app_mod, client, home):
         self.A = app_mod
         self.c = client
@@ -155,6 +179,7 @@ class Fixtures:
         self.values = {}
         self.unresolved = set()
         self._cfg0 = None
+        self.vault_backend = None
 
     # ---------------------------------------------------------------- build
     def build(self):
@@ -177,6 +202,10 @@ class Fixtures:
         self._history()
         self._resources()
         self._knowledge()
+        # Before _api_resources(): resources created through the app's own API
+        # may store credentials, and a locked vault refuses them with a 401
+        # that has nothing to do with the body under judgement.
+        self._secrets()
         self._api_resources()
         self._value_map()
         return self
@@ -209,6 +238,7 @@ class Fixtures:
             self.A.s_cfg.pop(k, None)
             self.A.s_meta.pop(k, None)
             self.A.runners.pop(k, None)
+        self._secrets_restore()
         self._site()
         self._files()
         self._queue_job()
@@ -466,6 +496,17 @@ class Fixtures:
             "resolution": "rotate the fingerprint and retry",
             "kind": "failure",
         },
+        # Row 417: the vault's master password is SEMANTIC, not merely typed.
+        # The type-directed placeholder for `password` is "x", and since
+        # v3.66.1359 a first-use unlock refuses anything under 8 characters --
+        # so the generic placeholder cannot open the vault the fixture world
+        # itself stands up. Per-path, never global: `password` on
+        # /api/captures/setup_site or /api/secrets/import_apply is a SITE
+        # credential being stored, a different thing entirely, and must keep
+        # being reported UNRESOLVED rather than silently filled from here.
+        "/api/secrets/unlock": {
+            "password": MASTER_PASSWORD,
+        },
         # Row 374: one bounded crawl request.  These values exercise body
         # acceptance without launching an unbounded traversal or using an
         # invalid placeholder URL.
@@ -518,6 +559,105 @@ class Fixtures:
                 body[k] = v          # keep the type-directed placeholder
                 missing.add(k)
         return body, missing
+
+    # ------------------------------------------------------- credential vault
+    def _secrets_store(self):
+        """The secrets_store module, or None when it cannot be imported.
+
+        Imported through ``sys.modules`` rather than off the app package, so a
+        stale ``bulk_downloader.app`` attribute left by a neighbouring module
+        cannot hand back a different backend registry than the one the routes
+        the probe executes are reading.
+        """
+        try:
+            return importlib.import_module("bulk_downloader.secrets_store")
+        except Exception:
+            return None
+
+    def _secrets(self):
+        """Initialize and unlock the vault THROUGH THE APP'S OWN API.
+
+        A row written behind the app's back can have a shape the app would
+        never produce (the _api_resources doctrine); a VAULT written behind
+        its back is worse, because 1359's whole point is that first use
+        durably commits a verifier before exposing a key. So the world is
+        built by the same POST the operator's browser sends.
+
+        Fails LOUDLY. A silently-locked vault does not make the gate report a
+        broken control -- it makes it report UNKNOWN, which is the fail-open
+        shape this whole harness exists to refuse. If the vault will not open,
+        say so where the caller can see it rather than emitting verdicts about
+        a world that is not there.
+        """
+        ss = self._secrets_store()
+        if ss is None:
+            raise RuntimeError(
+                "the fixture world has no secrets_store: bulk_downloader."
+                "secrets_store did not import. Refusing to emit verdicts -- "
+                "every vault-backed control would answer 401 and be recorded "
+                "as UNKNOWN.")
+        backend = ss.get_backend()
+        if not callable(getattr(backend, "unlock", None)):
+            # windows_credential / plaintext need no unlocking; the route says
+            # so itself ("backend doesn't require unlocking"). Nothing to own.
+            self.vault_backend = ss.get_backend_name()
+            return
+        tok = self.csrf()
+        hdr = {"X-CSRFToken": tok, "X-CSRF-Token": tok,
+               "Content-Type": "application/json"}
+        r = self.c.post("/api/secrets/unlock",
+                        json={"password": self.MASTER_PASSWORD}, headers=hdr)
+        js = r.get_json(silent=True) or {}
+        if r.status_code != 200 or not js.get("ok"):
+            raise RuntimeError(
+                "the fixture world could not open its credential vault "
+                "(%s %s). Refusing to emit verdicts: with the vault locked, "
+                "every credential-storing control answers 401 and is recorded "
+                "as UNKNOWN -- a narrower judged surface reported as if it had "
+                "been judged." % (r.status_code, js.get("error") or js))
+        if not backend.is_unlocked():
+            raise RuntimeError(
+                "/api/secrets/unlock returned 200 but the backend still "
+                "reports locked; the fixture world is incoherent.")
+        self.vault_backend = ss.get_backend_name()
+
+    def _secrets_restore(self):
+        """Re-open the vault a probe locked, and clear the shared back-off.
+
+        ensure() runs before EVERY probe precisely so that no verdict depends
+        on replay ORDER, and vault state is exactly that kind of world: one
+        replayed /api/secrets/lock would 401 every later credential control.
+
+        The re-unlock goes DIRECTLY to the backend, not through the route: the
+        route shares an escalating back-off with change_password
+        (auth_throttle.LABEL_MASTER_PASSWORD), and a restore that spends an
+        attempt on every one of the several hundred ensure() calls would
+        manufacture the 429s it is meant to prevent. The back-off counter is
+        itself part of the world, so it is reset here too -- a probe that
+        spends failed attempts must not throttle the control probed after it.
+        """
+        ss = self._secrets_store()
+        if ss is None:
+            return
+        try:
+            at = importlib.import_module("bulk_downloader.auth_throttle")
+            at.reset(at.LABEL_MASTER_PASSWORD)
+        except Exception:
+            pass
+        try:
+            backend = ss.get_backend()
+        except Exception:
+            return
+        unlock = getattr(backend, "unlock", None)
+        is_unlocked = getattr(backend, "is_unlocked", None)
+        if not callable(unlock) or not callable(is_unlocked):
+            return          # a backend that needs no unlocking is already open
+        try:
+            if is_unlocked():
+                return
+            unlock(self.MASTER_PASSWORD)
+        except Exception as exc:
+            self.unresolved.add("secrets:relock-%s" % type(exc).__name__)
 
     def _api_resources(self):
         """Created through the app's OWN API where one exists -- a row inserted

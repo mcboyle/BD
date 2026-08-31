@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1379 - the four fixtures v3.66.1359 broke
+
+Rows 413, 414, 417 and 418 in one cut. They are file-disjoint and share one
+cause, and every band run tonight carried all nineteen of their failures.
+
+v3.66.1359 deliberately made a zero-reference UNINITIALISED vault report
+ok=False, which was correct and is untouched here. What nobody measured was
+its blast radius: four separate places read that new 503 as something else.
+
+- 414: tests/test_v3_53_phase6.py polled readiness with urlopen inside a bare
+  except, and urlopen raises HTTPError for a 503 exactly as it raises URLError
+  for connection-refused -- so an application STATUS was read as a TRANSPORT
+  failure. The server came up every time. 15 failures, one cause. The fixture
+  now proves three separate preconditions with distinctive named failures: a
+  TCP listener (no HTTP), a vault initialised through the product's own
+  first-use unlock, and one health GET demanding 200. 15 failed in 149s
+  becomes 19 passed in 9.3s.
+- 418: the app-import gate's POSITIVE control failed, so the gate could not
+  distinguish deferred initialisation from none at all and a genuine
+  boot-on-import regression would have passed it. Instrumented at the sqlite3
+  boundary: 0 connects at import, 4 on the first request. The vault is now
+  satisfied before the app is imported, so STATUS == 200 measures the service.
+- 417: the body-contract UNKNOWN ratchet refused, correctly. v3.66.1359 made
+  two judgeable controls unjudgeable, and the probe's type-directed password
+  placeholder 'x' could no longer open a vault that now demands eight
+  characters. RAISING THE BASELINE FROM 136 TO 138 WOULD HAVE BEEN THE
+  LAUNDERING THE ROW EXISTS TO PREVENT; the fixture world now owns its vault
+  and the baseline stays 136.
+- 413: /api/health conflated vault state with the download hold. The register
+  prose said downloads_allowed was the conflated field; measurement said
+  otherwise -- that field was already hold-only, and the actual conflation was
+  the top-level ok/degraded pair, the payload's only vault signal. A named
+  vault_ready field now carries it on both branches.
+
 ## v3.66.1378 - a check that can never run is not a measurement
 
 - BD-PRECUT DERIVES ITS BASELINE FROM origin/main. precut_check needs a
