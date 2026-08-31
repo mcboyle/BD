@@ -915,3 +915,171 @@ def test_a_clean_parallel_download_completes_untouched(monkeypatch, tmp_path):
     assert dest.read_bytes() == body
     assert shim.served == _TOTAL
     assert len(shim.requests) == _N_CHUNKS
+
+
+# ── the mid-write window: flushing must PRECEDE counting ─────────────────────
+#
+# The two tests above freeze each worker between buffers, which cannot see the
+# window INSIDE one buffer's handling: write, count, flush.  A checkpoint that
+# lands in that window claims the buffer before the OS has it, which is the same
+# defect one buffer smaller -- and a mutation battery proved the frozen fixture
+# cannot distinguish the two orderings (bd-mutate, 2026-08-31: a mutant that
+# persisted the pre-flush count ESCAPED against it).  This fixture parks a
+# worker INSIDE f.flush() so the window is held open, which is the only place
+# the ordering is observable.
+
+_FLUSH_PARK_AT = 1200          # park during the 1200th flush of a frozen chunk
+
+
+class _ParkingHandle:
+    """A real buffered handle whose Nth flush blocks until released.
+
+    Everything else is delegated, so production writes through the genuine
+    BufferedWriter and the page cache sees exactly what it always would.
+    """
+
+    def __init__(self, inner, park_at, arrive, release):
+        self._inner = inner
+        self._park_at = park_at
+        self._arrive = arrive
+        self._release = release
+        self._flushes = 0
+
+    def seek(self, pos, *a):
+        # Chunk 0 is the TRIGGER, not a frozen chunk: it must run to the end of
+        # its slice to push total progress over the save threshold, so its
+        # handle never parks. The worker's own seek to the slice start is what
+        # identifies it, before a single byte is written.
+        if pos < _SLICE:
+            self._park_at = None
+        return self._inner.seek(pos, *a)
+
+    def write(self, b):
+        return self._inner.write(b)
+
+    def flush(self):
+        self._flushes += 1
+        if self._flushes == self._park_at:
+            self._arrive(self)
+            assert self._release.wait(timeout=60), (
+                "a parked flush was never released")
+        return self._inner.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+@pytest.fixture
+def flush_parked_run(monkeypatch, tmp_path):
+    """Same shape as ``frozen_run``, but the frozen chunks are parked mid-flush:
+    their bytes are written and NOT yet with the OS, and the checkpoint is
+    written while they hang there."""
+    import builtins
+
+    _isolate(monkeypatch, tmp_path)
+    body = _payload(_TOTAL)
+    shim = _ShimOrigin(body, _SLICE)
+    h, _resume, _rt = _parallel_harness(monkeypatch, shim)
+
+    dest = tmp_path / "parked.bin"
+    part = dest.with_suffix(dest.suffix + ".part")
+    release = threading.Event()
+    chunk0 = threading.Event()
+    parked: list = []
+    parked_lock = threading.Lock()
+    real_open = builtins.open
+
+    def _arrive(handle):
+        with parked_lock:
+            parked.append(handle)
+            n = len(parked)
+        if n == 3:
+            chunk0.set()
+
+    def patched_open(file, mode="r", *a, **kw):
+        inner = real_open(file, mode, *a, **kw)
+        if str(file) == str(part) and mode == "r+b":
+            return _ParkingHandle(inner, _FLUSH_PARK_AT, _arrive, release)
+        return inner
+
+    monkeypatch.setattr(builtins, "open", patched_open)
+    # chunk 0 is the trigger, exactly as in frozen_run: it is held at byte 0
+    # until the other three are parked, and only its slice can push total
+    # progress over the monitor's 5 MB save threshold.
+    shim.hold_after = {0: 0}
+    shim.release = {0: chunk0}
+
+    saves: list = []
+    real_save = _resume.save
+
+    def observing_save(final_path, checkpoint):
+        ok = real_save(final_path, checkpoint)
+        qualifying = False
+        try:
+            with parked_lock:
+                qualifying = len(parked) == 3
+            claims = [(int(c["start"]), int(c["done_bytes"]))
+                      for c in checkpoint["chunks"]]
+            rec = {"claims": claims, "qualifying": qualifying, "visible": []}
+            for start, claimed in claims:
+                rec["visible"].append(
+                    _visible_prefix(part, start, claimed, body) if claimed
+                    else 0)
+            saves.append(rec)
+        except Exception as e:                     # recorded, never hidden
+            saves.append({"error": f"{type(e).__name__}: {e}",
+                          "qualifying": False})
+        finally:
+            if qualifying:
+                release.set()
+        return ok
+
+    monkeypatch.setattr(_resume, "save", observing_save)
+    result = h._http_download_parallel(str(dest), _Ctx(),
+                                       "http://origin.invalid/parked.bin",
+                                       dest, total=_TOTAL, n_chunks=_N_CHUNKS)
+    release.set()
+    return {"body": body, "dest": dest, "result": result, "saves": saves,
+            "parked": parked}
+
+
+def test_a_checkpoint_taken_mid_flush_claims_only_flushed_bytes(
+        flush_parked_run):
+    """The ordering, constrained: the count must follow the flush, not lead it.
+
+    Each frozen worker has handed _FLUSH_PARK_AT buffers to its handle and is
+    blocked inside the flush of the last one, so exactly one buffer is written
+    and not yet the OS's.  Counting before flushing puts that buffer into the
+    checkpoint; counting after does not.
+    """
+    saves = flush_parked_run["saves"]
+    assert not [s for s in saves if "error" in s], saves
+    qualifying = [s for s in saves if s.get("qualifying")]
+    assert len(qualifying) == 1, (
+        f"the fixture did not park three workers across exactly one save: "
+        f"{saves}")
+    rec = qualifying[0]
+    assert len(flush_parked_run["parked"]) == 3
+
+    flushed = (_FLUSH_PARK_AT - 1) * _PIECE      # the parked flush has not run
+    written = _FLUSH_PARK_AT * _PIECE
+    for idx in (1, 2, 3):
+        claimed = rec["claims"][idx][1]
+        visible = rec["visible"][idx]
+        assert visible == flushed, (
+            f"chunk {idx}: the OS holds {visible} bytes, not the {flushed} the "
+            "fixture parked it at -- the window was not held open")
+        assert claimed <= visible, (
+            f"chunk {idx}: the checkpoint claims {claimed} bytes with {visible} "
+            f"flushed and {written} written -- the {written - visible} bytes "
+            "still in the buffer are claimed by a promise a SIGKILL breaks")
+        assert claimed == flushed, (
+            f"chunk {idx}: claimed {claimed}, flushed {flushed} -- the "
+            "checkpoint should be exactly as current as the OS is")
+
+
+def test_the_flush_parked_run_still_completes_correctly(flush_parked_run):
+    """NEGATIVE CONTROL: parking inside flush must not corrupt the download."""
+    size, fetched = flush_parked_run["result"]
+    assert (size, fetched) == (_TOTAL, _TOTAL)
+    assert flush_parked_run["dest"].read_bytes() == flush_parked_run["body"]

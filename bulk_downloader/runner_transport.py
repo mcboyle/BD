@@ -2441,16 +2441,9 @@ class TransportMixin:
         # absolute count. resume_offset[idx] is the chunk's done_bytes
         # at the start of this run (0 for non-resumed chunks).
         progress = [0] * n_chunks
-        # Row 431: progress[idx] counts bytes handed to a BUFFERED handle, so
-        # it runs ahead of what the OS has actually been given -- curl_cffi can
-        # yield buffers far smaller than the requested chunk, and those sit in
-        # the BufferedWriter until it fills. The checkpoint is a promise that
-        # survives a SIGKILL, and a SIGKILL loses exactly that residue, so the
-        # checkpoint may only ever claim durable[idx]: bytes the worker has
-        # FLUSHED. Never persist progress[] -- that is the defect this list
-        # exists to prevent. (flush(), not fsync(): the failure being defended
-        # against is process death, and the page cache outlives the process.)
-        durable = [0] * n_chunks
+        # Row 431: progress[idx] is what the monitor persists into the resume
+        # checkpoint, so it may only ever count bytes the OS already has. The
+        # write loop below therefore flushes BEFORE it counts -- see there.
         resume_offset = [int(c.get("done_bytes", 0))
                           for c in (resume_chunk_states or
                                      [{"done_bytes": 0}] * n_chunks)]
@@ -2466,8 +2459,6 @@ class TransportMixin:
                 # Chunk was already complete in a previous run. Nothing
                 # to do; mark progress as the full slice and return.
                 progress[idx] = (byte_end - byte_start + 1) - resume_offset[idx]
-                # Already on disk from a previous run: durable by definition.
-                durable[idx] = progress[idx]
                 _daily_bytes.worker_finished()
                 return
             f = None  # [SAST 3:13pm 13 may] pre-bind so the except can close on seek-failure
@@ -2524,16 +2515,25 @@ class TransportMixin:
                                 worker_errors[idx] = "stopped"
                                 return
                             f.write(buf)
-                            progress[idx] += len(buf)
-                            # Hand the bytes to the OS before letting the
-                            # checkpoint claim them. Nothing else in this
-                            # thread writes durable[idx], and the flush
-                            # precedes the assignment, so durable[idx] is
-                            # never ahead of what a reader (or a restart)
-                            # would see. A write larger than the buffer goes
-                            # straight through and this flush is a no-op.
+                            # Row 431: hand the bytes to the OS BEFORE counting
+                            # them. The monitor persists progress[] into the
+                            # resume checkpoint, and a checkpoint is a promise
+                            # that must survive SIGKILL -- which loses exactly
+                            # the BufferedWriter's userspace residue and
+                            # nothing else. curl_cffi can yield buffers far
+                            # smaller than the requested chunk, so counting
+                            # first left the checkpoint claiming bytes the OS
+                            # had never seen; on resume the workers skipped
+                            # that region and the promoted file carried
+                            # zero-filled holes. Flushing first makes the
+                            # count true at every instant a reader can observe
+                            # it, including the mid-write window. flush(), not
+                            # fsync(): the failure defended against is process
+                            # death, and the page cache outlives the process.
+                            # A write larger than the buffer goes straight
+                            # through and this flush is a no-op.
                             f.flush()
-                            durable[idx] = progress[idx]
+                            progress[idx] += len(buf)
                             _daily_bytes.add(len(buf))
                             record_bandwidth(len(buf))
                             if not self._flush_after_interrupted_write(
@@ -2551,15 +2551,8 @@ class TransportMixin:
                     except Exception:
                         pass
             finally:
-                closed = False
-                try:
-                    f.close()
-                    closed = True
+                try: f.close()
                 except Exception: pass
-                if closed:
-                    # close() flushed; everything this worker wrote is now the
-                    # OS's. Only then may the checkpoint claim it.
-                    durable[idx] = progress[idx]
                 _daily_bytes.worker_finished()
 
         threads = []
@@ -2606,7 +2599,7 @@ class TransportMixin:
                 with checkpoint_lock:
                     for i in range(n_chunks):
                         _resume.update_chunk_progress(checkpoint, i,
-                            resume_offset[i] + durable[i])
+                            resume_offset[i] + progress[i])
                     _resume.save(final_path, checkpoint)
                 # Don't unlink the .part anymore — leave it for resume.
                 # The checkpoint is the source of truth for what's
@@ -2641,7 +2634,7 @@ class TransportMixin:
                 with checkpoint_lock:
                     for i in range(n_chunks):
                         _resume.update_chunk_progress(checkpoint, i,
-                            resume_offset[i] + durable[i])
+                            resume_offset[i] + progress[i])
                     _resume.save(final_path, checkpoint)
                 last_saved_bytes = total_bytes
             if not alive:
@@ -2656,7 +2649,7 @@ class TransportMixin:
             with checkpoint_lock:
                 for i in range(n_chunks):
                     _resume.update_chunk_progress(checkpoint, i,
-                        resume_offset[i] + durable[i])
+                        resume_offset[i] + progress[i])
                 _resume.save(final_path, checkpoint)
             _daily_bytes.flush()
             raise _HTTPDownloadFailed(f"parallel: {err}")
@@ -2667,7 +2660,7 @@ class TransportMixin:
             with checkpoint_lock:
                 for i in range(n_chunks):
                     _resume.update_chunk_progress(checkpoint, i,
-                        resume_offset[i] + durable[i])
+                        resume_offset[i] + progress[i])
                 _resume.save(final_path, checkpoint)
             _daily_bytes.flush()
             raise _HTTPDownloadFailed(
