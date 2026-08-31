@@ -329,7 +329,7 @@ GET     /api/discovery/scenes/status                           CSRF: no
 GET     /api/doctor                                            CSRF: no   — Full diagnostic pass: environment, optional deps, cookie age.
 POST    /api/doctor/diagnose                                   CSRF: yes  — Pattern-match a failure error string. Body: {error: '...'} or
 GET     /api/download_hold                                     CSRF: no   — Report HELD / CLEAR / UNKNOWN. Read-only; never mutates the store.
-POST    /api/download_hold                                     CSRF: yes  — Record a durable hold, then pause any running pool.
+POST    /api/download_hold                                     CSRF: yes  — Record a durable hold, then stop any running pool.
 POST    /api/download_hold/lift                                CSRF: yes  — Explicitly lift the hold. The lift is itself durable (held: false).
 POST    /api/edge_deploy/all                                   CSRF: yes  — Return all deploy artifacts (compose + systemd + k8s).
 POST    /api/edge_deploy/compose                               CSRF: yes  — Generate docker-compose.yml for current install.

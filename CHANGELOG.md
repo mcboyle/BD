@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1375 - the operator hold is a barrier, and reports effects
+
+Rows 433 and 451 in one cut: 451 is the number that hid 433.
+
+- A HOLD PLACED WHILE A START WAS IN FLIGHT LEFT THE POOL DOWNLOADING. The
+  POST enumerated the runners it could see, and a runner mid-start was not
+  yet in that set, so it proceeded. MEASURED on the defective parent through
+  a real SiteRunner.start() parked at the per-site quota walk -- strictly
+  between the hold check and the running transition, held on an Event rather
+  than a sleep: the POST answered ok true, hold_state read HELD, and all
+  three URLs downloaded anyway. Repeated 40 times, 40 of 40 leaked.
+- THE HOLD IS NOW A BARRIER. The POST holds it across writing the durable
+  record, enumerating, and pausing; a runner holds it across re-reading the
+  hold and transitioning to running. Only two orderings survive: the runner
+  transitions first and the walk therefore sees it running and pauses it, or
+  the record lands first and the runner's re-read refuses. resume() takes the
+  same barrier around its own check-and-transition, and a grep for the
+  running transition returns exactly those two arming sites. The barrier is
+  outermost in the lock order and nothing acquires it while holding a runner
+  lock. 120 green iterations after the fix against 40 of 40 leaking before.
+- paused_runners COUNTED ATTEMPTS AND CALLED THEM EFFECTS. runner.pause() is
+  state-gated and returns None without raising when a runner is not running,
+  so a host with six idle runners and none running answered paused_runners 6.
+  The operator read that as six pools stopped, and it MASKED THE RACE: the
+  one runner that mattered was mid-start and never paused. The response now
+  separates runners actually transitioned from those already not running, and
+  a pause whose effect cannot be established reads UNKNOWN rather than
+  counted, per CLAUDE.md A7 -- with the hold still durably written, because
+  failing to measure the pauses must never lose the operator's instruction.
+
 ## v3.66.1373 - a mere read must not destroy the extension vault
 
 The sibling row 432 named and did not cover. Same rename-aside shape in
