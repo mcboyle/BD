@@ -449,6 +449,7 @@ jobs:
             suites: >-
               tests/test_app_measurements_fail_closed.py
               tests/test_ffmpeg_capability_health.py
+              tests/test_row421_alert_event_store_reports_unknown.py
               tests/test_row363_affordance_learning.py
               tests/test_row356_cookie_quality_reports_unknown.py
               tests/test_row360_turnstile_bypass_is_installed.py

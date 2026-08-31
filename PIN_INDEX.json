@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 119,
+    "total": 123,
     "version": 1,
-    "count_dict": 118,
-    "test_files_scanned": 1522,
+    "count_dict": 122,
+    "test_files_scanned": 1523,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -39,6 +39,7 @@
       "tests/test_row346_plugin_sandbox_is_truthful.py": 1,
       "tests/test_row360_turnstile_bypass_is_installed.py": 2,
       "tests/test_row363_affordance_learning.py": 1,
+      "tests/test_row421_alert_event_store_reports_unknown.py": 4,
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
@@ -420,6 +421,45 @@
         "download": 1
       },
       "gates_what": "test_listing_traversal_blocks_requests_and_downloads_without_breaking_crawl"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_row421_alert_event_store_reports_unknown.py",
+      "line": 450,
+      "value": {
+        "tripped": 1
+      },
+      "gates_what": "test_a_held_condition_on_a_healthy_store_fires_exactly_once — A genuinely held condition still fires once, and cooldown still holds."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_row421_alert_event_store_reports_unknown.py",
+      "line": 466,
+      "value": {
+        "tripped": 1,
+        "fired": 1
+      },
+      "gates_what": "test_a_held_condition_on_a_healthy_store_fires_exactly_once — A genuinely held condition still fires once, and cooldown still holds."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_row421_alert_event_store_reports_unknown.py",
+      "line": 475,
+      "value": {
+        "tripped": 2,
+        "fired": 1
+      },
+      "gates_what": "test_a_held_condition_on_a_healthy_store_fires_exactly_once — A genuinely held condition still fires once, and cooldown still holds."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_row421_alert_event_store_reports_unknown.py",
+      "line": 500,
+      "value": {
+        "tripped": 2,
+        "fired": 1
+      },
+      "gates_what": "test_a_held_condition_on_a_healthy_store_fires_exactly_once — A genuinely held condition still fires once, and cooldown still holds."
     },
     {
       "form": "count_dict",

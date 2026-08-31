@@ -198,11 +198,31 @@ _OPS = {
 
 # ─── Rule evaluation ──────────────────────────────────────────────────
 
+class AlertEventStoreUnavailable(RuntimeError):
+    """The alert_events store could not be read or written.
+
+    Row 421. Until v3.66.1362 the three helpers below each collapsed this
+    state into their own "nothing to report" value -- False, None, and a
+    silent no-op -- so a locked, corrupted, unwritable or malformed-ts table
+    was indistinguishable from a condition that had simply not held. A rule
+    whose metric genuinely tripped then recorded nothing, answered the
+    duration gate False forever, and never reached _fire_actions(); nothing
+    raised and nothing logged. CLAUDE.md A7: an unavailable measurement is
+    UNKNOWN, never OK. The distinction has to survive as far as evaluate(),
+    which is why it is an exception rather than another sentinel value.
+    """
+
+
 def _condition_was_held(rule_id: str, *, duration_minutes: int) -> bool:
     """Check if the rule has been continuously tripping for at least
     `duration_minutes`. We approximate this by looking at our most
     recent 'tripped' event; if it's older than duration_minutes ago,
-    and no 'cleared' in between, we say the condition held."""
+    and no 'cleared' in between, we say the condition held.
+
+    Raises AlertEventStoreUnavailable when the answer cannot be measured.
+    False is reserved for a store that WAS read and says the condition did
+    not hold; a malformed ts is unmeasured, not a negative answer.
+    """
     _ensure_tables()
     try:
         from . import db as _db
@@ -211,20 +231,28 @@ def _condition_was_held(rule_id: str, *, duration_minutes: int) -> bool:
                               WHERE rule_id = ?
                               ORDER BY id DESC LIMIT 1""",
                           (rule_id,)).fetchone()
-        if not r:
+        if r is None:
             return False
         kind = r[0] if not hasattr(r, "keys") else r["kind"]
         ts = float(r[1] if not hasattr(r, "keys") else r["ts"])
-        if kind != "tripped":
-            return False
-        # Has it held long enough?
-        return (time.time() - ts) >= (duration_minutes * 60)
-    except Exception:
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unavailable reading rule {rule_id!r} history: "
+            f"{type(e).__name__}: {e}") from e
+    if kind != "tripped":
         return False
+    # Has it held long enough?
+    return (time.time() - ts) >= (duration_minutes * 60)
 
 
 def _last_fire_age(rule_id: str) -> Optional[float]:
-    """Seconds since last 'fired' event for this rule."""
+    """Seconds since last 'fired' event for this rule, or None if it has
+    never fired.
+
+    Raises AlertEventStoreUnavailable when the store cannot answer. None
+    means "measured, never fired" and opens the cooldown gate, so an
+    unreadable store must not be able to produce it.
+    """
     _ensure_tables()
     try:
         from . import db as _db
@@ -233,15 +261,23 @@ def _last_fire_age(rule_id: str) -> Optional[float]:
                               WHERE rule_id = ? AND kind = 'fired'
                               ORDER BY id DESC LIMIT 1""",
                           (rule_id,)).fetchone()
-        if not r:
+        if r is None:
             return None
         return time.time() - float(r[0])
-    except Exception:
-        return None
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unavailable reading rule {rule_id!r} last fire: "
+            f"{type(e).__name__}: {e}") from e
 
 
 def _record_event(rule_id: str, kind: str, value: Optional[float],
                  message: str = ""):
+    """Append one event row.
+
+    Raises AlertEventStoreUnavailable when the INSERT does not land. A lost
+    'tripped' row is not cosmetic: the duration gate is computed from these
+    rows, so swallowing the failure suppressed every subsequent fire.
+    """
     _ensure_tables()
     try:
         from . import db as _db
@@ -250,8 +286,10 @@ def _record_event(rule_id: str, kind: str, value: Optional[float],
                 rule_id, ts, metric_value, kind, message
             ) VALUES (?,?,?,?,?)""",
                 (rule_id, time.time(), value, kind, message[:300]))
-    except Exception:
-        pass
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unavailable writing {kind!r} for rule "
+            f"{rule_id!r}: {type(e).__name__}: {e}") from e
 
 
 def evaluate(s_cfg: Optional[dict] = None,
@@ -260,11 +298,27 @@ def evaluate(s_cfg: Optional[dict] = None,
     track state, fire if condition has held and cooldown elapsed.
 
     Returns:
-      {evaluated: N, tripping: N, fired: N, results: [...]}
+      {evaluated: N, tripping: N, fired: N, unknown: N, results: [...]}
+
+    Row 421. Every result carries an explicit `status`:
+
+      ok       the rule was fully measured; `fired` is that measurement
+      unknown  a required measurement was unavailable, so whether this rule
+               should have fired is NOT KNOWN. `fired` being False here is
+               the absence of an answer, not a negative one
+      error    the rule itself is malformed (an operator typo'd `op`), which
+               is deterministic rather than unavailable
+
+    An unavailable event store is additionally written to stderr. That is
+    deliberate and load-bearing: bg_scheduler registers this function behind
+    a wrapper that DISCARDS the returned dict, so on the production path the
+    log is the only channel by which the operator ever learns that the
+    alerting layer has stopped being able to alert.
     """
     if rules is None:
         rules = DEFAULT_RULES
-    out = {"evaluated": 0, "tripping": 0, "fired": 0, "results": []}
+    out = {"evaluated": 0, "tripping": 0, "fired": 0, "unknown": 0,
+           "results": []}
     for rule in rules:
         out["evaluated"] += 1
         metric = rule.get("metric", "")
@@ -273,41 +327,58 @@ def evaluate(s_cfg: Optional[dict] = None,
                        "value": value, "threshold": rule["threshold"],
                        "tripping": False, "fired": False}
         if value is None:
+            # The metric could not be computed, so the comparison below never
+            # happened. Not a measured "did not trip".
+            result["status"] = "unknown"
             result["error"] = "metric unavailable"
+            out["unknown"] += 1
             out["results"].append(result)
             continue
         op_fn = _OPS.get(rule.get("op", ">="))
         if not op_fn:
+            result["status"] = "error"
             result["error"] = f"unknown op: {rule.get('op')}"
             out["results"].append(result)
             continue
         tripping = op_fn(value, rule["threshold"])
         result["tripping"] = tripping
-        if tripping:
-            out["tripping"] += 1
-            # Was a previous trip recorded? If not, record one now.
-            if not _condition_was_held(rule["id"],
-                                       duration_minutes=0):
-                _record_event(rule["id"], "tripped", value,
-                             f"{metric}={value} {rule['op']} {rule['threshold']}")
-            # Has it been tripping long enough?
-            if _condition_was_held(
-                    rule["id"],
-                    duration_minutes=int(rule.get("duration_minutes", 1))):
-                # Cooldown gate
-                last_fire = _last_fire_age(rule["id"])
-                cool = int(rule.get("cooldown_minutes", 60)) * 60
-                if last_fire is None or last_fire >= cool:
-                    _record_event(rule["id"], "fired", value,
-                                 rule.get("name", rule["id"]))
-                    result["fired"] = True
-                    out["fired"] += 1
-                    # Fire side effects
-                    _fire_actions(rule, value)
+        try:
+            if tripping:
+                out["tripping"] += 1
+                # Was a previous trip recorded? If not, record one now.
+                if not _condition_was_held(rule["id"],
+                                           duration_minutes=0):
+                    _record_event(rule["id"], "tripped", value,
+                                 f"{metric}={value} {rule['op']} {rule['threshold']}")
+                # Has it been tripping long enough?
+                if _condition_was_held(
+                        rule["id"],
+                        duration_minutes=int(rule.get("duration_minutes", 1))):
+                    # Cooldown gate
+                    last_fire = _last_fire_age(rule["id"])
+                    cool = int(rule.get("cooldown_minutes", 60)) * 60
+                    if last_fire is None or last_fire >= cool:
+                        _record_event(rule["id"], "fired", value,
+                                     rule.get("name", rule["id"]))
+                        result["fired"] = True
+                        out["fired"] += 1
+                        # Fire side effects
+                        _fire_actions(rule, value)
+            else:
+                # Condition has cleared — record so duration logic resets
+                if _condition_was_held(rule["id"], duration_minutes=0):
+                    _record_event(rule["id"], "cleared", value, "")
+        except AlertEventStoreUnavailable as e:
+            # The metric reading above stays truthful -- `tripping` was really
+            # measured. What is unknown is the rule's STATE, and therefore
+            # whether it should have fired.
+            result["status"] = "unknown"
+            result["error"] = str(e)[:300]
+            out["unknown"] += 1
+            sys.stderr.write(
+                f"[alerts] UNKNOWN rule {rule['id']}: {e}\n")
         else:
-            # Condition has cleared — record so duration logic resets
-            if _condition_was_held(rule["id"], duration_minutes=0):
-                _record_event(rule["id"], "cleared", value, "")
+            result["status"] = "ok"
         out["results"].append(result)
     return out
 

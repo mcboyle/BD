@@ -119,6 +119,13 @@ _DECLARED = {
     # measured-empty and unavailable. This runtime gate pairs every exception
     # probe with a measured-healthy control and is pinned into CI here.
     "tests/test_ffmpeg_capability_health.py",
+    # Row 421. A broken alert_events table silenced every alert action while
+    # the rule still counted as tripping, and bg_scheduler discards the dict
+    # that would have said so. This runtime gate breaks the store at the real
+    # sqlite boundary and pairs the UNKNOWN verdicts with a fires-exactly-once
+    # positive control, so it belongs beside the other unavailable-measurement
+    # probes rather than depending on a diff-derived band.
+    "tests/test_row421_alert_event_store_reports_unknown.py",
     # Row 356. Cookie quality must not call a session-only jar perfect when no
     # freshness, expected-name, Cloudflare, or history check ran. This runtime
     # gate also keeps API-adjacent relogin and queue consumers from defaulting
@@ -860,7 +867,7 @@ _EXPECTED_CONFIRMED_SAFETY_GATE_COUNT = 7
 # duplicate-version-pin guard once in artifacts-pins, taking 233 to 234.
 # Keeping only one comment would leave the count right and the reason wrong.
 # The integrator re-pins this if a concurrent cut also lands a gate.
-_EXPECTED_DECLARED_GATE_COUNT = 234
+_EXPECTED_DECLARED_GATE_COUNT = 235
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
