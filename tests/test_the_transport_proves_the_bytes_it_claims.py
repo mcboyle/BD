@@ -643,7 +643,9 @@ class _ShimOrigin:
                         ev = shim.release.get(idx)
                         assert ev is not None, f"no release event for {idx}"
                         assert ev.wait(timeout=60), (
-                            f"chunk {idx} was never released")
+                            f"chunk {idx} was never released within 60s: its "
+                            "gate was never opened, so the sequence this "
+                            "fixture depends on did not happen")
                     piece = data[sent:sent + shim.piece]
                     sent += len(piece)
                     with shim._lock:
@@ -938,11 +940,12 @@ class _ParkingHandle:
     BufferedWriter and the page cache sees exactly what it always would.
     """
 
-    def __init__(self, inner, park_at, arrive, release):
+    def __init__(self, inner, park_at, arrive, release, parked):
         self._inner = inner
         self._park_at = park_at
         self._arrive = arrive
         self._release = release
+        self._parked = parked
         self._flushes = 0
 
     def seek(self, pos, *a):
@@ -962,7 +965,10 @@ class _ParkingHandle:
         if self._flushes == self._park_at:
             self._arrive(self)
             assert self._release.wait(timeout=60), (
-                "a parked flush was never released")
+                f"a parked flush was never released within 60s "
+                f"({len(self._parked)} of 3 workers parked). If no worker ever "
+                "reached this point at all, the write loop is not flushing, "
+                "which is the defect one buffer larger.")
         return self._inner.flush()
 
     def __getattr__(self, name):
@@ -999,7 +1005,8 @@ def flush_parked_run(monkeypatch, tmp_path):
     def patched_open(file, mode="r", *a, **kw):
         inner = real_open(file, mode, *a, **kw)
         if str(file) == str(part) and mode == "r+b":
-            return _ParkingHandle(inner, _FLUSH_PARK_AT, _arrive, release)
+            return _ParkingHandle(inner, _FLUSH_PARK_AT, _arrive, release,
+                                   parked)
         return inner
 
     monkeypatch.setattr(builtins, "open", patched_open)
