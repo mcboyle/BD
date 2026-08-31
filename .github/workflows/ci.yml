@@ -39,6 +39,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
+          # manifests. Every job pays the same pip install serially; a warm
+          # cache turns the download half of that into a restore. This caches
+          # WHEELS, not the installed environment -- install still runs, so a
+          # changed pin is still honoured and nothing is trimmed.
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
 
       - name: Install integration-test dependencies
         run: |
@@ -78,6 +87,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
+          # manifests. Every job pays the same pip install serially; a warm
+          # cache turns the download half of that into a restore. This caches
+          # WHEELS, not the installed environment -- install still runs, so a
+          # changed pin is still honoured and nothing is trimmed.
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
 
       - name: Generated artifacts are in sync
         run: |
@@ -261,6 +279,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
+          # manifests. Every job pays the same pip install serially; a warm
+          # cache turns the download half of that into a restore. This caches
+          # WHEELS, not the installed environment -- install still runs, so a
+          # changed pin is still honoured and nothing is trimmed.
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
       - name: Every tracked spec file actually ran
         # THE GATE THAT MAKES THE JOB ABOVE MEAN SOMETHING. It reconciles the
         # files vitest reported against `git ls-files`, so a config change that
@@ -282,54 +309,83 @@ jobs:
           - name: toolchain
             suites: >-
               tests/test_toolchain_534.py
-              tests/test_v3_66_1052_the_backlog_is_machine_visible.py
-              tests/test_v3_66_1142_fleet_run_is_hermetic.py
-              tests/test_v3_66_1158_fleet_provenance_fails_closed.py
-              tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py
-              tests/test_row_282_bd_opv_isolates_every_store.py
-              tests/test_row345_opv_a11y_requires_served_cockpit.py
-              tests/test_row313_bd_job_identity.py
-              tests/test_row350_job_api_durable_truth.py
-              tests/test_row353_mutant_anchors_survive_a_moved_census.py
-              tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py
-              tests/test_v3_66_1159_fleet_prune_is_object_bound.py
-              tests/test_v3_66_1160_bridge_verifier_isolation.py
-              tests/test_v3_66_1161_context_census_is_retired.py
-              tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py
-              tests/test_v3_66_1164_one_task_authority.py
-              tests/test_register_closed_versions_exist.py
-              tests/test_register_content_amend.py
-              tests/test_register_append.py
-              tests/test_row323_census_pins_declare_expiry.py
-              tests/test_v3_66_1165_one_agent_contract.py
-              tests/test_v3_66_1166_historical_docs_are_adjudicated.py
-              tests/test_v3_66_1167_safety_authorities_are_single_source.py
-              tests/test_v3_66_1168_tests_are_current_contracts.py
-              tests/test_v3_66_1169_openapi_has_one_producer.py
-              tests/test_v3_66_1170_claude_is_concise_authority.py
-              tests/test_v3_66_1171_backlog_truth_is_current.py
-              tests/test_v3_66_1255_backlog_references_resolve.py
               tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
-              tests/test_v3_66_1173_gate_scope_debt_is_paid.py
-              tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py
-              tests/test_v3_66_1177_ai_boot_observation_is_bounded.py
-              tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
-              tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py
-              tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py
-              tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py
-              tests/test_frontend_secret_keys_in_sync.py
-              tests/test_templates_list_identity.py
-              tests/test_defect_scan_precision.py
-              tests/test_v3_66_1145_step0_fails_closed.py
-              tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py
-              tests/test_v3_66_1150_the_snapshot_is_really_sealed.py
-              tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py
-              tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py
-              tests/test_v3_66_1153_deletion_is_bound_to_the_object.py
               tests/test_v3_66_1154_the_object_not_the_name.py
-              tests/test_v3_66_1157_build_output_is_from_this_attempt.py
+              tests/test_v3_66_1145_step0_fails_closed.py
+              tests/test_templates_list_identity.py
+              tests/test_row323_census_pins_declare_expiry.py
+              tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py
+              tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py
+              tests/test_v3_66_1160_bridge_verifier_isolation.py
+              tests/test_row350_job_api_durable_truth.py
+              tests/test_v3_66_1150_the_snapshot_is_really_sealed.py
+              tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py
+              tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py
+              tests/test_v3_66_1165_one_agent_contract.py
+              tests/test_v3_66_1167_safety_authorities_are_single_source.py
+              tests/test_v3_66_1177_ai_boot_observation_is_bounded.py
+              tests/test_v3_66_1166_historical_docs_are_adjudicated.py
+              tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py
+              tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
+              tests/test_v3_66_1164_one_task_authority.py
+              tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py
+              tests/test_v3_66_1052_the_backlog_is_machine_visible.py
+              tests/test_frontend_secret_keys_in_sync.py
+          - name: toolchain-deep
+            suites: >-
+              tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py
+              tests/test_v3_66_1161_context_census_is_retired.py
               tests/test_failed_measurements_have_distinct_states.py
+              tests/test_row345_opv_a11y_requires_served_cockpit.py
+              tests/test_row_282_bd_opv_isolates_every_store.py
+              tests/test_v3_66_1168_tests_are_current_contracts.py
+              tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py
+              tests/test_row353_mutant_anchors_survive_a_moved_census.py
+              tests/test_v3_66_1169_openapi_has_one_producer.py
+              tests/test_v3_66_1171_backlog_truth_is_current.py
+              tests/test_register_append.py
+              tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py
+              tests/test_v3_66_1142_fleet_run_is_hermetic.py
+              tests/test_register_content_amend.py
+              tests/test_v3_66_1153_deletion_is_bound_to_the_object.py
+              tests/test_v3_66_1158_fleet_provenance_fails_closed.py
+              tests/test_v3_66_1170_claude_is_concise_authority.py
+              tests/test_defect_scan_precision.py
+              tests/test_v3_66_1173_gate_scope_debt_is_paid.py
+              tests/test_row313_bd_job_identity.py
+              tests/test_register_closed_versions_exist.py
+              tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py
+              tests/test_v3_66_1157_build_output_is_from_this_attempt.py
+              tests/test_v3_66_1159_fleet_prune_is_object_bound.py
+              tests/test_v3_66_1255_backlog_references_resolve.py
+          # v3.66.1363 row 420. parity-graph was the CI critical path: 425s of a
+          # 497s total wall clock, measured at run 33344209740. Its Vitest
+          # delegators are split across TWO node-provisioned shards (the
+          # test_v3_66_1218 gate re-derives the delegating population, so both
+          # carry the setup-node/npm condition), and the pure-python suites
+          # moved to parity-static, which skips npm entirely. Per-suite
+          # durations came from a 117-suite parband measurement on an idle
+          # capacity host, not guesswork. The union is unchanged: split only,
+          # never trim (CLAUDE.md A5).
           - name: parity-graph
+            suites: >-
+              tests/test_t7_notifications_wired.py
+              tests/test_t3_t4_wired.py
+              tests/test_t5_t6_wired.py
+              tests/test_v3_66_1240_supervisor_settings_seeded.py
+              tests/test_t8_cluster_wired.py
+              tests/test_t11_approval_wired.py
+              tests/test_t10_devtools_wired.py
+          - name: parity-vitest-b
+            suites: >-
+              tests/test_t2_history_wired.py
+              tests/test_t1_dashboard_wired.py
+              tests/test_csrf_tool_contracts.py
+              tests/test_csrf_contract_reachability.py
+              tests/test_v3_66_1255_frontend_build_is_isolated.py
+              tests/test_t9a_live_stream_wired.py
+              tests/test_t9b_push_wired.py
+          - name: parity-static
             suites: >-
               tests/test_v3_66_1218_vitest_delegating_shards_have_node.py
               tests/test_frontend_dependency_security_floor.py
@@ -337,18 +393,6 @@ jobs:
               tests/test_v3_66_1225_spa_scanner_populations.py
               tests/test_no_raw_unicode_escape_in_jsx.py
               tests/test_gui_parity.py
-              tests/test_t1_dashboard_wired.py
-              tests/test_t2_history_wired.py
-              tests/test_v3_66_1255_frontend_build_is_isolated.py
-              tests/test_t3_t4_wired.py
-              tests/test_t5_t6_wired.py
-              tests/test_t7_notifications_wired.py
-              tests/test_v3_66_1240_supervisor_settings_seeded.py
-              tests/test_t8_cluster_wired.py
-              tests/test_t9a_live_stream_wired.py
-              tests/test_t9b_push_wired.py
-              tests/test_t10_devtools_wired.py
-              tests/test_t11_approval_wired.py
               tests/test_row281_ui_wrappers_delegate.py
               tests/test_config_parity_ratchet.py
               tests/test_skip_baseline.py
@@ -357,8 +401,6 @@ jobs:
               tests/test_v3_66_552_playground_ssrf.py
               tests/test_v3_66_1181_capture_reconciliation.py
               tests/test_csrf_session_bootstrap.py
-              tests/test_csrf_contract_reachability.py
-              tests/test_csrf_tool_contracts.py
               tests/test_spa_root_routing_contract.py
               tests/test_secret_display_never.py
               tests/test_cockpit_route_contract.py
@@ -501,16 +543,18 @@ jobs:
           - name: mutation-tools
             suites: >-
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
+              tests/test_v3_66_1188_bd_mutate_review_controls.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_row357_mutant_anchors_are_not_fragile.py
-              tests/test_v3_66_1186_bd_mutate_named_controls.py
-              tests/test_v3_66_1187_bd_mutate_band_is_bounded.py
-              tests/test_row355_mutate_timing_is_schedule_stable.py
-              tests/test_v3_66_1188_bd_mutate_review_controls.py
-              tests/test_v3_66_1189_bd_mutate_durable_contract.py
+          - name: mutation-verifiers
+            suites: >-
               tests/test_v3_66_1190_bd_mutate_kills_process_tree.py
+              tests/test_v3_66_1186_bd_mutate_named_controls.py
+              tests/test_row355_mutate_timing_is_schedule_stable.py
+              tests/test_v3_66_1187_bd_mutate_band_is_bounded.py
               tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
+              tests/test_v3_66_1189_bd_mutate_durable_contract.py
           - name: isolation
             suites: >-
               tests/test_v3_66_1034_guards_survive_a_module_wipe.py
@@ -570,28 +614,30 @@ jobs:
               tests/test_row343_fresh_host_bringup.py
           - name: tree-gates-4
             suites: >-
-              tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py
-              tests/test_recognizer_corpus_shard_a.py
-              tests/test_recognizer_corpus_shard_b.py
+              tests/test_sandbox_home_stays_retired.py
               tests/test_recognizer_corpus_shard_c.py
-              tests/test_recognizer_corpus_shard_d.py
-              tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py
-              tests/test_ct1_corpus_validation.py
+              tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py
+              tests/test_task_tracker_stays_retired.py
+              tests/test_codex_handoff_stays_retired.py
               tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py
-              tests/test_v3_66_935_scan_wait_reports_non_convergence.py
-              tests/test_history_columns_go_through_migrations.py
               tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py
               tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py
-              tests/test_codex_handoff_stays_retired.py
-              tests/test_sandbox_home_stays_retired.py
-              tests/test_v3_66_1192_build_release_sh_stays_retired.py
-              tests/test_deploy_manifest_stays_retired.py
-              tests/test_gitignore_rules_actually_match.py
-              tests/test_task_tracker_stays_retired.py
-              tests/test_v3_66_918_tracked_source_denominator.py
-              tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
               tests/test_generated_artifact_workflow.py
+              tests/test_v3_66_918_tracked_source_denominator.py
+          - name: tree-gates-5
+            suites: >-
+              tests/test_recognizer_corpus_shard_b.py
+              tests/test_recognizer_corpus_shard_a.py
+              tests/test_recognizer_corpus_shard_d.py
+              tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py
+              tests/test_deploy_manifest_stays_retired.py
+              tests/test_v3_66_1192_build_release_sh_stays_retired.py
+              tests/test_v3_66_935_scan_wait_reports_non_convergence.py
               tests/test_git_deploy_gaps_are_documented.py
+              tests/test_ct1_corpus_validation.py
+              tests/test_history_columns_go_through_migrations.py
+              tests/test_gitignore_rules_actually_match.py
+              tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
           # Row 259. These five gates derive safety populations from live_tests,
           # tools and product source. They were all frozen-baseline legacy and
           # therefore absent from every PR shard even though each gate worked.
@@ -657,6 +703,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
+          # manifests. Every job pays the same pip install serially; a warm
+          # cache turns the download half of that into a restore. This caches
+          # WHEELS, not the installed environment -- install still runs, so a
+          # changed pin is still honoured and nothing is trimmed.
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
 
       # X11 TOOLING FOR THE DISPLAY-OWNERSHIP GATES. Installed on EVERY gate
       # shard on purpose, not only the one that needs it today: the existing
@@ -689,13 +744,13 @@ jobs:
       # and left it stale), and v3.66.1242 makes it seven. The population is
       # re-derived by that test; a number here only goes quietly wrong.
       - uses: actions/setup-node@v4
-        if: matrix.name == 'parity-graph'
+        if: matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies (shards that delegate to vitest)
-        if: matrix.name == 'parity-graph'
+        if: matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b'
         working-directory: frontend
         run: npm ci
 
