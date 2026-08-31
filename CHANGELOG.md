@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1369 - an unreadable vault is UNKNOWN, never uninitialized
+
+Row 432, and the defect is worse than the row that filed it. The row said an
+unreadable secrets file is misclassified as uninitialized. Measured on the
+defective tree, for BOTH an unparseable file and a chmod-000 one:
+
+    secrets.json still present : False    the LIVE VAULT WAS RENAMED AWAY
+    is_initialized()           : False    initialized read as uninitialized
+    unlock(WRONG password)     : True     any password commits a new vault
+    health ok / state          : True / 'unlocked'
+
+- SECRETS_FILE.replace() needs DIRECTORY permission, not file permission, so a
+  transient PermissionError renamed the operator's real credential store aside
+  as readily as a torn write did. The store was then absent, so the next unlock
+  took the first-use path and committed a NEW vault under ANY password, and the
+  health surface published ok=True over the vault it had just destroyed. Silent
+  credential loss and an authentication bypass, from an ordinary permissions
+  hiccup.
+- The damaged file is now PRESERVED IN PLACE, byte-identical, under its own
+  name: no rename, no .corrupt- sibling, no reinitialisation. store_state()
+  returns exactly one of uninitialized / locked / unlocked / unreadable, and
+  is_initialized() fails CLOSED on unreadable -- a vault that may hold secrets
+  is treated as one that does.
+- SecretsUnreadableError subclasses SecretsIntegrityError, so every existing
+  handler already fails closed. Nine callers were enumerated and each carries
+  the state rather than guessing: credential_health gains an explicit
+  unreadable branch BEFORE reference branching, closing the hole where a
+  damaged vault reached locked_no_references and published ok=True; three
+  endpoints answer 409 with state unreadable; resolve_password_state answers
+  locked rather than missing; the data layer reports enumerable False with a
+  null count; rekey and purge abort.
+- The AF2 backup gate required "never wiped" and was satisfied by the rename
+  aside -- the rename WAS the defect. It now requires preservation in place,
+  which is strictly stronger, and is renamed to say so.
+
 ## v3.66.1368 - a skip must prove it is the same work
 
 The highest-severity finding of the 2026-08-31 defect hunt, and the one that
