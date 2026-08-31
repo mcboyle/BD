@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4131,
+  "edge_count": 4133,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2929,6 +2929,10 @@
       "bulk_downloader/db.py"
     ],
     "tests/test_extension_vault.py": [
+      "bulk_downloader/extension_vault.py"
+    ],
+    "tests/test_extension_vault_unreadable_store_is_not_empty.py": [
+      "bulk_downloader/app.py",
       "bulk_downloader/extension_vault.py"
     ],
     "tests/test_extraction_core.py": [
