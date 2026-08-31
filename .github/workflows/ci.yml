@@ -367,6 +367,15 @@ jobs:
           # durations came from a 117-suite parband measurement on an idle
           # capacity host, not guesswork. The union is unchanged: split only,
           # never trim (CLAUDE.md A5).
+          # v3.66.1363 second pass: three suites READ frontend/node_modules
+          # without DELEGATING to vitest (dependency security floor, Vite base
+          # derivation, secret-display scan), so the 1218 delegation population
+          # is narrower than "needs node". The first CI run of this matrix
+          # proved it -- 4 failures, all "node_modules is absent ... this is a
+          # failure, not a skip" -- exactly the fail-closed wording those gates
+          # were built with. They live in the node-provisioned shards now; the
+          # local timing lane could not see this because its worktree symlinked
+          # the integrator's node_modules.
           - name: parity-graph
             suites: >-
               tests/test_t7_notifications_wired.py
@@ -376,6 +385,8 @@ jobs:
               tests/test_t8_cluster_wired.py
               tests/test_t11_approval_wired.py
               tests/test_t10_devtools_wired.py
+              tests/test_secret_display_never.py
+              tests/test_frontend_dependency_security_floor.py
           - name: parity-vitest-b
             suites: >-
               tests/test_t2_history_wired.py
@@ -385,10 +396,10 @@ jobs:
               tests/test_v3_66_1255_frontend_build_is_isolated.py
               tests/test_t9a_live_stream_wired.py
               tests/test_t9b_push_wired.py
+              tests/test_spa_root_routing_contract.py
           - name: parity-static
             suites: >-
               tests/test_v3_66_1218_vitest_delegating_shards_have_node.py
-              tests/test_frontend_dependency_security_floor.py
               tests/test_v3_66_1217_a_fixture_is_not_wiring.py
               tests/test_v3_66_1225_spa_scanner_populations.py
               tests/test_no_raw_unicode_escape_in_jsx.py
@@ -401,8 +412,6 @@ jobs:
               tests/test_v3_66_552_playground_ssrf.py
               tests/test_v3_66_1181_capture_reconciliation.py
               tests/test_csrf_session_bootstrap.py
-              tests/test_spa_root_routing_contract.py
-              tests/test_secret_display_never.py
               tests/test_cockpit_route_contract.py
               tests/test_cockpit_navigation_contract.py
               tests/test_import_graph_no_new_edges.py
