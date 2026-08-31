@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1376 - an empty backup archive is not a good backup
+
+Row 423. verify_tarball() set ok=True unconditionally once an archive opened,
+and the only downgrade was an expected_members check the default call skips,
+so member_count 0 did not fail. smoke_restore() inherited that as "BD could
+start from this backup".
+
+- REPRODUCED with the repo venv: a header-only tar gave verify_tarball
+  ok True, size_bytes 10240, member_count 0, and smoke_restore ok True with
+  extracted_files []. A backup job that dies after writing the tar header
+  therefore passed verification, and its smoke restore attested restorability
+  over zero content.
+- The backup lane is the operator's proof that the history database and the
+  library metadata earned by authenticated capture survive host loss. A
+  verifier that cannot tell a dead backup job from a good one converts data
+  loss into a green line, read only at the restore that has nothing in it.
+- The result is now tristate: ok / failed / unknown, with ok staying False for
+  both refusing states so every existing ok-only consumer fails closed. A
+  zero-member archive is a refusal NAMING the emptiness. An unsupported type
+  or an unreadable or truncated archive returns UNKNOWN rather than OK, per
+  CLAUDE.md A7 -- nothing was measured, so nothing is asserted.
+- smoke_restore's generic exception path is deliberately failed rather than
+  unknown: the restore was attempted and did not succeed, which is a measured
+  outcome. verify_tarball's open-exception is unknown because nothing was
+  ever measured. The distinction is the point.
+
 ## v3.66.1375 - the operator hold is a barrier, and reports effects
 
 Rows 433 and 451 in one cut: 451 is the number that hid 433.
