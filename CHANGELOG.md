@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1367 - file what an adversarial defect hunt actually confirmed
+
+- THIRTY-ONE ROWS, 421 THROUGH 451, appended atomically through
+  bd-register-append. Every one was found by a five-lens read-only hunt over
+  bulk_downloader/ and then survived TWO independent skeptics instructed to
+  refuse it; three findings did not survive and are not here. The register goes
+  369 rows/12 open to 400/43 with a recomputed ids-sha256, and no historical
+  status was rewritten.
+- SIX ARE HIGH SEVERITY AND ALL SIX SIT IN THE DOWNLOAD CHAIN, which is the
+  product's whole mission. skip_if_exists equates filename equality with
+  content identity: it marks a different work done against an existing file
+  AND reassigns that file's library title to the new page's title -- the exact
+  wrong-file-right-title shape of 2026-08-29, reachable whenever a filename
+  template renders the same name twice. Concurrent downloads whose rendered
+  names collide share one .part staging path and can append one scene's bytes
+  onto another's before promoting the result to done. An unreadable secrets
+  file silently reclassifies an initialized vault as uninitialized. A hold
+  placed while a start is in flight leaves the pool downloading. Every
+  segmented transfer spawns ffmpeg with no VPN fail-closed gate. The
+  download-trigger path synchronizes on a fixed sleep.
+- THE REST ARE THE SAME FAIL-OPEN SHAPE A7 NAMES, in operator-facing surfaces:
+  a broken alert_events table silences every alert while the rule still counts
+  as tripping; a failed budget read becomes zero usage and reports state ok at
+  full throttle; an empty backup archive verifies ok and its smoke restore
+  attests BD could start from zero content; three heartbeat probes call any
+  unclassified HTTP status a live session; a health check maps its own
+  measurement failure to OK while every sibling maps it to WARN.
+- ROW 452 CARRIES THE ROW-124 WORK, unparked by operator ruling: five real
+  guided captures arrived on 2026-08-29, after that park was set, so the
+  corpus-bound condition it rested on no longer holds. Row 124 keeps its
+  terminal status and gains only a pointer -- bd-register-amend refuses a
+  status change by design, and that refusal is the anti-laundering property,
+  not an obstacle to route around.
+
 ## v3.66.1366 - mutation cleanup, the pin guard, and safe candidate replay
 
 The second width-3 batch. All three were independently revalidated against
