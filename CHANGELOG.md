@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1377 - a budget that cannot be read is not a budget of zero
+
+Row 422. current_period_usage() wrapped its SUM(file_size) query in a bare
+except and left used=0 -- the docstring even promised "on DB failure
+used_bytes=0" -- so budget_state() computed pct from an unmeasured zero and
+returned state ok, pct 0.0, throttle_factor 1.0 whenever a monthly budget was
+configured.
+
+- A LOCKED OR CORRUPT DATABASE THEREFORE CONVERTED A HARD CAP INTO UNTHROTTLED
+  DOWNLOADING, at exactly the moment usage could not be seen. Three consumers
+  rendered the untaken measurement as truth: the budget API panel showed ok
+  with zero used, the Prometheus lane exported bd_budget_pct_used 0, and the
+  queue ranked the site as under budget.
+- MEASURED with the DB-failure branch proven fired exactly once per call,
+  counted by caller frame because metrics_prom.render() leases the database
+  about seven times for unrelated sections and a naive counter mis-attributed
+  those. The fixture first proves a real 1 GiB done row sums THROUGH THE
+  PRODUCTION QUERY to used_bytes 1073741824, pct 10.0 of a 10 GB budget, so
+  the zero it later refuses is provably a failure rather than an empty table.
+- A fourth state, unknown, now carries pct None, used_gb None, throttle 0.0
+  and a diagnostic. THE REPO ALREADY REFUSED THIS ELSEWHERE and now agrees
+  with itself: daily_budget._budget_report() has always declined to equate an
+  unreadable counter with zero usage.
+- Each consumer handles it rather than rendering it: the panel surfaces
+  UNKNOWN, the Prometheus lane OMITS the sample entirely and names the gap
+  with bd_budget_usage_unknown, and the queue applies a distinct unmeasured
+  penalty rather than the cookie-precedent zero -- an unmeasured cap may
+  already be exceeded, so no penalty would be behaviourally identical to the
+  defect.
+- budget<=0 still short-circuits to unset, but reports None rather than a
+  fabricated zero.
+
 ## v3.66.1376 - an empty backup archive is not a good backup
 
 Row 423. verify_tarball() set ok=True unconditionally once an archive opened,
