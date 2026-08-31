@@ -290,6 +290,81 @@ def filter_candidates(cands: List[Dict[str, Any]], *,
     return kept, rejected
 
 
+# Page-level media evidence is deliberately three-state. Candidate strings can
+# prove presence, but strings that do not match a recognizer cannot prove
+# absence: a blob-backed <video>, an iframe/player shell, or an unrendered JS
+# application may expose no ordinary media URL at all. The only absent state we
+# currently know how to prove is the row-399 shape -- a fully rendered page at a
+# /gallery/ URL with a real photo-gallery DOM and no possible player surface.
+PAGE_MEDIA_PRESENT = "present"
+PAGE_MEDIA_CONFIRMED_ABSENT = "confirmed_absent"
+PAGE_MEDIA_UNKNOWN = "unknown"
+
+NO_VIDEO_ON_PAGE_MESSAGE = (
+    "No video on this page -- the rendered page is a confirmed photo gallery "
+    "with no video or player surface. There is no download control to fire; "
+    "this is not a broken selector.")
+
+_PHOTO_GALLERY_PATH_RE = re.compile(r"(?:^|/)gallery(?:/|$)", re.I)
+_PAGE_MEDIA_COUNT_FIELDS = (
+    "affordance_count",
+    "gallery_marker_count",
+    "photo_count",
+    "possible_media_count",
+    "media_url_count",
+    "pending_shell_count",
+)
+
+
+def classify_page_media_snapshot(snapshot: Dict[str, Any],
+                                 page_url: str = "") -> str:
+    """Classify a structured DOM snapshot as present, confirmed absent, or
+    unknown.
+
+    Absence needs positive photo-gallery evidence; it is never inferred from
+    unrecognised affordance text. Missing/malformed counts, an incomplete DOM,
+    a non-gallery URL, or a shell with no rendered photos all remain UNKNOWN.
+    Any possible media/player surface is PRESENT for this decision's purpose:
+    it prevents the no-video diagnosis even when its eventual media URL is
+    opaque or blob-backed.
+    """
+    if not isinstance(snapshot, dict):
+        return PAGE_MEDIA_UNKNOWN
+
+    counts: Dict[str, int] = {}
+    for field_name in _PAGE_MEDIA_COUNT_FIELDS:
+        value = snapshot.get(field_name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return PAGE_MEDIA_UNKNOWN
+        counts[field_name] = value
+
+    if (counts["possible_media_count"] > 0
+            or counts["media_url_count"] > 0):
+        return PAGE_MEDIA_PRESENT
+    if counts["pending_shell_count"] > 0:
+        return PAGE_MEDIA_UNKNOWN
+    if snapshot.get("ready_state") != "complete":
+        return PAGE_MEDIA_UNKNOWN
+
+    effective_url = snapshot.get("location_url") or page_url or ""
+    if not isinstance(effective_url, str):
+        return PAGE_MEDIA_UNKNOWN
+    if not effective_url.lower().startswith(("http://", "https://")):
+        effective_url = page_url if isinstance(page_url, str) else ""
+    try:
+        path = urlsplit(effective_url).path or ""
+    except Exception:
+        return PAGE_MEDIA_UNKNOWN
+    if not _PHOTO_GALLERY_PATH_RE.search(path):
+        return PAGE_MEDIA_UNKNOWN
+
+    if (counts["affordance_count"] <= 0
+            or counts["gallery_marker_count"] <= 0
+            or counts["photo_count"] <= 0):
+        return PAGE_MEDIA_UNKNOWN
+    return PAGE_MEDIA_CONFIRMED_ABSENT
+
+
 # ── AF1 confidence tier (v3.66.785) ──────────────────────────────────────────
 # A mechanical triage layer over classify(): turn the binary accept/reject verdict
 # into a three-way tier so A-DISCO (level-4 enumeration) can auto-queue only the

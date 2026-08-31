@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1361 - a photo gallery is not a failed video page
+
+- ROW 399. A rendered page carrying no recognised media URL was reported as a
+  failed video page, which names a cause the measurement cannot support. A
+  string that does not match a recognizer proves nothing about absence: a
+  blob-backed <video>, an iframe player shell, and an unrendered JS application
+  all expose no ordinary media URL while a video is plainly present.
+- PAGE MEDIA EVIDENCE IS NOW THREE-STATE. classify_page_media_snapshot()
+  returns present, confirmed_absent, or unknown.  CONFIRMED ABSENT REQUIRES
+  POSITIVE EVIDENCE and is never inferred from unrecognised affordance text:
+  document.readyState complete, a /gallery/ path, nonzero affordance, gallery
+  marker and photo counts, zero possible-media and media-url counts, and no
+  pending player shell. Any possible media or player surface is PRESENT for
+  this decision even when its eventual URL is opaque, because its presence
+  alone must prevent the no-video diagnosis. A missing, malformed, negative or
+  boolean count, an incomplete DOM, a non-gallery URL, or a shell with no
+  rendered photos all remain UNKNOWN -- CLAUDE.md A7, an unavailable
+  measurement returns UNKNOWN rather than a confident verdict.
+- The no-video message now says what was actually proved: the rendered page is
+  a confirmed photo gallery with no video or player surface, there is no
+  download control to fire, and this is not a broken selector.
+- Detection and the runner carry the classification through, so the operator
+  reads the distinction rather than one undifferentiated failure.
+- tests/test_row399_a_photo_gallery_is_not_a_failed_video_page.py is RED-first
+  against the defective parent and asserts every state is reachable, including
+  the negative controls that must stay UNKNOWN.
+
 ## v3.66.1360 - make backlog intake an atomic transaction
 
 - Canonical-register append, amend, and close operations now serialize on the
