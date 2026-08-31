@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1371 - unpark four rows and adjudicate one provenance
+
+- FOUR SUCCESSOR ROWS unpark 120, 122, 126 and 127 by operator ruling.
+  bd-register-amend REFUSES to change a row status by design, and that refusal
+  is the anti-laundering property rather than an obstacle, so each original
+  keeps its terminal status and gains only a pointer while an OPEN successor
+  carries the work. This is the same shape row 452 used for 124.
+- 453 for 120: the missing artifact is a capture in the intersection signed AND
+  JWPlayer AND CDN, and that intersection is still empty. Re-measured inside
+  nbcnews_video_akamai_jw.wacz: all five akamaized.net requests carry EMPTY
+  query strings and no cookies, hdnea and __token__ count zero, while 36
+  unrelated URLs carry scrubbed values -- proving the redactor scrubs rather
+  than deletes, so an empty query genuinely means no token existed. The 18
+  signed-style params recorded in the checkpoint are ad-tech tokens on
+  doubleverify and google hosts, none on a media host. The row may also close
+  by establishing with evidence that the intersection exists only behind
+  authentication, which A6 keeps out of repository tests.
+- 454 for 122 and 455 for 126: both mechanisms are complete and green; what is
+  missing in each is a LIVE artifact a repository test may not produce under
+  A6. The operator granted capture authority on 2026-08-31, so each row now
+  names the exact artifact that closes it.
+- 456 for 127: its own text admitted the deciding condition lived in a sentence
+  and nowhere machine-readable. The operator dropped the two-week soak in
+  favour of a green full suite after the cutover; that bar is now recorded
+  machine-readably, with the complete A5 evidence set the run must carry.
+- ROW 244: the 2026-08-26 agent dedupe is RATIFIED as authoritative provenance
+  by operator ruling. It is the only record that exists and the identities it
+  adjudicated were destroyed by the 2026-08-30 reboot, so ratifying a record
+  that cannot be rechecked is a deliberate choice -- recorded in the row rather
+  than left implicit.
+
 ## v3.66.1370 - reserve the .part staging path instead of deriving and hoping
 
 - MEASURED AT THE BYTE LEVEL against a loopback origin serving Range with no
