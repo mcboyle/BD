@@ -29,6 +29,23 @@ def _save_sites_config(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_save_sites_config")(*_a, **_k)
 
+def _vault_store_unreadable(error):
+    """503 for an unmeasurable extension vault token store.
+
+    The store exists but could not be read, so no route may report an empty
+    inventory, a completed revocation, or a freshly issued pairing token over
+    it (CLAUDE.md A7: an unavailable measurement is UNKNOWN, never OK). 503
+    rather than 500 because the condition is transient by construction --
+    nothing caches the load, so repairing the file fixes the very next
+    request without a restart.
+    """
+    return jsonify({
+        "ok": False,
+        "state": "unreadable",
+        "error": str(error)[:400],
+    }), 503
+
+
 def _app_s_cfg():
     """The live shared s_cfg from app.py (fetched fresh per call, by reference)."""
     import importlib
@@ -648,7 +665,12 @@ def api_secrets_extension_pair_issue():
     if _rej is not None:
         return _rej
     from . import extension_vault as _ev
-    token = _ev.issue_pairing_token()
+    try:
+        token = _ev.issue_pairing_token()
+    except _ev.VaultTokensUnreadableError as e:
+        # Issuing would publish a NEW store over the operator's unreadable
+        # one, silently unpairing every extension it holds.
+        return _vault_store_unreadable(e)
     return jsonify({
         "ok": True,
         "pairing_token": token,
@@ -671,7 +693,13 @@ def api_secrets_extension_pair():
     label = data.get("label", "extension")
     if not pairing:
         return jsonify({"ok": False, "error": "pairing_token required"}), 400
-    vault_token = _ev.redeem_pairing_token(pairing, extension_label=label)
+    try:
+        vault_token = _ev.redeem_pairing_token(pairing, extension_label=label)
+    except _ev.VaultTokensUnreadableError as e:
+        # Unauthenticated route. 401 "pairing token unknown or expired" would
+        # be a lie -- the store was never read -- and redemption writes, so
+        # it must not proceed over a file nothing could parse.
+        return _vault_store_unreadable(e)
     if not vault_token:
         return jsonify({"ok": False,
             "error": "pairing token unknown or expired"}), 401
@@ -685,7 +713,13 @@ def api_secrets_extension_list_paired():
     if _rej is not None:
         return _rej
     from . import extension_vault as _ev
-    return jsonify({"ok": True, "extensions": _ev.list_vault_tokens()})
+    try:
+        extensions = _ev.list_vault_tokens()
+    except _ev.VaultTokensUnreadableError as e:
+        # Inventory over an unread store is not zero. "You have 0 extensions
+        # paired" over a store that may hold several is the fail-open answer.
+        return _vault_store_unreadable(e)
+    return jsonify({"ok": True, "extensions": extensions})
 @secrets_bp.route("/api/secrets/extension/revoke", methods=["POST"])
 def api_secrets_extension_revoke():
     """Vault settings UI: revoke a paired extension by its short ID
@@ -698,7 +732,13 @@ def api_secrets_extension_revoke():
     prefix = data.get("id", "")
     if not prefix:
         return jsonify({"ok": False, "error": "id required"}), 400
-    removed = _ev.revoke_by_prefix(prefix)
+    try:
+        removed = _ev.revoke_by_prefix(prefix)
+    except _ev.VaultTokensUnreadableError as e:
+        # The most dangerous fail-open on this surface: the operator is
+        # revoking a token they believe leaked. {"ok": true, "removed":
+        # false} reads as "already gone" while the token is still live.
+        return _vault_store_unreadable(e)
     return jsonify({"ok": True, "removed": removed})
 @secrets_bp.route("/api/secrets/extension/list_for_origin", methods=["GET"])
 def api_secrets_extension_list_for_origin():
@@ -804,7 +844,14 @@ def api_secrets_extension_fetch_one():
         _ev.audit_fetch(meta, entry_id, origin, False, "bad_id")
         return jsonify({"ok": False, "error": "denied"}), 403
 
-    allowed, reason = _ev.check_and_record_fetch(vt, entry_key)
+    try:
+        allowed, reason = _ev.check_and_record_fetch(vt, entry_key)
+    except _ev.VaultTokensUnreadableError as e:
+        # Defence in depth: _require_vault_token above already 503s on this
+        # store, so reaching here means the file became unreadable mid
+        # request. Never serve a password over an unenforceable rate limit.
+        _ev.audit_fetch(meta, entry_id, origin, False, "vault_store_unreadable")
+        return _vault_store_unreadable(e)
     if not allowed:
         _ev.audit_fetch(meta, entry_id, origin, False, reason)
         return jsonify({"ok": False, "error": "denied",
