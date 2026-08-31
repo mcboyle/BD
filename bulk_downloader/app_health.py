@@ -288,8 +288,20 @@ def credential_health(sites_config: dict | None) -> dict:
 
 
 def _attach_credential_health(payload: dict, sites_config: dict | None) -> None:
+    """Row 413: vault readiness gets its OWN named field.
+
+    ``ok``/``degraded`` are a conjunction over every subsystem, so they cannot
+    answer "is the vault ready?" or "is downloading held?" separately -- an
+    operator reading a stopped host could not tell a deliberate download hold
+    from an uninitialised or locked vault, which is the confusion row 408
+    removed from the deploy path. ``download_hold.downloads_allowed`` already
+    reports the HOLD ALONE; ``vault_ready`` is the vault's own half, set on
+    BOTH branches so a ready vault says so positively rather than by the
+    absence of a degradation.
+    """
     credentials = credential_health(sites_config)
     payload["credentials"] = credentials
+    payload["vault_ready"] = credentials["ok"] is True
     if credentials["ok"]:
         return
     payload["ok"] = False
