@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1366 - mutation cleanup, the pin guard, and safe candidate replay
+
+The second width-3 batch. All three were independently revalidated against
+current main before stacking, and the stacked candidate carries one combined
+band.
+
+- HISTORICAL LABEL 404: toolchain/bin/bd-mutate's selftest cleanup raced its
+  own tracked-tree teardown and could leave ENOTEMPTY behind. The cleanup now
+  retries deterministically rather than abandoning a directory it created.
+- HISTORICAL LABEL 387: a preventive AST guard against duplicate version pins,
+  scheduled directly in CI. It earns its own two import edges, declared rather
+  than absorbed -- the cherry-pick collided in the generated import graph and
+  was resolved by REGENERATING from the batch tree, the only resolution that
+  can be right for a derived artifact.
+- ROW 407: safe candidate replay. A row candidate is replayed onto main in a
+  NEWLY CREATED linked worktree; the source worker is immutable evidence and
+  is never rewritten, and a failed replay removes only its own output after
+  proving the source fingerprint did not change. This is the direct answer to
+  the 2026-08-30 incident in which a rebase step hard-reset six worktrees and
+  discarded committed candidates because the stash it trusted was empty. It
+  also carries identity-bound watchdog collapse and adoption, and an
+  integration verdict that proves ancestry before it reports.
+
 ## v3.66.1364 - three revalidated worker candidates, one cut
 
 The first width-3 batch since the 2026-08-27 single-row ruling, run under the
