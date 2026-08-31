@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1373 - a mere read must not destroy the extension vault
+
+The sibling row 432 named and did not cover. Same rename-aside shape in
+bulk_downloader/extension_vault.py, and worse in one respect: NO OPERATOR
+ACTION WAS REQUIRED. Simply reading a damaged store destroyed it.
+
+- MEASURED on the defective base, identically for unparseable bytes and for
+  chmod 000, with the precondition asserted each time (store on disk holding
+  exactly one redeemed token that validates):
+
+      list_vault_tokens()               []      THE LIVE STORE WAS RENAMED AWAY
+      vault_tokens.json still present   False
+      validate_vault_token(real token)  False   a paired extension is unpaired
+      revoke_vault_token(real token)    False   a phantom "already gone"
+      then issue_pairing_token()                publishes a NEW store over it
+
+- A THIRD DAMAGE SHAPE was found that neither the row nor its sibling
+  anticipated: an unreadable PARENT DIRECTORY makes Path.exists() RAISE on
+  Python 3.12 -- it swallows only ENOENT, ENOTDIR, EBADF and ELOOP -- and the
+  call sat outside the try, so it escaped as an unclassified 500. It is now
+  classified unreadable like the others.
+- All eight module entry points raise VaultTokensUnreadableError, and the
+  damaged file is preserved byte-identical with st_mtime_ns unchanged and
+  zero .corrupt- siblings.
+- _require_vault_token answers 503, NEVER 401. A 401 tells a still-paired
+  extension its pairing is gone and invites it to discard a token that is
+  very probably still live. _reject_if_vault_token answers 403: its job is to
+  prove a bearer is NOT a vault token, and an unread store cannot prove it.
+- Repair works WITHOUT a restart -- nothing caches the load, unlike
+  secrets_store -- and a test pins that the diagnostic never demands one.
+- The AF4 gate required "never wiped" and was satisfied by the rename aside.
+  The rename WAS the defect. It now requires preservation in place.
+
 ## v3.66.1371 - unpark four rows and adjudicate one provenance
 
 - FOUR SUCCESSOR ROWS unpark 120, 122, 126 and 127 by operator ruling.
