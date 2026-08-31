@@ -20,7 +20,7 @@
     "total": 119,
     "version": 1,
     "count_dict": 118,
-    "test_files_scanned": 1522,
+    "test_files_scanned": 1523,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,

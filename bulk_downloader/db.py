@@ -1667,11 +1667,49 @@ def db_search_cursor(site_id=None, status=None, query=None,
 
 # ─── v3.66.221 (F1.5): pre-download exact-URL history match ───────────
 def db_find_url_in_history(url, *, exclude_site=None):
-    """F1.5: exact-URL pre-download dedup. Returns the most recent
-    successfully-downloaded ('done') history row for this exact URL, or
+    """F1.5: exact-URL pre-download dedup. Returns the most recent history
+    row for this exact URL that PRODUCED A FILE which is still on disk, or
     None. Caller uses it to skip a re-download (status skipped_duplicate)
     and link the prior row. Read-only; fail-soft to None on any error so a
     lookup failure never blocks a legitimate download.
+
+    A 'done' ROW IS NOT A DOWNLOAD. The filter used to be `url=? AND
+    status='done'`, which asked whether a row exists and then answered "this
+    URL was already successfully downloaded". db_log's own ``bytes_fetched``
+    contract above says a done row can be a NO-TRANSFER record, and two
+    producers write exactly such a row for the PAGE url:
+
+      * the GCW probe (runner_transport ``_do_probe_fetch``) samples at most
+        256 KB of the media URL, aborts, and SAVES NOTHING -- then logs done
+        with a suggested filename AND ``bytes_fetched=recv``. Its own comment
+        warns that "a consumer wanting a file was produced must also require
+        one"; this is that consumer.
+      * the no-download-dir click path (runner ``_process_one``) logs done
+        with an empty filename and ``bytes_fetched=0``.
+
+    Every later queue of that URL was then converted into skipped_duplicate,
+    permanently, so a URL that was only probed could never be downloaded --
+    the product exists to fetch the file, and a fetch of nothing was blocking
+    the real fetch. Note the probe row carries BOTH a nonempty filename and
+    bytes_fetched>0, so no predicate over those two columns can separate it
+    from a real download.
+
+    THE EVIDENCE IS ATTRIBUTION, the same evidence ``db_skip_identity`` reads:
+    db_log's done path calls ``library.library_record`` only for an ABSOLUTE
+    path, and deliberately records nothing for "a caller that ... produced no
+    file at all, like the GCW probe". So a prior download counts as prior only
+    when ``history.library_id`` resolves to a ``library`` row with a nonempty
+    ``file_path``, and that path is a file on disk NOW.
+
+    A ROW WHOSE FILE IS GONE IS NOT PROOF, deliberately: a row alone says
+    nothing about what is on disk, a needless re-download is recoverable, and
+    a permanent skip of a file the operator no longer has is not. Rows are
+    walked id DESC and the newest one whose file still exists wins -- a probe
+    recorded AFTER a genuine download is the newest row for that URL, so a
+    LIMIT 1 over the attributed set would answer None for a URL that really is
+    downloaded. Likewise, a schema too old to express attribution cannot
+    measure the evidence, and per CLAUDE.md A7 that is UNKNOWN, never
+    permission: it answers None rather than "duplicate".
 
     Distinct from db_find_filename_duplicate (fuzzy basename+size match):
     this is an exact URL string equality on the indexed `url` column and is
@@ -1681,15 +1719,37 @@ def db_find_url_in_history(url, *, exclude_site=None):
         return None
     try:
         with db_conn() as cx:
-            sql = ("SELECT id, site_id, site_name, url, filename, file_size, ts "
-                   "FROM history WHERE url=? AND status='done'")
+            history_cols = {
+                row[1] for row in cx.execute(
+                    "PRAGMA table_info(history)").fetchall()}
+            library_cols = {
+                row[1] for row in cx.execute(
+                    "PRAGMA table_info(library)").fetchall()}
+            if "library_id" not in history_cols or not {
+                "id", "file_path",
+            }.issubset(library_cols):
+                # File evidence is unmeasurable in this schema. UNKNOWN is a
+                # failing third state, not proof of a prior download.
+                return None
+            sql = ("SELECT h.id AS id, h.site_id AS site_id, "
+                   "h.site_name AS site_name, h.url AS url, "
+                   "h.filename AS filename, h.file_size AS file_size, "
+                   "h.ts AS ts, l.file_path AS _bd_file_path "
+                   "FROM history h JOIN library l ON l.id = h.library_id "
+                   "WHERE h.url=? AND h.status='done' "
+                   "AND COALESCE(l.file_path,'') <> ''")
             params = [url]
             if exclude_site:
-                sql += " AND site_id != ?"
+                sql += " AND h.site_id != ?"
                 params.append(exclude_site)
-            sql += " ORDER BY id DESC LIMIT 1"
-            row = cx.execute(sql, params).fetchone()
-            return dict(row) if row else None
+            sql += " ORDER BY h.id DESC"
+            for row in cx.execute(sql, params).fetchall():
+                hit = dict(row)
+                # Popped, not returned: callers read id/filename/ts and the
+                # returned shape is part of this function's contract.
+                if _os.path.isfile(hit.pop("_bd_file_path")):
+                    return hit
+            return None
     except Exception:
         return None
 

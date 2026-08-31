@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4135,
+  "edge_count": 4140,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3709,6 +3709,12 @@
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
     ],
+    "tests/test_row429_a_probe_is_not_a_download.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py"
+    ],
     "tests/test_row432_unreadable_vault_is_not_uninitialized.py": [
       "bulk_downloader/app_health.py",
       "bulk_downloader/app_secrets.py",
@@ -5180,6 +5186,7 @@
     ],
     "tests/test_v3_66_221_dedup_preflight.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py",
       "bulk_downloader/runner.py"
     ],
     "tests/test_v3_66_222_template_canary.py": [
