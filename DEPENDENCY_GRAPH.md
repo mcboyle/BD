@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1699**
+- internal import edges: **1701**
 - tools: 228 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 161 · config stores: 5
 
@@ -22,10 +22,10 @@ Graph version: 1
 - `bulk_downloader/app.py`: 24
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 19
+- `bulk_downloader/secrets_store.py`: 18
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/aiassist.py`: 16
 - `bulk_downloader/cloak.py`: 16
-- `bulk_downloader/secrets_store.py`: 16
 - `bulk_downloader/runner.py`: 15
 - `bulk_downloader/site_editor.py`: 15
 - `bulk_downloader/capture_artifact_redact.py`: 14
@@ -171,7 +171,7 @@ Graph version: 1
 - **status** (`app_status.py`) — routes 1, providers 0
 - **storage** (`app_storage.py`) — routes 1, providers 0
 - **storage_rebalance** (`app_storage_rebalance.py`) — routes 3, providers 1
-- **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 2
+- **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 3
 - **stream** (`app_stream.py`) — routes 3, providers 3
 - **subtitles** (`app_subtitles.py`) — routes 2, providers 2
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
@@ -191,7 +191,7 @@ Graph version: 1
 - **ui_events** (`app_ui_events.py`) — routes 2, providers 1
 - **user_templates** (`app_user_templates.py`) — routes 5, providers 1
 - **vpn** (`app_vpn.py`) — routes 4, providers 1
-- **vpn_api** (`app_vpn_api.py`) — routes 25, providers 7
+- **vpn_api** (`app_vpn_api.py`) — routes 25, providers 8
 - **wakeup** (`app_wakeup.py`) — routes 2, providers 2
 - **wayback** (`app_wayback.py`) — routes 2, providers 1
 - **weather** (`app_weather.py`) — routes 3, providers 1

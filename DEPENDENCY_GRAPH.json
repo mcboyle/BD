@@ -1789,6 +1789,7 @@
     "store_raw_editor": {
       "module": "app_store_raw_editor.py",
       "providers": [
+        "bulk_downloader/secrets_store.py",
         "bulk_downloader/vpn_config.py",
         "bulk_downloader/widgets_config.py"
       ],
@@ -2061,6 +2062,7 @@
     "vpn_api": {
       "module": "app_vpn_api.py",
       "providers": [
+        "bulk_downloader/secrets_store.py",
         "bulk_downloader/vpn.py",
         "bulk_downloader/vpn_config.py",
         "bulk_downloader/vpn_kill_switch.py",
@@ -2364,7 +2366,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1699,
+    "edge_count": 1701,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4412,6 +4414,8 @@
         "bulk_downloader/app_data_layer.py",
         "bulk_downloader/app_health.py",
         "bulk_downloader/app_secrets.py",
+        "bulk_downloader/app_store_raw_editor.py",
+        "bulk_downloader/app_vpn_api.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/dev_suite/introspection.py",
@@ -5998,6 +6002,7 @@
         "bulk_downloader/storage_rebalance.py"
       ],
       "bulk_downloader/app_store_raw_editor.py": [
+        "bulk_downloader/secrets_store.py",
         "bulk_downloader/vpn_config.py",
         "bulk_downloader/widgets_config.py"
       ],
@@ -6063,6 +6068,7 @@
         "bulk_downloader/vpn_stats.py"
       ],
       "bulk_downloader/app_vpn_api.py": [
+        "bulk_downloader/secrets_store.py",
         "bulk_downloader/vpn.py",
         "bulk_downloader/vpn_config.py",
         "bulk_downloader/vpn_kill_switch.py",

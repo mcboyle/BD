@@ -316,13 +316,25 @@ def add_tunnel_config(tunnel_dict: dict) -> dict:
 
 
 def remove_tunnel_config(tunnel_id: str) -> bool:
+    """Remove a tunnel and every secret keyed under its id.
+
+    Row 520: the purge runs BEFORE the tunnel is dropped from ``_state``, so a
+    vault that cannot be enumerated leaves the tunnel and its ``@cred:``
+    references in place instead of orphaning the entries behind a removal that
+    reported success. Raises the store's own named refusal in that case; the
+    caller and the DELETE endpoint report unpurgeable rather than removed.
+    """
+    with _lock:
+        present = any(t.get("tunnel_id") == tunnel_id for t in _state["tunnels"])
+    if not present:
+        return False
+    # Purge first: this may raise, and it must raise before any mutation.
+    _purge_secrets_for_tunnel(tunnel_id)
     with _lock:
         before = len(_state["tunnels"])
         _state["tunnels"] = [t for t in _state["tunnels"] if t.get("tunnel_id") != tunnel_id]
         removed = len(_state["tunnels"]) < before
     if removed:
-        # Also purge associated secrets
-        _purge_secrets_for_tunnel(tunnel_id)
         save()
     return removed
 
@@ -349,17 +361,25 @@ def tunnel_ids_with_secrets() -> set:
     (cred keys are stored as f"{tunnel_id}:{field}"). Used by the raw store
     editor's R1 guard: a tunnel_id change/removal for an id in this set would
     orphan secrets, so the raw editor blocks it (rename via rekey_tunnel)."""
+    from . import secrets_store
+    # Row 520 / A7 self-audit: this FAILS CLOSED, exactly like its sibling
+    # _purge_secrets_for_tunnel. A bare ``except Exception`` turned an
+    # unreadable vault into an EMPTY SET, and the R1 guard reads an empty set
+    # as "no tunnel owns secrets, nothing to protect" -- so the single
+    # condition under which orphaning is most likely also DISABLED the guard
+    # that exists to prevent it. An inventory that cannot be measured is not
+    # an empty inventory (CLAUDE.md A7); the caller must decide, not this
+    # function silently.
+    backend = secrets_store.get_backend()
+    if backend is None:
+        raise secrets_store.SecretsUnreadableError(
+            "no credential backend is available, so tunnel secret ownership "
+            "cannot be enumerated"
+        )
     out: set = set()
-    try:
-        from . import secrets_store
-        backend = secrets_store.get_backend()
-        if backend is None:
-            return out
-        for k in (backend.list_keys() or []):
-            if ":" in k:
-                out.add(k.split(":", 1)[0])
-    except Exception as e:  # noqa: BLE001
-        sys.stderr.write(f"[vpn-config] tunnel_ids_with_secrets failed: {e}\n")
+    for k in (backend.list_keys() or []):
+        if ":" in k:
+            out.add(k.split(":", 1)[0])
     return out
 
 
@@ -514,25 +534,38 @@ def credentials_resolver_for_vpn(credentials_ref: str) -> dict:
     return resolve_secrets(merged)
 
 
-def _purge_secrets_for_tunnel(tunnel_id: str) -> None:
-    """Remove all secrets_store entries for tunnel_id. Called on remove."""
-    try:
-        from . import secrets_store
-        backend = secrets_store.get_backend()
-        if backend is None:
-            return
-        try:
-            keys = backend.list_keys() or []
-        except Exception:
-            keys = []
-        for k in keys:
-            if k.startswith(f"{tunnel_id}:"):
-                try:
-                    backend.delete(k)
-                except Exception as e:
-                    sys.stderr.write(f"[vpn-config] could not delete secret {k}: {e}\n")
-    except Exception as e:
-        sys.stderr.write(f"[vpn-config] purge secrets for {tunnel_id} failed: {e}\n")
+def _purge_secrets_for_tunnel(tunnel_id: str) -> int:
+    """Remove all secrets_store entries for tunnel_id. Called on remove.
+
+    Row 520: this FAILS CLOSED. Two stacked bare ``except Exception`` handlers
+    used to turn an unmeasurable inventory into an empty one -- the inner
+    substituted ``keys = []`` for the ``SecretsUnreadableError`` a damaged
+    vault raises, so the delete loop ran 0 times, and the outer wrote one
+    stderr line, so no purge failure reached a caller by any path. The saved
+    config no longer carries the ``@cred:`` references to those entries, so a
+    silent failure orphans them with nothing left pointing at them.
+
+    The sibling :func:`rekey_tunnel` already re-raises its secrets failure;
+    this caller now matches it. CLAUDE.md A7: an inventory that cannot be
+    measured is not an empty inventory.
+
+    Returns the number of entries deleted. Raises the store's own named
+    refusal when the inventory could not be read or a delete did not land.
+    """
+    from . import secrets_store
+    backend = secrets_store.get_backend()
+    if backend is None:
+        raise secrets_store.SecretsUnreadableError(
+            f"no credential backend is available, so the secrets for "
+            f"{tunnel_id!r} cannot be enumerated or purged"
+        )
+    keys = list(backend.list_keys() or [])
+    deleted = 0
+    for k in keys:
+        if k.startswith(f"{tunnel_id}:"):
+            backend.delete(k)
+            deleted += 1
+    return deleted
 
 
 # ─── Validation / migration ─────────────────────────────────────────

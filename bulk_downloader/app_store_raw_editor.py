@@ -112,8 +112,19 @@ def _validate_shape(store: str, data) -> str | None:
 def _tunnel_id_guard(data) -> str | None:
     """R1: reject an incoming vpn payload whose tunnel set drops/renames a
     tunnel_id that still has secrets (would orphan @cred:{id}:* refs)."""
-    from bulk_downloader import vpn_config
-    with_secrets = vpn_config.tunnel_ids_with_secrets()
+    from bulk_downloader import secrets_store, vpn_config
+    try:
+        with_secrets = vpn_config.tunnel_ids_with_secrets()
+    except secrets_store.SecretsIntegrityError as e:
+        # A7: an unmeasurable inventory is not an empty one. Returning None
+        # here would let the write through in exactly the state where whether
+        # it orphans secrets is UNKNOWN -- an advisory refusal is no refusal.
+        return (
+            "tunnel_id change/removal blocked: the credential vault could not "
+            "be read, so whether any tunnel still owns stored secrets is "
+            "UNKNOWN and this write could orphan them. Repair the vault and "
+            "retry. {}".format(str(e)[:240])
+        )
     if not with_secrets:
         return None
     incoming = {t.get("tunnel_id") for t in data.get("tunnels", [])

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4199,
+  "edge_count": 4218,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -825,6 +825,7 @@
       "bulk_downloader/storage_rebalance.py"
     ],
     "bulk_downloader/app_store_raw_editor.py": [
+      "bulk_downloader/secrets_store.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/widgets_config.py"
     ],
@@ -890,6 +891,7 @@
       "bulk_downloader/vpn_stats.py"
     ],
     "bulk_downloader/app_vpn_api.py": [
+      "bulk_downloader/secrets_store.py",
       "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/vpn_kill_switch.py",
@@ -3756,13 +3758,40 @@
       "bulk_downloader/download_hold.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_row437_a_locked_vault_is_not_a_missing_password.py": [
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row438_configure_backend_is_idempotent.py": [
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row475_offline_vault_password_check.py": [
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
+    ],
     "tests/test_row482_the_vault_state_is_always_measured.py": [
       "bulk_downloader/app_secrets.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row488_secrets_usage_reports_what_it_read.py": [
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row492_a_release_proves_what_it_frees.py": [
       "bulk_downloader/cleanup_helpers.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row520_a_tunnel_removal_purges_or_refuses.py": [
+      "bulk_downloader/app_store_raw_editor.py",
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
     ],
     "tests/test_row535_a_reclaim_proves_the_bytes_it_adopts.py": [
       "bulk_downloader/staging_claim.py"

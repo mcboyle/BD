@@ -178,7 +178,25 @@ def vpn_tunnel_delete(tunnel_id):
     except Exception:
         pass
     vpn.unregister_tunnel(tunnel_id) if hasattr(vpn, "unregister_tunnel") else None
-    vpn_config.remove_tunnel_config(tunnel_id)
+    try:
+        vpn_config.remove_tunnel_config(tunnel_id)
+    except Exception as e:
+        # Row 520: the purge failed closed, so the tunnel and its @cred:
+        # references are still persisted and nothing was orphaned. Name the
+        # step that failed and carry the store's own words -- "removed" here
+        # would be a success report over an unpurged vault.
+        from . import secrets_store
+        if not isinstance(e, secrets_store.SecretsIntegrityError):
+            raise
+        return jsonify({
+            "ok": False,
+            "state": "secrets_unpurgeable",
+            "error": (
+                f"the tunnel was NOT removed: its stored secrets could not be "
+                f"enumerated or purged, so removing it would orphan them. "
+                f"{str(e)[:240]}"
+            ),
+        }), 409
     return _ok({"removed": tunnel_id})
 
 
