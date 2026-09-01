@@ -830,8 +830,10 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
             "terminal-reader-entered\n")
         assert registrar.exists() and not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
+            # Hold the exact release peer open before cancellation can tear
+            # the terminal reader down; otherwise this open can block forever.
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert not marker.exists()
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait"))
@@ -875,8 +877,8 @@ def test_cancellation_during_terminal_relay_wait_reconciles_once(tmp_path):
         assert _w1_await_fifo(entered_fd, site="cancellation_during_terminal_relay_wait_reconciles_once/fifo") == (
             "terminal-relay-wait-entered\n")
         assert registrar.exists() and not marker.exists()
-        os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert not marker.exists()
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_relay_wait_reconciles_once/wait"))

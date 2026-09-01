@@ -259,21 +259,44 @@ def test_heartbeat_closes_a_valid_decimal_descriptor_in_its_child(tmp_path):
 def test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it(tmp_path):
     victim = tmp_path / "eval-ran"
     log = tmp_path / "heartbeat.log"
+    signal_precondition = tmp_path / "signal-precondition"
+    ignored_log = tmp_path / "ignored-heartbeat.log"
     script = (
+        'if [ -z "$(trap -p HUP)" ]; then\n'
+        '  printf "DEFAULT\\n" > "$SIGNAL_PRECONDITION"\n'
+        'else\n'
+        '  printf "NONDEFAULT\\n" > "$SIGNAL_PRECONDITION"\n'
+        '  exit 97\n'
+        'fi\n'
         'source "$HEARTBEAT"\n'
         'run_with_heartbeat invalid-fd "$LOG" '
         "bash -c 'echo CHILD-RAN'\n"
     )
     result = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True,
+        ["env", "--default-signal=HUP", "bash", "-c", script],
+        capture_output=True, text=True,
         env={**os.environ, "HEARTBEAT": str(HEARTBEAT), "LOG": str(log),
+             "SIGNAL_PRECONDITION": str(signal_precondition),
              "VICTIM": str(victim),
              "BD_HEARTBEAT_CLOSE_FD": '2>&-; touch "$VICTIM"; #'},
         timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
+    assert signal_precondition.read_text() == "DEFAULT\n"
     assert "invalid BD_HEARTBEAT_CLOSE_FD" in result.stderr
     assert log.read_text() == "CHILD-RAN\n"
     assert not victim.exists()
+
+    # Negative control: the diagnostic that contaminated the assertion is a
+    # real response to inherited SIG_IGN, not output from the invalid-FD path.
+    ignored = subprocess.run(
+        ["bash", "-c", "trap '' HUP; exec bash -c 'source \"$HEARTBEAT\"; "
+         "run_with_heartbeat ignored \"$IGNORED_LOG\" true'"],
+        capture_output=True, text=True,
+        env={**os.environ, "HEARTBEAT": str(HEARTBEAT),
+             "IGNORED_LOG": str(ignored_log)}, timeout=10)
+    assert ignored.returncode == 0, ignored.stdout + ignored.stderr
+    assert "CAPTURE-HEARTBEAT-UNARMED: ignored inherited HUP as SIG_IGN" in (
+        ignored_log.read_text())
 
 
 def test_keyed_vault_ownership_refuses_without_clobbering(tmp_path):
