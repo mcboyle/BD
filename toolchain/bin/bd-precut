@@ -18,7 +18,7 @@ Usage:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
-import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile, zipfile
+import argparse, atexit, glob, json, os, pathlib, re, shutil, subprocess, sys, tempfile, zipfile
 
 # Placed AFTER the whole import block on purpose: inserting above `import sys`
 # leaves sys undefined at the insertion point and --help dies with NameError,
@@ -199,28 +199,39 @@ def check_release_trio(root, baseline=None):
                     "(%r) -- A6 requires ASCII-only"
                     % (headers[0].group(1), len(nonascii), nonascii[:4]))
 
-        pin_index = root / "PIN_INDEX.json"
-        if pin_index.is_file():
-            blob = pin_index.read_text(encoding="utf-8")
-            if ('"%s"' % version) not in blob:
-                return ("PIN_INDEX.json does not record %s -- regenerate with "
-                        "bd-regen-order AFTER the last source edit" % version)
+        if baseline is None:
+            return ("previous release baseline is absent, so the exact prior "
+                    "CHANGELOG header is UNMEASURED")
+        with zipfile.ZipFile(baseline) as archive:
+            baseline_changelog = archive.read("CHANGELOG.md").decode("utf-8")
+        old_headers = list(
+            re.finditer(r"^## (v\S+).*?$", baseline_changelog, re.M)
+        )
+        if not old_headers:
+            return "baseline CHANGELOG.md has no previous release header"
+        old_header = old_headers[0].group(0)
+        if headers[0].group(0) != old_header:
+            if len(headers) < 2 or headers[1].group(0) != old_header:
+                got = headers[1].group(0) if len(headers) > 1 else "ABSENT"
+                return ("CHANGELOG.md's new entry is not anchored on the previous "
+                        "release header %r (found %r)" % (old_header, got))
 
-        if baseline is not None:
-            with zipfile.ZipFile(baseline) as archive:
-                baseline_changelog = archive.read("CHANGELOG.md").decode("utf-8")
-            old_headers = list(
-                re.finditer(r"^## (v\S+).*?$", baseline_changelog, re.M)
-            )
-            if not old_headers:
-                return "baseline CHANGELOG.md has no previous release header"
-            old_header = old_headers[0].group(0)
-            if headers[0].group(0) != old_header:
-                if len(headers) < 2 or headers[1].group(0) != old_header:
-                    got = headers[1].group(0) if len(headers) > 1 else "ABSENT"
-                    return ("CHANGELOG.md's new entry is not anchored on the previous "
-                            "release header %r (found %r)" % (old_header, got))
-    except (OSError, UnicodeError, KeyError, zipfile.BadZipFile) as exc:
+        pin_index = root / "PIN_INDEX.json"
+        if not pin_index.is_file():
+            return "PIN_INDEX.json is absent -- the generated version pin is UNMEASURED"
+        index = json.loads(pin_index.read_text(encoding="utf-8"))
+        version_pins = [item for item in index.get("pins", [])
+                        if item.get("form") == "version"]
+        expected = [{"file": "tests/test_settings_center_slice4.py",
+                     "value": version}]
+        measured = [{"file": item.get("file"), "value": item.get("value")}
+                    for item in version_pins]
+        if measured != expected:
+            return ("PIN_INDEX.json version-pin population differs: expected %r, "
+                    "measured %r -- regenerate with bd-regen-order AFTER the last "
+                    "source edit" % (expected, measured))
+    except (OSError, UnicodeError, KeyError, TypeError, ValueError,
+            zipfile.BadZipFile) as exc:
         return "release trio unreadable: %s" % exc
     return None
 

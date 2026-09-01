@@ -59,6 +59,17 @@ def _baseline_zip(tmp_path: Path, *, version: str = "3.66.700") -> Path:
     return target
 
 
+def _write_pin_index(root: Path, version: str) -> None:
+    (root / "PIN_INDEX.json").write_text(
+        json.dumps({"pins": [{
+            "form": "version",
+            "file": "tests/test_settings_center_slice4.py",
+            "value": version,
+        }]}) + "\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.parametrize(
     ("version", "pin", "changelog", "diagnostic"),
     [
@@ -109,6 +120,26 @@ def test_precut_release_trio_refuses_each_named_contract_failure(
     assert problem is not None
     assert diagnostic in problem
     print("TRIO_REFUSAL " + problem)
+
+
+def test_precut_release_trio_refuses_unmeasured_anchor_and_generated_pin(tmp_path):
+    root = _release_tree(
+        tmp_path,
+        version="3.66.700",
+        pin="3.66.700",
+        changelog="# Changelog\n\n## v3.66.700 - prior\n\nold\n",
+    )
+    baseline = _baseline_zip(tmp_path)
+    check = _load_precut().check_release_trio
+
+    assert "baseline is absent" in check(root, None)
+    assert "PIN_INDEX.json is absent" in check(root, baseline)
+    (root / "PIN_INDEX.json").write_text(
+        json.dumps({"pins": [], "misleading_prose": "3.66.700"}), encoding="utf-8"
+    )
+    assert "version-pin population differs" in check(root, baseline)
+    _write_pin_index(root, "3.66.700")
+    assert check(root, baseline) is None
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -201,15 +232,23 @@ def test_freeze_requires_all_three_release_paths_to_match_the_base(tmp_path):
     assert clean.returncode == 0, clean.stderr
     assert json.loads(clean.stdout)["identical_trio_blobs"] == 3
 
-    (repo / "CHANGELOG.md").write_text("## v3.66.701 - early\n## v3.66.700 - prior\n")
-    early_head = _commit(repo, "early release edit")
-    dirty = subprocess.run(
-        [str(LAND_RELEASE), "freeze-check", "--repo", str(repo),
-         "--base", base, "--head", early_head],
-        capture_output=True, text=True,
-    )
-    assert dirty.returncode == 2
-    assert "freeze candidate changes release trio path: CHANGELOG.md" in dirty.stderr
+    mutants = {
+        "bulk_downloader/__init__.py": '__version__ = "3.66.701"\n',
+        "tests/test_settings_center_slice4.py": 'assert __version__ == "3.66.701"\n',
+        "CHANGELOG.md": "## v3.66.701 - early\n## v3.66.700 - prior\n",
+    }
+    for number, (rel, body) in enumerate(mutants.items(), 1):
+        _git(repo, "checkout", "-B", f"early-{number}", feature_head)
+        (repo / rel).write_text(body)
+        _git(repo, "add", "--", rel)
+        early_head = _commit(repo, "early release edit " + rel)
+        dirty = subprocess.run(
+            [str(LAND_RELEASE), "freeze-check", "--repo", str(repo),
+             "--base", base, "--head", early_head],
+            capture_output=True, text=True,
+        )
+        assert dirty.returncode == 2
+        assert "freeze candidate changes release trio path: " + rel in dirty.stderr
 
 
 def test_transfer_refuses_when_a_candidate_path_blob_changes(tmp_path):
@@ -255,6 +294,25 @@ def test_transfer_accepts_identical_candidate_blobs_and_disjoint_main_paths(tmp_
     assert evidence["overlap_paths"] == []
 
 
+def test_transfer_refuses_zero_denominators_and_changed_path_set(tmp_path):
+    repo, old_base, old_head, new_base, new_head = _transfer_fixture(tmp_path)
+
+    zero_candidate = _run_transfer((repo, old_base, old_base, new_base, new_base))
+    assert zero_candidate.returncode == 2
+    assert "candidate changed-path denominator is ZERO" in zero_candidate.stderr
+
+    zero_main = _run_transfer((repo, old_base, old_head, old_base, old_head))
+    assert zero_main.returncode == 2
+    assert "main gained-commit denominator is ZERO" in zero_main.stderr
+
+    _git(repo, "checkout", "-B", "candidate-extra", new_head)
+    (repo / "extra.txt").write_text("extra path\n")
+    extra_head = _commit(repo, "candidate path-set drift")
+    changed_set = _run_transfer((repo, old_base, old_head, new_base, extra_head))
+    assert changed_set.returncode == 2
+    assert "candidate changed-path set differs across rebase" in changed_set.stderr
+
+
 def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path):
     repo = tmp_path / "stack"
     repo.mkdir()
@@ -267,11 +325,15 @@ def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path
 
     candidate_bases = {}
     candidate_heads = {}
+    full_band_runs = {"legacy": [], "land_time": []}
     for number in range(1, 4):
         _git(repo, "checkout", "-B", f"candidate-{number}", base)
         (repo / f"candidate-{number}.txt").write_text(f"candidate {number}\n")
         candidate_bases[number] = base
         candidate_heads[number] = _commit(repo, f"candidate {number}")
+        assert _git(repo, "diff", "--name-only", base, candidate_heads[number])
+        full_band_runs["legacy"].append((number, "initial"))
+        full_band_runs["land_time"].append((number, "initial"))
 
     current_main = base
     transfer_checks = 0
@@ -285,6 +347,7 @@ def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path
             # Freeze-time trio edits change on every landing in the legacy
             # design, so each still-waiting exact-tree verdict is void.
             legacy_full_band_reverifications += 1
+            full_band_runs["legacy"].append((waiting, f"after-{landing}"))
             _git(repo, "checkout", "-B", f"candidate-{waiting}-after-{landing}", current_main)
             path = repo / f"candidate-{waiting}.txt"
             path.write_text(f"candidate {waiting}\n")
@@ -313,11 +376,15 @@ def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path
         "legacy_full_band_reverifications": legacy_full_band_reverifications,
         "land_time_full_band_reverifications": land_time_full_band_reverifications,
         "land_time_transfer_checks": transfer_checks,
+        "legacy_total_full_band_runs": len(full_band_runs["legacy"]),
+        "land_time_total_full_band_runs": len(full_band_runs["land_time"]),
     }
     print("STACK_REPLAY " + json.dumps(measurement, sort_keys=True))
     assert transfer_checks == 3
     assert measurement["legacy_full_band_reverifications"] == 3
     assert measurement["land_time_full_band_reverifications"] == 0
+    assert measurement["legacy_total_full_band_runs"] == 6
+    assert measurement["land_time_total_full_band_runs"] == 3
 
 
 def test_stamp_writes_all_three_tree_facts_above_exact_previous_header(tmp_path):
