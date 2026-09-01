@@ -29,9 +29,10 @@ evidence that did not exist. This tool therefore:
     one of those names is on the board. A count is never accepted as a proxy
     for identity, and a count is never reported without its denominator.
 
-Excess checks are allowed (other apps post checks too) -- but they must all pass.
-The rule is: every derived name present AND total >= expected AND fail == 0 AND
-pending == 0 AND skipping == 0 AND pass == total.
+Every returned row is classified before the verdict. Workflow-derived names are
+required; the exact advisory allowlist below is reported beside but outside the
+required denominator; every other name is UNKNOWN and refuses. The rule is:
+every required name present and passing, with no unclassified row.
 
 WHY BY NAME AND NOT BY COUNT (measured, 2026-08-13, against this repo's ci.yml).
 A board of twelve passing rows carrying the eleven real names of PR #369 plus one
@@ -58,8 +59,9 @@ It is a one-shot read of one instrument. It is NOT a merge authorisation.
     verdict is not a verdict.
  5. HEAD IDENTITY. It does not verify which commit the rows describe, whether
     the branch is up to date with main, or whether a force-push landed mid-query.
- 6. SKIP INTENT. `skipping` blocks here, but this cannot tell a legitimately
-    skipped optional check from a required job that never started.
+ 6. ADVISORY NAMES. Advisory classification is an exact local allowlist. A new
+    or renamed app check is UNKNOWN until this tool is updated; it never inherits
+    advisory status from a similar-looking name.
  7. NAME IS NOT BODY. Identity matching is by check NAME. A row whose name
     matches while its job body was rewritten, or a duplicate name from a re-run,
     is indistinguishable here -- and under --expected the name check is OFF
@@ -131,9 +133,13 @@ BLIND_SPOTS = (
     "a vacuous green (zero tests collected, suite dropped from every shard) reads as pass",
     "one instantaneous sample -- re-run immediately before merging",
     "does not verify which commit the rows describe, nor branch-vs-main freshness",
-    "cannot tell a legitimately skipped optional check from a required job that never started",
+    "advisory names are an exact local allowlist; a new or renamed app is UNKNOWN",
     "matches checks by NAME only; --expected turns that off and compares counts alone",
 )
+
+# This is deliberately exact, not a prefix or substring rule. A newly named
+# integration is not silently advisory merely because its name resembles one.
+ADVISORY_CHECK_NAMES = frozenset({"CodeRabbit"})
 
 EXIT_SAFE = 0
 EXIT_BLOCK = 1
@@ -528,12 +534,36 @@ def evaluate(args, out, ev):
 
     # ---- identity: is every check ci.yml posts actually ON the board? --------
     missing = []
+    required_rows = rows
+    advisory_rows = []
+    unknown_rows = []
     if exp_names is not None:
-        present = set(n for n, _ in rows)
+        expected_name_set = set(exp_names)
+        required_rows = [(n, s) for n, s in rows if n in expected_name_set]
+        advisory_rows = [(n, s) for n, s in rows
+                         if n not in expected_name_set
+                         and n in ADVISORY_CHECK_NAMES]
+        unknown_rows = [(n, s) for n, s in rows
+                        if n not in expected_name_set
+                        and n not in ADVISORY_CHECK_NAMES]
+        present = set(n for n, _ in required_rows)
         missing = [n for n in exp_names if n not in present]
         if not missing:
             out(f"identity: all {len(exp_names)} of {len(exp_names)} check names "
                 f"this ci.yml posts are present among the {total} row(s)")
+        out("classification: required=%d advisory=%d unknown=%d"
+            % (len(required_rows), len(advisory_rows), len(unknown_rows)))
+        if advisory_rows:
+            out("advisory rows (outside required denominator): "
+                + ", ".join(f"{n}={s}" for n, s in advisory_rows))
+
+    duplicate_names = sorted({name for name, _ in rows
+                              if sum(1 for got, _ in rows if got == name) > 1})
+    if duplicate_names:
+        raise Refusal(
+            "REFUSE-DUPLICATE-CHECK",
+            "check identity is not one-to-one; duplicate name(s): "
+            + ", ".join(duplicate_names))
 
     if total < expected:
         gap = expected - total
@@ -554,17 +584,31 @@ def evaluate(args, out, ev):
             f"registered cannot fail, and a check that cannot fail is not "
             f"evidence. Absent: " + ", ".join(missing))
 
-    if counts["fail"] or counts["pending"] or counts["skipping"] or counts["pass"] != total:
-        notpass = [f"{n}={s}" for n, s in rows if s != "pass"]
+    if unknown_rows:
+        raise Refusal(
+            "REFUSE-UNKNOWN-CHECK",
+            "%d returned check row(s) are neither required by ci.yml nor in "
+            "the exact advisory allowlist. Unknown is not permission: %s"
+            % (len(unknown_rows), ", ".join(f"{n}={s}" for n, s in unknown_rows)))
+
+    required_counts = {
+        tok: sum(1 for _, status in required_rows if status == tok) for tok in VOCAB}
+    required_tally = " ".join(f"{k}={v}" for k, v in required_counts.items())
+    if (required_counts["fail"] or required_counts["pending"]
+            or required_counts["skipping"]
+            or required_counts["pass"] != len(required_rows)):
+        notpass = [f"{n}={s}" for n, s in required_rows if s != "pass"]
         out("not-pass rows: " + (", ".join(notpass) if notpass else "<none>"))
         return EXIT_BLOCK, "DO-NOT-MERGE", (
-            f"pr={args.pr} expected>={expected} total={total} {tally}")
+            f"pr={args.pr} required={len(required_rows)}/{expected} "
+            f"{required_tally} advisory={len(advisory_rows)} unknown=0")
 
     token = "MERGE-SAFE" if exp_names is not None else "MERGE-SAFE-COUNT-ONLY"
     ident = (f"names={len(exp_names)}/{len(exp_names)}" if exp_names is not None
              else "names=UNCHECKED(--expected)")
     return EXIT_SAFE, token, (
-        f"pr={args.pr} expected>={expected} total={total} {tally} {ident}")
+        f"pr={args.pr} required={len(required_rows)}/{expected} "
+        f"{required_tally} advisory={len(advisory_rows)} unknown=0 {ident}")
 
 
 def emit_blind_spots(out):
@@ -748,16 +792,19 @@ def selftest():
     cases = [
         # name, statuses, names, gh rc, gh stderr, want_exit, want_token, must_contain
         ("all-pass", ["pass"] * 12, None, 0, "", EXIT_SAFE, "MERGE-SAFE",
-         "total=12 pass=12 fail=0 pending=0 skipping=0 names=12/12"),
+         "required=12/12 pass=12 fail=0 pending=0 skipping=0 advisory=0"),
         ("all-pass-gh-error", ["pass"] * 12, None, 4,
          "gh: transport closed after response\n", EXIT_REFUSE,
          "REFUSE-GH-FAILED", "exited 4 despite 12 check row(s)"),
-        ("excess-all-pass", ["pass"] * 15, None, 0, "", EXIT_SAFE, "MERGE-SAFE",
-         "total=15 pass=15"),
+        ("excess-all-pass", ["pass"] * 15, None, 0, "", EXIT_REFUSE,
+         "REFUSE-UNKNOWN-CHECK", "Unknown is not permission"),
+        ("pending-advisory", ["pass"] * 12 + ["pending"],
+         SYNTH_NAMES + ["CodeRabbit"], 8, "", EXIT_SAFE, "MERGE-SAFE",
+         "advisory=1 unknown=0"),
         ("one-pending", ["pass"] * 11 + ["pending"], None, 8, "", EXIT_BLOCK,
-         "DO-NOT-MERGE", "total=12 pass=11 fail=0 pending=1"),
+         "DO-NOT-MERGE", "required=12/12 pass=11 fail=0 pending=1"),
         ("one-fail", ["pass"] * 11 + ["fail"], None, 1, "", EXIT_BLOCK,
-         "DO-NOT-MERGE", "total=12 pass=11 fail=1 pending=0"),
+         "DO-NOT-MERGE", "required=12/12 pass=11 fail=1 pending=0"),
         ("empty-zero", [], None, 1, "no checks reported on the 'topic' branch\n",
          EXIT_REFUSE, "REFUSE-NO-CHECKS", "0 check rows against an expected 12"),
         ("short-count", ["pass"] * 5, None, 0, "", EXIT_REFUSE,
