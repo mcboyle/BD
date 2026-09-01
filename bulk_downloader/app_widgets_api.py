@@ -309,6 +309,22 @@ def _collect_library_data(site_id: str | None) -> dict:
     return out
 
 
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    These helpers are called with EITHER the live app_state registry (whole-fleet
+    widgets) or a caller-scoped {sid: runner} copy (single-site widgets).  The
+    scoped copy is private; the live one is mutated by site create/delete on
+    other threads and must be copied under the registry lock before it is walked.
+    """
+    try:
+        import importlib
+        return getattr(importlib.import_module("bulk_downloader.app_state"),
+                       "runners_generation")(mapping)
+    except Exception:
+        return list((mapping or {}).items())
+
+
 def _collect_live_health(runners: dict) -> dict:
     """Current action, liveness, retry, and 24-hour captcha signals."""
     now = time.time()
@@ -316,7 +332,7 @@ def _collect_live_health(runners: dict) -> dict:
     captcha = 0
     active_states = {"running", "downloading", "processing", "active"}
     action_tokens = ("captcha", "login", "log in", "auth", "session", "cookie")
-    for runner in runners.values():
+    for _sid, runner in _runners_generation(runners):
         try:
             status = runner.get_status(light=True)
         except Exception:
@@ -432,7 +448,11 @@ def compute_worker_counts(runners: dict) -> dict:
     total_active = 0
     total_cap = 0
     sites_running = 0
-    for r in runners.values():
+    # One generation for BOTH the walk and sites_total: reading len(runners)
+    # separately would let a create landing mid-walk report a fleet larger than
+    # the one actually counted.
+    generation = _runners_generation(runners)
+    for _sid, r in generation:
         try:
             _pending, running = _runner_live_counts(r)
             total_active += running
@@ -449,7 +469,7 @@ def compute_worker_counts(runners: dict) -> dict:
         # tests/test_u49_workers_total_honest.py.
         "workers_total": total_cap if total_cap > 0 else None,
         "sites_running": sites_running,
-        "sites_total": len(runners),
+        "sites_total": len(generation),
     }
 
 
@@ -787,7 +807,7 @@ def _collect_data(site_id: str | None) -> dict:
         # Captcha encounters — sum per-runner _captcha_stats.
         try:
             total_captcha = 0
-            for r in runners.values():
+            for _sid, r in _runners_generation(runners):
                 cs = getattr(r, "_captcha_stats", {}) or {}
                 total_captcha += int(cs.get("encountered", 0)
                                      or cs.get("submitted", 0) or 0)
