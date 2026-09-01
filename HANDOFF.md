@@ -22,7 +22,9 @@ to be closed or mis-scoped.
 
 ## 2. THE ONE THING THAT NEEDS DOING
 
-DO NOT DEPLOY v3.66.1388 OR ANYTHING AFTER IT UNTIL THE ACT-NOW ROWS ARE CLEARED.
+DO NOT DEPLOY UNTIL RANKS 4 AND 9 ARE CLEARED. The other five act-now
+findings below are FIXED and merged (v3.66.1391, 1392, 1393); they are kept
+here because each names a shape worth recognising again.
 
 An adversarial refutation of everything shipped on 2026-08-31/09-01 confirmed 46
 defects, and several of the day's own fixes REPRODUCE THE DEFECT THEY WERE
@@ -32,33 +34,40 @@ carries the ORIGINAL defects, which are known; the candidate carries their shape
 re-manufactured by their own fixes, which is not proven better.
 
 Full detail and rank order: `REFUTATION_2026-09-01.md`, and register rows
-533-579. The seven that must clear before a deploy:
+533-579. The seven act-now findings, with what is left:
 
-  RANK 1  rows 481  bulk_downloader/staging_claim.py
+    RANK 4  OPEN -- BLOCKS THE DEPLOY   row 536
+    RANK 9  OPEN -- BLOCKS THE DEPLOY   row 541
+    RANK 1  fixed v3.66.1391      RANK 5  fixed v3.66.1392
+    RANK 6  fixed v3.66.1392      RANK 7  fixed v3.66.1392
+    RANK 10 fixed v3.66.1393
+
+
+  RANK 1  rows 481  bulk_downloader/staging_claim.py   [FIXED v3.66.1391]
     Leaked .owner after a failed set-aside turns the next attempt into an unexamined adoption of foreign .part bytes
     A single transient rename failure — or a deploy restart between the owner mint and the replace, which needs no error at all — leaves a claim on disk that makes the retry resume over another scene's bytes, splice them, and promote the concatenation as `done` under the right title: the exact 2026-08-29 corruption, reproduced by row 481's own fix; the precondition (an ownerless non-empty .part) is me
 
-  RANK 4  rows 479  bulk_downloader/runner_extractors.py
+  RANK 4  rows 479  bulk_downloader/runner_extractors.py   [OPEN -- BLOCKS THE DEPLOY]
     _try_ytdlp_fallback returns a 4-tuple on 8 of 10 paths while runner_challenge unpacks 5
     The only defect here that fires in the shipped live configuration with no preconditions — the sole configured site has use_ytdlp_fallback=False and captcha_api_key='', so every captcha the auto-solver cannot clear dies at the unpack, the job is recorded as `failed: worker error: not enough values to unpack`, and the entire needs_review + screenshot + captcha_type + "Take over to solve it manually"
 
-  RANK 5  rows 482, 487, 510  bulk_downloader/secrets_store.py
+  RANK 5  rows 482, 487, 510  bulk_downloader/secrets_store.py   [FIXED v3.66.1392]
     _save() overwrites the vault path from the construction-time snapshot, destroying a restored vault
     After POST /api/backup/restore writes secrets.json (same relative path, cached backend never invalidated), the next ordinary credential save serialises the stale pre-restore dict over it — silently destroying the restored vault, its salt and every credential in it, with no error and no warning, on a host that has a real 1,824-byte vault today.
 
-  RANK 6  rows 482, 487, 510  bulk_downloader/secrets_store.py
+  RANK 6  rows 482, 487, 510  bulk_downloader/secrets_store.py   [FIXED v3.66.1392]
     The row-482 re-probe is advisory only: the first-use branch still ends in an unconditional os.replace with no exclusion against the restore writer
     Same restore-vs-vault-writer root cause as #5 and must be fixed with it — a restore landing in the ~2 ms between the presence probe and the rename destroys the operator's vault and re-initialises it under whatever password the unlock caller typed (measured 67 clobbers in 400 natural-race trials).
 
-  RANK 7  rows 502  bulk_downloader/secrets_store.py
+  RANK 7  rows 502  bulk_downloader/secrets_store.py   [FIXED v3.66.1392]
     delete() never validates the vault it mutates, so a damaged-but-readable store is silently mutated and reported 200 ok:true
     Over a vault whose KDF metadata or commitment envelope is damaged — recoverable by repairing one field — POST /api/secrets/delete destroys the ciphertext permanently while locked, never having unlocked, and answers 200 ok:true, while /api/secrets/status answers 409 over the same bytes.
 
-  RANK 9  rows 481  bulk_downloader/staging_claim.py
+  RANK 9  rows 481  bulk_downloader/staging_claim.py   [OPEN -- BLOCKS THE DEPLOY]
     A job's own partial bytes are set aside whenever its .owner is missing, destroying resume
     runner_transport.py:1435 releases the claim while a multi-GB .part survives (violating release()'s own stated precondition), so the retry renames the job's own bytes to .orphaned-* and restarts a 5 GB scene at byte 0 — and nothing ever reaps those orphans, so they accumulate unbounded and manufacture exactly the ownerless-.part population #1 needs.
 
-  RANK 10  rows 480, 500  scripts/bd_candidate_replay.py
+  RANK 10  rows 480, 500  scripts/bd_candidate_replay.py   [FIXED v3.66.1393]
     bd_candidate_replay adopts a concurrently-created empty output directory and later force-removes it
     `git worktree add` returns 0 into a pre-existing empty directory, so occupied_before_add is computed and then ignored on the success branch: the tool records a foreign inode as its own, reports REPLAYED, and on any later conflict runs `git worktree remove --force` on another worker lane's directory, taking whatever was written into it and naming nothing — the destruction row 480 was cut to prevent
 
@@ -131,20 +140,25 @@ cut/1282-bd-opv-isolates-every-store, roadmap/backlog-42-plan.
 
 ## 3. What shipped 2026-08-31 into 2026-09-01
 
-Five releases, eleven rows closed, 108 open -> 99.
+Nine releases. Twenty-three rows closed and seventy-four filed, so OPEN went
+108 -> 99 -> 173 -> 163.
 
     v3.66.1381  row 531  gate/doc denominators derived, not pinned to a literal
     v3.66.1382  row 532  a mutant anchor may not resolve only into a comment
     v3.66.1384  rows 432 482 487 502 510  the vault's state is measured, never inferred
     v3.66.1385  rows 480 500  the replay tool owns only what it made
     v3.66.1388  rows 479 481  ownership needs evidence, not a done row and not a filename
+    v3.66.1389  rows 533-606 FILED  seventy-four measured defects made machine-visible
+    v3.66.1391  rows 492 489 506 533  a staging claim proves what it frees
+    v3.66.1392  rows 537 538 539 540  a vault write proves its target
+    v3.66.1393  rows 542 557  the replay tool claims its output
 
 ## 4. The lane, and what changed in it
 
 A cut now costs roughly 20 minutes of fixed overhead. The pieces:
 
     bd-cut.sh <branch>            new worktree under ~/bd-cuts
-    bd-next-row [<backlog>] [--json]   the next FREE row id. 475 rows, ids to 532:
+    bd-next-row [<backlog>] [--json]   the next FREE row id. 549 rows, ids to 606:
                                   THE COUNT IS NOT THE NEXT ID.
     ADDING A ROW IS THESE TWO AND NOTHING ELSE, and the first takes a REQUEST FILE:
       venv/bin/python toolchain/bin/bd-register-append --repo <R> --request <req.json>
@@ -175,13 +189,15 @@ import-graph edges and an unstaged-drift check.
 
 ## 5. Rulings that are still standing
 
-`OPERATOR_DECISIONS.md`, 1-44. The ones that bite most often:
+`OPERATOR_DECISIONS.md`, 1-46. The ones that bite most often:
 
   - 44 (2026-09-01) DO NOT START BACKLOG ITEMS. Work only on efficiency,
     reliability and robustness. `TRIAGE_PLAN_2026-09-01.md` is parked, not
     dropped.
   - 42  a cut with no runtime path is merged and fast-forwarded, NOT deployed.
   - 43  the four preventions, all built.
+  - 45  the efficiency queue is STRUCK on measurement: 5 of 6 items died.
+  - 46  the three PRs, and the two tool defects that blocked them.
   - autonomy: merge and deploy on green without asking.
   - NEVER send a push notification, for any reason.
   - NEVER deploy test5.
@@ -225,19 +241,11 @@ A check that returns clean.
 
 ## 8. Work left in a known place
 
-`~/bd-cuts/cut/1389-staging-release-lifetime` -- half-built, UNCOMMITTED,
-UNPUSHED, branch at 5291de20 (= main).
+NOTHING IS HALF-BUILT. Every worktree that carried work has landed and been
+removed; `git worktree list` and `gh pr list --state open` were both clean at
+handover. The staging cut that was half-built earlier is now v3.66.1391.
 
-    DONE in that worktree:  rows 492, 489, 506
-      `staging_claim.release()` now takes an identity and proves BOTH that the
-      claim is its own AND that the `.part` is gone; `force=True` is the
-      operator sweep. A leaked `.owner` is visible to `cleanup_helpers`.
-      9/9 on tests/test_row492_a_release_proves_what_it_frees.py
-    NOT DONE:               rows 523, 507
-    Modified: bulk_downloader/staging_claim.py, bulk_downloader/cleanup_helpers.py
-    Untracked: tests/test_row492_a_release_proves_what_it_frees.py
-
-Ruling 44 says do not continue it without being asked.
+Rows 523 and 507 were carved OUT of that cut and remain OPEN.
 
 ## 8b. The 2026-09-01 audits, and how to work them
 
@@ -251,16 +259,8 @@ Ruling 44 says do not continue it without being asked.
     BATCH_PLAN_AUDIT_ROWS_2026-09-01.md   the 74 rows in 5 waves of 3 file-disjoint
                                           cuts, act-now first. START HERE.
 
-WAVE 1 IS THE DEPLOY BLOCKER. Its three cuts are file-disjoint and can verify
-concurrently: claim-ownership-is-proven-bytes (533 534 535 541 575),
-vault-writes-target-the-vault-they-validated (537 538 539 540), and
-replay-adopts-only-proven-output (542 543 557 558).
-
-PARTLY DONE ALREADY: /home/mboyle/bd-cuts/cut/1389-staging-release-lifetime is
-COMMITTED at 1ab91a37 with the release trio NOT set. It carries rows 492, 489,
-506 and 533 -- so it overlaps wave 1's first cut. Reconcile the two before
-starting that cut fresh; do not build it twice. 86 tests green across the four
-affected suites. Set the trio, preflight, verify, land.
+WAVE 1 IS DONE -- all three cuts landed as v3.66.1391, 1392 and 1393. WAVE 2 IS
+NEXT, and its first cut carries the deploy blocker.
 
 ## 8c. A fail-open in bd-land, found and fixed on its own guard
 
@@ -311,7 +311,7 @@ by blob equality per changed path against the pre-merge base.
                                 appear in it and are already closed.
     FLEET_SNAPSHOT.md           every host's checkout, service and health
     SESSION_RECORD_2026-08-31.md
-    OPERATOR_DECISIONS.md       rulings 1-44
+    OPERATOR_DECISIONS.md       rulings 1-46
     continuity/CHECKPOINT.md    generated; read the last 200 lines first
     harness/                    the 129 executables + 98 tests, byte-verified
 
@@ -323,8 +323,8 @@ harness 66/66, every number stale), `HANDOFF_2026-08-30_1800_EST.md`,
 `HANDOFF_2026-08-31_SESSION_END.md`, `RESUME_PROMPT.md`, and a second
 `CLAUDE.md`. If they disagree with this file, this file is later.
 
-`OPERATOR_DECISIONS.md` numbering: rulings 37-44 have `## N` headers; 1-36 are
-bare `N.` list items under date headings. All 44 are there.
+`OPERATOR_DECISIONS.md` numbering: rulings 37-46 have `## N` headers; 1-36 are
+bare `N.` list items under date headings. All 46 are there.
 
 TOOL LOCATIONS, three of them: `~/X` is LIVE. `~/bd-persist/harness/X` is the
 archive and `verify.sh` proves the two are byte-identical -- if they differ, the

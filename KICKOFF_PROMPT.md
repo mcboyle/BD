@@ -4,7 +4,7 @@ READ THESE FIRST, IN THIS ORDER, AND RE-MEASURE EVERY NUMBER THEY GIVE YOU:
 
     /home/mboyle/BulkDownloader/CLAUDE.md      the contract. Read it fully.
     /home/mboyle/bd-persist/HANDOFF.md         state, the lane, the traps, the holes
-    /home/mboyle/bd-persist/OPERATOR_DECISIONS.md   rulings 1-44, all standing
+    /home/mboyle/bd-persist/OPERATOR_DECISIONS.md   rulings 1-46, all standing
     /home/mboyle/bd-persist/FLEET_SNAPSHOT.md  every host, measured 2026-09-01
 
 HANDOFF.md WINS over the older entry points in that directory
@@ -16,7 +16,7 @@ stale.
 
     main       v3.66.1393 at 511913b2
     register   549 rows, 163 OPEN, 5 PARKED (PARKED is a real fourth status
-               and is NOT in the 99)
+               and is NOT counted in the 163)
     open PRs   0
     harness    98/98; bash ~/bd-persist/verify.sh says PASS, 129 executables
 
@@ -25,16 +25,29 @@ stale.
 ## STANDING RULING 44 -- the current scope
 
 DO NOT START BACKLOG ITEMS. The goal is efficiency, reliability and robustness.
-`TRIAGE_PLAN_2026-09-01.md` holds 8 batch-cuts over 60 rows and 24 named
-exclusions; it is PARKED, not dropped. Ask before working any row.
+`BATCH_PLAN_AUDIT_ROWS_2026-09-01.md` holds the 74 audit rows in 5 waves of 3
+file-disjoint cuts; wave 1 is DONE. `TRIAGE_PLAN_2026-09-01.md` holds the older
+60-row plan with 24 named exclusions and is PARKED. Ask before working any row.
 
-## The one operational thing outstanding
+## The deploy is BLOCKED. Do not lift it without reading why.
 
-The fleet is SIX releases behind on the running service and FIVE on the
-checkouts, and three CONFIRMED CRITICAL fixes are running nowhere: a reservation
-minted over foreign bytes and called a resume (481), a done row recording no
-transfer accepted as ownership (479), and a vault destroyed by any password
-after a backup restore (482).
+The fleet runs v3.66.1379 and main is v3.66.1393. That gap is deliberate.
+
+An adversarial refutation of everything shipped on 2026-08-31/09-01 confirmed 46
+defects, and several of the day's own fixes REPRODUCED THE DEFECT THEY WERE
+WRITTEN TO PREVENT. Six of the seven act-now findings are now fixed and merged
+(v3.66.1391, 1392, 1393). TWO REMAIN: refutation ranks 4 and 9, which are
+register rows 536 and 541. Rank 4 is the only defect the refutation says fires
+in the shipped live configuration with no preconditions.
+
+Until those two land, production's v3.66.1379 carries the ORIGINAL defects --
+a known state -- and the candidate carries their shapes re-manufactured. Not
+obviously better, and not proven better.
+
+Detail: bd-persist/REFUTATION_2026-09-01.md. Next work:
+bd-persist/BATCH_PLAN_AUDIT_ROWS_2026-09-01.md wave 2.
+
+WHEN THE TWO ARE CLEARED, the deploy is:
 
     ls ~/.config/bd/DEPLOY_HOLD        # if present the deploy refuses, exit 4
     BD_DEPLOY_ALL=1 bash ~/bd-fleet-deploy.sh
@@ -80,6 +93,17 @@ COUNT RELEASES IN CHANGELOG.md, NEVER SUBTRACT VERSION NUMBERS. v3.66.1383,
   - Agents write only inside their own worktree. They do not push, merge or
     deploy.
   - Never git add -A, git reset --hard, or bare force-push.
+
+## Off-host copies of this knowledge
+
+    GitHub   branch `bd-knowledge` (orphan, never merged, no CI). Clone with
+             git clone -b bd-knowledge https://github.com/mcboyle/BD.git
+    fleet    ~/bd-knowledge-20260901.tar.gz on bd2, bd3, bd4 (digest-verified)
+    Drive    folder "BulkDownloader-knowledge-2026-09-01"
+
+REFRESH THEM after any session that changes the harness or the rulings. A stale
+copy is worse than none, because it reads as a backup. The CREDENTIAL is in none
+of them, deliberately: ~/.bd-import is on test5 only.
 
 ## Start by saying what you measured
 
