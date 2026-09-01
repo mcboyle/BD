@@ -1273,24 +1273,36 @@ class TransportMixin:
             # library_record's title UPDATE -- the wrong row: the very defect
             # this branch is being corrected for.
             existing_path=Path(_owned)
-            existing_size=existing_path.stat().st_size
-            # Row 545: the pop that used to stand here is gone. This arm is now
-            # only reached when the flag is UNSET, so popping it could only ever
-            # eat a force_download stamped by another thread between the read
-            # above and this line. The success path below (~"Clear the
-            # force_download flag on success") is the one place that consumes it.
-            self._update_job(page_url,"done",
-                             f"Already have: {existing_path.name} ({fmt_bytes(existing_size)})",
-                             filename=existing_path.name,file_size=existing_size)
-            db_log(self.site_id,self.config.get("name","?"),page_url,"done",
-                   existing_path.name,existing_size,"already on disk",
-                   honeypot_score=best.get("_honeypot_score"),  # P5-2b
-                   bytes_fetched=0,  # skip_if_exists: dl.cancel(), nothing fetched
-                   file_path=str(existing_path),
-                   **history_title_kwargs(self, page_url))
-            try: dl.cancel()
-            except Exception: pass
-            return
+            try:
+                existing_size=existing_path.stat().st_size
+            except OSError as _skip_stat_exc:
+                # Row 519. The identity proof and this action are separate
+                # observations.  A path that vanished after proof is UNKNOWN,
+                # not permission to leak an unclassified worker error or to
+                # record a skip; fall through to the transfer path below.
+                self.log.warning(
+                    "skip identity invalidated before action for %s (%s: %s); "
+                    "proceeding to transfer",
+                    page_url, type(_skip_stat_exc).__name__, _skip_stat_exc)
+            else:
+                # Row 545: the pop that used to stand here is gone. This arm is
+                # now only reached when the flag is UNSET, so popping it could
+                # only ever eat a force_download stamped by another thread
+                # between the read above and this line. The success path below
+                # (~"Clear the force_download flag on success") is the one place
+                # that consumes it.
+                self._update_job(page_url,"done",
+                                 f"Already have: {existing_path.name} ({fmt_bytes(existing_size)})",
+                                 filename=existing_path.name,file_size=existing_size)
+                db_log(self.site_id,self.config.get("name","?"),page_url,"done",
+                       existing_path.name,existing_size,"already on disk",
+                       honeypot_score=best.get("_honeypot_score"),  # P5-2b
+                       bytes_fetched=0,  # skip_if_exists: dl.cancel(), nothing fetched
+                       file_path=str(existing_path),
+                       **history_title_kwargs(self, page_url))
+                try: dl.cancel()
+                except Exception: pass
+                return
 
         # Resolve filename collisions (different content, same name) by suffix.
         #
