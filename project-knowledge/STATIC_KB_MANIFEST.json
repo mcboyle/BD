@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-01T22:10:22+00:00",
- "version_context": "v3.66.1426",
- "file_count": 91,
+ "generated": "2026-09-01T23:52:31+00:00",
+ "version_context": "v3.66.1427",
+ "file_count": 93,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -231,6 +231,14 @@
   "README_KB.md": {
    "sha256": "a3433738fbe027390505e6a9a424dc584f4b09e5ec8bbf1446ab1705798e90bc",
    "bytes": 1292
+  },
+  "REGISTER_INTAKE.json": {
+   "sha256": "43df6bd940ca6be9143bc0f71846ad867046e978f8c4fc94558301a71e625d6a",
+   "bytes": 337
+  },
+  "REGISTER_SHIPMENTS.json": {
+   "sha256": "834ccb7f2272f90d3ecda9b9e27fe2fbb796209b44a3235e03abab2efd0a6d70",
+   "bytes": 1244
   },
   "RELEASE_DISCIPLINE_TIERS.md": {
    "sha256": "0b9f3b9907ab09dadaa0e2411f2d14d37e81ffa3264d9cbf93679ce6e2b8e2f5",
