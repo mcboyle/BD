@@ -63,6 +63,26 @@ def _client(unlock_master: bool = False):
     from bulk_downloader import secrets_store as ss
 
     orig_cwd = os.getcwd()
+    # ``app.SITES_FILE`` is process-global and is REPLACED, not merely read,
+    # by the first boot in the process: ``_publish_sites_file_for_runtime``
+    # swaps the relative ``Path("sites_config.json")`` for its absolute
+    # resolution against the CURRENT cwd.  Booting inside the
+    # ``TemporaryDirectory`` below therefore pins the module at a path whose
+    # directory this context manager is about to DELETE, and every later test
+    # file in the same process inherits that dead pin.  Measured 2026-09-01:
+    # running this file before tests/test_v3_66_326_password_vault_routing.py
+    # failed six of its tests with FileNotFoundError on sites_config.json,
+    # while either file alone passed.
+    #
+    # Restore both halves in the ``finally`` below -- deterministically, not
+    # best-effort.  ``_SITES_FILE_LAST_AUTO_OBJECT`` is the identity latch that
+    # distinguishes a value this resolver published from one a test set with
+    # ``setattr``; restoring SITES_FILE without it would leave the module
+    # believing an auto-owned path was an explicit patch (or the reverse), so
+    # the two are saved and restored together, by identity, to exactly the
+    # objects that were live on entry.
+    orig_sites_file = A.SITES_FILE
+    orig_sites_file_latch = A._SITES_FILE_LAST_AUTO_OBJECT
     with tempfile.TemporaryDirectory() as td:
         os.chdir(td)
         # site-creation mkdir's screenshots/<sid>; the parent must exist.
@@ -89,6 +109,12 @@ def _client(unlock_master: bool = False):
                 ss._backend_pref = None
             except Exception:
                 pass
+            # Unpin before the TemporaryDirectory is removed. Plain assignment
+            # -- there is nothing to "try" here, and a swallowed failure would
+            # be exactly the best-effort cleanup this restore exists to
+            # replace.
+            A.SITES_FILE = orig_sites_file
+            A._SITES_FILE_LAST_AUTO_OBJECT = orig_sites_file_latch
             os.chdir(orig_cwd)
 
 
