@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1393 - the replay tool claims its output instead of probing for it
+
+Rows 542 and 557, ranks 10 and 25 of the 2026-09-01 refutation.
+
+- 542. `git worktree add` returns 0 into a PRE-EXISTING EMPTY DIRECTORY -- it
+  populates it and reports success -- and occupied_before_add was read only on
+  the FAILURE branch. So a foreign creator that made the directory in the window
+  had its inode recorded as this transaction's own output, the run reported
+  REPLAYED, and on any later conflict it ran `git worktree remove --force` on
+  another worker lane's directory, taking whatever had been written into it and
+  naming nothing. That is exactly the destruction row 480 was cut to prevent,
+  surviving at the sibling branch because the guard was only ever read on one of
+  the two.
+
+- A PROBE CANNOT CLOSE THAT WINDOW AND AN EXCLUSIVE CREATE CAN, which is what
+  the fix turned out to be. The re-probe added at v3.66.1385 is one stat before
+  the add, and a creator that wins INSIDE the add is invisible to it -- measured
+  with a wrapper that makes the directory and lets real git add into it. Since
+  git accepts an existing empty directory, the two cases are indistinguishable
+  afterwards. So the tool stops asking and starts claiming: os.mkdir is atomic
+  and fails with FileExistsError if anyone else got there first, so a directory
+  this transaction created is the only one it can ever be handed. That is the
+  same doctrine as the O_EXCL claim file, applied to the output itself.
+
+- 557. The foreign refusal kept the claim it had just declined, while the
+  sibling pre-add refusal releases it -- so a transient collision left a CLAIMED
+  tombstone that outlived the foreign worker's own cleanup, and every later
+  replay to that path refused OUTPUT_CLAIMED, indistinguishable from a live
+  competing transaction. Both refusals release now.
+
+- 29 tests green. The RED is a real race: a distinct process creates the output
+  on the first git invocation, which is the only window left once the output is
+  claimed rather than probed. Every pre-existing control holds, including the
+  one where git itself created a partial output and the run then failed, which
+  must still be reaped.
+
 ## v3.66.1392 - a vault write proves it is writing over the vault it read
 
 Rows 537, 538, 539 and 540 -- ranks 5, 6, 7 and 8 of the 2026-09-01 refutation,
