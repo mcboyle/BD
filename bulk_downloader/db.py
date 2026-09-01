@@ -1764,6 +1764,19 @@ _TRANSFER_PROOF_WITH_MODE = (
     "OR (h.bytes_fetched = 0 AND h.transfer_mode IS NOT NULL))")
 _TRANSFER_PROOF_NO_MODE = (
     "(h.bytes_fetched IS NOT NULL AND h.bytes_fetched > 0)")
+# A PREDICATE MUST NOT NAME THE COLUMN WHOSE ABSENCE SELECTED IT. ``bytes_fetched``
+# arrives with migration 8, and every other predicate here reads it -- so the arm
+# for a table that LACKS it cannot be written in terms of it. Returning
+# _TRANSFER_PROOF_NO_MODE there produced `no such column: h.bytes_fetched`, which
+# db_skip_identity's bare handler turned into "unknown" for EVERY url (the exact
+# failure the degradation exists to prevent) and which db_prune did not catch at
+# all, so POST /api/history/prune returned 500. The honest predicate is FALSE:
+# with no measured byte count in the schema, nothing in the record can prove a
+# transfer, and UNKNOWN is never permission (CLAUDE.md A2). db_skip_identity then
+# reports "unproven" for a current owner whose file is on disk, so the operator
+# LEARNS that the attribution records no transfer instead of silently
+# re-downloading.
+_TRANSFER_PROOF_UNMEASURABLE = "(0)"
 
 
 def _transfer_proof_sql(cx):
@@ -1775,13 +1788,25 @@ def _transfer_proof_sql(cx):
     silently converting a pre-v9 host's whole history into re-downloads. The
     degraded predicate is exactly the shipped row 544 rule, so an unmigrated
     host keeps its current behaviour rather than losing it.
+
+    ``bytes_fetched`` (migration 8) is the older column and is checked FIRST,
+    because the row 544 rule is itself written in terms of it and cannot degrade
+    to something that names it. See _TRANSFER_PROOF_UNMEASURABLE above.
+
+    A connection that cannot answer PRAGMA at all still degrades to the shipped
+    row 544 rule rather than to UNMEASURABLE. That is deliberate and unchanged:
+    the schema is not known to be missing anything, and turning a transient
+    probe failure into "nothing is ever proven" would revisit row 544 on every
+    host rather than on the un-migrated one this arm is about.
     """
     try:
         cols = {row[1] for row in
                 cx.execute("PRAGMA table_info(history)").fetchall()}
     except sqlite3.Error:
         return _TRANSFER_PROOF_NO_MODE
-    if "transfer_mode" not in cols or "bytes_fetched" not in cols:
+    if "bytes_fetched" not in cols:
+        return _TRANSFER_PROOF_UNMEASURABLE
+    if "transfer_mode" not in cols:
         return _TRANSFER_PROOF_NO_MODE
     return _TRANSFER_PROOF_WITH_MODE
 
@@ -2088,35 +2113,94 @@ def db_prune(days):
                 "FROM history WHERE ts < ? "
                 "AND id NOT IN (SELECT id FROM _bd_prune_keep)",
                 (cutoff,)).fetchall()
+            # THE LINKS THIS DELETE IS ABOUT TO BREAK, named BEFORE it breaks
+            # them, because afterwards the deleted row's url is gone and there
+            # is nothing left to identify the owner by.
+            #
+            # THE SAME LITERAL WHERE CLAUSE as the DELETE below and the SELECT
+            # above, for the same reason the temp table exists: three statements
+            # that must agree about one row set. Keyed by LIBRARY row, so the
+            # snapshot is bounded by the number of files whose current owner is
+            # doomed -- typically zero -- and not by the number of history rows
+            # a long prune removes.
+            #
+            # Its own handler, and one that CANNOT SKIP THE DELETE: a caller
+            # that created only the history table (db_init without the library
+            # schema) has no library to snapshot, and the prune must still
+            # prune. An empty snapshot then means "no links to repair", which is
+            # true of exactly that shape.
+            try:
+                broken = [(r["lid"], r["url"]) for r in cx.execute(
+                    "SELECT l.id AS lid, h.url AS url "
+                    "FROM library l JOIN history h ON h.id = l.history_id "
+                    "WHERE h.ts < ? "
+                    "AND h.id NOT IN (SELECT id FROM _bd_prune_keep)",
+                    (cutoff,)).fetchall()]
+            except sqlite3.OperationalError:
+                broken = []
             db_fts_forget(cx, doomed)
             removed = cx.execute(
                 "DELETE FROM history WHERE ts < ? "
                 "AND id NOT IN (SELECT id FROM _bd_prune_keep)",
                 (cutoff,)).rowcount
-            # REPAIR THE LINK THIS DELETE JUST BROKE. library.history_id names
-            # the history row whose url most recently wrote that path, and
-            # db_skip_identity refuses to read a library row whose owner is gone
-            # -- correctly, because an unclaimed row would let an older url skip
-            # over a newer one's bytes. Retaining the evidence row is therefore
-            # not enough on its own: the retained row must also be the one the
-            # library names. Repointing to the newest SURVIVING completion at
-            # that path is the same rule library_record applies on every write.
-            # A library row with no survivor keeps its dangling id and stays
-            # unreadable, which is the safe direction.
+            # REPAIR THE LINKS THIS DELETE JUST BROKE -- THOSE, AND ONLY THOSE,
+            # AND ONLY BACK TO THE URL THAT HELD THEM.
+            #
+            # library.history_id names the history row whose url most recently
+            # wrote that path, and db_skip_identity refuses to read a library row
+            # whose owner is gone -- correctly, because an unclaimed row would
+            # let an older url skip over a newer one's bytes. Retaining the
+            # evidence row is therefore not enough on its own: the retained row
+            # must also be the one the library names.
+            #
+            # THE FIRST VERSION OF THIS REPAIR WAS UNSCOPED, and the scope is the
+            # whole safety property. Gated only on "the current owner is gone and
+            # SOMETHING carries this library id", it
+            #
+            #   * repaired links this prune never broke. batch_ops.bulk_delete
+            #     (POST /api/batch/delete) also deletes history rows, and
+            #     db_skip_identity's answer for that dangle is a deliberate
+            #     "unknown" -- so whether an out-of-band delete was honoured came
+            #     to depend on whether a scheduled prune had run since; and
+            #   * repointed ACROSS URLS. MAX(h.id) took the newest surviving row
+            #     at that path whoever wrote it, so a prune that deleted ZERO
+            #     rows could hand url B's file to url A. A then skipped over B's
+            #     bytes, reported "Already have", wrote a done row, and
+            #     library_record's `title = CASE WHEN ?<>'' THEN ? ELSE title END`
+            #     retitled B's library row to A's title. Wrong file, right title
+            #     -- CLAUDE.md A7's 2026-08-29 shape, through the prune door.
+            #
+            # So: one UPDATE per library row in `broken`, addressed by that row's
+            # id, choosing the newest surviving 'done' row OF THAT ROW'S OWN
+            # URL. That is the rule library_record actually applies, which only
+            # ever writes from db_log's `status == "done"` arm on behalf of one
+            # url. Requiring 'done' also keeps the installed owner readable:
+            # db_skip_identity's prong-1 JOIN requires it.
+            #
+            # A LIBRARY ROW WHOSE URL HAS NO SURVIVING COMPLETION KEEPS ITS
+            # DANGLING ID. The EXISTS guard is what prevents the correlated
+            # subquery writing NULL there. Dangling is a legitimate terminal
+            # state, not a hole to fill: db_skip_identity answers "unknown" for
+            # it, the job re-downloads to a safe_dest name, and the next write
+            # re-links it. Repointing to SOMETHING is what the defect above cost.
             try:
-                cx.execute(
-                    "UPDATE library SET history_id = ("
-                    "  SELECT MAX(h.id) FROM history h "
-                    "  WHERE h.library_id = library.id) "
-                    "WHERE history_id IS NOT NULL "
-                    "AND NOT EXISTS (SELECT 1 FROM history c "
-                    "                WHERE c.id = library.history_id) "
-                    "AND EXISTS (SELECT 1 FROM history s "
-                    "            WHERE s.library_id = library.id)")
+                for _lid, _url in broken:
+                    if not _url:
+                        continue
+                    cx.execute(
+                        "UPDATE library SET history_id = ("
+                        "  SELECT MAX(h.id) FROM history h "
+                        "  WHERE h.library_id = library.id "
+                        "    AND h.url = ? AND h.status = 'done') "
+                        "WHERE id = ? "
+                        "AND EXISTS (SELECT 1 FROM history s "
+                        "            WHERE s.library_id = library.id "
+                        "              AND s.url = ? AND s.status = 'done')",
+                        (_url, _lid, _url))
             except sqlite3.OperationalError:
                 # A caller that created only the history table (db_init without
-                # the library schema) has nothing to repair. Any other failure
-                # still propagates.
+                # the library schema) has nothing to repair -- and `broken` is
+                # already empty there. Any other failure still propagates.
                 pass
             return removed
         finally:
