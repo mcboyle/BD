@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1420 - a write over an unreadable store refuses instead of erasing it
+
+Rows 435 and 436. Two writers reported a durable record they had not persisted.
+
+- 435. `set_config` swallowed a read or parse failure as an empty dict, so a
+  hold written over a CORRUPTED store erased every key it could not read and
+  returned True. Measured: a valid store with four known keys, corrupted, then
+  written -- the file was left containing only the hold record, four keys gone,
+  no backup and no aside sibling. It now REFUSES: nothing is written, no temp
+  file is created, the store is byte-identical afterwards, and the diagnostic
+  names which boundary failed. The endpoints already surface False as a 500
+  carrying UNKNOWN, so no endpoint changed.
+- 436. A password was served whether or not its throttle record persisted.
+  Measured: with the store directory unwritable, 31 of 31 fetches of ONE entry
+  were allowed inside a 5s cooldown against a 30/minute cap -- both limits dead,
+  and nothing recorded on disk. The allow is now gated on the record persisting,
+  with a reason distinct from cooldown, window and invalid-token.
+
+Both claim only what they implement: `flush()` defends against process death,
+which is the failure defended against here. Neither claims durability across
+machine death, and no fsync is asserted anywhere.
+
 ## v3.66.1418 - no candidate is dropped by a predicate that measured the wrong thing
 
 Rows 484, 486, 499, 508 and 524. Five ways the download-candidate admission

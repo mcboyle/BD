@@ -53,6 +53,13 @@ PER_ENTRY_COOLDOWN_SECONDS = 5.0
 PER_TOKEN_RATE_LIMIT = 30
 PER_TOKEN_WINDOW_SECONDS = 60.0
 
+# Row 436: the deny reason for a fetch whose throttle record could not be
+# persisted. DISTINCT from the cooldown, window and invalid-token reasons on
+# purpose -- those three mean the limiter WORKED, this one means the limiter
+# could not record anything, and the two diagnoses lead to opposite actions
+# (wait, versus repair the host).
+THROTTLE_UNPERSISTED_REASON = "throttle record not persisted"
+
 # Pairing tokens (pre-redemption) expire faster — they're meant to be
 # scanned within seconds, not days
 PAIRING_TOKEN_EXPIRY_SECONDS = 600
@@ -524,12 +531,31 @@ def check_and_record_fetch(vault_token: str, entry_key: str) -> tuple[bool, str]
         if len(recent) >= PER_TOKEN_RATE_LIMIT:
             return False, f"too many fetches ({PER_TOKEN_RATE_LIMIT}/min limit)"
 
-        # Allow + record
+        # Allow + record -- IN THAT ORDER, and only if the record LANDED.
+        #
+        # Row 436: this discarded _save_tokens' bool, though it returns False
+        # on a failed write per AF3 and every revocation caller honours it.
+        # Rate-limit state lives ONLY in this file and every call re-reads it
+        # from disk, so while the store is unwritable each recorded fetch
+        # evaporated and the next call saw pristine cooldowns and an empty
+        # window: the 5s per-entry cooldown and the 30/60s token cap -- the
+        # only brake on a leaked vault token -- died exactly when the host
+        # degraded, while the fetch itself is an IRREVERSIBLE plaintext
+        # password disclosure. CLAUDE.md A7: an action with an irreversible
+        # side effect proves its evidence record is writable BEFORE acting.
+        #
+        # The mutations below are on the dict _load_tokens just built from
+        # disk, so a refused save discards them with it; nothing in this
+        # process carries a phantom slot forward.
         recent.append(now)
         meta["recent_fetches"] = recent
         cooldowns[entry_key] = now
         meta["last_used_at"] = now
-        _save_tokens(data)
+        if not _save_tokens(data):
+            # An unrecordable throttle is an unavailable measurement, and
+            # unavailable never means allow. _save_tokens has already written
+            # its own errno line to stderr, so the operator has the cause.
+            return False, THROTTLE_UNPERSISTED_REASON
         return True, ""
 
 
