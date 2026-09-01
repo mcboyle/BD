@@ -70,6 +70,7 @@ def _main_touched_paths(repo, commits):
             repo,
             "diff-tree",
             "--root",
+            "-m",
             "--first-parent",
             "--no-commit-id",
             "--name-only",

@@ -313,6 +313,43 @@ def test_transfer_refuses_zero_denominators_and_changed_path_set(tmp_path):
     assert "candidate changed-path set differs across rebase" in changed_set.stderr
 
 
+def test_transfer_counts_merge_resolution_paths_in_main_population(tmp_path):
+    repo = tmp_path / "merge-resolution"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Cut Test")
+    _git(repo, "config", "user.email", "cut@example.invalid")
+    (repo / "candidate.txt").write_text("base\n")
+    (repo / "stable.txt").write_text("stable\n")
+    old_base = _commit(repo, "base")
+
+    _git(repo, "checkout", "-b", "candidate-old")
+    (repo / "candidate.txt").write_text("candidate\n")
+    old_head = _commit(repo, "candidate old")
+
+    _git(repo, "checkout", "-b", "side", old_base)
+    (repo / "side.txt").write_text("side\n")
+    side = _commit(repo, "side")
+    _git(repo, "checkout", "-B", "main", old_base)
+    (repo / "main.txt").write_text("main\n")
+    _commit(repo, "main")
+    _git(repo, "merge", "--no-ff", "--no-commit", side)
+    # This path is changed only by the merge resolution, not either gained
+    # non-merge commit. A main-path census that omits merge diffs misses it.
+    (repo / "candidate.txt").write_text("merge resolution only\n")
+    _git(repo, "add", "--", "candidate.txt")
+    _git(repo, "commit", "-m", "merge with resolution")
+    new_base = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "checkout", "-b", "candidate-new")
+    (repo / "candidate.txt").write_text("candidate\n")
+    new_head = _commit(repo, "candidate rebased")
+    result = _run_transfer((repo, old_base, old_head, new_base, new_head))
+
+    assert result.returncode == 2
+    assert "main gained commit(s) overlap candidate path(s): candidate.txt" in result.stderr
+
+
 def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path):
     repo = tmp_path / "stack"
     repo.mkdir()
