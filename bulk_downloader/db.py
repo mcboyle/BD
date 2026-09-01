@@ -1736,15 +1736,15 @@ def db_find_filename_duplicate(filename, file_size=None, exclude_site=None):
 def db_skip_identity(page_url, final_path):
     """Is the file already on disk PROVABLY the same work as ``page_url``?
 
-    Four states, not three (row 479):
+    Four states, not three (rows 479, 547, 560 and 563):
 
-        "same"      a done row for this url records a REAL transfer and its
-                    file is on disk now
+        "same"      the library's CURRENT done row is for this url, records a
+                    non-NULL/nonnegative byte count, and its file is on disk
         "different" the file on disk is attributed to another url
-        "unproven"  a done row points at a file that exists, but its
-                    ``bytes_fetched`` is 0 (nothing transferred) or NULL (a
-                    pre-v8 row, unmeasurable). The caller must surface this;
-                    it is not ownership.
+        "unproven"  a done row points at a file that exists, but its current
+                    counter is unmeasurable, or its only historical claims
+                    recorded no transfer and never became the current owner.
+                    The caller must surface this; it is not ownership.
         "unknown"   nothing is known either way
 
 
@@ -1762,7 +1762,7 @@ def db_skip_identity(page_url, final_path):
     RETITLED scene A's library row to scene B. Wrong file, right title: the
     shape of the 2026-08-29 incident, recorded twice over.
 
-    Existence is therefore not identity, and this returns three states rather
+    Existence is therefore not identity, and this returns four states rather
     than a boolean, per CLAUDE.md A7 -- an unmeasurable identity is UNKNOWN,
     and UNKNOWN is never permission:
 
@@ -1785,9 +1785,21 @@ def db_skip_identity(page_url, final_path):
     alone and lands at ``name_1``; run 2 renders ``name`` again, but the url now
     owns ``name_1``, so it answers "same" and skips.
 
-    Attribution is read through ``history.library_id``/``library.history_id``,
-    which db_log and library_record backfill on both the insert and the update
-    path. ``history.filename`` cannot answer it: that column holds a basename
+    Attribution is read through BOTH directions of
+    ``history.library_id``/``library.history_id``.  The first is historical:
+    every completion at a reused UNIQUE file_path points at the same library
+    row.  The second is current: it names the history row whose URL most
+    recently wrote that library path.  Trusting only the historical direction
+    lets an older URL return "same" after another URL replaced its bytes.
+
+    ``bytes_fetched`` is a measurement, not identity, and zero is a measured
+    result rather than UNKNOWN.  In particular, the HTTP 416 resume-complete
+    arm promotes a complete partial and records zero because its final call
+    moved no bytes.  A current URL/path identity plus a recorded zero remains
+    ownership; zero by itself does not.  This also keeps a healthy repeated
+    skip usable after pruning removes its older positive-transfer row.
+
+    ``history.filename`` cannot answer identity: that column holds a basename
     with template subdirectories already stripped, never a path.
     """
     final_path = str(final_path or "")
@@ -1796,27 +1808,16 @@ def db_skip_identity(page_url, final_path):
     import os as _os
     try:
         with db_conn() as cx:
-            # Row 479. This query used to ask for a done status and a library
-            # link and NOTHING about a transfer -- and the skip arm WRITES such
-            # a row itself (runner_transport.py, db_log(..., bytes_fetched=0,
-            # 'already on disk')), with library_record backfilling its
-            # library_id, so every skip manufactured the proof the next run
-            # read. That is A7's shape: deriving the expected set from the
-            # artifact under test. bytes_fetched is fetched here because
-            # db_log's own contract names it as the ONLY column that can answer
-            # whether BD moved bytes.
+            # The current half of the bidirectional link is the identity.
+            # history.library_id alone is historical and survives a UNIQUE
+            # library row being reused in place for another URL (row 547).
             owned = cx.execute(
-                "SELECT l.file_path AS fp, h.bytes_fetched AS bf FROM history h "
-                "JOIN library l ON l.id = h.library_id "
+                "SELECT l.file_path AS fp, h.bytes_fetched AS bf FROM library l "
+                "JOIN history h ON h.id = l.history_id "
                 "WHERE h.url = ? AND h.status = 'done' "
                 "AND COALESCE(l.file_path,'') <> '' "
                 "ORDER BY h.id DESC",
                 (page_url,)).fetchall()
-            # SCAN for transfer evidence rather than trusting the newest row.
-            # The healthy steady state is one real transfer followed by any
-            # number of bytes_fetched=0 skips, so a fix that inspected only the
-            # newest owned row would turn every legitimate skip into a
-            # re-download.
             unproven = None
             for row in owned:
                 # A recorded path whose file has since been deleted proves
@@ -1825,21 +1826,36 @@ def db_skip_identity(page_url, final_path):
                 if not _os.path.isfile(row["fp"]):
                     continue
                 bf = row["bf"]
-                if bf is not None and bf > 0:
+                # Zero is a measured count.  The 416 resume-complete arm and a
+                # healthy repeated skip both legitimately record it; the
+                # CURRENT url/path identity above is what makes it trustworthy.
+                if bf is not None and bf >= 0:
                     return ("same", row["fp"])
-                # bf == 0: BD is certain nothing was transferred for this row.
-                # bf is None: a pre-v8 row, where the column did not exist --
-                # UNKNOWN, and db_log's contract says never proof of a
-                # download. Both are recorded, neither is ownership.
+                # NULL is a pre-v8 row (unmeasurable); a malformed negative
+                # count is likewise not permission.
                 if unproven is None:
                     unproven = row["fp"]
             if unproven is not None:
-                # A file IS there and a done row DOES point at it, but nothing
-                # in the record says BD ever fetched it. Naming this state
-                # separately is the point: "unknown" would send the job down
-                # the transfer path silently, and the operator would never learn
-                # that an existing attribution was unproven.
                 return ("unproven", unproven)
+
+            # Preserve row 479's operator-visible verdict for an upgraded DB
+            # carrying only a stale no-transfer claim.  A stale POSITIVE row is
+            # deliberately excluded: once library.history_id names another URL,
+            # its former bytes are no longer the bytes at this path (row 547).
+            historical = cx.execute(
+                "SELECT l.file_path AS fp, h.bytes_fetched AS bf FROM history h "
+                "JOIN library l ON l.id = h.library_id "
+                "WHERE h.url = ? AND h.status = 'done' "
+                "AND COALESCE(l.file_path,'') <> '' "
+                "ORDER BY h.id DESC",
+                (page_url,)).fetchall()
+            existing_historical = [
+                row for row in historical if _os.path.isfile(row["fp"])
+            ]
+            if (existing_historical
+                    and not any(row["bf"] is not None and row["bf"] > 0
+                                for row in existing_historical)):
+                return ("unproven", existing_historical[0]["fp"])
             attributed = cx.execute(
                 "SELECT h.url AS url FROM library l "
                 "LEFT JOIN history h ON h.id = l.history_id "
