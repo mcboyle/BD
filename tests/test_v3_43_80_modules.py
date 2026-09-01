@@ -12,6 +12,7 @@ that doesn't exist" and similar integration bugs that pure ast.parse
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -112,8 +113,209 @@ def _seed_history(*, dones=10, fails=2, sites=("vixen", "blacked")):
 
 # ─── Per-module imports + basic-surface tests ─────────────────────────
 
+# Every exception text below is a VERBATIM string measured from a real host,
+# not an invention. `Bad display name ""` and `Can't connect to display ":0"`
+# were read on 2026-09-01 from 10.0.70.54 (hostname `test`, the box whose gw10
+# worker produced the row-611 failure), pystray 0.19.5, DISPLAY unset and
+# DISPLAY=:0 respectively. tools/verify_release.py:_HARNESS_SIGNATURES already
+# carries the same two literals.
+_MEASURED_HEADLESS_ERRORS = (
+    'Bad display name ""',
+    'Can\'t connect to display ":0"',
+)
+
+
+def _import_tray_app_with_a_broken_pystray(tmp_root, error_line):
+    """Import bulk_downloader.tray_app in a SUBPROCESS whose `pystray` is a
+    stub that raises a NON-ImportError at import time.
+
+    Runs out of process on purpose: `pystray` may be genuinely installed (or
+    genuinely absent) in the ambient venv, and either way this test must
+    measure tray_app's GUARD rather than the host's package set. The stub
+    directory is prepended to PYTHONPATH so it wins over any real pystray.
+
+    Returns (returncode, stdout, stderr).
+    """
+    stub_dir = os.path.join(tmp_root, "stub")
+    os.makedirs(stub_dir, exist_ok=True)
+    with open(os.path.join(stub_dir, "pystray.py"), "w", encoding="utf-8") as fh:
+        fh.write(
+            "class _StubDisplayNameError(Exception):\n"
+            "    pass\n"
+            "\n"
+            "raise _StubDisplayNameError(%r)\n" % (error_line,)
+        )
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    env = dict(os.environ)
+    env.pop("DISPLAY", None)
+    env["PYTHONPATH"] = os.pathsep.join([stub_dir, repo_root])
+    probe = (
+        "import sys\n"
+        # PHASE 1 -- prove the seam. The stub must really be the module that
+        # `import pystray` resolves to, and it must really raise something
+        # that is NOT an ImportError. Without this the phase-2 verdict could
+        # be manufactured by a stub that never loaded.
+        "try:\n"
+        "    import pystray\n"
+        "except ImportError as exc:\n"
+        "    print('SEAM=WRONG-ImportError:' + type(exc).__name__)\n"
+        "    sys.exit(3)\n"
+        "except Exception as exc:\n"
+        "    print('SEAM=OK:' + type(exc).__name__ + ':' + str(exc))\n"
+        "else:\n"
+        "    print('SEAM=WRONG-imported-cleanly')\n"
+        "    sys.exit(4)\n"
+        "sys.modules.pop('pystray', None)\n"
+        # PHASE 2 -- the subject under test.
+        "import bulk_downloader.tray_app as tray\n"
+        "print('IMPORTED=OK')\n"
+        "print('AVAILABLE=' + repr(tray.is_available()))\n"
+        "print('REASON=' + repr(getattr(tray, 'unavailable_reason', lambda: None)()))\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_root, env=env, capture_output=True, text=True, timeout=120)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+class TestOptionalTrayImportIsHeadlessSafe:
+    """An optional dependency that is PRESENT but UNUSABLE must not break the
+    import of the module that wraps it.
+
+    tray_app's own docstring states the contract: "Both are optional deps. If
+    missing, this module reports unavailable and the tray is silently skipped
+    -- BD's web UI still works."  The guard implemented only half of it. It
+    caught ImportError, but on a headless Linux box with pystray INSTALLED the
+    import raises Xlib.error.DisplayNameError, which is an Exception and not
+    an ImportError, so it escaped and `import bulk_downloader.tray_app` died.
+
+    That is what row 611 recorded as "schedule sensitivity". It was not.
+    Measured 2026-09-01: `pystray` is in requirements-OPTIONAL.txt and is
+    installed on 6 of the 12 fleet hosts and absent on the rest. The failing
+    band ran on 10.0.70.54 (pystray 0.19.5, DISPLAY unset) where a bare
+    `import pystray` raises with no pytest, no xdist and no neighbouring test
+    file involved; the "passed serially in isolation" sample was taken on a
+    host with no pystray at all, where the guard's ImportError arm swallows
+    everything. Same tree, different ENVIRONMENT -- never a matched
+    comparison. The recorded assignment settles the other half: in
+    /tmp/bd-runctx/945228/gw10.chain, tests/test_v3_43_80_modules.py is
+    position 1 of 12, so no co-scheduled file preceded it on that worker.
+    """
+
+    def test_tray_app_imports_when_pystray_raises_a_non_import_error(self):
+        tmp_root = tempfile.mkdtemp(prefix="bd-611-tray-")
+        rc, out, err = _import_tray_app_with_a_broken_pystray(
+            tmp_root, 'Bad display name ""')
+        # Seam first: the stub was loaded and raised a non-ImportError.
+        assert "SEAM=OK:_StubDisplayNameError:" in out, (
+            f"the stub pystray never took effect; rc={rc}\n"
+            f"stdout:\n{out}\nstderr:\n{err}")
+        assert "SEAM=WRONG" not in out, out
+        # Verdict: the wrapper module still imports, and reports unavailable.
+        assert rc == 0, (
+            "bulk_downloader.tray_app did not survive an optional dependency "
+            "that is installed but unusable -- the exact shape that failed "
+            "the row-611 band on a headless host with pystray installed.\n"
+            f"rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
+        assert "IMPORTED=OK" in out, f"stdout:\n{out}\nstderr:\n{err}"
+        assert "AVAILABLE=False" in out, (
+            "tray_app imported but claimed the tray was usable\n"
+            f"stdout:\n{out}")
+        # The reason must carry the dependency's OWN words, not a collapsed
+        # "unavailable" that cannot be acted on.
+        assert "Bad display name" in out, (
+            "tray_app swallowed the reason it is unavailable\n"
+            f"stdout:\n{out}")
+
+    def test_the_measured_headless_texts_are_both_covered(self):
+        """Both real headless shapes, not just the one in the failing log."""
+        for error_line in _MEASURED_HEADLESS_ERRORS:
+            tmp_root = tempfile.mkdtemp(prefix="bd-611-tray-")
+            rc, out, err = _import_tray_app_with_a_broken_pystray(
+                tmp_root, error_line)
+            assert "SEAM=OK:_StubDisplayNameError:" in out, (error_line, out, err)
+            assert rc == 0 and "IMPORTED=OK" in out, (
+                f"{error_line!r} still broke the import\n"
+                f"rc={rc}\nstdout:\n{out}\nstderr:\n{err}")
+            assert "AVAILABLE=False" in out, (error_line, out)
+
+    def test_a_missing_optional_dependency_is_still_reported_unavailable(self):
+        """Control: the ORIGINAL ImportError arm must keep working, so the fix
+        widens the guard rather than replacing it."""
+        tmp_root = tempfile.mkdtemp(prefix="bd-611-tray-")
+        stub_dir = os.path.join(tmp_root, "stub")
+        os.makedirs(stub_dir, exist_ok=True)
+        with open(os.path.join(stub_dir, "pystray.py"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("raise ImportError('No module named pystray')\n")
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        env = dict(os.environ)
+        env.pop("DISPLAY", None)
+        env["PYTHONPATH"] = os.pathsep.join([stub_dir, repo_root])
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "import bulk_downloader.tray_app as tray\n"
+             "print('AVAILABLE=' + repr(tray.is_available()))\n"],
+            cwd=tmp_root, env=env, capture_output=True, text=True, timeout=120)
+        assert proc.returncode == 0, (proc.stdout, proc.stderr)
+        assert "AVAILABLE=False" in proc.stdout, proc.stdout
+
+
+def _import_failures(modules):
+    """Import each ``bulk_downloader.<name>``; return (attempted, failures).
+
+    ``attempted`` exists so the caller can reconcile COLLECTION to EXECUTION:
+    an empty or short module list would otherwise report a clean run while
+    measuring nothing.
+
+    Each failure records the exception TYPE as well as its text. A bare
+    ``{e}`` reduced ``Xlib.error.DisplayNameError: Bad display name ""`` to
+    ``Bad display name ""`` -- which named a symptom the reader had to guess
+    at, and which is exactly the collapsed diagnostic that sent row 611 after
+    a scheduling ghost instead of an optional dependency.
+    """
+    failures = []
+    attempted = 0
+    for m in modules:
+        attempted += 1
+        try:
+            __import__(f"bulk_downloader.{m}", fromlist=[m])
+        except Exception as e:
+            failures.append(f"{m}: {type(e).__name__}: {e}")
+    return attempted, failures
+
+
+def _display_identity():
+    """The display-environment facts an import failure here depends on."""
+    return (f"DISPLAY={os.environ.get('DISPLAY', '<unset>')!r} "
+            f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '<unset>')!r} "
+            f"platform={sys.platform!r} executable={sys.executable!r}")
+
+
 class TestImports:
     """Verify every new module imports without error."""
+
+    def test_the_import_loop_still_fails_for_an_unimportable_module(self):
+        """NEGATIVE CONTROL for this file's central gate.
+
+        Row 611 is resolved by widening a guard in bulk_downloader/tray_app.py.
+        A guard widened in production must not quietly widen the TEST: prove
+        the loop this gate is built on still reports a module that genuinely
+        cannot import, and still distinguishes it from one that can.
+        """
+        _fresh_install()
+        attempted, failures = _import_failures(
+            ["bw_chart", "no_such_module_row611_negative_control"])
+        assert attempted == 2, attempted
+        assert len(failures) == 1, (
+            "the control expected exactly one failure; a real module failing "
+            f"here would launder the result: {failures}")
+        assert failures[0].startswith(
+            "no_such_module_row611_negative_control: "), failures[0]
+        assert "ModuleNotFoundError" in failures[0], failures[0]
+        # The verdict the real test reaches is `assert not failures`, so a
+        # non-empty list is a RED gate by construction.
+        assert failures, "the gate cannot go red"
 
     def test_all_modules_import(self):
         _fresh_install()
@@ -142,13 +344,25 @@ class TestImports:
         ]
         from bulk_downloader.db import db_init
         db_init()
-        failures = []
-        for m in modules:
-            try:
-                __import__(f"bulk_downloader.{m}", fromlist=[m])
-            except Exception as e:
-                failures.append(f"{m}: {e}")
-        assert not failures, f"Module import failures: {failures}"
+        # Nonzero denominator, then collection reconciled to execution.
+        assert modules, "the module denominator is empty; this gate measures nothing"
+        attempted, failures = _import_failures(modules)
+        assert attempted == len(modules), (
+            f"attempted {attempted} of {len(modules)} modules")
+        # The first line keeps the historical "Module import failures: [...]"
+        # shape that tools/verify_release.py:_HARNESS_SIGNATURES scans for.
+        # The lines after it say WHERE the measurement was taken, because an
+        # import that reaches a GUI toolkit depends on the process's display
+        # environment and on which OPTIONAL packages this host installed --
+        # neither of which the bare list ever showed.
+        assert not failures, (
+            f"Module import failures: {failures}\n"
+            f"environment at import time: {_display_identity()}\n"
+            "If a failure above names a display (e.g. Bad display name, "
+            "Can't connect to display, Namespace Gtk not available) it is "
+            "about THIS HOST's environment and its optional packages -- see "
+            "requirements-optional.txt and tools/verify_release.py's "
+            "_HARNESS_SIGNATURES -- and NOT about a neighbouring test file.")
 
 
 # ─── Marketplace round-trip ───────────────────────────────────────────

@@ -8,14 +8,80 @@ typed password through secrets_store as a @cred: reference (mirroring
 encrypted backend -> 401 secrets_locked (the SPA's unlock-prompt trigger),
 unlocked -> stored. Plaintext is NEVER persisted to sites_config.json.
 
-Runner conventions: zero-arg tests, no pytest fixtures, restore module
-globals in try/finally. The default sandbox backend is PlaintextBackend, so
+Runner conventions: zero-arg tests, restore module globals in try/finally.
+(This file carried "no pytest fixtures" until 2026-09-01. It now has exactly
+one -- the autouse SITES_FILE pin restore below, which needs a teardown that
+runs after EVERY test in the file, including one that fails. The tests
+themselves are still zero-arg.) The default sandbox backend is PlaintextBackend, so
 the create/update e2e tests exercise the plaintext-refusal path (which is
 exactly what proves "no plaintext leak"); the locked/unlocked branches are
 covered by the guard-helper unit test with stub backends.
 """
 import json
 import os
+import tempfile
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _sites_file_pin_is_returned_as_found():
+    """This file must not poison its neighbours either.
+
+    Booting the app REPLACES ``app.SITES_FILE`` with an absolute path built
+    from the current cwd (see ``_require_live_sites_file`` below), and the
+    autouse ``isolated_bd_home`` fixture in conftest puts every test in its
+    own ``tmp_path``.  So each test here pins the module inside a directory
+    that belongs to that test alone -- measured 2026-09-01 with a session-end
+    scan of ``bulk_downloader.*`` globals: after this file ran, both
+    ``app.SITES_FILE`` and ``app._SITES_FILE_LAST_AUTO_OBJECT`` pointed at a
+    directory that no longer existed.
+
+    That is the SAME defect this file was the victim of.  A fix that repairs
+    only the file that bit us and leaves us biting the next one is not a fix,
+    so restore the pin here too -- in a fixture teardown, unconditionally.
+
+    Being defined in the test module, this fixture tears down INSIDE
+    conftest's ``isolated_bd_home``, so the pin is restored while that
+    fixture's cwd/env sandbox is still standing.
+    """
+    from bulk_downloader import app as a
+    saved = a.SITES_FILE
+    saved_latch = a._SITES_FILE_LAST_AUTO_OBJECT
+    try:
+        yield
+    finally:
+        a.SITES_FILE = saved
+        a._SITES_FILE_LAST_AUTO_OBJECT = saved_latch
+
+
+def _require_live_sites_file(a):
+    """Precondition: the config directory this file was handed must EXIST.
+
+    ``app.SITES_FILE`` is PROCESS-GLOBAL state.  It starts life as the
+    relative ``Path("sites_config.json")`` and the first boot in the process
+    (``_publish_sites_file_for_runtime``, reached from ``boot_once`` and
+    ``_activate_configured_runtime_once``) replaces it with the ABSOLUTE
+    resolution of that relative path -- i.e. with whatever directory the
+    booting test happened to be standing in.  ``conftest``'s autouse
+    ``isolated_bd_home`` resets ``_SITE_RUNTIME_PATH``/``_BOOTED_PATHS``
+    between tests but does NOT restore ``SITES_FILE``, so the pin outlives
+    the test that made it.
+
+    A file that boots while chdir'd into a ``tempfile.TemporaryDirectory``
+    therefore hands every later file a path inside a directory that is
+    DELETED on the way out.  Every write below then died six assertions deep
+    with a bare ``FileNotFoundError`` that named a tmp path and nothing else.
+    Assert the precondition instead, so a future leak reports its own cause.
+    """
+    assert a.SITES_FILE.parent.is_dir(), (
+        "precondition failed: app.SITES_FILE is pinned to a directory that "
+        f"does not exist ({a.SITES_FILE}). An earlier test file booted the "
+        "app while chdir'd into a temporary directory and did not restore "
+        "app.SITES_FILE / app._SITES_FILE_LAST_AUTO_OBJECT before that "
+        "directory was deleted. This file's own assertions were never "
+        "reached.")
 
 
 def _boot_empty():
@@ -23,6 +89,7 @@ def _boot_empty():
     from bulk_downloader import app as a
     from bulk_downloader import db
     db.db_init()
+    _require_live_sites_file(a)
     a.SITES_FILE.write_text(json.dumps({}), encoding="utf-8")
     a._load_sites_config()
     return a, a.app.test_client()
@@ -33,6 +100,7 @@ def _boot_with_site():
     from bulk_downloader import app as a
     from bulk_downloader import db
     db.db_init()
+    _require_live_sites_file(a)
     a.SITES_FILE.write_text(json.dumps({"demo": {
         "name": "Demo", "max_concurrent": 4, "wait": 5,
         "login_url": "https://demo.example/login",
@@ -40,6 +108,53 @@ def _boot_with_site():
     a._load_sites_config()
     a.runners["demo"].update_config = lambda *_a, **_k: None
     return a, a.app.test_client()
+
+
+# ── the precondition is a live measurement, not decoration ─────────────
+
+def test_sites_file_precondition_fires_on_a_dead_pin_and_passes_on_a_live_one():
+    """Negative control for ``_require_live_sites_file``.
+
+    A precondition that cannot fail is not a precondition -- it would let this
+    file report green while measuring nothing, which is precisely the shape
+    that let a leaked pin surface as six unrelated FileNotFoundErrors.  Prove
+    BOTH outcomes are reachable from here: it refuses a deleted directory and
+    names it, and it passes for a live one.
+    """
+    from bulk_downloader import app as a
+
+    dead = tempfile.mkdtemp(prefix="bd-326-dead-pin-")
+    os.rmdir(dead)
+    # Precondition OF THE CONTROL: the fixture really did build a dead path.
+    assert not Path(dead).exists(), "the control failed to delete its own dir"
+
+    orig_sites_file = a.SITES_FILE
+    orig_latch = a._SITES_FILE_LAST_AUTO_OBJECT
+    try:
+        a.SITES_FILE = Path(dead) / "sites_config.json"
+        with pytest.raises(AssertionError) as caught:
+            _require_live_sites_file(a)
+        message = str(caught.value)
+        # The distinctive diagnostic, not merely "an AssertionError".
+        assert "app.SITES_FILE is pinned to a directory that does not exist" \
+            in message
+        assert dead in message, message
+        assert "_SITES_FILE_LAST_AUTO_OBJECT" in message
+    finally:
+        a.SITES_FILE = orig_sites_file
+        a._SITES_FILE_LAST_AUTO_OBJECT = orig_latch
+
+    # Positive control: the same call is silent for a directory that exists,
+    # so the guard is not a constant refusal.
+    live = tempfile.mkdtemp(prefix="bd-326-live-pin-")
+    try:
+        a.SITES_FILE = Path(live) / "sites_config.json"
+        assert Path(live).is_dir()
+        _require_live_sites_file(a)
+    finally:
+        a.SITES_FILE = orig_sites_file
+        a._SITES_FILE_LAST_AUTO_OBJECT = orig_latch
+        os.rmdir(live)
 
 
 # ── core guarantee: a typed password never lands as plaintext ───────────────

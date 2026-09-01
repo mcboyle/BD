@@ -30,23 +30,78 @@ from typing import Optional
 
 _HAS_PYSTRAY = False
 _HAS_PIL = False
+_UNAVAILABLE_REASON: Optional[str] = None
 
+
+def _record_unavailable(dep: str, exc: BaseException) -> None:
+    """Remember WHY an optional dependency is unusable, in its own words.
+
+    A collapsed "unavailable" cannot be acted on: "not installed" and
+    "installed but there is no X display" lead to opposite remedies.
+    """
+    global _UNAVAILABLE_REASON
+    detail = f"{dep}: {type(exc).__name__}: {exc}"
+    _UNAVAILABLE_REASON = (
+        detail if _UNAVAILABLE_REASON is None
+        else f"{_UNAVAILABLE_REASON}; {detail}")
+
+
+# AN OPTIONAL DEPENDENCY CAN BE PRESENT AND STILL UNUSABLE, and it does not
+# have the courtesy to say so with an ImportError.
+#
+# `pystray` picks and initialises a platform backend AT IMPORT TIME. On a
+# headless Linux box it reaches Xlib, which raises
+# `Xlib.error.DisplayNameError: Bad display name ""` with DISPLAY unset, or
+# `Xlib.error.DisplayConnectionError: Can't connect to display ":0"` with
+# DISPLAY set but no server. Both are Exception subclasses and NEITHER is an
+# ImportError, so the original `except ImportError` let them escape and
+# `import bulk_downloader.tray_app` died -- breaking the module's own
+# documented promise above that a missing/unusable tray is "silently skipped
+# -- BD's web UI still works".
+#
+# Measured 2026-09-01 on 10.0.70.54 (pystray 0.19.5, DISPLAY unset): a bare
+# `import pystray` raises, with no test runner involved. pystray sits in
+# requirements-optional.txt and is installed on 6 of the 12 fleet hosts, so
+# `tests/test_v3_43_80_modules.py::TestImports::test_all_modules_import`
+# failed on exactly those hosts and passed on the others -- which read as
+# flakiness. tools/verify_release.py has carried "Bad display name" and
+# "Can't connect to display" in _HARNESS_SIGNATURES all along, classifying
+# the symptom as an environment artifact; this is the cause.
+#
+# The ImportError arm is kept SEPARATE rather than widened into a bare
+# `except Exception`, so "absent" and "present but broken" stay
+# distinguishable in the recorded reason.
 try:
     import pystray  # type: ignore
     _HAS_PYSTRAY = True
-except ImportError:
-    pass
+except ImportError as _exc:
+    _record_unavailable("pystray", _exc)
+except Exception as _exc:  # installed, but its backend cannot initialise
+    _record_unavailable("pystray", _exc)
 
 try:
     from PIL import Image, ImageDraw, ImageFont  # type: ignore
     _HAS_PIL = True
-except ImportError:
-    pass
+except ImportError as _exc:
+    _record_unavailable("Pillow", _exc)
+except Exception as _exc:  # e.g. a Pillow whose native libs will not load
+    _record_unavailable("Pillow", _exc)
 
 
 def is_available() -> bool:
     """True when the tray can actually run."""
     return _HAS_PYSTRAY and _HAS_PIL
+
+
+def unavailable_reason() -> Optional[str]:
+    """Why the tray is unusable, or None when it is usable.
+
+    Carries the dependency's own exception text so an operator can tell
+    "pip install pystray" apart from "this box has no display".
+    """
+    if is_available():
+        return None
+    return _UNAVAILABLE_REASON
 
 
 _icon = None  # active pystray.Icon (singleton)
@@ -239,9 +294,10 @@ def start(*, url: str = "http://127.0.0.1:5000/",
     running."""
     global _icon
     if not is_available():
+        reason = unavailable_reason() or "pystray and/or Pillow not installed"
         sys.stderr.write(
-            "[tray] unavailable — pystray and/or Pillow not installed. "
-            "pip install pystray Pillow\n")
+            f"[tray] unavailable — {reason}. "
+            "pip install pystray Pillow (and, on Linux, run with a display)\n")
         return False
     if _icon is not None:
         return False  # already running
