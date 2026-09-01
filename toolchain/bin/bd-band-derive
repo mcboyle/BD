@@ -575,6 +575,64 @@ IMPORT_CONTRACT_GATES = {
 }
 
 
+def _live_contract_providers(work, consumer):
+    """Return declared providers imported by one live production module.
+
+    This is intentionally scoped to providers in ``IMPORT_CONTRACT_GATES``;
+    it is a stale-baseline detector for those safety contracts, not a second
+    general import-graph implementation. Deleted/non-production paths have no
+    live writer edge to validate.
+    """
+    if not (consumer.startswith("bulk_downloader/")
+            and consumer.endswith(".py")):
+        return set(), ""
+    source_path = os.path.join(work, consumer)
+    if not os.path.isfile(source_path):
+        return set(), ""
+    try:
+        body = open(source_path, encoding="utf-8", errors="replace").read()
+        tree = ast.parse(body, filename=source_path)
+    except (OSError, SyntaxError, ValueError) as exc:
+        return None, "%s cannot be parsed for live contract imports (%s: %s)" % (
+            consumer, type(exc).__name__, exc)
+
+    by_module = {
+        provider[:-3].replace("/", "."): provider
+        for provider in IMPORT_CONTRACT_GATES
+    }
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                provider = by_module.get(alias.name)
+                if provider:
+                    found.add(provider)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level == 0:
+                provider = by_module.get(module)
+                if provider:
+                    found.add(provider)
+                if module == "bulk_downloader":
+                    for alias in node.names:
+                        provider = by_module.get(
+                            "bulk_downloader." + alias.name)
+                        if provider:
+                            found.add(provider)
+            elif node.level == 1:
+                if module:
+                    provider = by_module.get("bulk_downloader." + module)
+                    if provider:
+                        found.add(provider)
+                else:
+                    for alias in node.names:
+                        provider = by_module.get(
+                            "bulk_downloader." + alias.name)
+                        if provider:
+                            found.add(provider)
+    return found, ""
+
+
 def import_contract_gates(work, changed):
     """Return ``(gates, named_signals, unknowns)`` for provider edges.
 
@@ -601,13 +659,29 @@ def import_contract_gates(work, changed):
     signals = []
     unknowns = []
     for consumer in sorted(set(changed)):
-        providers = edges.get(consumer, [])
+        live_providers, live_error = _live_contract_providers(work, consumer)
+        if live_providers is None:
+            unknowns.append(live_error)
+            continue
+        if not live_providers:
+            continue
+        if consumer not in edges:
+            unknowns.append(
+                "live contract consumer %s is absent from the generated import "
+                "graph" % consumer)
+            continue
+        providers = edges[consumer]
         if not (isinstance(providers, list)
                 and all(isinstance(p, str) for p in providers)):
             unknowns.append(
                 "import graph edge list for %s is malformed" % consumer)
             continue
-        for provider in sorted(set(providers)):
+        for provider in sorted(live_providers):
+            if provider not in providers:
+                unknowns.append(
+                    "live contract edge %s -> %s is absent from the generated "
+                    "import graph" % (consumer, provider))
+                continue
             for gate in IMPORT_CONTRACT_GATES.get(provider, ()):
                 gate_providers = edges.get(gate)
                 if not (isinstance(gate_providers, list)

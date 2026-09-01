@@ -25,6 +25,8 @@ keep" so future scans skip it.
 from __future__ import annotations
 
 import os
+import re
+import secrets
 import stat as _stat
 import time
 from pathlib import Path
@@ -33,11 +35,16 @@ from typing import Optional
 from . import db as _db
 from . import staging_claim as _staging_claim
 
+try:
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - non-POSIX platforms fail closed below
+    _fcntl = None
+
 
 _ORPHAN_AGE_THRESHOLD_S = 24 * 3600  # 24h
 _TABLE_READY = False
-_DELETE_CLAIM_URL = "urn:bulk-downloader:crash-recovery:operator-delete"
-_DELETE_CLAIM_IDENTITY = _staging_claim.job_identity(_DELETE_CLAIM_URL)
+_DELETE_MARKER_SUFFIX = ".delete"
+_CLAIM_IDENTITY_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _ensure_table():
@@ -258,18 +265,134 @@ def mark_decision(path: str, decision: str, *,
         return False
 
 
-def _acquire_delete_claim(part_path: Path) -> tuple[bool, str]:
+def _delete_marker_for(part_path: Path) -> Path:
+    return Path(str(part_path) + _DELETE_MARKER_SUFFIX)
+
+
+def _acquire_delete_lease(part_path: Path) -> tuple:
+    """Lock one durable operator-delete transaction for ``part_path``.
+
+    The marker holds a unique staging identity and the open descriptor holds an
+    exclusive nonblocking flock. A crashed process leaves the token but drops
+    the kernel lock, so a retry can resume; a concurrent request sees the held
+    lock and refuses instead of inheriting the first request's authority.
+    """
+    marker_path = _delete_marker_for(part_path)
+    if _fcntl is None:
+        return None, marker_path, "", (
+            "operator delete coordination is unavailable (no fcntl); refusing")
+    flags = os.O_RDWR
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(
+            str(marker_path), flags | os.O_CREAT | os.O_EXCL, 0o600)
+        created = True
+    except FileExistsError:
+        try:
+            fd = os.open(str(marker_path), flags)
+        except OSError as exc:
+            return None, marker_path, "", (
+                "operator delete marker is UNKNOWN; refusing: "
+                f"{str(exc)[:160]}")
+        created = False
+    except OSError as exc:
+        return None, marker_path, "", (
+            "operator delete marker is UNKNOWN; refusing: "
+            f"{str(exc)[:160]}")
+    keep = False
+    try:
+        try:
+            _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None, marker_path, "", (
+                "operator delete already in progress; refusing concurrent delete")
+        except OSError as exc:
+            return None, marker_path, "", (
+                "operator delete lock is UNKNOWN; refusing: "
+                f"{str(exc)[:160]}")
+        locked = os.fstat(fd)
+        try:
+            current = marker_path.lstat()
+        except OSError as exc:
+            return None, marker_path, "", (
+                "operator delete marker changed while locking; refusing: "
+                f"{str(exc)[:160]}")
+        if (not _stat.S_ISREG(locked.st_mode)
+                or (locked.st_dev, locked.st_ino)
+                != (current.st_dev, current.st_ino)):
+            return None, marker_path, "", (
+                "operator delete lock does not guard the current regular marker; "
+                "refusing")
+        os.lseek(fd, 0, os.SEEK_SET)
+        raw = os.read(fd, 256).decode("ascii", errors="replace").strip()
+        identity = raw if _CLAIM_IDENTITY_RE.fullmatch(raw) else ""
+        if not identity:
+            if not created:
+                return None, marker_path, "", (
+                    "existing operator delete marker is UNKNOWN; refusing "
+                    "rather than rewrite it into authority")
+            identity = secrets.token_hex(32)
+            payload = (identity + "\n").encode("ascii")
+            os.ftruncate(fd, 0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            written = 0
+            while written < len(payload):
+                n = os.write(fd, payload[written:])
+                if n <= 0:
+                    raise OSError("short write publishing operator delete token")
+                written += n
+            os.fsync(fd)
+        keep = True
+        return fd, marker_path, identity, ""
+    except OSError as exc:
+        return None, marker_path, "", (
+            "operator delete marker is UNKNOWN; refusing: "
+            f"{str(exc)[:160]}")
+    finally:
+        if not keep:
+            os.close(fd)
+
+
+def _close_delete_lease(fd: int, marker_path: Path, *, remove: bool) -> bool:
+    """Close a delete lease, optionally unlinking exactly its locked marker."""
+    removed = not remove
+    try:
+        if remove:
+            locked = os.fstat(fd)
+            try:
+                current = marker_path.lstat()
+            except FileNotFoundError:
+                removed = True
+            except OSError:
+                removed = False
+            else:
+                if ((locked.st_dev, locked.st_ino)
+                        == (current.st_dev, current.st_ino)):
+                    try:
+                        marker_path.unlink()
+                    except OSError:
+                        removed = False
+                    else:
+                        removed = True
+    finally:
+        os.close(fd)
+    return removed
+
+
+def _acquire_delete_claim(
+        part_path: Path, identity: str) -> tuple[bool, str]:
     """Atomically reserve ``part_path`` against a worker claim.
 
     The claim publisher is the same ``O_EXCL``-equivalent operation used by
-    downloads. Therefore exactly one side wins: a worker claim makes deletion
-    refuse, while an operator claim makes a later worker choose another path.
-    The stable operator identity also makes an interrupted delete retryable.
+    downloads. ``identity`` is unique to the locked durable delete transaction,
+    so only its crash-recovery retry can recognize an existing owner as its own.
     """
     owner_path = _staging_claim.owner_path_for(part_path)
     try:
-        minted = _staging_claim._create_owner(
-            owner_path, _DELETE_CLAIM_IDENTITY)
+        minted = _staging_claim._create_owner(owner_path, identity)
         if minted:
             return True, ""
         holder = _staging_claim._read_owner_identity(owner_path)
@@ -277,57 +400,57 @@ def _acquire_delete_claim(part_path: Path) -> tuple[bool, str]:
         return False, (
             "staging claim is UNKNOWN; refusing delete: "
             f"{str(exc)[:160]}")
-    if holder != _DELETE_CLAIM_IDENTITY:
+    if holder != identity:
         return False, "staging claim belongs to a download; refusing delete"
     return True, ""
 
 
-def _finish_interrupted_delete(part_path: Path) -> Optional[dict]:
+def _finish_interrupted_delete(
+        part_path: Path, identity: str) -> tuple[dict, bool]:
     """Finish a prior operator delete whose part is already absent.
 
-    ``None`` means there is no operator claim, so ordinary idempotent-absence
-    handling applies. A surviving operator identity is durable evidence that a
-    previous call removed the part but did not finish its sidecar/claim cleanup.
-    Foreign claims are observed but untouched.
+    Returns ``(result, remove_marker)``. The caller holds the marker lock, and
+    only an owner matching its durable unique identity can be retired.
     """
     owner_path = _staging_claim.owner_path_for(part_path)
     try:
         owner_stat = owner_path.lstat()
     except FileNotFoundError:
-        return None
+        return ({"ok": True, "deleted_bytes": 0,
+                 "note": "already absent"}, True)
     except OSError as exc:
-        return {"ok": False, "error": (
+        return ({"ok": False, "error": (
             "staging claim is UNKNOWN for absent part: "
-            f"{str(exc)[:160]}")}
+            f"{str(exc)[:160]}")}, False)
     if not _stat.S_ISREG(owner_stat.st_mode):
-        return {"ok": False, "error": (
+        return ({"ok": False, "error": (
             "staging claim is UNKNOWN for absent part: owner entry is not "
-            "a regular claim record")}
+            "a regular claim record")}, False)
     try:
         holder = _staging_claim._read_owner_identity(owner_path)
     except _staging_claim.StagingUnavailable as exc:
-        return {"ok": False, "error": (
+        return ({"ok": False, "error": (
             "staging claim is UNKNOWN for absent part: "
-            f"{str(exc)[:160]}")}
-    if holder != _DELETE_CLAIM_IDENTITY:
-        return None
+            f"{str(exc)[:160]}")}, False)
+    if holder != identity:
+        return ({"ok": True, "deleted_bytes": 0,
+                 "note": "already absent"}, True)
     meta_path = part_path.with_suffix(part_path.suffix + ".meta")
     try:
         meta_path.unlink(missing_ok=True)
     except OSError as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-    if not _staging_claim.release(part_path, _DELETE_CLAIM_IDENTITY):
-        return {
+        return ({"ok": False, "error": str(exc)[:200]}, False)
+    if not _staging_claim.release(part_path, identity):
+        return ({
             "ok": False,
             "deleted_bytes": 0,
             "error": "absent part's operator staging claim was retained",
-        }
-    mark_decision(str(part_path), "deleted")
-    return {
+        }, False)
+    return ({
         "ok": True,
         "deleted_bytes": 0,
         "note": "completed interrupted delete of already absent part",
-    }
+    }, True)
 
 
 def delete_orphan(path: str) -> dict:
@@ -340,14 +463,40 @@ def delete_orphan(path: str) -> dict:
     claim is released. Missing files remain idempotent.
     """
     p = Path(path)
+    marker_path = _delete_marker_for(p)
     if not p.exists():
-        interrupted = _finish_interrupted_delete(p)
-        if interrupted is not None:
-            return interrupted
-        return {"ok": True, "deleted_bytes": 0,
-                "note": "already absent"}
-    claimed, error = _acquire_delete_claim(p)
+        try:
+            marker_path.lstat()
+        except FileNotFoundError:
+            return {"ok": True, "deleted_bytes": 0,
+                    "note": "already absent"}
+        except OSError as exc:
+            return {"ok": False, "error": (
+                "operator delete marker is UNKNOWN for absent part: "
+                f"{str(exc)[:160]}")}
+        fd, marker_path, identity, error = _acquire_delete_lease(p)
+        if fd is None:
+            return {"ok": False, "error": error}
+        interrupted, remove_marker = _finish_interrupted_delete(p, identity)
+        marker_removed = _close_delete_lease(
+            fd, marker_path, remove=remove_marker)
+        if remove_marker and not marker_removed:
+            return {
+                "ok": False,
+                "deleted_bytes": interrupted.get("deleted_bytes", 0),
+                "error": "part absent but operator delete marker was retained",
+            }
+        if interrupted.get("ok") and "interrupted delete" in interrupted.get(
+                "note", ""):
+            mark_decision(path, "deleted")
+        return interrupted
+
+    fd, marker_path, identity, error = _acquire_delete_lease(p)
+    if fd is None:
+        return {"ok": False, "error": error}
+    claimed, error = _acquire_delete_claim(p, identity)
     if not claimed:
+        _close_delete_lease(fd, marker_path, remove=True)
         return {"ok": False, "error": error}
     try:
         deleted_bytes = p.stat().st_size if p.is_file() else 0
@@ -358,15 +507,23 @@ def delete_orphan(path: str) -> dict:
         # The operator reservation is now ours and the part is gone, satisfying
         # release()'s two proofs (identity and absent bytes). A false return is
         # a partial failure, not permission to report/audit a completed delete.
-        if not _staging_claim.release(p, _DELETE_CLAIM_IDENTITY):
+        if not _staging_claim.release(p, identity):
+            _close_delete_lease(fd, marker_path, remove=False)
             return {
                 "ok": False,
                 "deleted_bytes": deleted_bytes,
                 "error": "part deleted but operator staging claim was retained",
             }
+        if not _close_delete_lease(fd, marker_path, remove=True):
+            return {
+                "ok": False,
+                "deleted_bytes": deleted_bytes,
+                "error": "part deleted but operator delete marker was retained",
+            }
         mark_decision(path, "deleted")
         return {"ok": True, "deleted_bytes": deleted_bytes}
     except OSError as e:
+        _close_delete_lease(fd, marker_path, remove=False)
         return {"ok": False, "error": str(e)[:200]}
 
 
