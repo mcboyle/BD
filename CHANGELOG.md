@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1389 - seventy-four measured defects, made machine-visible
+
+- CLAUDE.md A2 SAYS A DEFERRAL THAT LIVES ONLY IN PROSE HAS NOT BEEN DEFERRED.
+  Two adversarial audits ran on 2026-09-01 and their findings lived only in
+  files. They are rows now: 533-579 from the refutation, 580-606 from the
+  harness audit.
+
+- ROWS 533-579, THE REFUTATION. An 18-refuter fan-out across the six fix
+  clusters shipped in v3.66.1381 through v3.66.1388, on three lenses --
+  regression, incomplete, fail-open -- with every claim then put through an
+  independent skeptic whose default answer was REFUTED. 46 survived. They are
+  filed in the judge's rank order, and the ranking matters: several of the day's
+  own fixes REPRODUCE THE DEFECT THEY WERE WRITTEN TO PREVENT. claim() publishes
+  the .owner before it clears the bytes and never unwinds, so one failed rename
+  -- or a deploy restart, which needs no error at all -- leaves a claim that makes
+  the retry resume over another scene's bytes. The row-482 vault re-probe is
+  advisory only and measured 67 clobbers in 400 natural-race trials. The replay
+  tool reads its own window measurement on the failure branch and ignores it on
+  the success branch, so the destruction row 480 was cut to prevent survives at
+  the sibling.
+
+- ROWS 580-606, THE HARNESS AUDIT. 41 agents over the ~129 executable bd-*
+  scripts that NO CI covers -- row 476's subject -- hunting five shapes that have
+  each fired here for real: a glob that returns clean, a probe that counts
+  itself, a collapsed diagnostic, an unrun check reporting OK, and a zero
+  denominator read as agreement. 31 filings confirmed, 27 distinct. Four were
+  fixed immediately because they sit in the merge path or destroy work, and
+  those fixes are in the harness rather than this repository: bd-land compared
+  only added and modified paths so a deletion-only cut proved nothing and still
+  printed LANDED; bd-verify-cut left attribute.log out of its stale-artifact
+  clear so a reused tag could excuse a node this cut broke; bd-clean-residue
+  swallowed a failed tar before an rm -rf; and bd-endgame2 archived untracked
+  file NAMES but never their bytes, which had already destroyed a RED test and
+  two mutant specs.
+
+- THE DEPLOY IS BLOCKED BY ROWS 533-579 and the fleet stays on v3.66.1379.
+  Production has the ORIGINAL defects, which is a known state; the candidate has
+  their shapes re-manufactured by their own fixes, which is not proven better.
+
+- This cut changes no runtime path, so under ruling 42 it is merged and
+  fast-forwarded and NOT deployed.
+
 ## v3.66.1388 - ownership needs evidence, not a row and not a filename
 
 Two CRITICAL findings from the bd3 ultrareview, both confirmed present on main
