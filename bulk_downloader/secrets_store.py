@@ -512,7 +512,13 @@ class MasterPasswordBackend(_BackendBase):
         # branch re-probes before it writes, because this snapshot can go stale
         # while the process lives.
         self._constructed_over_absent_file = False
+        # Rows 537/538: the IDENTITY of the vault this instance actually READ,
+        # so every write can prove it is writing over that same file. None means
+        # "there was no file when we looked", which is a claim about the past
+        # and is re-checked before any write rather than trusted.
+        self._loaded_identity: tuple[int, int, int] | None = None
         self._data: dict[str, Any] = self._load_or_init()
+        self._loaded_identity = self._vault_identity()
 
     def _load_or_init(self) -> dict[str, Any]:
         # Row 487: the exists() probe used to sit OUTSIDE this try. CPython's
@@ -596,11 +602,74 @@ class MasterPasswordBackend(_BackendBase):
             "ciphertexts": {},
         }
 
+    @staticmethod
+    def _vault_identity() -> "tuple[int, int, int] | None":
+        """(device, inode, size) of the vault file NOW, or None if absent.
+
+        Deliberately not a content digest: this runs immediately before every
+        atomic replace and must be cheap, and a restore or a hand-copy changes
+        the inode anyway. An OSError returns a DISTINCT sentinel rather than
+        absence, because "I could not look" is not "there is nothing there" --
+        conflating those is the whole family of defects this guards.
+        """
+        try:
+            st = SECRETS_FILE.stat()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return (-1, -1, -1)
+        return (st.st_dev, st.st_ino, st.st_size)
+
+    def _refuse_if_vault_changed_locked(self, operation: str) -> None:
+        """Rows 537 and 538. A write must target the vault it READ.
+
+        _save() ended in an unconditional tmp.replace(SECRETS_FILE) that
+        serialised self._data -- a construction-time snapshot -- over whatever
+        occupied the path. POST /api/backup/restore writes secrets.json to that
+        same relative path and invalidates no cached backend, so the next
+        ordinary credential save destroyed the restored vault, its salt and
+        every credential in it, silently and with no error.
+
+        v3.66.1384 added a re-probe to _unlock_locked's first-use branch. It was
+        ADVISORY: the write it guards is two frames later, and a restore landing
+        between probe and rename still won -- measured at 67 clobbers in 400
+        natural-race trials. The check belongs AT the write, which is here.
+        """
+        now = self._vault_identity()
+        if now == self._loaded_identity:
+            return
+        if now is None:
+            # THE PATH IS EMPTY. There is nothing to clobber, so writing here
+            # recreates the vault rather than overwriting somebody else's. The
+            # danger this guard exists for is a file that EXISTS and is not
+            # ours; refusing an absent path as well would turn an ordinary I/O
+            # failure into an integrity error and break _save()'s contract of
+            # returning False on a failed write.
+            return
+        if now == (-1, -1, -1):
+            raise SecretsUnreadableError(
+                f"the vault at {SECRETS_FILE} cannot be measured, so this "
+                f"{operation} cannot prove it would write over the vault this "
+                "process read. Fix the permissions and RESTART the service.")
+        if self._loaded_identity is None:
+            raise SecretsUnreadableError(
+                f"a vault appeared at {SECRETS_FILE} after this process read "
+                f"the path as empty, so this {operation} would overwrite it. "
+                "RESTART the service so the vault is read, then retry.")
+        raise SecretsUnreadableError(
+            f"the vault at {SECRETS_FILE} is not the file this process read -- "
+            f"it was replaced, restored or rewritten -- so this {operation} "
+            "would serialise a stale snapshot over it. RESTART the service so "
+            "the current vault is read, then retry.")
+
     def _save(self) -> bool:
         """Atomically persist the vault to disk. Returns True on success,
         False on failure (B4/B17, v3.66.38). Callers MUST check the result
         and roll back in-memory state on False — a swallowed save failure
         means the next restart loads stale data (silent password loss)."""
+        # Rows 537/538. Refuse BEFORE staging anything: a check that runs after
+        # the bytes are already on their way to the path is not a check.
+        self._refuse_if_vault_changed_locked("save")
         tmp = SECRETS_FILE.with_suffix(".json.tmp")
         try:
             tmp.write_text(
@@ -614,6 +683,8 @@ class MasterPasswordBackend(_BackendBase):
             try: tmp.chmod(0o600)
             except Exception: pass
             tmp.replace(SECRETS_FILE)
+            # The file just published is the one this instance now owns.
+            self._loaded_identity = self._vault_identity()
             return True
         except Exception as e:
             sys.stderr.write(f"  secrets save failed: {e}\n")
@@ -751,6 +822,35 @@ class MasterPasswordBackend(_BackendBase):
             and suffix[0] != "0"
             and all("0" <= character <= "9" for character in suffix)
         )
+
+    def _refuse_if_damaged_locked(self, operation: str) -> None:
+        """Rows 539 and 540. A mutation validates the store it is about to
+        change, and a damaged store is a refusal rather than an empty one.
+
+        Deliberately narrow: it asks only whether the fields this operation will
+        READ are the shape they must be. A check that cannot be stated exactly
+        is a check nobody keeps.
+        """
+        data = self._data
+        if not isinstance(data, dict):
+            raise SecretsIntegrityError(
+                f"the vault root is {type(data).__name__}, not an object, so "
+                f"this {operation} cannot say what the store holds. The file is "
+                "untouched. Repair or restore it, then RESTART the service.")
+        if "ciphertexts" in data and not isinstance(data.get("ciphertexts"), dict):
+            raise SecretsIntegrityError(
+                f"the vault's ciphertexts container is "
+                f"{type(data.get('ciphertexts')).__name__}, not an object, so "
+                f"this {operation} cannot enumerate what it would remove -- and "
+                "treating it as empty would report a credential absent that the "
+                "store simply cannot read. The file is untouched.")
+        for field in ("salt", "iterations"):
+            if field not in data:
+                raise SecretsIntegrityError(
+                    f"the vault has no {field!r}, so it is damaged rather than "
+                    f"empty and this {operation} refuses. A store missing one "
+                    "field is usually repairable; a destroyed ciphertext is "
+                    "not. The file is untouched.")
 
     def _refuse_if_unreadable_locked(self, operation: str) -> None:
         """Row 432: refuse any operation over a store we could not read.
@@ -1542,6 +1642,14 @@ class MasterPasswordBackend(_BackendBase):
             # Row 432: a store we could not read cannot say what it holds, so
             # "not present" must not be reported as a successful no-op.
             self._refuse_if_unreadable_locked("delete")
+            # Rows 539/540. _refuse_if_unreadable_locked inspects only
+            # _load_error, so a store that READ fine but is structurally damaged
+            # passed straight through, and `or {}` then laundered a damaged
+            # container into "not present". Over a vault repairable by fixing
+            # one field, delete destroyed the ciphertext permanently while
+            # LOCKED, having never unlocked, and answered 200 ok:true -- while
+            # /api/secrets/status answered 409 over the same bytes.
+            self._refuse_if_damaged_locked("delete")
             cts = self._data.get("ciphertexts") or {}
             authority_key = self._commitment_authority_key_locked(cts)
             if key == authority_key:
