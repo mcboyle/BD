@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import hashlib
 import json
 from pathlib import Path
@@ -22,15 +23,25 @@ STAGED_CANDIDATE = "staged-candidate.txt"
 UNTRACKED_CANDIDATE = "candidate-note.txt"
 BD_GATE_SCOPE = "module"
 
-scripts_path = str(ROOT / "scripts")
-path_added = scripts_path not in sys.path
-if path_added:
-    sys.path.insert(0, scripts_path)
-try:
-    from bd_candidate_replay import _fingerprint
-finally:
-    if path_added:
-        sys.path.remove(scripts_path)
+# LOAD BY PATH, NOT BY NAME. A sys.path insert plus `from bd_candidate_replay
+# import ...` reads to tests/test_v3_66_653_dep_freshness.py as an undeclared
+# THIRD-PARTY import: that gate walks every tracked file outside
+# bulk_downloader/ with ast.Import/ast.ImportFrom and cannot tell a bare module
+# name that happens to live in scripts/ from a missing requirements pin. It
+# failed exact-head CI on this cut for exactly that reason.
+# tests/test_row407_candidate_replay.py already establishes the house pattern
+# for loading a scripts/ module, and this copies it rather than inventing a
+# second one (A8).
+def _load_replay_module():
+    spec = importlib.util.spec_from_file_location("row497_candidate_replay", REPLAY)
+    assert spec is not None and spec.loader is not None, REPLAY
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_fingerprint = _load_replay_module()._fingerprint
 
 
 def _run(
