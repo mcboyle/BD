@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1397 - a runner decision carries its whole result
+
+Rows 544, 545, 559 and 562 of the 2026-09-01 audit. All four were re-derived
+against this base and all four reproduced. One contract: a runner decision
+returns and propagates its COMPLETE result rather than a truncated or
+defaulted one.
+
+- 544. The default-on exact-URL dedup preflight answered the ownership question
+  by itself, accepting a zero-transfer `done` row -- and a pre-v8 NULL transfer
+  column, and another URL's transfer -- as proof that this URL had been
+  downloaded. It now requires some `done` row FOR THAT URL with
+  `bytes_fetched > 0`. Audited every `bytes_fetched` writer in the package: every
+  value above zero is a real transfer count and every no-transfer path writes 0,
+  so the skip arm cannot manufacture its own proof.
+- 545. The skip arm consumed `force_download` and reported "Already have", so a
+  forced re-download never transferred. The gate is now the old one AND NOT
+  forced, the flag is read under the lock, and the pop that ate it is gone.
+- 559. The unproven attribution was gated behind final-path-exists, so it was
+  never made operator-visible, and a tier change hid it outright. Identity is
+  now measured unconditionally. `_identity == "different"` has no consumer
+  anywhere in the tree, so measuring it changes no behaviour; the skip keeps the
+  exact old gate.
+- 562. The needs-review `db_log` could raise `database is locked` straight out
+  of `_do_download`. It is now wrapped, and the failure is logged with sqlite's
+  own words and the step named rather than collapsed.
+- Seven negative controls, including the one-transfer-then-N-skips steady state,
+  which pins the `ORDER BY id DESC LIMIT 1` trap so the fix cannot degrade into
+  a newest-row check.
+- Three fixtures in tests/test_v3_66_221_dedup_preflight.py now pass
+  `bytes_fetched` explicitly. `db_log` defaults it to NULL, and that column's own
+  contract calls NULL "never proof of a download", so those fixtures had been
+  claiming a completed download over a row that recorded none.
+
 ## v3.66.1396 - a replay refusal names the step that failed
 
 Rows 546, 556, 578 and 579 of the 2026-09-01 audit. One contract: a replay
