@@ -64,6 +64,40 @@ def _server_url():
     return os.environ.get("BD_URL", DEFAULT_URL).rstrip("/")
 
 
+class RequestFailed(SystemExit):
+    """A request that did not produce a body, carried structurally.
+
+    ROW 467. ``_request`` raised a bare ``SystemExit`` on any transport
+    failure, so ``bdctl health --json`` printed NOTHING to stdout against a
+    503 and ``json.loads("")`` failed -- on every host whose vault is locked
+    or uninitialised, which is EVERY host after every restart until a human
+    unlocks it. The flag promises a structured answer and delivered an empty
+    one.
+
+    SUBCLASSING SystemExit IS THE POINT. All 48 ``_request`` call sites keep
+    their exact previous behaviour -- same message on stderr, same nonzero
+    exit -- because an uncaught ``RequestFailed`` IS an uncaught
+    ``SystemExit`` carrying the identical string. Only a caller that opts in
+    by catching it sees the structure.
+
+    ``kind`` names WHICH step failed rather than collapsing distinct
+    failures into one diagnostic (CLAUDE.md A7): a server that refused with
+    503 and a server that never answered lead to opposite actions -- read the
+    refusal, or start the service.
+    """
+
+    def __init__(self, message, *, kind, status=None, reason=None,
+                 body_text="", body_json=None, method="", path=""):
+        super().__init__(message)
+        self.kind = kind            # "http_error" | "unreachable"
+        self.status = status        # None when nothing answered
+        self.reason = reason
+        self.body_text = body_text
+        self.body_json = body_json  # parsed dict/list, or None
+        self.method = method
+        self.path = path
+
+
 def _request(method, path, body=None, query=None, stream=False):
     """Issue one HTTP request to the server. Returns parsed JSON for
     non-streaming responses, or the urlopen response object for streams.
@@ -86,11 +120,18 @@ def _request(method, path, body=None, query=None, stream=False):
         body = ""
         try: body = e.read().decode("utf-8", "replace")
         except Exception: pass
-        raise SystemExit(f"HTTP {e.code} {e.reason} on {method} {path}\n  {body[:500]}")
+        parsed = None
+        try: parsed = json.loads(body)
+        except Exception: parsed = None
+        raise RequestFailed(
+            f"HTTP {e.code} {e.reason} on {method} {path}\n  {body[:500]}",
+            kind="http_error", status=e.code, reason=str(e.reason),
+            body_text=body, body_json=parsed, method=method, path=path)
     except urllib.error.URLError as e:
-        raise SystemExit(
+        raise RequestFailed(
             f"Can't reach {_server_url()}: {e.reason}\n"
-            f"  Is the Bulk Downloader running? Set BD_URL if it's not on the default port.")
+            f"  Is the Bulk Downloader running? Set BD_URL if it's not on the default port.",
+            kind="unreachable", reason=str(e.reason), method=method, path=path)
     if stream: return resp
     raw = resp.read().decode("utf-8", "replace")
     if not raw: return {}
@@ -906,11 +947,52 @@ def cmd_search_all(args):
 
 # ── v3.53 (Phase 6): power-user commands for the Phase 1-5 surfaces ─────
 
+def _health_refusal_envelope(exc):
+    """Render a RequestFailed as the JSON `health --json` promised.
+
+    The server's own structured body becomes the envelope, so a consumer
+    reading `.version` or `.degraded` finds them exactly where a 200 puts
+    them, and `bdctl` names the transport outcome alongside. A 503 carrying
+    `degraded: credential_vault_locked`, a 500 carrying some other error, and
+    a server that never answered are three different diagnoses and stay three
+    different objects (CLAUDE.md A7).
+    """
+    envelope = dict(exc.body_json) if isinstance(exc.body_json, dict) else {}
+    envelope.setdefault("ok", False)
+    detail = {
+        "error_kind": exc.kind,
+        "http_status": exc.status,
+        "http_reason": exc.reason,
+        "server_url": _server_url(),
+        "path": exc.path,
+    }
+    if not isinstance(exc.body_json, dict) and exc.body_text:
+        detail["raw_body"] = exc.body_text[:2000]
+    envelope["bdctl"] = detail
+    return envelope
+
+
 def cmd_health(args):
     """v3.53: hit the /api/health probe (added in v3.47.8). Exit code
     0 if healthy, 1 if degraded — usable in a cron heartbeat or a
-    monitoring script."""
-    r = _request("GET", "/api/health")
+    monitoring script.
+
+    ROW 467: a non-200 is an ANSWER, not an absence. /api/health returns 503
+    with a full body whenever the probe is degraded -- a locked vault, a db
+    error, a runner status failure -- and `--json` used to print nothing at
+    all in that case. The human path is unchanged: it still fails with the
+    same diagnostic and the same nonzero exit.
+    """
+    try:
+        r = _request("GET", "/api/health")
+    except RequestFailed as exc:
+        if not getattr(args, "json", False):
+            raise                      # human path: unchanged diagnostic+exit
+        print(json.dumps(_health_refusal_envelope(exc), indent=2, default=str))
+        # Loud as well as structured: the operator's own words on stderr, and
+        # a nonzero exit, so a refusal never reads as an empty success.
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
     if not isinstance(r, dict):
         print("health: unexpected response", file=sys.stderr)
         sys.exit(2)

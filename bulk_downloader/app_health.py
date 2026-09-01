@@ -73,6 +73,22 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
 
     Cached per install dir: the deployed commit changes only on a deploy, and
     a deploy restarts the service, which clears this.
+
+    ROW 521 -- ONLY A SUCCESSFUL MEASUREMENT IS CACHED. That justification is
+    a property of a measurement that WORKED, and the write below used to be
+    unconditional, so the failure value (sha None, source unknown) was
+    retained exactly like a success. Two disjoint routes reach it: an
+    exception from the git subprocess (git absent, the timeout elapsing under
+    deploy load, an OSError from fork), and a nonzero returncode that never
+    raises at all (a work tree git refuses -- dubious ownership exits 128).
+    ``api_health`` attaches the block only when a sha was obtained, so one
+    transient failure made /api/health answer 200 ok true with NO build key --
+    indistinguishable from a pre-B1.3 build -- until a restart, the very event
+    that created the state. A measurement that failed is not evidence.
+
+    The re-measurement cost is bounded and deliberate: a genuinely non-build
+    install dir pays one refused ``git rev-parse`` per health request rather
+    than caching an answer it never obtained.
     """
     root = str(install_dir)
     cached = _BUILD_IDENTITY_CACHE.get(root)
@@ -107,7 +123,8 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
         except Exception:  # why: unreadable/malformed file is not evidence; stay unknown
             pass
 
-    _BUILD_IDENTITY_CACHE[root] = result
+    if result["source"] != "unknown":
+        _BUILD_IDENTITY_CACHE[root] = result
     return result
 
 
