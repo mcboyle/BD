@@ -72,6 +72,21 @@ _DEFAULT_SECRETS_NAME = "secrets.json"
 _DEFAULT_META_NAME = "secrets_meta.json"
 
 
+def _path_entry_exists(path: Path) -> bool:
+    """Whether ``path`` names a directory entry, including a dangling link.
+
+    ``Path.exists()`` follows the target, so it answers False for a dangling
+    symlink even though an atomic replace would overwrite that occupied path.
+    Use lstat and suppress only genuine absence; permission and I/O failures
+    remain observable to the caller's error boundary.
+    """
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def _resolve_vault_paths() -> tuple[Path, Path]:
     """Return (secrets_file, meta_file), honouring the capture-vault override.
 
@@ -324,8 +339,8 @@ class WindowsCredentialBackend(_BackendBase):
                 pass
 
     def _load_index(self) -> list[str]:
-        if not SECRETS_META_FILE.exists(): return []
         try:
+            if not SECRETS_META_FILE.exists(): return []
             data = json.loads(SECRETS_META_FILE.read_text(encoding="utf-8"))
             return list(data.get("keys", []))
         except Exception:
@@ -530,7 +545,7 @@ class MasterPasswordBackend(_BackendBase):
         # plaintext store, and the next set() would have written secrets in
         # clear beside the vault it could not read.
         try:
-            present = SECRETS_FILE.exists()
+            present = _path_entry_exists(SECRETS_FILE)
         except OSError as e:
             self._load_error = f"{type(e).__name__}: {e}"
             sys.stderr.write(
@@ -620,6 +635,17 @@ class MasterPasswordBackend(_BackendBase):
             return (-1, -1, -1)
         return (st.st_dev, st.st_ino, st.st_size)
 
+    def _record_probe_failure_locked(
+        self,
+        operation: str,
+        detail: str,
+    ) -> None:
+        """Latch a vault probe refusal before publishing it to any reader."""
+        self._key = None
+        if self._load_error is None:
+            self._load_error = detail
+        self._refuse_if_unreadable_locked(operation)
+
     def _refuse_if_vault_changed_locked(self, operation: str) -> None:
         """Rows 537 and 538. A write must target the vault it READ.
 
@@ -647,20 +673,26 @@ class MasterPasswordBackend(_BackendBase):
             # returning False on a failed write.
             return
         if now == (-1, -1, -1):
-            raise SecretsUnreadableError(
+            self._record_probe_failure_locked(
+                operation,
                 f"the vault at {SECRETS_FILE} cannot be measured, so this "
                 f"{operation} cannot prove it would write over the vault this "
-                "process read. Fix the permissions and RESTART the service.")
+                "process read. Fix the permissions and RESTART the service.",
+            )
         if self._loaded_identity is None:
-            raise SecretsUnreadableError(
+            self._record_probe_failure_locked(
+                operation,
                 f"a vault appeared at {SECRETS_FILE} after this process read "
                 f"the path as empty, so this {operation} would overwrite it. "
-                "RESTART the service so the vault is read, then retry.")
-        raise SecretsUnreadableError(
+                "RESTART the service so the vault is read, then retry.",
+            )
+        self._record_probe_failure_locked(
+            operation,
             f"the vault at {SECRETS_FILE} is not the file this process read -- "
             f"it was replaced, restored or rewritten -- so this {operation} "
             "would serialise a stale snapshot over it. RESTART the service so "
-            "the current vault is read, then retry.")
+            "the current vault is read, then retry.",
+        )
 
     def _save(self) -> bool:
         """Atomically persist the vault to disk. Returns True on success,
@@ -1138,21 +1170,24 @@ class MasterPasswordBackend(_BackendBase):
             # permission to initialize (A2).
             if self._constructed_over_absent_file:
                 try:
-                    reappeared = SECRETS_FILE.exists()
+                    reappeared = _path_entry_exists(SECRETS_FILE)
                 except OSError as exc:
-                    raise SecretsUnreadableError(
+                    self._record_probe_failure_locked(
+                        "unlock",
                         f"the vault path {SECRETS_FILE} cannot be probed "
                         f"({type(exc).__name__}: {exc}), so this unlock cannot "
                         "prove it would not overwrite a vault. Fix the "
-                        "permissions and RESTART the service."
-                    ) from exc
+                        "permissions and RESTART the service.",
+                    )
                 if reappeared:
-                    raise SecretsUnreadableError(
+                    self._record_probe_failure_locked(
+                        "unlock",
                         f"a vault appeared at {SECRETS_FILE} after this "
                         "process read the path as empty, so initializing here "
                         "would overwrite it under a password nobody had to "
                         "know. RESTART the service so the vault is read, then "
-                        "unlock it with its own password.")
+                        "unlock it with its own password.",
+                    )
             self._persist_missing_commitments(
                 key,
                 add_verifier=True,
@@ -1957,6 +1992,15 @@ def resolve_password_state(value: str | None) -> tuple[str | None, str]:
             return None, "unknown"
 
         if not unlocked:
+            try:
+                store_state_fn = getattr(backend, "store_state", None)
+                if (
+                    callable(store_state_fn)
+                    and store_state_fn() == "unreadable"
+                ):
+                    return None, "unknown"
+            except Exception:
+                return None, "unknown"
             try:
                 initialized_fn = getattr(backend, "is_initialized", None)
                 initialized = (

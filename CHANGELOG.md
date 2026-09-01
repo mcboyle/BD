@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1398 - a vault probe is recorded once and every reader sees it
+
+Rows 548, 549, 550, 576 and 577 of the 2026-09-01 audit. One contract: the
+vault probe's result is recorded once, and every reader, status endpoint and
+existence test reports that same state.
+
+- 548. The re-probe recorded nothing, so store state was not observable and a
+  refusal was raised without ever being latched. `_record_probe_failure_locked`
+  now clears the key and latches the detail BEFORE publishing the refusal to any
+  reader, so the three raise sites can no longer disagree about what the store
+  knows. 549 (a write refusal every read ignored) and 550 (/api/secrets/status
+  and /api/secrets/unlock answering opposite things over the same bytes) are its
+  declared duplicates and close with it.
+- 576, 577. `Path.exists()` FOLLOWS THE TARGET, so it answers False for a
+  dangling symlink even though an atomic replace would overwrite that occupied
+  path -- an existence test that disagrees with the write it is guarding. The
+  new `_path_entry_exists` uses lstat and suppresses ONLY genuine absence;
+  permission and I/O failures stay observable to the caller's error boundary
+  rather than being flattened into "not there".
+- The secrets store has now been changed three times in two days (v3.66.1384,
+  v3.66.1392 and this cut) and the 2026-09-01 refutation found the earlier two
+  reproducing defects they were written to prevent, so this cut was reviewed
+  against that specific history rather than on its own terms.
+
 ## v3.66.1397 - a runner decision carries its whole result
 
 Rows 544, 545, 559 and 562 of the 2026-09-01 audit. All four were re-derived
