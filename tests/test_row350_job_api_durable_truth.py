@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from contextlib import contextmanager
+import locale
 import os
 from pathlib import Path
 import signal
@@ -588,6 +589,238 @@ def test_dev_start_holds_identity_through_cancel_and_worker_settlement(
             os.close(identity_fd)
         except OSError:
             pass
+        with subject._runs_lock:
+            subject._runs.clear()
+
+
+def _await_dev_run(subject, run_id: str, predicate, *, seconds: float = 10.0):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        status = subject.run_status(run_id)
+        if status is not None and predicate(status):
+            return status
+        threading.Event().wait(0.01)
+    status = subject.run_status(run_id)
+    raise AssertionError(f"dev run did not reach the required state: {status!r}")
+
+
+def _same_linux_process_is_alive(pid: int, start: str) -> bool:
+    try:
+        return _linux_process_start(pid) == start
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+
+def _path_has_exact_text(path: Path, expected: str) -> bool:
+    try:
+        return path.read_text(encoding="ascii") == expected
+    except FileNotFoundError:
+        return False
+
+
+def test_dev_run_arbitrary_output_cannot_orphan_its_owned_child(
+    monkeypatch, tmp_path
+):
+    """An ambient ASCII locale must not make the output reader abandon pytest."""
+    from bulk_downloader import dev_tools as subject
+
+    marker = tmp_path / "bad-byte-written"
+    release = tmp_path / "release-bad-byte"
+    child = (
+        "import os, pathlib, sys, time\n"
+        "marker, release = map(pathlib.Path, sys.argv[1:])\n"
+        "marker.write_text('bad-byte-writes=1\\n', encoding='ascii')\n"
+        "while not release.exists(): time.sleep(0.01)\n"
+        "os.write(1, b'\\xff\\n')\n"
+        "for _ in range(64): os.write(1, b'x' * 4096)\n"
+        "raise SystemExit(23)\n"
+    )
+    monkeypatch.setattr(
+        subject,
+        "_build_cmd",
+        lambda *_args: [sys.executable, "-c", child, str(marker), str(release)],
+    )
+    real_popen = subject.subprocess.Popen
+    popen_calls = []
+
+    def popen_under_ascii_locale(*args, **kwargs):
+        previous = locale.setlocale(locale.LC_CTYPE)
+        try:
+            locale.setlocale(locale.LC_CTYPE, "C")
+            process = real_popen(*args, **kwargs)
+        finally:
+            locale.setlocale(locale.LC_CTYPE, previous)
+        popen_calls.append(process)
+        return process
+
+    monkeypatch.setattr(subject.subprocess, "Popen", popen_under_ascii_locale)
+    with subject._runs_lock:
+        subject._runs.clear()
+    pid = -1
+    process = None
+    try:
+        run_id = subject.start_run("tests/row445.py")["run_id"]
+        _await_dev_run(
+            subject,
+            run_id,
+            lambda status: status["pid"] is not None
+            and _path_has_exact_text(marker, "bad-byte-writes=1\n"),
+        )
+        assert marker.read_text(encoding="ascii") == "bad-byte-writes=1\n"
+        assert len(popen_calls) == 1, "the forced-locale Popen seam did not fire once"
+        process = popen_calls[0]
+        pid = process.pid
+        start = _linux_process_start(pid)
+        assert _same_linux_process_is_alive(pid, start), (
+            "the child did not exist before the injected byte was released"
+        )
+
+        release.write_text("release\n", encoding="ascii")
+        status = _await_dev_run(
+            subject, run_id, lambda current: current["state"] != "running"
+        )
+        survivors = int(_same_linux_process_is_alive(pid, start))
+        decode_failures = status["output"].count("UnicodeDecodeError")
+        assert survivors == 0, (
+            "DEV-RUN CHILD SURVIVED OUTPUT DECODER FAILURE: "
+            f"pid={pid} survivors={survivors} state={status['state']} "
+            f"returncode={status['returncode']} "
+            f"UnicodeDecodeError_count={decode_failures}"
+        )
+        assert decode_failures == 0, status["output"]
+        assert "\ufffd" in status["output"], status["output"]
+        assert status["state"] == "failed"
+        assert status["returncode"] == 23
+    finally:
+        if process is not None and pid > 0 and process.poll() is None:
+            os.killpg(pid, signal.SIGKILL)
+            process.wait(timeout=5)
+        with subject._runs_lock:
+            subject._runs.clear()
+
+
+def test_dev_run_genuine_reader_failure_reaps_before_terminal_verdict(
+    monkeypatch, tmp_path
+):
+    """The encoding fix must not leave a different reader exception fail-open."""
+    from bulk_downloader import dev_tools as subject
+
+    marker = tmp_path / "reader-child-live"
+    child = (
+        "import pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1]).write_text('live=1\\n', encoding='ascii')\n"
+        "time.sleep(300)\n"
+    )
+    monkeypatch.setattr(
+        subject,
+        "_build_cmd",
+        lambda *_args: [sys.executable, "-c", child, str(marker)],
+    )
+    real_popen = subject.subprocess.Popen
+    injected = {"count": 0, "pid": -1, "start": None}
+    handles = []
+
+    class FailingReader:
+        def __init__(self, stream, process):
+            self._stream = stream
+            self._process = process
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            deadline = time.monotonic() + 5
+            while (not _path_has_exact_text(marker, "live=1\n")
+                   and time.monotonic() < deadline):
+                threading.Event().wait(0.01)
+            assert marker.read_text(encoding="ascii") == "live=1\n"
+            injected["pid"] = self._process.pid
+            injected["start"] = _linux_process_start(self._process.pid)
+            assert _same_linux_process_is_alive(
+                self._process.pid, injected["start"]
+            )
+            injected["count"] += 1
+            raise RuntimeError("injected reader death")
+
+        def close(self):
+            self._stream.close()
+
+    def popen_with_failing_reader(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        handles.append(process.stdout)
+        process.stdout = FailingReader(process.stdout, process)
+        return process
+
+    monkeypatch.setattr(subject.subprocess, "Popen", popen_with_failing_reader)
+    with subject._runs_lock:
+        subject._runs.clear()
+    try:
+        run_id = subject.start_run("tests/row445-reader.py")["run_id"]
+        status = _await_dev_run(
+            subject, run_id, lambda current: current["state"] != "running"
+        )
+        assert injected["count"] == 1, "the reader-death injection did not fire once"
+        assert status["state"] == "error"
+        assert "RuntimeError: injected reader death" in status["output"]
+        assert status["cleanup_state"] == "reaped"
+        assert not _same_linux_process_is_alive(
+            injected["pid"], injected["start"]
+        ), "worker error became terminal before its exact child was reaped"
+    finally:
+        for handle in handles:
+            handle.close()
+        pid = injected["pid"]
+        if pid > 0 and injected["start"] is not None \
+                and _same_linux_process_is_alive(pid, injected["start"]):
+            os.killpg(pid, signal.SIGKILL)
+        with subject._runs_lock:
+            subject._runs.clear()
+
+
+def test_dev_run_clean_exit_keeps_the_childs_true_returncode(
+    monkeypatch, tmp_path
+):
+    from bulk_downloader import dev_tools as subject
+
+    marker = tmp_path / "clean-child-live"
+    release = tmp_path / "release-clean-child"
+    child = (
+        "import pathlib, sys, time\n"
+        "marker, release = map(pathlib.Path, sys.argv[1:])\n"
+        "marker.write_text('clean=1\\n', encoding='ascii')\n"
+        "while not release.exists(): time.sleep(0.01)\n"
+        "print('clean output')\n"
+        "raise SystemExit(17)\n"
+    )
+    monkeypatch.setattr(
+        subject,
+        "_build_cmd",
+        lambda *_args: [sys.executable, "-c", child, str(marker), str(release)],
+    )
+    with subject._runs_lock:
+        subject._runs.clear()
+    try:
+        run_id = subject.start_run("tests/row445-clean.py")["run_id"]
+        status = _await_dev_run(
+            subject,
+            run_id,
+            lambda current: current["pid"] is not None
+            and _path_has_exact_text(marker, "clean=1\n"),
+        )
+        pid = status["pid"]
+        start = _linux_process_start(pid)
+        assert marker.read_text(encoding="ascii") == "clean=1\n"
+        assert _same_linux_process_is_alive(pid, start)
+        release.write_text("release\n", encoding="ascii")
+        status = _await_dev_run(
+            subject, run_id, lambda current: current["state"] != "running"
+        )
+        assert status["state"] == "failed"
+        assert status["returncode"] == 17
+        assert "clean output" in status["output"]
+        assert "[worker error]" not in status["output"]
+        assert not _same_linux_process_is_alive(pid, start)
+    finally:
         with subject._runs_lock:
             subject._runs.clear()
 

@@ -7,6 +7,7 @@ Synthetic zips/trees only — no real artifacts. Each tool's pass AND fail
 Zero-arg test functions; repo root from __file__ (run_tests.py convention).
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,20 @@ def _run_synthetic_with_custom_runner(tmp_path: Path, source: str):
         encoding="utf-8",
         timeout=30,
     )
+
+
+def _custom_runner_totals(result):
+    match = re.search(
+        r"Total:\s*(\d+)\s*\|\s*Passed:\s*(\d+)\s*\|"
+        r"\s*Failed:\s*(\d+)\s*\|\s*Skipped:\s*(\d+)",
+        result.stdout,
+    )
+    assert match is not None, (
+        "UNKNOWN: fallback-runner totals were absent or malformed:\n"
+        + result.stdout
+        + result.stderr
+    )
+    return tuple(int(value) for value in match.groups())
 
 
 def test_custom_runner_keeps_a_single_list_parameter_as_one_value(tmp_path):
@@ -110,6 +125,91 @@ def test_second_starts_clean():
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Total: 2 | Passed: 2 | Failed: 0" in result.stdout
+
+
+def test_custom_runner_pairs_module_teardown_function_with_setup(tmp_path):
+    teardown_log = tmp_path / "teardown.log"
+    source = f"""
+from pathlib import Path
+
+state = []
+teardown_log = Path({str(teardown_log)!r})
+
+def setup_function(function):
+    assert function.__name__ in {{"test_a", "test_b"}}
+    state.append("s")
+
+def teardown_function(function):
+    assert function.__name__ in {{"test_a", "test_b"}}
+    state.append("t")
+    with teardown_log.open("a", encoding="ascii") as stream:
+        stream.write("t\\n")
+
+def test_a():
+    assert state == ["s"]
+
+def test_b():
+    assert state == ["s", "t", "s"], (
+        f"observed={{state!r}} setups={{state.count('s')}} "
+        f"teardowns={{state.count('t')}}"
+    )
+"""
+    result = _run_synthetic_with_custom_runner(tmp_path, source)
+    totals = _custom_runner_totals(result)
+    assert totals[0] == 2, "the synthetic module did not collect exactly two tests"
+    assert "PASS  test_a" in result.stdout, (
+        "test_a did not prove module import and the setup-function precondition"
+    )
+    teardown_count = (
+        teardown_log.read_text(encoding="ascii").splitlines().count("t")
+        if teardown_log.is_file()
+        else 0
+    )
+    assert totals == (2, 2, 0, 0) and teardown_count == 2, (
+        "FALLBACK RUNNER SKIPPED MODULE TEARDOWN: "
+        f"totals={totals} teardown_count={teardown_count}\n{result.stdout}"
+    )
+
+    teardown_log.unlink()
+    env = os.environ.copy()
+    env.pop("BD_INSTALL_DIR", None)
+    real_pytest = subprocess.run(
+        [sys.executable, "-m", "pytest",
+         str(tmp_path / "test_synthetic_runner_case.py"), "-q"],
+        cwd=_REPO,
+        env=env,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert real_pytest.returncode == 0, real_pytest.stdout + real_pytest.stderr
+    assert "2 passed" in real_pytest.stdout
+    assert teardown_log.read_text(encoding="ascii").splitlines() == ["t", "t"]
+
+
+def test_custom_runner_keeps_raising_module_teardown_best_effort(tmp_path):
+    teardown_log = tmp_path / "raising-teardown.log"
+    result = _run_synthetic_with_custom_runner(
+        tmp_path,
+        f"""
+from pathlib import Path
+
+teardown_log = Path({str(teardown_log)!r})
+
+def teardown_function(function=None):
+    with teardown_log.open("a", encoding="ascii") as stream:
+        stream.write("fired\\n")
+    raise RuntimeError("synthetic teardown failure")
+
+def test_passes():
+    assert True
+""",
+    )
+    totals = _custom_runner_totals(result)
+    assert totals[0] == 1, "the raising-teardown control collected no test"
+    assert teardown_log.read_text(encoding="ascii").splitlines() == ["fired"]
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert totals == (1, 1, 0, 0)
 
 
 # ── scan_version_pins ──────────────────────────────────────────────

@@ -200,6 +200,9 @@ _MEASURED_S = {
     "_w1_wait_for_path/default":                                                 (3.1513, 5.0),
     "fixture_marker_waits_for_content/fifo":                                     (0.1000, 0),
     "fixture_marker_waits_for_content/wait":                                     (0.1000, 0),
+    "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait":                (0.0035, 5),
+    "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait-2":              (0.0035, 5),
+    "hunt_fixture_does_not_report_a_self_exited_child_as_leaked/wait":            (0.1000, 5),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink":  (0.0054, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink-2":(0.0003, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait":      (0.0033, 5),
@@ -496,6 +499,87 @@ def _w1_budget_boundary(monkeypatch):
                               lambda a, k: k.get("timeout",
                                                  a[2] if len(a) > 2 else None)))
     yield
+
+
+def _w1_exact_receipt_is_present(receipt):
+    try:
+        return _w1_proc_receipt(receipt[0]) == receipt
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+
+def test_hunt_fixture_reaps_the_exact_process_group_it_spawned():
+    """RED for row 468: fixture teardown used to abandon this live group."""
+    inner_patch = pytest.MonkeyPatch()
+    boundary = _w1_budget_boundary.__wrapped__(inner_patch)
+    cleanup = next(boundary)
+    proc = subprocess.Popen(
+        [sys.executable, "-c",
+         "import time; print('READY', flush=True); time.sleep(300)"],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    receipt = None
+    try:
+        assert proc.stdout.readline() == "READY\n", (
+            "the abandoned-child fixture never reached its live marker"
+        )
+        receipt = _w1_proc_receipt(proc.pid)
+        assert receipt[1] == proc.pid, (
+            "the fixture did not create the independent process group it claims"
+        )
+        assert _w1_exact_receipt_is_present(receipt), (
+            "the exact child did not exist before fixture teardown"
+        )
+
+        next(boundary, None)
+        survivors = int(_w1_exact_receipt_is_present(receipt))
+        assert survivors == 0, (
+            "HUNT FIXTURE ABANDONED ITS LIVE CHILD: "
+            f"pid={proc.pid} survivors={survivors} reaped=0"
+        )
+        assert cleanup["tracked"] == 1
+        assert cleanup["reaped"] == 1, (
+            "fixture teardown did not report the exact nonzero reap count"
+        )
+        assert cleanup["unknown"] == 0
+    finally:
+        if receipt is not None and _w1_exact_receipt_is_present(receipt):
+            os.killpg(proc.pid, signal.SIGKILL)
+        try:
+            proc.wait(timeout=_w1_budget_s(
+                "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait"))
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=_w1_budget_s(
+                "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait-2"))
+        inner_patch.undo()
+
+
+def test_hunt_fixture_does_not_report_a_self_exited_child_as_leaked():
+    """Negative control: settled children stay out of the reaped denominator."""
+    inner_patch = pytest.MonkeyPatch()
+    boundary = _w1_budget_boundary.__wrapped__(inner_patch)
+    cleanup = next(boundary)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        start_new_session=True,
+    )
+    try:
+        assert proc.wait(timeout=_w1_budget_s(
+            "hunt_fixture_does_not_report_a_self_exited_child_as_leaked/wait")) == 0
+        assert proc.returncode == 0, "the negative-control child did not self-exit"
+        assert not pathlib.Path("/proc", str(proc.pid), "stat").exists()
+        next(boundary, None)
+        assert cleanup["tracked"] == 1
+        assert cleanup["reaped"] == 0
+        assert cleanup["settled"] == 1
+        assert cleanup["unknown"] == 0
+    finally:
+        inner_patch.undo()
+
+
 HUNT = REPO / "toolchain" / "bin" / "bd-wedge-hunt"
 
 
