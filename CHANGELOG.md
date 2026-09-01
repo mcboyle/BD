@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1418 - no candidate is dropped by a predicate that measured the wrong thing
+
+Rows 484, 486, 499, 508 and 524. Five ways the download-candidate admission
+path discarded a real link, or kept a fake one, on evidence it had not taken.
+
+- 484. An ancestor class token was treated as selector authority, so a chrome
+  container waived per-element evidence for every anchor inside it -- five of
+  five, in the measured case. Authority now comes from the reviewed selectors
+  themselves, and an unreviewed control still has to earn its place.
+- 486. A taught row that held more than one control, or a hidden one, was
+  DELETED rather than promoted, so the operator's own teaching was discarded
+  silently. It is now promoted, and a genuine drop is counted rather than lost.
+- 499. A card header nested inside an article was classified as site chrome, so
+  the only control on the card was deleted with it. Document-level chrome stays
+  chrome; a header inside content does not.
+- 508. A taught anchor was refused on bytes the operator never saw. The
+  non-video predicate mixed one visible-word alternative with six URL-shape
+  alternatives, so a URL shape could veto a label a human had approved. The
+  whole predicate now judges the visible label and a shape-only regex judges the
+  URL; an unreadable partition falls back to the previous behaviour.
+- 524. A policy helper existed that nothing executed -- an unexecuted branch in
+  the admission path. The gate that found it now names any orphan exactly.
+
+Drops are counted per distinct candidate and emitted once with an exact nonzero
+count, so a filtered candidate is visible instead of silent.
+
 ## v3.66.1417 - the verification lane names the state it is in
 
 Rows 415, 416, 464, 472 and 527. A lane that cannot distinguish its own states
