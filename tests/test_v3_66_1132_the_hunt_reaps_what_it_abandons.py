@@ -2188,6 +2188,7 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      after_terminal_owner_ready_barrier=None,
                      mutate_terminal_owner_ready=False,
                      handoff_deadline_probe=None,
+                     handoff_deadline_complete=None,
                      before_release_write_barrier=None,
                      after_release_pipe_probe=None,
                      owned_group_census_override=None,
@@ -2504,12 +2505,17 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
             shlex.quote(str(handoff_deadline_probe)),
             1,
         )
-        body = body.replace(
-            after,
+        post_probe = (
             "builtin printf 'post=%s\\n' \"$W1_ACTIVE_DEADLINE_US\" >> "
-            + shlex.quote(str(handoff_deadline_probe)) + "\n" + after,
-            1,
-        )
+            + shlex.quote(str(handoff_deadline_probe)))
+        if handoff_deadline_complete is not None:
+            post_probe += (
+                "\nbuiltin printf 'handoff-deadlines-complete\\n' > "
+                + shlex.quote(str(handoff_deadline_complete)))
+        body = body.replace(after, post_probe + "\n" + after, 1)
+    else:
+        assert handoff_deadline_complete is None, (
+            "a deadline completion marker requires deadline snapshots")
     if before_release_write_barrier is not None:
         entered, release = before_release_write_barrier
         anchor = 'registration_cancel_checkpoint "pre-release"'
