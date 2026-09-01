@@ -39,6 +39,22 @@ treats as job identity), so:
     claim and resumes from its own ``.part``, which is the behaviour that must
     not be traded away to fix the collision.
 
+A CLAIM IS PUBLISHED IN TWO STEPS BECAUSE IT ANSWERS TWO QUESTIONS. Naming an
+owner is not the same as accounting for the bytes at the path that owner names,
+and the gap between them is where this module has failed repeatedly. So the
+claim is published UNPROVEN, the pre-existing bytes are measured and set aside,
+and only then is the claim rewritten as proven. A reclaim reads that field:
+proven means every byte at the staging path was written under this claim and
+the interrupted download resumes from it untouched; unproven means the mint
+that published it never finished, so the bytes beneath it are of no established
+provenance and are measured exactly as a fresh mint would measure them.
+
+That is what closes the crash window. A SIGKILL or a deploy restart between
+publishing the claim and moving the bytes raises no exception, so no unwind can
+see it; what it leaves on disk is a claim naming THIS job over bytes nobody
+measured, and an idempotent reclaim used to hand that straight back to the
+transport as a resume offset.
+
 The mechanism is deliberately filesystem-level. Colliding writers can be
 different threads, different ``SiteRunner`` instances, or different processes
 (a deploy restart mid-download), so an in-process ``threading.Lock`` cannot be
@@ -68,7 +84,20 @@ from pathlib import Path
 STAGING_SUFFIX = ".part"
 OWNER_SUFFIX = ".owner"
 
-OWNER_FORMAT_VERSION = 1
+# Version 2 adds OWNER_PROOF_KEY. A v1 record has no proof field because v1
+# minted and set the bytes aside in ONE synchronous call, so reaching the
+# reclaim branch at all meant the mint had completed -- see
+# ``_read_owner_record`` for why that makes key-absent-on-v1 equal to proven,
+# and why the same absence on a v2 record is UNKNOWN instead. Older code
+# reading a v2 record still finds ``v`` and ``job`` where it expects them, so
+# the format is readable in both directions across a rolling deploy.
+OWNER_FORMAT_VERSION = 2
+
+# The claim's second proof. ``job`` says WHO owns the staging path; this says
+# whether the bytes AT that path have been accounted for by the mint that
+# published the claim. The two are separate questions and a claim that answers
+# only the first is exactly the state a crashed mint leaves behind.
+OWNER_PROOF_KEY = "proven"
 
 # Mirrors detect.safe_dest's range: X, X_1 .. X_999, then a random suffix.
 MAX_NUMBERED_CANDIDATES = 1000
@@ -136,8 +165,8 @@ def owner_path_for(staging_path) -> Path:
     return Path(str(staging_path) + OWNER_SUFFIX)
 
 
-def _read_owner_identity(owner_path: Path) -> str:
-    """The identity recorded in an existing claim, or UNKNOWN.
+def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
+    """``(identity, proven)`` for an existing claim, or UNKNOWN.
 
     An EMPTY claim means "another worker is publishing this right now" rather
     than "this is corrupt", and it is only reachable on the no-hardlink
@@ -181,7 +210,53 @@ def _read_owner_identity(owner_path: Path) -> str:
         raise StagingUnavailable(
             f"staging claim {owner_path} carries a malformed job identity; "
             "ownership is UNKNOWN. Remove that file if it is stale.")
-    return identity
+    return identity, _read_proof(owner_path, record)
+
+
+def _read_proof(owner_path: Path, record) -> bool:
+    """Whether ``record`` says the bytes under its claim were accounted for.
+
+    THE MIGRATION IS THE DANGEROUS CASE, and it is dangerous in the direction
+    this whole module exists to prevent. Every download in flight at the moment
+    this version deploys holds a v1 claim, which has no proof field. Reading
+    that absence as "unproven" would make the first retry of each of them set
+    aside its OWN multi-gigabyte ``.part`` and restart at byte 0 -- row 541's
+    consequence, manufactured fleet-wide by the fix written to close row 535.
+    A v1 mint set the bytes aside inside the same synchronous call that
+    published the claim, so a v1 record that exists at all is a record whose
+    mint completed: key-absent on a pre-proof version IS proven.
+
+    The same absence on a record that DECLARES this version is a different
+    fact. Nothing writes that shape, so it is malformed, and a malformed claim
+    is UNKNOWN rather than permission (A2). The version field is the
+    discriminator that keeps those two absences apart; without it the
+    grandfather clause would be an unbounded fail-open.
+    """
+    if OWNER_PROOF_KEY in record:
+        proof = record[OWNER_PROOF_KEY]
+        if not isinstance(proof, bool):
+            raise StagingUnavailable(
+                f"staging claim {owner_path} carries a malformed {OWNER_PROOF_KEY!r} "
+                f"proof field ({type(proof).__name__}); whether the bytes under "
+                "this claim were ever accounted for is UNKNOWN. Remove that "
+                "file if it is stale.")
+        return proof
+    version = record.get("v")
+    if isinstance(version, int) and version < OWNER_FORMAT_VERSION:
+        return True
+    raise StagingUnavailable(
+        f"staging claim {owner_path} declares format v{version!r} but carries "
+        f"no {OWNER_PROOF_KEY!r} proof field, so whether the bytes under it "
+        "were ever accounted for is UNKNOWN. Remove that file if it is stale.")
+
+
+def _read_owner_identity(owner_path: Path) -> str:
+    """The identity recorded in an existing claim, or UNKNOWN.
+
+    The identity half of ``_read_owner_record``, kept as its own name because
+    ``release`` asks only that question.
+    """
+    return _read_owner_record(owner_path)[0]
 
 
 def _write_complete(path: Path, payload: bytes) -> None:
@@ -208,10 +283,16 @@ def _create_owner(owner_path: Path, identity: str) -> bool:
     directory might sit on (plain CIFS, FAT). There the code falls back to
     ``O_CREAT|O_EXCL`` plus a write, which is still exclusive -- only the
     publish is no longer instantaneous, which is what the empty-claim wait in
-    ``_read_owner_identity`` covers.
+    ``_read_owner_record`` covers.
+
+    The published claim is UNPROVEN: it names an owner, and it says so plainly,
+    but the bytes at the staging path it guards have not been measured yet --
+    ``claim`` does that next and only then calls ``_prove_owner``. Publishing
+    the proof here instead would be a claim asserting something no code had
+    checked, which is the shape of every defect in this file's history.
     """
     payload = json.dumps(
-        {"v": OWNER_FORMAT_VERSION, "job": identity},
+        {"v": OWNER_FORMAT_VERSION, "job": identity, OWNER_PROOF_KEY: False},
         sort_keys=True).encode("utf-8")
     tmp = owner_path.parent / (
         f"{owner_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
@@ -251,6 +332,78 @@ def _create_owner(owner_path: Path, identity: str) -> bool:
             os.unlink(str(tmp))
         except OSError:
             pass
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Make a rename in ``directory`` durable. Best-effort, and here is why.
+
+    ``_write_complete`` fsyncs the claim's CONTENTS; the rename that publishes
+    it is a directory operation and survives a power loss only once the
+    directory entry is committed. Without this, a machine that lost power
+    seconds after a proof was written would come back with the claim reading
+    UNPROVEN over bytes the transport had since streamed into it -- and the
+    reclaim would set the job's own multi-gigabyte partial aside as
+    unaccounted-for. That is row 541's consequence reached through the fix for
+    row 535, which is exactly the shape A7 says to go looking for.
+
+    Best-effort rather than fatal because opening a directory for fsync is not
+    portable -- Windows refuses it outright, and some network filesystems do
+    too -- and a download must not be refused on a host whose filesystem simply
+    does not offer the call. The residual window is a power loss inside the
+    same instant, and it fails toward a preserved, operator-visible
+    ``.orphaned-*.part`` rather than toward a splice.
+    """
+    try:
+        fd = os.open(str(directory), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _prove_owner(owner_path: Path, identity: str) -> None:
+    """Record that the bytes this claim names have been accounted for.
+
+    Called only once ``_set_aside_unowned_bytes`` has returned, i.e. once the
+    staging path is provably absent or empty. Everything written there
+    afterwards was written under this claim, so a later reclaim by the same job
+    may resume from it without measuring it again -- which is the resume
+    behaviour this module refuses to trade away.
+
+    Published with ``os.replace`` onto the existing claim, which is atomic: a
+    racing reader sees either the complete unproven record or the complete
+    proven one, never a half-written file. That matters for the same reason the
+    ``link``-publish in ``_create_owner`` does -- a reader forced to call a
+    torn claim UNKNOWN is this module inflicting its own defect on itself.
+
+    A failure here is UNKNOWN and is raised. The caller must not return a
+    staging path under a claim that still says unproven: the transport would
+    stream gigabytes into it and the NEXT reclaim, reading unproven, would set
+    those bytes aside as unaccounted-for -- destroying the job's own work.
+    """
+    payload = json.dumps(
+        {"v": OWNER_FORMAT_VERSION, "job": identity, OWNER_PROOF_KEY: True},
+        sort_keys=True).encode("utf-8")
+    tmp = owner_path.parent / (
+        f"{owner_path.name}.{os.getpid()}.{uuid.uuid4().hex}.proof")
+    try:
+        _write_complete(tmp, payload)
+        os.replace(str(tmp), str(owner_path))
+        _fsync_dir(owner_path.parent)
+    except OSError as exc:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise StagingUnavailable(
+            f"the staging claim {owner_path} cannot record that its bytes "
+            f"were accounted for ({type(exc).__name__}: {exc}); whether this "
+            "path is safe to stage into is UNKNOWN, so this download refuses "
+            "rather than write under a claim that proves nothing") from exc
 
 
 def _set_aside_unowned_bytes(staging: Path) -> None:
@@ -332,22 +485,57 @@ def claim(final_path, identity: str) -> Path:
         # exactly this state on disk, and nothing reaps it.
         try:
             _set_aside_unowned_bytes(staging)
+            _prove_owner(owner, identity)
         except BaseException:
             # Best-effort, and deliberately not conditional on the failure kind:
             # a claim this call published and could not make good on must not
             # outlive the call. If even the unlink fails the exception still
             # propagates, so the caller never receives a path it does not own.
+            #
+            # The proof is INSIDE the guarded block on purpose. Returning a
+            # staging path whose claim still reads unproven would let the
+            # transport write gigabytes under it and leave the next reclaim to
+            # set those bytes aside as unaccounted-for -- this fix reproducing
+            # row 541 one step further along.
             try:
                 owner.unlink(missing_ok=True)
             except OSError:
                 pass
             raise
         return staging
-    if _read_owner_identity(owner) == identity:
+    holder, proven = _read_owner_record(owner)
+    if holder != identity:
+        raise StagingClaimedByAnotherJob(
+            f"staging path {staging} is claimed by a different download; "
+            "appending to it would splice two files together")
+    if proven:
+        # The claim was completed, so every byte at the staging path was
+        # written under it. This is the interrupted download resuming its own
+        # `.part`, and it must not be re-measured: doing so would rename this
+        # job's own multi-gigabyte partial to `.orphaned-*` and restart it at
+        # byte 0 (row 541), which nothing ever reaps.
         return staging
-    raise StagingClaimedByAnotherJob(
-        f"staging path {staging} is claimed by a different download; "
-        "appending to it would splice two files together")
+    # ROW 535, refutation rank 3, and the general statement of it at rank 43.
+    # The claim names us but was never completed, so the bytes beneath it were
+    # never accounted for by anybody. The only way to reach this state is a
+    # crash -- a SIGKILL or a deploy restart between `_create_owner` and the
+    # `os.replace` inside `_set_aside_unowned_bytes` -- which raises no
+    # exception, so the row-533 unwind above cannot see it. Until now the
+    # reclaim branch measured nothing at all and handed the path straight back,
+    # and the transport read a foreign scene's bytes as its own resume offset,
+    # appended onto them, and promoted the splice as `done` under the right
+    # title. Measure them exactly as a fresh mint would, then complete the
+    # claim so the NEXT reclaim is the resume path above.
+    #
+    # NO UNWIND HERE, deliberately, and this asymmetry is load-bearing. The
+    # mint unlinks on failure because it created the claim; this call did not.
+    # Unlinking a pre-existing claim standing over crash residue is precisely
+    # how an ownerless `.part` is minted, which is the rank-1 corruption this
+    # module's whole history is about. A heal that cannot finish leaves the
+    # claim unproven and refuses; the next attempt heals again.
+    _set_aside_unowned_bytes(staging)
+    _prove_owner(owner, identity)
+    return staging
 
 
 def release(staging_path, identity: str | None = None, *, force: bool = False) -> bool:

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4177,
+  "edge_count": 4179,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3764,6 +3764,9 @@
       "bulk_downloader/cleanup_helpers.py",
       "bulk_downloader/staging_claim.py"
     ],
+    "tests/test_row535_a_reclaim_proves_the_bytes_it_adopts.py": [
+      "bulk_downloader/staging_claim.py"
+    ],
     "tests/test_row536_a_fallback_returns_its_whole_result.py": [
       "bulk_downloader/captcha_resolver.py",
       "bulk_downloader/constants.py",
@@ -3773,6 +3776,9 @@
     ],
     "tests/test_row537_a_vault_write_targets_the_vault_it_read.py": [
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row541_a_release_holds_over_surviving_bytes.py": [
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
