@@ -46,6 +46,72 @@ def _vault_store_unreadable(error):
     }), 503
 
 
+def _plaintext_cannot_answer_for_the_vault(backend):
+    """Row 551. Refuse a delete a substituted plaintext backend cannot make.
+
+    ``get_backend()`` falls back to ``PlaintextBackend`` whenever the
+    encrypted backend could not be CONSTRUCTED -- a missing cryptography
+    import, or an install that was ever configured to plaintext -- and
+    ``PlaintextBackend.delete`` then answers a flat ``False``. That False is
+    an affirmative "not present" about a store the object never opened, so
+    the route's locked and unreadable arms are structurally bypassed: the
+    ciphertext stays in secrets.json while the site's ``@cred:`` pointer is
+    persisted away, and the operator is told the removal succeeded. The
+    sibling import route already refuses this exact substitution.
+
+    Deliberately narrow. With no vault behind the path there is nothing the
+    plaintext backend is failing to read, ``removed: false`` is the honest
+    answer, and a genuinely plaintext host keeps it. Returns the refusal
+    response, or None when the route may proceed.
+
+    Takes the backend the caller will actually mutate rather than resolving
+    its own: a guard that judges one object and lets a second one act is the
+    advisory-check shape rows 537/538 already paid for.
+    """
+    from . import secrets_store as ss
+    if getattr(backend, "name", None) != "plaintext":
+        return None
+    try:
+        vault_present = ss._path_entry_exists(ss.SECRETS_FILE)
+        probe_error = None
+    except OSError as e:
+        # CLAUDE.md A7: an existence that could not be measured is UNKNOWN,
+        # never zero -- and never permission to report a successful no-op.
+        vault_present = None
+        probe_error = f"{type(e).__name__}: {e}"
+    if vault_present is False:
+        return None
+    if probe_error is not None:
+        detail = (
+            f"the vault path {ss.SECRETS_FILE} could not be probed "
+            f"({probe_error}), so this delete cannot say whether a stored "
+            "credential is there"
+        )
+    else:
+        detail = (
+            f"a credential vault exists at {ss.SECRETS_FILE} that the active "
+            "plaintext backend never read, so this delete cannot say whether "
+            "the credential is stored in it"
+        )
+    # Two different causes with opposite remedies; do not collapse them.
+    remedy = (
+        "install the cryptography package and RESTART the service"
+        if not ss._CRYPTO_AVAILABLE
+        else "switch the active backend back to master_password"
+    )
+    return jsonify({
+        "ok": False,
+        "state": "plaintext_backend",
+        "requires_encrypted_backend": True,
+        "crypto_available": bool(ss._CRYPTO_AVAILABLE),
+        "error": (
+            f"delete refused: the active credential backend is 'plaintext'. "
+            f"{detail}. Nothing was removed and the site's @cred: reference "
+            f"was left in place -- {remedy}, then retry."
+        ),
+    }), 409
+
+
 def _app_s_cfg():
     """The live shared s_cfg from app.py (fetched fresh per call, by reference)."""
     import importlib
@@ -622,8 +688,14 @@ def api_secrets_delete():
         key = data.get("key", "")
     if not key:
         return jsonify({"ok": False, "error": "key or site_id required"}), 400
+    backend = ss.get_backend()
+    # Row 551: before the mutation and before any config write, not after,
+    # and over the very object the delete below will call.
+    plaintext_refusal = _plaintext_cannot_answer_for_the_vault(backend)
+    if plaintext_refusal is not None:
+        return plaintext_refusal
     try:
-        removed = ss.get_backend().delete(key)
+        removed = backend.delete(key)
     except ss.SecretsIntegrityError as e:
         # Row 502. SecretsUnreadableError subclasses SecretsIntegrityError, not
         # SecretsUnlockRequiredError, so this route caught nothing and the
@@ -648,6 +720,28 @@ def api_secrets_delete():
             "requires_unlock": True,
             "error": str(e),
         }), 409
+    except ss.SecretsPersistError as e:
+        # Row 554. delete() raises THREE exceptions and this route armed two.
+        # The third escaped to app.errorhandler(500), which renders every
+        # unhandled route exception as the same {"ok": false, "error":
+        # "internal server error"} -- so a full disk or a read-only mount was
+        # indistinguishable from a crash, over a delete that had already
+        # rolled the ciphertext back and left the vault byte-identical. Both
+        # sibling secrets routes already name this condition and its remedy.
+        return jsonify({
+            "ok": False,
+            "state": "persist_failed",
+            "removed": False,
+            "key": key,
+            "config_cleaned": False,
+            "error": (
+                f"delete of {key!r} could not be persisted ({e}). The vault "
+                "was rolled back and still holds the credential, and the "
+                "site's @cred: reference was left in place. Check disk space "
+                "and permissions on secrets.json and its .tmp sibling, then "
+                "retry."
+            ),
+        }), 500
     # B16 (v3.66.43): when deleting by site_id, also clear the matching
     # @cred: reference so the next login sees "no credentials" instead of
     # a dangling reference that resolves to None. Deliberately narrow:
@@ -658,12 +752,41 @@ def api_secrets_delete():
     if data.get("site_id"):
         sid = data["site_id"]
         site = s_cfg.get(sid) if isinstance(s_cfg, dict) else None
+        reference = ss.make_password_reference(sid)
         if isinstance(site, dict):
-            if site.get("password", "") == ss.make_password_reference(sid):
+            if site.get("password", "") == reference:
                 site["password"] = ""
                 config_cleaned = True
         if config_cleaned:
-            _save_sites_config()
+            # Row 552. _save_sites_config() returns a bool and swallows its
+            # own exceptions, so discarding it reported a DURABLE cleanup over
+            # a write that never landed -- a stale unwritable .tmp, ENOSPC on
+            # the larger second write, split paths. The vault write already
+            # succeeded and cannot be undone, so the two stores have diverged
+            # permanently: say so rather than claim the cleanup is on disk.
+            # config_cleaned answers for the DISK, which is where the dangling
+            # @cred: reference now lives. The in-memory clear is unwound with
+            # it: keeping a cleared value no writer confirmed would leave this
+            # process asserting a state neither store holds, and would make a
+            # RETRY of the same delete find nothing left to clean and answer
+            # ok:true over the same undone write.
+            if _save_sites_config() is not True:
+                site["password"] = reference
+                return jsonify({
+                    "ok": False,
+                    "state": "config_write_failed",
+                    "removed": removed,
+                    "key": key,
+                    "config_cleaned": False,
+                    "error": (
+                        f"the credential {key!r} was removed from the vault, "
+                        "but sites_config.json could not be written, so the "
+                        "site's @cred: reference is still on disk and will "
+                        "resolve to None after a restart. Check disk space "
+                        "and permissions on sites_config.json and its .tmp "
+                        "sibling, then clear the site's password again."
+                    ),
+                }), 500
     return jsonify({"ok": True, "removed": removed, "key": key,
                     "config_cleaned": config_cleaned})
 @secrets_bp.route("/api/secrets/extension/pair_issue", methods=["POST"])
