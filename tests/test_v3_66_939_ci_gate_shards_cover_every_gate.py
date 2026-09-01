@@ -123,6 +123,11 @@ _DECLARED = {
     # module drives the real enqueue/start/admission and integrity seams, so it
     # is pinned into the application-safety shard on every PR.
     "tests/test_app_measurements_fail_closed.py",
+    # The download-integrity promotion seam is module-scoped, but a hardened
+    # staging-claim API left four of its six tests red on main while no CI job
+    # executed the file. Keep the real promote/abort contract in the same
+    # application-safety shard as the other integrity boundaries.
+    "tests/test_v3_66_284_integrity.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
     # boundaries. This behavioral module proves missing, malformed, degraded,
     # and command-failed artifacts are distinct from the two healthy paths, so
@@ -921,6 +926,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py",  # module
     "tests/test_v3_66_261_contended_lifecycle_lock.py",  # module
     "tests/test_v3_66_283_bd_claim_transactions.py",  # module
+    "tests/test_v3_66_284_integrity.py",  # module
     "tests/test_v3_66_295_bd_claim_atomic_union.py",  # module
     "tests/test_v3_66_653_dep_freshness.py",  # legacy-baseline
     "tests/test_v3_66_799_audit_tool_selftests.py",  # legacy-baseline

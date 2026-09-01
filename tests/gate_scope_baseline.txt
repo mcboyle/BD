@@ -837,7 +837,6 @@ tests/test_v3_66_27_phase5_honeypot_score.py
 tests/test_v3_66_282_force_redownload.py
 tests/test_v3_66_282_media_verdict.py
 tests/test_v3_66_282_verdict_statemap.py
-tests/test_v3_66_284_integrity.py
 tests/test_v3_66_285_config_validation.py
 tests/test_v3_66_287_username_classify_type.py
 tests/test_v3_66_288_recorder_nav_survival.py
