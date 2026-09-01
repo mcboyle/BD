@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4218,
+  "edge_count": 4221,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2170,6 +2170,11 @@
     "tests/test_a_manifest_link_reaches_the_segmented_downloader.py": [
       "bulk_downloader/hls_downloader.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_a_prune_repairs_only_the_links_it_broke.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/migrations.py"
     ],
     "tests/test_a_skip_must_prove_it_is_the_same_work.py": [
       "bulk_downloader/db.py",
