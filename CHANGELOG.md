@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1422 - ffmpeg is resolved from the pin, not from ambient PATH
+
+Rows 440, 441, 442 and 443. Four call sites resolved the ffmpeg binary from the
+ambient PATH instead of the configured pin, so a probe could measure one ffmpeg
+and the work could then run under another -- dedup, enrichment, thumbnail
+generation and thumbnail sheets. All four now honor the pin at the subprocess
+boundary.
+
 ## v3.66.1420 - a write over an unreadable store refuses instead of erasing it
 
 Rows 435 and 436. Two writers reported a durable record they had not persisted.
