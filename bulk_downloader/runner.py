@@ -56,6 +56,11 @@ from .constants import (
 # the standard library at module scope, so there is no cycle to dodge.
 from . import download_hold as _download_hold
 
+_DOWNLOAD_HOLD_STATE_TOKENS = (
+    _download_hold.STATE_HELD,
+    _download_hold.STATE_UNKNOWN,
+)
+
 # A0 / BEH-1 + BEH-2 (v3.66.322): canonical creation-time defaults. These are the
 # values the legacy Add-Site form stored at create time; the SPA wizard stores no
 # defaults, so SPA-added sites fall back to these read-time defaults. Every read
@@ -699,6 +704,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._url_queue=queue.Queue()
         self._worker_threads=[]
         self._state="idle"; self._login_thread=None; self._login_status=""
+        # Only resume() records this provenance.  start() publishes the same
+        # public hold tokens before spawning workers, so the token alone can
+        # never prove that a worker pool exists to resume.
+        self._hold_refused_resume_state = None
         # Phase 18.fix: session-recovery gate. Cleared while a re-login is
         # in flight; workers wait on this before pulling the next URL so
         # they don't drain the queue with auth-failure repeats.
@@ -1177,12 +1186,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 continue
             return outcome
 
-    def _refuse_for_download_hold(self, hold_state, verb):
+    def _refuse_for_download_hold(
+            self, hold_state, verb, *, resumable_state=None):
         """Publish the runner-visible refusal for a held/unmeasurable hold.
 
         One publisher for all three gates (start's pre-check, start's running
         transition, resume) so a refusal cannot be visible on one path and
-        silent on another."""
+        silent on another.  ``resumable_state`` is supplied only by resume():
+        start() refuses before it owns a worker pool and must not create a
+        capability to enter ``running`` later."""
+        self._hold_refused_resume_state = resumable_state
         token = _download_hold.runner_state_token(hold_state)
         if self._state != token:
             self._state = token
@@ -1198,6 +1211,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     def _start_serialized(self, _teardown_generation=None):
         if getattr(self, "_run_retired", False):
             return StartOutcome.TEARDOWN_PENDING
+        # A start is a new lifecycle attempt, even when an admission check or
+        # an empty pending set makes it return early.  It must not inherit a
+        # recovery capability recorded by an earlier refused resume.
+        self._hold_refused_resume_state = None
         if self._state=="running": return
         # A fresh run must not inherit liveness state from worker threads that
         # belonged to the previous run. Guard both maps with the same lock so
@@ -1687,6 +1704,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         so each verb means exactly one thing, matching the separate UI
         buttons that call them."""
         if self._state == "running":
+            self._hold_refused_resume_state = None
             self._pause.clear()
             self._state = "paused"
             _flush_pending = getattr(
@@ -1704,9 +1722,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         Row 390: gated by the durable download hold. resume() flips paused ->
         running WITHOUT passing through start(), so leaving it ungated would let
         /api/resume_all defeat a hold that start() honours. Same fail-closed
-        contract: an unmeasurable hold refuses."""
-        if self._state in ("paused", "low_disk", "paused_no_button"):
-            reset_no_button_streak = self._state == "paused_no_button"
+        contract: an unmeasurable hold refuses.
+
+        Row 434: a refusal publishes a hold token that is not itself resumable.
+        Preserve the state interrupted by resume() so a later clear read can
+        recover it.  The same token published by start() carries no provenance,
+        because start() refuses before spawning workers."""
+        resumable_states = ("paused", "low_disk", "paused_no_button")
+        resumable_state = self._state
+        if resumable_state in _DOWNLOAD_HOLD_STATE_TOKENS:
+            resumable_state = getattr(
+                self, "_hold_refused_resume_state", None)
+        if resumable_state in resumable_states:
+            reset_no_button_streak = resumable_state == "paused_no_button"
             # Row 433: resume() is the OTHER path that arms a pool, and it has
             # the same shape -- read the hold, then transition. Under the same
             # barrier the check and the transition are one step, so a hold
@@ -1715,8 +1743,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             with _download_hold.barrier():
                 _hold_allowed, _hold_state = _download_hold.downloads_allowed()
                 if not _hold_allowed:
-                    self._refuse_for_download_hold(_hold_state, "resume")
+                    self._refuse_for_download_hold(
+                        _hold_state, "resume",
+                        resumable_state=resumable_state)
                     return
+                self._hold_refused_resume_state = None
                 self._state = "running"
                 if reset_no_button_streak:
                     self._consec_no_btn = 0
@@ -1725,6 +1756,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     @_run_lifecycle_serialized
     def stop(self):
         self._rl_autostart=False  # P3-A: operator stop cancels a pending rate-limit resume
+        self._hold_refused_resume_state = None
         self._stop.set(); self._pause.set()
         _flush_pending = getattr(self, "_flush_daily_byte_accumulators", None)
         if _flush_pending:
