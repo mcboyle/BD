@@ -46,6 +46,13 @@ are pinned below because each of them would do exactly that:
 from __future__ import annotations
 
 import json
+import os
+import pathlib
+import subprocess
+import sys
+import textwrap
+import threading
+import time
 
 import pytest
 
@@ -389,3 +396,403 @@ def test_a_reclaim_that_cannot_prove_itself_keeps_the_claim(tmp_path):
         "the failed heal deleted a claim it did not create, so the bytes "
         "beneath it are now ownerless and the next job adopts them")
     assert sc._read_owner_identity(owner) == _ident(_JOB_A)
+
+
+# ── The FIX'S OWN RACE: a settle acts on a record it read earlier ──────────
+#
+# F3 of the 2026-09-01 night refutation, against v3.66.1395 -- the cut that
+# added everything above. Before it, the same-identity reclaim branch was
+# `if _read_owner_identity(owner) == identity: return staging`: READ-ONLY. It
+# is now `_set_aside_unowned_bytes(staging); _prove_owner(owner, identity)`,
+# which RENAMES whatever is at the staging path. The decision to rename was
+# taken from a record read EARLIER IN THE SAME CALL, and nothing re-validated
+# it before the rename.
+#
+# `job_identity()` is `sha256(page_url)` and therefore stable across processes,
+# so two workers on one page_url share an identity -- which is exactly the
+# collision the branch now acts on destructively. The module docstring names
+# that threat model itself: "different threads, different SiteRunner instances,
+# or different processes (a deploy restart mid-download)".
+#
+# The window has TWO sides and only one of them was reported:
+#
+#   HEAL SIDE (F3 as filed). A publishes an unproven claim; B reads it; A
+#   completes its mint and streams; B wakes with its stale unproven read and
+#   renames A's live `.part` to `.orphaned-*`. A keeps writing to an inode no
+#   longer at that path and promotes something that is not what is there.
+#
+#   MINT SIDE (the mirror, found while fixing the first). A publishes an
+#   unproven claim and is descheduled; B heals it, proves it, returns, and
+#   streams; A wakes and runs its own unconditional `_set_aside_unowned_bytes`
+#   over B's live bytes. Same corruption, other branch. A re-read placed only
+#   in the reclaim branch would leave this half open.
+#
+# THE FIX. Both branches converge on one SETTLE that runs under an exclusive
+# `flock` on the claim: acquire, re-read the record UNDER the lock, and act on
+# THAT read. Every actor that can turn the record proven must hold the same
+# lock across that transition, so the re-read is atomic with the rename it
+# guards -- a re-read that is not would be the same defect one step smaller.
+# `flock` rather than a token file because the question the branch is actually
+# asking is "is a live writer inside this window, or did a crash abandon it",
+# and a kernel lock released on process death is the primitive that ANSWERS
+# that question; an exclusive-create token would answer it "live" forever and
+# make crash residue unhealable.
+
+_LIVE = b"\x71" * 5_000_000
+_GATE_S = 2.0          # bounded: the fixed code must not need the interleaving
+
+
+def _live_bytes_at(staging):
+    return staging.stat().st_size if staging.exists() else 0
+
+
+def _two_claims_one_identity(tmp_path, final, *, residue, gate_the_healer):
+    """Drive a MINT and a RECLAIM of one staging path concurrently.
+
+    `gate_the_healer` picks which side is made to wait, i.e. which of the two
+    stale-read windows above is exercised. Both sides run through the real
+    `claim()`; the only monkeypatching is synchronization that DELEGATES to the
+    real helpers, and every wait is bounded so the fixed code -- in which this
+    interleaving is impossible -- cannot hang instead of passing.
+    """
+    staging = sc.staging_path_for(final)
+    if residue is not None:
+        staging.write_bytes(residue)
+    identity = _ident(_JOB_A)
+
+    minted = threading.Event()          # A's UNPROVEN claim is visible
+    healer_acted = threading.Event()    # B reached the branch that renames
+    minter_streamed = threading.Event() # A returned and streamed its bytes
+    healer_streamed = threading.Event() # B returned and streamed its bytes
+
+    real_create = sc._create_owner
+    real_set_aside = sc._set_aside_unowned_bytes
+    counter_lock = threading.Lock()
+    fired = {"set_aside": 0}
+    who = {}
+    out = {}
+    handles = []
+
+    def gated_create(owner_path, job):
+        made = real_create(owner_path, job)
+        if made:
+            # The minter, in the window F3 names: its claim is published and
+            # UNPROVEN and it holds nothing yet.
+            who["minter"] = threading.get_ident()
+            minted.set()
+            # Hold the minter in that window until the other side has taken
+            # its stale read (heal side) or finished settling (mint side).
+            if gate_the_healer:
+                healer_acted.wait(_GATE_S)
+            else:
+                healer_streamed.wait(_GATE_S)
+        return made
+
+    def gated_set_aside(path):
+        with counter_lock:
+            fired["set_aside"] += 1
+        if gate_the_healer and threading.get_ident() != who.get("minter"):
+            healer_acted.set()
+            minter_streamed.wait(_GATE_S)
+        return real_set_aside(path)
+
+    def run(tag, after):
+        # The transport opens the staging path ONCE and streams through that
+        # descriptor, which is why a rename underneath it is silent: the writer
+        # keeps a live inode that is no longer at the path it will promote.
+        try:
+            got = sc.claim(final, identity)
+            out[tag] = got
+            handle = open(got, "wb")
+            handles.append(handle)
+            handle.write(_LIVE)
+            handle.flush()
+            out[tag + "_ino"] = os.fstat(handle.fileno()).st_ino
+        except BaseException as exc:     # surfaced by the caller, never eaten
+            out[tag + "_exc"] = exc
+        finally:
+            after.set()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sc, "_create_owner", gated_create)
+        mp.setattr(sc, "_set_aside_unowned_bytes", gated_set_aside)
+        a = threading.Thread(target=run, args=("minter", minter_streamed))
+        a.start()
+        assert minted.wait(_GATE_S * 4), (
+            "precondition: the minter never published its unproven claim, so "
+            "neither stale-read window was ever opened")
+        b = threading.Thread(target=run, args=("healer", healer_streamed))
+        b.start()
+        a.join(_GATE_S * 8)
+        b.join(_GATE_S * 8)
+
+    for handle in handles:
+        handle.close()
+    assert not a.is_alive() and not b.is_alive(), (
+        "a claim() call never returned; the settle deadlocked rather than "
+        "serialized")
+    for tag in ("minter", "healer"):
+        if tag + "_exc" in out:
+            raise AssertionError(f"{tag} claim() raised: {out[tag + '_exc']!r}")
+    return staging, out, fired, healer_acted
+
+
+def test_a_heal_does_not_orphan_a_mint_that_settled_while_it_waited(tmp_path):
+    """HEAL SIDE. RED against v3.66.1395: B renamed A's live 5,000,000-byte
+    `.part` to `.orphaned-*` on the strength of an unproven read taken before A
+    finished minting."""
+    final = tmp_path / "Contended.mp4"
+    staging, out, fired, healer_acted = _two_claims_one_identity(
+        tmp_path, final, residue=None, gate_the_healer=True)
+
+    assert healer_acted.is_set(), (
+        "precondition: the reclaim never reached the branch that renames, so "
+        "this run did not exercise the destructive path at all")
+    assert out["minter"] == staging and out["healer"] == staging, (
+        "precondition: both calls were handed the same staging path")
+
+    assert staging.exists(), (
+        "the staging path a live writer was streaming into was renamed away")
+    assert _live_bytes_at(staging) == len(_LIVE), (
+        f"expected the live {len(_LIVE)} bytes at the staging path, found "
+        f"{_live_bytes_at(staging)}")
+    assert staging.stat().st_ino == out["minter_ino"], (
+        "the file now at the staging path is NOT the inode the minter is "
+        "streaming into; that writer will promote bytes nobody can see at "
+        "the path, which is the 2026-08-29 corruption exactly")
+    assert _orphans(tmp_path) == [], (
+        f"a live download's own bytes were set aside as unowned: "
+        f"{[p.name for p in _orphans(tmp_path)]}")
+
+
+def test_a_mint_does_not_orphan_a_heal_that_settled_while_it_waited(tmp_path):
+    """MINT SIDE -- the mirror. RED against v3.66.1395: A's own unconditional
+    `_set_aside_unowned_bytes` renamed away the 5,000,000 bytes B was streaming
+    after B had healed the very claim A published.
+
+    The residue is seeded so the GENUINE heal is measured in the same run: it
+    must still fire, exactly once, and the foreign bytes must still be set
+    aside. A fix that closes this window by disabling the heal fails here."""
+    final = tmp_path / "MirrorContended.mp4"
+    staging, out, fired, _ = _two_claims_one_identity(
+        tmp_path, final, residue=_FOREIGN, gate_the_healer=False)
+
+    assert out["minter"] == staging and out["healer"] == staging, (
+        "precondition: both calls were handed the same staging path")
+
+    aside = _orphans(tmp_path)
+    assert len(aside) == 1, (
+        f"expected exactly one set-aside -- the genuine heal of the seeded "
+        f"foreign bytes -- got {[p.name for p in aside]}; a second one is a "
+        f"live writer's bytes orphaned by the mint's stale set-aside")
+    assert aside[0].read_bytes() == _FOREIGN, (
+        "the one set-aside file is not the foreign residue, so the heal was "
+        "disabled and a live writer's bytes were orphaned instead")
+    assert fired["set_aside"] == 1, (
+        f"_set_aside_unowned_bytes fired {fired['set_aside']} times over one "
+        f"claim; the second call is the stale one, and it renames whatever a "
+        f"live writer has at the path")
+    assert _live_bytes_at(staging) == len(_LIVE), (
+        f"expected the live {len(_LIVE)} bytes at the staging path, found "
+        f"{_live_bytes_at(staging)}")
+    assert staging.stat().st_ino == out["healer_ino"], (
+        "the file now at the staging path is NOT the inode the healer is "
+        "streaming into; the mint's stale set-aside renamed it away")
+
+
+def test_a_live_holder_refuses_the_heal_and_a_dead_one_releases_it(tmp_path):
+    """WHY `flock` AND NOT A TOKEN FILE, pinned so a later refactor cannot
+    swap the primitive silently.
+
+    One on-disk state, two verdicts, discriminated only by whether the process
+    that published the claim is still alive:
+
+      ALIVE  -> the bytes may belong to a live mint; the heal must refuse
+                (UNKNOWN is not permission, A2) rather than rename them.
+      SIGKILL-> the kernel drops the lock, so the same state is CRASH RESIDUE
+                and the heal must complete. An exclusive-create token would
+                still be on disk here and would make crash residue -- the only
+                state this branch exists for -- permanently unhealable.
+    """
+    final = tmp_path / "HeldByAnotherProcess.mp4"
+    staging = sc.staging_path_for(final)
+    staging.write_bytes(_FOREIGN)
+    owner = sc.owner_path_for(staging)
+    repo = str(pathlib.Path(sc.__file__).resolve().parents[1])
+
+    child_src = textwrap.dedent(
+        """
+        import sys, time
+        from pathlib import Path
+        sys.path.insert(0, sys.argv[1])
+        from bulk_downloader import staging_claim as sc
+        owner = Path(sys.argv[2])
+        assert sc._create_owner(owner, sys.argv[3]) is True
+        fd = sc._acquire_claim_lock(owner)
+        assert fd is not None
+        print("LOCKED", flush=True)
+        time.sleep(600)
+        """)
+    env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_src, repo, str(owner), _ident(_JOB_A)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    try:
+        line = child.stdout.readline().strip()
+        assert line == "LOCKED", (
+            f"precondition: the child never took the claim lock ({line!r}); "
+            f"stderr: {child.stderr.read()!r}")
+        assert owner.is_file(), "precondition: the child published its claim"
+        assert sc._read_owner_record(owner) == (_ident(_JOB_A), False), (
+            "precondition: the claim on disk reads OURS and UNPROVEN, which is "
+            "the exact state the heal branch acts on")
+        assert child.poll() is None, "precondition: the holder is alive"
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(sc, "_CLAIM_LOCK_DEADLINE_S", 0.5)
+            with pytest.raises(sc.StagingUnavailable) as exc:
+                sc.claim(final, _ident(_JOB_A))
+        assert "lock" in str(exc.value).lower(), (
+            f"the refusal must name the step that failed rather than collapse "
+            f"into a generic unreadable-claim message: {exc.value}")
+        assert staging.read_bytes() == _FOREIGN, (
+            "the heal renamed bytes while another process held the claim")
+        assert _orphans(tmp_path) == []
+    finally:
+        child.kill()
+        child.wait(timeout=30)
+        child.stdout.close()
+        child.stderr.close()
+
+    # Same bytes, same claim, same unproven record -- the holder is now dead.
+    assert sc._read_owner_record(owner) == (_ident(_JOB_A), False), (
+        "precondition: killing the holder did not change the record, so the "
+        "only difference between the two verdicts is liveness")
+    started = time.monotonic()
+    got = sc.claim(final, _ident(_JOB_A))
+    elapsed = time.monotonic() - started
+
+    assert got == staging
+    assert elapsed < sc._CLAIM_LOCK_DEADLINE_S, (
+        f"the heal took {elapsed:.1f}s; a dead holder's lock was not released, "
+        f"so crash residue is only healable by waiting out a deadline")
+    assert _live_bytes_at(staging) == 0, "the heal did not set the residue aside"
+    aside = _orphans(tmp_path)
+    assert len(aside) == 1 and aside[0].read_bytes() == _FOREIGN, (
+        f"the crash residue was not set aside after the holder died: "
+        f"{[p.name for p in aside]}")
+    assert sc._read_owner_record(owner) == (_ident(_JOB_A), True), (
+        "the completed heal left the claim unproven, so the next reclaim "
+        "measures this job's own bytes again")
+
+
+def test_a_heal_refuses_where_exclusion_cannot_be_established(tmp_path):
+    """The rename NEVER runs unlocked. On an interpreter with no `fcntl`,
+    whether a live writer holds the claim is UNMEASURABLE, and A2 makes that
+    UNKNOWN rather than permission.
+
+    Fail-closed here and not best-effort like `_fsync_dir` because the two
+    failure DIRECTIONS are opposite: a missing directory sync leaves a
+    preserved, operator-visible orphan, while an unlocked rename is the
+    corruption this section closes."""
+    final, staging, owner = _crashed_mint(tmp_path)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sc, "fcntl", None)
+        with pytest.raises(sc.StagingUnavailable) as exc:
+            sc.claim(final, _ident(_JOB_A))
+
+    assert "lock" in str(exc.value).lower(), (
+        f"the refusal must name the step that failed: {exc.value}")
+    assert staging.read_bytes() == _FOREIGN, (
+        "an UNKNOWN exclusion state still renamed the bytes")
+    assert _orphans(tmp_path) == []
+    assert owner.is_file(), (
+        "the refused heal deleted a claim it did not create")
+
+
+def test_a_mint_and_a_resume_still_work_where_exclusion_is_unavailable(tmp_path):
+    """NEGATIVE CONTROL for the refusal above: it must bound the DESTRUCTIVE
+    branch only. Refusing every claim on such a host would take the whole
+    downloader down to close a race that cannot occur there -- no heal can run
+    without the lock, so no stale-read pair can form."""
+    final = tmp_path / "NoFlock.mp4"
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sc, "fcntl", None)
+        staging = sc.claim(final, _ident(_JOB_A))
+        assert sc._read_owner_record(sc.owner_path_for(staging)) == (
+            _ident(_JOB_A), True), "the mint was refused for want of a lock"
+        staging.write_bytes(_OURS)
+
+        got = sc.claim(final, _ident(_JOB_A))
+
+    assert got == staging
+    assert staging.read_bytes() == _OURS, (
+        "a resume was refused, or re-measured, for want of a lock")
+    assert _orphans(tmp_path) == []
+
+
+def test_a_lock_taken_on_a_replaced_claim_is_taken_again(tmp_path):
+    """The lock has to guard the RECORD, not merely some inode that once lived
+    at the claim's path.
+
+    `_prove_owner` publishes with `os.replace`, so the claim path acquires a new
+    inode every time somebody proves it -- and a worker that opened the old one
+    a microsecond earlier ends up holding an exclusive lock on a detached file
+    that contends with nothing. `global_config.py` keeps a permanent sibling
+    lock file for exactly this reason; this module answers it by comparing the
+    locked descriptor against the path and taking the lock again.
+
+    Without that comparison the settle still READS the current record -- it
+    reads by path -- so every outcome-shaped assertion in this file passes while
+    the exclusion is silently void. A mutation battery found that: turning the
+    comparison into `if True` escaped 23 green tests. This is the assertion that
+    catches it, and it has to be about the descriptor rather than the outcome.
+    """
+    final, staging, owner = _crashed_mint(tmp_path)
+    real_flock = sc.fcntl.flock
+    swapped = {"n": 0}
+
+    class ReplacesTheClaimOnFirstLock:
+        """Another worker proves the claim in the window between our `open()`
+        and our `flock()`, which is where the detached descriptor comes from."""
+        LOCK_EX = sc.fcntl.LOCK_EX
+        LOCK_NB = sc.fcntl.LOCK_NB
+
+        @staticmethod
+        def flock(fd, operation):
+            if swapped["n"] == 0:
+                swapped["n"] += 1
+                tmp = owner.parent / "another-worker.proof"
+                tmp.write_text(json.dumps(
+                    {"v": sc.OWNER_FORMAT_VERSION, "job": _ident(_JOB_A),
+                     sc.OWNER_PROOF_KEY: True}, sort_keys=True),
+                    encoding="utf-8")
+                os.replace(tmp, owner)
+            return real_flock(fd, operation)
+
+    before = owner.stat().st_ino
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sc, "fcntl", ReplacesTheClaimOnFirstLock)
+        fd = sc._acquire_claim_lock(owner)
+    try:
+        assert swapped["n"] == 1, (
+            "precondition: the claim was never replaced under the lock, so "
+            "this run did not exercise the detached-inode path")
+        assert owner.stat().st_ino != before, (
+            "precondition: os.replace did not give the claim a new inode")
+        assert os.fstat(fd).st_ino == owner.stat().st_ino, (
+            "the lock is held on an inode that is no longer at the claim path, "
+            "so it contends with nobody and the record the settle then reads "
+            "is guarded by nothing")
+    finally:
+        os.close(fd)
+
+    # And the settle over that replaced record takes the resume branch: the
+    # claim now reads proven, so the residue below it is this job's to keep.
+    got = sc.claim(final, _ident(_JOB_A))
+    assert got == staging
+    assert staging.read_bytes() == _FOREIGN
+    assert _orphans(tmp_path) == []
