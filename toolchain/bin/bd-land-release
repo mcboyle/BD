@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""Fail-closed release stamping and cross-rebase verdict transfer checks."""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import base64
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+
+EXIT_REFUSED = 2
+TRIO = (
+    "bulk_downloader/__init__.py",
+    "tests/test_settings_center_slice4.py",
+    "CHANGELOG.md",
+)
+
+
+class Refused(RuntimeError):
+    pass
+
+
+def _git(repo, *args, text=False):
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=text
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() if text else result.stderr.decode("utf-8", "replace").strip()
+        raise Refused("git %s failed: %s" % (" ".join(args), detail or "no diagnostic"))
+    return result.stdout
+
+
+def _commit(repo, value, label):
+    resolved = _git(repo, "rev-parse", "--verify", value + "^{commit}", text=True).strip()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", resolved):
+        raise Refused("%s did not resolve to one commit" % label)
+    return resolved
+
+
+def _paths_between(repo, left, right):
+    raw = _git(repo, "diff", "--name-only", "-z", "--no-renames", left, right)
+    return {os.fsdecode(item) for item in raw.split(b"\0") if item}
+
+
+def _entry(repo, commit, path):
+    raw = _git(repo, "ls-tree", "-z", commit, "--", path)
+    if not raw:
+        return "ABSENT"
+    records = [item for item in raw.split(b"\0") if item]
+    if len(records) != 1 or b"\t" not in records[0]:
+        raise Refused("tree entry for %r at %s is unmeasurable" % (path, commit[:12]))
+    metadata, found = records[0].split(b"\t", 1)
+    fields = metadata.split()
+    if os.fsdecode(found) != path or len(fields) != 3 or fields[1] != b"blob":
+        raise Refused("tree entry for %r at %s is not one blob" % (path, commit[:12]))
+    return fields[2].decode("ascii")
+
+
+def _main_touched_paths(repo, commits):
+    touched = set()
+    for commit in commits:
+        raw = _git(
+            repo,
+            "diff-tree",
+            "--root",
+            "--first-parent",
+            "--no-commit-id",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "-r",
+            commit,
+        )
+        touched.update(os.fsdecode(item) for item in raw.split(b"\0") if item)
+    return touched
+
+
+def transfer_check(args):
+    repo = pathlib.Path(args.repo)
+    old_base = _commit(repo, args.old_base, "old base")
+    old_head = _commit(repo, args.old_head, "old candidate")
+    new_base = _commit(repo, args.new_base, "new main")
+    new_head = _commit(repo, args.new_head, "rebased candidate")
+
+    if _git(repo, "merge-base", old_base, old_head, text=True).strip() != old_base:
+        raise Refused("old candidate is not based on the recorded old main")
+    if _git(repo, "merge-base", old_base, new_base, text=True).strip() != old_base:
+        raise Refused("new main does not gain commits from the recorded old main")
+    if _git(repo, "merge-base", new_base, new_head, text=True).strip() != new_base:
+        raise Refused("rebased candidate is not based on the recorded new main")
+
+    old_paths = _paths_between(repo, old_base, old_head)
+    new_paths = _paths_between(repo, new_base, new_head)
+    if not old_paths:
+        raise Refused("candidate changed-path denominator is ZERO")
+    if old_paths != new_paths:
+        missing = sorted(old_paths - new_paths)
+        added = sorted(new_paths - old_paths)
+        raise Refused("candidate changed-path set differs across rebase: missing=%r added=%r"
+                      % (missing, added))
+
+    differing = [
+        path for path in sorted(old_paths)
+        if _entry(repo, old_head, path) != _entry(repo, new_head, path)
+    ]
+    if differing:
+        raise Refused("candidate blob changed across rebase: " + ", ".join(differing))
+
+    commits_raw = _git(repo, "rev-list", "--reverse", old_base + ".." + new_base, text=True)
+    commits = [line for line in commits_raw.splitlines() if line]
+    if not commits:
+        raise Refused("main gained-commit denominator is ZERO; no transfer is needed")
+    touched = _main_touched_paths(repo, commits)
+    if not touched:
+        raise Refused("main gained commits touched ZERO measurable paths")
+    overlap = sorted(old_paths & touched)
+    if overlap:
+        raise Refused("main gained commit(s) overlap candidate path(s): " + ", ".join(overlap))
+
+    evidence = {
+        "schema": 1,
+        "old_base": old_base,
+        "old_head": old_head,
+        "new_base": new_base,
+        "new_head": new_head,
+        "candidate_paths": len(old_paths),
+        "identical_blobs": len(old_paths),
+        "main_gained_commits": len(commits),
+        "main_touched_paths": len(touched),
+        "overlap_paths": overlap,
+    }
+    print(json.dumps(evidence, sort_keys=True) if args.json else
+          "TRANSFER SAFE: %(identical_blobs)d identical candidate blob(s); "
+          "%(main_gained_commits)d gained commit(s) touched "
+          "%(main_touched_paths)d disjoint path(s)" % evidence)
+    return 0
+
+
+def _atomic_write(path, data):
+    fd, name = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        try:
+            os.unlink(name)
+        except FileNotFoundError:
+            pass
+
+
+def stamp(args):
+    root = pathlib.Path(args.work)
+    paths = [root / rel for rel in TRIO]
+    recovery = root / ".bd-land-release-recovery.json"
+    if recovery.exists():
+        raise Refused("recovery record already exists; prior trio write is UNKNOWN: %s" % recovery)
+    try:
+        originals = {str(path.relative_to(root)): path.read_bytes() for path in paths}
+        texts = {name: blob.decode("utf-8") for name, blob in originals.items()}
+    except (OSError, UnicodeError) as exc:
+        raise Refused("release trio unreadable: %s" % exc) from exc
+
+    init = texts[TRIO[0]]
+    pin = texts[TRIO[1]]
+    changelog = texts[TRIO[2]]
+    versions = re.findall(r'^__version__ = "([^"]+)"', init, re.M)
+    if len(versions) != 1:
+        raise Refused("expected exactly one __version__ anchor; found %d" % len(versions))
+    current = versions[0]
+    pin_anchor = 'assert __version__ == "%s"' % current
+    if pin.count(pin_anchor) != 1:
+        raise Refused("expected exactly one agreeing slice4 pin; found %d" % pin.count(pin_anchor))
+    headers = list(re.finditer(r"^## (v\S+).*?$", changelog, re.M))
+    if not headers or headers[0].group(1) != "v" + current:
+        raise Refused("current CHANGELOG head does not agree with __version__ %s" % current)
+    if not re.fullmatch(r"3\.66\.\d+", args.version) or args.version == current:
+        raise Refused("new version must be a different 3.66.N value")
+    if not args.title or "\n" in args.title or any(ord(char) > 127 for char in args.title):
+        raise Refused("CHANGELOG title must be nonempty, one-line ASCII")
+
+    changed = {
+        TRIO[0]: init.replace('__version__ = "%s"' % current,
+                              '__version__ = "%s"' % args.version, 1),
+        TRIO[1]: pin.replace(pin_anchor,
+                            'assert __version__ == "%s"' % args.version, 1),
+        TRIO[2]: (changelog[:headers[0].start()] +
+                  "## v%s - %s\n\n" % (args.version, args.title) +
+                  changelog[headers[0].start():]),
+    }
+    ast.parse(changed[TRIO[0]], filename=TRIO[0])
+    ast.parse(changed[TRIO[1]], filename=TRIO[1])
+    if any(ord(char) > 127 for char in changed[TRIO[2]][:changed[TRIO[2]].find(headers[0].group(0))]):
+        raise Refused("new CHANGELOG entry is not ASCII")
+
+    record = {
+        "schema": 1,
+        "targets": list(TRIO),
+        "originals_base64": {
+            name: base64.b64encode(blob).decode("ascii") for name, blob in originals.items()
+        },
+    }
+    _atomic_write(recovery, (json.dumps(record, sort_keys=True) + "\n").encode("utf-8"))
+    try:
+        for rel in TRIO:
+            _atomic_write(root / rel, changed[rel].encode("utf-8"))
+        for rel in TRIO:
+            if (root / rel).read_text(encoding="utf-8") != changed[rel]:
+                raise OSError("post-write bytes differ for " + rel)
+    except Exception as exc:
+        for rel, blob in originals.items():
+            _atomic_write(root / rel, blob)
+        recovery.unlink(missing_ok=True)
+        raise Refused("trio write failed and originals were restored: %s" % exc) from exc
+    recovery.unlink()
+    print(json.dumps({"schema": 1, "version": args.version, "trio_paths": list(TRIO)},
+                     sort_keys=True))
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="bd-land-release")
+    sub = parser.add_subparsers(dest="command", required=True)
+    transfer = sub.add_parser("transfer-check")
+    transfer.add_argument("--repo", required=True)
+    transfer.add_argument("--old-base", required=True)
+    transfer.add_argument("--old-head", required=True)
+    transfer.add_argument("--new-base", required=True)
+    transfer.add_argument("--new-head", required=True)
+    transfer.add_argument("--json", action="store_true")
+    transfer.set_defaults(func=transfer_check)
+    write = sub.add_parser("stamp")
+    write.add_argument("--work", required=True)
+    write.add_argument("--version", required=True)
+    write.add_argument("--title", required=True)
+    write.set_defaults(func=stamp)
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except (Refused, SyntaxError) as exc:
+        print("REFUSED: %s" % exc, file=sys.stderr)
+        return EXIT_REFUSED
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -18,7 +18,7 @@ Usage:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
-import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile
+import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile, zipfile
 
 # Placed AFTER the whole import block on purpose: inserting above `import sys`
 # leaves sys undefined at the insertion point and --help dies with NameError,
@@ -160,6 +160,71 @@ def selftest():
     return 0 if found else 1
 
 
+def check_release_trio(root, baseline=None):
+    """Return None when A6's tree facts agree, otherwise a blocking reason.
+
+    ``baseline`` supplies the independent previous-header identity.  Without it
+    top-entry agreement and ASCII are still measured, but a changed release
+    cannot prove which exact header it was prepended above.
+    """
+    root = pathlib.Path(root)
+    try:
+        init = (root / "bulk_downloader" / "__init__.py").read_text(encoding="utf-8")
+        match = re.search(r'^__version__ = "([^"]+)"', init, re.M)
+        if not match:
+            return "bulk_downloader/__init__.py declares no __version__"
+        version = match.group(1)
+
+        pin = (root / "tests" / "test_settings_center_slice4.py").read_text(
+            encoding="utf-8"
+        )
+        if ('__version__ == "%s"' % version) not in pin:
+            return ("the version pin in tests/test_settings_center_slice4.py "
+                    "does not name %s" % version)
+
+        changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+        headers = list(re.finditer(r"^## (v\S+).*?$", changelog, re.M))
+        if not headers:
+            return "CHANGELOG.md has no release header"
+        if headers[0].group(1) != "v" + version:
+            return ("CHANGELOG.md's top entry is %s, not v%s -- the entry must "
+                    "be PREPENDED and anchored on the previous release"
+                    % (headers[0].group(1), version))
+
+        entry_end = headers[1].start() if len(headers) > 1 else len(changelog)
+        body = changelog[headers[0].start():entry_end]
+        nonascii = [char for char in body if ord(char) > 127]
+        if nonascii:
+            return ("the %s CHANGELOG entry contains %d non-ASCII character(s) "
+                    "(%r) -- A6 requires ASCII-only"
+                    % (headers[0].group(1), len(nonascii), nonascii[:4]))
+
+        pin_index = root / "PIN_INDEX.json"
+        if pin_index.is_file():
+            blob = pin_index.read_text(encoding="utf-8")
+            if ('"%s"' % version) not in blob:
+                return ("PIN_INDEX.json does not record %s -- regenerate with "
+                        "bd-regen-order AFTER the last source edit" % version)
+
+        if baseline is not None:
+            with zipfile.ZipFile(baseline) as archive:
+                baseline_changelog = archive.read("CHANGELOG.md").decode("utf-8")
+            old_headers = list(
+                re.finditer(r"^## (v\S+).*?$", baseline_changelog, re.M)
+            )
+            if not old_headers:
+                return "baseline CHANGELOG.md has no previous release header"
+            old_header = old_headers[0].group(0)
+            if headers[0].group(0) != old_header:
+                if len(headers) < 2 or headers[1].group(0) != old_header:
+                    got = headers[1].group(0) if len(headers) > 1 else "ABSENT"
+                    return ("CHANGELOG.md's new entry is not anchored on the previous "
+                            "release header %r (found %r)" % (old_header, got))
+    except (OSError, UnicodeError, KeyError, zipfile.BadZipFile) as exc:
+        return "release trio unreadable: %s" % exc
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-precut")
     ap.add_argument("--baseline")
@@ -272,55 +337,7 @@ def main(argv=None):
     # every single time is worse than no line at all: it trains the reader to
     # skip the summary, which is where the real UNKNOWNs also live. This derives
     # the same three facts from the working tree.
-    trio_problem = None
-    try:
-        init = pathlib.Path(root, "bulk_downloader", "__init__.py").read_text(encoding="utf-8")
-        m = re.search(r'^__version__ = "([^"]+)"', init, re.M)
-        if not m:
-            trio_problem = "bulk_downloader/__init__.py declares no __version__"
-        else:
-            version = m.group(1)
-            pin = pathlib.Path(root, "tests", "test_settings_center_slice4.py").read_text(encoding="utf-8")
-            if ('__version__ == "%s"' % version) not in pin:
-                trio_problem = ("the version pin in tests/test_settings_center_slice4.py "
-                                "does not name %s" % version)
-            else:
-                changelog = pathlib.Path(root, "CHANGELOG.md").read_text(encoding="utf-8")
-                first = re.search(r"^## (v\S+)", changelog, re.M)
-                if not first:
-                    trio_problem = "CHANGELOG.md has no release header"
-                elif first.group(1) != "v" + version:
-                    trio_problem = ("CHANGELOG.md's top entry is %s, not v%s -- the "
-                                    "entry must be PREPENDED and anchored on the "
-                                    "previous release" % (first.group(1), version))
-                else:
-                    entry = changelog[first.start():]
-                    nxt = re.search(r"\n## v", entry)
-                    body = entry[:nxt.start()] if nxt else entry
-                    # AND THE GENERATED PIN, which is the half that actually
-                    # bit. At v3.66.1239 the three SOURCE facts agreed while
-                    # PIN_INDEX.json still recorded the previous version,
-                    # because a regen ran before the last version edit rather
-                    # than after it (A3 step 7). Source agreement is not
-                    # release readiness when a generated artifact carries the
-                    # same fact.
-                    pin_index = pathlib.Path(root, "PIN_INDEX.json")
-                    if pin_index.is_file():
-                        blob = pin_index.read_text(encoding="utf-8")
-                        if ('"%s"' % version) not in blob:
-                            trio_problem = (
-                                "PIN_INDEX.json does not record %s -- regenerate "
-                                "with bd-regen-order AFTER the last source edit"
-                                % version)
-                    nonascii = [c for c in body if ord(c) > 127]
-                    if trio_problem:
-                        pass
-                    elif nonascii:
-                        trio_problem = ("the %s CHANGELOG entry contains %d non-ASCII "
-                                        "character(s) (%r) -- A6 requires ASCII-only"
-                                        % (first.group(1), len(nonascii), nonascii[:4]))
-    except OSError as exc:
-        trio_problem = "release trio unreadable: %s" % exc
+    trio_problem = check_release_trio(root, baseline)
     if trio_problem:
         blocking.append("release trio: " + trio_problem)
     else:
