@@ -182,7 +182,7 @@
     {
       "bytes": 8018,
       "key": "tests/test_v3_43_35_account_pool.py::test_app_calls_configure_pool_on_load::src[pos:pos + 8000]::1",
-      "sha256": "0fd616592e7b3f7c46d805297774db4fa185dc7a85ad8428b86da1d0e2b47524"
+      "sha256": "007c79ee6e4a364718f0ece5724f02cda955bd34426f879bbb91068d0cd6b780"
     },
     {
       "bytes": 1414,
