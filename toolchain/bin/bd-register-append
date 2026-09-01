@@ -216,9 +216,10 @@ def append(repo: Path, request_path: Path) -> int:
             derived_rows, opened, new_digest, _ = _derive_backlog(repo, appended)
             amended = _HEADER.sub(_marker(derived_rows, opened, new_digest), appended, count=1)
             _assert_canonical_header(repo, amended)
-            normalized_expected = _HEADER.sub("<canonical-header>", appended, count=1)
+            normalized_original = _HEADER.sub("<canonical-header>", text, count=1)
             normalized_amended = _HEADER.sub("<canonical-header>", amended, count=1)
-            if normalized_expected != normalized_amended:
+            expected_amended = normalized_original + "".join(f"{row}\n" for _, row in proposed)
+            if expected_amended != normalized_amended:
                 raise ValueError("append would change a physical row outside the proposed suffix")
             if derived_rows != rows + len(proposed):
                 raise ValueError("append did not produce exactly the proposed number of rows")
