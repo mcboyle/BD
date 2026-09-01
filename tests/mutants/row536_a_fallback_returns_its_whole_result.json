@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 536. Four regression mutants over the two things this cut asserts. M1/M2 restore the pre-fix 4-tuple on each chained fallback's disabled arm -- the exact shipped-configuration defect, one per link, because repairing only the ytdlp link moves the ValueError from runner_challenge.py:68 to :77 and the operator sees no difference. M3/M4 attack the OTHER half: that the fifth element is a measurement rather than padding. M3 pads it with `size` (the wrong fix that satisfies arity while claiming an already-present file was downloaded), M4 pins it to 0 (the wrong fix that satisfies arity while denying every real transfer). Each anchor occurs exactly once in bulk_downloader/runner_extractors.py, measured at candidate time.",
+  "subject": "runner_extractors fallbacks return five values, and the fifth is bytes actually fetched",
+  "band": [
+    "tests/test_row536_a_fallback_returns_its_whole_result.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 ytdlp disabled arm returns the pre-fix 4-tuple",
+      "file": "bulk_downloader/runner_extractors.py",
+      "old": "            return (False, \"ytdlp_fallback disabled\", None, 0, 0)",
+      "new": "            return (False, \"ytdlp_fallback disabled\", None, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_row536_a_fallback_returns_its_whole_result.py::test_unsolvable_captcha_reaches_needs_review_in_the_shipped_config"
+    },
+    {
+      "label": "M2 gallery-dl disabled arm returns the pre-fix 4-tuple",
+      "file": "bulk_downloader/runner_extractors.py",
+      "old": "            return (False, \"gallerydl_fallback disabled\", None, 0, 0)",
+      "new": "            return (False, \"gallerydl_fallback disabled\", None, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_row536_a_fallback_returns_its_whole_result.py::test_unsolvable_captcha_reaches_needs_review_in_the_shipped_config"
+    },
+    {
+      "label": "M3 fifth element padded with size, so an already-present file claims a transfer",
+      "file": "bulk_downloader/runner_extractors.py",
+      "old": "                return (True, msg, filename, size, size if fetched else 0)",
+      "new": "                return (True, msg, filename, size, size)",
+      "direction": "regression",
+      "catcher": "tests/test_row536_a_fallback_returns_its_whole_result.py::test_an_already_present_file_reports_zero_bytes_fetched"
+    },
+    {
+      "label": "M4 fifth element hardcoded to 0, so a real transfer reports no bytes",
+      "file": "bulk_downloader/runner_extractors.py",
+      "old": "                return (True, msg, filename, size, size if fetched else 0)",
+      "new": "                return (True, msg, filename, size, 0)",
+      "direction": "regression",
+      "catcher": "tests/test_row536_a_fallback_returns_its_whole_result.py::test_a_real_transfer_reports_the_bytes_it_moved"
+    }
+  ]
+}
