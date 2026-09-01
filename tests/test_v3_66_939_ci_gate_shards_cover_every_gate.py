@@ -181,6 +181,12 @@ _DECLARED = {
     # version/pin/surface check can be MEASURED AT ALL. It judges the tool and
     # the tree rather than a diff, so no changed path selects it either.
     "tests/test_row463_precut_derives_its_baseline.py",
+    # Rows 416/464/472/527. Verification tools must preserve each measured
+    # state through their real entry points; the suite also pins bd-precut's
+    # baseline/tracked-only main() wiring, which the row-463 component tests do
+    # not reach. Its denominator is the merge-lane tree, not one application
+    # module, so it is always scheduled.
+    "tests/test_verify_lane_state_naming.py",
     # @1222, the budget ratchet. An inner budget at or above the bound
     # governing its item has a dead error path, so a hang kills the process
     # instead of failing the test -- twice over on 2026-08-24. The frozen

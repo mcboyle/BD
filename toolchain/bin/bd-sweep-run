@@ -740,9 +740,12 @@ def build_launch(rundir, runner_text):
         "  echo 'BD-SWEEP-RUNDIR-REUSED'; exit 72\n"
         "fi\n"
         "mkdir -p %(d)s/bd-run || exit 71\n"
-        "printf %%s %(payload)s | base64 -d > %(d)s/runner.sh.tmp || { rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-DECODE-FAILED'; exit 70; }\n"
+        "printf %%s %(payload)s | base64 -d | dd of=%(d)s/runner.sh.tmp status=none\n"
+        "source_rcs=(\"${PIPESTATUS[@]}\")\n"
+        "if [ \"${source_rcs[2]}\" -ne 0 ]; then rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-STAGE-FAILED'; exit 70; fi\n"
+        "if [ \"${source_rcs[1]}\" -ne 0 ]; then rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-DECODE-FAILED'; exit 70; fi\n"
         "if [ \"$(sha256sum %(d)s/runner.sh.tmp | awk '{print $1}')\" != %(digest)s ]; then rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-DIGEST-MISMATCH'; exit 70; fi\n"
-        "mv %(d)s/runner.sh.tmp %(d)s/runner.sh || exit 70\n"
+        "mv %(d)s/runner.sh.tmp %(d)s/runner.sh || { rm -f %(d)s/runner.sh.tmp; echo 'BD-SWEEP-SOURCE-PUBLISH-FAILED'; exit 70; }\n"
         # DETACHED, ALL THREE FDS REDIRECTED: the ssh channel has to be able to
         # close, and the run has to outlive it.
         "if command -v setsid >/dev/null 2>&1; then\n"
@@ -1153,15 +1156,34 @@ def run(args, transport_factory=None, clock=time.time, sleeper=time.sleep,
     # ---- launch ----------------------------------------------------------
     rc, lo, le = transport.run(build_launch(rundir, runner),
                                timeout=args.connect_timeout + 60)
+    launch_detail = "\n".join(
+        "%s: %s" % (stream, text.strip())
+        for stream, text in (("stdout", lo), ("stderr", le)) if text.strip())
     if "BD-SWEEP-RUNDIR-REUSED" in lo:
         raise Refuse("REFUSE-RUNDIR-REUSED",
                      "%s already has a run directory at %s carrying another run's "
                      "marker. Nothing was launched: a poll would have read that "
                      "marker as this run's result." % (label, rundir))
+    if rc == 70 and "BD-SWEEP-SOURCE-DECODE-FAILED" in lo:
+        raise Refuse("REFUSE-LAUNCH-SOURCE-DECODE",
+                     "%s could not decode the transported runner source: %s"
+                     % (label, launch_detail))
+    if rc == 70 and "BD-SWEEP-SOURCE-STAGE-FAILED" in lo:
+        raise Refuse("REFUSE-LAUNCH-SOURCE-STAGE",
+                     "%s decoded the runner source but could not stage it: %s"
+                     % (label, launch_detail))
+    if rc == 70 and "BD-SWEEP-SOURCE-DIGEST-MISMATCH" in lo:
+        raise Refuse("REFUSE-LAUNCH-SOURCE-DIGEST",
+                     "%s decoded runner bytes whose digest did not match: %s"
+                     % (label, launch_detail))
+    if rc == 70 and "BD-SWEEP-SOURCE-PUBLISH-FAILED" in lo:
+        raise Refuse("REFUSE-LAUNCH-SOURCE-PUBLISH",
+                     "%s verified the runner bytes but could not publish them: %s"
+                     % (label, launch_detail))
     if rc != 0 or "BD-SWEEP-LAUNCH-OK" not in lo:
         raise Refuse("REFUSE-LAUNCH-FAILED",
                      "%s did not confirm the launch (rc=%d): %s"
-                     % (label, rc, (le or lo).strip()))
+                     % (label, rc, launch_detail))
     started_wall = clock()
     print("bd-sweep-run: launched; %s" % lo.strip(), file=out)
     print("bd-sweep-run: target artifacts under %s (log: %s/bd-run/sweep.log)"
