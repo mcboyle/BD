@@ -19,6 +19,8 @@ from bulk_downloader import staging_claim
 from bulk_downloader.runner import SiteRunner
 from bulk_downloader.constants import _HTTPDownloadFailed, _DownloadTruncated
 
+BD_GATE_SCOPE = "module"
+
 
 def _claim(final: Path, page_url: str):
     identity = staging_claim.job_identity(page_url)
