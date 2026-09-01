@@ -777,6 +777,97 @@ def test_dev_run_genuine_reader_failure_reaps_before_terminal_verdict(
             subject._runs.clear()
 
 
+def test_dev_run_unmeasurable_cleanup_stays_unknown_and_retains_identity(
+    monkeypatch, tmp_path
+):
+    from bulk_downloader import dev_tools as subject
+
+    marker = tmp_path / "unknown-cleanup-child-live"
+    child = (
+        "import pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1]).write_text('live=1\\n', encoding='ascii')\n"
+        "time.sleep(300)\n"
+    )
+    monkeypatch.setattr(
+        subject,
+        "_build_cmd",
+        lambda *_args: [sys.executable, "-c", child, str(marker)],
+    )
+    real_popen = subject.subprocess.Popen
+    injected = {"reader": 0, "cleanup": 0, "process": None, "start": None}
+    handles = []
+
+    class FailingReader:
+        def __init__(self, stream, process):
+            self._stream = stream
+            self._process = process
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            deadline = time.monotonic() + 5
+            while (not _path_has_exact_text(marker, "live=1\n")
+                   and time.monotonic() < deadline):
+                threading.Event().wait(0.01)
+            assert marker.read_text(encoding="ascii") == "live=1\n"
+            injected["start"] = _linux_process_start(self._process.pid)
+            assert _same_linux_process_is_alive(
+                self._process.pid, injected["start"]
+            )
+            injected["reader"] += 1
+            raise RuntimeError("injected unmeasurable reader death")
+
+        def close(self):
+            self._stream.close()
+
+    def popen_with_failing_reader(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        handles.append(process.stdout)
+        process.stdout = FailingReader(process.stdout, process)
+        injected["process"] = process
+        return process
+
+    def leave_cleanup_unmeasured(process):
+        assert process is injected["process"]
+        injected["cleanup"] += 1
+
+    monkeypatch.setattr(subject.subprocess, "Popen", popen_with_failing_reader)
+    monkeypatch.setattr(
+        subject, "kill_process_tree", leave_cleanup_unmeasured, raising=False
+    )
+    with subject._runs_lock:
+        subject._runs.clear()
+    try:
+        run_id = subject.start_run("tests/row445-unknown.py")["run_id"]
+        status = _await_dev_run(
+            subject, run_id, lambda current: current["state"] != "running"
+        )
+        assert injected["reader"] == 1, "the reader failure did not fire once"
+        assert injected["cleanup"] == 1, "the cleanup injection did not fire once"
+        process = injected["process"]
+        assert process is not None
+        assert _same_linux_process_is_alive(process.pid, injected["start"]), (
+            "the UNKNOWN control did not retain a live child to measure"
+        )
+        assert status["cleanup_state"] == "unknown"
+        with subject._runs_lock:
+            internal = next(run for run in subject._runs
+                            if run["run_id"] == run_id)
+            assert internal["_process"] is process, (
+                "UNKNOWN cleanup dropped the exact process identity"
+            )
+    finally:
+        for handle in handles:
+            handle.close()
+        process = injected["process"]
+        if process is not None and process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+        with subject._runs_lock:
+            subject._runs.clear()
+
+
 def test_dev_run_clean_exit_keeps_the_childs_true_returncode(
     monkeypatch, tmp_path
 ):
