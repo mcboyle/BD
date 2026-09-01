@@ -1,5 +1,26 @@
 {
  "profile": "data-package",
  "wacz_version": "1.1.1",
- "resources": []
+ "resources": [
+  {"path": "tests/capture_corpus_synthetic/bang247_redacted_strict.wacz"},
+  {"path": "tests/capture_corpus_synthetic/bros_title1_1.wacz"},
+  {"path": "tests/capture_corpus_synthetic/bros_title1_cap2.wacz"},
+  {"path": "tests/capture_corpus_synthetic/cap.wacz"},
+  {"path": "tests/capture_corpus_synthetic/filthy_title1_cap1.wacz"},
+  {"path": "tests/capture_corpus_synthetic/filthy_title1_cap2.wacz"},
+  {"path": "tests/capture_corpus_synthetic/miruro.redacted.wacz"},
+  {"path": "tests/capture_corpus_synthetic/mirurow.redacted.wacz"},
+  {"path": "tests/capture_corpus_synthetic/nubile_title1_cap1.wacz"},
+  {"path": "tests/capture_corpus_synthetic/nubile_title1_cap2.wacz"},
+  {"path": "tests/capture_corpus_synthetic/t_title1_cap2.wacz"},
+  {"path": "tests/capture_corpus_synthetic/tests/fixtures/vidstack/miruro.redacted.wacz"},
+  {"path": "tests/capture_corpus_synthetic/tests/fixtures/vidstack/mirurow.redacted.wacz"},
+  {"path": "tests/capture_corpus_synthetic/ultrafilms_2candies_4k.wacz"},
+  {"path": "tests/capture_corpus_synthetic/ultrafilms_2candies_720p.wacz"},
+  {"path": "tests/capture_corpus_synthetic/ultrafilms_title14_later.wacz"},
+  {"path": "tests/capture_corpus_synthetic/ultrafilms_title1_later.wacz"},
+  {"path": "tests/capture_corpus_synthetic/ultrafilms_title2.wacz"},
+  {"path": "tests/capture_corpus_synthetic/wow247_redacted_strict.wacz"},
+  {"path": "tests/capture_corpus_synthetic/yultrafilms_title1_later.wacz"}
+ ]
 }

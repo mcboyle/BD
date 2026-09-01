@@ -8,6 +8,7 @@ import json
 import re
 import sys
 import zipfile
+from pathlib import Path
 from typing import Dict, List
 
 FORBIDDEN_SUFFIX = (".pyc", ".pyo", ".wacz")
@@ -25,19 +26,48 @@ FORBIDDEN_SEGMENT = (
     ".hypothesis/",
 )
 FORBIDDEN_SENSITIVE = re.compile(r'(\.env|\.pem$|\.key$|\.db($|-wal|-shm))')
+ROOT = Path(__file__).resolve().parents[1]
+_SYNTHETIC_CAPTURE_PREFIX = "tests/capture_corpus_synthetic/"
+_SYNTHETIC_CAPTURE_MANIFEST = (
+    ROOT / "tests" / "capture_corpus_synthetic" / "datapackage.json"
+)
+_UNSET = object()
 
-# Redacted recognizer fixtures under tests/fixtures/ and the explicitly
-# synthetic corpus under tests/capture_corpus_synthetic/ are the intended
-# in-repo regression captures, so they are exempt from the .wacz forbidden
-# rule. Every other .wacz stays forbidden — the F2-LOCAL posture for real
-# captures is unchanged.
-def _is_allowed_fixture(n: str) -> bool:
-    return (
-        n.startswith("tests/fixtures/") and n.endswith(".redacted.wacz")
-    ) or (
-        n.startswith("tests/capture_corpus_synthetic/")
-        and n.endswith(".wacz")
-    )
+def _declared_synthetic_capture_corpus_wacz() -> set[str] | None:
+    """Return the explicit corpus-member denominator, or refuse its exemption.
+
+    A directory prefix is not evidence that a release member is synthetic.  Any
+    malformed declaration is therefore fail-closed: its members remain subject
+    to the ordinary forbidden-artifact rules.
+    """
+    try:
+        data = json.loads(_SYNTHETIC_CAPTURE_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    resources = data.get("resources") if isinstance(data, dict) else None
+    if not isinstance(resources, list):
+        return None
+    declared = set()
+    for resource in resources:
+        path = resource.get("path") if isinstance(resource, dict) else None
+        if (not isinstance(path, str)
+                or not path.startswith(_SYNTHETIC_CAPTURE_PREFIX)
+                or not path.endswith(".wacz")
+                or path in declared):
+            return None
+        declared.add(path)
+    return declared
+
+
+# Redacted recognizer fixtures under tests/fixtures/ are name-marked synthetic
+# fixtures.  Capture-corpus archives require the independently maintained
+# per-file declaration above; every other .wacz remains forbidden.
+def _is_allowed_fixture(n: str, declared_capture_corpus=_UNSET) -> bool:
+    if n.startswith("tests/fixtures/") and n.endswith(".redacted.wacz"):
+        return True
+    if declared_capture_corpus is _UNSET:
+        declared_capture_corpus = _declared_synthetic_capture_corpus_wacz()
+    return declared_capture_corpus is not None and n in declared_capture_corpus
 
 
 def shas(zip_path: str) -> Dict[str, str]:
@@ -51,9 +81,10 @@ def shas(zip_path: str) -> Dict[str, str]:
 
 
 def forbidden_artifacts(names: List[str]) -> List[str]:
+    declared_capture_corpus = _declared_synthetic_capture_corpus_wacz()
     bad = []
     for n in names:
-        if _is_allowed_fixture(n):
+        if _is_allowed_fixture(n, declared_capture_corpus):
             continue
         if any(seg in n for seg in FORBIDDEN_SEGMENT):
             bad.append(n)

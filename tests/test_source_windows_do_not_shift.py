@@ -59,10 +59,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 # Measured 2026-07-29 at 118; re-measured 2026-07-30 at 115 after the
-# done_today_count cut converted the three windows in test_v3_43_23_quick_wins.
-# Lower it whenever a cut converts some; never raise it. Raising it is the
-# switch-it-off move this gate exists to prevent.
-_MAX_WINDOWS = 115
+# done_today_count cut converted the three windows in test_v3_43_23_quick_wins;
+# re-measured 2026-09-01 at 105 after the part-staging-collision cut converted
+# eight resume checks. Lower it whenever a cut converts some; never raise it.
+# Raising it is the switch-it-off move this gate exists to prevent.
+_MAX_WINDOWS = 105
 
 # The specific TEST FUNCTIONS converted so far. Scoped to the function, not the
 # file: only one assertion in each of these files was converted, and claiming
@@ -84,6 +85,33 @@ _CONVERTED = {
      "test_load_urls_initializes_last_progress_at"),
     ("tests/test_v3_43_23_quick_wins.py",
      "test_retry_one_validates_state"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_imports_resume_module"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_uses_head_probe"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_checks_is_resumable"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_saves_checkpoint_on_failure"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_cleans_up_checkpoint_on_success"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_worker_seeks_past_resumed_bytes"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_periodic_checkpoint_save"),
+    ("tests/test_v3_43_27_resume.py",
+     "test_parallel_downloader_resume_offset_added_to_total"),
+}
+
+_PARALLEL_BODY_CONVERSIONS = {
+    "test_parallel_downloader_imports_resume_module",
+    "test_parallel_downloader_uses_head_probe",
+    "test_parallel_downloader_checks_is_resumable",
+    "test_parallel_downloader_saves_checkpoint_on_failure",
+    "test_parallel_downloader_cleans_up_checkpoint_on_success",
+    "test_parallel_downloader_worker_seeks_past_resumed_bytes",
+    "test_parallel_downloader_periodic_checkpoint_save",
+    "test_parallel_downloader_resume_offset_added_to_total",
 }
 
 
@@ -134,6 +162,38 @@ def test_the_scan_can_see_the_pattern():
         "the scan found no fixed-width source windows at all. Six have been "
         "repaired by hand and ~115 remain, so zero means the AST predicate "
         "stopped matching -- not that the pattern is gone."
+    )
+
+
+def test_the_ratchet_has_no_dead_slack():
+    """The hand-typed ratchet must name the AST scanner's exact total."""
+    tracked = _tracked_tests()
+    assert tracked, "git ls-files returned no tracked tests for the source-window census"
+    measured = sum(len(_fixed_windows(rel)) for rel in tracked)
+    assert measured > 0, "the source-window census unexpectedly measured zero windows"
+    assert measured == _MAX_WINDOWS, (
+        f"fixed-width source-window ratchet has {_MAX_WINDOWS - measured} dead slots: "
+        f"bound {_MAX_WINDOWS}, measured {measured}"
+    )
+
+
+def test_parallel_body_conversions_are_named_in_the_converted_set():
+    """Every converted resume test remains guarded against a slice regression."""
+    rel = "tests/test_v3_43_27_resume.py"
+    tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+    actual = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("test_parallel_downloader_")
+        and "_parallel_body" in ast.unparse(node)
+    }
+    assert actual == _PARALLEL_BODY_CONVERSIONS, actual
+    converted = {fname for path, fname in _CONVERTED if path == rel}
+    missing = sorted(actual - converted)
+    assert not missing, (
+        "AST-derived resume checks are missing from _CONVERTED and could regress "
+        "to fixed-width windows without this gate naming them: " + ", ".join(missing)
     )
 
 
