@@ -380,6 +380,96 @@ _EXPLICIT_VIDEO_HEIGHT_RE = re.compile(
 _CANDIDATE_URL_ATTRS = (
     "href", "data-href", "data-url", "data-src", "data-download",
     "data-signed-url-key")
+
+
+def _split_regex_alternatives(pattern):
+    """Top-level ``|`` alternatives of a regex source, or None if unreadable."""
+    parts, start = [], 0
+    depth = 0
+    in_class = False
+    escaped = False
+    for index, char in enumerate(pattern):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if in_class:
+            if char == "]":
+                in_class = False
+            continue
+        if char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif char == "|" and not depth:
+            parts.append(pattern[start:index])
+            start = index + 1
+    if depth or in_class or escaped:
+        return None
+    parts.append(pattern[start:])
+    return parts
+
+
+def _non_video_partition(pattern):
+    """Split the shared non-video predicate into its two populations.
+
+    ``NON_VIDEO_RE`` is two different things joined: VISIBLE-WORD alternatives
+    (``\\b(zip|photos?|...|poster)\\b``) and URL-SHAPE alternatives naming
+    specific preview file-naming conventions.  Returns
+    ``(word_alternatives, url_shape_alternatives)``, or ``(None, None)`` when
+    the shipped pattern no longer has a shape this partition can read -- in
+    which case the caller keeps applying the whole predicate everywhere, which
+    refuses more candidates, never fewer.
+    """
+    alternatives = _split_regex_alternatives(pattern)
+    if not alternatives:
+        return None, None
+    words, shapes = [], []
+    for alternative in alternatives:
+        if alternative.startswith("\\b") and alternative.endswith("\\b"):
+            words.append(alternative)
+        else:
+            shapes.append(alternative)
+    if len(words) != 1 or not shapes:
+        return None, None
+    return words, shapes
+
+
+# Only the shape half needs a compiled object of its own: the visible half is
+# judged by the shipped predicate ENTIRE, applied to operator-visible text --
+# a label that literally reads ``tr_127673_sm.mp4`` is refused too.
+_NON_VIDEO_SHAPE_ALTERNATIVES = _non_video_partition(NON_VIDEO_RE.pattern)[1]
+# Row 508: a regex word boundary is satisfied by ``/``, ``?``, ``=``, ``-``
+# and ``.``, so the visible-word half fires on URL PUNCTUATION -- a taught
+# anchor labelled ``1080p`` was refused because its href carried ``poster=``,
+# ``/preview/`` or a ``gallery-`` host, bytes the operator never saw. The
+# shape half is about file NAMING and must keep reading URLs, so the two are
+# applied to different populations here rather than changing the shared object.
+_NON_VIDEO_URL_SHAPE_RE = (
+    re.compile("|".join(_NON_VIDEO_SHAPE_ALTERNATIVES), NON_VIDEO_RE.flags)
+    if _NON_VIDEO_SHAPE_ALTERNATIVES else NON_VIDEO_RE)
+# Everything the wide sweep harvests from an element, in the order it is
+# joined. Module scope so the label/URL split below has an INDEPENDENT
+# denominator a test can reconcile against it (row 508).
+_WIDE_SCAN_ATTRS = (
+    "title", "aria-label", "alt", "value", "placeholder",
+    "href", "src", "data-href", "data-url", "data-src",
+    "data-quality", "data-res", "data-resolution", "data-size",
+    "data-format", "data-bitrate", "data-label", "data-name",
+    "data-title", "data-tooltip", "data-original-title",
+    "data-signed-url-key", "data-download")
+# The URL-bearing subset. Everything else in _WIDE_SCAN_ATTRS is a label the
+# operator can read on the rendered page, and only those decide the
+# visible-word half of NON_VIDEO_RE.
+_WIDE_SCAN_URL_ATTRS = frozenset((
+    "href", "src", "data-href", "data-url", "data-src",
+    "data-signed-url-key", "data-download"))
 _NAV_DOWNLOAD_AUTHORITY_ATTRS = (
     "download", "data-href", "data-url", "data-src",
     "data-download", "data-signed-url-key", "data-link")
@@ -477,6 +567,59 @@ def _split_selector_list(selector):
         return []
     parts.append(final)
     return parts
+
+
+_SELECTOR_COMBINATORS = (">", "+", "~")
+
+
+def _selector_final_compound(selector):
+    """Return the trailing compound -- the part constraining the MATCH.
+
+    Row 484: a class or id token waives per-element media evidence only when it
+    constrains the element the selector actually RETURNS. ``ul.navigation li a``
+    returns an ``a``; ``.navigation`` names an ancestor SCOPE and decides
+    nothing about the anchor, yet it made the row-399 chrome anchors "precise"
+    and let the learned fast path return one before the wide sweep ever ran.
+
+    Returns None when the structure cannot be read, which stays conservative.
+    Descendant combinators are whitespace, so bracketed attribute values and
+    parenthesised pseudo arguments are skipped rather than split on.
+    """
+    if not isinstance(selector, str):
+        return None
+    start = 0
+    parens = brackets = 0
+    quote = None
+    escaped = False
+    for index, char in enumerate(selector):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+        elif char == "[":
+            brackets += 1
+        elif char == "]":
+            brackets -= 1
+        elif not brackets and char == "(":
+            parens += 1
+        elif not brackets and char == ")":
+            parens -= 1
+        elif (not brackets and not parens
+                and (char.isspace() or char in _SELECTOR_COMBINATORS)):
+            start = index + 1
+        if parens < 0 or brackets < 0:
+            return None
+    if quote or parens or brackets:
+        return None
+    return selector[start:]
 
 
 def _matching_selector_paren(selector, opening):
@@ -623,7 +766,7 @@ def _selector_direct_authority(selector):
     parsed = _selector_attributes_and_mask(base)
     if parsed is None:
         return False
-    attributes, masked = parsed
+    attributes, _masked = parsed
     roles = set()
     has_modal_scope = False
     for attribute in attributes:
@@ -650,8 +793,22 @@ def _selector_direct_authority(selector):
             and (roles.intersection(_SELECTOR_SCOPE_ROLES)
                  or has_modal_scope)):
         return True
-    return bool(_SELECTOR_CLASS_OR_ID_RE.search(masked)
-                or _SELECTOR_AUTHORITY_WORD_RE.search(masked))
+    # Attributes and roles above are read from the WHOLE branch on purpose: a
+    # scope attribute (``[role="dialog"]``) and the row role it qualifies sit
+    # in different compounds and only mean something together. A bare class,
+    # id or authority WORD is different -- it constrains exactly the compound
+    # it is written in, so it is read from the final compound alone (row 484).
+    # ``masked`` cannot serve here: it blanks attributes with SPACES, which is
+    # itself the descendant combinator.
+    final = _selector_final_compound(base)
+    if final is None:
+        return False
+    final_parsed = _selector_attributes_and_mask(final)
+    if final_parsed is None:
+        return False
+    _final_attributes, final_masked = final_parsed
+    return bool(_SELECTOR_CLASS_OR_ID_RE.search(final_masked)
+                or _SELECTOR_AUTHORITY_WORD_RE.search(final_masked))
 
 
 def _selector_branch_has_authority(selector):
@@ -672,21 +829,6 @@ def _selector_branch_has_authority(selector):
                 _selector_branch_has_authority(branch) for branch in branches):
             return False
     return True
-
-
-def _learned_selector_requires_signal(selector):
-    """Whether every match needs its own media/download evidence.
-
-    Authority is evaluated per top-level branch and positive pseudo context;
-    one precise alternative cannot lend authority to a generic ``a`` branch.
-    Negations and quoted attribute values never manufacture positive intent.
-    Unparseable selector syntax stays conservative.
-    """
-    if not isinstance(selector, str):
-        return True
-    branches = _split_selector_list(selector.strip())
-    return not branches or not all(
-        _selector_branch_has_authority(branch) for branch in branches)
 
 
 def _selector_branch_authority_probe(selector):
@@ -723,7 +865,22 @@ def _selector_branch_authority_probe(selector):
 
 
 def _learned_candidate_requires_signal(el, selector):
-    """Bind mixed-selector authority to the branch the live element matches."""
+    """Whether this match needs its own media/download evidence.
+
+    THE module's learned-selector admission policy, and the only one: a second
+    function held this docstring while nothing in the tree called it, so no
+    test could tell "this policy is correct" from "this policy never runs"
+    (row 524). Its four rules live here, where they are executed:
+
+    * authority is evaluated per top-level branch and positive pseudo context,
+      and is bound to the branch the LIVE element actually matches, so one
+      precise alternative cannot lend authority to a generic ``a`` branch;
+    * a class or id token counts only where it constrains the returned element
+      (see ``_selector_final_compound``), not where it names an ancestor scope;
+    * negations and quoted attribute values never manufacture positive intent;
+    * unparseable syntax, and an element that cannot be probed, stay
+      conservative -- signal is required.
+    """
     if not isinstance(selector, str):
         return True
     branches = _split_selector_list(selector.strip())
@@ -760,6 +917,46 @@ def _is_wrapper_not_control(el):
         return False
 
 
+def _resolve_taught_control(el):
+    """Resolve an operator-taught row to the control it is asking us to click.
+
+    Row 486: the learned loop ran the wrapper guard UNCONDITIONALLY, so a
+    taught row that ``_learned_candidate_requires_signal`` had just measured as
+    fully authoritative was deleted merely for CONTAINING its own click target
+    -- the ordinary shape of a quality row whose button is nested inside it.
+    The caller then credited a miss against the operator's own reviewed
+    selector, and ``_maybe_demote_selectors`` drops that selector at 6 misses.
+
+    Returns ``(element, None)`` when the taught match can be ranked as-is or
+    resolves to exactly one clickable control, and ``(None, reason)`` when the
+    click target cannot be identified -- which is a COUNTED drop, never a
+    silent one. Wrapper status that cannot be measured keeps the candidate:
+    that is the same fail-open ``_is_wrapper_not_control`` already has, and it
+    is what stops a locator stub from deleting a reviewed row.
+    """
+    if _candidate_has_own_affordance(el):
+        return el, None
+    try:
+        controls = el.locator(_CONTROL_DESCENDANT_SEL)
+        count = controls.count()
+    except Exception:
+        # Locator stubs and detached elements cannot prove wrapper status.
+        return el, None
+    if count == 0:
+        return el, None
+    if count > 1:
+        # A layout wrapper over several controls names no single target; the
+        # wide sweep reaches each leaf on its own. This is the row-380 shape.
+        return None, "wrapper_unresolved"
+    try:
+        control = controls.first
+        if not control.is_visible():
+            return None, "wrapper_unresolved"
+    except Exception:
+        return None, "wrapper_unresolved"
+    return control, None
+
+
 def _candidate_has_own_affordance(el):
     """Whether a broad learned match is itself an interactive control.
 
@@ -778,18 +975,44 @@ def _candidate_has_own_affordance(el):
         return True
 
 
+_SITE_CHROME_SEL = (
+    'nav,[role="navigation"],[class~="navigation"],[class~="main_menu"],'
+    '[class~="ps_main_menu"]')
+# HTML5 sectioning content. A ``header``/``footer`` inside one of these is
+# scoped to THAT SECTION rather than to the document -- the same rule that
+# decides whether the element maps to the ARIA banner/contentinfo landmark.
+_SECTIONING_CONTENT_SEL = "article,aside,main,nav,section"
+
+
 def _has_navigation_ancestor(el):
-    """True only when the live DOM proves semantic site-chrome ancestry.
+    """True only when the live DOM proves semantic SITE-chrome ancestry.
+
+    Row 499: ``header`` and ``footer`` are SECTIONING content, valid and common
+    inside ``article``/``section``/``aside`` where they scope a CARD and not
+    the site, so asking ``closest('header,footer')`` judged every scene card's
+    own header as navigation and deleted the controls inside it. Only a
+    DOCUMENT-LEVEL header or footer -- one with no sectioning element between
+    it and the root -- is proof of chrome; a card-scoped one is not proof of
+    anything. Nesting cannot launder a real one either, so every header/footer
+    ancestor is examined rather than only the nearest.
 
     A locator stub or detached element cannot prove context and therefore keeps
     the candidate. This is intentionally narrower than guessing from URL shape.
     """
     try:
         return bool(el.evaluate(
-            "e => Boolean(e.closest("
-            "'nav,header,footer,[role=\"navigation\"],"
-            "[class~=\"navigation\"],[class~=\"main_menu\"],"
-            "[class~=\"ps_main_menu\"]'))"))
+            "(e, sel) => {"
+            "  if (e.closest(sel.chrome)) return true;"
+            "  for (let node = e.closest('header,footer'); node;"
+            "       node = node.parentElement"
+            "              && node.parentElement.closest('header,footer')) {"
+            "    const parent = node.parentElement;"
+            "    if (!parent || !parent.closest(sel.sectioning)) return true;"
+            "  }"
+            "  return false;"
+            "}",
+            {"chrome": _SITE_CHROME_SEL,
+             "sectioning": _SECTIONING_CONTENT_SEL}))
     except Exception:
         return False
 
@@ -873,15 +1096,32 @@ def _is_navigation_resolution_ghost(el, text, page_url=""):
     return True
 
 
-def _candidate_is_rankable(el, text, page_url="", require_signal=True):
-    """Shared learned/wide admission without overriding explicit selectors."""
+def _candidate_admission(el, text, page_url="", require_signal=True,
+                         label=None):
+    """Shared learned/wide admission. Returns None to admit, else the reason.
+
+    ``label`` is the OPERATOR-VISIBLE half of ``text``: rendered text plus
+    explicit label attributes, with URL-bearing attributes left out. The
+    visible-word half of ``NON_VIDEO_RE`` judges only that half, while the
+    URL-shape half keeps reading the whole harvested string (row 508). Callers
+    that pass no label keep the pre-row-508 behaviour of judging everything.
+
+    The reason is returned rather than folded into a bool because the caller
+    must COUNT the chrome/ghost deletion: it is decided by measured DOM
+    ancestry, it deleted whole pages worth of controls silently, and it is not
+    the same event as the word/signal refusals, which fire on ordinary links
+    on every page and stay silent by design (row 499).
+    """
     t = (text or "").strip()
-    if NON_VIDEO_RE.search(t):
-        return False
+    visible = t if label is None else (label or "").strip()
+    if NON_VIDEO_RE.search(visible) or _NON_VIDEO_URL_SHAPE_RE.search(t):
+        return "non_video"
     if require_signal and (
             not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
-        return False
-    return not _is_navigation_resolution_ghost(el, t, page_url)
+        return "no_signal"
+    if _is_navigation_resolution_ghost(el, t, page_url):
+        return "chrome_ghost"
+    return None
 
 
 def find_best_download(page,custom="",learned=None,runner=None):
@@ -929,6 +1169,71 @@ def find_best_download(page,custom="",learned=None,runner=None):
     if not isinstance(_page_url, str):
         _page_url = ""
 
+    # Rows 486/499: a candidate deleted on MEASURED DOM evidence -- proven
+    # site-chrome ancestry, or a taught wrapper whose click target cannot be
+    # identified -- must be COUNTED. Both deletions were bare ``continue``
+    # statements: the operator saw only "No download button found" while
+    # selector_drift recorded template breakage, so a filtered page was
+    # indistinguishable from a page with no controls. The word/signal refusals
+    # in _candidate_admission are deliberately NOT counted; they fire on
+    # ordinary links on every page and would drown the signal.
+    #
+    # The count is of distinct CANDIDATES, not of drop events: the wide sweep
+    # reaches the same anchor through several selectors, and a count that grew
+    # with the selector list would not be a number an operator could act on.
+    # Identity is the harvested text, the same key ``seen`` already uses for
+    # admitted candidates, so both halves of the page report one vocabulary.
+    _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0}
+    _admission_seen = set()
+
+    def _note_admission_drop(reason, key=None):
+        if reason not in _admission_dropped:
+            return
+        identity = (reason, key)
+        if key is not None:
+            if identity in _admission_seen:
+                return
+            _admission_seen.add(identity)
+        _admission_dropped[reason] += 1
+
+    def _emit_admission_summary():
+        total = sum(_admission_dropped.values())
+        if not total:
+            return
+        detail = " ".join(f"{name}={count}"
+                          for name, count in sorted(_admission_dropped.items())
+                          if count)
+        msg = f"candidate_admission_filtered: count={total} {detail}"
+        extra = {"count": total}
+        extra.update(_admission_dropped)
+        if runner is not None:
+            try:
+                runner.log_event(
+                    "candidate_admission_filtered", msg, extra=extra)
+                return
+            except Exception:
+                # Fall through to stderr -- a broken log_event must not
+                # silence the operator signal (mirrors the honeypot summary).
+                pass
+        sys.stderr.write(f"  {msg}\n")
+
+    # try/finally rather than one emit per ``return``: this function has four
+    # exits today and the whole defect being fixed is a drop nobody reported,
+    # so a later exit that forgets to emit would reproduce it exactly (A7).
+    try:
+        return _find_best_download(
+            page, custom, learned, runner, _page_url, _note_admission_drop)
+    finally:
+        _emit_admission_summary()
+
+
+def _find_best_download(page, custom, learned, runner, _page_url,
+                        _note_admission_drop):
+    """Body of :func:`find_best_download`; see that function for the contract.
+
+    Split out only so every exit reports its counted admission drops through
+    one ``finally``.
+    """
     if learned and isinstance(learned, dict):
         row_sels = learned.get("row_selectors") or []
         fallback_group = None
@@ -971,22 +1276,39 @@ def find_best_download(page,custom="",learned=None,runner=None):
                     _seen_visible += 1
                     require_signal = _learned_candidate_requires_signal(
                         el, sel)
-                    txt_parts = [el.inner_text() or ""]
-                    for attr in _CANDIDATE_URL_ATTRS + (
-                            "title", "aria-label"):
+                    # The harvest is split, not narrowed: `label` is what the
+                    # operator can SEE, `url_parts` is what only the machine
+                    # reads. Joined order is unchanged so scoring is identical.
+                    label_parts = [el.inner_text() or ""]
+                    url_parts = []
+                    for attr in _CANDIDATE_URL_ATTRS:
                         try:
                             v = el.get_attribute(attr)
-                            if v: txt_parts.append(v)
+                            if v: url_parts.append(v)
                         except Exception: pass
-                    txt = " ".join(txt_parts)
-                    if _is_wrapper_not_control(el):
+                    for attr in ("title", "aria-label"):
+                        try:
+                            v = el.get_attribute(attr)
+                            if v: label_parts.append(v)
+                        except Exception: pass
+                    txt = " ".join(
+                        label_parts[:1] + url_parts + label_parts[1:])
+                    label = " ".join(label_parts)
+                    # A taught row that is not itself a control names the
+                    # control it contains; resolve to it instead of deleting
+                    # the operator's own teaching (row 486).
+                    target, drop_reason = _resolve_taught_control(el)
+                    if target is None:
+                        _note_admission_drop(drop_reason, txt)
                         continue
                     if (require_signal
-                            and not _candidate_has_own_affordance(el)):
+                            and not _candidate_has_own_affordance(target)):
                         continue
-                    if not _candidate_is_rankable(
-                            el, txt, _page_url,
-                            require_signal=require_signal):
+                    admission = _candidate_admission(
+                        target, txt, _page_url,
+                        require_signal=require_signal, label=label)
+                    if admission is not None:
+                        _note_admission_drop(admission, txt)
                         continue
                     score = res_score(txt)
                     size = parse_size_bytes(txt)
@@ -994,11 +1316,11 @@ def find_best_download(page,custom="",learned=None,runner=None):
                     # standard data-* attributes. These rarely appear, but
                     # when they do, they let us verify the download was
                     # bit-exact instead of just "looked plausible".
-                    hash_info = _extract_hash_hint(el, txt)
-                    entry = {"locator": el, "text": txt[:160].strip(),
+                    hash_info = _extract_hash_hint(target, txt)
+                    entry = {"locator": target, "text": txt[:160].strip(),
                              "score": max(0, score), "size": size,
                              "work": _candidate_work_affinity(
-                                 el, _page_url)}
+                                 target, _page_url)}
                     if hash_info:
                         entry["expected_hash_algo"] = hash_info[0]
                         entry["expected_hash_value"] = hash_info[1]
@@ -1047,12 +1369,6 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # Collect text from every attribute that might carry user-visible labels
     # OR machine-readable resolution/format data. Wide net is correct here:
     # we filter aggressively on the score side, so harvesting noise is fine.
-    _attrs_to_scan=("title","aria-label","alt","value","placeholder",
-                    "href","src","data-href","data-url","data-src",
-                    "data-quality","data-res","data-resolution","data-size",
-                    "data-format","data-bitrate","data-label","data-name",
-                    "data-title","data-tooltip","data-original-title",
-                    "data-signed-url-key","data-download")
 
     # Only URL-bearing attributes decide the work. NOT the harvested text: an
     # ancestor-walk candidate inherits its descendants' inner_text, which on a
@@ -1066,15 +1382,24 @@ def find_best_download(page,custom="",learned=None,runner=None):
         return _candidate_work_affinity(el, _page_url)
 
     def gather_text(el):
-        parts=[]
-        try: parts.append(el.inner_text() or "")
+        """Return (everything harvested, the operator-visible half).
+
+        Row 508: the visible half is what the word predicate may judge. The
+        full string still drives scoring, size and the URL-shape predicate.
+        """
+        parts=[]; label=[]
+        try:
+            _inner=el.inner_text() or ""
+            parts.append(_inner); label.append(_inner)
         except Exception: pass
-        for a in _attrs_to_scan:
+        for a in _WIDE_SCAN_ATTRS:
             try:
                 v=el.get_attribute(a)
-                if v: parts.append(v)
+                if v:
+                    parts.append(v)
+                    if a not in _WIDE_SCAN_URL_ATTRS: label.append(v)
             except Exception: pass
-        return " ".join(parts)
+        return " ".join(parts), " ".join(label)
 
     # v3.66.1340: a LAYOUT WRAPPER is not a download control.
     # gather_text reads inner_text, so an ancestor inherits every
@@ -1093,7 +1418,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # never delete a real control -- including wowgirls' own learned
     # `div.download-button[data-href]` shape (negative control in
     # tests/test_row380_wrapper_never_outranks_leaf.py).
-    def add(el,text):
+    def add(el,text,label=None):
         t=(text or "").strip()
         if not t or t in seen: return
         # v3.66.1340: a pure layout wrapper is not clickable-as-a-download.
@@ -1116,8 +1441,12 @@ def find_best_download(page,custom="",learned=None,runner=None):
                 pass
         # Shared with the learned fast path: include only a scored/download-
         # shaped control, and drop a weak resolution link only when its DOM
-        # ancestry positively proves site chrome.
-        if not _candidate_is_rankable(el, t, _page_url): return
+        # ancestry positively proves site chrome. A chrome deletion here is
+        # counted for the same reason as on the learned path (row 499).
+        _admission=_candidate_admission(el, t, _page_url, label=label)
+        if _admission is not None:
+            _note_admission_drop(_admission, t)
+            return
         s=res_score(t)
         seen.add(t)
         candidates.append({"locator":el,"text":t[:160],
@@ -1133,7 +1462,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
                 "[data-url*='.mp4']","[data-src*='.mp4']"]:
         try:
             for el in page.locator(sel).all():
-                try: add(el,gather_text(el))
+                try: add(el,*gather_text(el))
                 except Exception: pass
         except Exception: pass
 
@@ -1157,9 +1486,9 @@ def find_best_download(page,custom="",learned=None,runner=None):
         try:
             for el in page.locator(sel).all():
                 try:
-                    t=gather_text(el)
+                    t,lab=gather_text(el)
                     if dl_re.search(t) or res_re.search(t):
-                        add(el,t)
+                        add(el,t,lab)
                 except Exception: pass
         except Exception: pass
 
@@ -1167,7 +1496,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     for attr in ["[data-quality]","[data-res]","[data-resolution]","[data-format]"]:
         try:
             for el in page.locator(attr).all():
-                try: add(el,gather_text(el))
+                try: add(el,*gather_text(el))
                 except Exception: pass
         except Exception: pass
 
@@ -1193,7 +1522,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
             )
             if ancestor.count()>0:
                 a=ancestor.first
-                add(a,gather_text(a))
+                add(a,*gather_text(a))
         except Exception: pass
 
     # P5-3b (v3.66.29): emission helper. Prefer runner.log_event when
