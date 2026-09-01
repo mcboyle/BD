@@ -754,9 +754,12 @@ def test_release_drops_the_claim(tmp_path):
     ident = sc.job_identity("https://example.invalid/a")
     _final, staging = sc.reserve(tmp_path / "Scene.mp4", ident)
     assert sc.owner_path_for(staging).exists()
-    sc.release(staging)
+    # Row 492: release() proves ownership now, so it is called with the identity
+    # that HOLDS the claim. A different job's identity is refused, which the
+    # sibling test test_release_refuses_a_claim_another_job_owns pins.
+    assert sc.release(staging, ident) is True
     assert not sc.owner_path_for(staging).exists()
-    sc.release(staging)  # idempotent
+    assert sc.release(staging, ident) is True  # idempotent
     other = sc.job_identity("https://example.invalid/b")
     final_b, _ = sc.reserve(tmp_path / "Scene.mp4", other)
     assert final_b.name == "Scene.mp4", (

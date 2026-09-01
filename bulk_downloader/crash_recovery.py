@@ -216,7 +216,12 @@ def delete_orphan(path: str) -> dict:
         # lifetime, so purging the orphan purges its claim. Leaving it behind
         # would push a later download of the same name onto `_1` for no reason.
         from . import staging_claim as _sc
-        _sc.release(p)
+        # Row 492: release() now proves ownership. This is the ONE caller that
+        # legitimately frees a claim it does not own -- delete_orphan runs on
+        # explicit operator command against a .part the operator has chosen to
+        # purge -- so it says force=True rather than inheriting the old
+        # unconditional behaviour by omission.
+        _sc.release(p, force=True)
         mark_decision(path, "deleted")
         return {"ok": True, "deleted_bytes": deleted_bytes}
     except OSError as e:

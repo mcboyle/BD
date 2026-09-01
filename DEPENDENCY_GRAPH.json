@@ -2364,7 +2364,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1698,
+    "edge_count": 1699,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4534,6 +4534,7 @@
         "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/staging_claim.py": [
+        "bulk_downloader/cleanup_helpers.py",
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/runner_transport.py"
       ],
@@ -6249,7 +6250,8 @@
       ],
       "bulk_downloader/cleanup_helpers.py": [
         "bulk_downloader/db.py",
-        "bulk_downloader/library_final.py"
+        "bulk_downloader/library_final.py",
+        "bulk_downloader/staging_claim.py"
       ],
       "bulk_downloader/cloak.py": [
         "bulk_downloader/global_config.py",

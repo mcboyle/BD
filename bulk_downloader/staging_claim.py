@@ -56,6 +56,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pathlib
 import time
 import uuid
 from pathlib import Path
@@ -315,7 +316,32 @@ def claim(final_path, identity: str) -> Path:
         # took resume_from from their size, sent no If-Range (the .part.meta
         # sidecar is absent whenever the origin gave no validator), got a 206,
         # appended, and promoted the concatenation under its own title.
-        _set_aside_unowned_bytes(staging)
+        # UNWIND THE MINT IF THE SET-ASIDE FAILS. Row 533 (refutation rank 1,
+        # closing ranks 1, 2 and 3, which are the same defect seen from three
+        # angles). The owner file is published FIRST and the bytes are moved
+        # SECOND, so any failure between them leaves a claim standing over
+        # foreign bytes -- and `claim()` is idempotent for one identity, so the
+        # very next attempt by the same job takes the reclaim branch, which
+        # never re-measures. The retry then resumes over another scene's bytes,
+        # splices them, and promotes the concatenation as done under the right
+        # title: the exact 2026-08-29 corruption, manufactured by the fix
+        # written to prevent it.
+        #
+        # The reachable trigger needs no error at all. A SIGKILL or a deploy
+        # restart in the window between _create_owner and os.replace leaves
+        # exactly this state on disk, and nothing reaps it.
+        try:
+            _set_aside_unowned_bytes(staging)
+        except BaseException:
+            # Best-effort, and deliberately not conditional on the failure kind:
+            # a claim this call published and could not make good on must not
+            # outlive the call. If even the unlink fails the exception still
+            # propagates, so the caller never receives a path it does not own.
+            try:
+                owner.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
         return staging
     if _read_owner_identity(owner) == identity:
         return staging
@@ -324,17 +350,76 @@ def claim(final_path, identity: str) -> Path:
         "appending to it would splice two files together")
 
 
-def release(staging_path) -> None:
-    """Drop a claim once its ``.part`` is gone (promoted or deleted).
+def release(staging_path, identity: str | None = None, *, force: bool = False) -> bool:
+    """Drop THIS job's claim, once its ``.part`` is gone. Returns what it did.
 
-    Best-effort and idempotent. A leaked claim is inert -- it can only push a
-    DIFFERENT job onto the next candidate name, never corrupt a file -- so a
-    failure here is not worth failing a completed download over.
+    Rows 492 and 489. This was ``release(staging_path) -> None``: no identity,
+    no claim read, an unconditional unlink, and a docstring calling a leaked
+    claim inert -- true only for the caller that owns it. It was the single
+    state-MUTATING entry point in a module built on identity, where claim()
+    refuses a foreign claim and reserve() diverts around one.
+
+    Two proofs are now required before a claim is dropped, and each answers a
+    measured defect:
+
+      IDENTITY (492). A claim recording a different job is left alone. Freeing
+      it hands that job's staging path to a third while the second is still
+      writing into it.
+
+      THE PART IS GONE (489). release's own stated precondition, never checked.
+      The browser fallback releases after _http_download raised -- a path that
+      removes neither the staged bytes nor the claim -- so the .part outlived
+      its claim, and the next job rendering that name adopted the bytes.
+
+    ``force=True`` is the operator-driven sweep (crash_recovery.delete_orphan),
+    which genuinely may free a foreign claim; it must say so rather than
+    inherit the old behaviour by omission. Calling with no identity at all is
+    refused: a caller that cannot name itself cannot prove ownership, and an
+    unmeasurable state is never permission (A2).
+
+    Returns True when no claim remains for this job, False when one was
+    deliberately retained. Never raises for an I/O failure -- a leaked claim is
+    not worth failing a completed download over -- but a retained claim is
+    reported so a caller can say so.
     """
+    owner = owner_path_for(staging_path)
+    if force:
+        try:
+            owner.unlink(missing_ok=True)
+        except OSError:
+            return False
+        return True
+    if identity is None:
+        raise ValueError(
+            f"release({staging_path!r}) was called with no job identity, so it "
+            "cannot prove the claim is its own. Pass the identity, or pass "
+            "force=True if this is the operator-driven sweep.")
     try:
-        owner_path_for(staging_path).unlink(missing_ok=True)
+        if not owner.exists():
+            return True                      # idempotent: nothing to drop
     except OSError:
-        pass
+        return False
+    try:
+        holder = _read_owner_identity(owner)
+    except StagingUnavailable:
+        # An unreadable claim is UNKNOWN, and UNKNOWN is not permission to
+        # delete somebody's ownership record.
+        return False
+    if holder != identity:
+        return False
+    try:
+        staged = pathlib.Path(staging_path)
+        if staged.exists() and staged.stat().st_size > 0:
+            # The bytes outlive the claim. Dropping it here is exactly how an
+            # abandoned .part becomes unowned and is adopted by the next job.
+            return False
+    except OSError:
+        return False
+    try:
+        owner.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
 
 
 def reserve(final_path, identity: str):
