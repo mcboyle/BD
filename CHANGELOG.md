@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1427 - register tooling measures its own denominators
+
+Rows 496 and 511. The register tools reported results over populations they had
+not established: a manifest path set derived from the artifact under test rather
+than independently, and an intake decision whose denominator could be zero
+without saying so. Denominators are now derived independently from candidate
+diffs and blob-compared to base, duplicate identities fail, and a malformed,
+missing or empty denominator returns UNKNOWN rather than a clean-looking count.
+
+Row 473 is deliberately NOT closed here: it does not reproduce as written -- its
+cited rows 426 and 432 now read CLOSED while 427 and 447 are OPEN -- and no
+in-tree register-containment instrument exists to decide it, so it stays OPEN
+rather than being closed by inference.
+
 ## v3.66.1426 - a CI gate claim is derived, not asserted
 
 Rows 509 and 518. The CI shard-coverage gate carried claims about which shards
