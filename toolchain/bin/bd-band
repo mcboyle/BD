@@ -18,9 +18,10 @@ verified 24/24. 86% of this tool's output was manufactured.
 
 @948: the "known whole-dir / test_perf_lab / nav_guard hangs" this docstring
 used to cite are GONE, and citing them was citing nothing. test_perf_lab passes
-in 2.5s, `nav_guard` names a file that has never existed, and an instrumented
-full-suite run found no test exceeding 240s. The per-suite timeout stays because
-a bound is good hygiene, not because those three were real.
+in 2.5s and `nav_guard` names a file that has never existed. The old 240-second
+measurement is stale: the current slowest suite and the replacement bound are
+recorded beside DEFAULT_SUITE_TIMEOUT below. The bound stays because a wedged
+suite must be named and stopped, not because those retired examples were real.
 
 Refuses a bare `tests/` argument -- pass specific files. The whole suite has one
 sanctioned form and it lives in CLAUDE.md section 5.
@@ -230,6 +231,13 @@ G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 # selector matched on "Failed:" and picked up the shim's zero-collect
 # banner as though it were a result.
 _PYTEST_SUMMARY = re.compile(r"\d+ (passed|failed|error|skipped|deselected)")
+_TIMEOUT_LINE = re.compile(r"^TIMEOUT: .* exceeded \d+s$")
+
+# Row 416, measured 2026-09-01 on test5 at 068045757d95: the current slowest
+# suite, tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py, passed all
+# 152 tests in 263.93s (264.63s process wall; load 7.71 -> 7.49).  Wall x 1.25
+# is 330.79s; round UP to the next whole minute instead of pinning the sample.
+DEFAULT_SUITE_TIMEOUT = 360
 
 
 def grade_pytest_rc(rc):
@@ -348,7 +356,8 @@ def main(argv=None):
     ap.add_argument("suites", nargs="+", help="specific test files, e.g. tests/test_x.py")
     ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--from-zip", help="extract this zip and band from the pristine tree")
-    ap.add_argument("--timeout", type=int, default=240, help="per-suite timeout seconds")
+    ap.add_argument("--timeout", type=int, default=DEFAULT_SUITE_TIMEOUT,
+                    help="per-suite timeout seconds")
     ap.add_argument("--skip-bandcheck", action="store_true",
                     help="run even if bd-bandcheck flags a target (say why in the cut)")
     a = ap.parse_args(argv)
@@ -460,8 +469,11 @@ def main(argv=None):
             return sec.EXIT_CANNOT_EVALUATE
         blob = r.stdout + r.stderr
         tail = blob.strip().splitlines()
-        line = next((l for l in reversed(tail)
-                     if _PYTEST_SUMMARY.search(l)), "(no summary)")
+        timeout_line = (next((l.strip() for l in reversed(tail)
+                              if _TIMEOUT_LINE.fullmatch(l.strip())), None)
+                        if r.returncode == 124 else None)
+        line = timeout_line or next((l for l in reversed(tail)
+                                     if _PYTEST_SUMMARY.search(l)), "(no summary)")
         ok = grade_pytest_rc(r.returncode) == "pass"
         allok = allok and ok
         # @897 -- the runner mints THREE states and this graded two. It exits 2
@@ -476,7 +488,10 @@ def main(argv=None):
         # because zero-collect used to exit 0, and its docstring names bd-band
         # as a grader of exactly this shape. Naming the state is the fix;
         # excusing it would undo @860 while appearing to repair its neighbour.
-        if grade_pytest_rc(r.returncode) == "nothing-ran":
+        if timeout_line is not None:
+            label, detail = Y + "TIMEOUT" + RST, (
+                "the suite exceeded its explicit per-suite bound")
+        elif grade_pytest_rc(r.returncode) == "nothing-ran":
             label, detail = Y + "NOTHING RAN" + RST, "nothing was proven"
         else:
             label, detail = (G + "PASS" + RST) if ok else (R + "FAIL" + RST), ""

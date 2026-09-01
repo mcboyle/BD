@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""bd-precut -- predict + GATE a release cut before you bump/build.
+"""bd-precut -- report an advisory prediction + GATE before you bump/build.
 
-Three checks, each delegating to the authoritative source (no re-derived models):
-  1. precut_check.py     -- version/pin consistency, changed-file surface, guards.
+One advisory and the blocking gates delegate to their authoritative sources:
+  A. precut_check.py     -- advisory version/pin/surface/guard prediction only.
   2. in-sync GENERATORS  -- runs the actual in-sync gate tests (they regenerate the
                             derived doc in-process and diff vs source). This catches
                             a FUNCTION_INDEX/ROUTE_INDEX/etc that is stale vs source
@@ -192,7 +192,11 @@ def main(argv=None):
     blocking = []
     unknown = []          # checks that did NOT run -- never fold these into "OK"
 
-    # 1. precut_check (version/pin/surface)
+    # A. precut_check (version/pin/surface) is a PREDICTOR, not a gate. Its own
+    # module docstring says so and main() has no failing verdict. Every condition
+    # it predicts is enforced independently below or by the release/freshness
+    # gates. Putting a predictor's availability or process status in `blocking`
+    # gives advisory machinery authority it explicitly does not own.
     tool = os.path.join(root, "tools", "precut_check.py")
     if os.path.isfile(tool) and baseline:
         cmd = [sys.executable, tool, "--baseline", baseline, "--root", root]
@@ -203,19 +207,17 @@ def main(argv=None):
             # other reports every generated file as newly added, which is a
             # surface report that describes the tooling rather than the cut.
             cmd.append("--tracked-only")
-        rc = subprocess.run(cmd, timeout=900).returncode
-        if rc != 0:
-            blocking.append("precut_check (version/pin/surface)")
+        try:
+            rc = subprocess.run(cmd, timeout=900).returncode
+            state = "completed" if rc == 0 else "unavailable (rc=%d)" % rc
+        except (OSError, subprocess.SubprocessError) as exc:
+            state = "unavailable (%s: %s)" % (type(exc).__name__, exc)
+        print("  [advisory precut_check] %s -- outside the blocking verdict" % state)
     else:
-        # v3.66.855 (CLAUDE.md s0): this branch is the COMMON case in a git
-        # checkout -- there is no release zip to diff against -- and the final
-        # verdict used to say "version/pin/surface OK" regardless. A verdict over
-        # a check that never ran is exactly the gate-that-cannot-see-its-subject
-        # shape. Record it as UNKNOWN and say so in the RESULT line.
         why = "no tools/precut_check.py" if not os.path.isfile(tool) else \
               (derived_reason or "no baseline available")
-        print(f"  [precut_check NOT RUN -- {why}]\n")
-        unknown.append(f"version/pin/surface (precut_check did not run: {why})")
+        print("  [advisory precut_check NOT RUN -- %s; outside the blocking "
+              "verdict]\n" % why)
 
     # 2. executable footgun registry (env-tranche F-01 + in-sync F-03 + route-map +
     #    import-edge + endpoint + pin + guard-sha) -- the single source of truth,
@@ -460,8 +462,8 @@ def main(argv=None):
         for u in unknown:
             print(f"  - {u}")
     else:
-        print("RESULT: cut-ready (version/pin/surface OK, derived docs in sync, "
-              "no env trap, gating tools have teeth)")
+        print("RESULT: cut-ready (blocking gates green; advisory precut_check "
+              "is outside this verdict)")
     return 0
 
 
