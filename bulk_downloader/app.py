@@ -1722,7 +1722,12 @@ def _load_sites_config():
             )
         s_cfg[sid] = cfg
         s_meta[sid] = _build_meta(cfg)
-        runners[sid] = SiteRunner(sid, cfg)
+        _new_runner = SiteRunner(sid, cfg)
+        # Publish under the SAME lock delete pops with, so an enumerating
+        # reader sees this site either wholly present or wholly absent.
+        # The runner is CONSTRUCTED first: nothing slow runs inside the lock.
+        with _watch_registry_lock:
+            runners[sid] = _new_runner
         # v3.43.35: initialize the account pool from cfg. Restores
         # persisted state (cooldown_until, fail_count) so accounts
         # that were dead/cooling-down before restart remain so.
@@ -5016,7 +5021,12 @@ def _create_site(data, actor="api"):
     from .constants import make_fingerprint
     cfg["fingerprint"]=make_fingerprint()
     s_cfg[sid]=cfg; s_meta[sid]=_build_meta(cfg)
-    runners[sid]=SiteRunner(sid,cfg)
+    _new_runner = SiteRunner(sid, cfg)
+    # Publish under the SAME lock delete pops with, so an enumerating reader
+    # sees this site either wholly present or wholly absent.  The runner is
+    # CONSTRUCTED first: nothing slow runs inside the lock.
+    with _watch_registry_lock:
+        runners[sid] = _new_runner
     if cfg.get("cookie_file") and Path(cfg["cookie_file"]).exists():
         runners[sid].set_cookies_from_file(cfg["cookie_file"])
     # v3.65.2: best-effort auto-apply of matching login + download
