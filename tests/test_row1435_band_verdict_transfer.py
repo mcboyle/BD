@@ -41,6 +41,53 @@ def _commit(repo: Path, message: str) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
+def _commit_only(repo: Path, message: str, *paths: str) -> str:
+    _git(repo, "add", "--", *paths)
+    _git(repo, "commit", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _minimal_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.name", "Band Transfer Test")
+    _git(repo, "config", "user.email", "band-transfer@example.invalid")
+    (repo / "bulk_downloader").mkdir()
+    (repo / "tests").mkdir()
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "3.66.1000"\n', encoding="ascii"
+    )
+    (repo / "tests" / "test_settings_center_slice4.py").write_text(
+        'def test_version():\n    assert __version__ == "3.66.1000"\n',
+        encoding="ascii",
+    )
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## v3.66.1000 - Base\n\nbase body\n", encoding="ascii"
+    )
+    (repo / "feature.txt").write_text("base feature\n", encoding="ascii")
+    (repo / "unrelated.txt").write_text("base unrelated\n", encoding="ascii")
+    base = _commit_only(
+        repo,
+        "fixture base",
+        "bulk_downloader/__init__.py",
+        "tests/test_settings_center_slice4.py",
+        "CHANGELOG.md",
+        "feature.txt",
+        "unrelated.txt",
+    )
+    return repo, base
+
+
+def _stub_non_authored_dispositions(monkeypatch, tool) -> None:
+    monkeypatch.setattr(tool, "_derived_outputs", lambda repo, head: ("DERIVED.json",))
+    monkeypatch.setattr(
+        tool,
+        "_declared_evidence",
+        lambda repo, base, head: {"base": 1, "head": 1, "live": 1},
+    )
+
+
 def _release_edit(repo: Path, version: str, title: str) -> None:
     init_path = repo / "bulk_downloader" / "__init__.py"
     pin_path = repo / "tests" / "test_settings_center_slice4.py"
@@ -147,6 +194,101 @@ def test_unknown_identity_refuses_and_cannot_yield_a_transfer_key():
 
     with pytest.raises(tool.TransferRefused, match="UNKNOWN.*head"):
         tool.require_known(**identities)
+
+
+def test_version_free_candidates_have_a_digest_and_can_transfer(tmp_path, monkeypatch):
+    tool = _load_tool()
+    _stub_non_authored_dispositions(monkeypatch, tool)
+    repo, base = _minimal_repo(tmp_path)
+
+    _git(repo, "checkout", "-q", "-b", "old-candidate")
+    (repo / "feature.txt").write_text("candidate feature\n", encoding="ascii")
+    old_head = _commit_only(repo, "old candidate", "feature.txt")
+
+    _git(repo, "checkout", "-q", "-b", "new-main", base)
+    (repo / "unrelated.txt").write_text("new main bytes\n", encoding="ascii")
+    new_base = _commit_only(repo, "new main", "unrelated.txt")
+
+    _git(repo, "checkout", "-q", "-b", "rebased-candidate")
+    (repo / "feature.txt").write_text("candidate feature\n", encoding="ascii")
+    new_head = _commit_only(repo, "rebased candidate", "feature.txt")
+
+    assert tool._paths_between(repo, base, old_head) == {"feature.txt"}
+    assert tool._paths_between(repo, new_base, new_head) == {"feature.txt"}
+    old = tool.evidence_at_commit(repo, base, old_head)
+    new = tool.evidence_at_commit(repo, new_base, new_head)
+    tool.compare_evidence(old, new)
+
+    assert re.fullmatch(r"[0-9a-f]{64}", old["digest"])
+    assert old["digest"] == new["digest"]
+    assert old["trio"] == new["trio"] == {}
+    assert old["trio_entry_bytes"] is new["trio_entry_bytes"] is None
+
+
+def test_partial_release_trio_refuses_and_names_the_missing_member(tmp_path):
+    tool = _load_tool()
+    repo, base = _minimal_repo(tmp_path)
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "3.66.1001"\n', encoding="ascii"
+    )
+    (repo / "tests" / "test_settings_center_slice4.py").write_text(
+        'def test_version():\n    assert __version__ == "3.66.1001"\n',
+        encoding="ascii",
+    )
+    head = _commit_only(
+        repo,
+        "partial trio",
+        "bulk_downloader/__init__.py",
+        "tests/test_settings_center_slice4.py",
+    )
+
+    changed = tool._paths_between(repo, base, head)
+    assert changed == {
+        "bulk_downloader/__init__.py",
+        "tests/test_settings_center_slice4.py",
+    }
+    with pytest.raises(
+        tool.TransferRefused,
+        match=r"partial release trio.*missing=CHANGELOG[.]md",
+    ):
+        tool.build_evidence(repo, base, head)
+
+
+def test_complete_release_trio_keeps_its_fixed_content_digest(tmp_path, monkeypatch):
+    tool = _load_tool()
+    _stub_non_authored_dispositions(monkeypatch, tool)
+    monkeypatch.setattr(tool, "_last_touch", lambda repo, base, path: "fixed-base-touch")
+    repo, base = _minimal_repo(tmp_path)
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "3.66.1001"\n', encoding="ascii"
+    )
+    (repo / "tests" / "test_settings_center_slice4.py").write_text(
+        'def test_version():\n    assert __version__ == "3.66.1001"\n',
+        encoding="ascii",
+    )
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## v3.66.1001 - Fixed release\n\nfixed entry body\n\n"
+        "## v3.66.1000 - Base\n\nbase body\n",
+        encoding="ascii",
+    )
+    (repo / "feature.txt").write_text("candidate feature\n", encoding="ascii")
+    head = _commit_only(
+        repo,
+        "complete trio",
+        "bulk_downloader/__init__.py",
+        "tests/test_settings_center_slice4.py",
+        "CHANGELOG.md",
+        "feature.txt",
+    )
+
+    changed = tool._paths_between(repo, base, head)
+    assert changed == set(tool.TRIO) | {"feature.txt"}
+    evidence = tool.build_evidence(repo, base, head)
+    assert evidence["digest"] == (
+        "f35df039bcc9b8ae6aaaefb8061e65d4a0783561734425271928d8a981cce43a"
+    )
+    assert tool._trio_disposition(changed) == "COMPLETE"
 
 
 def test_real_git_rebase_keeps_one_content_digest_when_all_dispositions_hold(tmp_path):
