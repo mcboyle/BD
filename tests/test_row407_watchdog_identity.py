@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -151,7 +152,7 @@ def test_parent_child_matches_form_one_logical_lineage(proc_case: ProcCase) -> N
     assert body["authority_root"]["pid"] == 100
 
 
-def test_independent_roots_are_duplicates_and_newest_is_authority(
+def test_independent_roots_are_duplicates_and_oldest_is_authority(
     proc_case: ProcCase,
 ) -> None:
     """A flat nonzero count hides the six-independent-watchdogs incident."""
@@ -164,7 +165,8 @@ def test_independent_roots_are_duplicates_and_newest_is_authority(
 
     assert body["status"] == "DUPLICATES"
     assert _lineage_pids(body) == [[100], [200]]
-    assert body["authority_root"]["pid"] == 200
+    assert body["authority_root"]["pid"] == 100
+    assert body["authority_policy"] == "oldest-root-start-ticks"
 
 
 def test_exact_argv_excludes_substring_lookalikes_and_resolves_relative_script(
@@ -232,6 +234,140 @@ def test_malformed_identity_for_matching_argv_is_unknown_not_absent(
 
     assert body["status"] == "UNKNOWN"
     assert body["reason_code"] == "PROCESS_IDENTITY_UNREADABLE"
+
+
+def test_unreadable_non_candidate_cwd_is_not_a_census_verdict(
+    proc_case: ProcCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cwd receipt is required only after argv makes a PID a candidate."""
+
+    unreadable = proc_case.home / "unreadable"
+    unreadable.mkdir()
+    proc_case.add(
+        50,
+        ppid=1,
+        start_ticks=500,
+        argv=["bash", str(proc_case.script) + ".backup"],
+        cwd=unreadable,
+    )
+    proc_case.add(100, ppid=1, start_ticks=1000)
+    unreadable.chmod(0)
+    permission_failures = 0
+    try:
+        assert unreadable.stat().st_mode & 0o777 == 0
+        subject = _subject()
+        real_receipt = subject._path_receipt
+
+        def unreadable_receipt(path: Path):
+            nonlocal permission_failures
+            if path == proc_case.root / "50" / "cwd":
+                permission_failures += 1
+                raise PermissionError("injected unreadable non-candidate cwd")
+            return real_receipt(path)
+
+        monkeypatch.setattr(subject, "_path_receipt", unreadable_receipt)
+        with pytest.raises(PermissionError, match="injected unreadable non-candidate cwd"):
+            subject._path_receipt(proc_case.root / "50" / "cwd")
+        assert permission_failures == 1
+
+        body = subject.inspect_watchdogs(
+            script=proc_case.script,
+            proc_root=proc_case.root,
+        )
+        assert body["status"] == "UNIQUE", body
+        assert _lineage_pids(body) == [[100]]
+        assert permission_failures == 1
+
+        proc_case.remove(100)
+        absent = subject.inspect_watchdogs(
+            script=proc_case.script,
+            proc_root=proc_case.root,
+        )
+        assert absent["status"] == "ABSENT", absent
+        assert permission_failures == 1
+    finally:
+        unreadable.chmod(0o700)
+
+
+def test_relative_matching_operand_still_requires_a_readable_cwd(
+    proc_case: ProcCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skipping irrelevant cwd reads must not turn a relative candidate into absent."""
+
+    unreadable = proc_case.home / "unreadable"
+    unreadable.mkdir()
+    proc_case.add(
+        100,
+        ppid=1,
+        start_ticks=1000,
+        argv=["bash", "bd-watchdog.sh"],
+        cwd=unreadable,
+    )
+    unreadable.chmod(0)
+    permission_failures = 0
+    try:
+        assert unreadable.stat().st_mode & 0o777 == 0
+        subject = _subject()
+        real_receipt = subject._path_receipt
+
+        def unreadable_receipt(path: Path):
+            nonlocal permission_failures
+            if path == proc_case.root / "100" / "cwd":
+                permission_failures += 1
+                raise PermissionError("injected unreadable relative candidate cwd")
+            return real_receipt(path)
+
+        monkeypatch.setattr(subject, "_path_receipt", unreadable_receipt)
+        with pytest.raises(PermissionError, match="injected unreadable relative candidate cwd"):
+            subject._path_receipt(proc_case.root / "100" / "cwd")
+        assert permission_failures == 1
+
+        body = subject.inspect_watchdogs(
+            script=proc_case.script,
+            proc_root=proc_case.root,
+        )
+        assert body["status"] == "UNKNOWN", body
+        assert body["reason_code"] == "PROCESS_IDENTITY_UNREADABLE"
+        assert permission_failures == 2
+    finally:
+        unreadable.chmod(0o700)
+
+
+def test_real_proc_unreadable_non_candidates_do_not_mask_an_absent_census(
+    tmp_path: Path,
+) -> None:
+    """A real host must not let an unrelated unreadable cwd block the census."""
+
+    proc_root = Path("/proc")
+    unreadable_cwd_count = 0
+    vanished_cwd_count = 0
+    for entry in proc_root.iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            (entry / "cwd").resolve(strict=True)
+        except FileNotFoundError:
+            vanished_cwd_count += 1
+        except PermissionError:
+            unreadable_cwd_count += 1
+    if unreadable_cwd_count == 0:
+        pytest.skip(
+            "real /proc has no unreadable cwd entries; row 490 RED is unavailable"
+        )
+
+    probe_script = tmp_path / "row490-no-such-watchdog.sh"
+    probe_script.write_text("#!/bin/bash\n")
+    assert probe_script.is_file()
+    assert unreadable_cwd_count > 0
+    assert vanished_cwd_count >= 0
+
+    body = _subject().inspect_watchdogs(script=probe_script, proc_root=proc_root)
+
+    assert body["status"] == "ABSENT", body
+    assert body["lineages"] == []
+    assert body.get("reason_code") is None
 
 
 @pytest.mark.parametrize(
@@ -343,14 +479,14 @@ def test_explicit_collapse_signals_duplicate_lineage_leaf_first_and_adopts_autho
     )
 
     assert body["status"] == "ADOPTED"
-    assert kernel.signalled == [101, 100]
-    assert 200 not in kernel.signalled
-    assert kernel.waited == [(101, 0.25), (100, 0.25)]
-    assert kernel.closed == [101, 100]
+    assert kernel.signalled == [200]
+    assert 100 not in kernel.signalled and 101 not in kernel.signalled
+    assert kernel.waited == [(200, 0.25)]
+    assert kernel.closed == [200]
     saved = json.loads(record.read_text())
     assert saved["boot_id"] == "boot-row407"
-    assert saved["authority_root"]["pid"] == 200
-    assert [member["pid"] for member in saved["members"]] == [200]
+    assert saved["authority_root"]["pid"] == 100
+    assert [member["pid"] for member in saved["members"]] == [100, 101]
 
 
 def test_identity_drift_after_pidfd_open_forbids_signal_and_adoption(
@@ -360,7 +496,7 @@ def test_identity_drift_after_pidfd_open_forbids_signal_and_adoption(
     """A pidfd alone cannot bless a different PPID/start-tick receipt."""
 
     proc_case.add(100, ppid=1, start_ticks=1000)
-    proc_case.add(200, ppid=1, start_ticks=2000)
+    proc_case.add(200, ppid=1, start_ticks=500)
     record = tmp_path / "watchdog-adoption.json"
     kernel = FakeKernel(proc_case, drift_pid=100)
     subject = _subject()
@@ -389,7 +525,7 @@ def test_exec_receipt_drift_after_pidfd_census_forbids_signal(
     """A task can exec after a census without changing PID or start ticks."""
 
     proc_case.add(100, ppid=1, start_ticks=1000)
-    proc_case.add(200, ppid=1, start_ticks=2000)
+    proc_case.add(200, ppid=1, start_ticks=500)
     record = tmp_path / "watchdog-adoption.json"
     kernel = FakeKernel(proc_case)
     subject = _subject()
@@ -427,6 +563,208 @@ def test_exec_receipt_drift_after_pidfd_census_forbids_signal(
     assert not record.exists()
 
 
+@pytest.mark.parametrize(
+    ("shape", "rewrite_after_census", "expected_signalled"),
+    (
+        ("one-target", 2, []),
+        ("two-targets", 3, [101]),
+    ),
+)
+def test_boot_id_change_after_pidfd_receipt_reaches_the_caller_unchanged(
+    proc_case: ProcCase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    shape: str,
+    rewrite_after_census: int,
+    expected_signalled: list[int],
+) -> None:
+    """A kernel reboot diagnostic must not be replaced by stale receipt state."""
+
+    proc_case.add(200, ppid=1, start_ticks=500)
+    proc_case.add(100, ppid=1, start_ticks=1000)
+    if shape == "two-targets":
+        proc_case.add(101, ppid=100, start_ticks=1001)
+    record = tmp_path / "watchdog-adoption.json"
+    kernel = FakeKernel(proc_case)
+    subject = _subject()
+    real_census = subject._take_census
+    real_receipt = subject._receipt_after_pidfd
+    census_calls = 0
+    receipt_errors: list[object] = []
+
+    def rewrite_boot_after_selected_census(*, script: Path, proc_root: Path):
+        nonlocal census_calls
+        result = real_census(script=script, proc_root=proc_root)
+        census_calls += 1
+        if census_calls == rewrite_after_census:
+            (proc_case.root / "sys" / "kernel" / "random" / "boot_id").write_text(
+                "boot-row407-restarted\n"
+            )
+        return result
+
+    def observe_receipt(target, *, proc_root: Path):
+        try:
+            return real_receipt(target, proc_root=proc_root)
+        except subject.WatchdogUnknown as error:
+            receipt_errors.append(error)
+            raise
+
+    monkeypatch.setattr(subject, "_take_census", rewrite_boot_after_selected_census)
+    monkeypatch.setattr(subject, "_receipt_after_pidfd", observe_receipt)
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=True,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+        kernel=kernel,
+    )
+
+    assert census_calls == rewrite_after_census
+    assert len(receipt_errors) == 1
+    assert receipt_errors[0].reason_code == "BOOT_ID_CHANGED"
+    assert receipt_errors[0].message == "kernel boot ID changed after pidfd acquisition"
+    assert body["status"] == "UNKNOWN"
+    assert body["reason_code"] == "BOOT_ID_CHANGED", body
+    assert body["message"] == "kernel boot ID changed after pidfd acquisition"
+    assert kernel.signalled == expected_signalled
+    assert not record.exists()
+
+
+def test_collapse_refuses_to_signal_the_calling_lineage(
+    proc_case: ProcCase,
+    tmp_path: Path,
+) -> None:
+    """A newer accidental duplicate must not make collapse signal this invocation."""
+
+    caller_pid = os.getpid()
+    parent_pid = os.getppid()
+    other_pid = max(caller_pid, parent_pid) + 100_000
+    assert caller_pid > 0 and parent_pid > 0 and caller_pid != parent_pid
+    proc_case.add(parent_pid, ppid=1, start_ticks=1000)
+    proc_case.add(caller_pid, ppid=parent_pid, start_ticks=1001)
+    proc_case.add(other_pid, ppid=1, start_ticks=2000)
+    subject = _subject()
+    census = subject.inspect_watchdogs(script=proc_case.script, proc_root=proc_case.root)
+    assert _lineage_pids(census) == [[parent_pid, caller_pid], [other_pid]]
+    assert census["authority_root"]["pid"] == parent_pid
+    assert census["authority_policy"] == "oldest-root-start-ticks"
+    kernel = FakeKernel(proc_case)
+    record = tmp_path / "watchdog-adoption.json"
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=True,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+        kernel=kernel,
+    )
+
+    assert body["status"] == "REFUSED", body
+    assert body["reason_code"] == "CALLING_LINEAGE_WOULD_BE_SIGNALED"
+    assert str(caller_pid) in body["message"]
+    assert subject._exit_code(body, action=True) == 3
+    assert kernel.signalled == []
+    assert not record.exists()
+
+
+def test_collapse_refuses_when_the_direct_parent_is_the_matching_watchdog(
+    proc_case: ProcCase,
+    tmp_path: Path,
+) -> None:
+    """The Python caller need not itself match for collapse to kill its Bash parent."""
+
+    parent_pid = os.getppid()
+    other_pid = max(os.getpid(), parent_pid) + 100_000
+    assert parent_pid > 0 and other_pid != parent_pid
+    proc_case.add(other_pid, ppid=1, start_ticks=500)
+    proc_case.add(parent_pid, ppid=1, start_ticks=1000)
+    kernel = FakeKernel(proc_case)
+    record = tmp_path / "watchdog-adoption.json"
+    subject = _subject()
+    census = subject.inspect_watchdogs(script=proc_case.script, proc_root=proc_case.root)
+    assert _lineage_pids(census) == [[other_pid], [parent_pid]]
+    assert census["authority_root"]["pid"] == other_pid
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=True,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+        kernel=kernel,
+    )
+
+    assert body["status"] == "REFUSED", body
+    assert body["reason_code"] == "CALLING_LINEAGE_WOULD_BE_SIGNALED"
+    assert str(parent_pid) in body["message"]
+    assert kernel.signalled == []
+    assert not record.exists()
+
+
+def test_collapse_requires_the_current_and_parent_pids_when_current_is_a_match(
+    proc_case: ProcCase,
+    tmp_path: Path,
+) -> None:
+    """Missing caller ancestry in the census is UNKNOWN, never permission to signal."""
+
+    caller_pid = os.getpid()
+    parent_pid = os.getppid()
+    other_pid = max(caller_pid, parent_pid) + 100_000
+    proc_case.add(caller_pid, ppid=parent_pid, start_ticks=1001)
+    proc_case.add(other_pid, ppid=1, start_ticks=2000)
+    kernel = FakeKernel(proc_case)
+    record = tmp_path / "watchdog-adoption.json"
+    subject = _subject()
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=True,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+        kernel=kernel,
+    )
+
+    assert body["status"] == "UNKNOWN", body
+    assert body["reason_code"] == "CALLING_LINEAGE_UNREADABLE"
+    assert subject._exit_code(body, action=True) == 2
+    assert kernel.signalled == []
+    assert not record.exists()
+
+
+def test_collapse_without_calling_lineage_keeps_oldest_and_signals_other_members(
+    proc_case: ProcCase,
+    tmp_path: Path,
+) -> None:
+    """Self protection is not a disguised disablement of legitimate collapse."""
+
+    proc_case.add(100, ppid=1, start_ticks=1000)
+    proc_case.add(200, ppid=1, start_ticks=2000)
+    proc_case.add(201, ppid=200, start_ticks=2001)
+    kernel = FakeKernel(proc_case)
+    record = tmp_path / "watchdog-adoption.json"
+    subject = _subject()
+
+    body = subject.adopt_watchdog(
+        script=proc_case.script,
+        record=record,
+        collapse=True,
+        proc_root=proc_case.root,
+        settle_timeout=0.25,
+        kernel=kernel,
+    )
+
+    assert body["status"] == "ADOPTED"
+    assert body["authority_root"]["pid"] == 100
+    assert body["authority_policy"] == "oldest-root-start-ticks"
+    assert kernel.signalled == [201, 200]
+    saved = json.loads(record.read_text())
+    assert saved["authority_policy"] == "oldest-root-start-ticks"
+
+
 def test_pidfd_readiness_timeout_forbids_adoption_without_numeric_polling(
     proc_case: ProcCase,
     tmp_path: Path,
@@ -434,7 +772,7 @@ def test_pidfd_readiness_timeout_forbids_adoption_without_numeric_polling(
     """Numeric-PID polling after SIGTERM can observe a recycled process as settlement."""
 
     proc_case.add(100, ppid=1, start_ticks=1000)
-    proc_case.add(200, ppid=1, start_ticks=2000)
+    proc_case.add(200, ppid=1, start_ticks=500)
     record = tmp_path / "watchdog-adoption.json"
     kernel = FakeKernel(proc_case, timeout_pid=100)
     subject = _subject()
@@ -491,6 +829,7 @@ def test_unique_census_publishes_complete_no_overwrite_adoption_record(
         "schema",
         "boot_id",
         "script",
+        "authority_policy",
         "authority_root",
         "members",
     }

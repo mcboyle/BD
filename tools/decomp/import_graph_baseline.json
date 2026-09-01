@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4223,
+  "edge_count": 4224,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1774,7 +1774,6 @@
     "bulk_downloader/runner_browser.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
-      "bulk_downloader/detect.py",
       "bulk_downloader/eme_detect.py",
       "bulk_downloader/interop_registry.py",
       "bulk_downloader/plugins.py",
@@ -3324,6 +3323,7 @@
     "tests/test_part_staging_collision.py": [
       "bulk_downloader/constants.py",
       "bulk_downloader/detect.py",
+      "bulk_downloader/runner_browser.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/staging_claim.py"
     ],
@@ -5443,7 +5443,8 @@
     ],
     "tests/test_v3_66_284_integrity.py": [
       "bulk_downloader/constants.py",
-      "bulk_downloader/runner.py"
+      "bulk_downloader/runner.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_v3_66_285_cloak_parity.py": [
       "bulk_downloader/cloak.py"

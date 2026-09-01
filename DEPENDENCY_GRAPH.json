@@ -2366,7 +2366,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1701,
+    "edge_count": 1700,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3540,7 +3540,6 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/introspection.py",
         "bulk_downloader/runner.py",
-        "bulk_downloader/runner_browser.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/runner_transport.py",
@@ -6951,7 +6950,6 @@
       "bulk_downloader/runner_browser.py": [
         "bulk_downloader/cloak.py",
         "bulk_downloader/constants.py",
-        "bulk_downloader/detect.py",
         "bulk_downloader/eme_detect.py",
         "bulk_downloader/interop_registry.py",
         "bulk_downloader/plugins.py",

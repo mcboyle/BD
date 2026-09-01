@@ -18,8 +18,9 @@ import sys
 from typing import NoReturn, Protocol
 
 
-SCHEMA = 1
+SCHEMA = 2
 MAX_RECORD_BYTES = 1024 * 1024
+AUTHORITY_POLICY = "oldest-root-start-ticks"
 
 
 @dataclass(frozen=True)
@@ -240,17 +241,22 @@ def _read_matching_process(
     try:
         stat_before_raw = (entry / "stat").read_text(encoding="ascii")
         argv_before = _decode_argv((entry / "cmdline").read_bytes())
-        cwd_before = _path_receipt(entry / "cwd")
     except FileNotFoundError:
         return None
     except (OSError, UnicodeError) as error:
         _unknown("PROCESS_IDENTITY_UNREADABLE", f"PID {pid}: {error}")
 
     operand = _bash_script_operand(argv_before)
-    if (
-        operand is None
-        or _resolved_operand(operand, cwd_before[0]) != canonical_script
-    ):
+    if operand is None:
+        return None
+    operand_path = Path(operand)
+    if operand_path.is_absolute() and operand_path.resolve(strict=False) != canonical_script:
+        return None
+    try:
+        cwd_before = _path_receipt(entry / "cwd")
+    except (OSError, UnicodeError) as error:
+        _unknown("PROCESS_IDENTITY_UNREADABLE", f"PID {pid}: {error}")
+    if _resolved_operand(operand, cwd_before[0]) != canonical_script:
         return None
     try:
         executable_before = _path_receipt(entry / "exe")
@@ -381,7 +387,7 @@ def _take_census(*, script: Path, proc_root: Path) -> Census:
 def _authority(lineages: tuple[Lineage, ...]) -> Lineage | None:
     if not lineages:
         return None
-    return max(
+    return min(
         lineages,
         key=lambda lineage: (lineage.root.start_ticks, lineage.root.pid),
     )
@@ -402,6 +408,7 @@ def _census_payload(census: Census) -> dict[str, object]:
     }
     authority = _authority(census.lineages)
     payload["authority_root"] = authority.root.record() if authority else None
+    payload["authority_policy"] = AUTHORITY_POLICY
     if census.reason_code:
         payload["reason_code"] = census.reason_code
         payload["message"] = census.message or ""
@@ -417,6 +424,7 @@ def _record_payload(census: Census, lineage: Lineage) -> dict[str, object]:
         "schema": SCHEMA,
         "boot_id": census.boot_id,
         "script": census.script,
+        "authority_policy": AUTHORITY_POLICY,
         "authority_root": lineage.root.record(),
         "members": [member.record() for member in lineage.members],
     }
@@ -540,6 +548,7 @@ def _read_existing_record(
             "schema",
             "boot_id",
             "script",
+            "authority_policy",
             "authority_root",
             "members",
         }:
@@ -564,6 +573,7 @@ def _existing_authority(
         payload.get("schema") != SCHEMA
         or payload.get("boot_id") != census.boot_id
         or payload.get("script") != census.script
+        or payload.get("authority_policy") != AUTHORITY_POLICY
         or not isinstance(payload.get("members"), list)
     ):
         _unknown("ADOPTION_RECORD_UNREADABLE", "adoption record header is invalid")
@@ -595,6 +605,33 @@ def _identity_set(census: Census) -> set[ProcessIdentity]:
         for lineage in census.lineages
         for member in lineage.members
     }
+
+
+def _calling_lineage(census: Census) -> Lineage | None:
+    """Return this invocation's direct matching lineage, if it is in this census.
+
+    The census proc root is authoritative for this decision.  Do not walk a
+    session's ancestors: a tmux server is shared by panes.  Only the current
+    process and its direct parent can make this collapse unsafe.
+    """
+
+    caller_pid = os.getpid()
+    parent_pid = os.getppid()
+    for lineage in census.lineages:
+        members = {member.pid: member for member in lineage.members}
+        caller = members.get(caller_pid)
+        parent = members.get(parent_pid)
+        if caller is None:
+            if parent is not None:
+                return lineage
+            continue
+        if caller.ppid != parent_pid or parent is None:
+            _unknown(
+                "CALLING_LINEAGE_UNREADABLE",
+                f"caller PID {caller_pid} has no matching direct parent {parent_pid} in census",
+            )
+        return lineage
+    return None
 
 
 def _receipt_after_pidfd(
@@ -640,6 +677,21 @@ def _refused(reason_code: str, message: str) -> dict[str, object]:
         "status": "REFUSED",
         "reason_code": reason_code,
         "message": message,
+    }
+
+
+def _adopted_payload(
+    *,
+    record: Path,
+    authority: Lineage,
+    idempotent: bool,
+) -> dict[str, object]:
+    return {
+        "status": "ADOPTED",
+        "idempotent": idempotent,
+        "record": str(record),
+        "authority_root": authority.root.record(),
+        "authority_policy": AUTHORITY_POLICY,
     }
 
 
@@ -789,6 +841,10 @@ def _adopt_locked(
         prior_authority = _existing_authority(existing, census)
     except WatchdogUnknown as error:
         return _unknown_payload(error.reason_code, error.message)
+    try:
+        calling_lineage = _calling_lineage(census)
+    except WatchdogUnknown as error:
+        return _unknown_payload(error.reason_code, error.message)
     authority = prior_authority or _authority(census.lineages)
     assert authority is not None
 
@@ -799,6 +855,12 @@ def _adopt_locked(
         )
 
     if census.status == "DUPLICATES":
+        if calling_lineage is not None:
+            return _refused(
+                "CALLING_LINEAGE_WOULD_BE_SIGNALED",
+                f"caller PID {os.getpid()} or direct parent PID {os.getppid()} "
+                "belongs to a lineage collapse would signal",
+            )
         expected_alive = _identity_set(census)
         duplicate_members: list[tuple[Lineage, ProcessIdentity]] = []
         for lineage in census.lineages:
@@ -860,11 +922,12 @@ def _adopt_locked(
                         )
                     except WatchdogUnknown as error:
                         outcome = _unknown_payload(error.reason_code, error.message)
-                    if final_receipt != target:
-                        outcome = _unknown_payload(
-                            "PROCESS_IDENTITY_CHANGED",
-                            f"PID {target.pid} changed immediately before signal",
-                        )
+                    else:
+                        if final_receipt != target:
+                            outcome = _unknown_payload(
+                                "PROCESS_IDENTITY_CHANGED",
+                                f"PID {target.pid} changed immediately before signal",
+                            )
                 if outcome is None:
                     kernel.send_term(pidfd)
                     if not kernel.wait_ready(pidfd, settle_timeout):
@@ -941,22 +1004,12 @@ def _adopt_locked(
                 "ADOPTION_RECORD_DIFFERENT",
                 "existing valid adoption record is not byte-identical",
             )
-        return {
-            "status": "ADOPTED",
-            "idempotent": True,
-            "record": str(record),
-            "authority_root": authority.root.record(),
-        }
+        return _adopted_payload(record=record, authority=authority, idempotent=True)
     try:
         _publish_record(record, desired)
     except BaseException as error:
         return _unknown_payload("ADOPTION_RECORD_PUBLISH_FAILED", repr(error))
-    return {
-        "status": "ADOPTED",
-        "idempotent": False,
-        "record": str(record),
-        "authority_root": authority.root.record(),
-    }
+    return _adopted_payload(record=record, authority=authority, idempotent=False)
 
 
 def adopt_watchdog(
