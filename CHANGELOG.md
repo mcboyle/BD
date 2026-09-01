@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1411 - a subprocess boundary reports what it measured
+
+Rows 428, 430, 431, 434, 440, 441, 442 and 443 -- eight rows over three
+independent seams (HTTP transport, runner resume, ffmpeg invocation), each one
+the same shape: a boundary reported a number, a state or a binary it had not
+actually proven.
+
+- 428/430/431. The transport promoted a `.part` file, recorded `bytes_fetched`
+  and wrote a resume checkpoint from values it never reconciled against the
+  bytes on disk. A short read, a 416 refusal or an unmeasurable final size could
+  each promote a truncated file and record a confident count over it. The
+  promotion now proves the byte count it claims, the count is stat-independent
+  so an unmeasurable size REFUSES rather than reporting zero, and the checkpoint
+  is flushed before the claim it describes is published.
+- 434. A resume that ran while a download hold was lifted could leave the hold
+  state it had set, so the next resume saw a held site that nothing was holding.
+  Resume now clears the state it owns on every exit path.
+- 440/441/442/443. Four ffmpeg call sites (dedup, enrichment, thumbnail
+  generation, thumbnail sheets) resolved the binary from ambient PATH instead of
+  the configured pin, so a probe could measure one ffmpeg and the work could run
+  under another. All four now honor the pin at the subprocess boundary.
+
 ## v3.66.1410 - the vault reports the state it measured
 
 Rows 437, 438, 475, 488, 514, 520 and 553 -- seven rows, one contract: the vault
