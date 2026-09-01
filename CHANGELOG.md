@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1395 - a staging claim proves its bytes before a reclaim adopts them
+
+Row 535, rank 3 of the 2026-09-01 refutation. Rows 534, 541 and 575 were
+re-derived against this base and are reported below rather than changed.
+
+- 535. `_create_owner` published a claim BEFORE the bytes that claim names were
+  set aside, so a crash in that window left an owner record over foreign bytes.
+  A reclaim then adopted 4096 bytes no claim had ever measured, and the transport
+  took its resume offset from another scene's file and appended onto it. Row
+  533's unwind cannot see this: a SIGKILL raises no exception. The claim is now
+  published UNPROVEN, the bytes are set aside, and only then does `_prove_owner`
+  rewrite the record atomically. `OWNER_FORMAT_VERSION` goes 1 to 2 with a new
+  `proven` key.
+- THE MIGRATION FAILS SAFE IN THE DANGEROUS DIRECTION. Every download in flight
+  when this deploys holds a v1 record with no proof field. Reading key-absent as
+  unproven would orphan those jobs' own bytes fleet-wide on first retry, so v1 is
+  grandfathered as proven and ONLY v1; the same absence on a v2 record is
+  UNKNOWN and refuses. Both directions are pinned by test and by mutant.
+- Durability: `os.replace` alone left a window where power loss reverted the
+  record to unproven over bytes the transport had since written -- row 541's
+  consequence reached through row 535's fix. `_fsync_dir` closes it best-effort;
+  the residual failure direction is a preserved, operator-visible
+  `.orphaned-*.part`, never a splice.
+- Mutation battery: 11 mutants, 11 caught, 0 escaped. One escaped on the first
+  run -- a malformed non-boolean proof field -- and was closed by ADDING a test,
+  not by narrowing the battery.
+- RE-DERIVED AND NOT REPRODUCING, reported rather than changed: rows 534 and
+  541's stated mechanisms are already closed by v3.66.1391, proved by direct
+  probe (a failed set-aside leaks no claim; `release()` over a surviving 5 MiB
+  `.part` returns False and retains the owner). Row 575's content-identity limb
+  is NOT closable at the claim seam -- media URLs rotate by design and the route
+  requires the absence of a validator -- so it stays open.
+
 ## v3.66.1394 - a captcha fallback returns its whole result on every path
 
 Row 536, rank 4 of the 2026-09-01 refutation, and the only confirmed defect that
