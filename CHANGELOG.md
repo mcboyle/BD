@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1410 - the vault reports the state it measured
+
+Rows 437, 438, 475, 488, 514, 520 and 553 -- seven rows, one contract: the vault
+and the secrets API report the state they actually MEASURED, never a confident
+empty, a success over an unpurged store, or an inference from a file nothing read.
+
+- 437. A LOCKED vault audited as `deny:no_password_stored` and answered 403 where
+  409 is correct -- and it spent a cooldown and a rate-limit slot to say so. A
+  locked vault is not an absent password.
+- 488, with 553 as its declared duplicate. `/api/secrets/usage` answered
+  `ok:true, stored_keys:[], unreferenced:[]` over a vault it had never read,
+  while its own rotation map named two denied keys. An unread inventory is now a
+  distinct 409, not a confident empty.
+- 514. `password_reference_keys` measured zero references over a populated sites
+  config, so row 432's unreadable-vault health arm was reporting on nothing.
+- 520. A tunnel removal answered 200 with its secrets UNPURGED. Purge now
+  refuses rather than reporting a success it did not perform -- and CHANGELOG
+  v3.66.1369's claim that "rekey and purge abort" was FALSE FOR PURGE when it was
+  written; this cut makes that sentence true rather than editing it.
+- 475. A vault password could only be tested by SPENDING a throttled unlock. New
+  tool `toolchain/bin/bd-vault-verify` answers offline against the vault's own
+  verifier field; a verifier-less vault is UNKNOWN, exit 2, not a guess.
+- 438 IS PARTIALLY CLOSED AND THE NUANCE IS RECORDED RATHER THAN GLOSSED. The
+  backend fork and the silent relock are live and are fixed here, but the SILENT
+  CREDENTIAL LOSS the row describes is already intercepted: v3.66.1390's
+  vault-identity guard turns the stale writer's save into a hard
+  SecretsUnreadableError. The RED observed was therefore a refusal, not a
+  vanished key, and the test docstring says so.
+- A7, found inside this cut's own subject: `tunnel_ids_with_secrets` carried row
+  520's identical shape, and `app_store_raw_editor`'s orphan guard reads its
+  empty set as "nothing to protect" -- so the one condition where orphaning is
+  likeliest also DISABLED the guard. Both now fail closed.
+- Negative controls hold the other direction: an honestly empty vault still
+  answers 200 with zero, a readable-LOCKED vault still serves its full inventory,
+  a genuinely absent password still audits `no_password_stored` spending exactly
+  one cooldown and one slot, and an absent tunnel enters the purge zero times.
+
 ## v3.66.1409 - an adoption verdict is derived from evidence independent of what it judges
 
 Rows 493 and 497. One contract: a verdict about an artifact is not computed from
