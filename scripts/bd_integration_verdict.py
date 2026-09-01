@@ -142,6 +142,28 @@ def _row_closed_exactly_once(register: str, row: int) -> bool:
     return re.fullmatch(r"CLOSED(?:\s+@\d+)?", matches[0].strip()) is not None
 
 
+def _require_evidence_denominators(
+    row: int | None,
+    required_paths: list[str],
+) -> int:
+    row_denominator = int(row is not None)
+    required_path_denominator = len(required_paths)
+    if row_denominator and required_path_denominator:
+        return row
+    if not row_denominator and not required_path_denominator:
+        reason_code = "ROW_AND_REQUIRED_PATH_DENOMINATORS_EMPTY"
+    elif not row_denominator:
+        reason_code = "ROW_DENOMINATOR_EMPTY"
+    else:
+        reason_code = "REQUIRED_PATH_DENOMINATOR_EMPTY"
+    raise UnknownEvidence(
+        reason_code,
+        "evidence denominators must be nonzero: "
+        f"row_denominator={row_denominator} "
+        f"required_path_denominator={required_path_denominator}",
+    )
+
+
 def evaluate(
     *,
     repo: Path,
@@ -151,6 +173,7 @@ def evaluate(
     row: int | None,
     required_paths: list[str],
 ) -> dict[str, object]:
+    measured_row = _require_evidence_denominators(row, required_paths)
     repo = repo.resolve(strict=True)
     expected_tuple = _parse_expected_version(expected_version)
     candidate_sha = _resolve_commit(repo, candidate, "CANDIDATE_UNREADABLE")
@@ -169,11 +192,8 @@ def evaluate(
         path: _path_exists(repo, main_sha, path)
         for path in required_paths
     }
-    if row is None:
-        row_closed = True
-    else:
-        register = _show(repo, main_sha, REGISTER_PATH, "REGISTER_UNREADABLE")
-        row_closed = _row_closed_exactly_once(register, row)
+    register = _show(repo, main_sha, REGISTER_PATH, "REGISTER_UNREADABLE")
+    row_closed = _row_closed_exactly_once(register, measured_row)
 
     evidence = {
         "candidate_is_ancestor": _is_ancestor(repo, candidate_sha, main_sha),
@@ -192,8 +212,10 @@ def evaluate(
         "expected_version": expected_version,
         "candidate_version": candidate_version,
         "main_version": main_version,
-        "row": row,
+        "row": measured_row,
+        "row_denominator": 1,
         "required_paths": paths,
+        "required_path_denominator": len(required_paths),
         "evidence": evidence,
     }
 
@@ -206,13 +228,19 @@ def _emit(payload: dict[str, object], *, as_json: bool) -> None:
     if verdict == "INTEGRATED":
         print(
             f"INTEGRATED candidate={payload['candidate_sha']} "
-            f"main={payload['main_sha']} version={payload['expected_version']}"
+            f"main={payload['main_sha']} version={payload['expected_version']} "
+            f"row_denominator={payload['row_denominator']} "
+            f"required_path_denominator={payload['required_path_denominator']}"
         )
     elif verdict == "NOT_INTEGRATED":
         failed = [
             name for name, value in payload["evidence"].items() if not value
         ]
-        print(f"NOT_INTEGRATED failed={','.join(failed)}")
+        print(
+            f"NOT_INTEGRATED failed={','.join(failed)} "
+            f"row_denominator={payload['row_denominator']} "
+            f"required_path_denominator={payload['required_path_denominator']}"
+        )
     else:
         print(
             f"UNKNOWN {payload.get('reason_code', 'UNKNOWN')}: "

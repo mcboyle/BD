@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import stat
 import sys
 from typing import NoReturn
@@ -18,6 +19,8 @@ from bd_candidate_replay import (
     _candidate_commits,
     _common_git_dir,
     _fingerprint,
+    _git_bytes,
+    _git_result,
     _git_text,
     _identity_at,
     _resolve_commit,
@@ -247,6 +250,199 @@ def _path_identity_matches(path: Path, expected: FsIdentity) -> bool:
         )
 
 
+def _patch_id(worktree: Path, patch: bytes, label: str) -> str | None:
+    if not patch:
+        return None
+    result = _git_result(
+        worktree,
+        "patch-id",
+        "--verbatim",
+        input_bytes=patch,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", "replace").strip()
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            detail or f"cannot derive {label} patch identity",
+        )
+    try:
+        lines = result.stdout.decode("ascii", "strict").splitlines()
+    except UnicodeDecodeError as error:
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            f"{label} patch identity is not ASCII: {error}",
+        )
+    if len(lines) != 1:
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            f"{label} produced {len(lines)} patch identities, expected exactly one",
+        )
+    fields = lines[0].split()
+    if len(fields) != 2 or len(fields[0]) != 40:
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            f"{label} produced a malformed patch identity",
+        )
+    try:
+        int(fields[0], 16)
+    except ValueError:
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            f"{label} patch identity is not hexadecimal",
+        )
+    return fields[0]
+
+
+def _commit_patch_id(worktree: Path, commit: str) -> str:
+    patch = _git_bytes(
+        worktree,
+        "show",
+        "--pretty=format:%H",
+        "--binary",
+        "--full-index",
+        "--no-ext-diff",
+        commit,
+        "--",
+    )
+    patch_id = _patch_id(worktree, patch, f"commit {commit}")
+    if patch_id is None:
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            f"candidate commit {commit} has no measurable patch",
+        )
+    return patch_id
+
+
+def _dirty_patch_id(worktree: Path, *, staged: bool) -> str | None:
+    args = ["diff", "--binary", "--full-index", "--no-ext-diff"]
+    if staged:
+        args.extend(("--cached", "HEAD", "--"))
+        label = "staged candidate state"
+    else:
+        args.append("--")
+        label = "unstaged candidate state"
+    return _patch_id(worktree, _git_bytes(worktree, *args), label)
+
+
+def _untracked_snapshot(
+    worktree: Path,
+) -> tuple[tuple[bytes, int, str, str], ...]:
+    raw = _git_bytes(
+        worktree,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+    )
+    if raw and not raw.endswith(b"\0"):
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            "untracked-path measurement is not NUL terminated",
+        )
+    raw_paths = raw[:-1].split(b"\0") if raw else []
+    if len(raw_paths) != len(set(raw_paths)):
+        _unknown(
+            "OUTPUT_RECONCILIATION_UNREADABLE",
+            "untracked-path measurement contains duplicate entries",
+        )
+    entries: list[tuple[bytes, int, str, str]] = []
+    for raw_path in raw_paths:
+        relative = os.fsdecode(raw_path)
+        pure = PurePosixPath(relative)
+        if (
+            not relative
+            or pure.is_absolute()
+            or any(part in {"", ".", ".."} for part in pure.parts)
+        ):
+            _unknown(
+                "OUTPUT_RECONCILIATION_UNREADABLE",
+                f"unsafe untracked evidence path {relative!r}",
+            )
+        path = worktree / relative
+        metadata = path.lstat()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if stat.S_ISREG(metadata.st_mode):
+            kind = "file"
+            contents = path.read_bytes()
+        elif stat.S_ISLNK(metadata.st_mode):
+            kind = "symlink"
+            contents = os.fsencode(os.readlink(path))
+        else:
+            _unknown(
+                "OUTPUT_RECONCILIATION_UNREADABLE",
+                f"untracked evidence path {relative!r} has unsupported type",
+            )
+        entries.append(
+            (raw_path, mode, kind, hashlib.sha256(contents).hexdigest())
+        )
+    return tuple(entries)
+
+
+def _is_ancestor(worktree: Path, ancestor: str, descendant: str) -> bool:
+    result = _git_result(
+        worktree,
+        "merge-base",
+        "--is-ancestor",
+        ancestor,
+        descendant,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    detail = result.stderr.decode("utf-8", "replace").strip()
+    _unknown(
+        "OUTPUT_RECONCILIATION_UNREADABLE",
+        detail or "cannot prove replay output descends from recorded main",
+    )
+
+
+def _output_reconciles_with_source(
+    *,
+    source: Path,
+    output: Path,
+    source_commits: list[str],
+    main_commit: str,
+    output_commit: str,
+    recorded_source_state: str,
+    recorded_output_head: str,
+    recorded_output_state: str,
+) -> bool:
+    output_commits = _candidate_commits(output, main_commit, output_commit)
+    source_commit_patches = tuple(
+        _commit_patch_id(source, commit) for commit in source_commits
+    )
+    output_commit_patches = tuple(
+        _commit_patch_id(output, commit) for commit in output_commits
+    )
+    source_staged = _dirty_patch_id(source, staged=True)
+    output_staged = _dirty_patch_id(output, staged=True)
+    source_unstaged = _dirty_patch_id(source, staged=False)
+    output_unstaged = _dirty_patch_id(output, staged=False)
+    source_untracked = _untracked_snapshot(source)
+    output_untracked = _untracked_snapshot(output)
+    candidate_denominator = (
+        len(source_commits)
+        + int(source_staged is not None)
+        + int(source_unstaged is not None)
+        + len(source_untracked)
+    )
+    return all(
+        (
+            candidate_denominator > 0,
+            _is_ancestor(output, main_commit, output_commit),
+            len(output_commits) == len(source_commits),
+            output_commit_patches == source_commit_patches,
+            output_staged == source_staged,
+            output_unstaged == source_unstaged,
+            output_untracked == source_untracked,
+            _fingerprint(source) == recorded_source_state,
+            output_commit == recorded_output_head,
+            _fingerprint(output) == recorded_output_state,
+        )
+    )
+
+
 def evaluate(*, manifest_path: Path) -> dict[str, object]:
     canonical_manifest = _canonical_final_path(manifest_path)
     payload, manifest_identity, parent_identity = _read_manifest(canonical_manifest)
@@ -299,7 +495,7 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
 
     repository_matches = False
     source_unchanged = False
-    output_unchanged = False
+    output_reconciles_with_source = False
     main_ref_unchanged = False
     merge_base_matches = False
     candidate_commits_match = False
@@ -350,20 +546,39 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
                 and main_commit == recorded_main_sha
                 and actual_merge_base == payload["merge_base"]
             )
-            candidate_commits_match = _candidate_commits(
+            actual_candidate_commits = _candidate_commits(
                 source,
                 actual_merge_base,
                 source_commit,
-            ) == payload["candidate_commits"]
+            )
+            candidate_commits_match = (
+                actual_candidate_commits == payload["candidate_commits"]
+            )
             source_unchanged = (
                 _resolve_commit(source, "HEAD", "SOURCE_HEAD_UNREADABLE")
                 == source_record["head"]
                 and _fingerprint(source) == source_record["state_sha256"]
             )
-            output_unchanged = (
-                _resolve_commit(output, "HEAD", "OUTPUT_HEAD_UNREADABLE")
-                == output_record["head"]
-                and _fingerprint(output) == output_record["state_sha256"]
+            output_commit = _resolve_commit(
+                output,
+                "HEAD",
+                "OUTPUT_HEAD_UNREADABLE",
+            )
+            output_reconciles_with_source = _output_reconciles_with_source(
+                source=source,
+                output=output,
+                source_commits=actual_candidate_commits,
+                main_commit=main_commit,
+                output_commit=output_commit,
+                recorded_source_state=_string(
+                    source_record["state_sha256"],
+                    "source.state_sha256",
+                ),
+                recorded_output_head=_string(output_record["head"], "output.head"),
+                recorded_output_state=_string(
+                    output_record["state_sha256"],
+                    "output.state_sha256",
+                ),
             )
             main_ref_unchanged = (
                 _resolve_commit(
@@ -424,7 +639,7 @@ def evaluate(*, manifest_path: Path) -> dict[str, object]:
         "manifest_contents_match": manifest_contents_match,
         "repository_matches": repository_matches,
         "source_unchanged": source_unchanged,
-        "output_unchanged": output_unchanged,
+        "output_reconciles_with_source": output_reconciles_with_source,
         "main_ref_unchanged": main_ref_unchanged,
         "merge_base_matches": merge_base_matches,
         "candidate_commits_match": candidate_commits_match,
