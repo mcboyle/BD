@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1413 - crash recovery decides from state the product actually writes
+
+Rows 494 and 498.
+
+- 494. `scan_for_orphans` protected an in-progress download with exactly ONE
+  guard: a `url` key read from the `.part.meta` sidecar. NO PRODUCTION WRITER
+  EVER SETS THAT KEY -- zero production sites against four test-fixture sites --
+  so the guard was structurally incapable of firing, and any `.part` past the age
+  threshold was served to the operator as a deletable orphan while a worker might
+  still have been streaming into it. The product DOES write a joinable live
+  identity: `staging_claim` publishes a `.owner` carrying sha256(page_url) at
+  both production claim sites. The scan now consults it.
+- This is operator-facing, not latent: the orphan list is rendered by the SPA and
+  its entries are deletable by a POST, so a false orphan was one click from
+  destroying a live multi-gigabyte transfer.
+- 498. `crash_recovery` is one of only two modules writing against
+  `staging_claim`'s contract, and the affected-band derivation for
+  crash_recovery.py did not select that contract's gate -- the edge was
+  unobserved from both ends. The row's own measurement: with `_sc.release(p)`
+  removed, the 8-suite band plus all 18 gate tests produced ZERO new failures.
+  `toolchain/bin/bd-band-derive` now resolves that consumer edge, so the gate is
+  selected for the module that writes against it.
+
 ## v3.66.1412 - the run-context pruner survives a concurrent run
 
 A harness that manufactured failures. `tests/_run_context.py` prunes

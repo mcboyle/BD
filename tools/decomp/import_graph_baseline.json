@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4218,
+  "edge_count": 4220,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3783,6 +3783,10 @@
     ],
     "tests/test_row492_a_release_proves_what_it_frees.py": [
       "bulk_downloader/cleanup_helpers.py",
+      "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row494_498_crash_recovery_live_state.py": [
+      "bulk_downloader/crash_recovery.py",
       "bulk_downloader/staging_claim.py"
     ],
     "tests/test_row520_a_tunnel_removal_purges_or_refuses.py": [
