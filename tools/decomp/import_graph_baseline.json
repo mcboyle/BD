@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4199,
+  "edge_count": 4202,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3754,6 +3754,11 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/db.py",
       "bulk_downloader/download_hold.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py": [
+      "bulk_downloader/download_hold.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/runner.py"
     ],
     "tests/test_row482_the_vault_state_is_always_measured.py": [
