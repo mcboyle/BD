@@ -788,7 +788,12 @@ def api_clone_site(sid):
         cfg[f] = ""
     s_cfg[new_sid] = cfg
     s_meta[new_sid] = _build_meta(cfg)
-    runners[new_sid] = SiteRunner(new_sid, cfg)
+    _new_runner = SiteRunner(new_sid, cfg)
+    # Publish under the SAME lock delete pops with, so an enumerating reader
+    # sees this site either wholly present or wholly absent.  The runner is
+    # CONSTRUCTED first: nothing slow runs inside the lock.
+    with _app__watch_registry_lock():
+        runners[new_sid] = _new_runner
     _save_sites_config()
     return jsonify({"ok": True, "id": new_sid, "name": cfg["name"]})
 
