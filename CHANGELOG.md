@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1392 - a vault write proves it is writing over the vault it read
+
+Rows 537, 538, 539 and 540 -- ranks 5, 6, 7 and 8 of the 2026-09-01 refutation,
+three of them ACT NOW. v3.66.1384 taught the vault to CLASSIFY its state
+correctly and left every WRITE path free to act on a different file than the one
+it classified.
+
+- 537 AND 538, THE WRITE NOW TARGETS THE VAULT IT READ. _save() ended in an
+  unconditional tmp.replace(SECRETS_FILE), serialising self._data -- a
+  construction-time snapshot -- over whatever occupied the path. POST
+  /api/backup/restore writes secrets.json to that same relative path and
+  invalidates no cached backend, so the next ordinary credential save destroyed
+  the restored vault, its salt and every credential in it, silently.
+
+  v3.66.1384's re-probe was ADVISORY: it guards the first-use branch of
+  _unlock_locked while the write it is meant to prevent is an unconditional
+  rename two frames later, and a restore landing in that window still won --
+  measured at 67 clobbers in 400 natural-race trials. The check is now AT the
+  write. The instance records the (device, inode, size) of the vault it actually
+  read and refuses any save over a file that is not it. A path that cannot be
+  measured is a DISTINCT refusal from a path that is empty, because "I could not
+  look" is not "there is nothing there" and conflating them is this whole family
+  of defects.
+
+  A silent skip would have been its own fail-open -- the caller would believe the
+  credential was stored -- so the refusal raises.
+
+- 539 AND 540, DELETE VALIDATES WHAT IT MUTATES. delete() called
+  _refuse_if_unreadable_locked, which inspects only _load_error, and then mutated
+  a store it had not validated; `self._data.get("ciphertexts") or {}` laundered a
+  damaged container into "not present". Over a vault repairable by fixing one
+  field it destroyed the ciphertext permanently while LOCKED, having never
+  unlocked, and answered 200 ok:true -- while /api/secrets/status answered 409
+  over the same bytes, and the route then wiped the operator's only @cred:
+  pointer to a credential the vault had just admitted it could not enumerate.
+
+  The new guard is deliberately narrow: it asks only whether the fields this
+  operation will READ are the shape they must be. A check that cannot be stated
+  exactly is a check nobody keeps.
+
+- 151 tests green across five vault suites. Controls hold: the ordinary save
+  path still reaches disk and survives a restart, and delete still removes a key
+  from a healthy vault without touching its siblings.
+
 ## v3.66.1391 - a staging claim proves what it frees, and unwinds what it cannot
 
 Rows 492, 489, 506 and 533. staging_claim is a module built on identity --

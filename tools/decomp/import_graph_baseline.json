@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4171,
+  "edge_count": 4172,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3763,6 +3763,9 @@
     "tests/test_row492_a_release_proves_what_it_frees.py": [
       "bulk_downloader/cleanup_helpers.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row537_a_vault_write_targets_the_vault_it_read.py": [
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

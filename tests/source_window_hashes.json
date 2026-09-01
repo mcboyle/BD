@@ -362,7 +362,7 @@
     {
       "bytes": 802,
       "key": "tests/test_v3_43_47_audit.py::test_pbkdf2_default_is_600k::src[init_pos:init_pos + 800]::1",
-      "sha256": "71f208421a5d7cd722d559a5810be75642b65cf9855b095734a8f14aa7a5c0c7"
+      "sha256": "447063fb44db18f6b6e84a9fe45698ed44a84fd0d7c877586b753af35d10aed8"
     },
     {
       "bytes": 400,
