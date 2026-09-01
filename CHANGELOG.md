@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1403 - a secrets mutation surfaces the outcome the store actually had
+
+Rows 551, 552, 554 and 555 of the 2026-09-01 audit. All four reproduced at base.
+One contract: the caller is never told something the store did not do.
+
+- 551. A silently substituted PlaintextBackend made delete a no-op that answered
+  `200 ok:true`, over a vault a reopened MasterPasswordBackend proves still holds
+  the key -- with the site's `@cred:` pointer cleared and saved, so the reference
+  was destroyed while the secret survived. The refusal is NOT advisory: it
+  returns before the mutation and before any config write, and it judges THE SAME
+  BACKEND OBJECT the delete calls. A TOCTOU where the guard resolved its own
+  get_backend() was found and closed mid-cut.
+- 552. /api/secrets/delete discarded save_sites_config's result and answered
+  `200 config_cleaned:true` while the write had measured False and the disk still
+  carried `@cred:`. The base also left the in-memory config cleared, a state
+  NEITHER store held. The in-memory clear is now unwound on a failed write, so a
+  retry after the obstruction is removed still finds work and succeeds.
+- 554. SecretsPersistError -- the third exception, beside the locked and
+  unreadable arms -- escaped as an opaque `500 internal server error`. It is now
+  surfaced as `state persist_failed`, and the arm catches ONLY that exception so
+  the two 409 refusals cannot launder through it. The rollback is asserted real:
+  both keys still listed, vault digest byte-identical, `@cred:` untouched.
+- 555. The probe-failure refusal asserted the wrong precondition -- that the
+  vault file EXISTS -- and said so over a path where os.path.lexists is False.
+  The kind is now latched beside _load_error at all three sites that set it and
+  is never re-derived from message text, which is the bd-vault-unlock collapse
+  CLAUDE.md A7 records.
+- Row 432's vocabulary is preserved byte-for-byte for a present-but-unparseable
+  vault, and row 537's changed-vault refusal keeps its own wording, so neither
+  earlier contract is laundered by the new states.
+
 ## v3.66.1402 - the register records what shipped
 
 Register-only. Nineteen rows fixed and shipped tonight in v3.66.1394 through
