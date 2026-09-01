@@ -232,7 +232,7 @@ def test_under_xdist_the_master_writes_no_chain_of_its_own():
 
 
 def test_bd_run_reads_a_colourised_log_exactly_like_a_plain_one():
-    """MEASURED on this cut's own band, and the harmless direction is the one
+    r"""MEASURED on this cut's own band, and the harmless direction is the one
     that showed: 2061 tests passed, and bd-run reported SUMMARY UNKNOWN because
     pytest had written the summary as `ESC[32mESC[1m2061 passed ...` and a
     `^\d+ passed` anchor cannot see past the escape. The dangerous direction is

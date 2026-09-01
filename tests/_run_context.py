@@ -202,15 +202,33 @@ def _newest_touch(run_dir):
     pytest's prune then evicted the live outer run mid-suite, losing most of its
     chain (row 179). Keying on the newest content instead keeps a run that is
     still being appended ranked as recent.
+
+    CONCURRENT REMOVAL IS EXPECTED, NOT EXCEPTIONAL. Every pytest process on
+    this host shares this one directory and prunes it from its own
+    `pytest_unconfigure`, and `bd-gc` sweeps individual run directories too
+    (never the shared parent -- see its own NEVER list). So a directory
+    listed a moment ago by `prune()`'s scan can be gone by the time this
+    function stats it: that TOCTOU race made `run_dir.stat()` raise
+    FileNotFoundError here, which escaped `prune()` and crashed
+    `pytest_unconfigure` for an entire suite whose own tests had all already
+    passed (captured 2026-09-01). A run directory that has vanished by the
+    time anyone gets around to ranking it is definitionally not worth
+    keeping, so it ranks as the oldest possible run rather than raising --
+    there is nothing left under that identity to keep OR remove, and the
+    removal loop in `prune()` tolerates its absence too. A DIFFERENT error
+    (PermissionError, say) is not a disappearance and must still surface.
     """
-    newest = run_dir.stat().st_mtime
+    try:
+        newest = run_dir.stat().st_mtime
+    except (FileNotFoundError, NotADirectoryError):
+        return float("-inf")
     try:
         for f in run_dir.iterdir():
             try:
                 newest = max(newest, f.stat().st_mtime)
-            except OSError:
+            except (FileNotFoundError, NotADirectoryError):
                 pass
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         pass
     return newest
 
@@ -219,7 +237,17 @@ def prune(keep=20):
     """Bounded retention. Creating a path is a promise to remove it -- 744
     leaked directories, measured, from a recorder that forgot this. Runs are
     ranked by newest CONTENT mtime (see `_newest_touch`) so a live run being
-    appended is never in the eviction set even when a nested pytest calls this."""
+    appended is never in the eviction set even when a nested pytest calls this.
+
+    A candidate directory can also vanish AFTER ranking, between being chosen
+    as stale and actually being removed -- another concurrent prune() or a
+    `bd-gc` sweep can win the same race. That is tolerated here too, on the
+    same terms as `_newest_touch`: only a proven disappearance
+    (FileNotFoundError/NotADirectoryError) is swallowed, so a directory
+    genuinely gone by the time we get to it is not "removed BY this call" and
+    is not counted, but anything else (a permission failure, say) still
+    surfaces instead of being silently absorbed into a clean-looking count.
+    """
     d = sink_dir()
     if not d.is_dir():
         return 0
@@ -232,7 +260,7 @@ def prune(keep=20):
                 f.unlink()
             stale.rmdir()
             removed += 1
-        except OSError:
+        except (FileNotFoundError, NotADirectoryError):
             pass
     return removed
 # ---- appended to tests/_run_context.py by cut 1221 (row 234) ----
