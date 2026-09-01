@@ -29,6 +29,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from .subprocess_helpers import kill_process_tree
+
 
 # Module-level state for run history. Bounded — never grows past 50.
 _runs_lock = threading.RLock()
@@ -64,6 +66,20 @@ def _settle_completed_run(run: dict, proc: subprocess.Popen) -> bool:
         run["finished"] = time.time()
     _close_run_identity(run)
     return True
+
+
+def _reap_worker_error(proc: subprocess.Popen) -> str:
+    """Reap the owned process tree before a worker error becomes terminal."""
+    try:
+        kill_process_tree(proc)
+    except Exception:
+        pass
+    try:
+        if proc.stdout is not None:
+            proc.stdout.close()
+    except Exception:
+        pass
+    return "reaped" if proc.poll() is not None else "unknown"
 
 
 def is_dev_mode() -> bool:
@@ -226,6 +242,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
         "finished": None,
         "returncode": None,
         "pid": None,
+        "cleanup_state": "not-needed",
         "_process": None,
         "_pidfd": None,
     }
@@ -234,6 +251,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
         _trim_history()
 
     def _worker():
+        proc = None
         try:
             cmd = _build_cmd(target, kind)
             if cmd is None:
@@ -266,6 +284,8 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                 cwd=str(_repo_root()),
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 **_pgrp,
             )
@@ -301,6 +321,9 @@ def start_run(target: str, *, kind: str = "file") -> dict:
             with _runs_lock:
                 _settle_completed_run(run, proc)
         except Exception as e:
+            cleanup_state = (
+                _reap_worker_error(proc) if proc is not None else "not-acquired"
+            )
             with _runs_lock:
                 if run["state"] == "running":
                     run["state"] = "error"
@@ -309,7 +332,9 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                                  f"\n[worker error] {type(e).__name__}: {e}"
                 if run["returncode"] is None:
                     run["returncode"] = -1
-                _close_run_identity(run)
+                run["cleanup_state"] = cleanup_state
+                if cleanup_state != "unknown":
+                    _close_run_identity(run)
 
     t = threading.Thread(target=_worker, daemon=True,
                           name=f"dev-run-{run_id}")
