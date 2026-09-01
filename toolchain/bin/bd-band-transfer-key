@@ -13,13 +13,13 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+import tempfile
 
 
 class TransferRefused(RuntimeError):
@@ -204,7 +204,7 @@ def _trio_evidence(repo, base, head):
         "pin": hashlib.sha256(_replace_group(head_pin, pin_head_m, b"<VERSION>")).hexdigest(),
         "preamble": hashlib.sha256(head_preamble).hexdigest(),
         "entry": hashlib.sha256(normal_entry).hexdigest(),
-        "entry_bytes": normal_entry,
+        "entry_bytes": entry,
     }
 
 
@@ -244,17 +244,6 @@ def _edge_set(blob, label):
     return edges
 
 
-def _load_import_gate(repo):
-    path = Path(repo, "tools/decomp/import_graph_gate.py")
-    spec = importlib.util.spec_from_file_location("_bd_band_transfer_import_gate", path)
-    if spec is None or spec.loader is None:
-        raise TransferRefused("import graph gate is UNKNOWN: cannot load module")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def _declared_evidence(repo, base, head):
     base_edges = _edge_set(_blob(repo, base, DECLARED), "base")
     head_edges = _edge_set(_blob(repo, head, DECLARED), "head")
@@ -266,7 +255,26 @@ def _declared_evidence(repo, base, head):
         text=True,
         check=False,
     )
-    live_edges = _load_import_gate(repo).current_edge_set(Path(repo))
+    removed = set()
+    declared_removed_count = 0
+    for line in gate.stdout.splitlines():
+        count_match = re.fullmatch(r"note: ([0-9]+) baseline edge[(]s[)] no longer present .*", line)
+        if count_match:
+            declared_removed_count = int(count_match.group(1))
+        elif line.startswith("  - ") and " -> " in line:
+            src, dst = line[4:].split(" -> ", 1)
+            removed.add((src, dst))
+    if gate.returncode == 0 and declared_removed_count != len(removed):
+        raise TransferRefused(
+            "import_graph_gate removal denominator is UNKNOWN: declared=%d parsed=%d"
+            % (declared_removed_count, len(removed))
+        )
+    live_edges = head_edges - removed
+    live_count_match = re.search(r"PASS: no new import edges [(]baseline holds, ([0-9]+) edges[)][.]", gate.stdout)
+    if gate.returncode == 0 and (
+        live_count_match is None or int(live_count_match.group(1)) != len(live_edges)
+    ):
+        raise TransferRefused("import_graph_gate live-edge denominator is UNKNOWN")
     validate_declared_union(base_edges, head_edges, live_edges, gate.returncode)
     return {"base": len(base_edges), "head": len(head_edges), "live": len(live_edges)}
 
@@ -321,6 +329,29 @@ def build_evidence(repo, base, head):
     }
 
 
+def evidence_at_commit(repo, base, head):
+    """Build evidence in a clean exact-head checkout, creating one if needed."""
+    repo = Path(repo).resolve()
+    resolved_head = _commit(repo, head, "head")
+    current = _commit(repo, "HEAD", "checkout head")
+    tracked = _git(repo, "status", "--porcelain=v1", "--untracked-files=no", text=True)
+    if current == resolved_head and not tracked:
+        return build_evidence(repo, base, resolved_head)
+
+    with tempfile.TemporaryDirectory(prefix="bd-band-transfer-") as directory:
+        checkout = Path(directory, "exact-head")
+        _git(repo, "worktree", "add", "--quiet", "--detach", str(checkout), resolved_head)
+        try:
+            return build_evidence(checkout, base, resolved_head)
+        finally:
+            subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", "--force", "--", str(checkout)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+
+
 def compare_evidence(old, new):
     compare_changelog_entries(old["trio_entry_bytes"], new["trio_entry_bytes"])
     if old["trio"] != new["trio"]:
@@ -358,11 +389,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "key":
-            evidence = build_evidence(args.repo, args.base, args.head)
+            evidence = evidence_at_commit(args.repo, args.base, args.head)
             print(json.dumps(_safe_json(evidence), sort_keys=True) if args.json else evidence["digest"])
         else:
-            old = build_evidence(args.repo, args.old_base, args.old_head)
-            new = build_evidence(args.repo, args.new_base, args.new_head)
+            old = evidence_at_commit(args.repo, args.old_base, args.old_head)
+            new = evidence_at_commit(args.repo, args.new_base, args.new_head)
             compare_evidence(old, new)
             payload = {"schema": 1, "digest": old["digest"], "transfer": "PASS"}
             print(json.dumps(payload, sort_keys=True) if args.json else "TRANSFER PASS " + old["digest"])

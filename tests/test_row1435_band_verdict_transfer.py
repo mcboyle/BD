@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 from pathlib import Path
+import re
+import subprocess
 
 import pytest
 
@@ -22,6 +24,48 @@ def _load_tool():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
+def _commit(repo: Path, message: str) -> str:
+    _git(repo, "add", "--", "bulk_downloader/__init__.py",
+         "tests/test_settings_center_slice4.py", "CHANGELOG.md", "feature.txt",
+         "unrelated.txt")
+    _git(repo, "commit", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _release_edit(repo: Path, version: str, title: str) -> None:
+    init_path = repo / "bulk_downloader" / "__init__.py"
+    pin_path = repo / "tests" / "test_settings_center_slice4.py"
+    changelog_path = repo / "CHANGELOG.md"
+    init = init_path.read_text(encoding="utf-8")
+    current = re.search(r'^__version__ = "([^"]+)"', init, re.MULTILINE).group(1)
+    pin = pin_path.read_text(encoding="utf-8")
+    changelog = changelog_path.read_text(encoding="utf-8")
+    header = re.search(r"^## v", changelog, re.MULTILINE)
+    assert init.count(f'__version__ = "{current}"') == 1
+    assert pin.count(f'__version__ == "{current}"') == 1
+    assert header is not None
+    init_path.write_text(
+        init.replace(f'__version__ = "{current}"', f'__version__ = "{version}"', 1),
+        encoding="utf-8",
+    )
+    pin_path.write_text(
+        pin.replace(f'__version__ == "{current}"', f'__version__ == "{version}"', 1),
+        encoding="utf-8",
+    )
+    entry = f"## v{version} - {title}\n\nidentical reviewed entry body\n\n"
+    changelog_path.write_text(
+        changelog[:header.start()] + entry + changelog[header.start():],
+        encoding="utf-8",
+    )
 
 
 def test_authored_blob_difference_refuses_instead_of_treating_reapply_as_identity():
@@ -103,3 +147,41 @@ def test_unknown_identity_refuses_and_cannot_yield_a_transfer_key():
 
     with pytest.raises(tool.TransferRefused, match="UNKNOWN.*head"):
         tool.require_known(**identities)
+
+
+def test_real_git_rebase_keeps_one_content_digest_when_all_dispositions_hold(tmp_path):
+    tool = _load_tool()
+    repo = tmp_path / "repo"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--shared", str(REPO), str(repo)], check=True
+    )
+    _git(repo, "config", "user.name", "Band Transfer Test")
+    _git(repo, "config", "user.email", "band-transfer@example.invalid")
+    (repo / "feature.txt").write_text("base authored bytes\n", encoding="ascii")
+    (repo / "unrelated.txt").write_text("base unrelated bytes\n", encoding="ascii")
+    base = _commit(repo, "fixture base")
+
+    _git(repo, "checkout", "-q", "-b", "old-candidate")
+    _release_edit(repo, "3.66.9001", "same transferred feature")
+    (repo / "feature.txt").write_text("identical authored bytes\n", encoding="ascii")
+    old_head = _commit(repo, "old candidate")
+
+    _git(repo, "checkout", "-q", "-b", "new-main", base)
+    _release_edit(repo, "3.66.9002", "other candidate landed")
+    (repo / "unrelated.txt").write_text("main gained unrelated authored bytes\n", encoding="ascii")
+    new_base = _commit(repo, "new main")
+
+    _git(repo, "checkout", "-q", "-b", "rebased-candidate")
+    _release_edit(repo, "3.66.9003", "same transferred feature")
+    (repo / "feature.txt").write_text("identical authored bytes\n", encoding="ascii")
+    new_head = _commit(repo, "rebased candidate")
+
+    old = tool.evidence_at_commit(repo, base, old_head)
+    new = tool.evidence_at_commit(repo, new_base, new_head)
+    tool.compare_evidence(old, new)
+
+    assert old["digest"] == new["digest"]
+    assert old["derived_denominator"] == new["derived_denominator"] > 0
+    assert old["authored_blobs"] == new["authored_blobs"] == {
+        "feature.txt": old["authored_blobs"]["feature.txt"],
+    }
