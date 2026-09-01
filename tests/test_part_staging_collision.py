@@ -904,3 +904,152 @@ def test_an_empty_ownerless_part_is_not_set_aside(tmp_path):
     setaside = [p for p in tmp_path.iterdir()
                 if p.name.endswith(".part") and p != staging]
     assert setaside == [], f"an empty .part was set aside: {setaside}"
+
+
+# ── Rows 501/528: a claim follows the bytes it guards ─────────────────────
+
+def test_an_expired_empty_claim_is_reclaimed_under_its_lock(tmp_path):
+    """A zero-byte owner left by an interrupted fallback mint cannot wedge a
+    name forever; the next claimant heals that exact record under its lock."""
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Interrupted.mp4"
+    staging = sc.staging_path_for(final)
+    owner = sc.owner_path_for(staging)
+    owner.write_bytes(b"")
+    ident = sc.job_identity("https://example.test/recover-empty-owner")
+
+    assert owner.is_file(), "precondition: the interrupted owner exists"
+    assert owner.stat().st_size == 0, "precondition: it is the empty shape"
+    assert not staging.exists(), "precondition: no resumable bytes exist"
+
+    got = sc.claim(final, ident)
+
+    assert got == staging
+    assert sc._read_owner_identity(owner) == ident
+    assert owner.stat().st_size > 0, "the replacement claim was not published"
+
+
+def test_a_ramdisk_transfer_claims_the_path_receiving_its_bytes(tmp_path):
+    """The RAM-stage writer must have an owner beside its actual .part, not
+    only beside the unused disk fallback path."""
+    from bulk_downloader import staging_claim as sc
+
+    ramdisk = tmp_path / "ramdisk"
+    ramdisk.mkdir()
+    final = tmp_path / "downloads" / "Scene.mp4"
+    final.parent.mkdir()
+    h = _harness("ramdisk-claim")
+    h.config.update({
+        "use_ramdisk_stage": True,
+        "ramdisk_path": str(ramdisk),
+        "ramdisk_capacity_gb": 1,
+        "ramdisk_max_file_gb": 0.01,
+    })
+    wrote = threading.Event()
+    release = threading.Event()
+
+    class _HeldRamOrigin(_Origin):
+        bodies = {"/scene.mp4": BODY_A}
+        holds = {"/scene.mp4": (HOLD, release)}
+        requests = []
+        lock = threading.Lock()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _HeldRamOrigin)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def _mark(_h):
+        wrote.set()
+
+    h._flush_after_interrupted_write = lambda accumulator, local_stop=None: (
+        _mark(h) or True)
+    result = {}
+    try:
+        worker = threading.Thread(
+            target=lambda: result.setdefault(
+                "value", h._http_download(
+                    "https://example.test/ramdisk", None, _Ctx(),
+                    f"http://127.0.0.1:{server.server_address[1]}/scene.mp4",
+                    final)),
+            daemon=True)
+        worker.start()
+        assert wrote.wait(timeout=30), "precondition: the transfer wrote bytes"
+        staged = list((ramdisk / "staging").glob("*.part"))
+        assert len(staged) == 1, f"precondition: expected one RAM .part, got {staged}"
+        assert staged[0].parent != final.parent, "precondition: RAM staging engaged"
+        assert staged[0].stat().st_size == HOLD, "precondition: exact bytes written"
+
+        owner = sc.owner_path_for(staged[0])
+        assert owner.is_file(), (
+            f"the {staged[0]} writer has no matching claim; disk claim is "
+            f"{sc.owner_path_for(sc.staging_path_for(final))}")
+    finally:
+        release.set()
+        try:
+            worker.join(timeout=30)
+        except UnboundLocalError:
+            pass
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
+def test_resume_cleanup_reports_whether_it_removed_a_sidecar(tmp_path):
+    """Row 507: a cleanup count must be a count of removed files, not calls."""
+    from bulk_downloader import resume
+
+    final = tmp_path / "Queued.mp4"
+    sidecar = resume.sidecar_path(final)
+    sidecar.write_text("{}", encoding="utf-8")
+    assert sidecar.is_file(), "precondition: the cleanup target exists"
+
+    assert resume.cleanup(final) is True
+    assert not sidecar.exists(), "the reported cleanup left the sidecar behind"
+    assert resume.cleanup(final) is False, (
+        "an absent sidecar was counted as a file cleanup")
+
+
+def test_force_cleanup_counts_the_partial_files_it_removes(tmp_path, monkeypatch):
+    """Row 507 drives the queue route with a bare display filename and a
+    download directory deliberately different from the process directory."""
+    from flask import Flask
+    from bulk_downloader import app_sites_queue as queue
+    from bulk_downloader import resume
+    from bulk_downloader import staging_claim as sc
+
+    url = "https://example.test/queued"
+    download_dir = tmp_path / "downloads"
+    download_dir.mkdir()
+    final = download_dir / "Queued.mp4"
+    staging = sc.claim(final, sc.job_identity(url))
+    staging.write_bytes(b"partial bytes")
+    staging.with_suffix(staging.suffix + ".meta").write_text("{}", encoding="utf-8")
+    resume.sidecar_path(final).write_text("{}", encoding="utf-8")
+
+    class _Runner:
+        def __init__(self):
+            self._lock = threading.RLock()
+            self.config = {"download_dir": str(download_dir)}
+            self.jobs = {url: {"filename": final.name}}
+            self.events = []
+
+        def log_event(self, *args):
+            self.events.append(args)
+
+    runner = _Runner()
+    monkeypatch.setattr(queue, "_app_runners", lambda: {"site": runner})
+    monkeypatch.setattr("bulk_downloader.db.queue_bulk_delete", lambda *_args: None)
+    app = Flask(__name__)
+    with app.test_request_context(
+            "/api/sites/site/jobs/bulk_delete", method="POST",
+            json={"urls": [url], "force_cleanup": True}):
+        response = queue.api_jobs_bulk_delete("site")
+    body = response.get_json()
+
+    assert final.name == "Queued.mp4", "precondition: stored filename is bare"
+    assert body["cleanup_count"] == 4, body
+    assert not staging.exists()
+    assert not staging.with_suffix(staging.suffix + ".meta").exists()
+    assert not resume.sidecar_path(final).exists()
+    assert not sc.owner_path_for(staging).exists()

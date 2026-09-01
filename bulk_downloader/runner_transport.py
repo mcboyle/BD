@@ -1444,6 +1444,11 @@ class TransportMixin:
                 db_log(self.site_id, self.config.get("name","?"), page_url,
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=0)
+                # This reservation has no `.part`: the transfer refused before
+                # opening one. Drop only our empty claim; release verifies both
+                # the identity and the byte precondition.
+                staging_claim.release(_staging_path,
+                                      staging_claim.job_identity(page_url))
                 return
             except _DownloadTruncated as e:
                 # BP-INT (v3.66.284): the transfer ended short of the
@@ -1466,6 +1471,10 @@ class TransportMixin:
                     dl=dli2.value
                 except PWTimeout:
                     self._handle_failure(page_url,f"HTTP failed and no fallback download event: {e}")
+                    # Neither HTTP nor the browser opened the reserved .part.
+                    # Do not leave an invisible owner that diverts later work.
+                    staging_claim.release(_staging_path,
+                                          staging_claim.job_identity(page_url))
                     return
                 # The httpx attempt failed and the browser moved the bytes, so
                 # the row must say 'browser'. Leaving the 'http' set at the top
@@ -1800,6 +1809,7 @@ class TransportMixin:
             raise _StagingUnavailable(str(e))
         # The claim guards the ON-DISK staging name and is released with it,
         # even when the bytes are staged in RAM below.
+        destination_staging_path = tmp_path
         owner_path = staging_claim.owner_path_for(tmp_path)
         # v3.45.6 Phase 183: opt-in RAM-disk staging. If enabled AND
         # this file is sized to fit, redirect tmp_path to the ram
@@ -1818,8 +1828,18 @@ class TransportMixin:
                 _stage = _rd.reserve_staging_path(
                     str(final_path), 0, self.config)
                 if _stage:
-                    _ramdisk_staging_path = _stage
-                    tmp_path = Path(_stage)
+                    try:
+                        # The claim is taken on the path open() will write.
+                        # A RAM reservation is only an in-process capacity
+                        # entry; it cannot establish cross-process ownership.
+                        tmp_path = staging_claim.claim_staging_path(
+                            _stage, staging_claim.job_identity(page_url))
+                    except (staging_claim.StagingClaimedByAnotherJob,
+                            staging_claim.StagingUnavailable):
+                        _rd.release(_stage)
+                        raise
+                    _ramdisk_staging_path = str(tmp_path)
+                    owner_path = staging_claim.owner_path_for(tmp_path)
             except Exception as e:
                 sys.stderr.write(
                     f"[{self.site_id}] ramdisk reserve failed, "
@@ -2170,8 +2190,10 @@ class TransportMixin:
         # part-staging-collision: and the staging claim with it. Idempotent --
         # the direct path already released inside _promote_or_abort; this also
         # covers the ramdisk promote, which never goes through that helper.
-        try: owner_path.unlink(missing_ok=True)
-        except Exception: pass
+        staging_claim.release(tmp_path, staging_claim.job_identity(page_url))
+        if tmp_path != destination_staging_path:
+            staging_claim.release(destination_staging_path,
+                                  staging_claim.job_identity(page_url))
         # Phase 17.19: feed this download's measured throughput into the
         # EWMA so the next download picks a better chunk size. Only count
         # bytes ACTUALLY transferred this call (not resumed bytes).

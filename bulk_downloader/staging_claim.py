@@ -161,6 +161,15 @@ class StagingClaimedByAnotherJob(RuntimeError):
     """
 
 
+class _ExpiredEmptyClaim(StagingUnavailable):
+    """A no-hardlink fallback claim that outlived its writer.
+
+    This stays private because it is an implementation distinction only:
+    callers still see an unmeasurable claim as ``StagingUnavailable`` unless
+    ``_settle_claim`` holds the claim's verified flock and can heal it.
+    """
+
+
 def job_identity(page_url) -> str:
     """The stable identity of a download job.
 
@@ -221,7 +230,7 @@ def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
         if raw != "":
             break
         if time.monotonic() >= deadline:
-            raise StagingUnavailable(
+            raise _ExpiredEmptyClaim(
                 f"staging claim {owner_path} is still empty after "
                 f"{_INFLIGHT_CLAIM_DEADLINE_S}s; ownership is UNKNOWN. "
                 "Remove that file if it is stale.")
@@ -618,83 +627,82 @@ def _settle_claim(staging: Path, owner: Path, identity: str, *,
     which touches nothing.
     """
     lock_fd = _acquire_claim_lock(owner)
+    retry_expired_empty = False
     try:
-        holder, proven = _read_owner_record(owner)
-        if holder != identity:
-            raise StagingClaimedByAnotherJob(
-                f"staging path {staging} is claimed by a different download; "
-                "appending to it would splice two files together")
-        if proven:
-            # The claim was completed, so every byte at the staging path was
-            # written under it. This is the interrupted download resuming its
-            # own `.part`, and it must not be re-measured: doing so would
-            # rename this job's own multi-gigabyte partial to `.orphaned-*` and
-            # restart it at byte 0 (row 541), which nothing ever reaps.
-            #
-            # For a MINT this is the mirror case above: another worker settled
-            # the claim we published while we were descheduled, and its
-            # transport may already be streaming. Returning here without
-            # touching anything is the whole fix for that arm.
-            return staging
-        if lock_fd is None and not minted:
-            # No `fcntl` in this interpreter, so exclusion cannot be
-            # established -- and UNKNOWN is not permission to rename bytes that
-            # may belong to a live writer (A2). Fail CLOSED here rather than
-            # best-effort as `_fsync_dir` does, because the failure DIRECTIONS
-            # are opposite: a missing directory sync leaves a preserved,
-            # operator-visible orphan, while an unlocked rename is the
-            # corruption this function exists to stop.
-            #
-            # Bounded to the destructive branch on purpose. A mint below still
-            # proceeds on such a host, and no stale-read PAIR can form there:
-            # the heal is the other half of every pair and it refuses here, and
-            # only one caller per claim can ever be the minter.
-            raise StagingUnavailable(
-                f"the staging claim {owner} reads UNPROVEN and this "
-                "interpreter cannot take a lock on it (no fcntl), so whether a "
-                "live writer holds it or a crash abandoned it is UNKNOWN; this "
-                "download refuses rather than set aside bytes that may be a "
-                "running transfer's")
-        # ROW 535, refutation rank 3, and the general statement of it at rank
-        # 43. The claim names us but was never completed, so the bytes beneath
-        # it were never accounted for by anybody. The only way to reach this
-        # state is a crash -- a SIGKILL or a deploy restart between
-        # `_create_owner` and the `os.replace` inside
-        # `_set_aside_unowned_bytes` -- which raises no exception, so the
-        # row-533 unwind cannot see it. Measure them exactly as a fresh mint
-        # would, then complete the claim so the NEXT reclaim is the resume path
-        # above. Under the lock, "was never completed" is now a fact about the
-        # present rather than a memory of an earlier read.
         try:
-            _set_aside_unowned_bytes(staging)
-            _prove_owner(owner, identity)
-        except BaseException:
-            # UNWIND ONLY WHAT THIS CALL PUBLISHED. Row 533: a claim this call
-            # minted and could not make good on must not outlive the call, or
-            # the next attempt reclaims it and resumes over foreign bytes.
-            #
-            # THE ASYMMETRY IS LOAD-BEARING. A reclaim must NOT unwind: the
-            # claim pre-existed the call and may be guarding crash residue, and
-            # deleting it is precisely how an ownerless `.part` is minted --
-            # the rank-1 corruption this module's whole history is about. A
-            # heal that cannot finish leaves the claim unproven and refuses;
-            # the next attempt heals again.
-            #
-            # Reached only from inside the lock, having read UNPROVEN under it,
-            # so the record being unlinked is still the one this call created:
-            # a failure to ACQUIRE the lock raises before this point and
-            # deliberately unwinds nothing, because by then another worker may
-            # have proved that claim and be streaming under it.
-            if minted:
-                try:
-                    owner.unlink(missing_ok=True)
-                except OSError:
-                    pass
-            raise
-        return staging
+            holder, proven = _read_owner_record(owner)
+        except _ExpiredEmptyClaim as exc:
+            if lock_fd is None:
+                raise StagingUnavailable(
+                    f"the empty staging claim {owner} outlived its publisher, "
+                    "but this interpreter cannot lock it (no fcntl), so whether "
+                    "another writer is about to finish it is UNKNOWN") from exc
+            try:
+                owner.unlink()
+            except OSError as unlink_exc:
+                raise StagingUnavailable(
+                    f"the empty staging claim {owner} outlived its publisher "
+                    f"but cannot be removed while its verified lock is held "
+                    f"({type(unlink_exc).__name__}: {unlink_exc}); ownership "
+                    "remains UNKNOWN") from unlink_exc
+            retry_expired_empty = True
+        if retry_expired_empty:
+            # The locked inode was the empty record and it is now gone. Drop
+            # that lock before a fresh atomic mint; keeping it would protect a
+            # detached inode, the exact shape `_acquire_claim_lock` rejects.
+            pass
+        else:
+            if holder != identity:
+                raise StagingClaimedByAnotherJob(
+                    f"staging path {staging} is claimed by a different download; "
+                    "appending to it would splice two files together")
+            if proven:
+                # The claim was completed, so every byte at the staging path was
+                # written under it. This is the interrupted download resuming its
+                # own `.part`, and it must not be re-measured: doing so would
+                # rename this job's own multi-gigabyte partial to `.orphaned-*` and
+                # restart it at byte 0 (row 541), which nothing ever reaps.
+                #
+                # For a MINT this is the mirror case above: another worker settled
+                # the claim we published while we were descheduled, and its
+                # transport may already be streaming. Returning here without
+                # touching anything is the whole fix for that arm.
+                return staging
+            if lock_fd is None and not minted:
+                # No `fcntl` in this interpreter, so exclusion cannot be
+                # established -- and UNKNOWN is not permission to rename bytes that
+                # may belong to a live writer (A2). Fail CLOSED here rather than
+                # best-effort as `_fsync_dir` does, because the failure DIRECTIONS
+                # are opposite: a missing directory sync leaves a preserved,
+                # operator-visible orphan, while an unlocked rename is the
+                # corruption this function exists to stop.
+                #
+                # Bounded to the destructive branch on purpose. A mint below still
+                # proceeds on such a host, and no stale-read PAIR can form there:
+                # the heal is the other half of every pair and it refuses here, and
+                # only one caller per claim can ever be the minter.
+                raise StagingUnavailable(
+                    f"the staging claim {owner} reads UNPROVEN and this "
+                    "interpreter cannot take a lock on it (no fcntl), so whether a "
+                    "live writer holds it or a crash abandoned it is UNKNOWN; this "
+                    "download refuses rather than set aside bytes that may be a "
+                    "running transfer's")
+            try:
+                _set_aside_unowned_bytes(staging)
+                _prove_owner(owner, identity)
+            except BaseException:
+                if minted:
+                    try:
+                        owner.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                raise
+            return staging
     finally:
         if lock_fd is not None:
             os.close(lock_fd)
+    if retry_expired_empty:
+        return claim_staging_path(staging, identity)
 
 
 def claim(final_path, identity: str) -> Path:
@@ -708,7 +716,12 @@ def claim(final_path, identity: str) -> Path:
     back, which is what makes an interrupted download resume its own ``.part``
     instead of being forced to restart.
     """
-    staging = staging_path_for(final_path)
+    return claim_staging_path(staging_path_for(final_path), identity)
+
+
+def claim_staging_path(staging_path, identity: str) -> Path:
+    """Take a claim for this exact path, including a RAM-disk staging path."""
+    staging = Path(staging_path)
     owner = owner_path_for(staging)
     # Row 481. A FRESH mint owns none of the bytes that were already there.
     # This module's only two exists() probes test the FINAL candidate, so until
@@ -800,6 +813,46 @@ def release(staging_path, identity: str | None = None, *, force: bool = False) -
     except OSError:
         return False
     return True
+
+
+def discard_owned_staging(staging_path, identity: str, *, extra_paths=()) -> int:
+    """Remove an abandoned partial and its claim only while its record is locked.
+
+    Queue cleanup is destructive, so it cannot decide from an owner record it
+    read before unlinking files. The verified descriptor/path lock and re-read
+    are the same settle protocol used for reclaim; a foreign or unreadable
+    claim is left untouched and reports zero removals.
+    """
+    staging = Path(staging_path)
+    owner = owner_path_for(staging)
+    try:
+        lock_fd = _acquire_claim_lock(owner)
+    except StagingUnavailable:
+        return 0
+    try:
+        try:
+            holder = _read_owner_identity(owner)
+        except StagingUnavailable:
+            return 0
+        if holder != identity:
+            return 0
+        removed = 0
+        for path in (staging, *extra_paths):
+            try:
+                Path(path).unlink()
+                removed += 1
+            except FileNotFoundError:
+                pass
+            except OSError:
+                return removed
+        try:
+            owner.unlink()
+            return removed + 1
+        except OSError:
+            return removed
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
 
 
 def reserve(final_path, identity: str):

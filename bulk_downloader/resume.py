@@ -235,14 +235,21 @@ def save(final_path: str | Path, checkpoint: dict) -> bool:
         return False
 
 
-def cleanup(final_path: str | Path):
-    """Remove sidecar after successful completion. Failures are ignored
-    — a stale .bdseg.json is harmless on the next download (the
-    total-bytes check will catch the mismatch and start fresh)."""
+def cleanup(final_path: str | Path) -> bool:
+    """Remove the sidecar and report whether this call removed a file.
+
+    A caller that presents an operator with a cleanup count needs an effect,
+    not merely an attempted unlink. Existing completion callers deliberately
+    ignore the return value, preserving their best-effort behaviour.
+    """
+    target = sidecar_path(final_path)
     try:
-        sidecar_path(final_path).unlink(missing_ok=True)
+        target.unlink()
+        return True
+    except FileNotFoundError:
+        return False
     except OSError:
-        pass
+        return False
 
 
 # ── HEAD probe helper ────────────────────────────────────────────────

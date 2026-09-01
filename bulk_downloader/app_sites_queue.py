@@ -648,8 +648,37 @@ def api_jobs_bulk_delete(sid):
                     if fn:
                         try:
                             from . import resume as _resume
-                            _resume.cleanup(fn)
-                            cleanup_count += 1
+                            from . import staging_claim as _claims
+                            name = Path(fn)
+                            download_dir = runner.config.get("download_dir")
+                            # `filename` is a display name, not a path
+                            # capability. Only a bare name can be resolved
+                            # beneath this site's configured destination.
+                            if (download_dir and not name.is_absolute()
+                                    and name.name == fn):
+                                final = Path(download_dir) / name
+                                staging = _claims.staging_path_for(final)
+                                owner = _claims.owner_path_for(staging)
+                                identity = _claims.job_identity(u)
+                                if owner.exists():
+                                    # The owner-dependent destructive action
+                                    # re-reads under staging_claim's verified
+                                    # lock, so a replacement record cannot turn
+                                    # this queue row into another job's cleanup.
+                                    cleanup_count += _claims.discard_owned_staging(
+                                        staging, identity, extra_paths=(
+                                            _resume.sidecar_path(final),
+                                            staging.with_suffix(
+                                                staging.suffix + ".meta")))
+                                else:
+                                    for target in (
+                                            _resume.sidecar_path(final), staging,
+                                            staging.with_suffix(staging.suffix + ".meta")):
+                                        try:
+                                            target.unlink()
+                                            cleanup_count += 1
+                                        except FileNotFoundError:
+                                            pass
                         except Exception:
                             pass
                 del runner.jobs[u]
