@@ -1,0 +1,415 @@
+#!/usr/bin/env python3
+"""Derive a fail-closed content identity for one candidate's local test band.
+
+The identity survives an ordinary release rebase only when all four path
+dispositions remain provable: release trio, generated, reviewed declaration,
+and authored. It is deliberately not a tree identity; callers pass its digest
+to bd-verdict-cache as the tree argument, preserving the cache's PASS-only
+``get --expect-tree`` re-proof while allowing an equivalent local band to hit.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import subprocess
+import sys
+import tempfile
+
+
+class TransferRefused(RuntimeError):
+    """A transfer premise is false or cannot be measured."""
+
+
+def compare_authored(old_blobs, new_blobs, main_gained_authored):
+    old_paths = set(old_blobs)
+    new_paths = set(new_blobs)
+    if old_paths != new_paths:
+        raise TransferRefused(
+            "authored path set differs: missing=%r added=%r"
+            % (sorted(old_paths - new_paths), sorted(new_paths - old_paths))
+        )
+    different = sorted(path for path in old_paths if old_blobs[path] != new_blobs[path])
+    if different:
+        raise TransferRefused("authored blob differs: " + ", ".join(different))
+    overlap = sorted(old_paths & set(main_gained_authored))
+    if overlap:
+        raise TransferRefused("authored overlap with main gained paths: " + ", ".join(overlap))
+
+
+def compare_changelog_entries(old_entry, new_entry):
+    old = _normalise_entry(old_entry)
+    new = _normalise_entry(new_entry)
+    if old != new:
+        raise TransferRefused("CHANGELOG entry differs beyond its header version token")
+
+
+def validate_declared_union(base_edges, head_edges, live_edges, gate_rc):
+    if gate_rc != 0:
+        raise TransferRefused("import_graph_gate --check did not pass (rc=%s)" % gate_rc)
+    invented = sorted(set(head_edges) - set(base_edges) - set(live_edges))
+    if invented:
+        src, dst = invented[0]
+        raise TransferRefused(
+            "declared edge absent from both sides: %s -> %s" % (src, dst)
+        )
+
+
+def derive_tracked_outputs(required_labels, chain_outputs):
+    required = tuple(required_labels)
+    if not required or len(required) != len(set(required)):
+        raise TransferRefused("required regeneration chain labels are empty or duplicated")
+    declared = set(chain_outputs)
+    expected = set(required)
+    if declared != expected:
+        raise TransferRefused(
+            "derived chain labels disagree: missing=%r unexpected=%r"
+            % (sorted(expected - declared), sorted(declared - expected))
+        )
+    outputs = []
+    for label in required:
+        paths = chain_outputs[label]
+        if not isinstance(paths, (tuple, list)):
+            raise TransferRefused("derived outputs for %s are not a sequence" % label)
+        outputs.extend(paths)
+    if not outputs or len(outputs) != len(set(outputs)):
+        raise TransferRefused("tracked derived outputs are empty or duplicated")
+    for path in outputs:
+        pure = PurePosixPath(path) if isinstance(path, str) else None
+        if pure is None or pure.is_absolute() or ".." in pure.parts or not pure.parts:
+            raise TransferRefused("unsafe tracked derived output: %r" % (path,))
+    return tuple(outputs)
+
+
+def require_known(**identities):
+    for label, value in identities.items():
+        if not value or value == "UNKNOWN":
+            raise TransferRefused("UNKNOWN identity: %s" % label)
+    return identities
+
+
+TRIO = (
+    "bulk_downloader/__init__.py",
+    "tests/test_settings_center_slice4.py",
+    "CHANGELOG.md",
+)
+DECLARED = "tools/decomp/import_graph_baseline.json"
+_VERSION = re.compile(rb'(?m)^__version__ = "([^"]+)"$')
+_PIN = re.compile(rb'assert __version__ == "([^"]+)"')
+_HEADER = re.compile(rb'(?m)^## v([0-9]+[.][0-9]+[.][0-9]+)([^\r\n]*)(?:\r?\n|$)')
+
+
+def _git(repo, *args, text=False):
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=text, check=False
+    )
+    if result.returncode != 0:
+        error = result.stderr if text else result.stderr.decode("utf-8", "replace")
+        raise TransferRefused("UNKNOWN: git %s failed: %s" % (" ".join(args), error.strip()))
+    return result.stdout
+
+
+def _commit(repo, value, label):
+    if not value or value == "UNKNOWN":
+        raise TransferRefused("UNKNOWN identity: %s" % label)
+    resolved = _git(repo, "rev-parse", "--verify", value + "^{commit}", text=True).strip()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", resolved):
+        raise TransferRefused("UNKNOWN: %s is not one commit" % label)
+    return resolved
+
+
+def _blob(repo, commit, path):
+    return _git(repo, "show", "%s:%s" % (commit, path))
+
+
+def _blob_oid(repo, commit, path):
+    result = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", "%s:%s" % (commit, path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return "ABSENT"
+    oid = result.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", oid):
+        raise TransferRefused("UNKNOWN blob identity: %s at %s" % (path, commit[:12]))
+    return oid
+
+
+def _paths_between(repo, base, head):
+    raw = _git(repo, "diff", "--no-ext-diff", "--no-renames", "--name-only", "-z", base, head)
+    return {os.fsdecode(item) for item in raw.split(b"\0") if item}
+
+
+def _one_version(blob, pattern, label):
+    matches = list(pattern.finditer(blob))
+    if len(matches) != 1:
+        raise TransferRefused("%s has %d version anchors, expected one" % (label, len(matches)))
+    return matches[0]
+
+
+def _replace_group(blob, match, value):
+    return blob[:match.start(1)] + value + blob[match.end(1):]
+
+
+def _normalise_entry(entry):
+    matches = list(_HEADER.finditer(entry))
+    if len(matches) != 1 or matches[0].start() != 0:
+        raise TransferRefused("CHANGELOG entry has not exactly one leading release header")
+    match = matches[0]
+    return _replace_group(entry, match, b"<VERSION>")
+
+
+def _trio_evidence(repo, base, head):
+    base_init, head_init = (_blob(repo, commit, TRIO[0]) for commit in (base, head))
+    base_pin, head_pin = (_blob(repo, commit, TRIO[1]) for commit in (base, head))
+    init_base_m = _one_version(base_init, _VERSION, "base __init__.py")
+    init_head_m = _one_version(head_init, _VERSION, "head __init__.py")
+    pin_base_m = _one_version(base_pin, _PIN, "base slice4 pin")
+    pin_head_m = _one_version(head_pin, _PIN, "head slice4 pin")
+    base_version = init_base_m.group(1)
+    head_version = init_head_m.group(1)
+    if pin_base_m.group(1) != base_version or pin_head_m.group(1) != head_version:
+        raise TransferRefused("release source and slice4 pin versions disagree")
+    if _replace_group(head_init, init_head_m, base_version) != base_init:
+        raise TransferRefused("__init__.py differs beyond version substitution")
+    if _replace_group(head_pin, pin_head_m, base_version) != base_pin:
+        raise TransferRefused("slice4 pin differs beyond version substitution")
+
+    base_changelog, head_changelog = (
+        _blob(repo, commit, TRIO[2]) for commit in (base, head)
+    )
+    base_headers = list(_HEADER.finditer(base_changelog))
+    head_headers = list(_HEADER.finditer(head_changelog))
+    if not base_headers or len(head_headers) < 2:
+        raise TransferRefused("CHANGELOG headers are absent or no entry was prepended")
+    if base_headers[0].group(1) != base_version or head_headers[0].group(1) != head_version:
+        raise TransferRefused("CHANGELOG head does not agree with its tree version")
+    base_preamble = base_changelog[:base_headers[0].start()]
+    head_preamble = head_changelog[:head_headers[0].start()]
+    if head_preamble != base_preamble:
+        raise TransferRefused("CHANGELOG preambles differ")
+    if head_changelog[head_headers[1].start():] != base_changelog[base_headers[0].start():]:
+        raise TransferRefused("CHANGELOG entry is not prepended and anchored on main's head")
+    entry = head_changelog[head_headers[0].start():head_headers[1].start()]
+    normal_entry = _normalise_entry(entry)
+    return {
+        "init": hashlib.sha256(_replace_group(head_init, init_head_m, b"<VERSION>")).hexdigest(),
+        "pin": hashlib.sha256(_replace_group(head_pin, pin_head_m, b"<VERSION>")).hexdigest(),
+        "preamble": hashlib.sha256(head_preamble).hexdigest(),
+        "entry": hashlib.sha256(normal_entry).hexdigest(),
+        "entry_bytes": entry,
+    }
+
+
+def _literal_assignment(source, name):
+    tree = ast.parse(source, filename="toolchain/bin/bd-regen-order")
+    matches = []
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+            matches.append(ast.literal_eval(node.value))
+    if len(matches) != 1:
+        raise TransferRefused("regeneration authority has %d %s assignments" % (len(matches), name))
+    return matches[0]
+
+
+def _derived_outputs(repo, head):
+    source = _blob(repo, head, "toolchain/bin/bd-regen-order").decode("utf-8")
+    required = _literal_assignment(source, "REQUIRED_CHAIN_LABELS")
+    mapping = _literal_assignment(source, "TRACKED_OUTPUTS_BY_LABEL")
+    outputs = derive_tracked_outputs(required, mapping)
+    absent = [path for path in outputs if _blob_oid(repo, head, path) == "ABSENT"]
+    if absent:
+        raise TransferRefused("tracked derived outputs absent from head: " + ", ".join(absent))
+    return outputs
+
+
+def _edge_set(blob, label):
+    try:
+        data = json.loads(blob.decode("utf-8"))
+        edges = {(src, dst) for src, destinations in data["edges"].items() for dst in destinations}
+        if data["edge_count"] != len(edges):
+            raise ValueError("edge_count mismatch")
+    except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TransferRefused("%s declaration is UNKNOWN: %s" % (label, exc)) from exc
+    return edges
+
+
+def _declared_evidence(repo, base, head):
+    base_edges = _edge_set(_blob(repo, base, DECLARED), "base")
+    head_edges = _edge_set(_blob(repo, head, DECLARED), "head")
+    gate = subprocess.run(
+        [sys.executable, "tools/decomp/import_graph_gate.py", "--check"],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+    removed = set()
+    declared_removed_count = 0
+    for line in gate.stdout.splitlines():
+        count_match = re.fullmatch(r"note: ([0-9]+) baseline edge[(]s[)] no longer present .*", line)
+        if count_match:
+            declared_removed_count = int(count_match.group(1))
+        elif line.startswith("  - ") and " -> " in line:
+            src, dst = line[4:].split(" -> ", 1)
+            removed.add((src, dst))
+    if gate.returncode == 0 and declared_removed_count != len(removed):
+        raise TransferRefused(
+            "import_graph_gate removal denominator is UNKNOWN: declared=%d parsed=%d"
+            % (declared_removed_count, len(removed))
+        )
+    live_edges = head_edges - removed
+    live_count_match = re.search(r"PASS: no new import edges [(]baseline holds, ([0-9]+) edges[)][.]", gate.stdout)
+    if gate.returncode == 0 and (
+        live_count_match is None or int(live_count_match.group(1)) != len(live_edges)
+    ):
+        raise TransferRefused("import_graph_gate live-edge denominator is UNKNOWN")
+    validate_declared_union(base_edges, head_edges, live_edges, gate.returncode)
+    return {"base": len(base_edges), "head": len(head_edges), "live": len(live_edges)}
+
+
+def _last_touch(repo, base, path):
+    # --full-history sees a touch-and-revert hidden behind a merge even when
+    # the merge's net blob equals its first parent. Overlap is about paths main
+    # gained, not only main's final bytes.
+    value = _git(
+        repo, "rev-list", "--full-history", "-1", base, "--", path, text=True
+    ).strip()
+    return value or "NEVER"
+
+
+def build_evidence(repo, base, head):
+    repo = Path(repo).resolve()
+    base = _commit(repo, base, "base")
+    head = _commit(repo, head, "head")
+    require_known(base=base, head=head)
+    if _git(repo, "merge-base", base, head, text=True).strip() != base:
+        raise TransferRefused("base is not a provable ancestor of head")
+    checkout_head = _commit(repo, "HEAD", "checkout head")
+    tracked = _git(repo, "status", "--porcelain=v1", "--untracked-files=no", text=True)
+    if checkout_head != head or tracked:
+        raise TransferRefused("UNKNOWN: checkout is not the clean exact head")
+
+    changed = _paths_between(repo, base, head)
+    if not changed:
+        raise TransferRefused("candidate changed-path denominator is ZERO")
+    if not set(TRIO) <= changed:
+        raise TransferRefused("release trio is not wholly present in the candidate delta")
+    trio = _trio_evidence(repo, base, head)
+    derived_paths = set(_derived_outputs(repo, head))
+    declared = _declared_evidence(repo, base, head)
+    authored_paths = changed - set(TRIO) - derived_paths - {DECLARED}
+    authored_blobs = {path: _blob_oid(repo, head, path) for path in sorted(authored_paths)}
+    base_touches = {path: _last_touch(repo, base, path) for path in sorted(authored_paths)}
+    digest_payload = {
+        "schema": 1,
+        "trio": {key: value for key, value in trio.items() if key != "entry_bytes"},
+        "authored_blobs": authored_blobs,
+        "authored_base_last_touch": base_touches,
+    }
+    encoded = json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("ascii")
+    return {
+        "schema": 1,
+        "base": base,
+        "head": head,
+        "digest": hashlib.sha256(encoded).hexdigest(),
+        "trio": digest_payload["trio"],
+        "trio_entry_bytes": trio["entry_bytes"],
+        "derived_paths": sorted(changed & derived_paths),
+        "derived_denominator": len(derived_paths),
+        "declared": declared,
+        "authored_blobs": authored_blobs,
+        "authored_base_last_touch": base_touches,
+    }
+
+
+def evidence_at_commit(repo, base, head):
+    """Build evidence in a clean exact-head checkout, creating one if needed."""
+    repo = Path(repo).resolve()
+    resolved_head = _commit(repo, head, "head")
+    current = _commit(repo, "HEAD", "checkout head")
+    tracked = _git(repo, "status", "--porcelain=v1", "--untracked-files=no", text=True)
+    if current == resolved_head and not tracked:
+        return build_evidence(repo, base, resolved_head)
+
+    with tempfile.TemporaryDirectory(prefix="bd-band-transfer-") as directory:
+        checkout = Path(directory, "exact-head")
+        _git(repo, "worktree", "add", "--quiet", "--detach", str(checkout), resolved_head)
+        try:
+            evidence = build_evidence(checkout, base, resolved_head)
+        finally:
+            removed = subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", "--force", "--", str(checkout)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if removed.returncode != 0:
+                raise TransferRefused("temporary exact-head worktree cleanup is UNKNOWN")
+        return evidence
+
+
+def compare_evidence(old, new):
+    compare_changelog_entries(old["trio_entry_bytes"], new["trio_entry_bytes"])
+    if old["trio"] != new["trio"]:
+        raise TransferRefused("release trio differs beyond permitted version substitution")
+    old_blobs = old["authored_blobs"]
+    new_blobs = new["authored_blobs"]
+    gained = {
+        path for path in set(old["authored_base_last_touch"]) | set(new["authored_base_last_touch"])
+        if old["authored_base_last_touch"].get(path) != new["authored_base_last_touch"].get(path)
+    }
+    compare_authored(old_blobs, new_blobs, gained)
+    if old["digest"] != new["digest"]:
+        raise TransferRefused("content digests differ after disposition proofs")
+
+
+def _safe_json(evidence):
+    return {key: value for key, value in evidence.items() if key != "trio_entry_bytes"}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="bd-band-transfer-key")
+    sub = parser.add_subparsers(dest="command", required=True)
+    key = sub.add_parser("key")
+    key.add_argument("--repo", required=True)
+    key.add_argument("--base", required=True)
+    key.add_argument("--head", required=True)
+    key.add_argument("--json", action="store_true")
+    compare = sub.add_parser("compare")
+    compare.add_argument("--repo", required=True)
+    compare.add_argument("--old-base", required=True)
+    compare.add_argument("--old-head", required=True)
+    compare.add_argument("--new-base", required=True)
+    compare.add_argument("--new-head", required=True)
+    compare.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "key":
+            evidence = evidence_at_commit(args.repo, args.base, args.head)
+            print(json.dumps(_safe_json(evidence), sort_keys=True) if args.json else evidence["digest"])
+        else:
+            old = evidence_at_commit(args.repo, args.old_base, args.old_head)
+            new = evidence_at_commit(args.repo, args.new_base, args.new_head)
+            compare_evidence(old, new)
+            payload = {"schema": 1, "digest": old["digest"], "transfer": "PASS"}
+            print(json.dumps(payload, sort_keys=True) if args.json else "TRANSFER PASS " + old["digest"])
+        return 0
+    except (OSError, SyntaxError, TransferRefused) as exc:
+        print("TRANSFER REFUSED: %s" % exc, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

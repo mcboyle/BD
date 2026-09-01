@@ -248,6 +248,9 @@ _DECLARED = {
     # same-valued duplicate version pin from becoming another bump site. This
     # gate AST-scans the live test population, so it must run on every PR.
     "tests/test_row387_ast_version_pin_guard.py",
+    # Cut 1435. A transferred band is a release-wide safety claim, and each
+    # disposition plus UNKNOWN fallback must remain reachable on every PR.
+    "tests/test_row1435_band_verdict_transfer.py",
     "tests/test_route_index_in_sync.py",
     "tests/test_import_graph_no_new_edges.py",
     "tests/test_source_windows_do_not_shift.py",

@@ -9,7 +9,6 @@ from pathlib import Path
 import subprocess
 import sys
 import re
-import shlex
 
 
 BD_GATE_SCOPE = "repo-wide"
@@ -214,9 +213,17 @@ def test_query_regex_shape_or_case_semantics_cannot_be_partially_extracted(monke
 
 
 def _ci_generated_members(workflow: str) -> list[str]:
-    match = re.search(r"(?ms)^\s*generated=\(\s*(.*?)\s*^\s*\)", workflow)
-    assert match, "CI generated=(...) tracked-output denominator is missing"
-    return shlex.split(match.group(1), comments=True)
+    command = "generated_raw=$(python toolchain/bin/bd-regen-order --tracked-outputs)"
+    assert workflow.count(command) == 1, (
+        "CI must derive generated artifacts from the regeneration authority exactly once"
+    )
+    result = subprocess.run(
+        [sys.executable, str(REPO / "toolchain/bin/bd-regen-order"), "--tracked-outputs"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    )
+    members = result.stdout.splitlines()
+    assert members and len(members) == len(set(members))
+    return members
 
 
 def test_ci_tracks_the_generated_output_inside_the_real_array_exactly_once():
@@ -224,5 +231,5 @@ def test_ci_tracks_the_generated_output_inside_the_real_array_exactly_once():
     target = "frontend/src/lib/secretKeys.generated.ts"
     assert _ci_generated_members(workflow).count(target) == 1
 
-    comment_only = workflow.replace(target, "# " + target)
-    assert target not in _ci_generated_members(comment_only)
+    regen = _load("regen_outputs_1179", REPO / "toolchain/bin/bd-regen-order")
+    assert target in regen.tracked_outputs()
