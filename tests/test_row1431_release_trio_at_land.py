@@ -108,6 +108,7 @@ def test_precut_release_trio_refuses_each_named_contract_failure(
 
     assert problem is not None
     assert diagnostic in problem
+    print("TRIO_REFUSAL " + problem)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -224,6 +225,7 @@ def test_transfer_refuses_when_a_candidate_path_blob_changes(tmp_path):
 
     assert result.returncode == 2
     assert "candidate blob changed across rebase: candidate.txt" in result.stderr
+    print("TRANSFER_REFUSAL " + result.stderr.strip())
 
 
 def test_transfer_refuses_when_main_gained_commit_touches_candidate_path(tmp_path):
@@ -238,6 +240,7 @@ def test_transfer_refuses_when_main_gained_commit_touches_candidate_path(tmp_pat
 
     assert result.returncode == 2
     assert "main gained commit(s) overlap candidate path(s): candidate.txt" in result.stderr
+    print("TRANSFER_REFUSAL " + result.stderr.strip())
 
 
 def test_transfer_accepts_identical_candidate_blobs_and_disjoint_main_paths(tmp_path):
