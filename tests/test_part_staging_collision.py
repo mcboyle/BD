@@ -904,3 +904,57 @@ def test_an_empty_ownerless_part_is_not_set_aside(tmp_path):
     setaside = [p for p in tmp_path.iterdir()
                 if p.name.endswith(".part") and p != staging]
     assert setaside == [], f"an empty .part was set aside: {setaside}"
+
+
+def test_browser_fallback_writes_the_path_the_transport_reserved(tmp_path):
+    """A browser fallback may not replace a reserved name with a fresh probe.
+
+    ``_do_download`` reserves ``final_path`` and later records that same path
+    in its done row.  The browser fallback used to call ``safe_dest`` again;
+    an arrival between those two operations therefore made Playwright write
+    ``Scene_1.mp4`` while the job and history still named ``Scene.mp4``.
+    """
+    from bulk_downloader import staging_claim as sc
+    from bulk_downloader.runner_browser import BrowserMixin
+
+    class _Download:
+        def __init__(self):
+            self.calls = []
+
+        def save_as(self, path):
+            self.calls.append(Path(path))
+            Path(path).write_bytes(b"browser-bytes")
+
+    identity = sc.job_identity("https://example.test/browser-race")
+    final, staging = sc.reserve(tmp_path / "Scene.mp4", identity)
+    dl = _Download()
+    try:
+        # Preconditions: the transport made an exclusive reservation, then a
+        # competing writer arrived exactly once before the browser save.
+        owner = sc.owner_path_for(staging)
+        assert owner.exists(), "precondition: the transport did not reserve a staging path"
+        final.write_bytes(b"competing-final")
+        assert final.read_bytes() == b"competing-final"
+        assert len(dl.calls) == 0, "precondition: browser save fired before the injection"
+
+        size, transferred = BrowserMixin._pw_save(object(), dl, final)
+
+        assert dl.calls == [final], (
+            "browser fallback probed a new destination after transport reserved "
+            f"{final}; it wrote {dl.calls!r}, while the caller records {final}")
+        assert size == transferred == len(b"browser-bytes")
+        assert final.read_bytes() == b"browser-bytes"
+
+        # Negative control: with no intervening file, the same production path
+        # still writes precisely the uncontended reservation.
+        uncontended, uncontended_stage = sc.reserve(
+            tmp_path / "Uncontended.mp4", sc.job_identity("https://example.test/browser-ok"))
+        clean = _Download()
+        try:
+            clean_size, clean_transferred = BrowserMixin._pw_save(object(), clean, uncontended)
+            assert clean.calls == [uncontended]
+            assert clean_size == clean_transferred == len(b"browser-bytes")
+        finally:
+            sc.release(uncontended_stage, sc.job_identity("https://example.test/browser-ok"), force=True)
+    finally:
+        sc.release(staging, identity, force=True)

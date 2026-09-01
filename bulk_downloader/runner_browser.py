@@ -6,8 +6,6 @@ free-name scan of the moved bodies. Cycle rule: nothing from .runner.
 """
 import sys, time
 
-from .detect import safe_dest
-
 # vpn_runtime soft import (moved verbatim from runner.py; flat sibling).
 try:
     from . import vpn_runtime
@@ -26,7 +24,11 @@ class BrowserMixin:
         path, which can rename a resumed or already-complete file into place
         without moving a byte.
         """
-        dest=safe_dest(final_path)
+        # ``_do_download`` already atomically reserved ``final_path`` and
+        # records that exact path on success.  A second ``safe_dest`` probe here
+        # could pick a suffix after the reservation, leaving the browser bytes
+        # at one path and the done/history row at another.
+        dest=final_path
         dl.save_as(str(dest))
         size = dest.stat().st_size if dest.exists() else 0
         return size, size
