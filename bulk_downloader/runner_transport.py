@@ -15,7 +15,7 @@ MRO dispatch and is impossible in the staticmethod contexts anyway).
 The 4 adapter soft-import blocks are DUPLICATED here (the core dispatch in
 runner.py still references the same flags); flat-sibling imports are idempotent.
 """
-import contextlib, json, math, os, shutil, sqlite3, sys, threading, time
+import contextlib, json, math, os, re, shutil, sqlite3, sys, threading, time
 from datetime import datetime
 from pathlib import Path
 
@@ -100,6 +100,35 @@ def _closeable_response_context(response):
     streaming loop without changing the httpx branch.
     """
     return contextlib.closing(response)
+
+
+# RFC 9110 14.4: a 416 answer carries the UNSATISFIED-RANGE form of
+# Content-Range -- ``bytes */N`` -- where N is the resource's complete length.
+# Nothing else on a 416 tells us how long the resource is, so nothing else is
+# accepted here: the satisfied-range form (``bytes 0-5/10``), an unknown length
+# (``bytes */*``), a missing header, or anything unparseable all return None,
+# and None means UNKNOWN at the call site, never "assume it fits".
+_CONTENT_RANGE_UNSATISFIED_RE = re.compile(
+    r"^\s*bytes\s*\*\s*/\s*(\d+)\s*$", re.IGNORECASE)
+
+
+def _content_range_complete_length(value):
+    """Complete length N from a 416's ``Content-Range: bytes */N``, else None.
+
+    Returns an int only when the header is present AND is the unsatisfied-range
+    form AND the length is a non-negative integer. Every other input is
+    unmeasurable, which is a refusal, not a default.
+    """
+    if not value:
+        return None
+    m = _CONTENT_RANGE_UNSATISFIED_RE.match(str(value))
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+    except ValueError:
+        return None
+    return n if n >= 0 else None
 
 
 _DAILY_ACCUMULATOR_REGISTRY_BOOTSTRAP_LOCK = threading.Lock()
@@ -1840,11 +1869,23 @@ class TransportMixin:
         # back to the user's static chunk_size_mb when auto_chunk_size is
         # off or there are no observations yet.
         chunk = self._recommended_chunk_bytes()
-        # Phase 17.19: start timer + initial-bytes counter so we can
-        # measure throughput at the end. Resumed bytes don't count
-        # toward the throughput sample (we never streamed them this call).
+        # Phase 17.19: start the timer so we can measure throughput at the
+        # end. Resumed bytes don't count toward the throughput sample (we
+        # never streamed them this call), and since row 430 nothing needs a
+        # count of them: the companion initial-bytes variable is gone with
+        # the size-delta it existed to feed. Leaving a variable named for the
+        # bytes already on disk next to a throughput comment is how the
+        # size-delta gets written a second time.
         _dl_t0 = time.time()
-        _dl_initial_bytes = 0  # set after we know resume_from
+        # Row 430: the only honest transfer count is the one the stream
+        # produced. `downloaded` is a FILE POSITION (it starts at resume_from
+        # on a 206), and the size on disk at the end is a position too, so
+        # neither can answer "how many bytes crossed the wire on this call".
+        # `streamed` is incremented once per received buffer and by nothing
+        # else, so a 200 answer to a resume -- which restarts at byte 0 and
+        # re-streams the whole resource -- reports what it moved instead of a
+        # delta against an abandoned .part that can be larger than the file.
+        streamed = 0
         # Phase 6.1: speed cap. 0 (or unset) = unlimited.
         cap_mbps=self._current_cap_mbps()
         cap_bps=cap_mbps*1024*1024 if cap_mbps>0 else 0
@@ -1873,7 +1914,6 @@ class TransportMixin:
             # do the right thing instead of trusting bytes silently.
             if resume_validator:
                 headers["If-Range"] = resume_validator
-        _dl_initial_bytes = resume_from  # what was already on disk before this call
         # v3.43.31: acquire a per-domain rate-limit slot before opening
         # the HTTP stream. When the limiter is at default (no caps),
         # this is a fast no-op; otherwise it may block until a slot
@@ -1937,15 +1977,78 @@ class TransportMixin:
                                         follow_redirects=True, **client_kwargs)
             with resp_ctx as resp:
                 if resp.status_code==416:
-                    # Range not satisfiable — file is already complete on disk
+                    # Range not satisfiable. Row 428: this proves only that
+                    # resume_from is not inside the CURRENT resource -- it is
+                    # NOT evidence that the .part holds that resource's complete
+                    # bytes. A .part left over from an OLD, larger resource
+                    # whose URL now serves something smaller lands here too, and
+                    # promoting it publishes a truncated stale file as `done`
+                    # with bytes_fetched=0. So promote only on PROOF:
+                    #   * the 416's Content-Range complete-length is readable,
+                    #     and equals the .part's length exactly; and
+                    #   * if we stashed a validator when the .part was written
+                    #     AND this response carries one, they still match.
+                    # The validator arm is conditional on both sides having one
+                    # because many CDNs omit ETag on a 416; demanding one there
+                    # would re-download every already-complete file. Anything
+                    # unprovable is UNKNOWN, and UNKNOWN discards the .part and
+                    # refuses (CLAUDE.md A7) -- keeping it would re-run this
+                    # same 416 on every retry forever, so the refusal restarts
+                    # the next attempt from byte 0 instead of wedging.
                     if resume_from>0:
-                        # Zero bytes transferred: the server says the range is
-                        # unsatisfiable because the file was ALREADY complete.
-                        # The rename produces a full-size file from a fetch that
-                        # moved nothing, which is why the size alone cannot be
-                        # read as evidence of a download.
+                        complete_len = _content_range_complete_length(
+                            resp.headers.get("Content-Range"))
+                        part_len_err = None
+                        try:
+                            part_len = tmp_path.stat().st_size
+                        except OSError as e:
+                            part_len = None
+                            part_len_err = e
+                        resp_validator = (resp.headers.get("ETag")
+                                          or resp.headers.get("Last-Modified"))
+                        if complete_len is None:
+                            reason = ("no parseable Content-Range "
+                                      "complete-length in the response, so the "
+                                      "resource's length is unknown")
+                        elif part_len is None:
+                            reason = (f"the .part length is unreadable "
+                                      f"({part_len_err})")
+                        elif part_len != complete_len:
+                            reason = (f"the .part is {part_len} bytes but the "
+                                      f"complete-length is {complete_len} "
+                                      f"bytes, so it is a partial of some other "
+                                      f"resource")
+                        elif (resume_validator and resp_validator
+                              and resume_validator != resp_validator):
+                            reason = (f"the validator changed since the .part "
+                                      f"was written ({resume_validator} -> "
+                                      f"{resp_validator})")
+                        else:
+                            reason = None
+                        if reason is not None:
+                            for _p in (tmp_path, meta_path):
+                                try: Path(_p).unlink(missing_ok=True)
+                                except Exception: pass
+                            # part-staging-collision: the .part is gone, so its
+                            # claim goes with it. owner_path names the ON-DISK
+                            # staging file even when the bytes were staged in
+                            # RAM, which release(tmp_path) would miss.
+                            try: owner_path.unlink(missing_ok=True)
+                            except Exception: pass
+                            self.log_event(
+                                "resume",
+                                f"HTTP 416 could not be proven complete "
+                                f"({reason}); discarded the .part",
+                                url=page_url)
+                            raise _HTTPDownloadFailed(
+                                f"HTTP 416: {reason}; discarded the "
+                                f"unverifiable .part instead of promoting it")
+                        # Proven complete. Zero bytes transferred: the size on
+                        # disk is not, and never was, evidence of a download.
                         tmp_path.rename(final_path)
                         staging_claim.release(tmp_path, staging_claim.job_identity(page_url))
+                        try: meta_path.unlink(missing_ok=True)
+                        except Exception: pass
                         return final_path.stat().st_size, 0
                     raise _HTTPDownloadFailed("HTTP 416 with no resume position")
                 if resp.status_code==206:  # partial content — resume worked
@@ -2045,6 +2148,7 @@ class TransportMixin:
                                 pass
                         f.write(buf)
                         downloaded+=len(buf)
+                        streamed+=len(buf)
                         window_bytes+=len(buf)
                         if _daily_bytes is not None:
                             _daily_bytes.add(len(buf))
@@ -2186,19 +2290,26 @@ class TransportMixin:
         except Exception: pass
         # Phase 17.19: feed this download's measured throughput into the
         # EWMA so the next download picks a better chunk size. Only count
-        # bytes ACTUALLY transferred this call (not resumed bytes).
-        transferred = 0
+        # bytes ACTUALLY transferred this call (not resumed bytes) -- which is
+        # `streamed`, straight off the loop that received them.
+        #
+        # Row 430: this used to be `final_path.stat().st_size -
+        # _dl_initial_bytes`, an on-disk size delta. A 200 answer to a resume
+        # streams the whole new resource while the delta still subtracts the
+        # abandoned .part, so a smaller new file went negative and max(0, ...)
+        # reported 0 -- history's documented value for "nothing was
+        # transferred" -- for a real transfer, and a larger one was
+        # undercounted by resume_from. It also meant an unreadable stat left
+        # the count at its initialised 0 and reported that as fact; the count
+        # no longer depends on any stat, so an unmeasurable file now refuses
+        # (the stat below raises) instead of claiming zero. The EWMA is
+        # trained on the same corrected number.
+        transferred = streamed
         try:
-            final_size = final_path.stat().st_size
-            transferred = final_size - _dl_initial_bytes
-            elapsed = time.time() - _dl_t0
-            self._observe_throughput(transferred, elapsed)
+            self._observe_throughput(transferred, time.time() - _dl_t0)
         except Exception:
             pass
-        # Returns (size_on_disk, bytes_transferred_this_call). `transferred`
-        # was already computed here for the throughput EWMA and then thrown
-        # away, while the caller got the stat -- which is why a resumed or
-        # skipped job was indistinguishable from a real fetch in history.
+        # Returns (size_on_disk, bytes_transferred_this_call).
         # It travels by RETURN, not on self: runner.py:1120 starts one worker
         # thread per slot against a shared runner instance, so an attribute
         # would cross-attribute concurrent downloads.
@@ -2404,6 +2515,9 @@ class TransportMixin:
         # absolute count. resume_offset[idx] is the chunk's done_bytes
         # at the start of this run (0 for non-resumed chunks).
         progress = [0] * n_chunks
+        # Row 431: progress[idx] is what the monitor persists into the resume
+        # checkpoint, so it may only ever count bytes the OS already has. The
+        # write loop below therefore flushes BEFORE it counts -- see there.
         resume_offset = [int(c.get("done_bytes", 0))
                           for c in (resume_chunk_states or
                                      [{"done_bytes": 0}] * n_chunks)]
@@ -2475,6 +2589,24 @@ class TransportMixin:
                                 worker_errors[idx] = "stopped"
                                 return
                             f.write(buf)
+                            # Row 431: hand the bytes to the OS BEFORE counting
+                            # them. The monitor persists progress[] into the
+                            # resume checkpoint, and a checkpoint is a promise
+                            # that must survive SIGKILL -- which loses exactly
+                            # the BufferedWriter's userspace residue and
+                            # nothing else. curl_cffi can yield buffers far
+                            # smaller than the requested chunk, so counting
+                            # first left the checkpoint claiming bytes the OS
+                            # had never seen; on resume the workers skipped
+                            # that region and the promoted file carried
+                            # zero-filled holes. Flushing first makes the
+                            # count true at every instant a reader can observe
+                            # it, including the mid-write window. flush(), not
+                            # fsync(): the failure defended against is process
+                            # death, and the page cache outlives the process.
+                            # A write larger than the buffer goes straight
+                            # through and this flush is a no-op.
+                            f.flush()
                             progress[idx] += len(buf)
                             _daily_bytes.add(len(buf))
                             record_bandwidth(len(buf))
