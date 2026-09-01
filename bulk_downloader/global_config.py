@@ -135,23 +135,113 @@ def get_config() -> dict:
         return dict(data)
 
 
+# Row 435: the distinctive marker of a refused-because-unreadable write. A
+# caller or gate keys on THIS, never on the generic "write failed" line below,
+# so a refusal to protect the store cannot be confused with a failed write.
+_REFUSE_UNREADABLE = "REFUSING to overwrite an unreadable app_config"
+
+
+class _UnreadableStore(Exception):
+    """Raised inside the transaction when the existing store cannot be read.
+
+    Carries the STEP that failed, so the refusal names which boundary it hit
+    (CLAUDE.md A7: a diagnostic that collapses distinct failures costs the
+    investigation). It never carries file CONTENT: this file may hold tokens
+    and credentials (see the chmod comment in ``set_config``), and the sibling
+    reader in ``download_hold`` reports ``type(e).__name__`` for the same
+    reason.
+    """
+
+    def __init__(self, step: str, exc: BaseException | None = None):
+        self.step = step
+        self.exc_name = type(exc).__name__ if exc is not None else "None"
+        super().__init__(f"{step}: {self.exc_name}")
+
+
+def _read_current_or_refuse() -> dict:
+    """The existing store as a dict, or raise :class:`_UnreadableStore`.
+
+    ABSENT IS EMPTY, ON PURPOSE. A fresh install has no ``app_config.json``
+    and has nothing to lose; refusing there would break every first boot and
+    every test tmpdir. Everything else -- a store that exists but cannot be
+    stat'd, opened, decoded, parsed, or that parses to something other than a
+    JSON object -- is an UNAVAILABLE MEASUREMENT, and merging into ``{}`` over
+    one erases every key it holds.
+    """
+    try:
+        exists = _CONFIG_FILE.exists()
+    except OSError as e:          # e.g. EACCES on a parent directory
+        raise _UnreadableStore("stat", e) from e
+    if not exists:
+        return {}
+    try:
+        raw = _CONFIG_FILE.read_text(encoding="utf-8")
+    except OSError as e:
+        raise _UnreadableStore("read", e) from e
+    except UnicodeDecodeError as e:
+        raise _UnreadableStore("decode", e) from e
+    try:
+        current = json.loads(raw)
+    except Exception as e:
+        raise _UnreadableStore("parse", e) from e
+    if not isinstance(current, dict):
+        raise _UnreadableStore("not-a-json-object", TypeError(
+            type(current).__name__))
+    return current
+
+
 def set_config(updates: dict) -> bool:
     """Merge `updates` into the global config and persist. Returns
-    True on success."""
+    True on success.
+
+    ROW 435. This writer used to swallow every read/parse failure as
+    ``current = {}``, merge into that empty dict, and atomically replace the
+    file -- so a single write over a store it could not read persisted a file
+    containing ONLY the updates, with no backup. ``download_hold.hold()`` and
+    ``lift()`` route through here, which meant the operator's natural
+    remediation for a store ``hold_state()`` had just refused as UNKNOWN was
+    also the thing that erased every other setting in it, credentials included.
+    The writer reproduced the fail-open shape its own reader exists to refuse.
+
+    It now REFUSES: nothing is written, no temporary file is created, the file
+    is left byte-identical under its own name, the read cache is untouched, and
+    False is returned -- which ``api_download_hold``'s POST and lift routes
+    already surface as a 500 naming the unpersisted write alongside the
+    UNKNOWN state, so a lift can no longer launder an unreadable store into a
+    durable CLEAR.
+
+    WHY REFUSE RATHER THAN MOVE THE FILE ASIDE. The ``.corrupt-*`` rename that
+    ``secrets_store`` and ``extension_vault`` once used was retired as itself
+    defective: ``Path.replace`` needs DIRECTORY permission, not file
+    permission, so a chmod-000 file or a transient EIO renamed the operator's
+    LIVE store away exactly as readily as a torn write did (see the AF4
+    paragraph in ``extension_vault._load_tokens``). Preserving the file in
+    place is the house pattern and is strictly stronger.
+
+    NOT A CLAIM ABOUT POWER LOSS. The write below is a tempfile plus a rename,
+    which makes a completed ``set_config`` survive PROCESS death. Neither the
+    tempfile nor the containing directory is fsync'd, so machine death can
+    still lose the most recent write or leave the rename unrecorded; this
+    function does not claim otherwise.
+    """
     global _cached, _cached_mtime
     if not isinstance(updates, dict):
         return False
     try:
         with app_config_transaction(_CONFIG_FILE):
-            # Read fresh (someone else may have written since our cache)
-            current: dict = {}
-            if _CONFIG_FILE.exists():
-                try:
-                    current = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
-                    if not isinstance(current, dict):
-                        current = {}
-                except Exception:
-                    current = {}
+            # Read fresh (someone else may have written since our cache).
+            # Unreadable is UNKNOWN, and UNKNOWN refuses -- it is never {}.
+            try:
+                current: dict = _read_current_or_refuse()
+            except _UnreadableStore as e:
+                sys.stderr.write(
+                    f"[global_config] {_REFUSE_UNREADABLE} at "
+                    f"{_CONFIG_FILE}: the existing store could not be read "
+                    f"({e.step}: {e.exc_name}). NOTHING was written and the "
+                    f"file is untouched, so no setting or credential was "
+                    f"erased. Repair or restore the file; it is re-read on "
+                    f"every write, so no restart is needed.\n")
+                return False
             current.update(updates)
             # Atomic-ish write: temp file + rename
             tmp = _CONFIG_FILE.with_suffix(".tmp")
