@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1402 - the register records what shipped
+
+Register-only. Nineteen rows fixed and shipped tonight in v3.66.1394 through
+v3.66.1400 were still reading OPEN, and two pieces of genuinely deferred work
+had no machine-visible row at all.
+
+- CLOSED: 536 @1394; 535 @1395; 546 556 578 579 @1396; 544 545 559 562 @1397;
+  548 549 550 576 577 @1398; 566 569 570 571 @1400. OPEN goes 163 -> 144.
+- NOT CLOSED, and this is the point of re-deriving rather than assuming: 534 and
+  541 were RE-DERIVED BY PROBE as already closed by v3.66.1391, which landed
+  after the refutation's base -- so they were reported rather than changed, and
+  they stay OPEN pending an amendment that points at 651f2999 instead of being
+  closed against a version that did not fix them. 575 stays OPEN because only
+  its reclaim limb closed with row 535; its content-identity limb is not
+  closable at the claim seam, since media URLs rotate by design and the route
+  requires the absence of a validator.
+- FILED 607: zero bytes plus current identity is not ownership. Row 544 (shipped
+  v3.66.1397) and row 547 (built, parked) rule in opposite directions on whether
+  a zero-byte done row proves ownership, and row 547's chosen discriminator does
+  not separate the two cases -- db.py:1459 makes the skip arm's own zero-byte row
+  the current owner too. Landing row 547 as built would reintroduce the defect
+  row 544 closed. Blocks 547, 560, 561, 563.
+- FILED 608: bd-night has no singleton lock. Tonight's watchdog probe widening
+  removed the duplicate-spawn trigger, not the vulnerability.
+- NOT FILED, because already represented: the mutation-battery deferrals from
+  rows 536 and 544/545 and from v3.66.1401's settle lock all fall under the
+  standing row 466, and a second row for the same shape would be the duplicate
+  the contract forbids.
+
 ## v3.66.1401 - a claim settles under a lock before it destroys anything
 
 A REGRESSION IN v3.66.1395, SHIPPED AND DEPLOYED EARLIER THE SAME NIGHT, found
