@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1407 - the mutator reads the same first line Python does
+
+Row 572's shape, one level down, in the tool that APPLIES every mutant rather
+than in a gate that judges anchors. Found by the agent that shipped v3.66.1406
+and handed over rather than folded in (A3, one contract per cut).
+
+- `toolchain/bin/bd-mutate` decided a subject's shebang at lines 1055 and 1061
+  with `str.splitlines()[0]`, which breaks on more boundaries than Python's own
+  source reader: \v \f \x1c \x1d \x1e \x85 and the Unicode line separators, as
+  well as \n and \r. Both predicates now call one `_first_line()` returning
+  `text.split("\n", 1)[0]`.
+- THE FAILURE IS ONE-DIRECTIONAL AND IT IS THE EXPENSIVE DIRECTION.
+  `splitlines()[0]` is always a PREFIX of the true first line, so a subject whose
+  loader token is hidden matches NEITHER branch, falls through to the closing
+  `return True, ""`, and AN INVALID MUTANT IS RECORDED VALID -- then graded
+  CAUGHT on a regression it never caused. A battery reporting CAUGHT over a
+  mutant that never landed proves nothing.
+- LATENT, NOT LIVE, and measured as such: 22 extensionless mutant subjects carry
+  459 of the 1168 tracked mutant entries and are decided by this predicate, and
+  ZERO of them -- and zero of 3,786 tracked files tree-wide -- have a first line
+  the two readers disagree on today. The row is a fail-open waiting for a
+  subject, not a current miscount.
+- Three other `splitlines` call sites parse process OUTPUT rather than a shebang;
+  they were inspected and deliberately left alone.
+- The gate that detects the defect walks the AST for a `.splitlines()[0]`
+  subscript rather than grepping source text -- its first draft grepped, and
+  matched the docstring of the very helper that fixes the defect.
+
 ## v3.66.1406 - no scanner silently drops members of the population it claims to cover
 
 Rows 565, 567, 568 and 572 of the 2026-09-01 audit, over the gate that judges
