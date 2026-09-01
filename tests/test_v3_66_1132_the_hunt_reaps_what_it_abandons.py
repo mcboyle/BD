@@ -5561,8 +5561,8 @@ def test_cancellation_after_relay_before_gate_settles_the_acquired_owner(
         relay_pid, relay_ppid, relay_pgid, relay_sid, relay_start = relay_receipt
         assert relay_ppid == proc.pid and relay_pid == relay_pgid
         assert _w1_pid_is_live(relay_pid)
-        os.kill(proc.pid, signal.SIGINT)
         with open(release, "w", encoding="ascii") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert proc.wait(timeout=_w1_budget_s("cancellation_after_relay_before_gate_settles_the_acquired_owner/wait")) == int(W1_RETAINED_FAILURE_CODE)
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
