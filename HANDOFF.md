@@ -280,6 +280,18 @@ by blob equality per changed path against the pre-merge base.
   THE REPOSITORY is on GitHub (mcboyle/BD). Code, the register, every doc and
   the CHANGELOG survive the loss of any host.
 
+  THE KNOWLEDGE IS NOW ON GITHUB TOO, on the ORPHAN branch `bd-knowledge` --
+  239 files, every document plus the harness and its 98 tests. It shares no
+  history with main, is never merged, and CI does not run on it. Verified by
+  cloning it on a DIFFERENT host and comparing byte-for-byte: 248 files, 0
+  missing, 0 differing (the only gap was 8 .pytest_cache files git ignores).
+
+      git clone -b bd-knowledge https://github.com/mcboyle/BD.git /tmp/kb
+
+  A THIRD COPY is in Google Drive, folder "BulkDownloader-knowledge-2026-09-01":
+  the kickoff prompt, this handoff and an emergency-recovery README, readable
+  without unpacking anything.
+
   BD-PERSIST LIVES ON test5 AND NOWHERE ELSE. Checked 2026-09-01 against all
   eleven other hosts: none had a copy. It is 2.5G, but the KNOWLEDGE in it is
   896K compressed -- harness/ (1.8M), continuity/ (120K) and the top-level
@@ -290,7 +302,7 @@ by blob equality per changed path against the pre-merge base.
   hosts as ~/bd-knowledge-20260901.tar.gz:
 
       bd2  10.0.70.52     bd3  10.0.70.53     bd4  10.0.70.54
-      sha256 9d304ba1119cd391... , identical on all three
+      sha256 47dc708d624f3e77... , identical on all three (refreshed 03:40Z)
 
   It was secret-scanned with the pinned Gitleaks 8.24.3 before it left this
   host: no leaks in either the harness or the documents. REFRESH IT after any
