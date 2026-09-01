@@ -421,6 +421,60 @@ def test_delete_refuses_when_operator_lock_is_unmeasurable(
         "a refused unmeasurable delete left a transaction marker behind")
 
 
+def test_delete_retries_after_its_own_marker_publication_is_interrupted(
+        tmp_path, monkeypatch):
+    """A crash while publishing our marker must not poison every retry."""
+    part = sc.staging_path_for(tmp_path / "InterruptedMarkerPublish.mp4")
+    part.write_bytes(b"retry-after-marker-publication-crash")
+    meta_path = _write_production_meta(part)
+    owner = sc.owner_path_for(part)
+    marker = cr._delete_marker_for(part)
+    write_attempts = []
+    decisions = []
+    real_write = cr.os.write
+
+    def interrupt_marker_write(fd, payload):
+        write_attempts.append((fd, bytes(payload)))
+        raise OSError("simulated crash while publishing delete marker")
+
+    monkeypatch.setattr(cr.os, "write", interrupt_marker_write)
+    monkeypatch.setattr(
+        cr, "mark_decision",
+        lambda *args, **kwargs: decisions.append((args, kwargs)) or True)
+
+    assert part.read_bytes() == b"retry-after-marker-publication-crash"
+    assert meta_path.is_file()
+    assert not owner.exists()
+    assert not marker.exists()
+
+    interrupted = cr.delete_orphan(str(part))
+
+    assert interrupted["ok"] is False
+    assert "simulated crash" in interrupted["error"]
+    assert len(write_attempts) == 1, (
+        "the marker-publication crash injector did not fire exactly once")
+    assert part.read_bytes() == b"retry-after-marker-publication-crash"
+    assert meta_path.is_file()
+    assert not owner.exists()
+    if marker.exists():
+        assert marker.read_bytes() == b"", (
+            "the interrupted fixture did not leave the expected incomplete marker")
+    assert decisions == []
+
+    monkeypatch.setattr(cr.os, "write", real_write)
+    retried = cr.delete_orphan(str(part))
+
+    assert retried["ok"] is True, (
+        "a self-created interrupted marker publication made deletion "
+        f"permanently unretryable: {retried}")
+    assert not part.exists()
+    assert not meta_path.exists()
+    assert not owner.exists()
+    assert not marker.exists()
+    assert len(decisions) == 1, (
+        "the recovered delete did not record exactly one completed decision")
+
+
 def test_delete_refuses_a_malformed_preexisting_transaction_marker(
         tmp_path, monkeypatch):
     """An existing marker that cannot name its transaction is UNKNOWN."""
