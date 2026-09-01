@@ -336,8 +336,9 @@ def send_webhook(url, payload, timeout=15, headers=None):
 
     Phase 80 (v3.40.0): also return the response body so callers can
     implement bidirectional webhooks (the server can answer 'skip',
-    'rewrite URL', 'change priority', etc.). Backwards compatible: old
-    callers can ignore the third element."""
+    'rewrite URL', 'change priority', etc.). EVERY return path is a
+    three-tuple, so every caller must unpack three: tuple unpacking does
+    not ignore a trailing element, it raises ValueError."""
     if not url: return True, "(no webhook configured)", None
     ok, msg = _validate_webhook_url(url)
     if not ok: return False, f"rejected: {msg}", None
