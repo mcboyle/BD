@@ -1,0 +1,126 @@
+#!/bin/bash
+# THE 26-SECOND ANSWER TO "will an expensive gate reject this tree anyway".
+#
+# Ruled 2026-08-31 (ruling 41). Both of that day's expensive re-runs were the
+# same shape: a file the cut ADDED broke a pinned denominator somewhere else --
+# the CI gate-shard declared set, then the markdown-doc total. Each cost a full
+# 14-minute verify plus a re-freeze. Every gate that can see that shape runs in
+# well under ten seconds; together, sharing one interpreter start, they are 26.
+#
+# So this runs FIRST, alone, before regeneration, the secret scan and the band.
+# A RED here aborts the verify. That is a deliberate exception to A5's "do not
+# cancel independent lanes merely because one fails": these gates judge the TREE
+# and their failure is not informative about the band's.
+#
+# The lane is MEASURED, not guessed -- every member ran under 10s on test5 on
+# 2026-08-31, and the two shapes above are covered by negative controls in
+# bd-persist/harness/tests/test_denom_preflight_sees_its_incidents.py.
+#
+#   usage: bd-denom-preflight [<work-tree>]
+#   exit 0 = the cheap denominators agree   1 = RED   2 = UNKNOWN (could not measure)
+set -u
+WORK="${1:-/home/mboyle/BulkDownloader}"
+cd "$WORK" 2>/dev/null || { echo "UNKNOWN: not a readable directory: $WORK" >&2; exit 2; }
+[ -x venv/bin/python ] || { echo "UNKNOWN: no venv/bin/python under $WORK" >&2; exit 2; }
+
+PINS=(
+  tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
+  tests/test_v3_66_1173_gate_scope_debt_is_paid.py
+  tests/test_v3_66_1164_one_task_authority.py
+  tests/test_v3_66_1052_the_backlog_is_machine_visible.py
+  tests/test_v3_66_1171_backlog_truth_is_current.py
+  tests/test_versync_gate.py
+  tests/test_settings_center_slice4.py
+  tests/test_pin_index_in_sync.py
+  # Added after a negative control PROVED the lane could not see its own
+  # motivating incident: a new docs/*.md file left the lane green while this
+  # gate's pinned totals (139 / 138) are what actually failed CI on
+  # 2026-08-31. A preflight that cannot see the incident it was built for is
+  # A7's gate without a subject.
+  tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
+  # THE THREE CHEAP UNDERIVED GATES (added 2026-08-31 after row 531).
+  # bd-precut runs six gates whose subject is the TREE, so bd-band-derive can
+  # never select them. Three of the six cost 4.2s, 1.7s and 5.0s; the other
+  # three cost 104s, 61s and 21s and stay in precut where they belong. Moving
+  # only the cheap half forward is the whole trade: row357 is the gate that
+  # caught v3.66.1381's broken mutant anchor, and it caught it 13 minutes and
+  # one CI round-trip too late.
+  tests/test_row357_mutant_anchors_are_not_fragile.py
+  tests/test_v3_66_1197_ambient_locale_into_subprocess.py
+  tests/test_v3_66_1034_guards_survive_a_module_wipe.py
+)
+# A missing member is UNKNOWN, never a smaller lane that passes. A denominator
+# that quietly shrinks is the defect this whole tool exists to catch.
+for p in "${PINS[@]}"; do
+  [ -f "$p" ] || { echo "UNKNOWN: pinned preflight member is absent from the tree: $p" >&2; exit 2; }
+done
+
+echo "== bd-denom-preflight :: $WORK"
+echo "   HEAD $(git rev-parse --short HEAD 2>/dev/null || echo UNKNOWN)  tree $(git rev-parse --short HEAD^{tree} 2>/dev/null || echo UNKNOWN)  ${#PINS[@]} pin file(s)"
+RC=0
+LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
+
+# 0.3 SECONDS THAT WOULD HAVE SAVED TWENTY MINUTES. On 2026-08-31 a cut deleted
+# the source line row348's M4 mutant was anchored to. bd-anchorcheck already
+# existed and answers exactly that question over 1168 anchors in 212 specs, and
+# nothing ran it: the break surfaced 13 minutes into a verify and again in CI.
+# --catchers is newer and asks the other half -- a mutant whose catcher test has
+# been renamed away can never fail, which is a battery that only looks armed.
+# --base names the specs whose SUBJECT this cut touches, so a failure points at
+# the co-change instead of at a spec the author did not know they had moved.
+printf '%-34s ' "mutant anchors + catchers"
+_BASE=${BD_PREFLIGHT_BASE:-origin/main}
+if python3 "${BD_ANCHORCHECK:-/home/mboyle/bd-anchorcheck.py}" \
+     --work "$WORK" --catchers --base "$_BASE" >"$LOG" 2>&1; then
+  echo "OK ($(sed -n 's/^anchors: \([0-9]*\) checked.*/\1/p' "$LOG" | head -1) anchors, $(sed -n 's/^catchers: \([0-9]*\) checked.*/\1/p' "$LOG" | head -1) catchers)"
+else
+  _arc=$?
+  if [ "$_arc" -eq 2 ]; then echo UNKNOWN; RC=2; else echo FAIL; RC=1; fi
+  grep -E 'CANNOT-EVALUATE|BROKEN|occurs|co-change|^  ' "$LOG" | head -10 | sed 's/^/    /'
+fi
+
+printf '%-34s ' "repository freshness"
+if venv/bin/python toolchain/bin/bd-freshcheck --repo-only >"$LOG" 2>&1; then echo OK
+else echo FAIL; [ "$RC" -eq 2 ] || RC=1; grep -E 'FAIL|stale|UNKNOWN|error' "$LOG" | head -4 | sed 's/^/    /'; fi
+
+printf '%-34s ' "pinned denominators"
+if env -u BD_INSTALL_DIR bash -c "BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest ${PINS[*]} -p no:randomly -q --timeout=180" >"$LOG" 2>&1; then
+  echo "OK ($(grep -oE '^[0-9]+ passed' "$LOG" | head -1))"
+else
+  echo FAIL; [ "$RC" -eq 2 ] || RC=1
+  # Name the failing assertion, not the log path.
+  grep -E '^FAILED|^E  ' "$LOG" | head -8 | sed 's/^/    /'
+fi
+
+# THREE CHEAP ARTIFACT CHECKS, added 2026-08-31 after three of five cuts that
+# day lost a full cycle to the same shape: a generated or frozen artifact that
+# needed updating IN THE SAME CUT and was only discovered seven minutes into
+# prepush.
+printf '%-34s ' "import-graph edges"
+if venv/bin/python -m pytest tests/test_import_graph_no_new_edges.py -q -p no:randomly \
+     --timeout=180 >"$LOG" 2>&1; then echo OK
+else
+  echo FAIL; [ "$RC" -eq 2 ] || RC=1
+  grep -E '^E |NEW import edge|-> ' "$LOG" | head -6 | sed 's/^/    /'
+  echo "    re-freeze with: venv/bin/python tools/decomp/import_graph_gate.py --update" 
+fi
+
+# UNSTAGED REGENERATION DRIFT. bd-regen-order rewrites tracked artifacts; a cut
+# that leaves any of them unstaged is verified with part of itself missing, and
+# prepush's own drift check only fires 7 minutes later. Untracked scaffolding
+# (venv, node_modules, frontend/dist symlinks) is excluded the same way prepush
+# excludes it.
+printf '%-34s ' "no unstaged tracked change"
+_UNSTAGED=$(git diff --name-only 2>/dev/null | wc -l)
+if [ "$_UNSTAGED" -eq 0 ]; then echo OK
+else
+  echo FAIL; [ "$RC" -eq 2 ] || RC=1
+  echo "    $_UNSTAGED tracked file(s) modified but NOT staged -- this cut would"
+  echo "    be verified without part of itself:"
+  git diff --name-only | head -8 | sed 's/^/      /'
+fi
+
+if [ "$RC" -eq 2 ]; then echo "PREFLIGHT UNKNOWN -- a cheap check could not be measured; that is not permission"
+elif [ "$RC" -eq 0 ]; then echo "PREFLIGHT OK -- cheap denominators agree; an expensive gate is worth starting"
+else echo "PREFLIGHT RED -- do NOT start an expensive gate against this tree"; fi
+exit "$RC"

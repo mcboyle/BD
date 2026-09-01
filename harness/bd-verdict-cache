@@ -1,0 +1,75 @@
+#!/bin/bash
+# A PASS-ONLY verdict cache for bd-verify-cut's gates.
+#
+# Ruled 2026-08-31 (ruling 41). Key = (candidate tree SHA, merge-base SHA, gate
+# name, digest of the gate's own script(s) + any material that changes the
+# EXPERIMENT). A rerun after a rebase, a tool edit, or a worker-count change
+# MUST miss -- A5: a different worker count is a different experiment.
+#
+# PASS ONLY, and that is the whole safety argument. FAIL and UNKNOWN are never
+# written, so no cache lookup can ever manufacture a green: the worst a corrupt
+# or stale entry can do is skip a gate that already passed on this exact tree.
+# `get` re-proves the tree SHA the caller just derived against the record before
+# reporting a hit, so a tampered or mismatched checkout misses.
+#
+# WHAT THE RULED KEY DOES NOT COVER: an ad-hoc change to the venv or to an
+# installed system tool. Edits to requirements files ARE tree-covered; a
+# hand-run `pip install` is not. Clear the cache after one.
+#
+#   bd-verdict-cache key <gate> <tree-sha> <base-sha> [material...]
+#   bd-verdict-cache get <key> --expect-tree <tree-sha>
+#   bd-verdict-cache put <key> PASS <tag> <log-path> <tree-sha> <base-sha> <gate>
+#   bd-verdict-cache purge [--all]
+# material: file paths are digested by CONTENT; anything else by its literal text.
+set -u
+ROOT=${BD_VERDICT_CACHE_DIR:-/home/mboyle/.cache/bd-verdict}
+CMD="${1:-}"; shift 2>/dev/null || true
+
+die() { echo "bd-verdict-cache: $*" >&2; exit 2; }
+
+case "$CMD" in
+  key)
+    [ $# -ge 3 ] || die "usage: key <gate> <tree-sha> <base-sha> [material...]"
+    gate=$1; tree=$2; base=$3; shift 3
+    {
+      printf 'v1\ngate=%s\ntree=%s\nbase=%s\n' "$gate" "$tree" "$base"
+      for m in "$@"; do
+        if [ -f "$m" ]; then
+          printf 'file=%s:%s\n' "$m" "$(sha256sum -- "$m" | cut -d' ' -f1)"
+        else
+          printf 'lit=%s\n' "$m"
+        fi
+      done
+    } | sha256sum | cut -d' ' -f1
+    ;;
+  get)
+    [ $# -ge 3 ] || die "usage: get <key> --expect-tree <tree-sha>"
+    key=$1; [ "$2" = "--expect-tree" ] || die "get requires --expect-tree"
+    want=$3
+    f=$ROOT/$key
+    [ -f "$f" ] || exit 1
+    got=$(sed -n 's/^tree=//p' "$f" | head -1)
+    v=$(sed -n 's/^verdict=//p' "$f" | head -1)
+    # A record that is not a PASS, or is about a different tree, is not a hit.
+    [ "$v" = "PASS" ] || exit 1
+    [ -n "$got" ] && [ "$got" = "$want" ] || exit 1
+    cat "$f"
+    ;;
+  put)
+    [ $# -ge 7 ] || die "usage: put <key> PASS <tag> <log> <tree-sha> <base-sha> <gate>"
+    key=$1; verdict=$2; tag=$3; log=$4; tree=$5; base=$6; gate=$7
+    # The refusal that makes the cache safe. Nothing but PASS is ever stored.
+    [ "$verdict" = "PASS" ] || die "REFUSED: only PASS is cacheable, not '$verdict'"
+    mkdir -p -- "$ROOT" || die "cache directory is not writable: $ROOT"
+    tmp=$(mktemp "$ROOT/.put.XXXXXX") || die "cannot stage a cache write"
+    {
+      printf 'verdict=PASS\ngate=%s\ntree=%s\nbase=%s\ntag=%s\nutc=%s\nlog=%s\nhost=%s\n' \
+        "$gate" "$tree" "$base" "$tag" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$log" "$(hostname)"
+    } > "$tmp" && mv -f -- "$tmp" "$ROOT/$key" || die "cache write failed"
+    ;;
+  purge)
+    if [ "${1:-}" = "--all" ]; then rm -rf -- "$ROOT"; echo "purged $ROOT"
+    else find "$ROOT" -type f -mtime +14 -delete 2>/dev/null; echo "purged entries older than 14 days"; fi
+    ;;
+  *) die "usage: bd-verdict-cache key|get|put|purge ..." ;;
+esac

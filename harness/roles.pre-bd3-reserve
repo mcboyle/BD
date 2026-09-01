@@ -1,0 +1,43 @@
+# HOST ROLES -- THE AUTHORITATIVE HOST POPULATION (operator ruling 2026-08-29).
+# ~/.config/bd/hosts is DERIVED from this file. Until 2026-08-29 hosts listed 7
+# of the 12 real machines, so every fleet claim made that day was against a
+# wrong denominator and five machines were invisible. Roles carries the role,
+# so roles is the source; hosts carries only name and ip for tools that read it.
+#
+# roles:
+#   integrator  sole writer. worktrees, cuts, merges. NEVER a deploy target.
+#   runner      runs BD and carries scheduled load
+#   deploy      receives scripts/deploy.sh from bd-fleet-deploy.sh
+#   capacity    NO BD. bands, captures and agent work only. Never deployed to.
+#
+# BANDS RUN ON `capacity` AND `runner`, NEVER ON `deploy` OR THE INTEGRATOR.
+# Added 2026-08-31. bd-band-remote.sh used to `git checkout --detach` in the
+# host's own BulkDownloader, which would move a serving host off main and
+# destroy its deploy provenance -- so only non-serving boxes could be listed.
+# Each band now runs in its own per-SHA worktree and never touches the host
+# checkout, so a runner can lend cores while it serves. DO NOT RENAME `runner`
+# TO ADD BAND CAPACITY: bd-fleet-deploy.sh holds back hosts whose role is
+# exactly `runner`, so renaming one silently turns it into a deploy target.
+#
+# bd-fleet-deploy.sh targets `deploy` and `runner`. A MISSING OR UNREADABLE
+# ROLES FILE DEPLOYS EVERYWHERE, deliberately -- so keep this file readable.
+integrator test5 10.0.70.164
+runner   test2 10.0.70.95
+runner   test3 10.0.70.80
+runner   test6 10.0.70.249
+deploy   test  10.0.70.83
+deploy   test4 10.0.70.85
+deploy   test7 10.0.70.84
+# 2026-08-29: bd and bd1 PROMOTED to deploy targets by operator ruling, which
+# SUPERSEDES the 2026-08-28 comment that said bd-fleet-deploy must never touch
+# these five. They were found running v3.66.1326 and v3.66.1327 -- about twenty
+# versions behind main and predating every download fix of 2026-08-29. Their
+# downloads stay STOPPED until row 388 lands, same hold as test6.
+deploy   bd    10.0.70.50
+deploy   bd1   10.0.70.51
+# CAPACITY, NOT DEPLOY. 48cpu/344GB each, no BD on 5555. Operator 2026-08-29:
+# may be wiped and rebuilt freely. Used for bands, captures and agent work so
+# that measurement is not run on the tree the integrator is editing (A6).
+capacity bd2   10.0.70.52
+capacity bd3   10.0.70.53
+capacity bd4   10.0.70.54

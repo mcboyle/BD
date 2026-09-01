@@ -1,0 +1,78 @@
+#!/bin/bash
+# WHY did CI fail -- the assertion, not the log.
+#
+# Ruled 2026-08-31 (ruling 41). Reading a failed CI run meant `gh run view --log`
+# on a 30-shard workflow and scrolling; the answer is always one or two
+# `E  AssertionError` lines. This prints those and nothing else.
+#
+# Reads NAMED status/conclusion fields via `gh ... --json`, never positional CLI
+# columns (A5). A run that is still in progress, or whose logs cannot be
+# fetched, prints UNKNOWN and exits 2 -- it never prints "no failures found",
+# which is the fail-open shape this whole repository is built against.
+#
+#   usage: bd-ci-why [<run-id> | <branch> | -]      ('-' or empty = current branch)
+#   exit 0 = failing assertions printed   1 = the run did not fail   2 = UNKNOWN
+set -u
+cd "${BD_CI_WHY_REPO:-/home/mboyle/BulkDownloader}" 2>/dev/null || { echo "UNKNOWN: no repo" >&2; exit 2; }
+ARG="${1:--}"
+
+if printf '%s' "$ARG" | grep -qE '^[0-9]{6,}$'; then
+  RUN=$ARG
+else
+  BR=$ARG
+  [ "$BR" = "-" ] && BR=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+  [ -n "$BR" ] || { echo "UNKNOWN: cannot resolve a branch" >&2; exit 2; }
+  RUN=$(gh run list --branch "$BR" --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
+  [ -n "$RUN" ] && [ "$RUN" != "null" ] || { echo "UNKNOWN: no CI run found for branch $BR" >&2; exit 2; }
+fi
+
+META=$(gh run view "$RUN" --json status,conclusion,headBranch,headSha,workflowName 2>/dev/null) \
+  || { echo "UNKNOWN: cannot read run $RUN" >&2; exit 2; }
+ST=$(printf '%s' "$META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+CC=$(printf '%s' "$META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["conclusion"] or "")')
+SHA=$(printf '%s' "$META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["headSha"])')
+BRN=$(printf '%s' "$META" | python3 -c 'import json,sys; print(json.load(sys.stdin)["headBranch"])')
+echo "== run $RUN  $BRN @ ${SHA:0:12}  status=$ST conclusion=${CC:-none}"
+[ "$ST" = "completed" ] || { echo "UNKNOWN: still $ST -- no verdict yet" >&2; exit 2; }
+case "$CC" in
+  failure|timed_out|startup_failure) ;;
+  cancelled) echo "UNKNOWN: cancelled -- no verdict" >&2; exit 2 ;;
+  *) echo "run did not fail (conclusion=$CC)"; exit 1 ;;
+esac
+
+# Named fields again: name the FAILED jobs, then read only their logs.
+JOBS=$(gh run view "$RUN" --json jobs --jq '.jobs[] | select(.conclusion=="failure") | .name' 2>/dev/null)
+[ -n "$JOBS" ] || { echo "UNKNOWN: run failed but no job reports conclusion=failure" >&2; exit 2; }
+echo "   failed job(s):"; printf '     %s\n' $(printf '%s\n' "$JOBS" | tr ' ' '~') | tr '~' ' '
+
+LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
+gh run view "$RUN" --log-failed >"$LOG" 2>/dev/null || gh run view "$RUN" --log >"$LOG" 2>/dev/null
+[ -s "$LOG" ] || { echo "UNKNOWN: run $RUN failed but its logs could not be fetched" >&2; exit 2; }
+
+echo "-- assertions --"
+# GitHub prefixes every line with "<job name>\t<RFC3339 timestamp> ". Strip both
+# in python: GNU sed does not expand \t inside a bracket expression, so an
+# earlier version stripped nothing and reported 0 FAILED nodes while the log
+# named one -- a summariser lying about its own denominator.
+python3 - "$LOG" <<'PYX'
+import re, sys
+# GitHub emits TWO tab-separated prefixes -- '<job>\t<step>\t<timestamp> '.
+# Stripping only one left every FAILED line unmatched and the extractor
+# reported '0 FAILED node(s)' about a log that named them. Strip ALL of them.
+pat = re.compile(r'^(?:[^\t]*\t)*(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?')
+keep = re.compile(r'^(FAILED|ERROR) |^E +|AssertionError|^\s*REFUSED|^\s*UNKNOWN:')
+seen, out, failed = set(), [], 0
+for raw in open(sys.argv[1], errors='replace'):
+    line = pat.sub('', raw.rstrip('\n')).rstrip()
+    if line.startswith('FAILED '):
+        failed += 1
+    if keep.search(line) and line.strip() not in ('E', ''):
+        if line not in seen:
+            seen.add(line); out.append(line)
+for line in out[:40]:
+    print('   ', line)
+print(f"-- {failed} FAILED node(s) named in the log --")
+if not out:
+    print("UNKNOWN: the run failed but no assertion could be extracted", file=sys.stderr)
+    raise SystemExit(2)
+PYX

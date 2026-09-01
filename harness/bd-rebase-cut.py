@@ -1,0 +1,543 @@
+#!/usr/bin/env python3
+"""Rebase one frozen BD cut onto origin/main and resolve the release-trio
+collision the same way every time.
+
+Written 2026-08-25 after doing it by hand for v3.66.1241. Every BD cut edits
+bulk_downloader/__init__.py, tests/test_settings_center_slice4.py, CHANGELOG.md,
+PIN_INDEX.json and the backlog register header, so ANY two cuts frozen against
+the same base always collide, and each merge invalidates the next cut's base.
+Doing this by hand three times is three chances to pick a side silently.
+
+It refuses rather than guesses: every conflicting path must be one it has an
+explicit rule for, and each rule asserts its own preconditions. Generated
+artifacts are NOT hand-merged -- they are regenerated after the last source
+edit, which is the ordering v3.66.1239 got wrong (regen ran before the final
+version edit and shipped a stale PIN_INDEX).
+"""
+import argparse, hashlib, os, pathlib, re, subprocess, sys
+
+TRIO_VERSION = "bulk_downloader/__init__.py"
+TRIO_PIN = "tests/test_settings_center_slice4.py"
+CHANGELOG = "CHANGELOG.md"
+BACKLOG = "project-knowledge/IMPROVEMENT_BACKLOG.md"
+GENERATED = {"PIN_INDEX.json", "project-knowledge/STATIC_KB_MANIFEST.json"}
+# SCAFFOLDING, not content. bd-codex-cut gives every worktree a `venv` and a
+# `frontend/node_modules` SYMLINK back into the main checkout so the tree can
+# run its own interpreter. They are untracked, and git refuses to replay a
+# commit that would overwrite an untracked path -- so any cut whose history
+# ever staged them (several did, and a later commit unstages them) stops the
+# rebase dead with "untracked working tree files would be overwritten". That
+# read as a mysterious mid-rebase halt with NO unmerged paths, twice. They are
+# parked for the replay and put back before regeneration, which needs the venv.
+SCAFFOLD = ("venv", "frontend/node_modules")
+DECLARED = {"tools/decomp/import_graph_baseline.json"}
+HDR = "<!-- canonical-task-register schema=1 rows={r} open={o} ids-sha256={d} -->"
+HDR_RE = re.compile(r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
+                    r"ids-sha256=[0-9a-f]{64} -->")
+ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+)\|", re.MULTILINE)
+CONFLICT = re.compile(r"<<<<<<< [^\n]*\n(.*?)=======\n(.*?)>>>>>>> [^\n]*\n", re.S)
+
+
+def git(work, *args, check=True):
+    r = subprocess.run(["git", "-C", str(work), *args], text=True,
+                       capture_output=True)
+    if check and r.returncode:
+        sys.exit(f"git {' '.join(args)} failed:\n{r.stderr}")
+    return r.stdout
+
+
+def derive_backlog(text):
+    """Byte-identical to project-knowledge/build_current_overlay.py, which is the
+    function the gate uses. Recomputing the header with a hand-rolled regex is
+    how you ship a marker that disagrees with the table it describes."""
+    rows = [(int(m.group(1)), m.group(2).strip()) for m in ROW_RE.finditer(text)]
+    ids = [str(r[0]) for r in rows]
+    if len(ids) != len(set(ids)):
+        sys.exit("UNKNOWN: duplicate backlog row identity")
+    opened = sum(s == "OPEN" or s.startswith("OPEN ") for _, s in rows)
+    return len(rows), opened, hashlib.sha256(",".join(ids).encode("ascii")).hexdigest()
+
+
+def sides(work, path):
+    body = (pathlib.Path(work) / path).read_text(encoding="utf-8")
+    blocks = CONFLICT.findall(body)
+    if not blocks:
+        sys.exit(f"{path}: expected conflict markers, found none")
+    return body, blocks
+
+
+def resolve_trio(work, path, version, was=None):
+    """Keep the CUT's version.
+
+    The original comment said the cut's number is "the higher number by
+    construction: the cut was numbered after the base it was frozen against,
+    and main has only moved forward since." That is true of a cut frozen from
+    the current tip and false of a PARKED one. v3.66.1374 sat tagged and
+    unmerged while main went to 1377, so its trio carried a LOWER number than
+    main -- and taking the cut side unexamined would have walked the version
+    backwards with every internal assertion still passing.
+
+    So the cut side is still what wins, but when the parked cut's number has
+    been overtaken the caller renumbers it (--was), and the substitution is
+    made here rather than by retyping a punctuation-sensitive line elsewhere.
+    """
+    body, blocks = sides(work, path)
+    if len(blocks) != 1:
+        sys.exit(f"{path}: expected exactly 1 conflict, found {len(blocks)}")
+    head, cut = blocks[0]
+    if version not in cut:
+        if was is None or was not in cut:
+            sys.exit(f"{path}: cut side does not carry {version}: {cut!r}")
+        if cut.count(was) != 1:
+            sys.exit(f"{path}: renumber expects {was} exactly once on the cut "
+                     f"side, found {cut.count(was)} -- refusing to guess")
+        cut = cut.replace(was, version)
+        print(f"  renumbered {path:<44} {was} -> {version}")
+    body = CONFLICT.sub(lambda m: cut, body, count=1)
+    _write(work, path, body, version)
+
+
+def resolve_changelog(work, version, base_rev, was=None):
+    """Rebuild deterministically instead of merging hunks: preamble + this cut's
+    entry + main from ITS newest header down. That re-anchors the entry on
+    whatever release main now ends with, which is the one hand-resolution that
+    can go quietly wrong."""
+    main = git(work, "show", "origin/main:" + CHANGELOG).split("\n")
+    cut = git(work, "show", f"{base_rev}:{CHANGELOG}").split("\n")
+
+    def first_hdr(lines):
+        ix = [i for i, l in enumerate(lines) if l.startswith("## ")]
+        if not ix:
+            sys.exit("CHANGELOG: no level-two header")
+        return ix[0]
+
+    m_first, c_first = first_hdr(main), first_hdr(cut)
+    if not cut[c_first].startswith(f"## v{version} "):
+        # A PARKED cut carries the number it was frozen with. Rewrite ONLY the
+        # version token in its own header and keep every other byte of the
+        # entry, which is the whole point of recovering it from the commit
+        # instead of retyping it: CLAUDE.md A7 forbids retyping an anchor.
+        if was is None or not cut[c_first].startswith(f"## v{was} "):
+            sys.exit(f"CHANGELOG: cut's newest entry is {cut[c_first]!r}, not v{version}")
+        cut[c_first] = cut[c_first].replace(f"## v{was} ", f"## v{version} ", 1)
+        print(f"  renumbered {CHANGELOG:<44} entry header {was} -> {version}")
+    if main[m_first].startswith(f"## v{version} "):
+        sys.exit(f"CHANGELOG: main already carries v{version}")
+    # The preamble boundary is the blank line before the first header, derived
+    # from each side rather than assumed to be a fixed line count.
+    pre = main[:m_first]
+    while pre and pre[-1] == "":
+        pre.pop()
+    pre.append("")
+    if cut[:len(pre)] != pre:
+        sys.exit("CHANGELOG: preambles differ between sides -- resolve by hand")
+    if any(l.strip() for l in main[len(pre):m_first]):
+        sys.exit("CHANGELOG: orphan prose above main's newest header -- see row 242;"
+                 " resolve by hand so the removal is declared")
+    entry = cut[c_first:]
+    nxt = [i for i, l in enumerate(entry[1:], 1) if l.startswith("## ")]
+    entry = entry[:nxt[0]] if nxt else entry
+    body = "\n".join(pre + entry + main[m_first:])
+    if body.count(f"## v{version} ") != 1:
+        sys.exit(f"CHANGELOG: v{version} header appears more than once")
+    if any(ord(c) > 127 for c in "\n".join(entry)):
+        sys.exit("CHANGELOG: this cut's entry is not ASCII")
+    _write(work, CHANGELOG, body, f"## v{version}")
+
+
+def resolve_backlog(work, base_rev, merge_base):
+    """THREE-WAY PER ROW ID -- never by side preference.
+
+    The first draft took main's line for any row both sides carried and appended
+    only cut-only rows. That is wrong the moment a cut CLOSES a row whose line
+    git happens to put in the same conflict hunk as a row main changed -- rows
+    182 and 185 are two lines apart, so 1243 rebasing onto main-with-1242 would
+    have had its own `CLOSED @1243` silently replaced by main's `OPEN`. Every
+    internal assertion would still pass: derive_backlog recomputes a header that
+    is perfectly self-consistent with the WRONG table, and the PR would claim to
+    close a row the register still shows open. Wrong-but-green is the one
+    failure this tool exists to prevent, so a row that BOTH sides changed away
+    from the merge base is refused, never guessed.
+
+    Resolution rebuilds from main's file as the skeleton rather than doing hunk
+    surgery, so rows outside any conflict block are handled by the same rule.
+    """
+    def table(rev):
+        text = git(work, "show", f"{rev}:{BACKLOG}")
+        out = {}
+        for line in text.split("\n"):
+            m = ROW_RE.match(line + "|")
+            if m and line.startswith("|"):
+                out[int(m.group(1))] = line
+        return out, text
+
+    base, _ = table(merge_base)
+    ours, ours_text = table("origin/main")
+    cut, _ = table(base_rev)
+
+    resolved, conflicted, took_cut, added = {}, [], 0, []
+    for rid in set(ours) | set(cut):
+        o, c, b = ours.get(rid), cut.get(rid), base.get(rid)
+        if o == c or c is None:
+            resolved[rid] = o
+        elif o is None:
+            resolved[rid] = c; added.append(rid)
+        elif o == b:
+            resolved[rid] = c; took_cut += 1
+        elif c == b:
+            resolved[rid] = o
+        else:
+            conflicted.append(rid)
+    if conflicted:
+        sys.exit("BACKLOG: rows changed on BOTH sides since the merge base -- "
+                 "resolve by hand: " + ", ".join(map(str, sorted(conflicted))))
+
+    lines, seen_row, last_row = [], False, -1
+    for i, line in enumerate(ours_text.split("\n")):
+        m = ROW_RE.match(line + "|")
+        if m and line.startswith("|"):
+            lines.append(resolved[int(m.group(1))]); seen_row = True; last_row = len(lines) - 1
+        else:
+            lines.append(line)
+    if not seen_row:
+        sys.exit("BACKLOG: main's table has no parseable rows")
+    for rid in sorted(added):
+        last_row += 1
+        lines.insert(last_row, resolved[rid])
+
+    body = "\n".join(lines)
+    body = HDR_RE.sub(HDR.format(r=0, o=0, d="0" * 64), body, count=1)
+    r, o, d = derive_backlog(body)
+    body = HDR_RE.sub(HDR.format(r=r, o=o, d=d), body, count=1)
+    r2, o2, d2 = derive_backlog(body)
+    if (r, o, d) != (r2, o2, d2):
+        sys.exit("BACKLOG: header does not survive re-derivation")
+    if set(resolved) != {int(m.group(1)) for m in ROW_RE.finditer(body)}:
+        sys.exit("BACKLOG: rebuilt table lost or gained a row id")
+    _write(work, BACKLOG, body,
+           f"rows={r} open={o} (cut won {took_cut}, added {len(added)})")
+
+
+def _write(work, path, body, note):
+    if "<<<<<<<" in body or ">>>>>>>" in body or "@@" in body.split("\n")[0]:
+        sys.exit(f"{path}: conflict residue survived resolution")
+    (pathlib.Path(work) / path).write_text(body, encoding="utf-8")
+    print(f"  resolved {path:<48} {note}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", required=True)
+    ap.add_argument("--version", required=True, help="e.g. 3.66.1242")
+    ap.add_argument("--renumber", action="store_true",
+                    help="the cut is PARKED and main has passed its version; "
+                         "rewrite the trio and the CHANGELOG header to --version")
+    a = ap.parse_args()
+    work = pathlib.Path(a.work).resolve()
+
+    # DIAGNOSE THE STOPPED REBASE BEFORE THE DIRTY-TREE GUARD.
+    # A tree stopped mid-rebase is also dirty, so without this the refusal
+    # reads "tree has staged/unstaged changes" and names the symptom instead
+    # of the cause -- and the reader cleans the tree, which is exactly wrong.
+    for marker in ("rebase-merge", "rebase-apply"):
+        d = git(work, "rev-parse", "--git-path", marker).strip()
+        if d and (pathlib.Path(d) if pathlib.Path(d).is_absolute()
+                  else work / d).exists():
+            sys.exit(
+                f"REBASE STILL IN PROGRESS ({marker} present). Do NOT clean "
+                f"this tree -- resolve the conflict and `git -C {work} rebase "
+                f"--continue`, or `git -C {work} rebase --abort` and re-run. "
+                "A stopped rebase can leave a parent matching origin/main "
+                "while the cut's own commit is still unapplied.")
+
+    if git(work, "status", "--porcelain=v1", "--untracked-files=no").strip():
+        sys.exit("tree has staged/unstaged changes -- refusing")
+    base_rev = git(work, "rev-parse", "HEAD").strip()
+    git(work, "fetch", "origin", "--prune")
+    main_rev = git(work, "rev-parse", "origin/main").strip()
+    merge_base = git(work, "merge-base", "origin/main", base_rev).strip()
+
+    # WHAT VERSION DOES THE CUT ITSELF CARRY? The old code never asked, and
+    # trusted a comment asserting the cut is always ahead. A parked candidate
+    # is not, so an undeclared backwards renumber is refused here rather than
+    # discovered by a release gate after the rebase has already happened.
+    cut_ver = None
+    for line in git(work, "show", f"{base_rev}:{TRIO_VERSION}").split("\n"):
+        if line.startswith("__version__"):
+            cut_ver = line.split('"')[1]
+            break
+    if cut_ver is None:
+        sys.exit(f"UNKNOWN: no __version__ in {base_rev}:{TRIO_VERSION}")
+    was = None
+    if cut_ver != a.version:
+        if not a.renumber:
+            sys.exit(f"THE CUT CARRIES v{cut_ver}, NOT v{a.version}. If this is a "
+                     f"parked candidate that main has passed, re-run with "
+                     f"--renumber to rewrite it to v{a.version}; otherwise you "
+                     f"have named the wrong --version.")
+        was = cut_ver
+        print(f"   renumber {cut_ver} -> {a.version} (parked cut)")
+    print(f"== rebase {work.name}\n   cut {base_rev}\n   onto {main_rev}\n   merge-base {merge_base}")
+    n_before = len([l for l in git(work, "log", "--format=%H",
+                                   f"{merge_base}..{base_rev}").split("\n") if l])
+    print(f"   {n_before} commit(s) to replay")
+    if git(work, "merge-base", "--is-ancestor", main_rev, base_rev, check=False) or True:
+        pass
+    parked = []
+    for name in SCAFFOLD:
+        q = work / name
+        if q.is_symlink() and not git(work, "ls-files", "--", name).strip():
+            target = os.readlink(q)
+            q.unlink()
+            parked.append((name, target))
+            print(f"   parked scaffolding symlink {name} -> {target}")
+
+    def unpark():
+        for name, target in parked:
+            q = work / name
+            if not q.exists() and not q.is_symlink():
+                q.symlink_to(target)
+
+    r = subprocess.run(["git", "-C", str(work), "rebase", "origin/main"],
+                       text=True, capture_output=True)
+    if parked and r.returncode and "would be overwritten" in (r.stdout + r.stderr):
+        unpark()
+        sys.exit("rebase refused over untracked paths that parking did not "
+                 f"cover:\n{r.stdout[-1500:]}{r.stderr[-1500:]}")
+    conflicts = [l for l in git(work, "diff", "--name-only", "--diff-filter=U").split("\n") if l]
+    declare_edges = False
+    if r.returncode == 0 and not conflicts:
+        print("   clean rebase, nothing to resolve")
+    else:
+        unknown = [c for c in conflicts
+                   if c not in {TRIO_VERSION, TRIO_PIN, CHANGELOG, BACKLOG}
+                   | GENERATED | DECLARED]
+        if unknown:
+            sys.exit(f"conflicts with no rule -- resolve by hand and rerun:\n  " +
+                     "\n  ".join(unknown))
+        if TRIO_VERSION in conflicts:
+            resolve_trio(work, TRIO_VERSION, f'__version__ = "{a.version}"',
+                         f'__version__ = "{was}"' if was else None)
+        if TRIO_PIN in conflicts:
+            resolve_trio(work, TRIO_PIN, f'assert __version__ == "{a.version}"',
+                         f'assert __version__ == "{was}"' if was else None)
+        if CHANGELOG in conflicts:
+            resolve_changelog(work, a.version, base_rev, was)
+        if BACKLOG in conflicts:
+            resolve_backlog(work, base_rev, merge_base)
+        for g in GENERATED & set(conflicts):
+            git(work, "checkout", "--theirs", "--", g)
+            print(f"  deferred {g:<48} regenerated below")
+        for d in DECLARED & set(conflicts):
+            # --ours is MAIN during a rebase: HEAD is the upstream being
+            # replayed onto. Main's declaration wins and the cut re-declares.
+            git(work, "checkout", "--ours", "--", d)
+            declare_edges = True
+            print(f"  took main's {d:<44} re-declared below")
+        git(work, "add", "--", *conflicts)
+
+    # ALWAYS CHECK THE CHANGELOG ORDER, CONFLICT OR NOT. resolve_changelog only
+    # runs when git REPORTS A CONFLICT on CHANGELOG.md. When the previous cut's
+    # entry and this one's are far enough apart, git AUTO-MERGES successfully and
+    # orders them main-first -- so v3.66.1242's file opened with v3.66.1241 and
+    # bd-precut refused with "top entry is v3.66.1241, not v3.66.1242". A silent
+    # correct-looking merge is exactly the case a conflict-only resolver cannot
+    # see, which is why this is checked rather than assumed.
+    cl = work / CHANGELOG
+    lines = cl.read_text(encoding="utf-8").split("\n")
+    hdrs = [k for k, l in enumerate(lines) if l.startswith("## ")]
+    if not hdrs:
+        sys.exit("CHANGELOG: no level-two header after rebase")
+    want = f"## v{a.version} "
+    if not lines[hdrs[0]].startswith(want):
+        mine = [k for k in hdrs if lines[k].startswith(want)]
+        if len(mine) != 1:
+            sys.exit(f"CHANGELOG: expected exactly one {want!r} entry, found {len(mine)}")
+        start = mine[0]
+        nxt = [k for k in hdrs if k > start]
+        end = nxt[0] if nxt else len(lines)
+        entry = lines[start:end]
+        rest = lines[:start] + lines[end:]
+        head = hdrs[0]
+        out = rest[:head] + entry + rest[head:]
+        text = "\n".join(out)
+        if text.count(want) != 1:
+            sys.exit("CHANGELOG: repair duplicated the entry")
+        cl.write_text(text, encoding="utf-8")
+        git(work, "add", "--", CHANGELOG)
+        print(f"   CHANGELOG repaired: v{a.version} moved above {lines[hdrs[0]].split(' - ')[0][3:]}")
+    else:
+        print(f"   CHANGELOG order OK: top entry is v{a.version}")
+
+    # ALWAYS CHECK THE TRIO VERSION, CONFLICT OR NOT -- the same lesson as the
+    # CHANGELOG order check above, and it was learned the same way twice.
+    # resolve_trio only runs on a path git REPORTS as conflicted. When a parked
+    # cut carries the number main has just taken, the two sides are IDENTICAL,
+    # git auto-merges, and the renumber never fires: v3.66.1379's rebase came
+    # out with a 1379 CHANGELOG and a 1378 __init__.py, and only PIN_INDEX
+    # regenerating from the wrong number caught it. A renumber that covers some
+    # of the trio is worse than none, because the release trio's whole purpose
+    # is that the three agree.
+    # A RENUMBER MUST ALSO MOVE THE ROWS THIS CUT CLOSES. 2026-08-31: renumbering
+    # a cut from 1383 to 1386 rewrote the trio and the CHANGELOG header and left
+    # its register rows reading `CLOSED @1383`, a release that does not exist.
+    # tests/test_register_closed_versions_exist.py caught it 14 minutes into the
+    # band, which is the whole cost of a partial rename.
+    if was is not None:
+        reg = work / "project-knowledge/IMPROVEMENT_BACKLOG.md"
+        if reg.is_file():
+            body = reg.read_text(encoding="utf-8")
+            old_stamp = "| CLOSED @%s |" % was.rsplit(".", 1)[-1]
+            new_stamp = "| CLOSED @%s |" % a.version.rsplit(".", 1)[-1]
+            n = body.count(old_stamp)
+            if n:
+                reg.write_text(body.replace(old_stamp, new_stamp), encoding="utf-8")
+                git(work, "add", "--", "project-knowledge/IMPROVEMENT_BACKLOG.md")
+                print(f"  renumbered {n} register row stamp(s)              "
+                      f"{old_stamp.strip('| ')} -> {new_stamp.strip('| ')}")
+
+    for path, pat in ((TRIO_VERSION, '__version__ = "%s"'),
+                      (TRIO_PIN, 'assert __version__ == "%s"')):
+        f = work / path
+        if not f.exists():
+            sys.exit(f"UNKNOWN: {path} is absent after the rebase")
+        body = f.read_text(encoding="utf-8")
+        want = pat % a.version
+        if want in body:
+            continue
+        if was is None:
+            sys.exit(f"{path} carries neither {a.version} nor a renumber source; "
+                     "resolve by hand")
+        had = pat % was
+        n = body.count(had)
+        if n != 1:
+            sys.exit(f"{path}: expected {had!r} exactly once to renumber, found {n}")
+        f.write_text(body.replace(had, want), encoding="utf-8")
+        git(work, "add", "--", path)
+        print(f"  renumbered {path:<44} {was} -> {a.version} (auto-merged, not conflicted)")
+
+    unpark()   # regeneration runs the worktree's own interpreter
+    # REPAIR THE REGISTER HEADER BEFORE REGENERATING. Merging the register by
+    # row changes the row and open counts, and nothing recomputed the canonical
+    # header -- so a rebased cut carried `open=165` over a table deriving 169
+    # and tests/test_v3_66_1164 refused it. Found 2026-09-01 when bd-land's
+    # automatic sibling rebase produced exactly that. The repository's own
+    # parser is used, never a second implementation of the same rule.
+    _reg = work / "project-knowledge/IMPROVEMENT_BACKLOG.md"
+    _parser = work / "project-knowledge/build_current_overlay.py"
+    if _reg.is_file() and _parser.is_file():
+        try:
+            import importlib.util as _ilu
+            _spec = _ilu.spec_from_file_location("_bd_overlay_rebase", _parser)
+            _mod = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+            _text = _reg.read_text(encoding="utf-8")
+            _derived = _mod.derive_backlog(_text)
+            _pat = re.compile(
+                r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
+                r"ids-sha256=[0-9a-f]{64} -->")
+            _m = _pat.search(_text)
+            if _m and _derived:
+                _want = ("<!-- canonical-task-register schema=1 rows=%d open=%d "
+                         "ids-sha256=%s -->" % _derived[:3])
+                if _m.group(0) != _want:
+                    _reg.write_text(_text.replace(_m.group(0), _want), encoding="utf-8")
+                    git(work, "add", "--", "project-knowledge/IMPROVEMENT_BACKLOG.md")
+                    print("  repaired the canonical register header    rows=%d open=%d"
+                          % _derived[:2])
+        except Exception as _exc:
+            # A header this tool could not recompute is left alone and SAID, not
+            # silently trusted: the gate downstream will refuse it loudly.
+            print(f"  WARNING: register header NOT repaired ({type(_exc).__name__}: {_exc})")
+
+    print("== regenerating AFTER the last source edit")
+    rg = subprocess.run([str(work / "venv/bin/python"), "toolchain/bin/bd-regen-order",
+                         "--work", str(work)], cwd=work, text=True, capture_output=True)
+    if rg.returncode:
+        sys.exit(f"regen failed:\n{rg.stdout[-2000:]}{rg.stderr[-2000:]}")
+    print("   regen OK")
+    if declare_edges:
+        # AFTER regen, because the edge set is read from the rebased source.
+        dc = subprocess.run([str(work / "venv/bin/python"),
+                             "toolchain/bin/bd-regen-order", "--work", str(work),
+                             "--declare-edges"], cwd=work, text=True, capture_output=True)
+        if dc.returncode:
+            sys.exit("declare-edges failed -- the cut's new import edges are "
+                     "UNDECLARED against the rebased tree, and an undeclared "
+                     f"edge is not a passing one:\n{dc.stdout[-2000:]}{dc.stderr[-2000:]}")
+        print("   import edges re-declared against the rebased tree")
+    pin = (work / "PIN_INDEX.json").read_text(encoding="utf-8")
+    if a.version not in pin:
+        sys.exit(f"PIN_INDEX.json does not carry {a.version} after regen")
+    print(f"   PIN_INDEX carries {a.version}")
+
+    tracked = [l[3:] for l in git(work, "status", "--porcelain=v1").split("\n")
+               if l and not l.endswith(("node_modules", "venv"))]
+    git(work, "add", "--", *[t for t in tracked if t])
+    if not (conflicts or r.returncode):
+        # CLEAN REBASE STILL REGENERATES. Without this the regen output sits
+        # STAGED BUT UNCOMMITTED: the cut ships without its generated artifacts
+        # and the next step trips over a dirty tree with no explanation.
+        if git(work, "diff", "--cached", "--name-only").strip():
+            subprocess.run(["git", "-C", str(work), "commit", "--amend",
+                            "--no-edit"], check=True, capture_output=True)
+            print("   amended clean rebase with regenerated artifacts")
+    if conflicts or r.returncode:
+        c = subprocess.run(["git", "-C", str(work), "rebase", "--continue"],
+                           text=True, capture_output=True, env={"GIT_EDITOR": "true",
+                           "PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home())})
+        if c.returncode:
+            sys.exit(f"rebase --continue failed:\n{c.stderr}")
+    # THE REBASE MUST HAVE ACTUALLY FINISHED, AND ON A BRANCH.
+    #
+    # Added 2026-08-31 after three failures in one session, all the same shape:
+    # act on a rebase's result without proving the rebase ended.
+    #   1. `git rebase` stopped on a conflict; a --continue fired before the
+    #      paths were staged, so the todo still held the pick. HEAD looked
+    #      plausible and the version file read as main's.
+    #   2. The rebase left HEAD DETACHED. A later `git push` had nothing to
+    #      move, the remote head never changed, and the PR sat CONFLICTING
+    #      with zero CI checks -- which reads as "pending", not "broken".
+    #   3. A `checkout -B` off that half-finished state duplicated a commit
+    #      into the todo, and the next rebase replayed it twice.
+    # The parent check below is necessary but not sufficient: a stopped rebase
+    # can leave a parent that matches main while the cut's own commit is still
+    # unapplied. These two assertions are what make the parent check mean
+    # something.
+    for marker in ("rebase-merge", "rebase-apply"):
+        d = git(work, "rev-parse", "--git-path", marker).strip()
+        if d and (pathlib.Path(d).exists() if pathlib.Path(d).is_absolute()
+                  else (work / d).exists()):
+            sys.exit(
+                f"REBASE STILL IN PROGRESS ({marker} present). Do not act on "
+                f"this tree: resolve or `git -C {work} rebase --abort`, then "
+                f"re-run. A stopped rebase can leave a parent that matches "
+                f"origin/main while the cut's own commit is unapplied.")
+    branch = git(work, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if branch == "HEAD":
+        sys.exit(
+            "HEAD IS DETACHED after the rebase. The work is real but no branch "
+            "points at it, so a push moves nothing and the PR keeps its old "
+            "head -- which shows as CONFLICTING with zero CI checks, and zero "
+            "checks reads as pending rather than broken. Re-point with "
+            f"`git -C {work} checkout -B <branch> $(git -C {work} rev-parse HEAD)`.")
+
+    head = git(work, "rev-parse", "HEAD").strip()
+    tree = git(work, "rev-parse", "HEAD^{tree}").strip()
+    if subprocess.run(["git", "-C", str(work), "merge-base", "--is-ancestor",
+                       main_rev, head]).returncode:
+        sys.exit(f"origin/main {main_rev} is NOT an ancestor of {head} -- the "
+                 "rebase did not land this cut on current main")
+    after = [l for l in git(work, "log", "--format=%H", f"{main_rev}..{head}").split("\n") if l]
+    if len(after) != n_before:
+        sys.exit(f"COMMIT COUNT CHANGED: {n_before} commit(s) before the rebase, "
+                 f"{len(after)} after. A dropped or duplicated commit is not a "
+                 "successful rebase; inspect the todo and the reflog before acting.")
+    parent = git(work, "rev-parse", f"{head}~{len(after)}").strip()
+    if parent != main_rev:
+        sys.exit(f"the cut's base {parent} is not origin/main {main_rev}")
+    print(f"== candidate {head}\n   tree {tree}\n   {len(after)} commit(s) on {main_rev}\n   branch {branch}, rebase finished")
+    print("   NOW: bd-verify-cut.sh, then inspect the diff before shipping")
+
+
+if __name__ == "__main__":
+    main()

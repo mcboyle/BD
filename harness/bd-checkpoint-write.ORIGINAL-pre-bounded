@@ -1,0 +1,93 @@
+#!/bin/bash
+# bd-checkpoint-write -- append a MEASURED state block to the recovery checkpoint,
+# and regenerate the post-compaction prompt from that file rather than from memory.
+#
+# WHY. Everything that survives a compaction lives in one hand-appended file. On
+# 2026-08-28 the recovery prompt drifted from it TWICE -- it named a line count
+# that was already stale, and it told the next agent to run a 58-minute capture
+# that had in fact already been run and recorded. A prompt that describes the
+# checkpoint inaccurately is worse than no prompt: it sends a fresh agent to redo
+# finished work with confidence.
+#
+# EVERY NUMBER HERE IS MEASURED AT WRITE TIME. Nothing is passed in and nothing is
+# copied from prose. CLAUDE.md A1: measure volatile facts from the current tree.
+set -uo pipefail
+R=/home/mboyle/BulkDownloader
+A=/home/mboyle/fleet-run-artifacts/2026-08-25
+C="$A/CHECKPOINT.md"; P=/home/mboyle/bd-resume-prompt.txt
+NOTE="${1:-}"
+
+git -C "$R" fetch -q origin 2>/dev/null
+VER=$(git -C "$R" show origin/main:bulk_downloader/__init__.py 2>/dev/null | grep -oE '3\.66\.[0-9]+')
+SHA=$(git -C "$R" rev-parse --short=12 origin/main 2>/dev/null)
+DIRTY=$(git -C "$R" status --porcelain 2>/dev/null | wc -l)
+UNPUSHED=$(git -C "$R" log --oneline origin/main..HEAD 2>/dev/null | wc -l)
+REG=$(git -C "$R" show origin/main:project-knowledge/IMPROVEMENT_BACKLOG.md 2>/dev/null)
+OPEN=$(printf '%s' "$REG" | grep -cE '^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*OPEN')
+CLOSED=$(printf '%s' "$REG" | grep -cE '^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*CLOSED')
+# queue rows that are live in the spec AND not closed on main -- the real backlog
+QUEUE=0
+while IFS='|' read -r r _s _t; do
+  case "$r" in ''|'#'*) continue;; esac
+  printf '%s' "$REG" | grep -qE "^\| $r \|[[:space:]]*CLOSED" || QUEUE=$((QUEUE+1))
+done < /home/mboyle/bd-night-spec.txt
+CX=$(tmux ls 2>/dev/null | grep -c '^cx-row')
+HARNESS=$(ps -eo args --no-headers | grep -cE '^bash /home/mboyle/bd-[a-z-]+\.sh')
+WT=$(ls -d /home/mboyle/bd-codex-wt/row* 2>/dev/null | wc -l)
+
+{
+  echo
+  echo "## CHECKPOINT $(date -u '+%Y-%m-%d %H:%M')Z -- written by bd-checkpoint-write"
+  [ -n "$NOTE" ] && { echo; echo "$NOTE"; }
+  echo
+  echo "MEASURED AT WRITE TIME (nothing here was passed in or copied from prose):"
+  echo "  main            v${VER:-UNKNOWN} at ${SHA:-UNKNOWN}"
+  echo "  integrator tree $DIRTY dirty path(s), $UNPUSHED unpushed commit(s)"
+  echo "  register        $OPEN OPEN / $CLOSED CLOSED on origin/main"
+  echo "  queue           $QUEUE spec row(s) not yet closed on main"
+  echo "  codex           $CX live session(s); $WT worker worktree(s) on disk"
+  echo "  harness         $HARNESS bd-*.sh process(es) running"
+  echo "  host            $(hostname) $(uptime | grep -oE 'load average.*')"
+} >> "$C"
+
+LINES=$(wc -l < "$C")
+# THE PROMPT IS GENERATED, NOT REMEMBERED. It states its own provenance so a
+# reader can tell at a glance whether it still matches the file it describes.
+cat > "$P" <<PROMPT
+Continue the BulkDownloader autonomous run. You are the integrator on test5.
+
+FIRST, READ THE CHECKPOINT -- it is the authority, not your memory:
+  $C   ($LINES lines)
+    Read the LAST 200 lines first. This prompt was GENERATED from that file at
+    $(date -u '+%Y-%m-%d %H:%M')Z by bd-checkpoint-write; if the two disagree,
+    the checkpoint wins and this prompt is stale.
+  /home/mboyle/bd-night-spec.txt   (the live queue; commented rows are parked)
+
+STATE AT WRITE TIME (re-verify before relying on any of it):
+  main v${VER:-UNKNOWN} at ${SHA:-UNKNOWN}
+  $QUEUE queue row(s) open, $CX codex session(s) live, $HARNESS harness process(es)
+  verify:  git -C $R show origin/main:bulk_downloader/__init__.py
+
+STANDING RULINGS (operator):
+  - Merge and deploy on green, autonomously. Never block the lane on one row.
+  - Build your best judgement and ship it; state the assumption in the row.
+  - Record a host failure and continue; NEVER send a push notification.
+  - Status answers 15 words; updates 30. Detail goes to the checkpoint.
+  - NEVER deploy test5. 10.0.70.50-54 are scratch, never deploy targets.
+
+DO NOT REBUILD TOOLING. Running: bd-night, bd-watchdog, bd-codex-pool,
+bd-att-guard, bd-progress, bd-codex-refill, bd-width-restore.
+READ THE INVENTORY BEFORE WRITING A TOOL -- on 2026-08-28 I wrote new logic under
+an existing tool's name (bd-register-merge.py) and blocked the lane.
+
+TRAPS THAT COST TIME TODAY:
+  - A ps/grep pattern matches the shell that WROTE the script; anchor on
+    '^bash /home/mboyle/bd-x.sh', never a bare substring.
+  - A wait loop over an APPENDED log matches an earlier run's completion line.
+    Gate on a line that only exists when the thing is really true.
+  - Rebase a worktree BEFORE its QA, never after; QA against a stale base is void.
+    Use ./bd-rebase <row> -- it resolves generated files and the register by row.
+  - A worker's register row must be OPEN; the integrator stamps the version.
+PROMPT
+echo "checkpoint: $C ($LINES lines)"
+echo "prompt:     $P (regenerated)"

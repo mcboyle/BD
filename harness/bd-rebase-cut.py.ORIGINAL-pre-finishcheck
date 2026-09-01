@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Rebase one frozen BD cut onto origin/main and resolve the release-trio
+collision the same way every time.
+
+Written 2026-08-25 after doing it by hand for v3.66.1241. Every BD cut edits
+bulk_downloader/__init__.py, tests/test_settings_center_slice4.py, CHANGELOG.md,
+PIN_INDEX.json and the backlog register header, so ANY two cuts frozen against
+the same base always collide, and each merge invalidates the next cut's base.
+Doing this by hand three times is three chances to pick a side silently.
+
+It refuses rather than guesses: every conflicting path must be one it has an
+explicit rule for, and each rule asserts its own preconditions. Generated
+artifacts are NOT hand-merged -- they are regenerated after the last source
+edit, which is the ordering v3.66.1239 got wrong (regen ran before the final
+version edit and shipped a stale PIN_INDEX).
+"""
+import argparse, hashlib, pathlib, re, subprocess, sys
+
+TRIO_VERSION = "bulk_downloader/__init__.py"
+TRIO_PIN = "tests/test_settings_center_slice4.py"
+CHANGELOG = "CHANGELOG.md"
+BACKLOG = "project-knowledge/IMPROVEMENT_BACKLOG.md"
+GENERATED = {"PIN_INDEX.json", "project-knowledge/STATIC_KB_MANIFEST.json"}
+HDR = "<!-- canonical-task-register schema=1 rows={r} open={o} ids-sha256={d} -->"
+HDR_RE = re.compile(r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
+                    r"ids-sha256=[0-9a-f]{64} -->")
+ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+)\|", re.MULTILINE)
+CONFLICT = re.compile(r"<<<<<<< [^\n]*\n(.*?)=======\n(.*?)>>>>>>> [^\n]*\n", re.S)
+
+
+def git(work, *args, check=True):
+    r = subprocess.run(["git", "-C", str(work), *args], text=True,
+                       capture_output=True)
+    if check and r.returncode:
+        sys.exit(f"git {' '.join(args)} failed:\n{r.stderr}")
+    return r.stdout
+
+
+def derive_backlog(text):
+    """Byte-identical to project-knowledge/build_current_overlay.py, which is the
+    function the gate uses. Recomputing the header with a hand-rolled regex is
+    how you ship a marker that disagrees with the table it describes."""
+    rows = [(int(m.group(1)), m.group(2).strip()) for m in ROW_RE.finditer(text)]
+    ids = [str(r[0]) for r in rows]
+    if len(ids) != len(set(ids)):
+        sys.exit("UNKNOWN: duplicate backlog row identity")
+    opened = sum(s == "OPEN" or s.startswith("OPEN ") for _, s in rows)
+    return len(rows), opened, hashlib.sha256(",".join(ids).encode("ascii")).hexdigest()
+
+
+def sides(work, path):
+    body = (pathlib.Path(work) / path).read_text(encoding="utf-8")
+    blocks = CONFLICT.findall(body)
+    if not blocks:
+        sys.exit(f"{path}: expected conflict markers, found none")
+    return body, blocks
+
+
+def resolve_trio(work, path, version):
+    """Keep the CUT's version. It is the higher number by construction: the cut
+    was numbered after the base it was frozen against, and main has only moved
+    forward since."""
+    body, blocks = sides(work, path)
+    if len(blocks) != 1:
+        sys.exit(f"{path}: expected exactly 1 conflict, found {len(blocks)}")
+    head, cut = blocks[0]
+    if version not in cut:
+        sys.exit(f"{path}: cut side does not carry {version}: {cut!r}")
+    body = CONFLICT.sub(lambda m: m.group(2), body, count=1)
+    _write(work, path, body, version)
+
+
+def resolve_changelog(work, version, base_rev):
+    """Rebuild deterministically instead of merging hunks: preamble + this cut's
+    entry + main from ITS newest header down. That re-anchors the entry on
+    whatever release main now ends with, which is the one hand-resolution that
+    can go quietly wrong."""
+    main = git(work, "show", "origin/main:" + CHANGELOG).split("\n")
+    cut = git(work, "show", f"{base_rev}:{CHANGELOG}").split("\n")
+
+    def first_hdr(lines):
+        ix = [i for i, l in enumerate(lines) if l.startswith("## ")]
+        if not ix:
+            sys.exit("CHANGELOG: no level-two header")
+        return ix[0]
+
+    m_first, c_first = first_hdr(main), first_hdr(cut)
+    if not cut[c_first].startswith(f"## v{version} "):
+        sys.exit(f"CHANGELOG: cut's newest entry is {cut[c_first]!r}, not v{version}")
+    if main[m_first].startswith(f"## v{version} "):
+        sys.exit(f"CHANGELOG: main already carries v{version}")
+    # The preamble boundary is the blank line before the first header, derived
+    # from each side rather than assumed to be a fixed line count.
+    pre = main[:m_first]
+    while pre and pre[-1] == "":
+        pre.pop()
+    pre.append("")
+    if cut[:len(pre)] != pre:
+        sys.exit("CHANGELOG: preambles differ between sides -- resolve by hand")
+    if any(l.strip() for l in main[len(pre):m_first]):
+        sys.exit("CHANGELOG: orphan prose above main's newest header -- see row 242;"
+                 " resolve by hand so the removal is declared")
+    entry = cut[c_first:]
+    nxt = [i for i, l in enumerate(entry[1:], 1) if l.startswith("## ")]
+    entry = entry[:nxt[0]] if nxt else entry
+    body = "\n".join(pre + entry + main[m_first:])
+    if body.count(f"## v{version} ") != 1:
+        sys.exit(f"CHANGELOG: v{version} header appears more than once")
+    if any(ord(c) > 127 for c in "\n".join(entry)):
+        sys.exit("CHANGELOG: this cut's entry is not ASCII")
+    _write(work, CHANGELOG, body, f"## v{version}")
+
+
+def resolve_backlog(work, base_rev, merge_base):
+    """THREE-WAY PER ROW ID -- never by side preference.
+
+    The first draft took main's line for any row both sides carried and appended
+    only cut-only rows. That is wrong the moment a cut CLOSES a row whose line
+    git happens to put in the same conflict hunk as a row main changed -- rows
+    182 and 185 are two lines apart, so 1243 rebasing onto main-with-1242 would
+    have had its own `CLOSED @1243` silently replaced by main's `OPEN`. Every
+    internal assertion would still pass: derive_backlog recomputes a header that
+    is perfectly self-consistent with the WRONG table, and the PR would claim to
+    close a row the register still shows open. Wrong-but-green is the one
+    failure this tool exists to prevent, so a row that BOTH sides changed away
+    from the merge base is refused, never guessed.
+
+    Resolution rebuilds from main's file as the skeleton rather than doing hunk
+    surgery, so rows outside any conflict block are handled by the same rule.
+    """
+    def table(rev):
+        text = git(work, "show", f"{rev}:{BACKLOG}")
+        out = {}
+        for line in text.split("\n"):
+            m = ROW_RE.match(line + "|")
+            if m and line.startswith("|"):
+                out[int(m.group(1))] = line
+        return out, text
+
+    base, _ = table(merge_base)
+    ours, ours_text = table("origin/main")
+    cut, _ = table(base_rev)
+
+    resolved, conflicted, took_cut, added = {}, [], 0, []
+    for rid in set(ours) | set(cut):
+        o, c, b = ours.get(rid), cut.get(rid), base.get(rid)
+        if o == c or c is None:
+            resolved[rid] = o
+        elif o is None:
+            resolved[rid] = c; added.append(rid)
+        elif o == b:
+            resolved[rid] = c; took_cut += 1
+        elif c == b:
+            resolved[rid] = o
+        else:
+            conflicted.append(rid)
+    if conflicted:
+        sys.exit("BACKLOG: rows changed on BOTH sides since the merge base -- "
+                 "resolve by hand: " + ", ".join(map(str, sorted(conflicted))))
+
+    lines, seen_row, last_row = [], False, -1
+    for i, line in enumerate(ours_text.split("\n")):
+        m = ROW_RE.match(line + "|")
+        if m and line.startswith("|"):
+            lines.append(resolved[int(m.group(1))]); seen_row = True; last_row = len(lines) - 1
+        else:
+            lines.append(line)
+    if not seen_row:
+        sys.exit("BACKLOG: main's table has no parseable rows")
+    for rid in sorted(added):
+        last_row += 1
+        lines.insert(last_row, resolved[rid])
+
+    body = "\n".join(lines)
+    body = HDR_RE.sub(HDR.format(r=0, o=0, d="0" * 64), body, count=1)
+    r, o, d = derive_backlog(body)
+    body = HDR_RE.sub(HDR.format(r=r, o=o, d=d), body, count=1)
+    r2, o2, d2 = derive_backlog(body)
+    if (r, o, d) != (r2, o2, d2):
+        sys.exit("BACKLOG: header does not survive re-derivation")
+    if set(resolved) != {int(m.group(1)) for m in ROW_RE.finditer(body)}:
+        sys.exit("BACKLOG: rebuilt table lost or gained a row id")
+    _write(work, BACKLOG, body,
+           f"rows={r} open={o} (cut won {took_cut}, added {len(added)})")
+
+
+def _write(work, path, body, note):
+    if "<<<<<<<" in body or ">>>>>>>" in body or "@@" in body.split("\n")[0]:
+        sys.exit(f"{path}: conflict residue survived resolution")
+    (pathlib.Path(work) / path).write_text(body, encoding="utf-8")
+    print(f"  resolved {path:<48} {note}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", required=True)
+    ap.add_argument("--version", required=True, help="e.g. 3.66.1242")
+    a = ap.parse_args()
+    work = pathlib.Path(a.work).resolve()
+
+    if git(work, "status", "--porcelain=v1", "--untracked-files=no").strip():
+        sys.exit("tree has staged/unstaged changes -- refusing")
+    base_rev = git(work, "rev-parse", "HEAD").strip()
+    git(work, "fetch", "origin", "--prune")
+    main_rev = git(work, "rev-parse", "origin/main").strip()
+    merge_base = git(work, "merge-base", "origin/main", base_rev).strip()
+    print(f"== rebase {work.name}\n   cut {base_rev}\n   onto {main_rev}\n   merge-base {merge_base}")
+    if git(work, "merge-base", "--is-ancestor", main_rev, base_rev, check=False) or True:
+        pass
+    r = subprocess.run(["git", "-C", str(work), "rebase", "origin/main"],
+                       text=True, capture_output=True)
+    conflicts = [l for l in git(work, "diff", "--name-only", "--diff-filter=U").split("\n") if l]
+    if r.returncode == 0 and not conflicts:
+        print("   clean rebase, nothing to resolve")
+    else:
+        unknown = [c for c in conflicts
+                   if c not in {TRIO_VERSION, TRIO_PIN, CHANGELOG, BACKLOG} | GENERATED]
+        if unknown:
+            sys.exit(f"conflicts with no rule -- resolve by hand and rerun:\n  " +
+                     "\n  ".join(unknown))
+        if TRIO_VERSION in conflicts:
+            resolve_trio(work, TRIO_VERSION, f'__version__ = "{a.version}"')
+        if TRIO_PIN in conflicts:
+            resolve_trio(work, TRIO_PIN, f'assert __version__ == "{a.version}"')
+        if CHANGELOG in conflicts:
+            resolve_changelog(work, a.version, base_rev)
+        if BACKLOG in conflicts:
+            resolve_backlog(work, base_rev, merge_base)
+        for g in GENERATED & set(conflicts):
+            git(work, "checkout", "--theirs", "--", g)
+            print(f"  deferred {g:<48} regenerated below")
+        git(work, "add", "--", *conflicts)
+
+    # ALWAYS CHECK THE CHANGELOG ORDER, CONFLICT OR NOT. resolve_changelog only
+    # runs when git REPORTS A CONFLICT on CHANGELOG.md. When the previous cut's
+    # entry and this one's are far enough apart, git AUTO-MERGES successfully and
+    # orders them main-first -- so v3.66.1242's file opened with v3.66.1241 and
+    # bd-precut refused with "top entry is v3.66.1241, not v3.66.1242". A silent
+    # correct-looking merge is exactly the case a conflict-only resolver cannot
+    # see, which is why this is checked rather than assumed.
+    cl = work / CHANGELOG
+    lines = cl.read_text(encoding="utf-8").split("\n")
+    hdrs = [k for k, l in enumerate(lines) if l.startswith("## ")]
+    if not hdrs:
+        sys.exit("CHANGELOG: no level-two header after rebase")
+    want = f"## v{a.version} "
+    if not lines[hdrs[0]].startswith(want):
+        mine = [k for k in hdrs if lines[k].startswith(want)]
+        if len(mine) != 1:
+            sys.exit(f"CHANGELOG: expected exactly one {want!r} entry, found {len(mine)}")
+        start = mine[0]
+        nxt = [k for k in hdrs if k > start]
+        end = nxt[0] if nxt else len(lines)
+        entry = lines[start:end]
+        rest = lines[:start] + lines[end:]
+        head = hdrs[0]
+        out = rest[:head] + entry + rest[head:]
+        text = "\n".join(out)
+        if text.count(want) != 1:
+            sys.exit("CHANGELOG: repair duplicated the entry")
+        cl.write_text(text, encoding="utf-8")
+        git(work, "add", "--", CHANGELOG)
+        print(f"   CHANGELOG repaired: v{a.version} moved above {lines[hdrs[0]].split(' - ')[0][3:]}")
+    else:
+        print(f"   CHANGELOG order OK: top entry is v{a.version}")
+
+    print("== regenerating AFTER the last source edit")
+    rg = subprocess.run([str(work / "venv/bin/python"), "toolchain/bin/bd-regen-order",
+                         "--work", str(work)], cwd=work, text=True, capture_output=True)
+    if rg.returncode:
+        sys.exit(f"regen failed:\n{rg.stdout[-2000:]}{rg.stderr[-2000:]}")
+    print("   regen OK")
+    pin = (work / "PIN_INDEX.json").read_text(encoding="utf-8")
+    if a.version not in pin:
+        sys.exit(f"PIN_INDEX.json does not carry {a.version} after regen")
+    print(f"   PIN_INDEX carries {a.version}")
+
+    tracked = [l[3:] for l in git(work, "status", "--porcelain=v1").split("\n")
+               if l and not l.endswith(("node_modules", "venv"))]
+    git(work, "add", "--", *[t for t in tracked if t])
+    if not (conflicts or r.returncode):
+        # CLEAN REBASE STILL REGENERATES. Without this the regen output sits
+        # STAGED BUT UNCOMMITTED: the cut ships without its generated artifacts
+        # and the next step trips over a dirty tree with no explanation.
+        if git(work, "diff", "--cached", "--name-only").strip():
+            subprocess.run(["git", "-C", str(work), "commit", "--amend",
+                            "--no-edit"], check=True, capture_output=True)
+            print("   amended clean rebase with regenerated artifacts")
+    if conflicts or r.returncode:
+        c = subprocess.run(["git", "-C", str(work), "rebase", "--continue"],
+                           text=True, capture_output=True, env={"GIT_EDITOR": "true",
+                           "PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home())})
+        if c.returncode:
+            sys.exit(f"rebase --continue failed:\n{c.stderr}")
+    head = git(work, "rev-parse", "HEAD").strip()
+    tree = git(work, "rev-parse", "HEAD^{tree}").strip()
+    parent = git(work, "rev-parse", "HEAD~1").strip()
+    if parent != main_rev:
+        sys.exit(f"parent {parent} is not origin/main {main_rev}")
+    print(f"== candidate {head}\n   tree {tree}\n   parent {parent} == origin/main")
+    print("   NOW: bd-verify-cut.sh, then inspect the diff before shipping")
+
+
+if __name__ == "__main__":
+    main()

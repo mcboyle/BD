@@ -1,0 +1,129 @@
+#!/bin/bash
+# RUN A BAND ON A CAPACITY BOX, NOT ON THE TREE BEING EDITED.
+#
+# CLAUDE.md A6: "Do not run capture on a host whose tree is being edited, and do
+# not edit it during capture." On 2026-08-29 that rule was broken twice on row
+# 374 -- the fix landed at 14:42, the candidate froze at 14:43 from a diff taken
+# at 14:41, and the 623-file band spent 13 minutes judging a tree that never
+# contained the fix. 26 minutes lost, no CPU contention, no failing test. Running
+# the band on another machine at a FROZEN SHA makes that impossible rather than
+# forbidden.
+#
+# OPT-IN AND FAIL-SOFT BY DESIGN. It prints REMOTE-UNAVAILABLE and exits 64 when
+# no capacity box can take the work; the caller then runs locally exactly as
+# before. A capacity box that is down, full or unreachable must never block a
+# cut -- a verification lane that can refuse a good cut is worse than a slow one.
+#
+# Capacity boxes clone from a LOCAL bare repo (/home/mboyle/bd.git ON THAT HOST),
+# not from GitHub, so they cannot see a new SHA until it is pushed to them.
+# Measured 2026-08-29: `git fetch origin` there succeeded and still left the box
+# at 4d636df, and the checkout failed "reference is not a tree". We push the
+# exact object over SSH first; that is the whole mechanism.
+#
+#   bd-band-remote.sh <sha> <test-file...>      rc = pytest's rc, or 64 if remote
+set -uo pipefail
+SHA=${1:?usage: bd-band-remote.sh <sha> <test file...>}; shift
+[ $# -gt 0 ] || { echo "no tests given"; exit 2; }
+[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || { echo "REMOTE-UNAVAILABLE: invalid full lowercase SHA"; exit 64; }
+ROLES=${BD_BAND_ROLES:-/home/mboyle/.config/bd/roles}
+REPO=${BD_BAND_REPO:-/home/mboyle/BulkDownloader}
+LOG=${BD_BAND_LOG:-/home/mboyle/fleet-run-artifacts/2026-08-25/inflight/band-remote-${SHA:0:8}.log}
+git -C "$REPO" cat-file -e "$SHA^{commit}" 2>/dev/null \
+  || { echo "REMOTE-UNAVAILABLE: SHA is not a local commit"; exit 64; }
+
+mapfile -t BOXES < <(awk '$1=="capacity" && NF>=3 {print $3}' "$ROLES" 2>/dev/null)
+[ ${#BOXES[@]} -gt 0 ] || { echo "REMOTE-UNAVAILABLE: no capacity host in $ROLES"; exit 64; }
+
+for ip in "${BOXES[@]}"; do
+  ssh -o ConnectTimeout=6 -o BatchMode=yes "mboyle@$ip" true 2>/dev/null || continue
+  # Never move main. Create the per-SHA ref only when it is absent; a lease on
+  # absence closes the ls-remote/push race. An existing exact value is reused,
+  # while any conflicting value makes this host unavailable without mutation.
+  BAND_REF="refs/heads/bd-band/${SHA}"
+  REMOTE="ssh://mboyle@$ip/home/mboyle/bd.git"
+  observed=$(git -C "$REPO" ls-remote "$REMOTE" "$BAND_REF" 2>/dev/null) \
+    || { echo "  $ip: immutable ref unreadable, trying next"; continue; }
+  if [ -n "$observed" ]; then
+    [ "$(printf '%s\n' "$observed" | awk 'NF {n++} END {print n+0}')" -eq 1 ] \
+      || { echo "  $ip: ambiguous immutable ref, trying next"; continue; }
+    read -r existing existing_ref extra <<< "$observed"
+    if [ -n "${extra:-}" ] || [ "$existing_ref" != "$BAND_REF" ] \
+        || [ "$existing" != "$SHA" ]; then
+      echo "  $ip: conflicting immutable ref, trying next"; continue
+    fi
+  else
+    git -C "$REPO" push -q --force-with-lease="$BAND_REF:" \
+      "$REMOTE" "$SHA:$BAND_REF" 2>/dev/null \
+      || { echo "  $ip: immutable ref creation failed, trying next"; continue; }
+  fi
+  observed=$(git -C "$REPO" ls-remote "$REMOTE" "$BAND_REF" 2>/dev/null) \
+    || { echo "  $ip: immutable ref read-back failed, trying next"; continue; }
+  [ "$(printf '%s\n' "$observed" | awk 'NF {n++} END {print n+0}')" -eq 1 ] \
+    || { echo "  $ip: immutable ref read-back ambiguous, trying next"; continue; }
+  read -r existing existing_ref extra <<< "$observed"
+  if [ -n "${extra:-}" ] || [ "$existing_ref" != "$BAND_REF" ] \
+      || [ "$existing" != "$SHA" ]; then
+    echo "  $ip: immutable ref read-back mismatch, trying next"; continue
+  fi
+
+  # User-controlled selectors never become remote shell source. Each value is
+  # base64-encoded into a nonempty shell-safe token; the fixed stdin script
+  # decodes those tokens back into a Bash array and execs pytest with "${argv[@]}".
+  encoded=()
+  for value in "$BAND_REF" "$SHA" "$ip" "$@"; do
+    token=$(printf '%s' "$value" | base64 | tr -d '\n')
+    encoded+=("b$token")
+  done
+  remote_command="bash -s --"
+  for token in "${encoded[@]}"; do remote_command+=" $token"; done
+  ssh -o ConnectTimeout=10 "mboyle@$ip" "$remote_command" <<'REMOTE_SCRIPT' 2>&1 | tee "$LOG"
+set -uo pipefail
+decode() {
+  local raw=$1
+  [[ "$raw" == b* ]] || return 1
+  printf '%s' "${raw#b}" | base64 -d
+}
+[ $# -ge 4 ] || exit 75
+BAND_REF=$(decode "$1") || exit 75; shift
+SHA=$(decode "$1") || exit 75; shift
+ip=$(decode "$1") || exit 75; shift
+[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || exit 75
+[ "$BAND_REF" = "refs/heads/bd-band/$SHA" ] || exit 75
+selectors=()
+for token in "$@"; do
+  value=$(decode "$token") || exit 75
+  selectors+=("$value")
+done
+[ ${#selectors[@]} -gt 0 ] || exit 75
+command -v flock >/dev/null 2>&1 || exit 75
+exec 9>/tmp/bd-band.lock || exit 75
+flock -n 9 || exit 75
+busy=$(ps -eo args= 2>/dev/null | grep -Ec '[p]ython[^ ]* -m pytest' || true)
+case "$busy" in ''|*[!0-9]*) exit 75;; esac
+[ "$busy" -eq 0 ] || exit 75
+writers=$(ps -eo args= 2>/dev/null | grep -Ec '([c]odex|[c]laude)' || true)
+case "$writers" in ''|*[!0-9]*) exit 75;; esac
+[ "$writers" -eq 0 ] || exit 75
+repo=$HOME/BulkDownloader
+[ -z "$(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null)" ] || exit 75
+git -C "$repo" fetch -q origin "$BAND_REF" || exit 75
+fetched=$(git -C "$repo" rev-parse --verify 'FETCH_HEAD^{commit}' 2>/dev/null) || exit 75
+[ "$fetched" = "$SHA" ] || exit 75
+git -C "$repo" checkout -q --detach "$SHA" || exit 75
+got=$(git -C "$repo" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || exit 75
+[ "$got" = "$SHA" ] || exit 75
+cd "$repo" || exit 75
+echo "band-remote: $ip at ${SHA:0:8}, ${#selectors[@]} file(s)"
+exec env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 \
+  venv/bin/python -m pytest "${selectors[@]}" -n 12 --dist loadfile \
+  --timeout=240 --timeout-method=signal --max-worker-restart=0 -p no:randomly
+REMOTE_SCRIPT
+  remote_rc=${PIPESTATUS[0]}
+  case "$remote_rc" in
+    75|255) echo "  $ip: unavailable, busy, or subject proof failed; trying next"; continue;;
+  esac
+  exit "$remote_rc"
+done
+echo "REMOTE-UNAVAILABLE: no capacity host free -- caller should run locally"
+exit 64

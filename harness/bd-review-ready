@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# bd-review-ready -- handoff readiness gate. Run on the WORK HOST (where Codex
+# implemented) AFTER Codex reports done and BEFORE packaging for review.
+#
+# Read-only. Creates nothing outside its own output directory. Answers one
+# question: is this branch actually reviewable, or would the reviewer waste a
+# pass discovering it is not? Every check is a fact, not a promise.
+#
+#   bd-review-ready --bundle DIR --repo DIR [--red FILE] [--out DIR]
+#
+# Exit 0 = READY (prints the exact fixation block to hand the reviewer)
+#      1 = NOT READY (blocking findings listed)
+#      2 = usage/internal error
+set -uo pipefail
+
+BUNDLE="" REPO="$HOME/BulkDownloader" RED="" OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --bundle) BUNDLE=$2; shift 2;;
+    --repo)   REPO=$2; shift 2;;
+    --red)    RED=$2; shift 2;;
+    --out)    OUT=$2; shift 2;;
+    *) echo "usage: bd-review-ready --bundle DIR --repo DIR [--red FILE] [--out DIR]" >&2; exit 2;;
+  esac
+done
+[ -n "$BUNDLE" ] || { echo "--bundle required" >&2; exit 2; }
+OUT=${OUT:-$HOME/review-ready-$(date -u +%Y%m%dT%H%M%SZ)}
+mkdir -p "$OUT" || exit 2
+FAIL=0; WARN=0
+ok(){   printf '  PASS    %s\n' "$*"; }
+bad(){  printf '  BLOCK   %s\n' "$*"; FAIL=$((FAIL+1)); }
+warn(){ printf '  WARN    %s\n' "$*"; WARN=$((WARN+1)); }
+sec(){  printf '\n== %s ==\n' "$*"; }
+
+printf 'BD-REVIEW-READY  utc=%s  host=%s  machine=%s\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(hostname)" \
+  "$(cut -c1-12 /etc/machine-id 2>/dev/null || echo NA)"
+
+# 1 -- implementer stopped ----------------------------------------------------
+sec "1. implementer session stopped"
+SELF=$$
+LIVE=$(ps -eo pid,etimes,args 2>/dev/null \
+       | grep -E '[c]odex|[p]ytest|[b]d-team-|[w]atchman' \
+       | awk -v s="$SELF" '$1!=s' || true)
+if [ -z "$LIVE" ]; then ok "no codex/pytest/bus/watcher processes alive"
+else bad "live processes remain (stop them, then re-run):"; echo "$LIVE" | sed 's/^/          /'
+     echo "$LIVE" > "$OUT/live-processes.txt"; fi
+
+# 2 -- repository untouched ---------------------------------------------------
+sec "2. repository untouched (write-scope boundary)"
+if [ -d "$REPO/.git" ]; then
+  RHEAD=$(GIT_OPTIONAL_LOCKS=0 git -C "$REPO" rev-parse HEAD 2>/dev/null || echo UNKNOWN)
+  RDIRTY=$(GIT_OPTIONAL_LOCKS=0 git -C "$REPO" status --porcelain 2>/dev/null | wc -l)
+  RBRANCH=$(GIT_OPTIONAL_LOCKS=0 git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)
+  [ "$RHEAD" = UNKNOWN ] && bad "cannot read repo HEAD" || ok "repo HEAD $RHEAD ($RBRANCH)"
+  [ "$RDIRTY" -eq 0 ] && ok "repo working tree clean" \
+    || bad "repo has $RDIRTY dirty lines -- bundle work leaked into the repo"
+  ls "$REPO/.git/index.lock" >/dev/null 2>&1 && bad "repo .git/index.lock present" \
+    || ok "no repo index.lock"
+  printf '%s\n%s\n' "$RHEAD" "$RDIRTY" > "$OUT/repo-bracket-open.txt"
+else bad "no git repo at $REPO"; fi
+
+# 3 -- bundle committed and quiescent ----------------------------------------
+sec "3. bundle state"
+if [ -d "$BUNDLE/.git" ]; then
+  BDIRTY=$(GIT_OPTIONAL_LOCKS=0 git -C "$BUNDLE" status --porcelain 2>/dev/null | wc -l)
+  BHEAD=$(GIT_OPTIONAL_LOCKS=0 git -C "$BUNDLE" rev-parse HEAD 2>/dev/null || echo UNKNOWN)
+  BBR=$(GIT_OPTIONAL_LOCKS=0 git -C "$BUNDLE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)
+  [ "$BDIRTY" -eq 0 ] && ok "bundle committed clean at $BHEAD ($BBR)" \
+    || bad "bundle has $BDIRTY uncommitted lines -- reviewer cannot fixate a moving head"
+else warn "bundle is not git-tracked; hash manifest is the only fixation"; BHEAD=untracked; fi
+NEW=$(find "$BUNDLE" -type f -mmin -5 -not -path '*/.git/*' 2>/dev/null | head -5)
+[ -z "$NEW" ] && ok "no bundle file modified in the last 5 minutes" \
+  || { warn "files modified <5min ago (is work still running?):"; echo "$NEW" | sed 's/^/          /'; }
+
+# 4 -- RED file present and hashable -----------------------------------------
+sec "4. immutable RED acceptance file"
+if [ -n "$RED" ]; then
+  if [ -f "$RED" ]; then RH=$(sha256sum "$RED" | cut -d' ' -f1)
+    ok "RED file present sha256=$RH"; echo "$RH  $RED" > "$OUT/red-sha256.txt"
+  else bad "RED file not found at $RED"; fi
+else warn "--red not supplied; reviewer cannot verify RED immutability"; fi
+
+# 5 -- the six reproductions are encoded as tests -----------------------------
+sec "5. six reproductions encoded as tests"
+declare -A PAT=(
+ [claim-lifecycle]='renew|release'
+ [task-rollback]='task.take|task.done'
+ [empty-authority-ref]='authority.ref|auth_ref'
+ [loopback-bypass]='evil\.example|userinfo|@'
+ [null-repository-root]='repository_root'
+ [overlay-age-anchor]='head_sha|1970'
+)
+for k in "${!PAT[@]}"; do
+  n=$(grep -rEl "${PAT[$k]}" "$BUNDLE" --include='test_*.py' --include='*_test.py' 2>/dev/null | wc -l)
+  [ "$n" -gt 0 ] && ok "$k: matched in $n test file(s)" \
+    || bad "$k: no test file references it"
+done
+
+# 6 -- suite runs clean from a neutral environment ----------------------------
+sec "6. verdict suite (neutral HOME, bundle's own venv if present)"
+PY=$(command -v python3 || true)
+[ -x "$BUNDLE/venv/bin/python" ] && PY="$BUNDLE/venv/bin/python"
+if [ -n "$PY" ] && "$PY" -c 'import pytest' 2>/dev/null; then
+  TH=$(mktemp -d)
+  ( cd "$BUNDLE" && HOME="$TH" "$PY" -m pytest -q ) > "$OUT/suite.txt" 2>&1
+  RC=$?
+  TAIL=$(tail -3 "$OUT/suite.txt" | tr '\n' ' ')
+  [ $RC -eq 0 ] && ok "suite green: $TAIL" || bad "suite rc=$RC: $TAIL"
+  grep -qE '[0-9]+ (passed|failed)' "$OUT/suite.txt" \
+    && ok "denominator present: $(grep -oE '[0-9]+ passed[^ ]*( , )?|[0-9]+ failed' "$OUT/suite.txt" | tr '\n' ' ')" \
+    || bad "no test denominator reported -- a suite that collected nothing is not green"
+  rm -rf "$TH"
+else warn "pytest unavailable here; reviewer runs the verdict suite"; fi
+
+# 7 -- documentation truth (fast greps the reviewer will repeat) --------------
+sec "7. documentation truth"
+grep -rIl "tamper detection" "$BUNDLE" --exclude-dir=.git 2>/dev/null | grep -q . \
+  && bad "'tamper detection' still claimed (unkeyed hash != tamper-proof)" \
+  || ok "no 'tamper detection' claim"
+grep -rIn -- "--from matthew" "$BUNDLE" --exclude-dir=.git 2>/dev/null \
+  | grep -viE 'not authenticate|no authority|coordination only|claimed response' | grep -q . \
+  && warn "'--from matthew' appears without a disclaiming qualifier nearby" \
+  || ok "operator-flag references carry disclaimers"
+for f in ERRATA.md SUPERSEDED.md CURRENT_STATE.json; do
+  find "$BUNDLE" -name "$f" | grep -q . && ok "$f present" || bad "$f missing"
+done
+
+# 8 -- tool modes and syntax --------------------------------------------------
+sec "8. tool modes and syntax"
+for t in bd-team-bus bd-team-pilot fleet_preflight_readonly.sh; do
+  p=$(find "$BUNDLE" -name "$t" -type f | head -1)
+  if [ -z "$p" ]; then bad "$t not found"; continue; fi
+  m=$(stat -c %a "$p"); [ "$m" = 755 ] && ok "$t mode 755" || bad "$t mode $m (want 755)"
+  case "$p" in
+    *.sh) bash -n "$p" 2>/dev/null && ok "$t shell syntax ok" || bad "$t shell syntax error";;
+    *) head -1 "$p" | grep -q python && { python3 -m py_compile "$p" 2>/dev/null \
+         && ok "$t compiles" || bad "$t does not compile"; };;
+  esac
+done
+
+# 9 -- fixation block ---------------------------------------------------------
+sec "9. fixation"
+MAN="$OUT/bundle-manifest.sha256"
+find "$BUNDLE" -type f -not -path '*/.git/*' -print0 | sort -z \
+  | xargs -0 sha256sum > "$MAN" 2>/dev/null
+MANH=$(sha256sum "$MAN" | cut -d' ' -f1)
+ok "manifest: $(wc -l < "$MAN") files, manifest-hash $MANH"
+
+printf '\n===================== VERDICT =====================\n'
+if [ $FAIL -eq 0 ]; then
+  printf 'READY  (%d warning(s))\n\nHand the reviewer:\n' "$WARN"
+  printf '  BUNDLE_HEAD      = %s\n' "${BHEAD:-untracked}"
+  printf '  BUNDLE_MANIFEST  = %s\n' "$MANH"
+  printf '  REPO_HEAD        = %s\n' "${RHEAD:-UNKNOWN}"
+  printf '  REPO_DIRTY_LINES = %s\n' "${RDIRTY:-UNKNOWN}"
+  [ -n "$RED" ] && printf '  RED_SHA256       = %s\n' "${RH:-UNKNOWN}"
+  printf '  evidence dir     = %s\n' "$OUT"
+  printf '\nNext: tar the bundle, sha256 it, transfer to the review host.\n'
+  exit 0
+else
+  printf 'NOT READY -- %d blocking finding(s), %d warning(s).\n' "$FAIL" "$WARN"
+  printf 'Return these to the implementer; re-run this gate after fixes.\n'
+  exit 1
+fi

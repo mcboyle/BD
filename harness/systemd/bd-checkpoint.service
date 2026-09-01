@@ -1,0 +1,10 @@
+[Unit]
+Description=BD continuity: append a measured checkpoint block and regenerate the resume prompt
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/mboyle/bd-checkpoint-write
+# Never let continuity work compete with a formal timing run (A6: host load is
+# part of the evidence). It is a few seconds of git, but it is scheduled work.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=300

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Run a local Python file on a remote host. No heredoc, no quoting, no escaping.
+#
+# WHY THIS EXISTS. Sending Python to a remote host through `ssh host 'python3 - <<EOF'`
+# puts the script through TWO shells and a heredoc. Backslashes, $, backticks and
+# nested quotes are each mangled differently on the way, and the failure is not a
+# clean error -- it is a SyntaxError in a file you cannot see, or worse, a script
+# that parses and means something else. That cost three separate retries in one
+# night: an f-string with escaped quotes, a docstring containing an apostrophe,
+# and a regex with \s. Every one was a quoting artifact, not a logic error.
+#
+# The fix is to stop transporting source through a shell: write the file locally
+# where you can read it, copy it as bytes, and execute it by path.
+#
+#   usage: bd-rpy <host> <local.py> [args...]
+#          bd-rpy --check <local.py>        # parse locally, copy nothing
+#
+# The file is parsed LOCALLY first, so a syntax error is reported against the
+# file you can actually open instead of against <stdin>.
+set -uo pipefail
+
+if [ "${1:-}" = "--check" ]; then
+  python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read()); print('parses:', sys.argv[1])" "$2"
+  exit $?
+fi
+
+HOST="${1:?usage: bd-rpy <host> <local.py> [args...]}"
+SRC="${2:?usage: bd-rpy <host> <local.py> [args...]}"
+shift 2
+
+[ -f "$SRC" ] || { echo "bd-rpy: no such file: $SRC" >&2; exit 2; }
+python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SRC" || {
+  echo "bd-rpy: $SRC does not parse locally -- not copying" >&2; exit 3; }
+
+REM=".bd-rpy-$(basename "$SRC" .py)-$$.py"
+scp -q -o BatchMode=yes -o ConnectTimeout=10 "$SRC" "$HOST:$REM" || {
+  echo "bd-rpy: copy to $HOST failed" >&2; exit 4; }
+
+# Prefer the repository interpreter; fall back to python3 only if it is absent.
+# Report which one ran, because "it worked on python3" is a different experiment.
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" \
+  "P=\$HOME/BulkDownloader/venv/bin/python; [ -x \"\$P\" ] || P=python3; \
+   \"\$P\" \"\$REM_OVERRIDE\" $(printf '%q ' "$@"); rc=\$?; rm -f \"\$REM_OVERRIDE\"; exit \$rc" \
+  REM_OVERRIDE="$REM" 2>/dev/null || {
+  # SendEnv is not always permitted; fall back to inlining just the path, which
+  # contains no user data and therefore no quoting hazard.
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" \
+    "P=\$HOME/BulkDownloader/venv/bin/python; [ -x \"\$P\" ] || P=python3; \
+     \"\$P\" '$REM' $(printf '%q ' "$@"); rc=\$?; rm -f '$REM'; exit \$rc"
+}

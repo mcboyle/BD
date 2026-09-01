@@ -1,0 +1,692 @@
+#!/usr/bin/env bash
+# Verify one immutable release candidate.  The denominator is the complete net
+# cut, merge-base(fresh origin/main,candidate)..candidate, not the final commit.
+# All potentially mutating regeneration runs first and alone in a disposable
+# exact-SHA worktree; every later reader runs only after that tree is re-proved.
+set -u
+umask 077
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: bd-verify-cut.sh <candidate-worktree> <artifact-tag>" >&2
+  exit 2
+fi
+
+WORK_INPUT=$1
+TAG=$2
+case "$TAG" in
+  ''|*[!A-Za-z0-9._-]*)
+    echo "UNKNOWN, not permission: artifact tag must match [A-Za-z0-9._-]+" >&2
+    exit 2
+    ;;
+esac
+
+ART=${BD_VERIFY_CUT_ARTIFACT_DIR:-/home/mboyle/fleet-run-artifacts/2026-08-25/inflight}
+PREPUSH=${BD_VERIFY_CUT_PREPUSH:-/home/mboyle/bd-prepush.sh}
+BAND_REMOTE=${BD_VERIFY_CUT_BAND_REMOTE:-/home/mboyle/bd-band-remote.sh}
+FETCH_TIMEOUT=${BD_VERIFY_CUT_FETCH_TIMEOUT:-300}
+PREPUSH_TIMEOUT=${BD_VERIFY_CUT_PREPUSH_TIMEOUT:-3600}
+PRECUT_TIMEOUT=${BD_VERIFY_CUT_PRECUT_TIMEOUT:-3600}
+BAND_TIMEOUT=${BD_VERIFY_CUT_BAND_TIMEOUT:-5400}
+BROWSER_TIMEOUT=${BD_VERIFY_CUT_BROWSER_TIMEOUT:-1800}
+BAND_WORKERS=${BAND_WORKERS:-24}
+AUDIT_PYTHON=${BD_VERIFY_CUT_AUDIT_PYTHON:-/usr/bin/python3}
+BASELINE_INPUT=${BD_VERIFY_CUT_BASELINE:-}
+
+SOURCE=
+TMP_ROOT=
+CHECKOUT=
+LOCK_DIR=
+LOCK_HELD=0
+CANDIDATE_SHA=UNKNOWN
+CANDIDATE_TREE=UNKNOWN
+ORIGIN_MAIN_SHA=UNKNOWN
+BASE_SHA=UNKNOWN
+BASE_TREE=UNKNOWN
+CH_N=0
+BAND_N=0
+PRECUT_RC=98
+PREPUSH_RC=98
+BAND_DERIVE_RC=98
+BAND_AUDIT_RC=98
+BAND_RC=98
+BROWSER_RC=0
+BASELINE_PATH=UNSET
+BASELINE_SHA256=UNSET
+RED_REASONS=()
+UNKNOWN_REASONS=()
+
+record_red() {
+  RED_REASONS+=("$*")
+  echo "RED: $*"
+}
+
+record_unknown() {
+  UNKNOWN_REASONS+=("$*")
+  echo "UNKNOWN, not permission: $*"
+}
+
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if [ -n "$CHECKOUT" ] && [ -n "$SOURCE" ] && [ -n "$TMP_ROOT" ]; then
+    case "$CHECKOUT" in
+      "$TMP_ROOT"/*) git -C "$SOURCE" worktree remove --force -- "$CHECKOUT" >/dev/null 2>&1 || true ;;
+    esac
+  fi
+  if [ -n "$TMP_ROOT" ] && [ "$TMP_ROOT" != / ] && [ -d "$TMP_ROOT" ]; then
+    rm -rf -- "$TMP_ROOT"
+  fi
+  if [ "$LOCK_HELD" -eq 1 ] && [ -n "$LOCK_DIR" ]; then
+    rmdir -- "$LOCK_DIR" >/dev/null 2>&1 || true
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
+finish() {
+  date -u +'   end %Y-%m-%dT%H:%M:%SZ'
+  echo "VERDICT $TAG: precut=$PRECUT_RC prepush=$PREPUSH_RC derive=$BAND_DERIVE_RC audit=$BAND_AUDIT_RC band=$BAND_RC over $BAND_N file(s)"
+  if [ "${#UNKNOWN_REASONS[@]}" -gt 0 ]; then
+    echo "NOT SHIPPABLE"
+    printf '  UNKNOWN: %s\n' "${UNKNOWN_REASONS[@]}"
+    exit 2
+  fi
+  if [ "${#RED_REASONS[@]}" -gt 0 ]; then
+    echo "NOT SHIPPABLE"
+    printf '  RED: %s\n' "${RED_REASONS[@]}"
+    exit 1
+  fi
+  if [ "$PRECUT_RC" -eq 0 ] && [ "$PREPUSH_RC" -eq 0 ] \
+      && [ "$BAND_DERIVE_RC" -eq 0 ] && [ "$BAND_AUDIT_RC" -eq 0 ] \
+      && [ "$BAND_RC" -eq 0 ] && [ "$BAND_N" -gt 0 ]; then
+    echo "ALL GREEN -- shippable"
+    exit 0
+  fi
+  record_unknown "verifier reached an incomplete terminal state"
+  echo "NOT SHIPPABLE"
+  exit 2
+}
+
+positive_integer() {
+  case "$1" in ''|*[!0-9]*|0) return 1;; *) return 0;; esac
+}
+
+for setting in "$FETCH_TIMEOUT" "$PREPUSH_TIMEOUT" "$PRECUT_TIMEOUT" \
+               "$BAND_TIMEOUT" "$BROWSER_TIMEOUT" "$BAND_WORKERS"; do
+  if ! positive_integer "$setting"; then
+    record_unknown "timeouts and BAND_WORKERS must be positive integers"
+    finish
+  fi
+done
+
+if ! mkdir -p -- "$ART"; then
+  record_unknown "cannot create artifact directory $ART"
+  finish
+fi
+LOCK_DIR=$ART/$TAG.lock
+if ! mkdir -- "$LOCK_DIR"; then
+  record_unknown "verification tag is already active or its lock cannot be acquired: $TAG"
+  finish
+fi
+LOCK_HELD=1
+# A reused tag must never expose a prior attempt's denominator or gate tail as
+# evidence for this attempt.  Every target is an exact, tag-qualified artifact.
+for stale_suffix in source.err fetch.log fetch-final.log merge-base.err worktree.log \
+                    prepush.log band-derive.json band-derive.err band-audit.log \
+                    denominator.json baseline.err precut.log band.log browser.log; do
+  stale_path=$ART/$TAG-$stale_suffix
+  if ! rm -f -- "$stale_path" || [ -e "$stale_path" ] || [ -L "$stale_path" ]; then
+    record_unknown "cannot clear stale artifact $stale_path"
+    finish
+  fi
+done
+
+if ! SOURCE=$(git -C "$WORK_INPUT" rev-parse --show-toplevel 2>"$ART/$TAG-source.err"); then
+  record_unknown "candidate worktree is not a readable Git worktree: $WORK_INPUT"
+  finish
+fi
+
+if ! CANDIDATE_SHA=$(git -C "$SOURCE" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) \
+    || ! CANDIDATE_TREE=$(git -C "$SOURCE" rev-parse --verify 'HEAD^{tree}' 2>/dev/null); then
+  record_unknown "candidate HEAD or tree cannot be resolved"
+  finish
+fi
+
+prove_source() {
+  local phase=$1 got_sha got_tree tracked
+  if ! got_sha=$(git -C "$SOURCE" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) \
+      || ! got_tree=$(git -C "$SOURCE" rev-parse --verify 'HEAD^{tree}' 2>/dev/null) \
+      || ! tracked=$(git -C "$SOURCE" status --porcelain=v1 --untracked-files=no 2>/dev/null); then
+    record_unknown "candidate source could not be proved during $phase"
+    return 1
+  fi
+  if [ "$got_sha" != "$CANDIDATE_SHA" ] || [ "$got_tree" != "$CANDIDATE_TREE" ]; then
+    record_unknown "candidate source HEAD/tree moved during $phase (sha=$got_sha tree=$got_tree)"
+    return 1
+  fi
+  if [ -n "$tracked" ]; then
+    record_unknown "candidate source tracked tree is dirty during $phase"
+    printf '%s\n' "$tracked" | sed -n '1,8p'
+    return 1
+  fi
+  return 0
+}
+
+echo "== verify $TAG =="
+echo "   host $(hostname)"
+echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+echo "CANDIDATE_TREE=$CANDIDATE_TREE"
+date -u +'   start %Y-%m-%dT%H:%M:%SZ'
+
+if ! prove_source freeze; then
+  finish
+fi
+
+if ! TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/bd-verify-cut.${TAG}.XXXXXX"); then
+  record_unknown "cannot create disposable verification directory"
+  finish
+fi
+
+fetch_origin_main() {
+  local phase=$1 log=$2 rc resolved
+  timeout "$FETCH_TIMEOUT" git -C "$SOURCE" fetch --quiet --no-tags origin \
+    '+refs/heads/main:refs/remotes/origin/main' >"$log" 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    record_unknown "fresh origin/main fetch failed during $phase (rc=$rc)"
+    return 1
+  fi
+  if ! resolved=$(git -C "$SOURCE" rev-parse --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null); then
+    record_unknown "fresh origin/main cannot be resolved during $phase"
+    return 1
+  fi
+  FETCHED_ORIGIN_MAIN=$resolved
+  return 0
+}
+
+FETCHED_ORIGIN_MAIN=
+if ! fetch_origin_main freeze "$ART/$TAG-fetch.log"; then
+  finish
+fi
+ORIGIN_MAIN_SHA=$FETCHED_ORIGIN_MAIN
+echo "ORIGIN_MAIN_SHA=$ORIGIN_MAIN_SHA"
+
+if ! prove_source after-origin-fetch; then
+  finish
+fi
+
+BASES_FILE=$TMP_ROOT/merge-bases.txt
+if ! git -C "$SOURCE" merge-base --all "$ORIGIN_MAIN_SHA" "$CANDIDATE_SHA" >"$BASES_FILE" 2>"$ART/$TAG-merge-base.err"; then
+  record_unknown "merge-base(origin/main,candidate) could not be derived"
+  finish
+fi
+mapfile -t MERGE_BASES < "$BASES_FILE"
+if [ "${#MERGE_BASES[@]}" -ne 1 ] || [ -z "${MERGE_BASES[0]:-}" ]; then
+  record_unknown "merge-base(origin/main,candidate) is absent or ambiguous (${#MERGE_BASES[@]} result(s))"
+  finish
+fi
+BASE_SHA=${MERGE_BASES[0]}
+if ! BASE_TREE=$(git -C "$SOURCE" rev-parse --verify "$BASE_SHA^{tree}" 2>/dev/null) \
+    || ! git -C "$SOURCE" merge-base --is-ancestor "$BASE_SHA" "$ORIGIN_MAIN_SHA" \
+    || ! git -C "$SOURCE" merge-base --is-ancestor "$BASE_SHA" "$CANDIDATE_SHA"; then
+  record_unknown "derived merge base is not a provable ancestor of both frozen tips"
+  finish
+fi
+echo "BASE_SHA=$BASE_SHA"
+echo "BASE_TREE=$BASE_TREE"
+echo "DIFF_RANGE=$BASE_SHA..$CANDIDATE_SHA"
+
+CHANGED_FILE=$TMP_ROOT/changed.z
+if ! git -C "$SOURCE" diff --no-ext-diff --no-renames --name-only -z \
+    "$BASE_SHA..$CANDIDATE_SHA" >"$CHANGED_FILE"; then
+  record_unknown "full-cut changed-path denominator could not be read"
+  finish
+fi
+mapfile -d '' -t CHANGED < "$CHANGED_FILE"
+if ! rm -f -- "$CHANGED_FILE" || [ -e "$CHANGED_FILE" ] || [ -L "$CHANGED_FILE" ]; then
+  record_unknown "cannot clear pre-candidate changed-path scratch"
+  finish
+fi
+CHANGED_FILE=
+CH_N=${#CHANGED[@]}
+echo "CHANGED_FILES=$CH_N"
+if [ "$CH_N" -eq 0 ]; then
+  record_unknown "full-cut denominator is empty"
+  finish
+fi
+for changed_path in "${CHANGED[@]}"; do
+  case "$changed_path" in
+    -*) record_unknown "changed path cannot be passed losslessly to bd-band-derive: $changed_path"; finish ;;
+  esac
+done
+
+CHECKOUT=$TMP_ROOT/exact-candidate
+if ! git -C "$SOURCE" worktree add --quiet --detach "$CHECKOUT" "$CANDIDATE_SHA" \
+    >"$ART/$TAG-worktree.log" 2>&1; then
+  record_unknown "disposable exact-SHA worktree could not be created"
+  finish
+fi
+
+# Only dependency scaffolding is shared.  Never manufacture frontend/dist: its
+# absence is itself the subject of several gates.
+if [ ! -e "$CHECKOUT/venv" ] && [ ! -L "$CHECKOUT/venv" ] \
+    && { [ -e "$SOURCE/venv" ] || [ -L "$SOURCE/venv" ]; }; then
+  ln -s -- "$SOURCE/venv" "$CHECKOUT/venv"
+fi
+if { [ -e "$SOURCE/frontend/node_modules" ] || [ -L "$SOURCE/frontend/node_modules" ]; } \
+    && [ ! -e "$CHECKOUT/frontend/node_modules" ] && [ ! -L "$CHECKOUT/frontend/node_modules" ]; then
+  mkdir -p -- "$CHECKOUT/frontend"
+  ln -s -- "$SOURCE/frontend/node_modules" "$CHECKOUT/frontend/node_modules"
+fi
+
+PYTHON=${BD_VERIFY_CUT_PYTHON:-$CHECKOUT/venv/bin/python}
+resolve_executable() {
+  case "$1" in
+    */*) [ -x "$1" ] && printf '%s\n' "$1" ;;
+    *) command -v "$1" 2>/dev/null ;;
+  esac
+}
+if ! PYTHON=$(resolve_executable "$PYTHON"); then
+  record_unknown "candidate Python is unavailable: ${BD_VERIFY_CUT_PYTHON:-$CHECKOUT/venv/bin/python}"
+  finish
+fi
+if ! AUDIT_PYTHON=$(resolve_executable "$AUDIT_PYTHON"); then
+  record_unknown "trusted audit Python is unavailable"
+  finish
+fi
+
+baseline_sha256() {
+  "$AUDIT_PYTHON" - "$1" <<'PY'
+import hashlib
+import os
+import stat
+import sys
+import zipfile
+
+path = sys.argv[1]
+try:
+    mode = os.stat(path).st_mode
+    if not stat.S_ISREG(mode):
+        raise ValueError("not a regular file")
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    with zipfile.ZipFile(path) as archive:
+        archive.infolist()
+except Exception as exc:
+    print(f"baseline validation failed: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+print(digest.hexdigest())
+PY
+}
+
+if [ -n "$BASELINE_INPUT" ]; then
+  if ! BASELINE_PATH=$(realpath -e -- "$BASELINE_INPUT" 2>/dev/null); then
+    record_unknown "baseline cannot be resolved: $BASELINE_INPUT"
+    finish
+  fi
+  if ! BASELINE_SHA256=$(baseline_sha256 "$BASELINE_PATH" 2>"$ART/$TAG-baseline.err"); then
+    record_unknown "baseline is not a readable regular ZIP: $BASELINE_PATH"
+    sed -n '1,8p' "$ART/$TAG-baseline.err" 2>/dev/null || true
+    finish
+  fi
+fi
+echo "BASELINE_PATH=$BASELINE_PATH"
+echo "BASELINE_SHA256=$BASELINE_SHA256"
+
+prove_checkout() {
+  local phase=$1 got_sha got_tree tracked
+  if ! got_sha=$(git -C "$CHECKOUT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) \
+      || ! got_tree=$(git -C "$CHECKOUT" rev-parse --verify 'HEAD^{tree}' 2>/dev/null) \
+      || ! tracked=$(git -C "$CHECKOUT" status --porcelain=v1 --untracked-files=no 2>/dev/null); then
+    record_unknown "isolated checkout could not be proved during $phase"
+    return 1
+  fi
+  if [ "$got_sha" != "$CANDIDATE_SHA" ] || [ "$got_tree" != "$CANDIDATE_TREE" ] || [ -n "$tracked" ]; then
+    record_unknown "isolated checkout changed during $phase (sha=$got_sha tree=$got_tree)"
+    [ -n "$tracked" ] && printf '%s\n' "$tracked" | sed -n '1,8p'
+    return 1
+  fi
+  return 0
+}
+
+if ! prove_checkout initialization; then
+  finish
+fi
+echo "ISOLATED_SHA=$CANDIDATE_SHA"
+echo "ISOLATED_TREE=$CANDIDATE_TREE"
+echo "TRACKED_TREE_CLEAN=1"
+echo "GATE_SEQUENCE=prepush-then-derive-then-precut-then-band"
+
+cd "$CHECKOUT" || {
+  record_unknown "cannot enter disposable exact-SHA worktree"
+  finish
+}
+
+# Regeneration is the only intentionally mutable reader.  Run it first, alone,
+# then refuse the candidate if it left even one tracked byte different.
+timeout "$PREPUSH_TIMEOUT" bash "$PREPUSH" "$CHECKOUT" \
+  >"$ART/$TAG-prepush.log" 2>&1
+PREPUSH_RC=$?
+echo "PREPUSH_RC=$PREPUSH_RC"
+grep -E 'FAIL|PRE-PUSH|UNKNOWN' "$ART/$TAG-prepush.log" | head -12 || true
+case "$PREPUSH_RC" in
+  0) ;;
+  1) record_red "prepush gate failed" ;;
+  *) record_unknown "prepush did not produce a test verdict (rc=$PREPUSH_RC)" ;;
+esac
+SUBJECT_VALID=1
+if ! prove_checkout prepush-regeneration; then
+  SUBJECT_VALID=0
+fi
+
+# The trusted auditor recomputes the denominator after candidate-controlled
+# derivation. Its only stdout is NUL-delimited band data consumed in-memory by
+# the parent shell; candidate code never gets a mutable file handoff to alter.
+AUDIT_CODE=$(cat <<'PY'
+import fnmatch
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+(derive_json, evidence_file, work, base_sha, base_tree, candidate_sha,
+ candidate_tree, origin_main_sha, baseline_path, baseline_sha256) = sys.argv[1:]
+
+def refuse(message):
+    print(f"DENOMINATOR UNKNOWN: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+try:
+    raw_payload = sys.stdin.buffer.read()
+    payload = json.loads(raw_payload.decode("utf-8"))
+except Exception as exc:
+    refuse(f"deriver JSON is unreadable: {exc}")
+
+changed_result = subprocess.run(
+    ["git", "-C", work, "diff", "--no-ext-diff", "--no-renames", "--name-only", "-z",
+     f"{base_sha}..{candidate_sha}"],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+)
+if changed_result.returncode != 0:
+    refuse(f"trusted full-cut changed-path derivation failed (rc={changed_result.returncode})")
+raw_changed = changed_result.stdout.split(b"\0")
+if raw_changed and raw_changed[-1] == b"":
+    raw_changed.pop()
+changed = [os.fsdecode(item) for item in raw_changed]
+if not isinstance(payload, dict) or payload.get("changed") != changed:
+    refuse("deriver did not account for the exact changed set")
+
+band = payload.get("band")
+if not isinstance(band, list) or not band or not all(isinstance(p, str) for p in band):
+    refuse("deriver returned no executable band")
+if len(band) != len(set(band)):
+    refuse("deriver returned duplicate band paths")
+
+for rel in band:
+    pure = pathlib.PurePosixPath(rel)
+    if pure.is_absolute() or ".." in pure.parts:
+        refuse(f"unsafe band path: {rel!r}")
+    if not rel.startswith("tests/") or not fnmatch.fnmatch(pure.name, "test_*.py"):
+        refuse(f"non-suite band path: {rel!r}")
+    if not pathlib.Path(work, rel).is_file():
+        refuse(f"band path is absent from candidate: {rel!r}")
+    tracked = subprocess.run(
+        ["git", "-C", work, "ls-files", "--error-unmatch", "--", rel],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    if tracked.returncode != 0:
+        refuse(f"band path is not tracked by candidate: {rel!r}")
+
+changed_tests = [
+    rel for rel in changed
+    if rel.startswith("tests/") and fnmatch.fnmatch(pathlib.PurePosixPath(rel).name, "test_*.py")
+]
+present_changed_tests = [rel for rel in changed_tests if pathlib.Path(work, rel).is_file()]
+deleted_changed_tests = [rel for rel in changed_tests if rel not in present_changed_tests]
+missing = [rel for rel in present_changed_tests if rel not in band]
+if missing:
+    refuse("band omits changed test path(s): " + ", ".join(missing))
+
+changed_test_support = [rel for rel in changed if rel.startswith("tests/") and rel not in changed_tests]
+changed_non_tests = [rel for rel in changed if not rel.startswith("tests/")]
+accounting = {}
+for rel in changed:
+    if rel in present_changed_tests:
+        accounting[rel] = "executed-in-band"
+    elif rel in deleted_changed_tests:
+        accounting[rel] = "deleted-test-explicitly-recorded"
+    else:
+        accounting[rel] = "exact-deriver-input"
+if list(accounting) != changed:
+    refuse("not every changed path received an accounting disposition")
+
+evidence = {
+    "schema": 1,
+    "origin_main_sha": origin_main_sha,
+    "base_sha": base_sha,
+    "base_tree": base_tree,
+    "candidate_sha": candidate_sha,
+    "candidate_tree": candidate_tree,
+    "diff_range": f"{base_sha}..{candidate_sha}",
+    "changed": changed,
+    "changed_tests": changed_tests,
+    "present_changed_tests": present_changed_tests,
+    "deleted_changed_tests": deleted_changed_tests,
+    "changed_test_support": changed_test_support,
+    "changed_production_or_support": changed_non_tests,
+    "accounting": accounting,
+    "band": band,
+    "baseline_path": None if baseline_path == "UNSET" else baseline_path,
+    "baseline_sha256": None if baseline_sha256 == "UNSET" else baseline_sha256,
+}
+target = pathlib.Path(evidence_file)
+temporary = target.with_name(target.name + f".tmp.{os.getpid()}")
+temporary.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.replace(temporary, target)
+derive_target = pathlib.Path(derive_json)
+derive_temporary = derive_target.with_name(derive_target.name + f".tmp.{os.getpid()}")
+derive_temporary.write_bytes(raw_payload)
+os.replace(derive_temporary, derive_target)
+print(f"ACCOUNTED_CHANGED_FILES={len(accounting)}", file=sys.stderr)
+print(f"CHANGED_TEST_FILES={len(changed_tests)}", file=sys.stderr)
+print(f"AUDITED_BAND_FILES={len(band)}", file=sys.stderr)
+sys.stdout.buffer.write(b"".join(os.fsencode(rel) + b"\0" for rel in band))
+PY
+)
+
+BAND_READY=0
+if [ "$SUBJECT_VALID" -eq 1 ]; then
+  BAND=()
+  had_lastpipe=0
+  shopt -q lastpipe && had_lastpipe=1
+  shopt -s lastpipe
+  "$PYTHON" toolchain/bin/bd-band-derive --work "$CHECKOUT" \
+    --files "${CHANGED[@]}" --json 2>"$ART/$TAG-band-derive.err" | \
+    "$AUDIT_PYTHON" -c "$AUDIT_CODE" "$ART/$TAG-band-derive.json" "$ART/$TAG-denominator.json" \
+      "$CHECKOUT" "$BASE_SHA" "$BASE_TREE" "$CANDIDATE_SHA" "$CANDIDATE_TREE" \
+      "$ORIGIN_MAIN_SHA" "$BASELINE_PATH" "$BASELINE_SHA256" 2>"$ART/$TAG-band-audit.log" | \
+    while IFS= read -r -d '' suite; do
+      BAND+=("$suite")
+    done
+  BAND_PIPE_RCS=("${PIPESTATUS[@]}")
+  [ "$had_lastpipe" -eq 1 ] || shopt -u lastpipe
+  BAND_DERIVE_RC=${BAND_PIPE_RCS[0]:-98}
+  BAND_AUDIT_RC=${BAND_PIPE_RCS[1]:-98}
+  echo "BAND_DERIVE_RC=$BAND_DERIVE_RC"
+  if [ "$BAND_DERIVE_RC" -ne 0 ]; then
+    BAND_AUDIT_RC=98
+    sed -n '1,16p' "$ART/$TAG-band-derive.err" 2>/dev/null || true
+    record_unknown "band derivation did not complete (rc=$BAND_DERIVE_RC)"
+  else
+    cat "$ART/$TAG-band-audit.log"
+    if [ "$BAND_AUDIT_RC" -ne 0 ]; then
+      record_unknown "changed-path/band accounting audit failed"
+    elif [ "${#BAND[@]}" -eq 0 ]; then
+      record_unknown "changed-path/band accounting audit emitted no executable band"
+    else
+      BAND_N=${#BAND[@]}
+      BAND_READY=1
+    fi
+  fi
+  if ! prove_checkout band-derivation; then
+    SUBJECT_VALID=0
+    BAND_READY=0
+  fi
+else
+  echo "BAND_DERIVE_RC=$BAND_DERIVE_RC"
+fi
+echo "BAND_FILES=$BAND_N"
+
+# Precut is a reader and therefore follows the mutation/re-proof boundary.
+if [ "$SUBJECT_VALID" -eq 1 ]; then
+  PRECUT_READY=1
+  PRECUT_BASELINE_ARGS=()
+  if [ "$BASELINE_PATH" != UNSET ]; then
+    CURRENT_BASELINE_SHA256=
+    if ! CURRENT_BASELINE_SHA256=$(baseline_sha256 "$BASELINE_PATH" 2>>"$ART/$TAG-precut.log") \
+        || [ "$CURRENT_BASELINE_SHA256" != "$BASELINE_SHA256" ]; then
+      PRECUT_READY=0
+      SUBJECT_VALID=0
+      BAND_READY=0
+      record_unknown "baseline changed or is no longer a readable regular ZIP before precut"
+    else
+      PRECUT_BASELINE_ARGS=(--baseline "$BASELINE_PATH")
+    fi
+  fi
+  if [ "$PRECUT_READY" -eq 1 ]; then
+    env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 timeout "$PRECUT_TIMEOUT" \
+      "$PYTHON" toolchain/bin/bd-precut --gate "${PRECUT_BASELINE_ARGS[@]}" >"$ART/$TAG-precut.log" 2>&1
+    PRECUT_RC=$?
+  fi
+  echo "PRECUT_RC=$PRECUT_RC"
+  tail -n 8 "$ART/$TAG-precut.log" 2>/dev/null || true
+  if [ "$PRECUT_READY" -eq 1 ]; then
+    case "$PRECUT_RC" in
+      0) ;;
+      1|3) record_red "precut gate failed (rc=$PRECUT_RC)" ;;
+      *) record_unknown "precut did not produce a test verdict (rc=$PRECUT_RC)" ;;
+    esac
+    if [ "$PRECUT_RC" -eq 0 ] && grep -Eq '^RESULT:.*UNKNOWN' "$ART/$TAG-precut.log"; then
+      record_unknown "precut reported one or more checks UNKNOWN"
+    fi
+    if ! prove_checkout precut; then
+      SUBJECT_VALID=0
+      BAND_READY=0
+    fi
+  fi
+else
+  echo "PRECUT_RC=$PRECUT_RC"
+fi
+
+classify_pytest_rc() {
+  local label=$1 rc=$2
+  case "$rc" in
+    0) ;;
+    1) record_red "$label failed" ;;
+    *) record_unknown "$label did not produce a test verdict (rc=$rc)" ;;
+  esac
+}
+
+# The selected band is held only in this shell. Re-prove the immutable checkout
+# immediately before handing those selectors to either executor.
+if [ "$SUBJECT_VALID" -eq 1 ] && [ "$BAND_READY" -eq 1 ] && [ "$BAND_N" -gt 0 ]; then
+  if ! prove_checkout affected-band-launch; then
+    SUBJECT_VALID=0
+    BAND_READY=0
+  else
+    echo "BAND_REVALIDATED=1"
+  fi
+fi
+
+if [ "$SUBJECT_VALID" -eq 1 ] && [ "$BAND_READY" -eq 1 ] && [ "$BAND_N" -gt 0 ]; then
+  REST=()
+  BROWSER=()
+  REMOTE_SAFE=1
+  for suite in "${BAND[@]}"; do
+    case "$suite" in
+      tests/test_e2e_smoke.py|tests/test_extension_live.py) BROWSER+=("$suite") ;;
+      *)
+        REST+=("$suite")
+        case "$suite" in *[!A-Za-z0-9_./-]*) REMOTE_SAFE=0;; esac
+        ;;
+    esac
+  done
+
+  REST_RC=0
+  if [ "${#REST[@]}" -gt 0 ]; then
+    if [ "$REMOTE_SAFE" -eq 1 ] && [ -f "$BAND_REMOTE" ]; then
+      timeout "$BAND_TIMEOUT" bash "$BAND_REMOTE" "$CANDIDATE_SHA" "${REST[@]}" \
+        >"$ART/$TAG-band.log" 2>&1
+      REST_RC=$?
+    else
+      REST_RC=64
+      echo "remote band unavailable or path cannot be shell-transported safely" >"$ART/$TAG-band.log"
+    fi
+    if [ "$REST_RC" -eq 64 ]; then
+      echo "   band: no safe capacity host available -- running exact checkout locally" | tee -a "$ART/$TAG-band.log"
+      env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 \
+        timeout "$BAND_TIMEOUT" "$PYTHON" -m pytest "${REST[@]}" \
+          -n "$BAND_WORKERS" --dist loadfile --timeout=240 --timeout-method=signal \
+          --max-worker-restart=0 -p no:randomly >>"$ART/$TAG-band.log" 2>&1
+      REST_RC=$?
+    else
+      echo "   band: ran REMOTE at ${CANDIDATE_SHA:0:12} (see $ART/$TAG-band.log)"
+    fi
+    classify_pytest_rc "affected non-browser band" "$REST_RC"
+  else
+    echo "band contains browser-driving suites only" >"$ART/$TAG-band.log"
+  fi
+
+  BROWSER_RC=0
+  if [ "${#BROWSER[@]}" -gt 0 ]; then
+    echo "   browser-driving files run SERIALLY: ${BROWSER[*]}"
+    env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 \
+      timeout "$BROWSER_TIMEOUT" "$PYTHON" -m pytest "${BROWSER[@]}" \
+        --timeout=240 --timeout-method=signal -p no:randomly \
+        >"$ART/$TAG-browser.log" 2>&1
+    BROWSER_RC=$?
+    echo "BROWSER_RC=$BROWSER_RC"
+    tail -n 3 "$ART/$TAG-browser.log" 2>/dev/null || true
+    classify_pytest_rc "affected browser band" "$BROWSER_RC"
+  fi
+
+  BAND_RC=$REST_RC
+  [ "$BROWSER_RC" -ne 0 ] && BAND_RC=$BROWSER_RC
+  if ! prove_checkout affected-band; then
+    SUBJECT_VALID=0
+  fi
+else
+  BAND_RC=98
+  if [ "$BAND_READY" -ne 1 ] && [ "${#UNKNOWN_REASONS[@]}" -eq 0 ]; then
+    record_unknown "affected band was not measurable"
+  fi
+fi
+echo "BAND_RC=$BAND_RC"
+tail -n 14 "$ART/$TAG-band.log" 2>/dev/null || true
+
+prove_checkout final >/dev/null || true
+prove_source final >/dev/null || true
+
+FETCHED_ORIGIN_MAIN=
+if fetch_origin_main final "$ART/$TAG-fetch-final.log"; then
+  if [ "$FETCHED_ORIGIN_MAIN" != "$ORIGIN_MAIN_SHA" ]; then
+    record_unknown "origin/main moved during verification ($ORIGIN_MAIN_SHA -> $FETCHED_ORIGIN_MAIN)"
+  else
+    FINAL_BASES=$TMP_ROOT/final-merge-bases.txt
+    if ! git -C "$SOURCE" merge-base --all "$FETCHED_ORIGIN_MAIN" "$CANDIDATE_SHA" >"$FINAL_BASES" 2>/dev/null; then
+      record_unknown "final merge-base proof failed"
+    else
+      mapfile -t FINAL_MERGE_BASES < "$FINAL_BASES"
+      if [ "${#FINAL_MERGE_BASES[@]}" -ne 1 ] || [ "${FINAL_MERGE_BASES[0]:-}" != "$BASE_SHA" ]; then
+        record_unknown "merge base changed during verification"
+      fi
+    fi
+  fi
+fi
+
+finish

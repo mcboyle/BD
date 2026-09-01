@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Append a hunt status snapshot to disk every 10 min, forever.
+# DRP: if the agent session compacts or dies, the tally still accumulates here,
+# so the night's result survives independently of any conversation context.
+D=/home/mboyle/bd-wedge-2026-08-14
+OUT=/home/mboyle/bd-hunt-status.log
+while :; do
+  {
+    echo "===== $(date -u '+%Y-%m-%dT%H:%M:%SZ')  ($(TZ=America/New_York date '+%H:%M %Z')) ====="
+    printf 'hunt alive: '; ps -eo comm=,args= | awk '$1 ~ /python/ && /bd-wedge-hunt/' | wc -l
+    printf 'rows: '; wc -l < "$D/rows.jsonl" 2>/dev/null || echo 0
+    /home/mboyle/BulkDownloader/venv/bin/python - <<'PY' 2>/dev/null
+import json, collections
+c=collections.Counter(); w=collections.Counter()
+try: lines=open('/home/mboyle/bd-wedge-2026-08-14/rows.jsonl').read().splitlines()
+except OSError: lines=[]
+for l in lines:
+    if not l.strip(): continue
+    try: r=json.loads(l)
+    except Exception: continue
+    k=(r.get('host'),r.get('arm')); c[k]+=1
+    if r.get('wedged'): w[k]+=1
+for k in sorted(c, key=lambda x:(str(x[0]),str(x[1]))):
+    fs = 'ext4' if k[0] in ('test6','test2') else 'xfs '
+    print(f"  {k[0]:7}{fs} {str(k[1]):12} wedged {w[k]}/{c[k]}")
+tot=sum(c.values()); tw=sum(w.values())
+print(f"  TOTAL {tw}/{tot}")
+PY
+    tail -3 "$D/hunt.out" 2>/dev/null | sed 's/^/  | /'
+  } >> "$OUT" 2>&1
+  sleep 600
+done

@@ -1,0 +1,37 @@
+#!/bin/bash
+# KEEP WORKER WORKTREES CURRENT, so integrate never refuses a stale patch.
+# Rows 353, 354 and 356 each burned an integrate cycle on 2026-08-28 for exactly
+# one reason: main moved after the worker was dispatched, and the patch no longer
+# applied. bd-rebase resolves the mechanical half (generated files, the register
+# by row) and REFUSES anything that is a real judgement call, so running it on a
+# schedule is safe in a way a blind `git checkout --theirs` would not be.
+#
+# NEVER WHILE A CHAIN IS RUNNING. integrate reads the worker worktree directly;
+# rebasing under it would swap the tree mid-read. The probe is anchored on the
+# invocation, not a substring -- a bare pattern also matches the shell that wrote
+# this file, which is how bd-install-overlap.sh waited forever earlier tonight.
+set -uo pipefail
+A=/home/mboyle/fleet-run-artifacts/2026-08-25
+L="$A/inflight/autorebase.log"
+say(){ printf '%s [autorebase] %s\n' "$(date -u +%H:%M:%S)" "$*" >> "$L"; }
+while :; do
+  sleep 300
+  busy=$(ps -eo args --no-headers \
+         | grep -cE '^bash /home/mboyle/bd-(row-chain|verify-cut|ship|merge-lane|integrate-row)\.sh')
+  [ "$busy" -gt 0 ] && { say "lane busy ($busy) -- skipping this pass"; continue; }
+  MAIN=$(git -C /home/mboyle/BulkDownloader rev-parse origin/main 2>/dev/null) || continue
+  stale=""
+  # only rows the queue actually still wants; a merged row's worktree is litter
+  while IFS='|' read -r r _s _t; do
+    case "$r" in ''|'#'*) continue;; esac
+    W=/home/mboyle/bd-codex-wt/row$r
+    [ -d "$W" ] || continue
+    tmux has-session -t "cx-row$r" 2>/dev/null && continue   # worker still writing
+    [ "$(git -C "$W" rev-parse HEAD 2>/dev/null)" = "$MAIN" ] && continue
+    stale="$stale $r"
+  done < /home/mboyle/bd-night-spec.txt
+  [ -n "${stale// /}" ] || continue
+  say "stale:$stale"
+  /home/mboyle/bd-rebase $stale >>"$L" 2>&1
+  say "pass done"
+done

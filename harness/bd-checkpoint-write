@@ -1,0 +1,148 @@
+#!/bin/bash
+# bd-checkpoint-write -- append a MEASURED state block to the recovery checkpoint,
+# and regenerate the post-compaction prompt from that file rather than from memory.
+#
+# WHY. Everything that survives a compaction lives in one hand-appended file. On
+# 2026-08-28 the recovery prompt drifted from it TWICE -- it named a line count
+# that was already stale, and it told the next agent to run a 58-minute capture
+# that had in fact already been run and recorded. A prompt that describes the
+# checkpoint inaccurately is worse than no prompt: it sends a fresh agent to redo
+# finished work with confidence.
+#
+# EVERY NUMBER HERE IS MEASURED AT WRITE TIME. Nothing is passed in and nothing is
+# copied from prose. CLAUDE.md A1: measure volatile facts from the current tree.
+set -uo pipefail
+R=/home/mboyle/BulkDownloader
+# NOT a dated run directory. The previous value, fleet-run-artifacts/2026-08-25,
+# was one night's folder; a week later four loops still wrote continuity state
+# into it. Continuity lives in the archive, so persistence needs no second step.
+A=/home/mboyle/bd-persist/continuity
+mkdir -p "$A"
+C="$A/CHECKPOINT.md"; ARCH="$A/CHECKPOINT.archive.md"; P=/home/mboyle/bd-resume-prompt.txt
+KEEP="${BD_CHECKPOINT_KEEP:-400}"
+NOTE="${1:-}"
+
+git -C "$R" fetch -q origin 2>/dev/null
+VER=$(git -C "$R" show origin/main:bulk_downloader/__init__.py 2>/dev/null | grep -oE '3\.66\.[0-9]+')
+SHA=$(git -C "$R" rev-parse --short=12 origin/main 2>/dev/null)
+DIRTY=$(git -C "$R" status --porcelain 2>/dev/null | wc -l)
+UNPUSHED=$(git -C "$R" log --oneline origin/main..HEAD 2>/dev/null | wc -l)
+REG=$(git -C "$R" show origin/main:project-knowledge/IMPROVEMENT_BACKLOG.md 2>/dev/null)
+OPEN=$(printf '%s' "$REG" | grep -cE '^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*OPEN')
+CLOSED=$(printf '%s' "$REG" | grep -cE '^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*CLOSED')
+# queue rows that are live in the spec AND not closed on main -- the real backlog
+# THE QUEUE IS THE UNMERGED CANDIDATES, measured by containment in origin/main.
+# It used to be counted from bd-night-spec.txt, which stopped being the queue
+# when the work moved to recover/* tags -- so the number described a file nobody
+# was filing into any more, and read as zero remaining work.
+QUEUE=0; QUEUE_NAMES=""
+for t in $(git -C "$R" tag -l 'recover/*' 2>/dev/null); do
+  h=$(git -C "$R" rev-parse -q --verify "$t^{commit}" 2>/dev/null) || continue
+  if git -C "$R" merge-base --is-ancestor "$h" origin/main 2>/dev/null; then continue; fi
+  # ...and again by patch-id, because these candidates are rebased before they
+  # land: the tagged object is never an ancestor even when its content shipped.
+  if [ -z "$(git -C "$R" cherry origin/main "$h" 2>/dev/null | grep '^+')" ]; then continue; fi
+  # ...and finally file by file. A rebase that resolves a trio collision changes
+  # the patch, so patch-id says "unmerged" for work that shipped. On 2026-08-31
+  # I reported rows 413/414/417/418 merged when they were only tagged; the check
+  # that would have caught it is this one -- does main hold THIS blob for every
+  # file the candidate touched? Unmeasurable (no merge-base, no files) stays in
+  # the queue, because unknown is not the same as landed.
+  _mb=$(git -C "$R" merge-base "$h" origin/main 2>/dev/null)
+  if [ -n "$_mb" ]; then
+    _files=$(git -C "$R" diff --name-only --diff-filter=AM "$_mb" "$h" 2>/dev/null)
+    if [ -n "$_files" ]; then
+      _landed=1
+      for _f in $_files; do
+        _a=$(git -C "$R" rev-parse -q --verify "$h:$_f" 2>/dev/null)
+        _b=$(git -C "$R" rev-parse -q --verify "origin/main:$_f" 2>/dev/null)
+        [ -n "$_a" ] && [ "$_a" = "$_b" ] || { _landed=0; break; }
+      done
+      [ "$_landed" = 1 ] && continue
+    fi
+  fi
+  QUEUE=$((QUEUE+1)); QUEUE_NAMES="$QUEUE_NAMES $t"
+done
+CX=$(tmux ls 2>/dev/null | grep -c '^cx-row')
+# ANCHORED ON THE INVOCATION, never a bare substring: a pattern matches the
+# shell that WROTE the script too. Both roots, because loops have been started
+# from the archive copy as well as from ~.
+_HRE='^(/bin/)?bash /home/mboyle/(bd-persist/harness/)?bd-[a-z0-9-]+\.sh'
+RUNNING=$(ps -eo args --no-headers | grep -E "$_HRE" | sed 's#.*/##' | sort | uniq -c \
+          | awk '{printf "  %s x%s\n", $2, $1}')
+HARNESS=$(printf '%s' "$RUNNING" | grep -c . )
+WT=$(ls -d /home/mboyle/bd-codex-wt/row* 2>/dev/null | wc -l)
+
+{
+  echo
+  echo "## CHECKPOINT $(date -u '+%Y-%m-%d %H:%M')Z -- written by bd-checkpoint-write"
+  [ -n "$NOTE" ] && { echo; echo "$NOTE"; }
+  echo
+  echo "MEASURED AT WRITE TIME (nothing here was passed in or copied from prose):"
+  echo "  main            v${VER:-UNKNOWN} at ${SHA:-UNKNOWN}"
+  echo "  integrator tree $DIRTY dirty path(s), $UNPUSHED unpushed commit(s)"
+  echo "  register        $OPEN OPEN / $CLOSED CLOSED on origin/main"
+  echo "  queue           $QUEUE tagged candidate(s) whose content is NOT in origin/main"
+  for _q in $QUEUE_NAMES; do echo "                    $_q"; done
+  echo "  codex           $CX live session(s); $WT worker worktree(s) on disk"
+  echo "  harness         $HARNESS bd-*.sh process(es) running"
+  echo "  host            $(hostname) $(uptime | grep -oE 'load average.*')"
+} >> "$C"
+
+LINES=$(wc -l < "$C")
+# THE PROMPT IS GENERATED, NOT REMEMBERED. It states its own provenance so a
+# reader can tell at a glance whether it still matches the file it describes.
+cat > "$P" <<PROMPT
+Continue the BulkDownloader autonomous run. You are the integrator on test5.
+
+FIRST, READ THE CHECKPOINT -- it is the authority, not your memory:
+  $C   ($LINES lines)
+    Read the LAST 200 lines first. This prompt was GENERATED from that file at
+    $(date -u '+%Y-%m-%d %H:%M')Z by bd-checkpoint-write; if the two disagree,
+    the checkpoint wins and this prompt is stale.
+  /home/mboyle/bd-night-spec.txt   (the live queue; commented rows are parked)
+
+STATE AT WRITE TIME (re-verify before relying on any of it):
+  main v${VER:-UNKNOWN} at ${SHA:-UNKNOWN}
+  $QUEUE queue row(s) open, $CX codex session(s) live, $HARNESS harness process(es)
+  verify:  git -C $R show origin/main:bulk_downloader/__init__.py
+
+STANDING RULINGS (operator):
+  - Merge and deploy on green, autonomously. Never block the lane on one row.
+  - Build your best judgement and ship it; state the assumption in the row.
+  - Record a host failure and continue; NEVER send a push notification.
+  - Status answers 15 words; updates 30. Detail goes to the checkpoint.
+  - NEVER deploy test5; it is the integrator. Roles are AUTHORITATIVE and this
+    line is not: read ~/.config/bd/roles and docs/repo/FLEET_TOPOLOGY.md.
+    bd (.50) and bd1 (.51) ARE deploy targets (promoted 2026-08-29);
+    bd2-bd4 (.52-.54) are capacity and run no BD.
+
+DO NOT REBUILD TOOLING. Harness processes actually running at write time:
+${RUNNING:-  (none)}
+  Full inventory: ls /home/mboyle/bd-* ; rulings: bd-persist/OPERATOR_DECISIONS.md
+READ THE INVENTORY BEFORE WRITING A TOOL -- on 2026-08-28 I wrote new logic under
+an existing tool's name (bd-register-merge.py) and blocked the lane.
+
+TRAPS THAT COST TIME TODAY:
+  - NEVER hand-roll "is X running". A bare substring matches the shell that
+    WROTE the script; the anchored '^bash /home/mboyle/bd-x.sh' form matched
+    NOTHING on 2026-08-31 while four bd-verify-cut runs were live, because the
+    real argv was the relative 'bash bd-verify-cut.sh'. Use bd-kill-mine.sh,
+    which excludes self and ancestors, and print the matching lines before
+    trusting any count.
+  - A wait loop over an APPENDED log matches an earlier run's completion line.
+    Gate on a line that only exists when the thing is really true.
+  - Rebase a worktree BEFORE its QA, never after; QA against a stale base is void.
+    Use ./bd-rebase <row> -- it resolves generated files and the register by row.
+  - A worker's register row must be OPEN; the integrator stamps the version.
+PROMPT
+# BOUNDED. The old checkpoint reached 221KB by appending forever, so the first
+# thing a resuming agent had to do was decide which of it was still true. Older
+# blocks are moved to the archive file, never deleted.
+if [ "$LINES" -gt "$KEEP" ]; then
+  head -n "$((LINES - KEEP))" "$C" >> "$ARCH"
+  tail -n "$KEEP" "$C" > "$C.tmp" && mv "$C.tmp" "$C"
+  LINES=$(wc -l < "$C")
+fi
+echo "checkpoint: $C ($LINES lines, older blocks in $ARCH)"
+echo "prompt:     $P (regenerated)"

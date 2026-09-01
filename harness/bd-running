@@ -1,0 +1,51 @@
+#!/bin/bash
+# "Is X running" -- the ONE question I keep answering wrong.
+#
+# 2026-08-31: I asked whether bd-verify-cut was live with the anchored pattern
+# '^bash /home/mboyle/bd-verify-cut.sh'. It matched NOTHING while FOUR runs were
+# in flight, because their real argv was the relative 'bash bd-verify-cut.sh'.
+# I read zero and started a fifth; all five then fought over one worktree.
+# The opposite failure is older: a bare substring matches the shell that WROTE
+# the script and every ancestor of the search itself, so a count comes back
+# uniformly 1 on every host and means nothing.
+#
+# So: match on the BASENAME of the target anywhere in argv, exclude self and the
+# WHOLE ancestor chain by PID (bd-ps.sh only excludes self and parent), and
+# ALWAYS PRINT THE MATCHING LINES. A count you have not read is a claim.
+#
+#   usage: bd-running <name-or-argv-substring> [--quiet]
+#   exit 0 = at least one live process   exit 1 = none
+set -u
+PAT="${1:?usage: bd-running <name-or-argv-substring> [--quiet]}"
+QUIET=0; [ "${2:-}" = "--quiet" ] && QUIET=1
+# A PATH ARGUMENT IS ALWAYS REDUCED TO ITS BASENAME. The caller knows the
+# absolute path; the process usually carries a relative argv. An earlier version
+# reduced it only when the path EXISTED on disk, so a query about a script that
+# had been moved or renamed answered a confident "0 live matches" -- the same
+# fail-open, one layer up. Over-matching here is safe: this tool's answer is
+# used to REFUSE, and a false yes costs a retry while a false no costs a
+# collision.
+case "$PAT" in */*) PAT=$(basename -- "$PAT");; esac
+
+SELF=$$
+MINE=" $SELF "
+q=$PPID
+while [ -n "$q" ] && [ "$q" != "0" ] && [ "$q" != "1" ]; do
+  MINE="$MINE$q "
+  q=$(awk '/^PPid:/{print $2}' "/proc/$q/status" 2>/dev/null)
+done
+
+n=0
+for p in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+  case "$MINE" in *" $p "*) continue;; esac
+  a=$(cat "/proc/$p/cmdline" 2>/dev/null | tr '\0' ' ')
+  [ -z "$a" ] && continue
+  case "$a" in
+    *"$PAT"*)
+      n=$((n+1))
+      [ "$QUIET" -eq 1 ] || printf '%7d  %.110s\n' "$p" "$a"
+      ;;
+  esac
+done
+[ "$QUIET" -eq 1 ] || echo "$n live match(es) for '$PAT' (self and $(( $(echo "$MINE" | wc -w) - 1 )) ancestor(s) excluded)"
+[ "$n" -gt 0 ]

@@ -1,0 +1,360 @@
+#!/bin/bash
+# THE OVERNIGHT LANE. Replaces bd-supervise.sh -- there is ONE relaunch authority,
+# because two is the two-drains bug wearing a different name.
+#
+# THE SPEC IS A FILE, RE-READ EVERY LOOP (/home/mboyle/bd-night-spec.txt).
+# That is the whole design. bd-supervise held its row list in the script body, so
+# adding a row meant editing a running shell script -- and bash reads from the
+# inode at a byte offset, so the loop keeps the OLD text forever while the path
+# names the new file. A file the loop re-reads needs no edit and no restart.
+#
+# Authority: /home/mboyle/NIGHT_POLICY.md, granted interactively 2026-08-27.
+set -u
+R=/home/mboyle/BulkDownloader
+A=/home/mboyle/fleet-run-artifacts/2026-08-25
+N="$A/night"; mkdir -p "$N"
+LOG="$A/FINISH.log"
+SPEC=/home/mboyle/bd-night-spec.txt
+MAXCX=${MAXCX:-5}
+DEPLOY_EVERY=${DEPLOY_EVERY:-5}
+MAXATT=3          # operator ruling: 3 attempts, then skip
+# BATCH WIDTH LIVES IN A FILE, NOT A CONSTANT. bash parses this driver's
+# main loop once and runs it FROM MEMORY -- it never re-reads the script --
+# so a baked BATCH_CAP can only change by restarting the driver. A ladder
+# that demotes 5->3->2->1 needs to change the width MID-RUN, so the width is
+# read from disk every pass. Absent file means 1, the pre-ladder behaviour.
+CAPFILE="$A/night/batch-cap"; CAPFAIL="$A/night/batch-capfail"
+say(){ printf '%s [night] %s\n' "$(date -u +%H:%M:%S)" "$*" >> "$LOG"; }
+
+lane_alive(){ ps -eo comm=,args= | awk '$1=="bash" && /bd-(drain|row-chain|verify-cut|ship)\.sh/ && !/shell-snapshots/' | grep -q .; }
+cx_count(){ tmux ls 2>/dev/null | grep -c '^cx-row'; }
+mainver(){ git -C "$R" show origin/main:bulk_downloader/__init__.py 2>/dev/null | grep -oE '3\.66\.[0-9]+' | head -1 | cut -d. -f3; }
+
+say "bd-night starting; spec=$SPEC maxcx=$MAXCX deploy_every=$DEPLOY_EVERY"
+while true; do
+  git -C "$R" fetch --quiet origin 2>/dev/null
+  MV=$(mainver); [ -n "$MV" ] || { sleep 60; continue; }
+  MERGED=$(git -C "$R" log --oneline origin/main 2>/dev/null | head -80)
+  # PER-ROW merge evidence. $MERGED holds CUT NAMES, and a batched cut is
+  # named for its FIRST row only -- so "is this row's slug in main?" said NO
+  # for every other member and re-queued rows that had already landed. Row
+  # 309 was rebuilt into a fresh cut minutes after merging inside v1296.
+  REG=$(git -C "$R" show origin/main:project-knowledge/IMPROVEMENT_BACKLOG.md 2>/dev/null)
+  # A fetch that returned nothing is UNKNOWN, not "nothing merged". Never act on it.
+  [ -n "$MERGED" ] || { say "empty main log -- UNKNOWN, holding"; sleep 60; continue; }
+
+  # ---- CODEX REFILL, ABOVE THE LANE GATE ON PURPOSE ----
+  # It used to sit behind `if lane_alive`, so while any row was ready it never
+  # ran at all: six briefs sat in pending with cx0 and an idle box. Codex writes
+  # ONLY inside its own worktree and never touches the candidate, so it is
+  # independent of the merge lane and must be topped up regardless of it.
+  # ---- 0. CODEX REFILL (fresh rows only) ---------------------------------
+  # NEVER pump a salvage row: bd-codex-cut.sh rm -rf's the worktree first, and a
+  # salvage row's worktree IS the work.
+  c=$(cx_count)
+  if [ "$c" -lt "$MAXCX" ]; then
+    b=$(ls /home/mboyle/bd-codex-queue/pending/*.md 2>/dev/null | head -1)
+    if [ -n "$b" ]; then
+      rowid=$(basename "$b" .md)
+      mkdir -p /home/mboyle/bd-codex-queue/running
+      mv "$b" /home/mboyle/bd-codex-queue/running/ 2>/dev/null
+      say "codex refill: dispatching row $rowid ($c/$MAXCX live)"
+      setsid nohup bash /home/mboyle/bd-codex-cut.sh "$rowid" \
+        "/home/mboyle/bd-codex-queue/running/$rowid.md" </dev/null >/dev/null 2>&1 &
+      sleep 5
+    fi
+  fi
+
+  if lane_alive; then sleep 45; continue; fi
+
+  # ---- 1. READY ROWS -> one drain, in spec order -------------------------
+  todo=()
+  while IFS='|' read -r row slug title; do
+    case "$row" in ''|'#'*) continue;; esac
+    if [ -n "$REG" ] && printf '%s' "$REG" | grep -qE "^\| $row \|[[:space:]]*CLOSED"; then continue; fi
+    printf '%s' "$MERGED" | grep -q -- "$slug" && continue                 # its cut merged
+    att=$(cat "$N/att-$row" 2>/dev/null || echo 0)
+    [ "$att" -ge "$MAXATT" ] && continue                                    # skipped, logged already
+    tmux has-session -t "cx-row$row" 2>/dev/null && continue                # worker still writing
+    W=/home/mboyle/bd-codex-wt/row$row
+    [ -d "$W" ] || continue
+    # The work must be PRESENT. A green cut can be empty; measure against the
+    # MERGE BASE, because a stale worktree renders later merges as deletions.
+    H=$(git -C "$W" rev-parse HEAD 2>/dev/null) || continue
+    MB=$(git -C "$R" merge-base "$H" origin/main 2>/dev/null) || continue
+    # add -N MUST EXCLUDE SCAFFOLDING. bd-codex-cut.sh creates venv and
+    # frontend/node_modules as ABSOLUTE SYMLINKS so a fresh worktree can run.
+    # A bare `add -N .` stages those symlinks into the index, and git stash then
+    # refuses the whole worktree with "Entry 'frontend/node_modules' not
+    # uptodate" -- which is exactly what blocked row 295's re-base twice and got
+    # it marked BLOCKED. 42 such entries were staged across 21 worktrees.
+    git -C "$W" add -N -- . ':(exclude)venv' ':(exclude)frontend/node_modules' \
+        ':(exclude)frontend/dist' >/dev/null 2>&1
+    n=$(git -C "$W" diff "$MB" --name-only -- . ':(exclude)venv' ':(exclude)frontend/node_modules' 2>/dev/null | wc -l)
+    [ "${n:-0}" -gt 0 ] || continue
+    # ROW COHERENCE (2026-08-29). "The work is present" is not "the work is the
+    # ROW's". An audit of the nine live worktrees found FOUR that were not:
+    # 312 and 313 hold 10 insertions each with no implementation and no test,
+    # yet RAISE _EXPECTED_DECLARED_GATE_COUNT for a gate file that does not
+    # exist; 309 and 310 carry the same phantom gate plus unresolved conflict
+    # markers. All four also stack duplicate top-level assignments of that
+    # constant -- main has ONE, row 312's copy has EIGHT, ending at 177 against
+    # main's 228, so the LAST assignment silently wins and the declared-gate
+    # denominator drops by fifty. A skip here is NOT an attempt: the row never
+    # reached a cut, so charging it would burn the cap on a lane refusal.
+    if ! python3 /home/mboyle/bd-row-audit.py "$row" \
+         > "$A/codex-cuts/row$row.audit.log" 2>&1; then
+      say "row $row REFUSED by bd-row-audit -- $A/codex-cuts/row$row.audit.log"
+      continue
+    fi
+    # QA GATE. bd-row-chain REFUSES without QA_RC=0, and rows 290/292 have no QA
+    # log at all while 288 sits at QA_RC=1 -- feeding those to the drain burns an
+    # attempt on a refusal that never reached the cut. QA here instead.
+    Q="$A/codex-cuts/row$row.qa.log"
+    if ! grep -qE "^QA_RC=0([[:space:]]|$)" "$Q" 2>/dev/null; then
+      say "row $row needs QA -- running bd-qa-row"
+      bash /home/mboyle/bd-qa-row.sh "$row" >/dev/null 2>&1
+      if ! grep -qE "^QA_RC=0([[:space:]]|$)" "$Q" 2>/dev/null; then
+        echo $(( $(cat "$N/att-$row" 2>/dev/null || echo 0) + 1 )) > "$N/att-$row"
+        say "row $row QA FAILED ($(grep -oE '^QA_RC=[0-9]+' "$Q" 2>/dev/null | tail -1 || echo 'no log')) -- attempt $(cat "$N/att-$row")/$MAXATT"
+        continue
+      fi
+      say "row $row QA ok"
+    fi
+    # A RESUME MARKER TURNS RETRIES INTO REPEATS. bd-row-chain is resumable: if
+    # inflight/.integrated-<row> exists it REUSES the built candidate instead of
+    # re-integrating. That saves work when the candidate is still current -- but
+    # when the fix is applied to the WORKER WORKTREE (which is where an integrator
+    # correction goes), every retry re-verifies the identical stale tree. Row 294
+    # burned FIVE attempts against a candidate frozen at 02:49, each producing the
+    # same CI failure, because the marker outlived the source it was built from.
+    MK="$A/inflight/.integrated-$row"
+    if [ -f "$MK" ]; then
+      NEWEST=$(find "$W" -newer "$MK" -type f \
+                 -not -path '*/venv/*' -not -path '*/node_modules/*' \
+                 -not -path '*/.git/*' -print -quit 2>/dev/null)
+      if [ -n "$NEWEST" ]; then
+        say "row $row: worker worktree is newer than its integrate marker -- discarding the stale candidate"
+        rm -f "$MK"
+      fi
+    fi
+    todo+=("$row|$slug|$title")
+  done < "$SPEC"
+
+  if [ "${#todo[@]}" -gt 0 ]; then
+    # PRUNE STALE VERSION CLAIMS BEFORE THE PASS. A failed chain leaves its
+    # candidate directory behind, and the exclusive-claim guard then refuses
+    # EVERY other row at that version. Four separate stalls today traced to
+    # exactly this: one dead directory blocking twenty-three live rows.
+    # Only ever remove a claim at or below main+1 -- i.e. one that can no longer
+    # belong to an in-flight cut -- and only when no chain is running.
+    if ! ps -eo comm=,args= | awk '$1=="bash" && /bd-(row-chain|verify-cut|ship)\.sh/ && !/shell-snapshots/' | grep -q .; then
+      for _d in /home/mboyle/bd-cuts/cut/*/; do
+        [ -d "$_d" ] || continue
+        _b=$(basename "$_d"); _v=${_b%%-*}
+        case "$_v" in ''|*[!0-9]*) continue;; esac
+        [ "$_v" -le $(( MV + 1 )) ] || continue
+        git -C "$R" worktree remove --force "$_d" >/dev/null 2>&1 || rm -rf "$_d"
+        say "pruned stale claim $_b (main is $MV)"
+      done
+      git -C "$R" worktree prune 2>/dev/null
+    fi
+    # FALLEN BACK TO ONE ROW PER CUT, 2026-08-27 12:44Z, by standing ruling.
+    # Batching integrated cleanly (6 rows, 73 files, precut AND prepush green)
+    # but its BAND failed with 9 failures across 8 files -- a mix of genuine
+    # cross-row interaction and schedule-sensitive tests that a 6-row band
+    # amplifies. BATCH_CAP=1 makes the grouper emit one row per batch, which is
+    # exactly the old behaviour; the batching code stays in place and correct,
+    # so raising the cap re-enables it without a rewrite.
+    # BATCH FILE-DISJOINT ROWS ONTO ONE VERSION (operator, 2026-08-27).
+    # bd-integrate-row.sh and bd-row-chain.sh already accept several rows in
+    # their first argument -- the 2026-08-25 ruling that same-class rows share a
+    # cut because "the serial integration lane is the bottleneck" built that in.
+    # This only chooses which rows may safely share one, by proven file overlap.
+    # Measured on this queue: 23 rows -> 4 batches, ~80 min instead of ~460.
+    BSPEC=$(printf '%s\n' "${todo[@]}")
+    _cap=$(cat "$CAPFILE" 2>/dev/null); case "$_cap" in ''|*[!0-9]*|0) _cap=1;; esac
+    BATCHES=$(printf '%s\n' "$BSPEC" | BATCH_CAP="$_cap" python3 /home/mboyle/bd-batch-rows.py 2>/dev/null)
+    if [ -z "$BATCHES" ]; then
+      say "batcher produced nothing -- falling back to one row per cut (UNKNOWN, not OK)"
+      BATCHES=$(printf '%s\n' "${todo[@]%%|*}")
+    fi
+    say "drain starting on ${#todo[@]} row(s) in $(printf '%s\n' "$BATCHES" | grep -c .) batch(es) at width $_cap"
+    printf '%s\n' "$BATCHES" > "$A/night/last-batches"
+    : > "$A/night/realfails"
+    printf '%s\n' "$BATCHES" | while read -r _batch; do
+      [ -n "$_batch" ] || continue
+      _first=${_batch%% *}
+      _slug=$(printf '%s\n' "${todo[@]}" | awk -F'|' -v r="$_first" '$1==r{print $2; exit}')
+      _title=$(printf '%s\n' "${todo[@]}" | awk -F'|' -v r="$_first" '$1==r{print $3; exit}')
+      _n=$(printf '%s' "$_batch" | wc -w)
+      [ "$_n" -gt 1 ] && _title="$_title (+$((_n-1)) file-disjoint row(s): $(printf '%s' "${_batch#* }" | tr ' ' ','))"
+      say "batch: $_batch"
+      bash /home/mboyle/bd-drain.sh "$_batch|$_slug|$_title" >>"$A/inflight/night-drain.log" 2>&1
+    done
+    # COUNT ATTEMPTS AFTER, AND ONLY FOR REAL FAILURES. Three refusals are NOT
+    # the cut's fault and must never consume its three attempts:
+    #   - the exclusive-version-claim guard (another row holds main+1 -- this is
+    #     serialization working, and it fired on 295/289/243 at 02:26 tonight);
+    #   - a changelog-order refusal, same cause one step later;
+    #   - CI unmeasured/timeout, per NIGHT_POLICY: only NAMED red checks count.
+    NEWMAIN=$(git -C "$R" fetch -q origin 2>/dev/null; git -C "$R" log --oneline origin/main | head -40)
+    # THE REGISTER IS THE ONLY PER-ROW MERGE EVIDENCE. A batched cut is named
+    # for its FIRST row only, so "is this row's slug in main?" answers NO for
+    # every other member -- they were charged real failures, the width ladder
+    # demoted 5->3 on a batch that had MERGED GREEN, and row 309 was re-queued
+    # into a new cut after already landing. main's backlog records CLOSED @<v>
+    # per row, which is the denominator the slug test never had.
+    NEWREG=$(git -C "$R" show origin/main:project-knowledge/IMPROVEMENT_BACKLOG.md 2>/dev/null)
+    for s in "${todo[@]}"; do
+      r=${s%%|*}; sl=$(printf '%s' "$s" | cut -d'|' -f2)
+      # Merged if the register closed the row, OR the cut naming this row
+      # reached main. An EMPTY register read proves nothing and must not
+      # count as merged -- that would be the fail-open this whole night has
+      # been about -- so it falls through to the slug test and the
+      # contention/deferral classifier below.
+      if [ -n "$NEWREG" ] && printf '%s' "$NEWREG" | grep -qE "^\| $r \|[[:space:]]*CLOSED"; then
+        rm -f "$N/att-$r"; continue
+      fi
+      if printf '%s' "$NEWMAIN" | grep -q -- "$sl"; then rm -f "$N/att-$r"; continue; fi
+      # A BATCHED ROW'S LOGS ARE NAMED FOR THE WHOLE BATCH, never the row:
+      # "chain-297 290 309 313 315.log", not "chain-297.log". Reading the
+      # per-row name found a STALE log from an earlier solo attempt, or no
+      # file at all -- so every batched outcome was classified over evidence
+      # that could not describe it. Resolve the batch this row shipped in.
+      _bl=$(grep -m1 -E "(^| )$r( |$)" "$A/night/last-batches" 2>/dev/null)
+      _lg=${_bl:-$r}
+      cl="$A/inflight/chain-$_lg.log"
+      # MATCH CASE-INSENSITIVELY AND COVER BOTH CLAIM MESSAGES. The guard emits
+      # "ALREADY CLAIMED by <dir>" for a LOCAL candidate but "already claimed on
+      # the remote by <branch>" for a remote one -- different case, different
+      # wording. Matching only the uppercase local form let every remote-claim
+      # deferral score as a real failure, and all 21 queued rows burned to 3/3
+      # while the lane sat idle for 2.5 hours looking healthy.
+      # LOOK WHERE THE EVIDENCE ACTUALLY IS. The chain log only ever says
+      # "REFUSED: integrate failed"; the REASON -- "ALREADY CLAIMED", changelog
+      # order, unmeasured CI -- is written to integrate-<row>.log and the ship
+      # log. Grepping only the chain log made every version-contention deferral
+      # count as a real attempt, and all 25 rows burned to 3/3 without a single
+      # genuine failure. Same defect as the rest of tonight: a verdict read over
+      # a denominator that cannot contain the evidence.
+      il="$A/inflight/integrate-$_lg.log"
+      # `tail -n 8`, NEVER `tail -8`, WITH TWO FILES. The obsolete -N form is
+      # "option used in invalid context" when more than one file is given, so
+      # `tail -8 a b` writes an error to stderr and NOTHING to stdout. The grep
+      # then matched nothing, every deferral scored as a real failure, and all 24
+      # rows burned to 3/3 without one cut reaching verify. The check had been
+      # measuring nothing since the moment it was written.
+      if tail -n 8 "$cl" "$il" 2>/dev/null | grep -qiE 'already claimed|claimed on the remote|exists ON THE REMOTE|refusing to recreate|top entry is v|checks unmeasured|UNKNOWN -- refusing|register update failed|cannot read remote branches'; then
+        say "row $r deferred (contention/unmeasured, not an attempt)"; continue
+      fi
+      # AN INTEGRATE-STAGE CONFLICT IS A REBASE PROBLEM, NOT A FAILED CUT.
+      # These worker worktrees sit on older mains, so every merge can invalidate
+      # the next row's patch -- 294 merging rewrote toolchain/bin/bd-opv and 295's
+      # patch stopped applying. The drain then re-ran 11 rows in two minutes and
+      # burned 3/3 attempts on every one of them without a single cut being
+      # verified. Attempts belong to the CUT; a stale base belongs to the base.
+      if tail -n 8 "$il" 2>/dev/null | grep -qE 'conflicts outside the append-only set|did not apply to current main'; then
+        nb=$(( $(cat "$N/rebase-$r" 2>/dev/null || echo 0) + 1 )); echo "$nb" > "$N/rebase-$r"
+        if [ "$nb" -le 2 ]; then
+          say "row $r: patch no longer applies to main -- rebasing its worktree (try $nb/2)"
+          W2=/home/mboyle/bd-codex-wt/row$r
+          # NEUTERED 2026-08-30 (incident 407): the old stash->checkout origin/main
+          # ->pop DISCARDED committed candidates. Non-destructive replacement: drop
+          # only the stale generated artifacts and let bd-integrate regenerate.
+          say "row $r: stale generated -- dropping them (bd-unstale), NOT resetting the worktree"
+          python3 /home/mboyle/bd-unstale-generated.py "$r" >>"$A/inflight/rebase-$r.log" 2>&1 || true
+          continue
+        else
+          say "row $r BLOCKED on rebase after 2 tries -- leaving for the operator"
+          echo 3 > "$N/att-$r"
+        fi
+        continue
+      fi
+      echo "$r" >> "$N/realfails"   # a genuine failure, not contention
+      echo $(( $(cat "$N/att-$r" 2>/dev/null || echo 0) + 1 )) > "$N/att-$r"
+      a=$(cat "$N/att-$r"); say "row $r attempt $a/$MAXATT"
+      [ "$a" -ge "$MAXATT" ] && say "row $r SKIPPED after $MAXATT attempts -- see $cl"
+    done
+    # ---- BATCH WIDTH LADDER (operator, 2026-08-27): 5 -> 3 -> 2 -> 1 ----
+    # Two CONSECUTIVE real failures at a width demote it. A batch that MERGES at
+    # that width resets the streak, because a width that mostly works is not the
+    # thing at fault. Only MULTI-ROW batches can move the cap: a single-row cut
+    # that fails is that row's problem, and letting it demote would ratchet the
+    # width to 1 on rows that would have failed alone anyway. Contention and
+    # unmeasured-CI deferrals never reach realfails, so they cannot demote either.
+    if [ -s "$A/night/last-batches" ]; then
+      _dem=0
+      while read -r _b; do
+        [ -n "$_b" ] || continue
+        _bn=$(printf '%s' "$_b" | wc -w); [ "$_bn" -gt 1 ] || continue
+        _bsl=$(printf '%s\n' "${todo[@]}" | awk -F'|' -v r="${_b%% *}" '$1==r{print $2; exit}')
+        _bfail=0
+        for _br in $_b; do grep -qx "$_br" "$A/night/realfails" 2>/dev/null && _bfail=1; done
+        if [ "$_bfail" -eq 1 ]; then
+          _cf=$(( $(cat "$CAPFAIL" 2>/dev/null || echo 0) + 1 )); echo "$_cf" > "$CAPFAIL"
+          say "batch width $_cap: real failure $_cf/2 on a ${_bn}-row batch ($_b)"
+          [ "$_cf" -ge 2 ] && _dem=1
+        elif { [ -n "$NEWREG" ] && printf '%s' "$NEWREG" | grep -qE "^\| ${_b%% *} \|[[:space:]]*CLOSED"; } \
+             || printf '%s' "$NEWMAIN" | grep -q -- "$_bsl"; then
+          # MERGED: positive evidence, and the only thing that may reset.
+          if [ "$(cat "$CAPFAIL" 2>/dev/null || echo 0)" -gt 0 ]; then
+            say "batch width $_cap: a ${_bn}-row batch merged -- failure streak reset"
+          fi
+          echo 0 > "$CAPFAIL"
+        else
+          # NEITHER merged nor a scored failure: contention, a deferral, or a
+          # classifier that could not read this batch's evidence. That is
+          # UNKNOWN, and UNKNOWN must not reset a failure streak -- doing so let
+          # a batch that plainly failed clear the ladder, so it could never
+          # demote. Leave the streak exactly where it is.
+          say "batch width $_cap: ${_bn}-row batch neither merged nor scored a real failure -- UNKNOWN, streak held at $(cat "$CAPFAIL" 2>/dev/null || echo 0)"
+        fi
+      done < "$A/night/last-batches"
+      if [ "$_dem" -eq 1 ]; then
+        case "$_cap" in 5) _next=3;; 3) _next=2;; 2) _next=1;; *) _next="";; esac
+        if [ -n "$_next" ]; then
+          echo "$_next" > "$CAPFILE"; echo 0 > "$CAPFAIL"
+          say "BATCH WIDTH DEMOTED $_cap -> $_next after 2 real failures at width $_cap"
+        else
+          say "batch width already 1 (single rows) -- nothing left to demote"
+        fi
+      fi
+    fi
+    say "drain returned"
+    continue
+  fi
+
+  # ---- 2. DEPLOY DEBT ----------------------------------------------------
+  # DEPLOY ONLY WHEN THE DRAIN IS GENUINELY COMPLETE (operator, 2026-08-27).
+  # Reaching this point already means todo was EMPTY -- but empty has two very
+  # different causes: every row merged, or every row stuck at its attempt cap.
+  # The second is a STALL, and deploying in the middle of one ships a fleet from
+  # a half-drained queue. Require that NOTHING is left except merged rows.
+  UNMERGED=0
+  while IFS='|' read -r _r _slug _t; do
+    case "$_r" in ''|'#'*) continue;; esac
+    # THIRD SITE OF THE SAME BUG. Counting unmerged rows by CUT NAME means a
+    # batched row can never be seen as merged, so this gate would hold the
+    # deploy forever on a queue that had actually drained.
+    if [ -n "$REG" ] && printf '%s' "$REG" | grep -qE "^\| $_r \|[[:space:]]*CLOSED"; then continue; fi
+    printf '%s' "$MERGED" | grep -q -- "$_slug" || UNMERGED=$((UNMERGED+1))
+  done < "$SPEC"
+  if [ "$UNMERGED" -gt 0 ]; then
+    say "holding deploy: $UNMERGED spec row(s) not yet merged (drain incomplete)"
+    sleep 60; continue
+  fi
+  LD=$(cat "$N/last-deploy-version" 2>/dev/null || echo 0)
+  if [ "$MV" != "$LD" ]; then
+    say "drain COMPLETE ($UNMERGED unmerged) and fleet is at v$LD vs main v$MV -- fleet pass"
+    if bash /home/mboyle/bd-fleet-deploy.sh >>"$A/deploy/night.log" 2>&1; then
+      echo "$MV" > "$N/last-deploy-version"; say "fleet pass clean at v3.66.$MV"
+    else
+      echo "$MV" > "$N/last-deploy-version"   # pass ran; incidents are recorded separately
+      say "fleet pass had incidents -- see deploy/INCIDENTS.log"
+    fi
+    continue
+  fi
+
+  sleep 60
+done

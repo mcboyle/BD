@@ -1,0 +1,114 @@
+#!/bin/bash
+# bd-rebase -- re-base worker worktrees onto current origin/main and resolve the
+# conflicts that are NOT judgement calls, so the integrator only sees the ones
+# that are.
+#
+# WHY THIS EXISTS. On 2026-08-28 every stale worktree hit the same conflicts and
+# I resolved them by hand, one cut at a time: PIN_INDEX.json,
+# STATIC_KB_MANIFEST.json and tools/decomp/import_graph_baseline.json on rows
+# 353, 354 and 356. All three are GENERATED -- bd-regen-order rewrites them from
+# the source tree during integrate -- so keeping "our" side is not a merge
+# decision at all, it is noise. Two more, .github/workflows/ci.yml and the 939
+# gate's declaration block, are APPEND-ONLY REGISTRIES that bd-rebase-all already
+# union-resolves. What is left after those is a real conflict and stops here.
+#
+# WHAT IT WILL NOT DO. It never resolves a conflict in source, tests, or the
+# register by picking a side: a row's own content is the thing under review, and
+# a tool that guesses there would silently drop work. Rows 333/340/341/348/349
+# lost their register row to a rebuild once already this session; that is exactly
+# the failure this refuses to automate.
+set -uo pipefail
+R=/home/mboyle/BulkDownloader
+A=/home/mboyle/fleet-run-artifacts/2026-08-25
+OUT="$A/inflight/bd-rebase.log"
+GENERATED=(
+  PIN_INDEX.json
+  project-knowledge/STATIC_KB_MANIFEST.json
+  tools/decomp/import_graph_baseline.json
+)
+say(){ printf '%s [bd-rebase] %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$OUT"; }
+[ $# -gt 0 ] || { echo "usage: bd-rebase <row> [row...]   (or: bd-rebase --all)"; exit 2; }
+
+git -C "$R" fetch -q origin 2>/dev/null
+MAIN=$(git -C "$R" rev-parse origin/main)
+say "target $(echo "$MAIN" | cut -c1-8)"
+
+if [ "${1:-}" = "--all" ]; then
+  set -- $(ls -d /home/mboyle/bd-codex-wt/row* 2>/dev/null | sed 's#.*/row##' | sort -n)
+  say "--all resolved to: $*"
+fi
+
+ok=0; manual=0; skipped=0
+for r in "$@"; do
+  W=/home/mboyle/bd-codex-wt/row$r
+  [ -d "$W" ] || { say "row $r: NO WORKTREE"; skipped=$((skipped+1)); continue; }
+  H=$(git -C "$W" rev-parse HEAD 2>/dev/null) || { say "row $r: unreadable HEAD"; skipped=$((skipped+1)); continue; }
+  if [ "$H" = "$MAIN" ] && [ -z "$(git -C "$W" diff --name-only --diff-filter=U)" ]; then
+    say "row $r: already on main"; ok=$((ok+1)); continue
+  fi
+  # PROVE THE WORK IS PRESENT BEFORE AND AFTER. A rebase that silently empties a
+  # worktree is worse than one that fails: the cut still builds and ships nothing.
+  MB=$(git -C "$R" merge-base "$H" "$MAIN" 2>/dev/null || echo "$H")
+  BEFORE=$(git -C "$W" diff "$MB" --name-only -- . ':(exclude)venv' ':(exclude)frontend/node_modules' 2>/dev/null | wc -l)
+  ROWLINE=$(grep -cE "^\| $r \|" "$W/project-knowledge/IMPROVEMENT_BACKLOG.md" 2>/dev/null || echo 0)
+
+  bash /home/mboyle/bd-rebase-all.sh "$r" >/dev/null 2>&1
+
+  U=$(git -C "$W" diff --name-only --diff-filter=U 2>/dev/null)
+  if [ -n "$U" ]; then
+    # resolve ONLY the generated set, and only by taking main's copy -- regen
+    # rewrites them from source during integrate, so either side is discarded.
+    left=""
+    for f in $U; do
+      _gen=0
+      for g in "${GENERATED[@]}"; do [ "$f" = "$g" ] && _gen=1; done
+      if [ "$_gen" = 1 ]; then
+        git -C "$W" checkout "$MAIN" -- "$f" >/dev/null 2>&1 && git -C "$W" add -- "$f" >/dev/null 2>&1 \
+          && say "row $r: took main's $f (generated; regen rewrites it)"
+      elif [ "$f" = "project-knowledge/IMPROVEMENT_BACKLOG.md" ]; then
+        # Merged BY ROW, never by side -- see bd-register-merge.py for why.
+        MINE=$(git -C "$W" show ":2:$f" 2>/dev/null | grep -E "^\| $r \|" | head -1)
+        git -C "$W" checkout "$MAIN" -- "$f" >/dev/null 2>&1
+        if [ -n "$MINE" ]; then
+          if /home/mboyle/BulkDownloader/venv/bin/python /home/mboyle/bd-register-insert.py \
+               "$W/$f" "$r" "$MINE" >>"$OUT" 2>&1; then
+            say "row $r: register merged by row (main's file + row $r)"
+          else
+            say "row $r: MANUAL -- register merge refused, see $OUT"
+            left="$left $f"
+          fi
+        else
+          say "row $r: register taken from main (this worktree added no row $r)"
+        fi
+        git -C "$W" add -- "$f" >/dev/null 2>&1
+      else
+        left="$left $f"
+      fi
+    done
+    git -C "$W" reset -q >/dev/null 2>&1
+    if [ -n "${left// /}" ]; then
+      say "row $r: MANUAL -- real conflict(s) in:$left"
+      manual=$((manual+1)); continue
+    fi
+  fi
+
+  AFTER=$(git -C "$W" diff "$MAIN" --name-only -- . ':(exclude)venv' ':(exclude)frontend/node_modules' 2>/dev/null | wc -l)
+  AFTER=$(( AFTER + $(git -C "$W" status --porcelain 2>/dev/null | grep -cE '^\?\? (tests|tools|scripts|bulk_downloader|toolchain)/') ))
+  NOWROW=$(grep -cE "^\| $r \|" "$W/project-knowledge/IMPROVEMENT_BACKLOG.md" 2>/dev/null || echo 0)
+  if [ "$AFTER" -eq 0 ]; then
+    say "row $r: REFUSING -- the worktree is EMPTY after rebase (was $BEFORE path(s)); work would ship as nothing"
+    manual=$((manual+1)); continue
+  fi
+  if [ "$ROWLINE" -gt 0 ] && [ "$NOWROW" -eq 0 ]; then
+    say "row $r: REFUSING -- the register row was DROPPED by the rebase; re-file it before cutting"
+    manual=$((manual+1)); continue
+  fi
+  # the status the integrator must stamp; a placeholder fails the changelog gate
+  BAD=$(grep -cE "^\| $r \|[[:space:]]*CLOSED" "$W/project-knowledge/IMPROVEMENT_BACKLOG.md" 2>/dev/null || echo 0)
+  [ "$BAD" -gt 0 ] && say "row $r: WARNING -- register row says CLOSED; it must be OPEN for the integrator to stamp"
+  say "row $r: ok ($BEFORE -> $AFTER path(s), register row $NOWROW)"
+  echo 0 > "$A/night/att-$r" 2>/dev/null
+  ok=$((ok+1))
+done
+say "SUMMARY ok=$ok manual=$manual skipped=$skipped"
+[ "$manual" -eq 0 ]

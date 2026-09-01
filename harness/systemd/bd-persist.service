@@ -1,0 +1,8 @@
+[Unit]
+Description=BD continuity: capture harness, tools, patches and register into bd-persist, then VERIFY
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/mboyle/bd-persist-loop.sh --once
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=900

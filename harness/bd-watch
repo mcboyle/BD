@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Live wedge-hunt dashboard. Read-only. Ctrl-C to exit -- it touches nothing.
+D=/home/mboyle/bd-wedge-2026-08-14
+while :; do
+  clear
+  echo "=== BD WEDGE HUNT ===  $(date -u '+%Y-%m-%dT%H:%M:%SZ')  ($(TZ=America/New_York date '+%H:%M %Z'))"
+  A=$(ps -eo comm=,args= | awk '$1 ~ /python/ && /bd-wedge-hunt/' | wc -l)
+  [ "$A" -gt 0 ] && echo "hunt: RUNNING" || echo "hunt: *** NOT RUNNING ***"
+  echo
+  /home/mboyle/BulkDownloader/venv/bin/python - <<'PY'
+import json, collections
+c=collections.Counter(); w=collections.Counter(); dur=collections.defaultdict(list)
+try: ls=open('/home/mboyle/bd-wedge-2026-08-14/rows.jsonl').read().splitlines()
+except OSError: ls=[]
+for l in ls:
+    if not l.strip(): continue
+    try: r=json.loads(l)
+    except Exception: continue
+    k=(r.get('host'), r.get('arm')); c[k]+=1
+    if r.get('wedged'): w[k]+=1
+print(f"{'HOST':8}{'FS':6}{'ARM':13}{'WEDGED':>8}")
+print("-"*36)
+for k in sorted(c, key=lambda x:(str(x[0]),str(x[1]))):
+    fs = 'ext4' if k[0] in ('test6','test2') else 'xfs'
+    flag = '  <<<' if w[k] else ''
+    print(f"{k[0]:8}{fs:6}{str(k[1]):13}{w[k]:>4}/{c[k]:<4}{flag}")
+print("-"*36)
+e_w=sum(v for k,v in w.items() if k[0] in ('test6','test2'))
+e_n=sum(v for k,v in c.items() if k[0] in ('test6','test2'))
+x_w=sum(v for k,v in w.items() if k[0] not in ('test6','test2'))
+x_n=sum(v for k,v in c.items() if k[0] not in ('test6','test2'))
+print(f"EXT4 {e_w}/{e_n}      XFS {x_w}/{x_n}      TOTAL {e_w+x_w}/{e_n+x_n}")
+PY
+  echo
+  echo "--- THE THING WE ARE WAITING FOR: a NAMED slow test ---"
+  # the full-signal arm unwinds instead of hard-exiting, so pytest reports the
+  # offender by name. One of these lines answers backlog row 144.
+  if grep -rlq "from pytest-timeout" "$D"/logs/*signal*.log 2>/dev/null; then
+    grep -rh "from pytest-timeout" "$D"/logs/*signal*.log 2>/dev/null | sort -u | tail -5
+    echo "  ^^^ NAMED. This is what row 144 exists to obtain."
+  else
+    N=$(ls "$D"/logs/*signal*.log 2>/dev/null | wc -l)
+    echo "  no timeout reported yet across $N full-signal sample(s)"
+  fi
+  echo
+  echo "--- last 8 events ---"
+  tail -8 "$D/hunt.out"
+  sleep 30
+done

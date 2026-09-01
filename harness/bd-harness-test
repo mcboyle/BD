@@ -1,0 +1,46 @@
+#!/bin/bash
+# The harness test lane, in two speeds. Measured 2026-09-01.
+#
+#   fast (default)  94 of 98 in ~54s   -- everything except the four preflight tests
+#   --full          98 of 98 in ~371s  -- before archiving, freezing or handing off
+#
+# WHY THE SPLIT. The whole suite is 370.73s and four tests carry 317s of it:
+# they build a real git worktree at origin/main and run bd-denom-preflight
+# against it three times. That is a legitimate cost to pay before a freeze and
+# an absurd one to pay after editing one line of a shell script -- which is what
+# happened three times on 2026-08-31.
+#
+# SAFETY, and the reason the split falls exactly here: those four are the ONLY
+# users of the scratch_wt fixture, so the fast lane never runs `git worktree add`
+# against the live integrator repo at all.
+#
+# DO NOT PARALLELISE THIS. Measured: -n 12 --dist loadfile is 372.68s against
+# 370.73s serial -- worse than nothing, because the four expensive tests share a
+# module-scoped fixture and serialise on it anyway. --dist load would fire
+# concurrent `git worktree add` against the live repo, which is worse than slow.
+set -uo pipefail
+HARNESS=${BD_HARNESS_DIR:-/home/mboyle/bd-persist/harness}
+PY=${BD_HARNESS_PYTHON:-/home/mboyle/BulkDownloader/venv/bin/python}
+[ -d "$HARNESS/tests" ] || { echo "no harness tests at $HARNESS/tests" >&2; exit 2; }
+[ -x "$PY" ] || { echo "no interpreter at $PY" >&2; exit 2; }
+
+MODE=fast
+case "${1:-}" in
+  --full) MODE=full; shift;;
+  --fast) shift;;
+  -h|--help) sed -n '2,26p' "$0"; exit 0;;
+esac
+
+cd "$HARNESS" || exit 2
+if [ "$MODE" = full ]; then
+  echo "== harness FULL lane (~371s, 98 tests) =="
+  exec "$PY" -m pytest tests/ -q -p no:randomly --timeout=900 "$@"
+fi
+echo "== harness FAST lane (~54s, 94 of 98) -- run --full before freezing or archiving =="
+"$PY" -m pytest tests/ -q -p no:randomly --timeout=900 \
+  -k "not preflight and not new_document" "$@"
+rc=$?
+# NEVER let the fast lane read as the full one. The four it skips are the four
+# that exercise the preflight end to end against a real tree.
+echo "   NOTE: 4 preflight test(s) were NOT run. Use --full before you freeze."
+exit "$rc"

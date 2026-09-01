@@ -1,0 +1,39 @@
+#!/bin/bash
+# What is the next free canonical register row id?
+#
+# On 2026-08-31 I named a test file `test_row475_...` from the row COUNT, and
+# 475 was already taken: the register held 474 rows but its ids ran to 530,
+# because ids are never reused and rows have been retired. The mistake was free
+# to make and cost a file rename plus nine reference edits.
+#
+#   usage: bd-next-row [<backlog path>] [--json]
+# Prints the next free id. --json also reports the count, the max, and the gaps,
+# so a caller can see that count and max are different questions.
+set -u
+BACKLOG=${1:-/home/mboyle/BulkDownloader/project-knowledge/IMPROVEMENT_BACKLOG.md}
+case "$BACKLOG" in --json) BACKLOG=/home/mboyle/BulkDownloader/project-knowledge/IMPROVEMENT_BACKLOG.md; set -- --json;; esac
+[ -f "$BACKLOG" ] || { echo "UNKNOWN: no register at $BACKLOG" >&2; exit 2; }
+python3 - "$BACKLOG" "${2:-${1:-}}" <<'PY'
+import json, re, sys
+path, mode = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else "")
+ids = [int(m.group(1)) for m in
+       re.finditer(r"^\|\s*(\d+)\s*\|", open(path, encoding="utf-8").read(), re.M)]
+if not ids:
+    print("UNKNOWN: the register parsed zero rows -- refusing to guess an id", file=sys.stderr)
+    raise SystemExit(2)
+if len(ids) != len(set(ids)):
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    print(f"UNKNOWN: duplicate row id(s) {dupes} -- the register is not a population",
+          file=sys.stderr)
+    raise SystemExit(2)
+lo, hi = min(ids), max(ids)
+gaps = sorted(set(range(lo, hi)) - set(ids))
+nxt = hi + 1
+if mode == "--json":
+    print(json.dumps({"next": nxt, "rows": len(ids), "min": lo, "max": hi,
+                      "gaps": gaps[:50], "gap_count": len(gaps)}, indent=1))
+else:
+    print(nxt)
+    print(f"   {len(ids)} row(s), ids {lo}..{hi}, {len(gaps)} unused id(s) below the max "
+          f"-- the COUNT is not the next id", file=sys.stderr)
+PY

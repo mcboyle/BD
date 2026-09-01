@@ -1,0 +1,212 @@
+#!/bin/bash
+
+# OPERATOR HOLD. Matthew is testing the six hosts by hand (2026-08-28 00:5xZ).
+# A merge landing mid-test would restart services under him, so this refuses
+# rather than deploys. Remove /home/mboyle/.config/bd/DEPLOY_HOLD to re-enable.
+if [ -f /home/mboyle/.config/bd/DEPLOY_HOLD ]; then
+  echo "FLEET DEPLOY HELD: $(cat /home/mboyle/.config/bd/DEPLOY_HOLD)" >&2
+  exit 4
+fi
+
+# Deploy origin/main to every NON-INTEGRATOR fleet host, serially, health-checked.
+#
+# COMPOSITION, NOT RE-IMPLEMENTATION. CLAUDE.md A6 forbids hand-recreating the
+# deploy sequence, so this only invokes scripts/deploy.sh on each host and reads
+# its result. Every deploy decision stays inside that script.
+#
+# test5 IS EXCLUDED STRUCTURALLY, by the `local` marker in ~/.config/bd/hosts --
+# not by hardcoding an IP. The integrator's tree must never be deployed onto
+# while it is the writer.
+#
+# CONTINUE-ON-FAILURE by operator ruling 2026-08-27: one bad host must not strand
+# five. A failed host gets a self-heal attempt (restart unit, re-check health,
+# one deploy retry) and an incident record. A FAILED DEPLOY IS NOT A NO-OP -- it
+# can leave the service down after the stop step -- so health is re-read after
+# every path, and an unreachable host is UNKNOWN, never OK.
+set -u
+A=/home/mboyle/fleet-run-artifacts/2026-08-25
+D="$A/deploy"; mkdir -p "$D"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+LOG="$D/pass-$STAMP.log"
+HOSTS=${BD_FLEET_HOSTS:-/home/mboyle/.config/bd/hosts}
+say(){ printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$LOG"; }
+
+EXPECT=$(git -C /home/mboyle/BulkDownloader show origin/main:bulk_downloader/__init__.py \
+         | grep -oE '3\.66\.[0-9]+' | head -1)
+# THE EXACT COMMIT, FORWARDED. bd and bd1 clone from a LOCAL bare mirror, and
+# scripts/deploy.sh refuses a non-official origin outright -- "origin/main here
+# is a MIRROR of unknown currency" -- unless it is told which object to land.
+# Without --expect-commit those two hosts failed rc=2 on EVERY pass and were
+# counted as incidents while being perfectly healthy at the previous release.
+EXPECT_COMMIT=$(git -C /home/mboyle/BulkDownloader rev-parse origin/main 2>/dev/null)
+[[ "$EXPECT_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
+  || { say "cannot resolve origin/main commit -- UNMEASURED, refusing"; exit 3; }
+[ -n "$EXPECT" ] || { say "cannot read origin/main version -- UNMEASURED, refusing"; exit 3; }
+say "== fleet deploy pass $STAMP -> expect v$EXPECT =="
+# HEALTH URL IS DERIVED FROM scripts/deploy.sh, NEVER HARDCODED. This script
+# first assumed :8000; BD listens on :5555, so every host read health=000 and a
+# perfectly healthy test4 was declared an INCIDENT and had its service restarted.
+# A monitoring gate that refuses legitimately green work is the mirror of the
+# fail-open defect, and it took a destructive action on the false signal.
+HURL=$(grep -oE 'http://localhost:[0-9]+/api/health' /home/mboyle/BulkDownloader/scripts/deploy.sh | head -1)
+[ -n "$HURL" ] || { say "cannot derive health URL from deploy.sh -- UNMEASURABLE, refusing"; exit 3; }
+HPORT=$(printf '%s' "$HURL" | grep -oE '[0-9]+')
+say "health endpoint derived from deploy.sh: 127.0.0.1:$HPORT/api/health"
+
+
+# The `local` field marks the integrator. Anything without it is a deploy target.
+mapfile -t TARGETS < <(awk 'NF>=2 && $3!="local" {print $1" "$2}' "$HOSTS")
+[ "${#TARGETS[@]}" -gt 0 ] || { say "zero deploy targets parsed from $HOSTS -- UNKNOWN, refusing"; exit 3; }
+
+# HOST ROLES (operator ruling 2026-08-28). Three hosts are RUNNERS carrying
+# suites and captures; deploying onto one mid-run restarts the service under a
+# measurement and corrupts it -- the exact "do not run capture on a host whose
+# tree is being edited" boundary. Runners are skipped unless BD_DEPLOY_ALL=1.
+# A MISSING OR UNREADABLE ROLES FILE DEPLOYS EVERYWHERE, deliberately: this
+# guard may narrow the target set only when it can actually read the ruling,
+# never as a side effect of failing to find it.
+ROLES=${BD_FLEET_ROLES:-/home/mboyle/.config/bd/roles}
+if [ "${BD_DEPLOY_ALL:-0}" != 1 ] && [ -r "$ROLES" ]; then
+  mapfile -t _RUN < <(awk '$1=="runner" && NF>=2 {print $2}' "$ROLES")
+  if [ "${#_RUN[@]}" -gt 0 ]; then
+    _keep=()
+    for t in "${TARGETS[@]}"; do
+      _n=${t%% *}; _skip=0
+      for r in "${_RUN[@]}"; do [ "$_n" = "$r" ] && _skip=1; done
+      [ "$_skip" = 1 ] || _keep+=("$t")
+    done
+    say "roles: skipping runner host(s) ${_RUN[*]} -- $((${#TARGETS[@]}-${#_keep[@]})) of ${#TARGETS[@]} held back"
+    TARGETS=("${_keep[@]}")
+    [ "${#TARGETS[@]}" -gt 0 ] || { say "every target is a runner -- UNKNOWN, refusing"; exit 3; }
+  fi
+fi
+say "targets: ${#TARGETS[@]} ($(printf '%s ' "${TARGETS[@]%% *}"))"
+
+ok=0; bad=0; healed=0
+# PARALLEL, WITH THE BLAST RADIUS BOUNDED (operator ruling 2026-08-31).
+# Sequential deploy cost ~30s per host and its only safety property was that a
+# bad release stopped after the first casualty. That property is kept here
+# explicitly rather than as a side effect of being slow: no FURTHER host is
+# STARTED once any host has reported bad, though hosts already in flight finish
+# and report, because incomplete failure information costs more re-freezes than
+# it saves (A5).
+CONC=${BD_DEPLOY_CONCURRENCY:-4}
+case "$CONC" in ''|*[!0-9]*) say "BD_DEPLOY_CONCURRENCY must be a positive integer -- UNKNOWN, refusing"; exit 3;; esac
+[ "$CONC" -ge 1 ] || { say "BD_DEPLOY_CONCURRENCY must be at least 1 -- refusing"; exit 3; }
+RESULTS=$(mktemp -d "${TMPDIR:-/tmp}/bd-fleet-deploy.results.XXXXXX")
+ABORT="$RESULTS/.abort"
+trap 'rm -rf "$RESULTS"' EXIT
+_verdict(){ printf '%s\n' "$1" > "$RESULTS/$name"; [ "$1" = bad ] && : > "$ABORT"; return 0; }
+
+deploy_one(){
+  local t=$1 name ip hl pre post health rc
+  name=${t%% *}; ip=${t##* }
+  hl="$D/$name-$STAMP.log"
+  pre=$(timeout 20 ssh -o BatchMode=yes -o ConnectTimeout=8 "$ip" \
+        'grep -oE "3\.66\.[0-9]+" BulkDownloader/bulk_downloader/__init__.py 2>/dev/null | head -1' 2>/dev/null)
+  if [ -z "$pre" ]; then say "$name UNREACHABLE or no checkout -- UNKNOWN, skipping"; _verdict bad; return; fi
+  if [ "$pre" = "$EXPECT" ]; then say "$name already v$pre -- nothing to do"; _verdict ok; return; fi
+
+  say "$name v$pre -> v$EXPECT ..."
+  timeout 1800 ssh -o BatchMode=yes -o ConnectTimeout=10 "$ip" \
+      "cd ~/BulkDownloader && bash scripts/deploy.sh --expect-commit $EXPECT_COMMIT" >"$hl" 2>&1
+  rc=$?
+  post=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+         'grep -oE "3\.66\.[0-9]+" BulkDownloader/bulk_downloader/__init__.py 2>/dev/null | head -1' 2>/dev/null)
+  health=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+           'curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:'"$HPORT"'/api/health' 2>/dev/null)
+
+  if [ "$rc" = 0 ] && [ "$post" = "$EXPECT" ] && [ "$health" = 200 ]; then
+    say "$name OK v$post health=$health"; _verdict ok; return
+  fi
+
+  # SERVING-DEGRADED IS NOT A FAILED DEPLOY. scripts/deploy.sh learned this at
+  # row 408: a host with an initialised master-password vault comes back from
+  # every restart LOCKED, so /api/health is 503 with degraded
+  # credential_vault_locked while GET / is 200 and the version is exactly the
+  # intended one. This wrapper did not learn it, so it called a correct deploy
+  # an INCIDENT, restarted a healthy service, and reported bad=4 of 5 over a
+  # fleet that was entirely fine. Accept ONLY that exact structured state at
+  # the exact expected version -- a blank or unrelated 503 still fails -- then
+  # re-arm the vault, which is the step a human would otherwise do by hand.
+  if [ "$rc" = 0 ] && [ "$post" = "$EXPECT" ] && [ "$health" = 503 ]; then
+    degraded=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+      'curl -s --max-time 10 http://127.0.0.1:'"$HPORT"'/api/health' 2>/dev/null \
+      | python3 -c "import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(''); raise SystemExit(0)
+c = d.get('credentials') or {}
+print('%s|%s|%s' % (d.get('degraded') or '', c.get('state') or '', d.get('version') or ''))" 2>/dev/null)
+    root=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+           'curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:'"$HPORT"'/' 2>/dev/null)
+    if [ "$degraded" = "credential_vault_locked|locked|$EXPECT" ] && [ "$root" = 200 ]; then
+      say "$name SERVING-DEGRADED v$post -- vault locked after restart, GET / = 200; unlocking"
+      if timeout 120 bash /home/mboyle/bd-vault-unlock.sh "$ip" >>"$hl" 2>&1; then
+        health=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+                 'curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:'"$HPORT"'/api/health' 2>/dev/null)
+        if [ "$health" = 200 ]; then
+          say "$name OK v$post health=200 (vault unlocked)"; _verdict ok; return
+        fi
+        say "$name unlock returned but health=${health:-?} -- UNKNOWN, not OK"
+      else
+        say "$name vault unlock FAILED -- still serving degraded"
+      fi
+    fi
+  fi
+
+  # SELF-HEAL. Ordered cheapest-first, and health is re-read after each step so a
+  # step that "succeeded" without restoring service is not read as recovery.
+  say "$name FAILED rc=$rc post=${post:-?} health=${health:-?} -- see $hl; self-healing"
+  timeout 60 ssh -o BatchMode=yes "$ip" 'sudo systemctl restart bulkdownloader' >>"$hl" 2>&1
+  sleep 8
+  health=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+           'curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:'"$HPORT"'/api/health' 2>/dev/null)
+  if [ "$health" = 200 ] && [ "$post" = "$EXPECT" ]; then
+    say "$name HEALED by restart -- v$post health=200"; _verdict healed; return
+  fi
+  say "$name still ${health:-?} -- one deploy retry"
+  timeout 1800 ssh -o BatchMode=yes "$ip" "cd ~/BulkDownloader && bash scripts/deploy.sh --expect-commit $EXPECT_COMMIT" >>"$hl" 2>&1
+  post=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+         'grep -oE "3\.66\.[0-9]+" BulkDownloader/bulk_downloader/__init__.py 2>/dev/null | head -1' 2>/dev/null)
+  health=$(timeout 20 ssh -o BatchMode=yes "$ip" \
+           'curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:'"$HPORT"'/api/health' 2>/dev/null)
+  if [ "$post" = "$EXPECT" ] && [ "$health" = 200 ]; then
+    say "$name HEALED by retry -- v$post health=200"; _verdict healed
+  else
+    say "$name INCIDENT -- v${post:-?} health=${health:-?}; preserved $hl"
+    printf '%s %s v%s health=%s rc=%s log=%s\n' "$STAMP" "$name" "${post:-?}" "${health:-?}" "$rc" "$hl" >> "$D/INCIDENTS.log"
+    _verdict bad
+  fi
+  # Every path above returns through _verdict. Reaching here means the body
+  # fell through without a verdict, which is UNKNOWN and must not read as ok.
+  say "$name reached the end of the deploy body with no verdict -- UNKNOWN"
+  _verdict bad
+}
+
+started=0; skipped=0
+for t in "${TARGETS[@]}"; do
+  if [ -e "$ABORT" ]; then
+    say "${t%% *} NOT STARTED -- an earlier host failed and the pass is aborting"
+    skipped=$((skipped+1)); continue
+  fi
+  deploy_one "$t" &
+  started=$((started+1))
+  while [ "$(jobs -rp | wc -l)" -ge "$CONC" ]; do wait -n 2>/dev/null || break; done
+done
+wait
+
+ok=0; bad=0; healed=0
+for t in "${TARGETS[@]}"; do
+  name=${t%% *}
+  case "$(cat "$RESULTS/$name" 2>/dev/null)" in
+    ok) ok=$((ok+1));; healed) healed=$((healed+1));; bad) bad=$((bad+1));;
+    # A HOST THAT WROTE NO VERDICT IS NOT A PASS. It was either never started
+    # because of the abort, or its subshell died -- both are bad, never ok.
+    *) [ "$skipped" -gt 0 ] || say "$name produced NO verdict -- UNKNOWN"; bad=$((bad+1));;
+  esac
+done
+[ "$skipped" -eq 0 ] || say "$skipped host(s) never started; they count as bad, not as passing"
+say "PASS DONE expect=v$EXPECT ok=$ok healed=$healed bad=$bad of ${#TARGETS[@]} (started=$started, up to $CONC at a time)"
+[ "$bad" -eq 0 ]

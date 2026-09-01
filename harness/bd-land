@@ -1,0 +1,188 @@
+#!/bin/bash
+# LAND ONE CUT, AND LEAVE NO OTHER CUT STRANDED.
+#
+# 2026-08-31. Three cuts were in flight. Merging the middle one invalidated the
+# other two THE INSTANT it landed: both were fully green -- precut=0, prepush=0,
+# band=0 -- and both then refused with "origin/main moved during verification".
+# One also carried a version number that main had just passed, so it needed a
+# renumber as well. Twenty-five minutes of verified evidence discarded by a
+# merge that took four seconds, twice.
+#
+# The cause is that a cut's version and base are chosen when the cut is created
+# and only validated when it merges. Nothing reconciles the two, so every merge
+# is a silent invalidation of every sibling.
+#
+# So landing is one operation: merge THIS cut, then immediately rebase,
+# renumber and re-push EVERY other cut worktree, so the fleet of in-flight cuts
+# is always based on the main that exists rather than the main that existed.
+#
+#   usage: bd-land <cut-worktree> [--pr N] [--dry-run]
+#
+# It refuses rather than guesses. A cut lands only with a local ALL GREEN
+# verdict for its exact SHA, exact-head CI success read from NAMED fields, and
+# a clean tree; containment is proven by BLOB EQUALITY per changed file, which
+# is the only test that answers "has this shipped" (SHA ancestry decided zero of
+# 24 tagged candidates because every cut is rebased before it lands).
+set -uo pipefail
+REPO=/home/mboyle/BulkDownloader
+CUTS=/home/mboyle/bd-cuts
+ART=/home/mboyle/fleet-run-artifacts
+LOCK=/tmp/bd-land.lock
+
+WORK=${1:?usage: bd-land <cut-worktree> [--pr N] [--dry-run]}
+shift
+PR=""; DRY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --pr) PR=$2; shift 2;;
+    --dry-run) DRY=1; shift;;
+    *) echo "unknown argument: $1" >&2; exit 2;;
+  esac
+done
+
+die() { echo "REFUSED: $*" >&2; exit 2; }
+say() { echo "  $*"; }
+
+[ -d "$WORK" ] || die "no such worktree: $WORK"
+BRANCH=$(git -C "$WORK" rev-parse --abbrev-ref HEAD 2>/dev/null)
+[ -n "$BRANCH" ] && [ "$BRANCH" != HEAD ] || die "$WORK is detached; there is no branch to land"
+SHA=$(git -C "$WORK" rev-parse HEAD)
+DIRTY=$(git -C "$WORK" status --porcelain --untracked-files=no | wc -l)
+[ "$DIRTY" -eq 0 ] || die "$BRANCH has $DIRTY uncommitted tracked change(s)"
+
+echo "== bd-land $BRANCH @ ${SHA:0:12}"
+
+# 1. A LOCAL ALL GREEN FOR THIS EXACT SHA. Not for the branch, not for a
+#    neighbouring attempt -- the artifact that names this candidate SHA.
+# TWO TERMINAL SHIPPABLE VERDICTS, and both are the verifier's own words.
+# ALL GREEN is the ordinary one. SHIPPABLE WITH INHERITED FAILURES is reached
+# only after the WHOLE BAND has been replayed at the merge base through the SAME
+# executor and every failing node was found to fail there too -- a comparison
+# that is now matched in isolation and in host. Accepting it here is what stops
+# an operator hand-waving past a RED, because the alternative is exactly that.
+GREEN=$(grep -l "^CANDIDATE_SHA=$SHA$" "$ART"/verify-*.log 2>/dev/null \
+        | while read -r f; do grep -qE '^(ALL GREEN -- shippable|SHIPPABLE WITH INHERITED FAILURES)' "$f" && echo "$f"; done | tail -1)
+[ -n "$GREEN" ] || die "no verify log records a shippable verdict for ${SHA:0:12}. A verdict about another SHA is about another tree."
+VERDICT_LINE=$(grep -hE '^(ALL GREEN -- shippable|SHIPPABLE WITH INHERITED FAILURES)' "$GREEN" | tail -1)
+say "local verdict  $VERDICT_LINE ($(basename "$GREEN"))"
+if printf '%s' "$VERDICT_LINE" | grep -q INHERITED; then
+  echo "  inherited failures carried into this merge, each proven present at the merge base:"
+  grep -E '^     inherited: ' "$GREEN" | sed 's/^     inherited: /      /'
+fi
+
+# 2. EXACT-HEAD CI, from named fields.
+if [ -z "$PR" ]; then
+  PR=$(cd "$REPO" && gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null)
+fi
+[ -n "$PR" ] && [ "$PR" != null ] || die "no open PR for $BRANCH"
+HEAD_OID=$(cd "$REPO" && gh pr view "$PR" --json headRefOid --jq .headRefOid 2>/dev/null)
+[ "$HEAD_OID" = "$SHA" ] || die "PR #$PR head is ${HEAD_OID:0:12}, not the verified ${SHA:0:12}"
+read -r CI_SHA CI_CONC <<< "$(cd "$REPO" && gh run list --branch "$BRANCH" --limit 1 \
+  --json headSha,conclusion --jq '.[]|"\(.headSha) \(.conclusion // "none")"' 2>/dev/null)"
+[ "$CI_SHA" = "$SHA" ] || die "the newest CI run is for ${CI_SHA:0:12}, not ${SHA:0:12}"
+[ "$CI_CONC" = success ] || die "exact-head CI conclusion is '$CI_CONC', not success"
+say "exact-head CI  success (PR #$PR)"
+
+[ "$DRY" -eq 1 ] && { echo "  DRY RUN -- nothing merged"; exit 0; }
+
+exec 9>"$LOCK" || die "cannot open the integrator lock"
+flock -n 9 || die "another bd-land holds the integrator lock"
+
+# 3. MERGE, then prove the merged tree really carries this cut.
+BEFORE=$(git -C "$REPO" rev-parse origin/main)
+(cd "$REPO" && gh pr merge "$PR" --merge >/dev/null 2>&1) || die "gh pr merge failed for #$PR"
+sleep 4
+git -C "$REPO" fetch -q --prune origin || die "cannot fetch origin after the merge"
+AFTER=$(git -C "$REPO" rev-parse origin/main)
+[ "$AFTER" != "$BEFORE" ] || die "origin/main did not move; the merge did not land"
+
+# AGAINST THE PRE-MERGE MAIN. This was merge-base(SHA, AFTER) -- and AFTER is
+# origin/main AFTER the merge, which already contains SHA, so the merge base was
+# SHA itself and the changed set was ALWAYS EMPTY. The loop body never ran,
+# MISSING stayed 0, and every land printed "containment LANDED" over ZERO files
+# compared. Found on 2026-09-01 by the nonzero-denominator guard added in the
+# same pass, on its first use. The correct base is the main this cut was built
+# on, which is BEFORE.
+MB=$(git -C "$REPO" merge-base "$SHA" "$BEFORE")
+MISSING=0
+CHECKED=0
+# EVERY CHANGED PATH, INCLUDING DELETIONS. This loop used to filter
+# --diff-filter=AM, so a path the cut DELETED was never compared at all and a
+# deletion-only cut checked ZERO files and still printed LANDED. Found by audit
+# on 2026-09-01; it had already been partially wrong on 14 real merges.
+#
+# A deletion has a containment test, it is just the mirror one: the path must be
+# ABSENT from origin/main. --no-renames keeps a rename an honest delete+add
+# rather than a single R entry whose two halves go unmeasured.
+while IFS=$'\t' read -r status f rest; do
+  [ -n "$f" ] || continue
+  CHECKED=$((CHECKED+1))
+  a=$(git -C "$REPO" rev-parse -q --verify "$SHA:$f" 2>/dev/null)
+  b=$(git -C "$REPO" rev-parse -q --verify "$AFTER:$f" 2>/dev/null)
+  case "$status" in
+    D*)
+      if [ -n "$b" ]; then
+        echo "  NOT LANDED: $f still exists on origin/main; this cut deleted it"
+        MISSING=$((MISSING+1))
+      fi
+      ;;
+    *)
+      if [ -z "$a" ] || [ "$a" != "$b" ]; then
+        echo "  NOT LANDED: $f"; MISSING=$((MISSING+1))
+      fi
+      ;;
+  esac
+done < <(git -C "$REPO" diff --name-status --no-renames "$MB" "$SHA")
+# A ZERO DENOMINATOR IS NOT AGREEMENT. An empty changed set means the candidate
+# is indistinguishable from its own merge base, which is not a cut.
+[ "$CHECKED" -gt 0 ] || die "the candidate changes ZERO paths against its merge base -- containment is UNMEASURED, not proven"
+[ "$MISSING" -eq 0 ] || die "$MISSING of $CHECKED path(s) differ between the candidate and origin/main -- the merge is not this cut"
+say "containment    LANDED (blob equality over all $CHECKED changed path(s), deletions included)"
+
+git -C "$REPO" checkout -q main && git -C "$REPO" merge --ff-only -q origin/main \
+  || die "the authoritative main checkout could not be fast-forwarded"
+VER=$(git -C "$REPO" show HEAD:bulk_downloader/__init__.py | sed -n 's/^__version__ = "\(.*\)"/\1/p')
+say "main           $(git -C "$REPO" rev-parse --short HEAD) v$VER"
+
+# 4. NO SIBLING IS LEFT ON A BASE THAT NO LONGER EXISTS. This is the whole
+#    point of the tool: the merge above has just invalidated every other cut in
+#    flight, exactly as it did twice on 2026-08-31, so they are rebased and
+#    renumbered NOW rather than discovered stale later.
+NEXT=${VER##*.}
+STRANDED=0
+for other in "$CUTS"/cut/*; do
+  [ -d "$other" ] || continue
+  [ "$(readlink -f "$other")" = "$(readlink -f "$WORK")" ] && continue
+  ob=$(git -C "$other" rev-parse --abbrev-ref HEAD 2>/dev/null) || continue
+  [ -n "$ob" ] && [ "$ob" != HEAD ] || continue
+  # IN FLIGHT MEANS AN OPEN PR. The first run of this tool walked every
+  # directory under bd-cuts and tried to rebase four ABANDONED worktrees from
+  # earlier sessions, reported them all STRANDED, and consumed four version
+  # numbers doing it. A leftover worktree is not a cut in flight; the open PR
+  # is what makes it one.
+  if ! (cd "$REPO" && gh pr list --head "$ob" --state open --json number \
+        --jq '.[0].number' 2>/dev/null | grep -q '[0-9]'); then
+    continue
+  fi
+  base=$(git -C "$other" merge-base HEAD "$AFTER" 2>/dev/null)
+  [ "$base" = "$AFTER" ] && { say "sibling $ob already on the new main"; continue; }
+  if bash /home/mboyle/bd-running bd-verify-cut.sh 2>/dev/null | grep -q -- "$other"; then
+    echo "  WARNING: a verify is RUNNING against $ob; its evidence is now void."
+    echo "           Kill it with bd-kill-mine.sh before relying on that verdict."
+  fi
+  NEXT=$((NEXT+1))
+  NEWVER="${VER%.*}.$NEXT"
+  echo "  rebasing sibling $ob -> v$NEWVER"
+  if python3 /home/mboyle/bd-rebase-cut.py --work "$other" --version "$NEWVER" --renumber >/dev/null 2>&1 \
+     || python3 /home/mboyle/bd-rebase-cut.py --work "$other" --version "$NEWVER" >/dev/null 2>&1; then
+    git -C "$other" push -q --force-with-lease origin "$ob" 2>/dev/null \
+      && say "  $ob rebased and pushed at $(git -C "$other" rev-parse --short HEAD)" \
+      || echo "  WARNING: $ob rebased locally but could not be pushed"
+  else
+    echo "  WARNING: $ob could NOT be rebased automatically -- it is STRANDED on a base"
+    echo "           that no longer exists. Rebase it by hand before verifying."
+    STRANDED=$((STRANDED+1))
+  fi
+done
+[ "$STRANDED" -eq 0 ] || echo "  $STRANDED sibling cut(s) need manual attention"
+echo "LANDED $BRANCH as v$VER; $( [ "$STRANDED" -eq 0 ] && echo "every sibling is on the new main" || echo "$STRANDED sibling(s) STRANDED")"
