@@ -115,26 +115,83 @@ def _safe_move(src: Path, dest_dir: Path) -> Path:
     return dest
 
 
-def scan_once(watch_folder: str | Path) -> list[Path]:
+# A file whose mtime is younger than this is assumed to still be growing.
+# The writer is a scraper, an rsync, or a browser export -- none of them
+# announce completion -- so quiescence is inferred from the clock.  This is the
+# floor; the watch loop raises it to its own poll interval, because a file could
+# have been appended to at any point since the previous look.
+DEFAULT_MIN_QUIESCENT_AGE_S = 5.0
+
+
+def _is_quiescent(entry: Path, min_age_s: float, now: float) -> bool:
+    """True only when `entry` has PROVABLY not been touched for min_age_s.
+
+    An unreadable stat has not proven anything, so it returns False: the file is
+    deferred and re-examined next poll.  Treating an unmeasurable file as
+    quiescent would be the exact fail-open this guard exists to remove
+    (CLAUDE.md A7 -- an unavailable measurement is UNKNOWN, never OK).
+    """
+    if min_age_s <= 0:
+        return True
+    try:
+        return (now - entry.stat().st_mtime) >= min_age_s
+    except OSError:
+        return False
+
+
+def scan_once(watch_folder: str | Path,
+              min_age_s: float = DEFAULT_MIN_QUIESCENT_AGE_S) -> list[Path]:
     """Return a list of .txt files in watch_folder, sorted by mtime
     (oldest first so they're processed in arrival order). Skips the
     .processed/ and .failed/ subfolders so we don't reprocess history.
+
+    Files still being WRITTEN are excluded.  process_file reads a returned file
+    immediately and then MOVES it into .processed/, so returning a file whose
+    writer is still appending imports a torn prefix -- the mid-write final line
+    either fails _URL_RE or, worse, imports as a truncated URL the worker then
+    downloads as a 404 or the wrong resource -- and the move makes the loss
+    permanent: on one filesystem the rename follows the inode, so the writer's
+    remaining bytes land inside .processed/, which this function skips forever.
+    The report still says "Imported N URL(s)", so the operator's audit trail
+    affirms an import that silently lost its tail.
+
+    Age is used rather than size-stability deliberately: size-stability needs
+    cross-scan state, and /api/sites/<sid>/watch/scan_now is a SECOND caller in
+    a request thread with no memory of the loop's previous poll, so a stateful
+    guard would protect the loop and leave that endpoint naked.  Age is
+    stateless, both callers inherit it, and it errs toward waiting.
+
+    Pass min_age_s=0 to disable the guard -- only for a caller that has proven
+    by other means that nothing is writing.
     """
     p = Path(watch_folder)
     if not p.is_dir():
         return []
+    now = time.time()
     candidates = []
     for entry in p.iterdir():
         # Skip subdirs (specifically .processed/, .failed/) and
         # non-.txt files
-        if not entry.is_file():
+        try:
+            if not entry.is_file():
+                continue
+        except OSError:
             continue
         if entry.suffix.lower() != ".txt":
             continue
         if entry.name.startswith("."):  # hidden files, lock files
             continue
+        if not _is_quiescent(entry, min_age_s, now):
+            continue
         candidates.append(entry)
-    candidates.sort(key=lambda f: f.stat().st_mtime)
+    # A file that vanished between the walk and the sort must not abort the
+    # whole scan; an unreadable mtime sorts last rather than raising.
+    def _mtime(f: Path) -> float:
+        try:
+            return f.stat().st_mtime
+        except OSError:
+            return float("inf")
+    candidates.sort(key=_mtime)
     return candidates
 
 
@@ -233,6 +290,22 @@ def process_file(file_path: Path, runner,
 
 # ── Watch loop ───────────────────────────────────────────────────────
 
+def _accepts_min_age(poll_fn) -> bool:
+    """True when poll_fn can take the quiescence floor as a second argument.
+
+    Decided by binding the signature, so an unintrospectable callable (a C
+    builtin, some mocks) falls back to the one-argument form it is guaranteed
+    to accept rather than raising.
+    """
+    try:
+        import inspect
+        inspect.signature(poll_fn).bind("folder", 0.0)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+
 def watch_loop_for_site(runner, stop_event: threading.Event,
                           poll_fn: Callable = scan_once,
                           sleep_fn: Callable = time.sleep):
@@ -261,7 +334,17 @@ def watch_loop_for_site(runner, stop_event: threading.Event,
                 return
             continue
         try:
-            files = poll_fn(folder)
+            # Hand the scanner THIS loop's interval as the quiescence floor: a
+            # file could have been appended to at any moment since the previous
+            # look, so the window that must be quiet is the poll period itself.
+            # poll_fn is a documented injection point and older stubs take only
+            # the folder, so the arity is decided by INSPECTING the callable --
+            # never by catching TypeError, which would also swallow a TypeError
+            # raised INSIDE the scanner and then silently scan a second time.
+            if _accepts_min_age(poll_fn):
+                files = poll_fn(folder, poll_s)
+            else:
+                files = poll_fn(folder)
         except Exception as e:
             runner.log_event("watch_import",
                 f"Folder scan failed: {type(e).__name__}: {e}")

@@ -343,3 +343,37 @@ def test_a_legacy_single_argument_scanner_stub_still_works(tmp_path):
     assert not t.is_alive(), "the watch loop did not exit"
     assert calls == [str(tmp_path)], (
         "a one-argument poll_fn stub must still be callable; got %r" % (calls,))
+
+
+def test_an_internal_typeerror_is_not_mistaken_for_a_one_arg_stub(tmp_path):
+    """A7 self-audit control: the arity fallback must not swallow a TypeError
+    raised INSIDE the scanner and silently scan a second time.
+
+    Deciding arity by catching TypeError would call poll_fn twice here."""
+    from bulk_downloader.watch_folder import watch_loop_for_site
+
+    calls = []
+    runner = _FakeRunner({
+        "watch_enabled": True,
+        "watch_folder": str(tmp_path),
+        "watch_poll_seconds": 5,
+    })
+    stop = threading.Event()
+
+    def exploding_scan(folder, min_age_s=0.0):
+        calls.append(folder)
+        stop.set()
+        raise TypeError("a bug deep inside the scanner, not an arity mismatch")
+
+    t = threading.Thread(target=watch_loop_for_site,
+                         args=(runner, stop, exploding_scan, lambda s: None))
+    t.start()
+    t.join(timeout=5)
+    assert not t.is_alive(), "the watch loop did not exit"
+
+    assert len(calls) == 1, (
+        "the scanner ran %d times -- an internal TypeError was mistaken for a "
+        "one-argument stub and the scan was silently repeated" % len(calls))
+    # The error is reported to the operator rather than swallowed.
+    assert any("TypeError" in msg for _kind, msg in runner.events), (
+        "the scanner's own failure was never surfaced: %r" % (runner.events,))
