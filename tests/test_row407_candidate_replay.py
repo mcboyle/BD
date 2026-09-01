@@ -1089,3 +1089,111 @@ def test_expect_head_refuses_a_wrong_literal(repo_case: RepoCase) -> None:
     assert result.returncode != 0
     body = json.loads(result.stdout)
     assert body["reason_code"] == "SOURCE_HEAD_MISMATCH", body
+
+
+# ── Rows 542 and 557: ownership on BOTH branches, and the claim released ────
+#
+# 542. `git worktree add` returns 0 into a PRE-EXISTING EMPTY DIRECTORY -- it
+# populates it and reports success. occupied_before_add was read only on the
+# FAILURE branch, so a foreign creator that made the directory in the window had
+# its inode recorded as this transaction's own output. The run reported REPLAYED
+# and on any later conflict force-removed another worker lane's directory. The
+# destruction row 480 was cut to prevent, surviving at the sibling branch.
+#
+# 557. The foreign refusal did not release the claim it had just declined, while
+# the sibling pre-add refusal does, so a transient collision left a CLAIMED
+# tombstone that outlived the foreign worker's own cleanup.
+
+def test_a_successful_add_into_a_foreign_directory_is_refused(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """RED. git SUCCEEDS here -- that is the whole point of the branch."""
+    bin_dir = tmp_path / "racing-bin-success"
+    bin_dir.mkdir()
+    marker = tmp_path / "race-fired-success"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "marker = pathlib.Path(os.environ['BD_RACE_MARKER'])\n"
+        "out = pathlib.Path(os.environ['BD_RACE_OUTPUT'])\n"
+        # A DISTINCT creator makes the directory on the FIRST git call, which
+        # is before this run's own exclusive create. That is the only window
+        # left once the output is CLAIMED rather than probed.
+        "if not marker.exists():\n"
+        "    marker.write_text('1')\n"
+        "    out.mkdir(parents=True, exist_ok=True)\n"
+        "result = subprocess.run([real, *args], check=False)\n"
+        "raise SystemExit(result.returncode)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_RACE_MARKER=str(marker),
+        BD_RACE_OUTPUT=str(repo_case.output),
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    assert not repo_case.output.exists()
+
+    result = repo_case.run_replay(env=env)
+
+    assert marker.exists(), "the race never fired, so nothing was measured"
+    assert result.returncode == 2, result.stdout + result.stderr
+    body = json.loads(result.stdout)
+    # Either refusal is correct: the pre-check may see it, or this run's own
+    # exclusive create may. What must never happen is ADOPTION.
+    assert body["reason_code"] in {"OUTPUT_FOREIGN_AT_PATH", "OUTPUT_EXISTS",
+                                   "OUTPUT_REGISTRATION_EXISTS"}, body
+    assert body["reason_code"] != "REPLAYED"
+    assert repo_case.output.is_dir(), "the foreign directory was removed"
+
+
+def test_the_foreign_refusal_releases_its_claim(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """557. A refusal that keeps its claim is indistinguishable from a live
+    competing transaction, forever."""
+    bin_dir = tmp_path / "racing-bin-claim"
+    bin_dir.mkdir()
+    marker = tmp_path / "race-fired-claim"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "marker = pathlib.Path(os.environ['BD_RACE_MARKER'])\n"
+        "out = pathlib.Path(os.environ['BD_RACE_OUTPUT'])\n"
+        "if not marker.exists():\n"
+        "    marker.write_text('1')\n"
+        "    out.mkdir(parents=True, exist_ok=True)\n"
+        "result = subprocess.run([real, *args], check=False)\n"
+        "raise SystemExit(result.returncode)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_RACE_MARKER=str(marker),
+        BD_RACE_OUTPUT=str(repo_case.output),
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+
+    first = repo_case.run_replay(env=env)
+    assert first.returncode == 2
+    assert json.loads(first.stdout)["reason_code"] in {
+        "OUTPUT_FOREIGN_AT_PATH", "OUTPUT_EXISTS", "OUTPUT_REGISTRATION_EXISTS"}
+
+    # RepoCase.manifest IS the claim path -- parent/.<name>.bd-replay.json -- so
+    # this is the one assertion the test needs. An earlier draft had a line
+    # reading `assert not repo_case.manifest.exists() or True`, which is
+    # vacuous: `X or True` can never fail. CI's own vacuous-assertion gate
+    # caught it, which is what that gate is for.
+    assert not repo_case.manifest.exists(), (
+        "the refusal kept its claim, so every later replay to this path refuses "
+        "OUTPUT_CLAIMED and cannot be told apart from a live transaction")

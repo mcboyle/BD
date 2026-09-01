@@ -870,8 +870,25 @@ def replay(
         # from our own partial output. This re-probe costs one stat and reduces
         # the window to the add itself, and its answer is the discriminator:
         # occupied BEFORE means somebody else put it there.
+        # ROW 542: A PROBE CANNOT CLOSE THIS WINDOW; AN EXCLUSIVE CREATE CAN.
+        # The re-probe below is one stat before the add, and a foreign creator
+        # that wins INSIDE the add is invisible to it -- measured: a wrapper that
+        # makes the directory and lets real git add into it returns 0, and the
+        # run recorded a foreign inode as its own output.
+        #
+        # `git worktree add` accepts an EXISTING EMPTY directory, so after the
+        # fact the two cases are indistinguishable. The fix is to stop asking and
+        # start claiming: os.mkdir is atomic and fails with FileExistsError if
+        # anyone else got there, so a directory this transaction created is the
+        # only one it can ever be handed. That is the same doctrine as the
+        # O_EXCL claim file above, applied to the output itself.
+        created_by_us = False
         try:
-            occupied_before_add = output.exists() or output.is_symlink()
+            os.mkdir(output)
+            created_by_us = True
+            occupied_before_add = False
+        except FileExistsError:
+            occupied_before_add = True
         except OSError:
             occupied_before_add = True      # unmeasurable is foreign, never ours
         add_result = _git_result(
@@ -919,6 +936,13 @@ def replay(
                 # actions, and collapsing them is what let a rollback delete
                 # another worker's uncommitted and untracked files while
                 # reporting only REFUSED OUTPUT_CREATE_FAILED.
+                # ROW 557. Release the claim on the way out. The sibling
+                # pre-add refusal (OUTPUT_EXISTS) already does this; this branch
+                # did not, so a transient collision left a CLAIMED tombstone
+                # that outlived the foreign worker's own cleanup. Every later
+                # replay to that path then refused OUTPUT_CLAIMED and could not
+                # be told apart from a live competing transaction.
+                release_claim_with_unowned_output = True
                 raise ReplayFailure(
                     "OUTPUT_FOREIGN_AT_PATH",
                     "the output path is occupied and this run cannot prove it "
@@ -933,6 +957,27 @@ def replay(
             raise ReplayFailure(
                 "OUTPUT_CREATE_FAILED",
                 detail or f"could not create output worktree {output}",
+            )
+        # ROW 542. THE SUCCESS BRANCH IGNORED THE SAME MEASUREMENT THE FAILURE
+        # BRANCH RELIES ON. `git worktree add` returns 0 into a PRE-EXISTING
+        # EMPTY DIRECTORY -- it populates it and reports success -- so a foreign
+        # creator that made the directory in the window had its inode recorded
+        # as this transaction's own output. The run then reported REPLAYED, and
+        # on any later conflict ran `git worktree remove --force` on another
+        # worker lane's directory, taking whatever had been written into it and
+        # naming nothing. That is the destruction row 480 was cut to prevent,
+        # surviving at the sibling branch because the guard was only ever read
+        # on one of the two.
+        #
+        # Ownership is created-by-this-transaction on BOTH branches now. The
+        # claim is released on the way out, as at every other refusal.
+        if not created_by_us:
+            release_claim_with_unowned_output = True
+            raise ReplayFailure(
+                "OUTPUT_FOREIGN_AT_PATH",
+                "the output path was not created by this transaction -- an "
+                "exclusive create found it already present -- so nothing there "
+                "is owned and nothing will be removed: " + str(output),
             )
         if output.exists() or output.is_symlink():
             ownership = _capture_output_ownership(output)
