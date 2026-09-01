@@ -677,6 +677,7 @@ jobs:
               tests/test_v3_66_1183_source_window_content.py
               tests/test_pin_index_in_sync.py
               tests/test_row387_ast_version_pin_guard.py
+              tests/test_row1431_release_trio_at_land.py
               tests/test_all_sources_parse.py
               tests/test_versync_gate.py
               tests/test_settings_center_slice4.py

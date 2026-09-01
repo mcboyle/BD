@@ -237,6 +237,9 @@ _DECLARED = {
     # same-valued duplicate version pin from becoming another bump site. This
     # gate AST-scans the live test population, so it must run on every PR.
     "tests/test_row387_ast_version_pin_guard.py",
+    # Cut 1431. Freeze-time release-trio absence, land-time stamping, and
+    # cross-rebase blob/disjoint refusal are release-wide safety boundaries.
+    "tests/test_row1431_release_trio_at_land.py",
     "tests/test_route_index_in_sync.py",
     "tests/test_import_graph_no_new_edges.py",
     "tests/test_source_windows_do_not_shift.py",
