@@ -252,19 +252,30 @@ def test_a_stat_failure_defers_rather_than_importing(tmp_path, monkeypatch):
         "precondition failed -- the file is not otherwise eligible, so the "
         "stat-failure result below would prove nothing")
 
+    # The failure must land on the QUIESCENCE check, not earlier.  Path.is_file()
+    # re-raises EIO (errno 5 is not in pathlib's ignored set), so a stat that
+    # explodes on every call makes scan_once skip the file at the is_file()
+    # probe and never reach _is_quiescent at all -- the test would then pass by
+    # unrelated early refusal and the fail-closed branch would be pinned by
+    # nothing (CLAUDE.md A7).  So call 1 (is_file) is passed through and only
+    # call 2 onward raises.
     calls = []
     real_stat = Path.stat
 
     def exploding_stat(self, *a, **kw):
         if self.name == "unstattable.txt":
             calls.append(self.name)
-            raise OSError(5, "Input/output error")
+            if len(calls) >= 2:
+                raise OSError(5, "Input/output error")
         return real_stat(self, *a, **kw)
 
     monkeypatch.setattr(Path, "stat", exploding_stat)
     found = wf.scan_once(tmp_path)
 
-    assert calls, "the fixture's stat never fired; the failure was not exercised"
+    assert len(calls) >= 2, (
+        "the quiescence check never stat()ed the file -- scan_once refused it "
+        "earlier, so the fail-closed branch was NOT exercised (calls=%r)"
+        % (calls,))
     assert found == [], (
         "an unstattable file must be DEFERRED as UNKNOWN, not imported; "
         "scan_once returned %r" % (found,))
