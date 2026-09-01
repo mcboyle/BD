@@ -188,9 +188,9 @@ def test_ci_installs_runtime_dependencies_before_canonical_regeneration():
     assert "git ls-files --error-unmatch" in ci
     assert "git status --porcelain --untracked-files=all" in ci
     assert 'test -f "$artifact"' in ci
-    assert "ROUTE_INDEX.json" in ci
-    assert "ENDPOINT_CATALOG.md" in ci
-    assert "DEPENDENCY_GRAPH.json" in ci
+    assert "generated_raw=$(python toolchain/bin/bd-regen-order --tracked-outputs)" in ci
+    outputs = set(_load_regen_tool().tracked_outputs())
+    assert {"ROUTE_INDEX.json", "ENDPOINT_CATALOG.md", "DEPENDENCY_GRAPH.json"} <= outputs
 
 
 @pytest.mark.parametrize("relative", BD_CUT_COPIES)

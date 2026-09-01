@@ -77,6 +77,25 @@ def test_derived_output_declaration_disagreement_with_required_chain_refuses():
         tool.derive_tracked_outputs(required, partial)
 
 
+def test_live_derived_population_is_nonzero_and_includes_both_previously_blind_outputs():
+    tool = _load_tool()
+    loader = importlib.machinery.SourceFileLoader(
+        "row1435_regen", str(REPO / "toolchain/bin/bd-regen-order")
+    )
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None and spec.loader is not None
+    regen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(regen)
+
+    derived = tool.derive_tracked_outputs(
+        regen.REQUIRED_CHAIN_LABELS, regen.TRACKED_OUTPUTS_BY_LABEL
+    )
+
+    assert derived == regen.tracked_outputs()
+    assert len(derived) == len(set(derived)) > 0
+    assert {"INV_TAGS.md", "tests/source_window_hashes.json"} <= set(derived)
+
+
 def test_unknown_identity_refuses_and_cannot_yield_a_transfer_key():
     tool = _load_tool()
     identities = {"base": "a" * 40, "head": "UNKNOWN", "tree": "b" * 40}
