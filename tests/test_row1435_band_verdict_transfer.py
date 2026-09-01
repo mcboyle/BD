@@ -79,13 +79,20 @@ def _minimal_repo(tmp_path: Path) -> tuple[Path, str]:
     return repo, base
 
 
-def _stub_non_authored_dispositions(monkeypatch, tool) -> None:
-    monkeypatch.setattr(tool, "_derived_outputs", lambda repo, head: ("DERIVED.json",))
-    monkeypatch.setattr(
-        tool,
-        "_declared_evidence",
-        lambda repo, base, head: {"base": 1, "head": 1, "live": 1},
-    )
+def _stub_non_authored_dispositions(monkeypatch, tool):
+    calls = {"derived": [], "declared": []}
+
+    def derived(repo, head):
+        calls["derived"].append(head)
+        return ("DERIVED.json",)
+
+    def declared(repo, base, head):
+        calls["declared"].append((base, head))
+        return {"base": 1, "head": 1, "live": 1}
+
+    monkeypatch.setattr(tool, "_derived_outputs", derived)
+    monkeypatch.setattr(tool, "_declared_evidence", declared)
+    return calls
 
 
 def _release_edit(repo: Path, version: str, title: str) -> None:
@@ -198,7 +205,7 @@ def test_unknown_identity_refuses_and_cannot_yield_a_transfer_key():
 
 def test_version_free_candidates_have_a_digest_and_can_transfer(tmp_path, monkeypatch):
     tool = _load_tool()
-    _stub_non_authored_dispositions(monkeypatch, tool)
+    calls = _stub_non_authored_dispositions(monkeypatch, tool)
     repo, base = _minimal_repo(tmp_path)
 
     _git(repo, "checkout", "-q", "-b", "old-candidate")
@@ -223,6 +230,10 @@ def test_version_free_candidates_have_a_digest_and_can_transfer(tmp_path, monkey
     assert old["digest"] == new["digest"]
     assert old["trio"] == new["trio"] == {}
     assert old["trio_entry_bytes"] is new["trio_entry_bytes"] is None
+    assert calls == {
+        "derived": [old_head, new_head],
+        "declared": [(base, old_head), (new_base, new_head)],
+    }
 
 
 def test_partial_release_trio_refuses_and_names_the_missing_member(tmp_path):
@@ -247,16 +258,18 @@ def test_partial_release_trio_refuses_and_names_the_missing_member(tmp_path):
         "bulk_downloader/__init__.py",
         "tests/test_settings_center_slice4.py",
     }
-    with pytest.raises(
-        tool.TransferRefused,
-        match=r"partial release trio.*missing=CHANGELOG[.]md",
-    ):
+    with pytest.raises(tool.TransferRefused) as refused:
         tool.build_evidence(repo, base, head)
+    assert str(refused.value) == (
+        "partial release trio in candidate delta: "
+        "present=bulk_downloader/__init__.py, tests/test_settings_center_slice4.py "
+        "missing=CHANGELOG.md"
+    )
 
 
 def test_complete_release_trio_keeps_its_fixed_content_digest(tmp_path, monkeypatch):
     tool = _load_tool()
-    _stub_non_authored_dispositions(monkeypatch, tool)
+    calls = _stub_non_authored_dispositions(monkeypatch, tool)
     monkeypatch.setattr(tool, "_last_touch", lambda repo, base, path: "fixed-base-touch")
     repo, base = _minimal_repo(tmp_path)
     (repo / "bulk_downloader" / "__init__.py").write_text(
@@ -289,6 +302,10 @@ def test_complete_release_trio_keeps_its_fixed_content_digest(tmp_path, monkeypa
         "f35df039bcc9b8ae6aaaefb8061e65d4a0783561734425271928d8a981cce43a"
     )
     assert tool._trio_disposition(changed) == "COMPLETE"
+    assert calls == {
+        "derived": [head],
+        "declared": [(base, head)],
+    }
 
 
 def test_real_git_rebase_keeps_one_content_digest_when_all_dispositions_hold(tmp_path):
