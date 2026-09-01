@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1417 - the verification lane names the state it is in
+
+Rows 415, 416, 464, 472 and 527. A lane that cannot distinguish its own states
+makes every result a hand adjudication.
+
+- 416. `bd-band`'s per-suite timeout was 240s, justified by a docstring claim
+  that no test exceeded it -- a measurement long gone stale. The slowest suite
+  now runs 152 tests in 263.93s, so the bound TRUNCATED A PASSING SUITE, and a
+  killed suite prints no totals: the band recorded FAIL carrying no denominator
+  at all. The bound is now derived from current evidence (wall x 1.25, rounded
+  up to the whole minute, 360s) rather than pinned to the sample, a timeout
+  reports a DISTINCT state naming the elapsed bound and the suite, and the stale
+  docstring is corrected.
+- 472. `bd-ci-verdict` counted an ADVISORY reviewer inside the merge
+  denominator, so a non-blocking comment could hold a mergeable head.
+- 527. Three distinct source-transport refusals shared one exit code, so a
+  digest mismatch, an undecodable payload and a delimiter collision were
+  indistinguishable to the caller -- and they lead to different actions.
+- 464. A predictor was carried inside a gate tool; the baseline is derived now.
+- 415. The vitest gate asserted a precondition nothing provisioned.
+
 ## v3.66.1416 - the operator is told what was actually measured
 
 Rows 421, 424, 425, 467, 515 and 521 -- six surfaces that reported a confident
