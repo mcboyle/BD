@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1391 - a staging claim proves what it frees, and unwinds what it cannot
+
+Rows 492, 489, 506 and 533. staging_claim is a module built on identity --
+claim() refuses a foreign claim, reserve() diverts around one -- and both its
+state-changing edges could act without it.
+
+- 492 AND 489, RELEASE PROVES WHAT IT FREES. release(staging_path) took no
+  identity, read no claim, and unlinked the owner unconditionally, while its
+  docstring called a leaked claim inert -- true only for the caller that owns it.
+  It now proves two things before dropping a claim: that the claim is this job's,
+  and that the .part is GONE, which was its own stated precondition and was never
+  checked. The browser fallback released a claim whose .part outlived it, leaving
+  the bytes unowned for the next job rendering that name to adopt; the
+  part-is-gone half closes that. force=True is the operator sweep, and
+  crash_recovery.delete_orphan says so explicitly rather than inheriting the old
+  behaviour by omission. Every one of the nine call sites now names itself.
+
+- 506, A LEAKED CLAIM IS VISIBLE TO THE SWEEPS. cleanup_helpers._PARTIAL_EXTS was
+  a five-extension denominator that did not include .owner, so
+  GET /api/cleanup/summary could never report a leaked claim and nothing else in
+  the product looked for one. The suffix is imported from staging_claim rather
+  than retyped, so the two definitions cannot drift.
+
+- 533, A MINT THAT CANNOT MAKE GOOD ON ITSELF DOES NOT SURVIVE. Refutation rank
+  1, closing ranks 1, 2 and 3 -- the same defect from three angles. claim()
+  publishes the .owner FIRST and moves the foreign bytes SECOND, so any failure
+  between them left a claim standing over bytes it had not cleared; claim() is
+  idempotent for one identity, so the next attempt by the same job took the
+  reclaim branch, which never re-measures, and resumed over another scene's
+  bytes. The reachable trigger needs no error at all: a SIGKILL or a deploy
+  restart in that window leaves exactly this state, and nothing reaps it. That
+  is the 2026-08-29 corruption, manufactured by the fix written to prevent it.
+  The mint now unwinds.
+
+- 86 tests green across the four affected suites. Rows 523 and 507 are NOT in
+  this cut.
+
 ## v3.66.1389 - seventy-four measured defects, made machine-visible
 
 - CLAUDE.md A2 SAYS A DEFERRAL THAT LIVES ONLY IN PROSE HAS NOT BEEN DEFERRED.

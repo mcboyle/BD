@@ -803,7 +803,8 @@ class TransportMixin:
             return True
         return downloaded >= total
     @staticmethod
-    def _promote_or_abort(tmp_path, final_path, downloaded, total, meta_path=None):
+    def _promote_or_abort(tmp_path, final_path, downloaded, total, meta_path=None,
+                          identity=None):
         """BP-INT (v3.66.284): atomically promote the ``.part`` to its final
         name ONLY when the received byte count satisfies the advertised
         Content-Length. On a truncated transfer, remove the ``.part`` (and meta
@@ -821,7 +822,7 @@ class TransportMixin:
                 except Exception: pass
             # part-staging-collision: the claim's lifetime is the .part's
             # lifetime. The .part is gone, so the claim goes with it.
-            staging_claim.release(tmp_path)
+            staging_claim.release(tmp_path, identity)
             raise _DownloadTruncated(
                 f"truncated: received {downloaded} of {total} bytes "
                 f"(Content-Length); not promoting to final")
@@ -829,7 +830,7 @@ class TransportMixin:
         if meta_path:
             try: Path(meta_path).unlink(missing_ok=True)
             except Exception: pass
-        staging_claim.release(tmp_path)
+        staging_claim.release(tmp_path, identity)
         return final_path
     def _do_probe_fetch(self,page_url,page,ctx,dl,best,res_lbl,suggested):
         """GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
@@ -1301,7 +1302,7 @@ class TransportMixin:
                 db_log(self.site_id, self.config.get("name", "?"), page_url,
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=0)
-                staging_claim.release(_staging_path)
+                staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
                 return
             res = _hls.download(
                 direct_url, str(final_path), referer=page_url,
@@ -1329,7 +1330,7 @@ class TransportMixin:
                 db_log(self.site_id, self.config.get("name", "?"), page_url,
                        "needs_review", final_path.name, 0, note,
                        bytes_fetched=max(0, int(res.bytes_written or 0)))
-                staging_claim.release(_staging_path)
+                staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
                 return
             try:
                 downloaded_size = final_path.stat().st_size
@@ -1340,7 +1341,7 @@ class TransportMixin:
             # the reserved final name and never stages a `.part`, so the
             # reservation has done its job and is released here rather than
             # left beside the finished file.
-            staging_claim.release(_staging_path)
+            staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
         # elif, NOT a second `if`. v3.66.819 shipped these as two independent
         # ifs with `use_http = False` in the stream branch, and that did not skip
         # the transfer selection -- it SELECTED THE ELSE. Measured on the deploy
@@ -1432,11 +1433,11 @@ class TransportMixin:
                 # part-staging-collision: the browser wrote straight to
                 # the reserved final name, so the reservation has done
                 # its job and is released.
-                staging_claim.release(_staging_path)
+                staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
         else:
             transfer_mode="browser"
             downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
-            staging_claim.release(_staging_path)
+            staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
 
         # ── Phase 17.20: Size sanity check ───────────────────────────────
         # If the page advertised a file size and we got back something
@@ -1888,7 +1889,7 @@ class TransportMixin:
                         # moved nothing, which is why the size alone cannot be
                         # read as evidence of a download.
                         tmp_path.rename(final_path)
-                        staging_claim.release(tmp_path)
+                        staging_claim.release(tmp_path, staging_claim.job_identity(page_url))
                         return final_path.stat().st_size, 0
                     raise _HTTPDownloadFailed("HTTP 416 with no resume position")
                 if resp.status_code==206:  # partial content — resume worked
@@ -2112,7 +2113,8 @@ class TransportMixin:
             try:
                 TransportMixin._promote_or_abort(tmp_path, final_path,
                                              downloaded, total,
-                                             meta_path=meta_path)
+                                             meta_path=meta_path,
+                                                 identity=staging_claim.job_identity(page_url))
             except _DownloadTruncated:
                 raise
             except Exception as e:
@@ -2556,7 +2558,7 @@ class TransportMixin:
             _daily_bytes.flush()
             raise _HTTPDownloadFailed(f"rename failed: {e}")
         # part-staging-collision: the .part is gone, so its claim goes too.
-        staging_claim.release(tmp_path)
+        staging_claim.release(tmp_path, staging_claim.job_identity(page_url))
         # v3.43.27: file is complete; clean up the checkpoint sidecar.
         _resume.cleanup(final_path)
         # (size_on_disk, bytes_transferred_this_call) -- `progress` holds the

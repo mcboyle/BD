@@ -17,7 +17,16 @@ from typing import Optional
 
 _VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv",
                ".webm", ".flv", ".ts", ".mpg", ".mpeg"}
-_PARTIAL_EXTS = {".part", ".ytdl", ".download", ".crdownload", ".tmp"}
+# Row 506: a LEAKED STAGING CLAIM was invisible to every sweep in the product.
+# staging_claim mints <final>.part.owner, and this five-extension set was the
+# entire denominator of find_stale_partials -- one of the six categories
+# summary() builds and the whole payload of GET /api/cleanup/summary -- so no
+# surface could ever report one. The suffix is imported rather than retyped so
+# the two definitions cannot drift.
+from .staging_claim import OWNER_SUFFIX as _OWNER_SUFFIX
+
+_PARTIAL_EXTS = {".part", ".ytdl", ".download", ".crdownload", ".tmp",
+                 _OWNER_SUFFIX}
 
 
 def find_tinies(*, threshold_mb: int = 5,
