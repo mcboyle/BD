@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4218,
+  "edge_count": 4229,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3758,6 +3758,11 @@
       "bulk_downloader/download_hold.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py": [
+      "bulk_downloader/download_hold.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_row437_a_locked_vault_is_not_a_missing_password.py": [
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
@@ -3767,6 +3772,13 @@
     "tests/test_row438_configure_backend_is_idempotent.py": [
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row440_443_ffmpeg_probe_boundary.py": [
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/enrichment.py",
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/thumbnail_gen.py",
+      "bulk_downloader/thumbnail_sheets.py"
     ],
     "tests/test_row475_offline_vault_password_check.py": [
       "bulk_downloader/auth_throttle.py",
@@ -4196,6 +4208,11 @@
     "tests/test_the_fixture_serves_decodable_segments.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/integrity.py"
+    ],
+    "tests/test_the_transport_proves_the_bytes_it_claims.py": [
+      "bulk_downloader/resume.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_tools_other02_review_host_confine.py": [
       "bulk_downloader/template_normalize.py",
