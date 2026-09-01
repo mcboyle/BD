@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4218,
+  "edge_count": 4219,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5434,7 +5434,8 @@
     ],
     "tests/test_v3_66_284_integrity.py": [
       "bulk_downloader/constants.py",
-      "bulk_downloader/runner.py"
+      "bulk_downloader/runner.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_v3_66_285_cloak_parity.py": [
       "bulk_downloader/cloak.py"
