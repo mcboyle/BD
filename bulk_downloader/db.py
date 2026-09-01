@@ -1733,18 +1733,73 @@ def db_find_filename_duplicate(filename, file_size=None, exclude_site=None):
                 return None
         return dict(row)
 
+# Rows 560, 561 and 607. THE PREDICATE THAT DECIDES WHETHER A 'done' ROW PROVES
+# BD MOVED BYTES, in one place because two callers must not drift apart.
+#
+# Row 544 (shipped v3.66.1397) rules that a zero-byte 'done' row is not
+# ownership, and it is right: runner_transport.py's "Already have" arm writes
+# db_log(..., bytes_fetched=0, "already on disk") itself, runner_integrations.py
+# writes the same shape for a Stash dedup hit, and library_record's
+# `history_id = COALESCE(?, history_id)` then makes that row the library row's
+# CURRENT owner. So neither "zero" nor "current" can separate a real completion
+# from a self-manufactured one -- A7's shape of deriving the expected set from
+# the artifact under test.
+#
+# THE COLUMN THAT CAN. ``transfer_mode`` is WHICH transport moved the bytes,
+# stated by the branch that performed it ('segmented' | 'http' | 'browser').
+# EVERY no-transfer 'done' arm in the tree omits the keyword and records NULL,
+# because none of them ran a transport; the HTTP 416 resume-complete arm reaches
+# the success db_log through `elif use_http:` and stamps 'http'. That arm is a
+# fully downloaded, on-disk file whose final call moved no bytes because the
+# server said the range was already satisfied -- a real completion recorded as a
+# measured zero. tests/test_row607_a_history_row_proves_a_real_transfer.py parses
+# the no-transfer call sites and refuses if one ever starts stamping the column.
+#
+# NOT ``transfer_mode`` ALONE. runner_extractors.py has a 'done' path stamping
+# transfer_mode='http' with bytes_fetched=None, and NULL is UNKNOWN -- never
+# proof of a download, per db_log's own contract and CLAUDE.md A2. The proof is
+# a MEASURED count: positive, or an explicit zero from a named transport.
+_TRANSFER_PROOF_WITH_MODE = (
+    "((h.bytes_fetched IS NOT NULL AND h.bytes_fetched > 0) "
+    "OR (h.bytes_fetched = 0 AND h.transfer_mode IS NOT NULL))")
+_TRANSFER_PROOF_NO_MODE = (
+    "(h.bytes_fetched IS NOT NULL AND h.bytes_fetched > 0)")
+
+
+def _transfer_proof_sql(cx):
+    """The proof predicate for this database's ACTUAL schema, aliased ``h``.
+
+    ``transfer_mode`` arrives with migration 9. On a database that has not been
+    migrated the column does not exist, and naming it would raise -- which
+    db_skip_identity's bare handler would turn into "unknown" for EVERY url,
+    silently converting a pre-v9 host's whole history into re-downloads. The
+    degraded predicate is exactly the shipped row 544 rule, so an unmigrated
+    host keeps its current behaviour rather than losing it.
+    """
+    try:
+        cols = {row[1] for row in
+                cx.execute("PRAGMA table_info(history)").fetchall()}
+    except sqlite3.Error:
+        return _TRANSFER_PROOF_NO_MODE
+    if "transfer_mode" not in cols or "bytes_fetched" not in cols:
+        return _TRANSFER_PROOF_NO_MODE
+    return _TRANSFER_PROOF_WITH_MODE
+
+
 def db_skip_identity(page_url, final_path):
     """Is the file already on disk PROVABLY the same work as ``page_url``?
 
-    Four states, not three (row 479):
+    Four states, not three (rows 479, 547, 560, 561, 607):
 
-        "same"      a done row for this url records a REAL transfer and its
-                    file is on disk now
+        "same"      this url is the CURRENT owner of a file that is on disk
+                    now, and some done row of this url at that library row
+                    PROVES a transfer (see ``_transfer_proof_sql``)
         "different" the file on disk is attributed to another url
-        "unproven"  a done row points at a file that exists, but its
-                    ``bytes_fetched`` is 0 (nothing transferred) or NULL (a
-                    pre-v8 row, unmeasurable). The caller must surface this;
-                    it is not ownership.
+        "unproven"  a done row points at a file that exists, but nothing in
+                    the record proves BD ever fetched it -- ``bytes_fetched``
+                    0 with no transport named, or NULL (a pre-v8 row,
+                    unmeasurable). The caller must surface this; it is not
+                    ownership.
         "unknown"   nothing is known either way
 
 
@@ -1785,9 +1840,23 @@ def db_skip_identity(page_url, final_path):
     alone and lands at ``name_1``; run 2 renders ``name`` again, but the url now
     owns ``name_1``, so it answers "same" and skips.
 
-    Attribution is read through ``history.library_id``/``library.history_id``,
-    which db_log and library_record backfill on both the insert and the update
-    path. ``history.filename`` cannot answer it: that column holds a basename
+    Attribution is read through BOTH directions of
+    ``history.library_id``/``library.history_id``, which db_log and
+    library_record backfill on the insert and the update path alike, and the two
+    answer different questions. ``library.history_id`` is CURRENT -- it names the
+    history row whose url most recently wrote that path -- and decides WHICH file
+    this url owns. ``history.library_id`` is HISTORICAL -- every completion at a
+    reused UNIQUE library path keeps pointing at the same library row -- and
+    supplies the transfer evidence for the path identity already chose.
+
+    Reading only the historical direction let an older url answer "same" over a
+    newer url's bytes (row 547). Reading only the current direction would accept
+    the skip arm's own row, because that row wins the ``history_id`` COALESCE
+    exactly as a real completion does (row 607) -- and would break the healthy
+    steady state, whose current row is always the newest skip. Neither half is
+    the answer on its own.
+
+    ``history.filename`` cannot answer any of it: that column holds a basename
     with template subdirectories already stripped, never a path.
     """
     final_path = str(final_path or "")
@@ -1796,50 +1865,91 @@ def db_skip_identity(page_url, final_path):
     import os as _os
     try:
         with db_conn() as cx:
-            # Row 479. This query used to ask for a done status and a library
-            # link and NOTHING about a transfer -- and the skip arm WRITES such
-            # a row itself (runner_transport.py, db_log(..., bytes_fetched=0,
-            # 'already on disk')), with library_record backfilling its
-            # library_id, so every skip manufactured the proof the next run
-            # read. That is A7's shape: deriving the expected set from the
-            # artifact under test. bytes_fetched is fetched here because
-            # db_log's own contract names it as the ONLY column that can answer
-            # whether BD moved bytes.
-            owned = cx.execute(
-                "SELECT l.file_path AS fp, h.bytes_fetched AS bf FROM history h "
-                "JOIN library l ON l.id = h.library_id "
+            proof = _transfer_proof_sql(cx)
+            # PRONG 1 -- IDENTITY: which path does this url own RIGHT NOW?
+            # Read through library.history_id, the CURRENT half of the
+            # bidirectional link. history.library_id alone is historical: every
+            # completion at a reused UNIQUE library path points at the same
+            # library row forever, so an older url still resolved that path
+            # after another url's bytes replaced the file there, skipped over
+            # them and retitled the row back (row 547).
+            #
+            # A DANGLING CURRENT LINK IS NOT PERMISSION. history rows are
+            # deleted by db_prune AND by batch_ops.bulk_delete (reachable at
+            # POST /api/batch/delete), so library.history_id can point at a row
+            # that is gone. Treating an unclaimed library row as this url's
+            # would let an older url skip over a newer one's bytes whenever the
+            # newer url's row was deleted -- row 547 arriving by another door,
+            # and UNKNOWN converted into permission (CLAUDE.md A2). The JOIN
+            # below requires a LIVE owner, so an orphan falls through to
+            # "unknown" and the job downloads. db_prune repairs the link it
+            # breaks itself; nothing else may assume it was repaired.
+            current = cx.execute(
+                "SELECT l.id AS lid, l.file_path AS fp FROM library l "
+                "JOIN history h ON h.id = l.history_id "
                 "WHERE h.url = ? AND h.status = 'done' "
                 "AND COALESCE(l.file_path,'') <> '' "
                 "ORDER BY h.id DESC",
                 (page_url,)).fetchall()
-            # SCAN for transfer evidence rather than trusting the newest row.
-            # The healthy steady state is one real transfer followed by any
-            # number of bytes_fetched=0 skips, so a fix that inspected only the
-            # newest owned row would turn every legitimate skip into a
-            # re-download.
             unproven = None
-            for row in owned:
+            for row in current:
                 # A recorded path whose file has since been deleted proves
                 # nothing about what is on disk NOW, so keep looking rather
                 # than skipping on the strength of a row alone.
                 if not _os.path.isfile(row["fp"]):
                     continue
-                bf = row["bf"]
-                if bf is not None and bf > 0:
+                # PRONG 2 -- EVIDENCE: does ANY 'done' row of this url at this
+                # library row prove a transfer?
+                #
+                # SCANNED, not read off the current row. The healthy steady
+                # state is one real transfer followed by any number of
+                # no-transfer skip rows, and each skip becomes the current
+                # owner in turn -- so a fix that judged only the current row
+                # would turn every legitimate skip into a re-download. It is
+                # also why the current row alone cannot be the proof: the skip
+                # arm writes that row itself (row 544).
+                proven = cx.execute(
+                    "SELECT 1 FROM history h WHERE h.url = ? "
+                    "AND h.status = 'done' AND h.library_id = ? "
+                    "AND " + proof + " LIMIT 1",
+                    (page_url, row["lid"])).fetchone()
+                if proven is not None:
                     return ("same", row["fp"])
-                # bf == 0: BD is certain nothing was transferred for this row.
-                # bf is None: a pre-v8 row, where the column did not exist --
-                # UNKNOWN, and db_log's contract says never proof of a
-                # download. Both are recorded, neither is ownership.
                 if unproven is None:
                     unproven = row["fp"]
             if unproven is not None:
-                # A file IS there and a done row DOES point at it, but nothing
+                # A file IS there, this url IS its current owner, and nothing
                 # in the record says BD ever fetched it. Naming this state
                 # separately is the point: "unknown" would send the job down
                 # the transfer path silently, and the operator would never learn
                 # that an existing attribution was unproven.
                 return ("unproven", unproven)
+            # THE HISTORICAL DIRECTION, for operator visibility only. An
+            # upgraded host carries 'done' rows written before any of this
+            # existed: bytes_fetched 0 over someone else's file, or a pre-v8
+            # NULL. They never became the current owner, so prong 1 cannot see
+            # them, and falling straight through would make row 479's
+            # needs_review diagnostic unreachable on exactly the databases it
+            # was written for.
+            #
+            # A STALE ROW THAT DOES PROVE A TRANSFER IS DELIBERATELY EXCLUDED.
+            # Once library.history_id names another url, the bytes at that path
+            # are no longer the bytes this url fetched (row 547), and the
+            # "different" arm below is both the correct verdict and the honest
+            # one: the needs_review message this "unproven" produces says the
+            # attribution RECORDS NO TRANSFER, which would be false of it. A7 --
+            # a diagnostic that collapses distinct failures costs the
+            # investigation.
+            stale = cx.execute(
+                "SELECT l.file_path AS fp, " + proof + " AS proven "
+                "FROM history h JOIN library l ON l.id = h.library_id "
+                "WHERE h.url = ? AND h.status = 'done' "
+                "AND COALESCE(l.file_path,'') <> '' "
+                "ORDER BY h.id DESC",
+                (page_url,)).fetchall()
+            present = [r for r in stale if _os.path.isfile(r["fp"])]
+            if present and not any(r["proven"] for r in present):
+                return ("unproven", present[0]["fp"])
             attributed = cx.execute(
                 "SELECT h.url AS url FROM library l "
                 "LEFT JOIN history h ON h.id = l.history_id "
@@ -1926,7 +2036,18 @@ def db_prune(days):
     EXTERNAL-CONTENT index (db_fts_forget). Before this, every
     pruned row left its terms in the inverted index permanently.
     Return type is unchanged: POST /api/history/prune puts this
-    int straight in the JSON body."""
+    int straight in the JSON body.
+
+    ROW 563: THE NEWEST TRANSFER-PROVING 'done' ROW PER URL IS RETAINED.
+    ``db_skip_identity``'s healthy steady state is ONE real transfer followed by
+    any number of no-transfer skip rows, so the only row that proves ownership
+    is the OLDEST one -- exactly the row an age-based prune reaches first. Losing
+    it turned a healthy repeated skip into a needless re-download and a
+    full-size duplicate at ``name_1.mp4``. The carve-out cannot be made in
+    ``db_skip_identity`` instead: the rows that survive the prune are the
+    self-manufactured skip rows, and accepting those is precisely the defect
+    row 544 closed. Retention is per-URL and keyed on evidence, so a history of
+    failures, skips and no-transfer rows still empties completely."""
     with db_conn() as cx:
         # v3.66.820: the cutoff is computed ONCE and bound into both
         # statements. Two separate `datetime('now', ...)` evaluations
@@ -1935,12 +2056,77 @@ def db_prune(days):
         # the opposite and worse failure.
         cutoff = cx.execute("SELECT datetime('now', ?)",
                             (f"-{int(days)} days",)).fetchone()[0]
-        doomed = cx.execute(
-            "SELECT id, site_name, url, filename, message, status "
-            "FROM history WHERE ts < ?", (cutoff,)).fetchall()
-        db_fts_forget(cx, doomed)
-        return cx.execute("DELETE FROM history WHERE ts < ?",
-                          (cutoff,)).rowcount
+        # The retained set is materialised into a TEMP TABLE rather than
+        # concatenated into the two statements below, for two reasons.
+        #
+        # ONE SOURCE OF TRUTH. The doomed SELECT and the DELETE must select the
+        # same rows or a LIVE row loses its FTS terms -- unsearchable, and the
+        # worse failure the cutoff is computed once for. A temp table gives both
+        # statements one identical, literal WHERE clause.
+        #
+        # AND THE DELETE STAYS A STRING LITERAL. tests/test_fts_external_content
+        # _delete.py enumerates every function that passes a `DELETE FROM
+        # history` CONSTANT to .execute() and then checks each maintains the FTS
+        # index. Building this statement by concatenation made db_prune
+        # invisible to that gate -- an untracked deleter, which is precisely the
+        # bug the gate exists to catch.
+        #
+        # The proof predicate is only interpolated into a SELECT, and only from
+        # module constants chosen by `_transfer_proof_sql`; no caller value
+        # reaches SQL text.
+        cx.execute("DROP TABLE IF EXISTS _bd_prune_keep")
+        cx.execute("CREATE TEMP TABLE _bd_prune_keep(id INTEGER PRIMARY KEY)")
+        try:
+            keep_ids = [r[0] for r in cx.execute(
+                "SELECT MAX(h.id) FROM history h WHERE h.status = 'done' "
+                "AND " + _transfer_proof_sql(cx) + " GROUP BY h.url"
+            ).fetchall() if r[0] is not None]
+            for _kid in keep_ids:
+                cx.execute("INSERT INTO _bd_prune_keep(id) VALUES(?)", (_kid,))
+            doomed = cx.execute(
+                "SELECT id, site_name, url, filename, message, status "
+                "FROM history WHERE ts < ? "
+                "AND id NOT IN (SELECT id FROM _bd_prune_keep)",
+                (cutoff,)).fetchall()
+            db_fts_forget(cx, doomed)
+            removed = cx.execute(
+                "DELETE FROM history WHERE ts < ? "
+                "AND id NOT IN (SELECT id FROM _bd_prune_keep)",
+                (cutoff,)).rowcount
+            # REPAIR THE LINK THIS DELETE JUST BROKE. library.history_id names
+            # the history row whose url most recently wrote that path, and
+            # db_skip_identity refuses to read a library row whose owner is gone
+            # -- correctly, because an unclaimed row would let an older url skip
+            # over a newer one's bytes. Retaining the evidence row is therefore
+            # not enough on its own: the retained row must also be the one the
+            # library names. Repointing to the newest SURVIVING completion at
+            # that path is the same rule library_record applies on every write.
+            # A library row with no survivor keeps its dangling id and stays
+            # unreadable, which is the safe direction.
+            try:
+                cx.execute(
+                    "UPDATE library SET history_id = ("
+                    "  SELECT MAX(h.id) FROM history h "
+                    "  WHERE h.library_id = library.id) "
+                    "WHERE history_id IS NOT NULL "
+                    "AND NOT EXISTS (SELECT 1 FROM history c "
+                    "                WHERE c.id = library.history_id) "
+                    "AND EXISTS (SELECT 1 FROM history s "
+                    "            WHERE s.library_id = library.id)")
+            except sqlite3.OperationalError:
+                # A caller that created only the history table (db_init without
+                # the library schema) has nothing to repair. Any other failure
+                # still propagates.
+                pass
+            return removed
+        finally:
+            # The connection is pooled, so a surviving temp table would silently
+            # retain rows on the NEXT prune -- a stale artifact deciding a
+            # destructive operation.
+            try:
+                cx.execute("DROP TABLE IF EXISTS _bd_prune_keep")
+            except Exception:
+                pass
 
 def db_vacuum():
     """Run SQLite VACUUM to reclaim space from deleted rows. Returns

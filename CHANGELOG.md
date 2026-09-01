@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1404 - a history row proves a real transfer, not a current identity
+
+Rows 547, 560, 561, 563 and 607. This is the SECOND attempt: the first was built,
+committed and PARKED unlanded earlier the same night because its discriminator
+would have reintroduced the defect row 544 had closed hours before. Row 607
+records that adjudication.
+
+- THE MEASUREMENT THAT DECIDED IT. Both arms reach `db_log` with an ABSOLUTE
+  file_path, so `library_record`'s `history_id = COALESCE(?, history_id)` makes
+  EACH of them the library row's current owner. "Current identity" therefore
+  cannot separate them, which is exactly what parked the first attempt. What DOES
+  separate them is `transfer_mode`: the skip arm leaves it NULL, and the 416
+  resume-complete arm stamps `"http"`. The Stash dedup arm and the clicked-no-dir
+  arm write the same NULL-mode shape, and NO no-transfer arm in the tree stamps
+  the column.
+- The other candidate was measured DEAD, and backwards in both directions: the
+  416 sequence's interrupted run logs `status='failed'`, so it has no prior
+  positive `done` row, while a healthy repeated skip does have one. Pinned by a
+  test rather than left as an assumption.
+- DISCRIMINATOR: `bytes_fetched > 0` OR (`bytes_fetched = 0` AND
+  `transfer_mode IS NOT NULL`). Not mode alone -- one extractor stamps 'http'
+  with `bytes_fetched=None`, and NULL stays UNKNOWN. Row 544's shipped rule is a
+  STRICT SUBSET of this and is untouched; its tests were run on every iteration
+  as the tripwire, not merely at the end.
+- Identity and evidence now read OPPOSITE directions of the link:
+  `library.history_id` (current) picks the path, `history.library_id`
+  (historical) supplies the evidence -- because the current row is always the
+  newest skip.
+- Row 547 now answers `different`, not `unproven`. Both refuse the skip, but
+  `unproven` emits "existing attribution records no transfer", which is FALSE of
+  a row that recorded one -- A7's collapsed-diagnostic shape.
+- ROW 563 IS UNSATISFIABLE AS LITERALLY WORDED and was not forced: the rows an
+  age prune leaves behind ARE the self-manufactured ones. Resolved on the
+  retention side instead -- `db_prune` keeps the newest transfer-proving `done`
+  row per URL and REPOINTS `library.history_id` at the newest survivor, since
+  retained evidence the library no longer names is unreadable.
+- A dangling `library.history_id` now yields `unknown`. The first pass treated it
+  as unclaimed, which converts UNKNOWN into permission and re-opens row 547
+  through `batch_ops.bulk_delete`.
+
 ## v3.66.1403 - a secrets mutation surfaces the outcome the store actually had
 
 Rows 551, 552, 554 and 555 of the 2026-09-01 audit. All four reproduced at base.
