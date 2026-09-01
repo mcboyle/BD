@@ -147,6 +147,46 @@ def test_repeated_resume_still_measures_and_refuses_a_standing_hold(
     assert log.events[0][2].get("hold_state") == download_hold.HELD
 
 
+def test_start_during_a_resume_refusal_preserves_the_paused_pool(
+        hold_store, monkeypatch):
+    """A7 control: another start caller must not erase resume provenance."""
+    from bulk_downloader import download_hold
+
+    runner = _paused_runner("row-434-start-interleaving")
+    log = _EventLog(runner)
+    assert download_hold.hold(reason="row-434-interleaving", by="test") is True
+    assert download_hold.hold_state()["state"] == download_hold.HELD
+
+    runner.resume()
+    assert runner._state == download_hold.STATE_HELD
+    assert not runner._pause.is_set()
+    assert log.count("download_hold") == 1
+    measured_states = _record_hold_reads(monkeypatch, download_hold)
+
+    # The window scheduler and the per-site Start endpoint can both arrive
+    # while the paused pool is represented by its hold-refusal token.
+    runner.start()
+    assert measured_states == [download_hold.HELD], (
+        "the interleaving start must fire exactly one real hold measurement: "
+        "%r" % (measured_states,))
+    assert runner._state == download_hold.STATE_HELD
+    assert not runner._pause.is_set()
+    assert log.count("download_hold") == 1
+
+    assert download_hold.lift(by="test") is True
+    assert download_hold.hold_state()["state"] == download_hold.CLEAR
+    runner.resume()
+
+    assert runner._state == "running", (
+        "start() during the refusal erased resume provenance and left the "
+        "paused pool stuck in %r after lift" % (runner._state,))
+    assert runner._pause.is_set()
+    assert measured_states == [download_hold.HELD, download_hold.CLEAR], (
+        "the interleaved start and recovery resume must fire exactly two real "
+        "hold measurements: %r" % (measured_states,))
+    assert log.count("download_hold") == 1
+
+
 def test_a_start_refused_runner_is_not_resumed_into_workerless_running(
         hold_store):
     """Negative control: start() refuses before any worker exists."""
@@ -172,8 +212,9 @@ def test_a_start_refused_runner_is_not_resumed_into_workerless_running(
     assert download_hold.downloads_allowed()[0] is True
     runner.resume()
 
-    assert runner._state != "running", (
-        "resume() converted a start refusal into workerless running")
+    assert runner._state == download_hold.STATE_HELD, (
+        "resume() changed a start-refusal token with no resumable provenance: "
+        "%r" % (runner._state,))
     assert runner._worker_threads == []
     assert log.count("download_hold") == 1
 
@@ -210,15 +251,13 @@ def test_an_unmeasurable_hold_refuses_and_stays_recoverable(hold_store):
     assert log.count("download_hold") == 1
 
 
-def test_a_fresh_start_attempt_discards_old_resume_provenance(
+def test_a_start_request_after_lift_recovers_the_refused_resume_in_place(
         hold_store, monkeypatch):
-    """A7 control: an empty start must not leave a stale recovery capability."""
+    """A7 control: start callers must share the refused resume's lifecycle."""
     from bulk_downloader import download_hold
 
-    runner = _paused_runner("row-434-start-clears-provenance")
+    runner = _paused_runner("row-434-start-recovers-provenance")
     log = _EventLog(runner)
-    assert runner.jobs == {}, "precondition: start() must take the empty path"
-    assert runner._worker_threads == []
 
     assert download_hold.hold(reason="row-434-stale", by="test") is True
     runner.resume()
@@ -231,16 +270,17 @@ def test_a_fresh_start_attempt_discards_old_resume_provenance(
 
     runner.start()
     assert measured_states == [download_hold.CLEAR], (
-        "the fresh start did not reach exactly one real hold read: %r"
+        "the recovery start did not reach exactly one real hold read: %r"
         % (measured_states,))
-    assert runner.jobs == {} and runner._worker_threads == []
-    assert runner._state == download_hold.STATE_HELD, (
-        "the empty start invented a new lifecycle state: %r" % (runner._state,))
+    assert runner._state == "running", (
+        "start() did not recover the resume-refused lifecycle: %r"
+        % (runner._state,))
+    assert runner._pause.is_set()
 
     runner.resume()
     assert measured_states == [download_hold.CLEAR], (
-        "resume() reused provenance that start() was required to discard: %r"
+        "resume() re-read the hold after start() had already recovered it: %r"
         % (measured_states,))
-    assert runner._state == download_hold.STATE_HELD
-    assert not runner._pause.is_set()
+    assert runner._state == "running"
+    assert runner._pause.is_set()
     assert log.count("download_hold") == 1

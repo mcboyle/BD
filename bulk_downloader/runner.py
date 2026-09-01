@@ -1211,9 +1211,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     def _start_serialized(self, _teardown_generation=None):
         if getattr(self, "_run_retired", False):
             return StartOutcome.TEARDOWN_PENDING
+        # A scheduler/API start can race with the operator's retry of a
+        # paused pool.  When resume() published the hold token, this is still
+        # that resumable lifecycle: run the same barriered transition before
+        # resetting its generation.  A token published by start() has no
+        # provenance and therefore falls through as a genuinely fresh start.
+        refused_resume_state = getattr(
+            self, "_hold_refused_resume_state", None)
+        if (self._state in _DOWNLOAD_HOLD_STATE_TOKENS
+                and refused_resume_state in
+                ("paused", "low_disk", "paused_no_button")):
+            self.resume()
+            return
         # A start is a new lifecycle attempt, even when an admission check or
         # an empty pending set makes it return early.  It must not inherit a
-        # recovery capability recorded by an earlier refused resume.
+        # recovery capability that does not belong to its current state.
         self._hold_refused_resume_state = None
         if self._state=="running": return
         # A fresh run must not inherit liveness state from worker threads that
