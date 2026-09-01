@@ -50,9 +50,12 @@ is a rule for humans reading the comment, not a test.
 from __future__ import annotations
 
 import ast
+import io
+import re
 import shlex
 import subprocess
 import sys
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -121,12 +124,14 @@ _DECLARED = {
     # Backlog row 267. Seven application measurements had each collapsed an
     # unavailable result into the same value as measured permission. This
     # module drives the real enqueue/start/admission and integrity seams, so it
-    # is pinned into the application-safety shard on every PR.
+    # is pinned into the safety shard claimed below on every PR.
+    # CI-SHARD-CLAIM row-267 application-safety tests/test_app_measurements_fail_closed.py
     "tests/test_app_measurements_fail_closed.py",
     # The download-integrity promotion seam is module-scoped, but a hardened
     # staging-claim API left four of its six tests red on main while no CI job
     # executed the file. Keep the real promote/abort contract in the same
-    # application-safety shard as the other integrity boundaries.
+    # safety shard as the other integrity boundaries.
+    # CI-SHARD-CLAIM row-284 application-safety tests/test_v3_66_284_integrity.py
     "tests/test_v3_66_284_integrity.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
     # boundaries. This behavioral module proves missing, malformed, degraded,
@@ -281,8 +286,9 @@ _DECLARED = {
     "tests/test_t7_notifications_wired.py",
     # @1240, backlog row 240. The supervisor throttle form had no GET consumer
     # at all, so an untouched Apply POSTed the component's own defaults over
-    # every live byte-rate limit. Delegates to three Vitest specs; it belongs
-    # in the parity-graph shard because that is where node is installed.
+    # every live byte-rate limit. Delegates to three Vitest specs; it belongs in
+    # the node-enabled shard claimed below.
+    # CI-SHARD-CLAIM row-240 parity-graph tests/test_v3_66_1240_supervisor_settings_seeded.py
     "tests/test_v3_66_1240_supervisor_settings_seeded.py",
     "tests/test_t8_cluster_wired.py",
     "tests/test_t9a_live_stream_wired.py",
@@ -350,7 +356,8 @@ _DECLARED = {
     # direct-URL resolution, filename, a real loopback transfer, history row,
     # library title -- against recorded fixtures. Its subject is the tree's
     # ability to complete a download at all, which no changed path implies, so
-    # it is declared here and scheduled in the download-chain shard.
+    # it is declared here and scheduled in the dedicated shard claimed below.
+    # CI-SHARD-CLAIM row-386 download-chain tests/test_row386_the_download_chain_is_gated.py
     "tests/test_row386_the_download_chain_is_gated.py",
     # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
     # deliberate. (This comment read "the ONLY entry" while the entry directly
@@ -489,7 +496,8 @@ _DECLARED = {
     # Backlog 27's executable route is module-scoped, but it decides whether
     # bd-mutate may publish a false CAUGHT after a fixture contaminates the
     # restored-source control.  Mutation evidence is a safety boundary, so the
-    # test runs on every PR with the rest of the mutation-tools shard.
+    # test runs on every PR in the verifier shard claimed below.
+    # CI-SHARD-CLAIM backlog-27 mutation-verifiers tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",
     "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py",
     "tests/test_frontend_secret_keys_in_sync.py",
@@ -553,8 +561,9 @@ _DECLARED = {
     # @1157. Ninth module-scoped safety boundary. Row 148 is another silent
     # green: stale or concurrently replaced hashed output can look like a new
     # Vite build unless cleanup authorization and final publication identity
-    # are both bound. A diff-derived local band is not CI execution, so keep
-    # this production-path regression in the toolchain shard explicitly.
+    # are both bound. A diff-derived local band is not CI execution, so keep the
+    # production-path regression in the deep tool shard claimed below.
+    # CI-SHARD-CLAIM row-1157 toolchain-deep tests/test_v3_66_1157_build_output_is_from_this_attempt.py
     "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
     # Row 259. Five operator-facing measurement sites used their clean sentinel
     # when Git, source reads, scanners, artifact reads, or JSON parsing failed.
@@ -563,16 +572,18 @@ _DECLARED = {
     # green. The explicitly excluded bd-fleet site remains owned by row 254.
     "tests/test_failed_measurements_have_distinct_states.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
+    # CI-SHARD-CLAIM row-1035 parity-static tests/test_v3_66_653_dep_freshness.py
     "tests/test_v3_66_653_dep_freshness.py",
+    # CI-SHARD-CLAIM row-1035 parity-static tests/test_row331_guarded_imports_are_declared.py
     "tests/test_row331_guarded_imports_are_declared.py",
-    # @1035. The isolation shard. These three are repo-wide despite not
-    # looking it: 1034 enumerates git ls-files for the leaker ratchet, and
-    # all three assert invariants about the SUITE rather than a module --
-    # the plugins guard holding, the leaker population not growing, and no
-    # live PyPI call from a dependency. Added in the SAME cut that created
-    # them, because 944, 947, 1031 and 1034 were all added to the tree and
-    # never to this list, and a gate CI does not run is a gate that does
-    # not exist.
+    # @1035. These three are repo-wide despite not looking it: they assert
+    # invariants about the SUITE rather than a module -- the plugins guard
+    # holding, the leaker population not growing, and no live PyPI call from a
+    # dependency. Their exact, independently parsed shard homes are claimed per
+    # suite rather than collapsed into one prose name. Added in the SAME cut
+    # that created them, because 944, 947, 1031 and 1034 were all added to the
+    # tree and never to this list, and a gate CI does not run does not exist.
+    # CI-SHARD-CLAIM row-1035 measurement-isolation tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
     "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
     "tests/test_v3_66_1044_run_context_and_chains.py",
     # Row 289. SigIgn/SigBlk changed six test verdicts without appearing in
@@ -631,13 +642,15 @@ _DECLARED = {
     # Row 245. A public test root that appears before its marker and held lock
     # becomes permanent UNKNOWN evidence if setup loses any resource. This
     # gate injects every pre-publication boundary and therefore belongs beside
-    # the session-root lifecycle owners in the isolation shard.
+    # the session-root lifecycle owners in the shard claimed below.
+    # CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
     "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py",
-    # @1085. The isolation shard. Its subject is the test SESSION's module
-    # table, not the tree -- the same reason 1034 and 1031 sit here. A
+    # @1085. Its subject is the test SESSION's module table, not the tree -- the
+    # same reason 1034 and 1031 sit in the shard claimed below. A
     # patch.dict(sys.modules) that evicts a lazily-imported module poisons an
     # identity-keyed cache for the rest of a worker process, which is how a
     # v3.66.1083 capture on test6 saw httpx re-raise a raw httpcore error.
+    # CI-SHARD-CLAIM row-1085 isolation tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
     "tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py",
     # @1072, and the first entry is this file. MEASURED at v3.66.1071: the
     # `gates` job runs ZERO pytest, and this suite is in no shard -- so the
@@ -671,7 +684,7 @@ _DECLARED = {
     # denominator gates, several named by CLAUDE.md section 4's own
     # axis-6 table. Split across five shards drawn from MEASURED time
     # (196s total locally), not count, per the @939 precedent.
-    # tree-gates-1
+    # First tree-gate partition.
     "tests/test_capture_shell_runtime.py",
     # Row 342. This module executes the capture preflight's shared tree-state
     # predicate. A failed Git status is UNKNOWN, never affirmative clean
@@ -707,7 +720,7 @@ _DECLARED = {
     # thing in order to explain it recreates it. It did, on this line, in the
     # cut that added the gate.
     "tests/test_v3_66_1117_cockpit_home_stays_retired.py",
-    # tree-gates-2
+    # Second tree-gate partition.
     "tests/test_v3_66_1013_registrable_domain.py",
     "tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
     "tests/test_history_records_whether_bytes_were_fetched.py",
@@ -757,7 +770,7 @@ _DECLARED = {
     # measurement and an unavailable runtime must never reach the download,
     # while the no-VPN-configured fast path must still proceed without waiting.
     "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py",
-    # tree-gates-3
+    # Third tree-gate partition.
     "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
     "tests/test_history_file_size_is_the_size_on_disk.py",
     "tests/test_playwright_engines_single_source.py",
@@ -765,7 +778,7 @@ _DECLARED = {
     # capture population and both offline builders, independent of which
     # capture or builder source changes in a future cut.
     "tests/test_row308_visual_audit_identity.py",
-    # tree-gates-4
+    # Fourth tree-gate partition.
     # Walks every tracked tests/test*.py for assertions that are true for
     # every input, so a new test file changes its denominator (@1098).
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
@@ -805,7 +818,7 @@ _DECLARED = {
     "tests/test_v3_66_1009_live_results_are_bundled.py",
     "tests/test_v3_66_285_cloak_parity.py",
     "tests/test_v3_66_795_mod3_seam.py",
-    # toolchain-verifiers
+    # Toolchain verifier partition.
     "tests/test_desandbox_tool_verifiers.py",
 }
 
@@ -1030,6 +1043,71 @@ def _shard_lists() -> dict[str, list[str]]:
     return {}
 
 
+_SHARD_CLAIM_PREFIX = "CI-SHARD-CLAIM"
+
+
+def _ci_shard_claims(source: str | None = None) -> list[tuple[str, str, str]]:
+    """Return (claim id, shard, suite) from explicit source comments only."""
+    text = (Path(__file__).read_text(encoding="utf-8")
+            if source is None else source)
+    claims: list[tuple[str, str, str]] = []
+    malformed: list[str] = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        comment = token.string.removeprefix("#").strip()
+        if not comment.startswith(_SHARD_CLAIM_PREFIX):
+            continue
+        fields = comment.split()
+        if len(fields) != 4 or fields[0] != _SHARD_CLAIM_PREFIX:
+            malformed.append(f"line {token.start[0]}: {token.string}")
+            continue
+        _prefix, claim_id, shard, suite = fields
+        claims.append((claim_id, shard, suite))
+    assert not malformed, (
+        "malformed CI shard claim(s) are UNKNOWN rather than ignored: "
+        f"{malformed}")
+    return claims
+
+
+def _unbound_named_shard_claims(
+        source: str, shard_names: set[str]
+) -> list[str]:
+    """Named ``<matrix-name> shard`` prose lacking an explicit suite binding."""
+    unbound: list[str] = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        comment = token.string.removeprefix("#").strip()
+        if comment.startswith(_SHARD_CLAIM_PREFIX):
+            continue
+        for shard in sorted(shard_names):
+            name = re.escape(shard)
+            if (re.search(rf"\b{name}\b\s+shard\b", comment)
+                    or re.search(rf"\bshard\b[^.]*\b{name}\b", comment)):
+                unbound.append(f"line {token.start[0]}: {token.string}")
+    return unbound
+
+
+def _shard_claim_mismatches(
+        claims: list[tuple[str, str, str]],
+        shards: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Claim diagnostics grouped by durable claim id, never source line."""
+    locations: dict[str, list[str]] = {}
+    for shard, suites in shards.items():
+        for suite in suites:
+            locations.setdefault(suite, []).append(shard)
+
+    mismatches: dict[str, list[str]] = {}
+    for claim_id, claimed_shard, suite in claims:
+        listed = locations.get(suite, [])
+        if listed != [claimed_shard]:
+            mismatches.setdefault(claim_id, []).append(
+                f"{suite}: claimed={claimed_shard!r}, listed={listed!r}")
+    return mismatches
+
+
 def _tracked(rel: str) -> bool:
     return subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel],
                           cwd=str(_REPO), capture_output=True).returncode == 0
@@ -1119,6 +1197,98 @@ def _repo_wide_not_declared(scopes, declared) -> list[str]:
 
 
 # ── coverage ─────────────────────────────────────────────────────────────────
+
+def test_every_explicit_shard_claim_matches_the_matrix():
+    """A shard claim in this gate is evidence only when CI agrees with it."""
+    claims = _ci_shard_claims()
+    assert claims, "the explicit CI shard claim denominator is empty"
+    claim_ids = {claim_id for claim_id, _shard, _suite in claims}
+    suites = [suite for _claim_id, _shard, suite in claims]
+    assert claim_ids, "the durable shard-claim identity denominator is empty"
+    assert len(suites) == len(set(suites)), (
+        "one suite has multiple explicit shard claims, so its evidence is ambiguous")
+    assert all((_REPO / suite).is_file() for suite in suites), (
+        "an explicit shard claim binds to no suite path, so its verdict is UNKNOWN")
+    undeclared = sorted(set(suites) - _DECLARED)
+    assert not undeclared, (
+        f"explicit shard claim(s) bind to undeclared suites: {undeclared}")
+
+    shards = _shard_lists()
+    claimed_shards = {shard for _claim_id, shard, _suite in claims}
+    unknown_shards = sorted(claimed_shards - set(shards))
+    assert not unknown_shards, (
+        f"explicit claims name shard(s) absent from the matrix: {unknown_shards}")
+    source = Path(__file__).read_text(encoding="utf-8")
+    unbound = _unbound_named_shard_claims(source, set(shards))
+    assert not unbound, (
+        "named shard prose has no suite-path binding and is UNKNOWN: "
+        f"{unbound}")
+
+    mismatches = _shard_claim_mismatches(claims, shards)
+    assert not mismatches, f"CI shard claim mismatch group(s): {mismatches}"
+
+
+def test_a_wrong_but_real_shard_claim_fails_exactly_once():
+    """Negative control: one injected stale claim is distinctly diagnosed."""
+    claims = _ci_shard_claims()
+    shards = _shard_lists()
+    assert claims and len(shards) > 1
+    locations = {
+        suite: shard
+        for shard, suites in shards.items()
+        for suite in suites
+    }
+    assert all(suite in locations for _claim_id, _shard, suite in claims), (
+        "precondition: a claimed suite is absent before the negative control")
+    corrected = [(claim_id, locations[suite], suite)
+                 for claim_id, _shard, suite in claims]
+    assert _shard_claim_mismatches(corrected, shards) == {}, (
+        "precondition: the corrected control population is not clean")
+
+    first_id, actual, first_suite = corrected[0]
+    wrong = next(shard for shard in sorted(shards) if shard != actual)
+    mutant = list(corrected)
+    mutant[0] = (first_id, wrong, first_suite)
+    assert sum(left != right for left, right in zip(corrected, mutant)) == 1, (
+        "precondition: the injected condition did not fire exactly once")
+    mismatches = _shard_claim_mismatches(mutant, shards)
+    assert list(mismatches) == [first_id]
+    assert len(mismatches[first_id]) == 1
+    assert first_suite in mismatches[first_id][0]
+    assert wrong in mismatches[first_id][0] and actual in mismatches[first_id][0]
+
+
+def test_ordinary_toolchain_prose_is_not_a_shard_claim():
+    """English naming a tool class must not enter the claim denominator."""
+    source = Path(__file__).read_text(encoding="utf-8")
+    suite = "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py"
+    assert "two PRODUCTION toolchain scripts" in source
+    claims = _ci_shard_claims(source)
+    assert claims, "precondition: the explicit claim denominator is empty"
+    assert suite not in {path for _claim_id, _shard, path in claims}
+    assert _shard_claim_mismatches(
+        [("ordinary-prose-control", "measurement-tools", suite)],
+        _shard_lists(),
+    ) == {}
+    unbound = _unbound_named_shard_claims(
+        "# two PRODUCTION toolchain scripts\n"
+        "# scheduled in the parity-static shard\n",
+        {"toolchain", "parity-static"},
+    )
+    assert len(unbound) == 1
+    assert "parity-static shard" in unbound[0]
+
+
+def test_shard_claim_reader_ignores_string_literals():
+    source = (
+        '"""# CI-SHARD-CLAIM prose wrong tests/test_prose.py"""\n'
+        "# CI-SHARD-CLAIM real-id real-shard tests/test_real.py\n"
+    )
+    assert _ci_shard_claims(source) == [
+        ("real-id", "real-shard", "tests/test_real.py")]
+    with pytest.raises(AssertionError, match="malformed CI shard claim"):
+        _ci_shard_claims("# CI-SHARD-CLAIM missing-fields\n")
+
 
 def test_the_shards_exist_at_all():
     """RED on pristine: there is no matrix, so there is nothing to cover with."""
