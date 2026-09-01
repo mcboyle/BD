@@ -748,15 +748,14 @@ jobs:
           command -v Xvfb    >/dev/null || { echo "Xvfb absent after install"; exit 1; }
           command -v xdpyinfo >/dev/null || { echo "xdpyinfo absent after install"; exit 1; }
 
-      # NODE, BUT ONLY FOR THE SHARD THAT NEEDS IT. The T-series wired gates
-      # delegate to Vitest through tests/frontend_vitest.py, which asserts the
-      # vitest binary exists rather than skipping when it does not -- correctly,
-      # since a gate that skips when its tool is missing is a gate that does not
-      # exist. They live in the parity-graph shard, so without this they would
-      # fail on EVERY CI run. Installing node on every shard to serve them would
-      # pay npm ci over and over for nothing, so it is conditional, and
-      # tests/test_v3_66_1218_* asserts the condition still covers every shard
-      # that actually delegates. NO COUNT IS WRITTEN HERE ON PURPOSE: this
+      # NODE, BUT ONLY FOR SHARDS THAT NEED IT. Some gates delegate to Vitest
+      # through tests/frontend_vitest.py; others read the installed repository
+      # frontend/node_modules directly. Both fail closed when dependencies are
+      # absent -- correctly, since a gate that skips when its tool is missing is
+      # a gate that does not exist. Installing node on every shard would pay npm
+      # ci over and over for nothing, so it is conditional, and
+      # tests/test_v3_66_1218_* derives the union of both requirement classes and
+      # checks the condition in both directions. NO COUNT IS WRITTEN HERE: this
       # comment said "five" while six gates delegated (v3.66.1236 converted T7
       # and left it stale), and v3.66.1242 makes it seven. The population is
       # re-derived by that test; a number here only goes quietly wrong.
@@ -766,7 +765,7 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies (shards that delegate to vitest)
+      - name: Install frontend dependencies (shards whose gates need node)
         if: matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b'
         working-directory: frontend
         run: npm ci
