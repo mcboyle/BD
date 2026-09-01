@@ -201,8 +201,14 @@ def api_hooks_test(sid):
                 url = urls[0] if urls else ""
             if not url: return jsonify({"ok":False,"message":"No webhook URL configured"})
             payload = dict(vars); payload["job"] = job
-            ok, msg = send_webhook(_render_template(url, vars), payload)
-            return jsonify({"ok":ok,"message":msg})
+            # send_webhook returns THREE values (Phase 80 / v3.40.0): the
+            # third is the endpoint's own parsed JSON reply. Unpacking two
+            # raised ValueError, which the handler's blanket except turned
+            # into a 500 -- reporting a webhook that had already been
+            # delivered as a server error. The reply is surfaced as
+            # `response` so this test route shows what the endpoint said.
+            ok, msg, resp = send_webhook(_render_template(url, vars), payload)
+            return jsonify({"ok":ok,"message":msg,"response":resp})
         if kind == "stash":
             ok, msg = stash_trigger_scan(
                 body.get("override") or cfg.get("stash_url",""),

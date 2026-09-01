@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1399 - the webhook test route unpacks what the hook actually returns
+
+Found by an AST sweep during row 536's cut, not by a report. Same shape as 536:
+a callee returning fewer values than its caller unpacks, invisible until the
+exact path runs.
+
+- `app_sites_integrations.py` unpacked TWO values from `send_webhook`, which
+  returns three-tuples on all five of its return paths. The measured consequence
+  is worse than "the hook did not fire": the endpoint RECEIVES the POST and
+  answers 202, and the operator is then told HTTP 500 with body
+  `ValueError: too many values to unpack (expected 2)`. A correctly configured,
+  working integration reported as a server error, with a diagnostic naming a
+  BD-internal bug rather than anything the operator can act on. The route's
+  blanket `except Exception` is what performs that conversion. Only
+  `kind == "webhook"` was affected; the other five kinds call 2-tuple sinks.
+- FIXED ON THE CALLER, and the other two call sites are why: `hooks.py:86`
+  CONSUMES the third value to implement the pre_url_added skip/rewrite/priority
+  protocol, so a 2-tuple callee would break that feature outright. One call site
+  was wrong, not the contract.
+- The third value is returned as `response` rather than discarded into `_`.
+  `ok, msg, _resp` would satisfy the arity and still hide the reply on a route
+  whose entire purpose is showing the operator what their endpoint said.
+- Negative controls discriminate rather than merely pass: the endpoint replies
+  with a per-run UUID that must appear in `response` and must be absent from the
+  source file, so no constant can produce it; and a no-body endpoint must give
+  `response: null` with `ok: true`, which padding with a constant or with `msg`
+  would fail.
+- THE CLASS IS BOUNDED. A corrected AST sweep over 576 files and 371 decided
+  unpack sites found exactly one mismatch at base and zero after. The sweep's
+  FIRST version reported a second one at login_impl/replay.py:313 and was wrong:
+  ast.walk had descended into a nested function and counted its returns against
+  the enclosing one. The arity-confusion hunter had an arity confusion.
+  replay.py:313 is NOT a defect.
+
 ## v3.66.1398 - a vault probe is recorded once and every reader sees it
 
 Rows 548, 549, 550, 576 and 577 of the 2026-09-01 audit. One contract: the
