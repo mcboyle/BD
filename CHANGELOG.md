@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1423 - a band verdict transfers only when its inputs are proven
+
+A verification lane's affected-band result was discarded whenever origin/main
+moved, even when nothing the candidate touched had changed. Measured tonight:
+one lane reported `precut=0 prepush=0 derive=0 audit=0 band=0 over 288 file(s)`
+and was still refused, because another candidate merged while it ran.
+
+This adds `toolchain/bin/bd-band-transfer-key`, which decides that question by
+partitioning every changed path into four dispositions and REFUSING unless each
+is proven:
+
+- TRIO -- `__init__.py`, the pin, and the CHANGELOG entry -- is never
+  excludable. The changelog entry must be byte-identical modulo its header's
+  version token, prepended, and anchored on main's head.
+- DERIVED -- the regeneration chain's tracked outputs -- is regenerated and
+  sync-gated. The list is WALKED FROM `REQUIRED_CHAIN_LABELS` and the tool
+  refuses if the emitted outputs disagree with it, rather than carrying a
+  hand-written list that can silently omit its own subject.
+- DECLARED -- the frozen import-graph baseline -- resolves as a reviewed union
+  that refuses any edge absent from both sides, plus `--check` rc==0.
+- AUTHORED -- must be blob-identical AND disjoint from the paths main gained.
+
+Every failure path raises a refusal, and UNKNOWN anywhere refuses rather than
+transfers. A6 is unchanged: the trio still lives in the tree, its gates still
+run at land on the exact rebased tree, and exact-head CI still gates the merge.
+
+Also corrects the generated-artifact denominator that CI carried: it listed
+eight paths where the chain has ten tracked outputs, omitting `INV_TAGS.md` and
+`tests/source_window_hashes.json` -- a sync gate that could not see two of its
+own subjects.
+
 ## v3.66.1422 - ffmpeg is resolved from the pin, not from ambient PATH
 
 Rows 440, 441, 442 and 443. Four call sites resolved the ffmpeg binary from the
