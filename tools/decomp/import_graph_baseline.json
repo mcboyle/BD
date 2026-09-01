@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4199,
+  "edge_count": 4202,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4167,6 +4167,11 @@
     "tests/test_the_fixture_serves_decodable_segments.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/integrity.py"
+    ],
+    "tests/test_the_transport_proves_the_bytes_it_claims.py": [
+      "bulk_downloader/resume.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_tools_other02_review_host_confine.py": [
       "bulk_downloader/template_normalize.py",
