@@ -1208,10 +1208,31 @@ class TransportMixin:
         # "unknown" alike fall through to the safe_dest below, which is what
         # exists to resolve same-name-different-content. UNKNOWN is a failing
         # third state, never permission (CLAUDE.md A7).
-        if self.config.get("skip_if_exists",True) and final_path.exists():
-            _identity,_owned=db_skip_identity(page_url,str(final_path))
-        else:
-            _identity,_owned="",None
+        # Row 559. THE IDENTITY IS MEASURED FOR EVERY JOB. This call used to sit
+        # inside `if skip_if_exists and final_path.exists()`, with _identity
+        # defaulting to "" otherwise -- but db_skip_identity's answer is keyed on
+        # the URL (final_path only decides its "different" arm), so gating the
+        # CALL on the rendered path handed the "unproven" diagnostic below an
+        # EMPTY DENOMINATOR for exactly the upgraded-host rows it was written
+        # for: turn skip_if_exists off, or change a tier or a date so the
+        # template renders a name that is not on disk, and it never fired.
+        # Measuring is separated from ACTING on the measurement below.
+        _identity,_owned=db_skip_identity(page_url,str(final_path))
+        # Row 545. Approve and the capture workflow's "verify live" both stamp
+        # force_download on the job to bypass dedup. _dedup_preflight honours it;
+        # this arm did not -- it skipped anyway, POPPED the flag, logged another
+        # bytes_fetched=0 "already on disk" row and reported "Already have", so a
+        # corrupt-but-present file could never be re-fetched from the UI and
+        # guided capture graded that no-op as "Media validated". The flag is only
+        # READ here; the success path below is what clears it, so a forced
+        # attempt that fails stays forced.
+        with self._lock:
+            _forced=bool(self.jobs.get(page_url,{}).get("force_download"))
+        # Exactly the condition that used to gate the call, plus the force flag.
+        # Measuring the identity unconditionally must not widen the SKIP to a
+        # rendered path that is not on disk, nor past the config gate.
+        _may_skip=(bool(self.config.get("skip_if_exists",True))
+                   and final_path.exists() and not _forced)
         if _identity=="unproven":
             # Row 479. A done row points at a file that is on disk, but nothing
             # in the record says BD ever fetched it -- a bytes_fetched of 0 or,
@@ -1219,13 +1240,33 @@ class TransportMixin:
             # through to the transfer path below, and the unproven attribution
             # is made OPERATOR-VISIBLE instead of vanishing into a silent
             # re-download.
-            db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review",
-                   Path(_owned).name,None,
-                   f"existing attribution records no transfer, so it is not "
-                   f"proof of ownership: {_owned}",
-                   bytes_fetched=None,
-                   **history_title_kwargs(self, page_url))
-        if _identity=="same":
+            #
+            # Row 562. RECORDING a diagnostic must never cost the download it
+            # only annotates. This db_log was unguarded, so a sqlite write lock
+            # held past the 10s busy_timeout under multi-worker load, or a full
+            # disk, turned a job that was about to download into an
+            # unclassified "worker error: database is locked" parked 600s with
+            # no history row at all. Proceeding is the DESIGNED decision here --
+            # the unproven arm never skips, it annotates and falls through -- so
+            # the failure is recorded rather than swallowed: A7 says a
+            # diagnostic that collapses distinct failures costs the
+            # investigation, so this names the step and carries sqlite's own
+            # words instead of a generic "db error".
+            try:
+                db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review",
+                       Path(_owned).name,None,
+                       f"existing attribution records no transfer, so it is not "
+                       f"proof of ownership: {_owned}",
+                       bytes_fetched=None,
+                       **history_title_kwargs(self, page_url))
+            except Exception as _needs_review_exc:
+                self.log.warning(
+                    "row 479 needs_review write failed for %s (%s: %s); the "
+                    "unproven attribution %s is UNRECORDED and the download "
+                    "proceeds",
+                    page_url, type(_needs_review_exc).__name__,
+                    _needs_review_exc, _owned)
+        if _identity=="same" and _may_skip:
             # Report the file this url actually owns, not the freshly rendered
             # name. They differ whenever an earlier run landed on a safe_dest
             # suffix, and passing final_path here would hand db_log -- and so
@@ -1233,8 +1274,11 @@ class TransportMixin:
             # this branch is being corrected for.
             existing_path=Path(_owned)
             existing_size=existing_path.stat().st_size
-            with self._lock:
-                if page_url in self.jobs: self.jobs[page_url].pop("force_download",None)
+            # Row 545: the pop that used to stand here is gone. This arm is now
+            # only reached when the flag is UNSET, so popping it could only ever
+            # eat a force_download stamped by another thread between the read
+            # above and this line. The success path below (~"Clear the
+            # force_download flag on success") is the one place that consumes it.
             self._update_job(page_url,"done",
                              f"Already have: {existing_path.name} ({fmt_bytes(existing_size)})",
                              filename=existing_path.name,file_size=existing_size)

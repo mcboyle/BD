@@ -358,10 +358,10 @@ Schema version: 2
   - L0034 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
   - L0095 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
   - L0164 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
-  - L0202 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
-  - L0255 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0321 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0429 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+  - L0238 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
+  - L0291 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
+  - L0357 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0465 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 
@@ -562,12 +562,12 @@ Schema version: 2
   - L0806 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
   - L0835 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
   - L0957 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1674 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L2150 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L2197 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L2573 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L2606 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L2630 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L1718 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L2194 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L2241 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L2617 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L2650 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L2674 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 

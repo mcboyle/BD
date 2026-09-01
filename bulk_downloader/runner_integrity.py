@@ -167,7 +167,8 @@ class IntegrityMixin:
         skipped_duplicate), else None.
 
         - Exact-URL match is default-ON (config dedup_exact_url): the exact
-          URL already has a 'done' row in history.
+          URL has a 'done' row in history AND some 'done' row for it records
+          a REAL transfer (row 544; see the block comment below).
         - Fuzzy filename+size match is opt-in (config dedup_fuzzy, default
           off), reusing db_find_filename_duplicate.
         - An explicit force_download (Approve) bypasses dedup entirely — a
@@ -180,12 +181,47 @@ class IntegrityMixin:
             return None
         try:
             if self.config.get("dedup_exact_url", True):
-                from .db import db_find_url_in_history
-                hit = db_find_url_in_history(url)
-                if hit:
-                    return (f"Duplicate of history #{hit['id']} "
-                            f"({hit.get('filename') or 'prior download'}"
-                            f"{', ' + hit['ts'] if hit.get('ts') else ''})")
+                from .db import db_conn, db_find_url_in_history
+                # Row 544. THE STATUS STRING IS NOT THE OWNERSHIP ANSWER.
+                # db_find_url_in_history's whole test is `status='done'`, and
+                # runner_transport's "Already have" arm WRITES exactly such a
+                # row -- db_log(..., bytes_fetched=0, "already on disk"). So one
+                # skip manufactured the proof every later run then read, and a
+                # URL that produced no file at all answered "Duplicate of
+                # history #N" forever until someone hit Approve. CLAUDE.md A7:
+                # do not derive the expected set from the artifact under test.
+                #
+                # It also put row 479's headline arm out of reach for a same-URL
+                # re-run: the "unproven" needs_review row lives in _do_download,
+                # and this function returns before _do_download is ever called.
+                #
+                # db_log's own contract names bytes_fetched as the ONLY column
+                # that can answer whether BD moved bytes -- >0 a real transfer,
+                # 0 certainly nothing, NULL a pre-v8 row that is UNKNOWN and
+                # "never proof of a download".
+                #
+                # SOME row, deliberately, not the NEWEST one. db_skip_identity
+                # states the healthy steady state: one real transfer followed by
+                # any number of bytes_fetched=0 skip rows. db_find_url_in_history
+                # hands back `ORDER BY id DESC LIMIT 1`, so the newest row for a
+                # healthy URL is usually a skip -- gating on it would re-download
+                # every file BD has ever skipped.
+                #
+                # The scan runs BEFORE the display lookup so a lookup failure
+                # cannot be the thing that decides ownership: an unreadable
+                # history raises here and the except below proceeds with the
+                # download, which is the safe direction for an UNKNOWN.
+                with db_conn() as cx:
+                    proven = cx.execute(
+                        "SELECT 1 FROM history WHERE url=? AND status='done' "
+                        "AND bytes_fetched IS NOT NULL AND bytes_fetched > 0 "
+                        "LIMIT 1", (url,)).fetchone()
+                if proven is not None:
+                    hit = db_find_url_in_history(url)
+                    if hit:
+                        return (f"Duplicate of history #{hit['id']} "
+                                f"({hit.get('filename') or 'prior download'}"
+                                f"{', ' + hit['ts'] if hit.get('ts') else ''})")
             if self.config.get("dedup_fuzzy", False):
                 fn = job.get("filename") or ""
                 if fn:
