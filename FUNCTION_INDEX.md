@@ -562,12 +562,12 @@ Schema version: 2
   - L0806 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
   - L0835 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
   - L0957 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1718 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L2194 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L2241 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L2617 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L2650 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L2674 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L1730 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L2206 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L2253 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L2629 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L2662 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L2686 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 
@@ -653,41 +653,41 @@ Schema version: 2
 - L1697 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
 - L1782 `_transfer_proof_sql` `[private]` — The proof predicate for this database's ACTUAL schema, aliased ``h``.
 - L1814 `db_skip_identity` — Is the file already on disk PROVABLY the same work as ``page_url``?
-- L1991 `db_stats` — Aggregate history counts and total downloaded bytes for the
-- L2009 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
-- L2055 `db_prune` — Delete history rows older than `days` days. Returns the count
-- L2215 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
-- L2235 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
-- L2264 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
-- L2302 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
-- L2316 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
-- L2366 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L2410 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L2421 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L2427 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L2433 `queue_delete_site` — Called when a site is removed.
-- L2448 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L2470 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L2494 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L2516 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L2541 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L2592 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L2604 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L2618 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L2631 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L2644 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L2657 `session_event_record` — Append one row to session_history. event_type is one of:
-- L2677 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L2690 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L2737 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L2827 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L2834 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L2845 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L2857 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L2957 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L2970 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L2981 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L3001 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L2005 `db_stats` — Aggregate history counts and total downloaded bytes for the
+- L2023 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
+- L2069 `db_prune` — Delete history rows older than `days` days. Returns the count
+- L2229 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
+- L2249 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
+- L2278 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
+- L2316 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
+- L2330 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
+- L2380 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L2424 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L2435 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L2441 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L2447 `queue_delete_site` — Called when a site is removed.
+- L2462 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L2484 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L2508 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L2530 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L2555 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L2606 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L2618 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L2632 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L2645 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L2658 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L2671 `session_event_record` — Append one row to session_history. event_type is one of:
+- L2691 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L2704 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L2751 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L2841 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L2848 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L2859 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L2871 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L2971 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L2984 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L2995 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L3015 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 
