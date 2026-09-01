@@ -275,11 +275,16 @@ def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path
 
     current_main = base
     transfer_checks = 0
+    legacy_full_band_reverifications = 0
+    land_time_full_band_reverifications = 0
     for landing in range(1, 4):
         _git(repo, "checkout", "-B", "main", current_main)
         (repo / f"candidate-{landing}.txt").write_text(f"candidate {landing}\n")
         current_main = _commit(repo, f"land candidate {landing}")
         for waiting in range(landing + 1, 4):
+            # Freeze-time trio edits change on every landing in the legacy
+            # design, so each still-waiting exact-tree verdict is void.
+            legacy_full_band_reverifications += 1
             _git(repo, "checkout", "-B", f"candidate-{waiting}-after-{landing}", current_main)
             path = repo / f"candidate-{waiting}.txt"
             path.write_text(f"candidate {waiting}\n")
@@ -292,7 +297,9 @@ def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path
                 rebased,
             )
             result = _run_transfer(fixture)
-            assert result.returncode == 0, result.stderr
+            if result.returncode != 0:
+                land_time_full_band_reverifications += 1
+                pytest.fail(result.stderr)
             evidence = json.loads(result.stdout)
             assert evidence["candidate_paths"] == 1
             assert evidence["overlap_paths"] == []
@@ -301,10 +308,10 @@ def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path
             transfer_checks += 1
 
     measurement = {
-        "candidates": 3,
-        "initial_full_band_verifications_both_designs": 3,
-        "legacy_full_band_reverifications": 3,
-        "land_time_full_band_reverifications": 0,
+        "candidates": len(candidate_heads),
+        "initial_full_band_verifications_both_designs": len(candidate_heads),
+        "legacy_full_band_reverifications": legacy_full_band_reverifications,
+        "land_time_full_band_reverifications": land_time_full_band_reverifications,
         "land_time_transfer_checks": transfer_checks,
     }
     print("STACK_REPLAY " + json.dumps(measurement, sort_keys=True))
@@ -318,7 +325,10 @@ def test_stamp_writes_all_three_tree_facts_above_exact_previous_header(tmp_path)
         tmp_path,
         version="3.66.700",
         pin="3.66.700",
-        changelog="# Changelog\n\n## v3.66.700 - prior\n\nold\n",
+        # The repository's historical preamble contains this em dash. A6's
+        # ASCII contract covers the current entry, not preserved history.
+        changelog=("# Changelog\n\nVersioning is loose — historical preamble\n\n"
+                   "## v3.66.700 - prior\n\nold\n"),
     )
     before_header = "## v3.66.700 - prior"
 
@@ -345,6 +355,7 @@ def test_stamp_writes_all_three_tree_facts_above_exact_previous_header(tmp_path)
         root / "tests" / "test_settings_center_slice4.py"
     ).read_text()
     changelog = (root / "CHANGELOG.md").read_text()
+    assert "Versioning is loose — historical preamble" in changelog
     headers = [line for line in changelog.splitlines() if line.startswith("## v")]
     assert headers == ["## v3.66.701 - feature proven at land", before_header]
     assert all(ord(char) < 128 for char in headers[0])

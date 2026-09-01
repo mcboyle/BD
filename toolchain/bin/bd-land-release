@@ -213,18 +213,18 @@ def stamp(args):
     if not args.title or "\n" in args.title or any(ord(char) > 127 for char in args.title):
         raise Refused("CHANGELOG title must be nonempty, one-line ASCII")
 
+    new_entry = "## v%s - %s\n\n" % (args.version, args.title)
     changed = {
         TRIO[0]: init.replace('__version__ = "%s"' % current,
                               '__version__ = "%s"' % args.version, 1),
         TRIO[1]: pin.replace(pin_anchor,
                             'assert __version__ == "%s"' % args.version, 1),
-        TRIO[2]: (changelog[:headers[0].start()] +
-                  "## v%s - %s\n\n" % (args.version, args.title) +
+        TRIO[2]: (changelog[:headers[0].start()] + new_entry +
                   changelog[headers[0].start():]),
     }
     ast.parse(changed[TRIO[0]], filename=TRIO[0])
     ast.parse(changed[TRIO[1]], filename=TRIO[1])
-    if any(ord(char) > 127 for char in changed[TRIO[2]][:changed[TRIO[2]].find(headers[0].group(0))]):
+    if any(ord(char) > 127 for char in new_entry):
         raise Refused("new CHANGELOG entry is not ASCII")
 
     record = {
