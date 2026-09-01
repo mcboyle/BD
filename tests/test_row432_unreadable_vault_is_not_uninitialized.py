@@ -44,8 +44,13 @@ _REF = f"@cred:{_KEY}"
 _ITERATIONS = 1_000
 _UNPARSEABLE = b"{row432 not valid json"
 
-_SITES_WITH_REF = {"sites": {"row432": {"password": _REF}}}
-_SITES_WITHOUT_REF = {"sites": {"row432": {"password": ""}}}
+# Row 514: the BARE site map production hands credential_health -- app.py
+# fills s_cfg[sid] = cfg, and app_health._attach_credential_health passes that
+# map straight through.  An outer {"sites": ...} wrapper is the on-disk
+# settings-file shape; under it password_reference_keys examines the inner
+# site MAP, which has no "password" key, so every arm measures 0 references.
+_SITES_WITH_REF = {"row432": {"password": _REF}}
+_SITES_WITHOUT_REF = {"row432": {"password": ""}}
 
 
 # ── fixtures ────────────────────────────────────────────────────────
@@ -372,18 +377,75 @@ def test_negative_control_healthy_store_still_reads_initialized(
 def test_health_never_reports_ok_over_an_unreadable_store(
     unparseable_vault, monkeypatch
 ):
-    """Zero references previously made a damaged vault look healthy."""
+    """Zero references previously made a damaged vault look healthy.
+
+    Row 514: the with-a-reference arm must carry a MEASURED, nonzero
+    reference denominator.  Both site maps once carried an extra outer
+    "sites" wrapper, which is the on-disk settings-file shape and not the
+    bare map production hands ``credential_health`` (app.py fills
+    ``s_cfg[sid] = cfg``), so ``password_reference_keys`` read
+    ``cfg.get("password")`` off the inner site MAP, found nothing, and both
+    arms drove the same zero-reference input -- the second arm re-measured
+    the first.
+    """
     _open_backend(monkeypatch)
+
+    # Preconditions, asserted from the production reader BEFORE any verdict.
+    assert len(ss.password_reference_keys(_SITES_WITH_REF)) == 1, (
+        "precondition: the with-a-reference arm must reference exactly 1 key"
+    )
+    assert ss.password_reference_keys(_SITES_WITH_REF) == [_KEY]
+    assert ss.password_reference_keys(_SITES_WITHOUT_REF) == [], (
+        "precondition: the without-a-reference arm references exactly 0 keys"
+    )
 
     measured = app_health.credential_health(_SITES_WITHOUT_REF)
     assert measured["ok"] is False, "an unavailable measurement is never OK"
     assert measured["state"] == "unknown"
     assert measured["resolved_count"] is None
     assert measured["missing_count"] is None
+    assert measured["reference_count"] == 0, (
+        "negative control: the 0-reference arm keeps denominator 0"
+    )
 
     referenced = app_health.credential_health(_SITES_WITH_REF)
     assert referenced["ok"] is False
     assert referenced["state"] == "unknown"
+    assert referenced["reference_count"] == 1, (
+        "the judged payload must report the measured nonzero denominator"
+    )
+    assert referenced != measured, (
+        "the two arms must not be the same measurement twice"
+    )
+
+    # The unreadable classification must not have touched the file.
+    assert unparseable_vault.read_bytes() == _UNPARSEABLE
+    assert _corrupt_siblings(unparseable_vault.parent) == []
+
+
+def test_health_reports_ok_over_a_readable_unlocked_store(monkeypatch, tmp_path):
+    """Row 514 negative control: the corrected fixture did not break every verdict.
+
+    The same bare production-shaped map that now measures 1 reference over a
+    damaged vault must still reach an affirmatively healthy verdict when the
+    vault is readable and unlocked.
+    """
+    _initialized_vault(monkeypatch, tmp_path)
+    backend = _open_backend(monkeypatch)
+    assert backend.unlock(_MASTER_A) is True
+    assert backend.is_unlocked() is True
+    assert backend.list_keys() == [_KEY], "precondition: exactly the 1 named key"
+    assert ss.password_reference_keys(_SITES_WITH_REF) == [_KEY], (
+        "precondition: exactly 1 reference, naming the stored key"
+    )
+
+    measured = app_health.credential_health(_SITES_WITH_REF)
+
+    assert measured["ok"] is True
+    assert measured["state"] == "unlocked"
+    assert measured["reference_count"] == 1
+    assert measured["resolved_count"] == 1
+    assert measured["missing_count"] == 0
 
 
 def test_health_endpoint_is_degraded_over_an_unreadable_store(

@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""bd-vault-verify -- does this password open this vault? Offline. Read-only.
+
+Row 475: the only way the toolchain offered to TEST a candidate master password
+was POST /api/secrets/unlock, which shares an escalating back-off with
+/api/secrets/change_password through auth_throttle.LABEL_MASTER_PASSWORD -- so
+every test spent an attempt, and enough tests locked the operator out of the
+vault they were trying to open. Unifying the fleet's master password forced a
+guess-and-see loop across two candidates on nine hosts.
+
+The vault's own top-level ``verifier`` is an AES-GCM envelope around a fixed
+PUBLIC sentinel, keyed by PBKDF2-SHA256 over the vault's stored salt. Deriving
+that key and decrypting the envelope proves a password with NO request, NO
+throttle and NO disclosure -- the plaintext is a constant.
+
+  Usage: bd-vault-verify --vault PATH [--candidate-file PATH]
+         bd-vault-verify --vault PATH            (candidate on stdin)
+         bd-vault-verify --selftest
+
+The candidate is NEVER taken from argv (argv is world-readable in /proc), is
+never transmitted, and is never printed or logged. This tool opens no socket
+and constructs no backend -- it reads the vault file and nothing else.
+
+  exit 0  OPENS    -- the candidate opens this vault
+  exit 1  NO       -- the candidate does not open this vault
+  exit 2  UNKNOWN  -- this vault cannot be judged offline (no verifier, a
+                      malformed verifier or KDF parameters, or an unreadable
+                      or unparseable file). UNKNOWN is a FAILING third state,
+                      never a soft NO -- answering NO for a vault that predates
+                      the verifier field would tell an operator their correct
+                      password is wrong (CLAUDE.md A7).
+"""
+import argparse
+import json
+import os
+import sys
+
+EXIT_OPENS = 0
+EXIT_NO = 1
+EXIT_UNKNOWN = 2
+
+
+def _repo_root():
+    """The repository this tool ships inside: toolchain/bin/<me> -> root."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.realpath(__file__))))
+
+
+def _load_api():
+    """Import the product's own verifier. Never constructs a backend."""
+    root = _repo_root()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from bulk_downloader import secrets_store
+    return secrets_store
+
+
+def _read_candidate(candidate_file):
+    """The candidate, from a file or stdin. Never from argv."""
+    if candidate_file:
+        with open(candidate_file, "r", encoding="utf-8") as handle:
+            raw = handle.read()
+    else:
+        raw = sys.stdin.read()
+    # A trailing newline is what `echo` and every editor add; nothing else is
+    # stripped, because a password may legitimately contain whitespace.
+    return raw[:-1] if raw.endswith("\n") else raw
+
+
+def verdict_for(vault_path, candidate):
+    """(verdict, detail) for one vault file and one candidate."""
+    ss = _load_api()
+    try:
+        with open(vault_path, "r", encoding="utf-8") as handle:
+            blob = json.load(handle)
+    except FileNotFoundError:
+        return ss.VAULT_UNKNOWN, "no vault file at %s" % vault_path
+    except (OSError, ValueError) as error:
+        # Named separately: "could not read it" and "it is not JSON" lead to
+        # different operator actions, and collapsing them costs the diagnosis.
+        return ss.VAULT_UNKNOWN, "%s: %s" % (type(error).__name__, error)
+    return ss.verify_vault_password_offline(blob, candidate)
+
+
+def selftest():
+    """RUNS-REAL: builds a real vault through the product's own code path,
+    then proves OPENS / NO / UNKNOWN over it. Zero-entropy synthetic values."""
+    import tempfile
+    ss = _load_api()
+    if not ss._CRYPTO_AVAILABLE:
+        print("SELFTEST CANNOT-EVALUATE  cryptography unavailable")
+        return EXIT_UNKNOWN
+    right = "bd-vault-verify-selftest-password-right"
+    wrong = "bd-vault-verify-selftest-password-wrong"
+    failures = []
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "secrets.json")
+        original = ss.SECRETS_FILE
+        try:
+            ss.SECRETS_FILE = __import__("pathlib").Path(path)
+            backend = ss.MasterPasswordBackend()
+            backend._data["iterations"] = 1000
+            if backend.unlock(right) is not True:
+                failures.append("fixture vault did not initialize")
+            backend.set("bd-vault-verify-selftest-key", "synthetic")
+        finally:
+            ss.SECRETS_FILE = original
+        for label, candidate, want in (
+            ("right password", right, ss.VAULT_OPENS),
+            ("wrong password", wrong, ss.VAULT_NO),
+        ):
+            got, detail = verdict_for(path, candidate)
+            ok = got == want
+            print("%s  %s -> %s" % ("PASS" if ok else "FAIL", label, got))
+            if not ok:
+                failures.append("%s: wanted %s got %s (%s)"
+                                % (label, want, got, detail))
+        # A vault with no verifier is UNKNOWN, never NO.
+        with open(path, "r", encoding="utf-8") as handle:
+            blob = json.load(handle)
+        blob.pop("verifier", None)
+        stripped = os.path.join(td, "no-verifier.json")
+        with open(stripped, "w", encoding="utf-8") as handle:
+            json.dump(blob, handle)
+        got, _ = verdict_for(stripped, right)
+        ok = got == ss.VAULT_UNKNOWN
+        print("%s  vault with no verifier -> %s" % ("PASS" if ok else "FAIL", got))
+        if not ok:
+            failures.append("no-verifier vault answered %s, not UNKNOWN" % got)
+        # A malformed verifier is UNKNOWN too.
+        blob["verifier"] = {"nonce": "!!not-base64!!", "ct": "!!"}
+        malformed = os.path.join(td, "malformed.json")
+        with open(malformed, "w", encoding="utf-8") as handle:
+            json.dump(blob, handle)
+        got, _ = verdict_for(malformed, right)
+        ok = got == ss.VAULT_UNKNOWN
+        print("%s  malformed verifier -> %s" % ("PASS" if ok else "FAIL", got))
+        if not ok:
+            failures.append("malformed verifier answered %s, not UNKNOWN" % got)
+        # A missing file is UNKNOWN, not NO.
+        got, _ = verdict_for(os.path.join(td, "absent.json"), right)
+        ok = got == ss.VAULT_UNKNOWN
+        print("%s  absent vault file -> %s" % ("PASS" if ok else "FAIL", got))
+        if not ok:
+            failures.append("absent vault answered %s, not UNKNOWN" % got)
+    for line in failures:
+        print("  " + line)
+    print("SELFTEST PASS" if not failures else "SELFTEST FAIL")
+    return 0 if not failures else 1
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if "--selftest" in argv:
+        return selftest()
+    parser = argparse.ArgumentParser(
+        prog="bd-vault-verify",
+        description="Does this password open this vault? Offline, read-only.")
+    parser.add_argument("--vault", required=True,
+                        help="path to the vault file (secrets.json)")
+    parser.add_argument("--candidate-file", default=None,
+                        help="file holding the candidate; default is stdin. "
+                             "The candidate is never accepted from argv.")
+    parser.add_argument("--quiet", action="store_true",
+                        help="print the verdict word only")
+    args = parser.parse_args(argv)
+    try:
+        candidate = _read_candidate(args.candidate_file)
+    except OSError as error:
+        print("UNKNOWN  could not read the candidate: %s" % error)
+        return EXIT_UNKNOWN
+    ss = _load_api()
+    verdict, detail = verdict_for(args.vault, candidate)
+    # The candidate itself is never printed, and neither is any vault content.
+    if args.quiet:
+        print(verdict)
+    else:
+        print("%s  %s" % (verdict, detail))
+    if verdict == ss.VAULT_OPENS:
+        return EXIT_OPENS
+    if verdict == ss.VAULT_NO:
+        return EXIT_NO
+    return EXIT_UNKNOWN
+
+
+if __name__ == "__main__":
+    sys.exit(main())

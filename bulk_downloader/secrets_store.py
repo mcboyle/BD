@@ -787,14 +787,13 @@ class MasterPasswordBackend(_BackendBase):
     _MAX_KDF_ITERATIONS = 10_000_000
 
     def _verify_with(self, entry: Any, key: bytes) -> bool:
-        """Return whether *entry* is a valid envelope for this key."""
-        try:
-            nonce = base64.b64decode(entry["nonce"])
-            ciphertext = base64.b64decode(entry["ct"])
-            plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
-            return plaintext == self._VERIFIER_PLAINTEXT
-        except Exception:
-            return False
+        """Return whether *entry* is a valid envelope for this key.
+
+        Row 475: delegates to the module-level :func:`_open_verifier_envelope`
+        so the offline checker and the live backend share ONE implementation of
+        what "this password opens this vault" means.
+        """
+        return _open_verifier_envelope(entry, key)
 
     @staticmethod
     def _envelope_is_well_formed(entry: Any) -> bool:
@@ -1846,14 +1845,26 @@ def configure_backend(name: str) -> bool:
     global _backend, _backend_pref
     with _lock:
         try:
+            if name not in ("windows_credential", "master_password", "plaintext"):
+                return False
+            # Row 438: re-selecting the ALREADY-ACTIVE backend is a no-op.
+            # Constructing a second instance of it forked the vault into two
+            # writers: the new instance snapshots secrets.json into its own
+            # _data at construction and starts LOCKED, so re-selection silently
+            # relocked a deliberately-unlocked vault while every holder of the
+            # old instance -- a long-running import_apply loop, the audit
+            # wrapper -- kept writing through the old object. Each instance
+            # persists its ENTIRE _data under its own independent lock.
+            if (_backend is not None
+                    and _backend_pref == name
+                    and getattr(_backend, "name", None) == name):
+                return True
             if name == "windows_credential":
                 _backend = WindowsCredentialBackend()
             elif name == "master_password":
                 _backend = MasterPasswordBackend()
-            elif name == "plaintext":
-                _backend = PlaintextBackend()
             else:
-                return False
+                _backend = PlaintextBackend()
             _backend_pref = name
             return True
         except Exception as e:
@@ -2008,6 +2019,98 @@ def _warn_invalid_password_value(value) -> None:
         )
     except Exception:
         pass
+
+
+# ─── Row 475: offline password verification ──────────────────────────
+# The only way the toolchain offered to TEST a candidate master password was
+# POST /api/secrets/unlock, which shares an escalating back-off with
+# /api/secrets/change_password through auth_throttle.LABEL_MASTER_PASSWORD --
+# so every test spent an attempt, and enough tests locked the operator out of
+# the very vault they were trying to open.
+#
+# The primitive to do it properly already existed and was unused: the vault's
+# top-level ``verifier`` is an AES-GCM envelope around the fixed PUBLIC
+# sentinel ``MasterPasswordBackend._VERIFIER_PLAINTEXT``, keyed by PBKDF2-SHA256
+# over the vault's own stored salt. Deriving that key and decrypting the
+# envelope proves a password with NO request, NO throttle and NO disclosure --
+# the plaintext is a constant, so nothing secret is learned by anyone who can
+# already read the file.
+
+VAULT_OPENS = "OPENS"
+VAULT_NO = "NO"
+VAULT_UNKNOWN = "UNKNOWN"
+
+
+def _open_verifier_envelope(entry: Any, key: bytes) -> bool:
+    """Whether *entry* is a verifier envelope that *key* opens."""
+    if not _CRYPTO_AVAILABLE:
+        return False
+    try:
+        nonce = base64.b64decode(entry["nonce"])
+        ciphertext = base64.b64decode(entry["ct"])
+        plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+        return plaintext == MasterPasswordBackend._VERIFIER_PLAINTEXT
+    except Exception:
+        return False
+
+
+def verify_vault_password_offline(vault: Any, candidate: str) -> tuple[str, str]:
+    """Answer whether *candidate* opens the vault blob *vault*, offline.
+
+    *vault* is the PARSED contents of ``secrets.json``. This function never
+    constructs a backend (construction reads and can rewrite durable state),
+    never opens a socket, and never logs or returns the candidate.
+
+    Returns ``(verdict, detail)``. The verdict is one of :data:`VAULT_OPENS`,
+    :data:`VAULT_NO`, or :data:`VAULT_UNKNOWN`.
+
+    UNKNOWN is a failing third state, never a soft NO (CLAUDE.md A7): a vault
+    predating the ``verifier`` field, or one whose verifier or KDF parameters
+    are malformed, CANNOT be judged this way, and answering NO there would tell
+    an operator their correct password is wrong.
+    """
+    if not _CRYPTO_AVAILABLE:
+        return VAULT_UNKNOWN, (
+            "the cryptography package is unavailable, so no vault can be "
+            "opened or judged here"
+        )
+    if not isinstance(vault, dict):
+        return VAULT_UNKNOWN, "the vault file did not parse to a JSON object"
+    if not isinstance(candidate, str) or not candidate:
+        return VAULT_UNKNOWN, "no candidate password was supplied"
+    if "verifier" not in vault:
+        return VAULT_UNKNOWN, (
+            "this vault carries no top-level 'verifier', so a password cannot "
+            "be judged offline -- it predates that field"
+        )
+    verifier = vault.get("verifier")
+    if not MasterPasswordBackend._envelope_is_well_formed(verifier):
+        return VAULT_UNKNOWN, (
+            "the vault's 'verifier' is not a well-formed AES-GCM envelope"
+        )
+    salt_b64 = vault.get("salt")
+    if not isinstance(salt_b64, str) or not salt_b64:
+        return VAULT_UNKNOWN, "the vault carries no usable 'salt'"
+    raw_iterations = vault.get("iterations")
+    if isinstance(raw_iterations, bool) or not isinstance(raw_iterations, int):
+        return VAULT_UNKNOWN, "the vault's 'iterations' is not an integer"
+    if not 0 < raw_iterations <= MasterPasswordBackend._MAX_KDF_ITERATIONS:
+        return VAULT_UNKNOWN, "the vault's 'iterations' is outside the supported range"
+    try:
+        salt = base64.b64decode(salt_b64)
+    except Exception:
+        return VAULT_UNKNOWN, "the vault's 'salt' is not decodable base64"
+    if not salt:
+        return VAULT_UNKNOWN, "the vault's 'salt' decoded to zero bytes"
+    try:
+        key = hashlib.pbkdf2_hmac(
+            "sha256", candidate.encode("utf-8"), salt, raw_iterations, 32
+        )
+    except Exception as error:
+        return VAULT_UNKNOWN, f"key derivation failed: {type(error).__name__}"
+    if _open_verifier_envelope(verifier, key):
+        return VAULT_OPENS, "the candidate opens this vault's verifier"
+    return VAULT_NO, "the candidate does not open this vault's verifier"
 
 
 def resolve_password_state(value: str | None) -> tuple[str | None, str]:

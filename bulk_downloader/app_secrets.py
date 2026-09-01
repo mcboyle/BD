@@ -46,6 +46,46 @@ def _vault_store_unreadable(error):
     }), 503
 
 
+def _vault_dependency_state(ss, raw_pw) -> str:
+    """Row 437. Classify the VAULT's availability for a fetch that depends on it.
+
+    Returns one of:
+
+    ``independent`` -- resolution needs no vault at all (a legacy plaintext
+    password already in sites_config), so vault state is irrelevant;
+    ``available``   -- the vault can answer, either because it is unlocked or
+    because it holds no committed password and a None really does mean absent;
+    ``locked``      -- a password IS committed but the master key is not held,
+    so None from ``get()`` is not evidence that this entry was deleted;
+    ``unknown``     -- the vault's own state could not be measured, which
+    CLAUDE.md A7 forbids laundering into either named state.
+
+    It names only the vault's GLOBAL state and never whether a particular
+    entry exists, so it cannot help a token holder enumerate stored entries --
+    the route's anti-enumeration contract is unchanged.
+    """
+    if (isinstance(raw_pw, str) and raw_pw
+            and not raw_pw.startswith(ss.CRED_PREFIX)):
+        return "independent"
+    try:
+        backend = ss.get_backend()
+        state_fn = getattr(backend, "store_state", None)
+        if callable(state_fn) and state_fn() == "unreadable":
+            return "unknown"
+        if bool(backend.is_unlocked()):
+            return "available"
+        initialized_fn = getattr(backend, "is_initialized", None)
+        initialized = (
+            bool(initialized_fn()) if callable(initialized_fn)
+            else bool(backend.list_keys())
+        )
+    except Exception:
+        return "unknown"
+    # A locked vault with no committed password cannot be hiding anything, so
+    # the ordinary no_password_stored answer stays truthful there.
+    return "locked" if initialized else "available"
+
+
 def _plaintext_cannot_answer_for_the_vault(backend):
     """Row 551. Refuse a delete a substituted plaintext backend cannot make.
 
@@ -174,15 +214,60 @@ def api_secrets_status():
 def api_secrets_usage():
     """Cut 7: read-only secret USAGE map — which stored secret keys exist and
     which sites reference them, by NAME / reference only. It never returns any
-    secret VALUE (no token, password, or key material). Fail-open: a backend
-    hiccup yields empty lists, not an error."""
+    secret VALUE (no token, password, or key material).
+
+    Row 488/553: this route does NOT fail open on the inventory. A bare
+    ``except Exception`` used to substitute an empty list, so both named
+    refusals -- ``SecretsUnreadableError`` (the vault could not be read or
+    parsed) and ``SecretsIntegrityError`` (a malformed ciphertexts container)
+    -- became an affirmative ``ok:true`` claim that this host stores no
+    secrets, published over a store nothing read. The operator surface renders
+    that as "No stored secrets.", steering a deletion of intact ciphertexts.
+    Unavailable is now reported in the same 409 vocabulary
+    ``/api/secrets/status`` already uses, and no field of that refusal may be
+    read as an inventory measurement (CLAUDE.md A7)."""
     s_cfg = _app_s_cfg()
     from . import secrets_store as ss
     try:
         backend = ss.get_backend()
         stored = list(backend.list_keys() or [])
-    except Exception:
-        stored = []
+    except ss.SecretsUnreadableError as error:
+        return jsonify({
+            "ok": False,
+            "state": "unreadable",
+            "stored_keys": None,
+            "usage": None,
+            "unreferenced": None,
+            # Deliberately no rotation map: it reads SECRETS_META_FILE, a path
+            # unharmed by damage to the vault, and would name the very keys
+            # this response cannot confirm are stored.
+            "rotation": None,
+            "error": str(error)[:240],
+        }), 409
+    except ss.SecretsIntegrityError as error:
+        return jsonify({
+            "ok": False,
+            "state": "integrity_error",
+            "stored_keys": None,
+            "usage": None,
+            "unreferenced": None,
+            "rotation": None,
+            "error": str(error)[:240],
+        }), 409
+    except Exception as error:
+        # A7 self-audit: the arms above must not leave the same fail-open in
+        # place one branch over. ANY inventory that could not be read is
+        # UNKNOWN, never zero -- a distinct state so an operator can tell an
+        # unrecognised failure from the two diagnosed ones.
+        return jsonify({
+            "ok": False,
+            "state": "unknown",
+            "stored_keys": None,
+            "usage": None,
+            "unreferenced": None,
+            "rotation": None,
+            "error": f"{type(error).__name__}: {error}"[:240],
+        }), 409
     # Which sites reference a stored secret (by key name). We only read the
     # reference, never the value.
     usage = {}
@@ -980,6 +1065,32 @@ def api_secrets_extension_fetch_one():
         _ev.audit_fetch(meta, entry_id, origin, False, "bad_id")
         return jsonify({"ok": False, "error": "denied"}), 403
 
+    # Row 437: classify the vault BEFORE the rate limiter. check_and_record_fetch
+    # persists a 5s entry cooldown and a sliding-window slot, and spending them
+    # on a fetch that could never succeed denied the very post-unlock retry the
+    # operator was steered toward.
+    vault_state = _vault_dependency_state(ss, raw_pw)
+    if vault_state == "locked":
+        _ev.audit_fetch(meta, entry_id, origin, False, "vault_locked")
+        return jsonify({
+            "ok": False,
+            "state": "locked",
+            "error": (
+                "the credential vault is locked -- unlock it and retry. The "
+                "password is still stored; this is not a missing entry."
+            ),
+        }), 409
+    if vault_state == "unknown":
+        _ev.audit_fetch(meta, entry_id, origin, False, "vault_state_unknown")
+        return jsonify({
+            "ok": False,
+            "state": "unknown",
+            "error": (
+                "the credential vault's state could not be measured, so this "
+                "entry is neither confirmed stored nor confirmed missing."
+            ),
+        }), 503
+
     try:
         allowed, reason = _ev.check_and_record_fetch(vt, entry_key)
     except _ev.VaultTokensUnreadableError as e:
@@ -996,6 +1107,35 @@ def api_secrets_extension_fetch_one():
     # Resolve the password
     password = ss.resolve_password(raw_pw) if raw_pw else ss.get_backend().get(entry_key)
     if not password:
+        # A7 self-audit: the probe above is a reading, and this arm must not act
+        # on state it read earlier and never re-validated. If the vault locked
+        # or became unreadable between the probe and here, this None is not
+        # evidence the entry was deleted -- which is the exact lie the probe was
+        # added to stop. Re-measure before naming a reason. The cooldown IS
+        # already spent in that race; it was spent on a fetch the probe had no
+        # reason to refuse, and the truthful diagnosis still matters more.
+        late_state = _vault_dependency_state(ss, raw_pw)
+        if late_state == "locked":
+            _ev.audit_fetch(meta, entry_id, origin, False, "vault_locked")
+            return jsonify({
+                "ok": False,
+                "state": "locked",
+                "error": (
+                    "the credential vault locked during this request -- unlock "
+                    "it and retry. This is not a missing entry."
+                ),
+            }), 409
+        if late_state == "unknown":
+            _ev.audit_fetch(meta, entry_id, origin, False, "vault_state_unknown")
+            return jsonify({
+                "ok": False,
+                "state": "unknown",
+                "error": (
+                    "the credential vault's state could not be measured, so "
+                    "this entry is neither confirmed stored nor confirmed "
+                    "missing."
+                ),
+            }), 503
         _ev.audit_fetch(meta, entry_id, origin, False, "no_password_stored")
         return jsonify({"ok": False, "error": "denied"}), 403
 
