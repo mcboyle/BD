@@ -252,6 +252,46 @@ def _create_owner(owner_path: Path, identity: str) -> bool:
             pass
 
 
+def _set_aside_unowned_bytes(staging: Path) -> None:
+    """Move pre-existing staging bytes out of a freshly claimed path.
+
+    Nothing is deleted. The bytes keep a ``.part`` suffix so
+    ``crash_recovery.scan_for_orphans`` -- which globs ``*.part`` and only
+    LISTS -- can still see them, and ``delete_orphan`` can still reap them on
+    operator command. Destroying them here would trade one silent data loss for
+    another.
+
+    An EMPTY file is left alone: zero bytes are no resume offset and no hazard,
+    and setting them aside would leave an empty orphan reported forever.
+
+    A failure to move is not survivable. If the bytes cannot be got out of the
+    way, the claim cannot honestly say it owns the path, so the download refuses
+    rather than resume over provenance it cannot establish (A2: an unmeasurable
+    state is UNKNOWN, never permission).
+    """
+    try:
+        size = staging.stat().st_size
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise StagingUnavailable(
+            f"staging path {staging} exists and cannot be measured "
+            f"({type(exc).__name__}: {exc}); its bytes have no provable owner, "
+            "so this download refuses rather than resume over them") from exc
+    if size == 0:
+        return
+    aside = staging.parent / (
+        f"{staging.name}.orphaned-{int(time.time())}.{uuid.uuid4().hex[:6]}.part")
+    try:
+        os.replace(str(staging), str(aside))
+    except OSError as exc:
+        raise StagingUnavailable(
+            f"staging path {staging} holds {size} byte(s) that no claim owns "
+            f"and they cannot be moved aside ({type(exc).__name__}: {exc}); "
+            "this download refuses rather than append onto bytes it cannot "
+            "prove are its own") from exc
+
+
 def claim(final_path, identity: str) -> Path:
     """Take (or reclaim) the staging path for exactly ``final_path``.
 
@@ -266,6 +306,16 @@ def claim(final_path, identity: str) -> Path:
     staging = staging_path_for(final_path)
     owner = owner_path_for(staging)
     if _create_owner(owner, identity):
+        # Row 481. A FRESH mint owns none of the bytes that were already there.
+        # This module's only two exists() probes test the FINAL candidate, so
+        # until now the .part's presence, size and provenance were never
+        # measured -- and reserve() skips a candidate only when the final file
+        # exists, which an abandoned .part by definition does not. The next
+        # unrelated job rendering that name therefore reclaimed foreign bytes,
+        # took resume_from from their size, sent no If-Range (the .part.meta
+        # sidecar is absent whenever the origin gave no validator), got a 206,
+        # appended, and promoted the concatenation under its own title.
+        _set_aside_unowned_bytes(staging)
         return staging
     if _read_owner_identity(owner) == identity:
         return staging

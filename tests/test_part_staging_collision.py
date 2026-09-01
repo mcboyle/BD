@@ -761,3 +761,143 @@ def test_release_drops_the_claim(tmp_path):
     final_b, _ = sc.reserve(tmp_path / "Scene.mp4", other)
     assert final_b.name == "Scene.mp4", (
         "a released name must become available again")
+
+
+# ── Row 481: bytes nobody claimed are not this job's bytes ──────────────────
+#
+# claim() returned the staging path the instant _create_owner succeeded, and
+# the module's only two exists() probes both tested the FINAL candidate: the
+# .part's presence, size and provenance were never measured. reserve() skips a
+# candidate only when the FINAL file exists, and an abandoned .part is by
+# definition one whose final file does not. So the next unrelated job whose
+# template renders that name was handed the base name, reclaimed the foreign
+# .part, took resume_from from its st_size, sent no If-Range (the .part.meta
+# sidecar is absent whenever the origin sent no ETag or Last-Modified), got a
+# 206, opened in mode 'ab', and promoted the concatenation as done under its
+# own title -- the 2026-08-29 wrong-file-right-title shape, on the DEFAULT
+# sequential path.
+#
+# Three populations carry ownerless bytes: every .part written before
+# v3.66.1370, when .owner did not exist; any path that drops the claim while
+# the bytes survive; and bytes an operator placed. Nothing reaps them --
+# crash_recovery.scan_for_orphans only LISTS, and delete_orphan runs on
+# operator command -- so such a .part persists indefinitely.
+#
+# Every one of the 18 tests above builds its .part THROUGH the protocol, so the
+# hazardous state is outside that fixture population by construction. These
+# write it directly to disk.
+
+def _foreign_part(tmp_path, name="Interrupted.mp4", size=CHUNK):
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / name
+    staging = sc.staging_path_for(final)
+    staging.write_bytes(bytes([SCENE_A_BYTE]) * size)
+    return final, staging
+
+
+def test_a_claim_minted_over_foreign_bytes_does_not_adopt_them(tmp_path):
+    """RED on the defective parent.
+
+    Preconditions asserted before the verdict, because the defect is a verdict
+    reached over a state nobody measured.
+    """
+    from bulk_downloader import staging_claim as sc
+
+    final, staging = _foreign_part(tmp_path)
+    assert staging.is_file() and staging.stat().st_size == CHUNK
+    assert not final.exists(), "the final file must be absent, or reserve skips it"
+    assert list(tmp_path.glob("*.owner")) == [], (
+        "no claim may exist anywhere, or these are not ownerless bytes")
+
+    got = sc.claim(final, sc.job_identity("https://example.test/scene-b"))
+
+    assert got == staging
+    # The resource this module protects is the .part's BYTES. A freshly minted
+    # claim owns none of them.
+    assert got.stat().st_size == 0 if got.exists() else True
+    assert not got.exists() or got.read_bytes() == b"", (
+        f"the new claim adopted {got.stat().st_size} foreign bytes; the next "
+        "transfer would take that as its resume offset and append onto another "
+        "scene's file")
+
+
+def test_the_foreign_bytes_are_set_aside_not_destroyed(tmp_path):
+    """Nothing is deleted. The bytes move to a name the orphan scan can still
+    see, so an operator can inspect or reap them deliberately."""
+    from bulk_downloader import staging_claim as sc
+
+    final, staging = _foreign_part(tmp_path)
+    sc.claim(final, sc.job_identity("https://example.test/scene-b"))
+
+    setaside = [p for p in tmp_path.iterdir()
+                if p.name.endswith(".part") and p != staging]
+    assert len(setaside) == 1, (
+        f"expected exactly 1 set-aside .part, found {[p.name for p in tmp_path.iterdir()]}")
+    assert setaside[0].read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK, (
+        "the foreign bytes were altered or destroyed")
+    assert setaside[0].name.endswith(".part"), (
+        "crash_recovery.scan_for_orphans globs *.part; a set-aside name that "
+        "does not end in .part is invisible to the only thing that could reap it")
+
+
+def test_reserve_still_returns_the_base_name_over_an_ownerless_part(tmp_path):
+    """The divert-to-_1 path is for a claim held by someone else, not for
+    unowned bytes. An ownerless .part must not cost the job its filename."""
+    from bulk_downloader import staging_claim as sc
+
+    final, staging = _foreign_part(tmp_path)
+    candidate, got = sc.reserve(final, sc.job_identity("https://example.test/scene-b"))
+    assert candidate == final, f"an ownerless .part diverted the name to {candidate}"
+    assert not got.exists() or got.read_bytes() == b""
+
+
+def test_the_same_job_reclaiming_its_own_part_keeps_every_byte(tmp_path):
+    """NEGATIVE CONTROL, and the one that separates this fix from a restart-
+    everything fix: a claim that already exists for this identity is a reclaim,
+    not a mint, and its bytes are its own."""
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Interrupted.mp4"
+    staging = sc.claim(final, sc.job_identity("https://example.test/scene-a"))
+    staging.write_bytes(bytes([SCENE_B_BYTE]) * CHUNK)
+
+    again = sc.claim(final, sc.job_identity("https://example.test/scene-a"))
+    assert again == staging
+    assert again.read_bytes() == bytes([SCENE_B_BYTE]) * CHUNK, (
+        "a job's own staged bytes were discarded; every resume would become a "
+        "restart")
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".part")] == [
+        staging.name], "a reclaim set bytes aside as if they were foreign"
+
+
+def test_a_part_owned_by_another_job_is_still_refused_untouched(tmp_path):
+    """NEGATIVE CONTROL: the existing refusal is unchanged, and the other job's
+    bytes are not moved by the refusing worker."""
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Interrupted.mp4"
+    staging = sc.claim(final, sc.job_identity("https://example.test/scene-a"))
+    staging.write_bytes(bytes([SCENE_A_BYTE]) * CHUNK)
+
+    with pytest.raises(sc.StagingClaimedByAnotherJob):
+        sc.claim(final, sc.job_identity("https://example.test/scene-b"))
+    assert staging.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK
+
+    candidate, got = sc.reserve(final, sc.job_identity("https://example.test/scene-b"))
+    assert candidate.name == "Interrupted_1.mp4", candidate
+    assert staging.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK, (
+        "the diverted worker touched the other job's staged bytes")
+
+
+def test_an_empty_ownerless_part_is_not_set_aside(tmp_path):
+    """Zero bytes are no resume offset and no hazard; moving them would leave
+    an empty file for the orphan scan to report forever."""
+    from bulk_downloader import staging_claim as sc
+
+    final, staging = _foreign_part(tmp_path, size=0)
+    assert staging.stat().st_size == 0
+    sc.claim(final, sc.job_identity("https://example.test/scene-b"))
+    setaside = [p for p in tmp_path.iterdir()
+                if p.name.endswith(".part") and p != staging]
+    assert setaside == [], f"an empty .part was set aside: {setaside}"

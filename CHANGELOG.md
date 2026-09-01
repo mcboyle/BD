@@ -4,6 +4,80 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1388 - ownership needs evidence, not a row and not a filename
+
+Two CRITICAL findings from the bd3 ultrareview, both confirmed present on main
+by re-reading every cited symbol at 8b179d656203. One doctrine: BD accepted a
+claim of ownership over bytes without the measurement that would prove it.
+
+- ROW 479, A DONE ROW THAT RECORDED NO TRANSFER WAS ACCEPTED AS PROOF.
+  db_skip_identity's SAME arm asked for a done status and a library link and
+  NOTHING about a transfer, while db_log's own contract names bytes_fetched as
+  the only column that can answer whether BD moved bytes: >0 a real transfer, 0
+  nothing transferred, None UNKNOWN and never proof of a download. The skip arm
+  WRITES such a row itself -- done, bytes_fetched=0, "already on disk" -- and
+  library_record backfills its library_id so the row joins, so every skip
+  manufactured the proof the next run read. That is A7's shape exactly: an
+  expected set derived from the artifact under test. On any host upgraded across
+  v3.66.1368 the pre-cut wrong-file rows are already there and are now
+  authoritative identity.
+
+  The query now carries bytes_fetched and SCANS for transfer evidence rather
+  than trusting the newest owned row -- the healthy steady state is one real
+  transfer followed by any number of bytes_fetched=0 skips, so a newest-row fix
+  would have turned every legitimate skip into a re-download, and a control
+  pins exactly that shape. A fourth state, "unproven", separates "a file is
+  there and a done row points at it but nothing says BD fetched it" from plain
+  "unknown", and the caller writes exactly one needs_review row NAMING the path,
+  so a pre-existing bad attribution becomes operator-visible instead of
+  disappearing into a silent re-download.
+
+- ROW 481, A RESERVATION MINTED OVER FOREIGN BYTES WAS CALLED A RESUME.
+  staging_claim's only two exists() probes both tested the FINAL candidate; the
+  substrings stat( and st_size appeared nowhere in the module outside its
+  docstring. The resource it protects is the .part's BYTES and the only thing it
+  measured was the presence of a .owner file. reserve() skips a candidate only
+  when the FINAL file exists, and an abandoned .part is by definition one whose
+  final file does not -- so the next unrelated job rendering that name was handed
+  the base name, reclaimed the foreign .part, took resume_from from its size,
+  sent no If-Range (the .part.meta sidecar is absent whenever the origin gave no
+  validator), got a 206, opened in mode 'ab', and promoted the concatenation as
+  done under its own title. The 2026-08-29 wrong-file-right-title shape, on the
+  DEFAULT sequential path.
+
+  A fresh mint now sets pre-existing staging bytes aside. NOTHING IS DELETED:
+  they keep a .part suffix so crash_recovery's orphan scan can still see them
+  and delete_orphan can still reap them on operator command. An empty file is
+  left alone -- zero bytes are no resume offset, and moving them would leave an
+  orphan reported forever. Bytes that cannot be moved aside are a refusal, not a
+  resume: provenance that cannot be established is UNKNOWN, never permission.
+
+- ONE EXISTING TEST HAD ENCODED THE DEFECT AS ITS EXPECTATION.
+  test_live_telemetry's resume fixture wrote its .part directly to disk with no
+  claim -- the ownerless-bytes state itself -- and asserted that the transfer
+  resumed onto it. Under the fix those bytes are set aside and the transfer
+  restarts, so the assertion failed. The fixture now stages its .part THROUGH
+  the protocol, which leaves the test measuring exactly what it is named for:
+  that a resume reports the ABSOLUTE file size rather than the bytes it moved.
+  The assertion itself is unchanged.
+
+- THE FIRST TWO BAND RUNS BLAMED THIS CUT FOR EIGHT NODES IT DOES NOT TOUCH,
+  six of them in the password-vault routing suite. Both runs had been forced
+  onto the integrator because repointing the fleet at the authoritative origin
+  had silently broken remote band dispatch, so two 24-worker bands were sharing
+  one 48-core box. Run in a MATCHED environment -- the identical 289-file
+  selector list, on an idle remote host, against the merge base and against this
+  candidate -- the base shows 1 inherited failure and the candidate 2, and the
+  second of those is the telemetry fixture above. The six vault-routing failures
+  were contention and nothing else.
+
+- THE CONTROLS ARE THE POINT IN BOTH. All 18 existing part-staging tests build
+  their .part THROUGH the protocol, so the hazardous state was outside the
+  fixture population by construction; the new ones write it to disk directly.
+  A job reclaiming its OWN .part keeps every byte, a .part owned by another job
+  is still refused untouched and still diverts to _1, and the resume test still
+  returns (2097152, 1048576) rather than a restart.
+
 ## v3.66.1385 - the replay tool owns only what it made, and certifies against the caller
 
 - ROW 480, A ROLLBACK DELETED A WORKTREE IT NEVER CREATED. The module docstring

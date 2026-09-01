@@ -1211,6 +1211,19 @@ class TransportMixin:
             _identity,_owned=db_skip_identity(page_url,str(final_path))
         else:
             _identity,_owned="",None
+        if _identity=="unproven":
+            # Row 479. A done row points at a file that is on disk, but nothing
+            # in the record says BD ever fetched it -- a bytes_fetched of 0 or,
+            # on a host upgraded across v3.66.1368, a pre-v8 NULL. The job falls
+            # through to the transfer path below, and the unproven attribution
+            # is made OPERATOR-VISIBLE instead of vanishing into a silent
+            # re-download.
+            db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review",
+                   Path(_owned).name,None,
+                   f"existing attribution records no transfer, so it is not "
+                   f"proof of ownership: {_owned}",
+                   bytes_fetched=None,
+                   **history_title_kwargs(self, page_url))
         if _identity=="same":
             # Report the file this url actually owns, not the freshly rendered
             # name. They differ whenever an earlier run landed on a safe_dest
