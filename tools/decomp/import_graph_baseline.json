@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4232,
+  "edge_count": 4238,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3794,6 +3794,12 @@
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/secrets_store.py"
     ],
+    "tests/test_row484_ancestor_class_token_is_not_selector_authority.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_row486_a_taught_row_is_promoted_not_deleted.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_row488_secrets_usage_reports_what_it_read.py": [
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/auth_throttle.py",
@@ -3806,6 +3812,14 @@
     "tests/test_row494_498_crash_recovery_live_state.py": [
       "bulk_downloader/crash_recovery.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row499_a_card_header_is_not_site_chrome.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_row508_a_candidate_is_refused_on_visible_evidence.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_row520_a_tunnel_removal_purges_or_refuses.py": [
       "bulk_downloader/app_store_raw_editor.py",
