@@ -161,6 +161,45 @@ REQUIRED_CHAIN_LABELS = (
     "STATIC_KB",
 )
 
+# Each generator's tracked products live beside the chain authority, keyed by
+# REQUIRED_CHAIN_LABELS. Consumers must derive the flat population by walking
+# that independent label denominator; no consumer gets a second path list to
+# forget to bump. gui_parity's only product is deliberately gitignored.
+TRACKED_OUTPUTS_BY_LABEL = {
+    "FRONTEND_SECRET_KEYS": ("frontend/src/lib/secretKeys.generated.ts",),
+    "gui_parity": (),
+    "ROUTE_INDEX": ("ROUTE_INDEX.json",),
+    "ENDPOINT_CATALOG": ("ENDPOINT_CATALOG.md",),
+    "DEPENDENCY_GRAPH": ("DEPENDENCY_GRAPH.json", "DEPENDENCY_GRAPH.md"),
+    "FUNCTION_INDEX": ("FUNCTION_INDEX.md",),
+    "INV_TAGS": ("INV_TAGS.md",),
+    "SOURCE_WINDOW_HASHES": ("tests/source_window_hashes.json",),
+    "PIN_INDEX": ("PIN_INDEX.json",),
+    "STATIC_KB": ("project-knowledge/STATIC_KB_MANIFEST.json",),
+}
+
+
+def tracked_outputs() -> tuple[str, ...]:
+    """The exact tracked product set, derived through the required labels."""
+    required = tuple(REQUIRED_CHAIN_LABELS)
+    if not required or len(required) != len(set(required)):
+        raise RuntimeError("required chain labels are empty or duplicated")
+    if set(TRACKED_OUTPUTS_BY_LABEL) != set(required):
+        raise RuntimeError(
+            "tracked-output labels disagree with REQUIRED_CHAIN_LABELS: "
+            "missing=%r unexpected=%r"
+            % (sorted(set(required) - set(TRACKED_OUTPUTS_BY_LABEL)),
+               sorted(set(TRACKED_OUTPUTS_BY_LABEL) - set(required)))
+        )
+    outputs = tuple(
+        path
+        for label in required
+        for path in TRACKED_OUTPUTS_BY_LABEL[label]
+    )
+    if not outputs or len(outputs) != len(set(outputs)):
+        raise RuntimeError("tracked chain outputs are empty or duplicated")
+    return outputs
+
 VERIFY = [
     ("template identity", ["tools/decomp/templates_snapshot.py", "--check"],
      "GATE: verifies the reviewed frozen template identity; never auto-freezes it"),
@@ -319,6 +358,17 @@ def selftest():
           "  MEMBERSHIP: " + membership_detail)
     ok &= m1
 
+    try:
+        outputs = tracked_outputs()
+        o1 = bool(outputs)
+        output_detail = "%d unique tracked outputs derived through required labels" % len(outputs)
+    except RuntimeError as exc:
+        o1 = False
+        output_detail = str(exc)
+    print(("%sPASS%s" if o1 else "%sFAIL%s") % ((G, RST) if o1 else (R, RST)) +
+          "  OUTPUTS: " + output_detail)
+    ok &= o1
+
     # POS: the ORDER is the contract -- gui_parity must precede ROUTE_INDEX.
     p1 = ("gui_parity" in labels and "ROUTE_INDEX" in labels
           and labels.index("gui_parity") < labels.index("ROUTE_INDEX"))
@@ -364,9 +414,19 @@ def main():
                     help="re-pin the endpoint-reachability dark_count ratchet "
                          "(an INTENDED wiring change)")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--tracked-outputs", action="store_true",
+                    help="print the tracked CHAIN outputs, one path per line")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+
+    if a.tracked_outputs:
+        try:
+            print("\n".join(tracked_outputs()))
+        except RuntimeError as exc:
+            print("TRACKED OUTPUTS UNKNOWN: %s" % exc, file=sys.stderr)
+            return 2
+        return 0
 
     if a.dry_run:
         print("%s== bd-regen-order :: the chain ==%s" % (BOLD, RST))
