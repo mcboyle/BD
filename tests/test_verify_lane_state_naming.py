@@ -380,7 +380,7 @@ class _LaunchTransport:
                 err = "ssh warning: synthetic banner\n" + err
         return rc, out, err
 
-    def fetch(self, remote, local, timeout=600):
+    def fetch(self, remote, local, timeout=120):
         return self.inner.fetch(remote, local, timeout=timeout)
 
 
