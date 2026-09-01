@@ -8,6 +8,15 @@ piece is the pre-download history match. NEW db.db_find_url_in_history
 Custom runner: zero-arg functions, no pytest builtins. The preflight method
 is exercised through a lightweight stub (config + log) so we test the gating
 logic without booting a full SiteRunner.
+
+ROW 544 (v3.66.x): the three preflight fixtures below that mean "this URL was
+already downloaded" now pass ``bytes_fetched=`` explicitly. db_log defaults it
+to NULL, and a NULL is a pre-v8 row that db_log's own contract calls "UNKNOWN,
+and never proof of a download" -- so those fixtures were asserting about a row
+that records no transfer while claiming to be about a completed one. The exact
+-URL arm requires a REAL transfer now; giving the fixture one makes it build
+the shape it always said it was building. The zero/NULL cases are pinned in
+tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py.
 """
 
 import logging
@@ -70,7 +79,8 @@ def test_exact_url_exclude_site():
 
 def test_preflight_exact_default_on():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "")
+    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "",
+              bytes_fetched=1000)  # row 544: a REAL prior transfer
     stub = _Stub({})  # no flags -> exact dedup defaults ON
     msg = _preflight(stub, "https://ex.com/dup", {})
     assert msg and "history #" in msg
@@ -84,15 +94,23 @@ def test_preflight_no_match_proceeds():
 
 def test_preflight_force_download_bypasses():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "")
+    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "",
+              bytes_fetched=1000)  # row 544: a REAL prior transfer
     stub = _Stub({})
+    # Precondition: without the flag this URL IS deduplicated, so the assertion
+    # below measures force_download and not an absent transfer record.
+    assert _preflight(stub, "https://ex.com/dup", {}) is not None
     # An explicit Approve / re-download must not be skipped.
     assert _preflight(stub, "https://ex.com/dup", {"force_download": 1}) is None
 
 
 def test_preflight_exact_can_be_disabled():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "")
+    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "",
+              bytes_fetched=1000)  # row 544: a REAL prior transfer
+    # Precondition: the same row IS a duplicate with the arm left at its
+    # default, so this measures the config gate and not an absent transfer.
+    assert _preflight(_Stub({}), "https://ex.com/dup", {}) is not None
     stub = _Stub({"dedup_exact_url": False})
     assert _preflight(stub, "https://ex.com/dup", {}) is None
 
