@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4185,
+  "edge_count": 4188,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3789,6 +3789,11 @@
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row548_vault_probe_is_recorded_once.py": [
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
