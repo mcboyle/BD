@@ -200,6 +200,7 @@ _MEASURED_S = {
     "_w1_wait_for_path/default":                                                 (3.1513, 5.0),
     "fixture_marker_waits_for_content/fifo":                                     (0.1000, 0),
     "fixture_marker_waits_for_content/wait":                                     (0.1000, 0),
+    "_w1_budget_boundary/reap-wait":                                             (0.0035, 5),
     "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait":                (0.0035, 5),
     "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait-2":              (0.0035, 5),
     "hunt_fixture_does_not_report_a_self_exited_child_as_leaked/wait":            (0.1000, 5),
@@ -471,8 +472,19 @@ def _w1_budget_boundary(monkeypatch):
     """
     depth = {"n": 0}
     real_run = subprocess.run
+    real_popen_init = subprocess.Popen.__init__
     real_wait = subprocess.Popen.wait
     real_communicate = subprocess.Popen.communicate
+    spawned = []
+    cleanup = {"tracked": 0, "reaped": 0, "settled": 0, "unknown": 0}
+
+    def tracked_init(process, *args, **kwargs):
+        real_popen_init(process, *args, **kwargs)
+        try:
+            receipt = _w1_proc_receipt(process.pid)
+        except (FileNotFoundError, ProcessLookupError, OSError):
+            receipt = None
+        spawned.append((process, receipt))
 
     def timed(orig, get_timeout):
         def wrapper(*args, **kwargs):
@@ -490,6 +502,7 @@ def _w1_budget_boundary(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run",
                         timed(real_run, lambda a, k: k.get("timeout")))
+    monkeypatch.setattr(subprocess.Popen, "__init__", tracked_init)
     monkeypatch.setattr(subprocess.Popen, "wait",
                         timed(real_wait,
                               lambda a, k: k.get("timeout",
@@ -498,7 +511,54 @@ def _w1_budget_boundary(monkeypatch):
                         timed(real_communicate,
                               lambda a, k: k.get("timeout",
                                                  a[2] if len(a) > 2 else None)))
-    yield
+    try:
+        yield cleanup
+    finally:
+        cleanup["tracked"] = len(spawned)
+        for process, receipt in spawned:
+            if process.poll() is not None:
+                cleanup["settled"] += 1
+                continue
+
+            owns_group = receipt is not None and receipt[1] == process.pid
+            try:
+                if owns_group:
+                    os.killpg(receipt[1], signal.SIGKILL)
+                else:
+                    process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                process.wait(timeout=_w1_budget_s(
+                    "_w1_budget_boundary/reap-wait"))
+            except (subprocess.TimeoutExpired, OSError):
+                cleanup["unknown"] += 1
+                continue
+
+            group_gone = True
+            if owns_group:
+                try:
+                    os.killpg(receipt[1], 0)
+                except ProcessLookupError:
+                    group_gone = True
+                except OSError as exc:
+                    group_gone = exc.errno == errno.ESRCH
+                else:
+                    group_gone = False
+            if process.poll() is not None and group_gone:
+                cleanup["reaped"] += 1
+            else:
+                cleanup["unknown"] += 1
+
+        assert cleanup["unknown"] == 0, (
+            "HUNT FIXTURE CLEANUP UNKNOWN: "
+            f"tracked={cleanup['tracked']} reaped={cleanup['reaped']} "
+            f"settled={cleanup['settled']} unknown={cleanup['unknown']}"
+        )
+        assert cleanup["tracked"] == cleanup["reaped"] + cleanup["settled"], (
+            "hunt fixture cleanup denominator did not reconcile: "
+            f"{cleanup!r}"
+        )
 
 
 def _w1_exact_receipt_is_present(receipt):
