@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1405 - the register records the second half
+
+Register-only, the companion to v3.66.1402. Nine more rows shipped tonight were
+still reading OPEN, and three defects found in passing had no row at all.
+
+- CLOSED: 551 552 554 555 @1403; 547 560 561 563 607 @1404. OPEN goes 146 -> 140
+  over 554 rows.
+- ROW 563 IS CLOSED WITH A CAVEAT THAT MATTERS. It is unsatisfiable as literally
+  worded -- the rows an age prune leaves behind ARE the self-manufactured ones --
+  and was resolved on the retention side instead, by keeping the newest
+  transfer-proving row per URL and repointing library.history_id at it. The close
+  records that rather than implying the row was satisfied as written.
+- FILED 609: a killer reports a count it never proved. bd-kill-mine.sh printed
+  "1 process(es) signalled" while its target kept running -- it had signalled the
+  wrapper. A count of signals sent is not evidence that anything died.
+- FILED 610: a TemporaryDirectory leak crosses two test files, six
+  FileNotFoundError failures, reproducible in both files together and absent in
+  either alone.
+- ALSO CLOSED, and these four were fixed OUTSIDE the repository so they carry
+  this register version as their evidence rather than a release that changed
+  code: 580 581 583 597 @1405, the destructive-harness cleanup contract. They
+  were re-derived row by row against the current scripts and every one had
+  ALREADY been fixed earlier the same night by the harness lanes -- the agent
+  sent to work them made NO edits, proved each row GREEN on the live file and
+  RED on the preserved pre-fix ORIGINAL, and said so. Two clauses could not be
+  replayed RED because the earliest preserved originals already carry one half
+  of their own fix; that is recorded as UNKNOWN rather than claimed.
+  Row 581's keeplist widening was DECLINED on its own DANGER note (it would add
+  ~52k files to the archive); the core `|| true` before `rm -rf` is fixed.
+- FILED 611: an all-modules import test is schedule-sensitive -- it failed inside
+  a 273-file band under -n 12 and passed serially on the same tree. The
+  inherited-failure attribution handled it correctly; the node itself is
+  unresolved.
+
 ## v3.66.1404 - a history row proves a real transfer, not a current identity
 
 Rows 547, 560, 561, 563 and 607. This is the SECOND attempt: the first was built,
