@@ -621,6 +621,7 @@ jobs:
               tests/test_v3_66_1239_precut_runs_the_underived_gates.py
               tests/test_row463_precut_derives_its_baseline.py
               tests/test_verify_lane_state_naming.py
+              tests/test_register_tooling_denominators.py
               tests/test_history_file_size_is_the_size_on_disk.py
               tests/test_cloud_setup_truthfulness.py
               tests/test_playwright_engines_single_source.py

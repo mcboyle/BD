@@ -192,6 +192,7 @@ _DECLARED = {
     # not reach. Its denominator is the merge-lane tree, not one application
     # module, so it is always scheduled.
     "tests/test_verify_lane_state_naming.py",
+    "tests/test_register_tooling_denominators.py",
     # @1222, the budget ratchet. An inner budget at or above the bound
     # governing its item has a dead error path, so a hang kills the process
     # instead of failing the test -- twice over on 2026-08-24. The frozen
