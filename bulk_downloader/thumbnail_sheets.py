@@ -35,16 +35,31 @@ def is_available() -> bool:
     return ffmpeg_bin.both_available()
 
 
-def _probe_duration(path: str) -> Optional[float]:
-    """Get video duration in seconds. Returns None on failure."""
+class FFprobeError(RuntimeError):
+    """A duration or image-dimension probe could not be measured."""
+
+
+def _probe_duration(path: str) -> float:
+    """Get video duration in seconds or raise a named probe failure."""
+    from . import ffmpeg_bin
+    ffprobe = ffmpeg_bin.ffprobe()
+    if not ffprobe:
+        raise FFprobeError("ffprobe_unavailable")
     try:
         out = subprocess.check_output(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],
             stderr=subprocess.DEVNULL, timeout=15)
         return float(out.strip())
-    except Exception:
-        return None
+    except subprocess.CalledProcessError as e:
+        raise FFprobeError(f"ffprobe_exit_{e.returncode}") from e
+    except subprocess.TimeoutExpired as e:
+        raise FFprobeError("ffprobe_timeout") from e
+    except OSError as e:
+        raise FFprobeError(
+            f"ffprobe_exec_failed:{type(e).__name__}:{str(e)[:120]}") from e
+    except (TypeError, ValueError) as e:
+        raise FFprobeError("ffprobe_invalid_duration") from e
 
 
 def single_thumb(path: str, *, at_pct: float = 50.0,
@@ -56,14 +71,21 @@ def single_thumb(path: str, *, at_pct: float = 50.0,
         return {"ok": False, "error": "ffmpeg/ffprobe not on PATH"}
     if not os.path.isfile(path):
         return {"ok": False, "error": "source not found"}
-    duration = _probe_duration(path)
-    if duration is None or duration <= 0:
+    try:
+        duration = _probe_duration(path)
+    except FFprobeError as e:
+        return {"ok": False, "error": str(e)}
+    if duration <= 0:
         return {"ok": False, "error": "could not probe duration"}
     timestamp = max(0.0, duration * (at_pct / 100.0))
     out = out_path or str(Path(path).with_suffix(".thumb.jpg"))
+    from . import ffmpeg_bin
+    ffmpeg = ffmpeg_bin.ffmpeg()
+    if not ffmpeg:
+        return {"ok": False, "error": "ffmpeg_unavailable"}
     try:
         subprocess.check_call(
-            ["ffmpeg", "-y", "-loglevel", "error",
+            [ffmpeg, "-y", "-loglevel", "error",
              "-ss", f"{timestamp:.2f}", "-i", path,
              "-frames:v", "1", "-vf", f"scale={size}",
              "-q:v", "3", out],
@@ -74,6 +96,12 @@ def single_thumb(path: str, *, at_pct: float = 50.0,
                 "timestamp_seconds": timestamp}
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": f"ffmpeg exit {e.returncode}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ffmpeg_timeout"}
+    except OSError as e:
+        return {"ok": False,
+                "error": (f"ffmpeg_exec_failed:{type(e).__name__}:"
+                          f"{str(e)[:120]}")}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
@@ -87,8 +115,11 @@ def contact_sheet(path: str, *, rows: int = 4, cols: int = 4,
         return {"ok": False, "error": "ffmpeg not on PATH"}
     if not os.path.isfile(path):
         return {"ok": False, "error": "source not found"}
-    duration = _probe_duration(path)
-    if duration is None or duration <= 0:
+    try:
+        duration = _probe_duration(path)
+    except FFprobeError as e:
+        return {"ok": False, "error": str(e)}
+    if duration <= 0:
         return {"ok": False, "error": "could not probe duration"}
     n_frames = rows * cols
     # Sample at: 5%, then evenly spaced up to 95%
@@ -101,9 +132,13 @@ def contact_sheet(path: str, *, rows: int = 4, cols: int = 4,
     )
     # Actually a simpler approach: use the fps + tile filter chain
     fps = max(0.01, n_frames / max(1, duration))
+    from . import ffmpeg_bin
+    ffmpeg = ffmpeg_bin.ffmpeg()
+    if not ffmpeg:
+        return {"ok": False, "error": "ffmpeg_unavailable"}
     try:
         subprocess.check_call(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", path,
+            [ffmpeg, "-y", "-loglevel", "error", "-i", path,
              "-vf",
              f"fps={fps},scale={tile_width}:-1,tile={cols}x{rows}",
              "-frames:v", "1", "-q:v", "3", out],
@@ -117,6 +152,12 @@ def contact_sheet(path: str, *, rows: int = 4, cols: int = 4,
                 "duration_seconds": duration}
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": f"ffmpeg exit {e.returncode}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ffmpeg_timeout"}
+    except OSError as e:
+        return {"ok": False,
+                "error": (f"ffmpeg_exec_failed:{type(e).__name__}:"
+                          f"{str(e)[:120]}")}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
@@ -130,17 +171,24 @@ def sprite_sheet(path: str, *, count: int = 100,
         return {"ok": False, "error": "ffmpeg not on PATH"}
     if not os.path.isfile(path):
         return {"ok": False, "error": "source not found"}
-    duration = _probe_duration(path)
-    if duration is None or duration <= 0:
+    try:
+        duration = _probe_duration(path)
+    except FFprobeError as e:
+        return {"ok": False, "error": str(e)}
+    if duration <= 0:
         return {"ok": False, "error": "could not probe duration"}
     base = Path(path)
     sprite_path = base.with_suffix(".sprite.jpg")
     vtt_path = base.with_suffix(".sprite.vtt")
     # ffmpeg-tile filter: 1×count strip
     fps = max(0.01, count / duration)
+    from . import ffmpeg_bin
+    ffmpeg = ffmpeg_bin.ffmpeg()
+    if not ffmpeg:
+        return {"ok": False, "error": "ffmpeg_unavailable"}
     try:
         subprocess.check_call(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", path,
+            [ffmpeg, "-y", "-loglevel", "error", "-i", path,
              "-vf",
              f"fps={fps},scale={tile_width}:-1,tile=1x{count}",
              "-frames:v", "1", "-q:v", "4", str(sprite_path)],
@@ -148,11 +196,20 @@ def sprite_sheet(path: str, *, count: int = 100,
             timeout=180)
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": f"ffmpeg exit {e.returncode}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ffmpeg_timeout"}
+    except OSError as e:
+        return {"ok": False,
+                "error": (f"ffmpeg_exec_failed:{type(e).__name__}:"
+                          f"{str(e)[:120]}")}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
     # We don't know the actual tile height — re-probe
-    tile_h = _probe_tile_height(str(sprite_path), count)
+    try:
+        tile_h = _probe_tile_height(str(sprite_path), count)
+    except FFprobeError as e:
+        return {"ok": False, "error": str(e)}
 
     # Build VTT cues. Each cue references the same image with #xywh
     interval = duration / count
@@ -179,16 +236,27 @@ def sprite_sheet(path: str, *, count: int = 100,
 
 def _probe_tile_height(sprite_path: str, count: int) -> int:
     """Read the sprite image's height, divide by count."""
+    from . import ffmpeg_bin
+    ffprobe = ffmpeg_bin.ffprobe()
+    if not ffprobe:
+        raise FFprobeError("ffprobe_unavailable")
     try:
         out = subprocess.check_output(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+            [ffprobe, "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=height",
              "-of", "default=noprint_wrappers=1:nokey=1", sprite_path],
             stderr=subprocess.DEVNULL, timeout=10)
         total_h = int(out.strip())
         return max(1, total_h // count)
-    except Exception:
-        return 112  # 16:9 fallback for tile_width=200
+    except subprocess.CalledProcessError as e:
+        raise FFprobeError(f"ffprobe_exit_{e.returncode}") from e
+    except subprocess.TimeoutExpired as e:
+        raise FFprobeError("ffprobe_timeout") from e
+    except OSError as e:
+        raise FFprobeError(
+            f"ffprobe_exec_failed:{type(e).__name__}:{str(e)[:120]}") from e
+    except (TypeError, ValueError, ZeroDivisionError) as e:
+        raise FFprobeError("ffprobe_invalid_height") from e
 
 
 def _fmt_vtt_time(seconds: float) -> str:

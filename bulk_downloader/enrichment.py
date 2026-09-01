@@ -76,11 +76,13 @@ def probe(path: str) -> Optional[dict]:
     cmd = [fp, "-v", "error", "-print_format", "json",
            "-show_format", "-show_streams", path]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", timeout=30)
         if r.returncode != 0:
             return None
         return json.loads(r.stdout or "{}")
-    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError,
+            json.JSONDecodeError):
         return None
 
 

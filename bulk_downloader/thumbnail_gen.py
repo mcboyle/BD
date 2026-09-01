@@ -79,7 +79,6 @@ def is_ffmpeg_available() -> bool:
 
 
 def is_ffprobe_available() -> bool:
-    import shutil
     from . import ffmpeg_bin          # MOD-4
     return ffmpeg_bin.ffprobe() is not None
 
@@ -106,24 +105,39 @@ class ThumbnailResult:
 # ─── ffprobe helper ───────────────────────────────────────────────
 
 
+class FFprobeError(RuntimeError):
+    """The ffprobe subprocess did not produce a duration measurement."""
+
+
 def _probe_duration(path: str, *, timeout_s: float = 30.0) -> float:
-    """Return source video duration in seconds. 0 on any failure."""
-    if not is_ffprobe_available():
-        return 0.0
+    """Return source video duration or raise a named probe failure."""
+    from . import ffmpeg_bin
+    ffprobe = ffmpeg_bin.ffprobe()
+    if not ffprobe:
+        raise FFprobeError("ffprobe_unavailable")
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error",
+            [ffprobe, "-v", "error",
              "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1",
              path],
             capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
         )
         if result.returncode != 0:
-            return 0.0
-        return float(result.stdout.strip() or 0.0)
-    except Exception as e:
-        log.debug("thumbnail: ffprobe failed on %s: %s", path[-50:], e)
-        return 0.0
+            detail = (result.stderr or "").strip()[:120]
+            suffix = f":{detail}" if detail else ""
+            raise FFprobeError(f"ffprobe_rc_{result.returncode}{suffix}")
+        try:
+            return float(result.stdout.strip())
+        except (AttributeError, TypeError, ValueError) as e:
+            raise FFprobeError("ffprobe_invalid_duration") from e
+    except FFprobeError:
+        raise
+    except subprocess.TimeoutExpired as e:
+        raise FFprobeError("ffprobe_timeout") from e
+    except OSError as e:
+        raise FFprobeError(
+            f"ffprobe_exec_failed:{type(e).__name__}:{str(e)[:120]}") from e
 
 
 # ─── Output path resolution ───────────────────────────────────────
@@ -202,7 +216,14 @@ def generate_single_frame(
                                 error="ffmpeg_or_ffprobe_missing")
 
     # Pick a midpoint timestamp if not specified
-    duration = _probe_duration(source_path)
+    try:
+        duration = _probe_duration(source_path)
+    except FFprobeError as e:
+        return ThumbnailResult(
+            ok=False, source_path=source_path, output_path=output_path,
+            mode="single", elapsed_s=time.monotonic() - start,
+            error=str(e),
+        )
     if timestamp_s is None:
         # Use 30% point — earlier frames are often title cards, end
         # frames are often credits. Halfway works fine but 30% is
@@ -220,8 +241,16 @@ def generate_single_frame(
                                 output_path=output_path,
                                 error=f"mkdir_failed:{e}")
 
+    from . import ffmpeg_bin
+    ffmpeg = ffmpeg_bin.ffmpeg()
+    if not ffmpeg:
+        return ThumbnailResult(
+            ok=False, source_path=source_path, output_path=output_path,
+            mode="single", elapsed_s=time.monotonic() - start,
+            error="ffmpeg_unavailable",
+        )
     cmd = [
-        "ffmpeg", "-y", "-v", "error",
+        ffmpeg, "-y", "-v", "error",
         "-ss", str(timestamp_s),
         "-i", source_path,
         "-frames:v", "1",
@@ -248,6 +277,14 @@ def generate_single_frame(
             output_path=output_path, mode="single",
             elapsed_s=time.monotonic() - start,
             error="ffmpeg_timeout",
+        )
+    except OSError as e:
+        return ThumbnailResult(
+            ok=False, source_path=source_path,
+            output_path=output_path, mode="single",
+            elapsed_s=time.monotonic() - start,
+            error=(f"ffmpeg_exec_failed:{type(e).__name__}:"
+                   f"{str(e)[:80]}"),
         )
     except Exception as e:
         return ThumbnailResult(
@@ -304,7 +341,14 @@ def generate_contact_sheet(
     cols = max(1, min(10, int(cols)))
     n_frames = rows * cols
 
-    duration = _probe_duration(source_path)
+    try:
+        duration = _probe_duration(source_path)
+    except FFprobeError as e:
+        return ThumbnailResult(
+            ok=False, source_path=source_path, output_path=output_path,
+            mode="sheet", elapsed_s=time.monotonic() - start,
+            error=str(e),
+        )
     if duration <= 0:
         return ThumbnailResult(
             ok=False, source_path=source_path, mode="sheet",
@@ -337,8 +381,16 @@ def generate_contact_sheet(
     fps = n_frames / duration if duration > 0 else 1.0
     vf = (f"fps={fps},scale={int(tile_width)}:-2,"
           f"tile={cols}x{rows}")
+    from . import ffmpeg_bin
+    ffmpeg = ffmpeg_bin.ffmpeg()
+    if not ffmpeg:
+        return ThumbnailResult(
+            ok=False, source_path=source_path, output_path=output_path,
+            mode="sheet", elapsed_s=time.monotonic() - start,
+            error="ffmpeg_unavailable",
+        )
     cmd = [
-        "ffmpeg", "-y", "-v", "error",
+        ffmpeg, "-y", "-v", "error",
         "-i", source_path,
         "-vf", vf,
         "-frames:v", "1",
@@ -364,6 +416,14 @@ def generate_contact_sheet(
             output_path=output_path, mode="sheet",
             elapsed_s=time.monotonic() - start,
             error="ffmpeg_timeout",
+        )
+    except OSError as e:
+        return ThumbnailResult(
+            ok=False, source_path=source_path,
+            output_path=output_path, mode="sheet",
+            elapsed_s=time.monotonic() - start,
+            error=(f"ffmpeg_exec_failed:{type(e).__name__}:"
+                   f"{str(e)[:80]}"),
         )
     except Exception as e:
         return ThumbnailResult(
@@ -583,6 +643,7 @@ __all__ = [
     "is_ffmpeg_available",
     "is_ffprobe_available",
     "is_available",
+    "FFprobeError",
     "ThumbnailResult",
     "resolve_output_path",
     "generate_single_frame",

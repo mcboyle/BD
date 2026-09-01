@@ -126,11 +126,12 @@ class HashResult:
     ok: bool
     path: str = ""
     hash_hex: str = ""        # 16 hex chars for 64-bit pHash
-    duration_sec: float = 0.0
+    duration_sec: Optional[float] = 0.0
     file_size_bytes: int = 0
-    codec: str = ""
+    codec: Optional[str] = ""
     elapsed_s: float = 0.0
     error: str = ""           # short reason if not ok
+    metadata_error: str = ""  # ffprobe failure when the hash itself succeeded
 
 
 @dataclass
@@ -187,20 +188,32 @@ def _canon_hash_hex(raw) -> str:
 
 
 def _ffprobe_meta(path: str) -> dict:
-    """Best-effort duration + codec lookup via ffprobe. Returns
-    {'duration_sec': float, 'codec': str}. Fail-open."""
-    out = {"duration_sec": 0.0, "codec": ""}
+    """Best-effort duration + codec lookup via the configured ffprobe.
+
+    A successful-but-empty measurement is ``0.0``/``""``.  A probe that did
+    not run or failed is ``None``/``None`` with a named error, so callers never
+    store an unavailable measurement as a measured-looking zero.
+    """
+    from . import ffmpeg_bin
+    ffprobe = ffmpeg_bin.ffprobe()
+    if not ffprobe:
+        return {"duration_sec": None, "codec": None,
+                "error": "ffprobe_unavailable"}
     try:
         import subprocess
         result = subprocess.run(
-            ["ffprobe", "-v", "error",
+            [ffprobe, "-v", "error",
              "-show_entries", "stream=codec_name:format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1",
              path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
         )
         if result.returncode != 0:
-            return out
+            detail = (result.stderr or "").strip()[:120]
+            suffix = f":{detail}" if detail else ""
+            return {"duration_sec": None, "codec": None,
+                    "error": f"ffprobe_rc_{result.returncode}{suffix}"}
+        out = {"duration_sec": 0.0, "codec": "", "error": ""}
         # ffprobe output is two lines: codec_name, duration
         lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
         if len(lines) >= 1:
@@ -209,10 +222,17 @@ def _ffprobe_meta(path: str) -> dict:
             try:
                 out["duration_sec"] = float(lines[1])
             except ValueError:
-                pass
-    except Exception as e:
+                return {"duration_sec": None, "codec": None,
+                        "error": "ffprobe_invalid_duration"}
+        return out
+    except subprocess.TimeoutExpired:
+        return {"duration_sec": None, "codec": None,
+                "error": "ffprobe_timeout"}
+    except (OSError, UnicodeDecodeError) as e:
         log.debug("dedup: ffprobe failed for %s: %s", path[-50:], e)
-    return out
+        return {"duration_sec": None, "codec": None,
+                "error": (f"ffprobe_exec_failed:{type(e).__name__}:"
+                          f"{str(e)[:120]}")}
 
 
 def compute_hash(path: str, *,
@@ -267,6 +287,7 @@ def compute_hash(path: str, *,
         duration_sec=meta["duration_sec"],
         file_size_bytes=size,
         codec=meta["codec"],
+        metadata_error=meta["error"],
         elapsed_s=time.monotonic() - start,
     )
 
@@ -430,7 +451,7 @@ class HashRegistry:
                 "duration_sec": r[2],
                 "file_size_bytes": r[3] or 0,
                 "computed_at": r[4],
-                "ffprobe_codec": r[5] or "",
+                "ffprobe_codec": r[5],
             })
         out.sort(key=lambda x: (x["distance"], -x["file_size_bytes"]))
         return out
