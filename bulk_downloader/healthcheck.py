@@ -370,21 +370,38 @@ def _check_supervisor() -> dict:
     """Bandwidth supervisor state, surfaced in app health (supervisor -> health).
     App-PROCESS supervision is systemd's job (auto-restart) and /api/health
     reports uptime; this connects the in-app bandwidth limiter to the health
-    view so 'supervisor' is visible alongside the rest."""
+    view so 'supervisor' is visible alongside the rest.
+
+    Row 425: an unobserved supervisor is UNKNOWN, not ok.  Both arms below
+    used to answer SEV_OK -- the unqueryable one said so in prose while
+    scoring healthy, and the unreadable-stats one reported an ACTIVE
+    supervisor carrying ``global_bps=0``, a number nothing measured.  Every
+    sibling here already maps unavailable to SEV_WARN (_check_ytdlp,
+    _check_circuit_breakers, _check_account_health, _check_bitrot), so this
+    was an oversight rather than a design choice, and the checklist rollup
+    reported ok over the throttle that protects authenticated accounts.
+
+    The two failures stay DISTINCT (CLAUDE.md A7): "cannot be queried" and
+    "enabled but its rate cannot be read" lead to different actions, and each
+    carries the boundary's own words.
+    """
     try:
         from . import download_supervisor as _sup
         enabled = bool(_sup.is_enabled())
     except Exception as e:
-        return {"severity": SEV_OK,
-                "message": f"bandwidth supervisor unavailable: {e}"}
+        return {"severity": SEV_WARN,
+                "message": f"bandwidth supervisor unavailable: "
+                           f"{type(e).__name__}: {e}"[:200]}
     if not enabled:
         return {"severity": SEV_OK,
                 "message": "bandwidth supervisor idle (no throttle configured)"}
     try:
         cfg = (_sup.stats() or {}).get("config", {})
-        gbps = cfg.get("global_bps", 0)
-    except Exception:
-        gbps = 0
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"bandwidth supervisor enabled but its rate is "
+                           f"unavailable: {type(e).__name__}: {e}"[:200]}
+    gbps = cfg.get("global_bps", 0)
     return {"severity": SEV_OK,
             "message": f"bandwidth supervisor active (global_bps={gbps})"}
 

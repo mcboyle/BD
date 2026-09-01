@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1416 - the operator is told what was actually measured
+
+Rows 421, 424, 425, 467, 515 and 521 -- six surfaces that reported a confident
+answer over a measurement they had not taken.
+
+- 425. The bandwidth supervisor reported `global_bps=0` as fact when the
+  supervisor could not be queried at all, and rolled that up as `ok`. An
+  unavailable supervisor and an idle one are now distinct, and each names which
+  measurement failed rather than sharing one severity.
+- 521. A build-identity probe cached an UNKNOWN result under the same key a real
+  answer would use, so one failed `git rev-parse` poisoned every later request.
+  Only a measured value is cached now.
+- 467. `bdctl` wrote nothing to stdout when the service answered 503 and put the
+  body on stderr, so a caller parsing its JSON got a JSONDecodeError instead of
+  the server's own words. This is the collapsed-diagnostic shape: the failure
+  that cannot be acted on. `bdctl` now carries the server's reason.
+- 421. A per-rule alert store error was swallowed, so `evaluate()` re-asked a
+  broken table and the scheduler recorded `ok` over it. A distinct
+  `AlertEventStoreUnavailable` now surfaces, carrying SQLite's own message, and
+  the scheduler no longer discards the result.
+- 424. Three session-keeper probes read ALIVE from an HTTP 500, a 503 and a 302
+  -- "navigate ok (HTTP 500)" in the probe's own words. A non-2xx is no longer
+  evidence of a live session.
+- 515. The Secrets page rendered "No extensions paired" over an unreadable
+  store, so a failure to read looked exactly like an empty result.
+
 ## v3.66.1415 - a gate that runs, a census that knows itself, a path that is kept
 
 Three independent seams, one shape: something reported a state it had not

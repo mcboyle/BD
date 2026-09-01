@@ -198,6 +198,27 @@ _OPS = {
 
 # ─── Rule evaluation ──────────────────────────────────────────────────
 
+class AlertEventStoreUnavailable(RuntimeError):
+    """The alert_events table could not be read or written.
+
+    ROW 421. This state used to be indistinguishable from a measured
+    answer: ``_condition_was_held`` returned False on ANY exception and
+    ``_record_event`` swallowed its own INSERT failure, so a locked,
+    corrupt, unwritable or malformed-``ts`` table made the duration gate
+    answer False forever, ``fired`` stayed False, and ``_fire_actions``
+    never ran. Nothing raised and nothing logged.
+
+    That is the fail-open shape CLAUDE.md A7 forbids, and it is aimed at
+    operator truth: the disk-full, failure-rate and account-health rules
+    exist to warn that the machinery is degrading, and precisely when the
+    database -- the substrate those alerts watch -- is failing, the alerting
+    layer reported nothing rather than UNKNOWN.
+
+    ``False`` from ``_condition_was_held`` remains a MEASURED answer (no such
+    event, or one that is too young). Only an unavailable store raises.
+    """
+
+
 def _condition_was_held(rule_id: str, *, duration_minutes: int) -> bool:
     """Check if the rule has been continuously tripping for at least
     `duration_minutes`. We approximate this by looking at our most
@@ -219,8 +240,10 @@ def _condition_was_held(rule_id: str, *, duration_minutes: int) -> bool:
             return False
         # Has it held long enough?
         return (time.time() - ts) >= (duration_minutes * 60)
-    except Exception:
-        return False
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unreadable for {rule_id}: "
+            f"{type(e).__name__}: {e}") from e
 
 
 def _last_fire_age(rule_id: str) -> Optional[float]:
@@ -236,8 +259,10 @@ def _last_fire_age(rule_id: str) -> Optional[float]:
         if not r:
             return None
         return time.time() - float(r[0])
-    except Exception:
-        return None
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unreadable for {rule_id}: "
+            f"{type(e).__name__}: {e}") from e
 
 
 def _record_event(rule_id: str, kind: str, value: Optional[float],
@@ -250,8 +275,10 @@ def _record_event(rule_id: str, kind: str, value: Optional[float],
                 rule_id, ts, metric_value, kind, message
             ) VALUES (?,?,?,?,?)""",
                 (rule_id, time.time(), value, kind, message[:300]))
-    except Exception:
-        pass
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unwritable for {rule_id} ({kind}): "
+            f"{type(e).__name__}: {e}") from e
 
 
 def evaluate(s_cfg: Optional[dict] = None,
@@ -260,11 +287,23 @@ def evaluate(s_cfg: Optional[dict] = None,
     track state, fire if condition has held and cooldown elapsed.
 
     Returns:
-      {evaluated: N, tripping: N, fired: N, results: [...]}
+      {evaluated: N, tripping: N, fired: N, unknown: N, results: [...]}
+
+    ROW 421. ``unknown`` counts rules whose event store could not be read or
+    written. Such a rule reports a DISTINCT per-rule error state carried in
+    its result and written to stderr -- never a silent ``fired: False``,
+    which is what an unavailable alert_events table used to produce.
+
+    It deliberately does NOT fire on an unavailable store: a fire that cannot
+    be recorded cannot be cooldown-gated either, so it would re-fire every 60
+    seconds for as long as the outage lasted. UNKNOWN is the honest answer,
+    and it is now visible to the operator through /api/alerts/evaluate and,
+    past the scheduler wrapper, through /api/bg/status.
     """
     if rules is None:
         rules = DEFAULT_RULES
-    out = {"evaluated": 0, "tripping": 0, "fired": 0, "results": []}
+    out = {"evaluated": 0, "tripping": 0, "fired": 0, "unknown": 0,
+           "results": []}
     for rule in rules:
         out["evaluated"] += 1
         metric = rule.get("metric", "")
@@ -285,29 +324,41 @@ def evaluate(s_cfg: Optional[dict] = None,
         result["tripping"] = tripping
         if tripping:
             out["tripping"] += 1
-            # Was a previous trip recorded? If not, record one now.
-            if not _condition_was_held(rule["id"],
-                                       duration_minutes=0):
-                _record_event(rule["id"], "tripped", value,
-                             f"{metric}={value} {rule['op']} {rule['threshold']}")
-            # Has it been tripping long enough?
-            if _condition_was_held(
-                    rule["id"],
-                    duration_minutes=int(rule.get("duration_minutes", 1))):
-                # Cooldown gate
-                last_fire = _last_fire_age(rule["id"])
-                cool = int(rule.get("cooldown_minutes", 60)) * 60
-                if last_fire is None or last_fire >= cool:
-                    _record_event(rule["id"], "fired", value,
-                                 rule.get("name", rule["id"]))
-                    result["fired"] = True
-                    out["fired"] += 1
-                    # Fire side effects
-                    _fire_actions(rule, value)
-        else:
-            # Condition has cleared — record so duration logic resets
-            if _condition_was_held(rule["id"], duration_minutes=0):
-                _record_event(rule["id"], "cleared", value, "")
+        try:
+            if tripping:
+                # Was a previous trip recorded? If not, record one now.
+                if not _condition_was_held(rule["id"],
+                                           duration_minutes=0):
+                    _record_event(rule["id"], "tripped", value,
+                                 f"{metric}={value} {rule['op']} {rule['threshold']}")
+                # Has it been tripping long enough?
+                if _condition_was_held(
+                        rule["id"],
+                        duration_minutes=int(rule.get("duration_minutes", 1))):
+                    # Cooldown gate
+                    last_fire = _last_fire_age(rule["id"])
+                    cool = int(rule.get("cooldown_minutes", 60)) * 60
+                    if last_fire is None or last_fire >= cool:
+                        _record_event(rule["id"], "fired", value,
+                                     rule.get("name", rule["id"]))
+                        result["fired"] = True
+                        out["fired"] += 1
+                        # Fire side effects
+                        _fire_actions(rule, value)
+            else:
+                # Condition has cleared — record so duration logic resets
+                if _condition_was_held(rule["id"], duration_minutes=0):
+                    _record_event(rule["id"], "cleared", value, "")
+        except AlertEventStoreUnavailable as e:
+            # Row 421: UNKNOWN, named, counted and logged -- not silence.
+            # Caught per RULE so one broken row cannot hide the others'
+            # measured answers.
+            result["store_unavailable"] = True
+            result["error"] = f"alert event store unavailable: {e}"
+            out["unknown"] += 1
+            sys.stderr.write(
+                f"[alerts] {rule['id']}: event store unavailable, so this "
+                f"rule's state is UNKNOWN rather than clear: {e}\n")
         out["results"].append(result)
     return out
 
