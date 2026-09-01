@@ -145,6 +145,22 @@ def test_parse_url_file_missing_returns_error():
 
 # ── scan_once ─────────────────────────────────────────────────────────
 
+def _quiesce(*paths):
+    """Backdate mtimes so the row-450 quiescence guard considers these files
+    finished.
+
+    scan_once now defers any .txt younger than DEFAULT_MIN_QUIESCENT_AGE_S,
+    because a file that was written microseconds ago may still be growing --
+    that was the row-450 defect.  These tests are about scan_once's FILTERING
+    and ORDERING, not about quiescence, so they state the precondition
+    explicitly rather than being exempted from the guard.
+    """
+    import os
+    for path in paths:
+        st = os.stat(path)
+        os.utime(path, (st.st_atime, st.st_mtime - 3600))
+
+
 def test_scan_once_lists_only_txt():
     """Only .txt files at the top level. No .processed, .failed, or
     other extensions."""
@@ -156,6 +172,8 @@ def test_scan_once_lists_only_txt():
         Path(td, ".hidden.txt").write_text("h")  # dotted hidden file
         Path(td, ".processed").mkdir()
         Path(td, ".processed/old.txt").write_text("old")
+        _quiesce(Path(td, "a.txt"), Path(td, "b.txt"), Path(td, "c.md"),
+                 Path(td, ".hidden.txt"))
         result = scan_once(td)
         names = {p.name for p in result}
         assert names == {"a.txt", "b.txt"}
@@ -170,6 +188,10 @@ def test_scan_once_sorts_by_mtime():
         Path(td, "second.txt").write_text("2")
         time.sleep(0.05)
         Path(td, "third.txt").write_text("3")
+        # Backdate by a CONSTANT so the relative mtime order the test asserts
+        # is preserved exactly; only the absolute age changes.
+        _quiesce(Path(td, "first.txt"), Path(td, "second.txt"),
+                 Path(td, "third.txt"))
         result = scan_once(td)
         assert [p.name for p in result] == ["first.txt", "second.txt", "third.txt"]
 
