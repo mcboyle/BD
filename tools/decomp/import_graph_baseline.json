@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4238,
+  "edge_count": 4242,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3775,6 +3775,14 @@
       "bulk_downloader/db.py",
       "bulk_downloader/download_hold.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_row435_a_hold_write_does_not_erase_an_unreadable_store.py": [
+      "bulk_downloader/app_download_hold.py",
+      "bulk_downloader/download_hold.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_row436_a_password_is_served_only_with_its_throttle_record.py": [
+      "bulk_downloader/extension_vault.py"
     ],
     "tests/test_row437_a_locked_vault_is_not_a_missing_password.py": [
       "bulk_downloader/app_secrets.py",
