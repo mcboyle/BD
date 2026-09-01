@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4199,
+  "edge_count": 4205,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3760,9 +3760,23 @@
       "bulk_downloader/app_secrets.py",
       "bulk_downloader/secrets_store.py"
     ],
+    "tests/test_row484_ancestor_class_token_is_not_selector_authority.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_row486_a_taught_row_is_promoted_not_deleted.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_row492_a_release_proves_what_it_frees.py": [
       "bulk_downloader/cleanup_helpers.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row499_a_card_header_is_not_site_chrome.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_row508_a_candidate_is_refused_on_visible_evidence.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_row535_a_reclaim_proves_the_bytes_it_adopts.py": [
       "bulk_downloader/staging_claim.py"
