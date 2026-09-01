@@ -367,3 +367,45 @@ def test_fatal_required_path_measurement_is_unknown_not_missing(
     assert result.returncode == 2
     assert body["verdict"] == "UNKNOWN"
     assert body["reason_code"] == "REQUIRED_PATH_UNREADABLE"
+
+
+def test_every_integration_git_step_uses_the_stable_c_locale(
+    verdict_repo: VerdictRepo,
+    tmp_path: Path,
+) -> None:
+    """578. A caller locale must not change Git evidence or diagnostics."""
+
+    bin_dir = tmp_path / "row578-verdict-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "row578-verdict-calls.jsonl"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "marker = pathlib.Path(os.environ['BD_ROW578_VERDICT_MARKER'])\n"
+        "with marker.open('a', encoding='utf-8') as handle:\n"
+        "    handle.write(json.dumps({'lc_all': os.environ.get('LC_ALL')}) + '\\n')\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "real_env = dict(os.environ)\n"
+        "real_env['LC_ALL'] = 'C'\n"
+        "os.execve(real, [real, *args], real_env)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_ROW578_VERDICT_MARKER=str(marker),
+        LC_ALL="row578-host-locale",
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+
+    result, body = verdict_repo.run_verdict(env=env)
+
+    calls = [json.loads(line) for line in marker.read_text().splitlines()]
+    assert len(calls) == 7, (
+        "precondition: candidate/main resolution, both version reads, required "
+        "path, register, and ancestry must each invoke Git exactly once")
+    assert calls == [{"lc_all": "C"}] * 7
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert body["verdict"] == "INTEGRATED"

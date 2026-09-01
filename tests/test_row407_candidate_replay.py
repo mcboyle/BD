@@ -156,6 +156,7 @@ class RepoCase:
         *,
         expect_head: str | None = None,
         env: dict[str, str] | None = None,
+        as_json: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         command = [
             sys.executable,
@@ -170,8 +171,9 @@ class RepoCase:
             "refs/remotes/origin/main",
             "--output",
             str(self.output),
-            "--json",
         ]
+        if as_json:
+            command.append("--json")
         return _run(command, cwd=ROOT, check=False, env=env)
 
 
@@ -334,7 +336,7 @@ def test_failed_worktree_creation_reaps_partial_output_and_preserves_source(
 
     assert result.returncode == 2
     body = json.loads(result.stdout)
-    assert body["reason_code"] == "OUTPUT_CREATE_FAILED"
+    assert body["reason_code"] == "GIT_WORKTREE_ADD_FAILED"
     assert not repo_case.output.exists()
     assert _source_snapshot(repo_case.source) == source_before
 
@@ -370,7 +372,7 @@ def test_partial_registration_without_output_is_identity_cleaned_or_claimed(
         result = repo_case.run_replay(env=env)
 
         assert result.returncode == 2
-        assert json.loads(result.stdout)["reason_code"] == "OUTPUT_CREATE_FAILED"
+        assert json.loads(result.stdout)["reason_code"] == "GIT_WORKTREE_ADD_FAILED"
         assert not repo_case.output.exists()
         common = Path(
             _git(repo_case.repo, "rev-parse", "--git-common-dir").stdout.strip()
@@ -1197,3 +1199,366 @@ def test_the_foreign_refusal_releases_its_claim(
     assert not repo_case.manifest.exists(), (
         "the refusal kept its claim, so every later replay to this path refuses "
         "OUTPUT_CLAIMED and cannot be told apart from a live transaction")
+
+
+# ── Rows 546, 556, 578 and 579: refusals name the failed step ──────────────
+
+@pytest.mark.parametrize("as_json", (True, False), ids=("json", "text"))
+def test_failed_replay_reports_source_mutation_found_during_rollback(
+    repo_case: RepoCase,
+    tmp_path: Path,
+    as_json: bool,
+) -> None:
+    """546. Rollback evidence must survive both CLI output formats."""
+
+    bin_dir = tmp_path / "row546-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "row546-calls.jsonl"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "if 'cherry-pick' in args:\n"
+        "    marker = pathlib.Path(os.environ['BD_ROW546_MARKER'])\n"
+        "    with marker.open('a', encoding='utf-8') as handle:\n"
+        "        handle.write(json.dumps({'step': 'cherry-pick'}) + '\\n')\n"
+        "    pathlib.Path(os.environ['BD_ROW546_SOURCE_FILE']).write_text(\n"
+        "        'mutated during replay\\n', encoding='utf-8')\n"
+        "    os.write(2, b'fatal: row546 injected cherry-pick failure\\n')\n"
+        "    raise SystemExit(73)\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "os.execv(real, [real, *args])\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_ROW546_MARKER=str(marker),
+        BD_ROW546_SOURCE_FILE=str(repo_case.source / "candidate.txt"),
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    assert (repo_case.source / "candidate.txt").read_text() == "candidate\n"
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+
+    result = repo_case.run_replay(env=env, as_json=as_json)
+
+    calls = [json.loads(line) for line in marker.read_text().splitlines()]
+    assert calls == [{"step": "cherry-pick"}], (
+        "precondition: the injected failing step must fire exactly once")
+    assert (repo_case.source / "candidate.txt").read_text() == (
+        "mutated during replay\n"
+    ), "precondition: the source really changed during the replay"
+    assert result.returncode == 3, (result.stdout, result.stderr)
+    if as_json:
+        body = json.loads(result.stdout)
+        assert body["reason_code"] == "CHERRY_PICK_CONFLICT"
+        assert body["message"] == "fatal: row546 injected cherry-pick failure"
+        assert body.get("rollback_notes") == [
+            "source changed while failed replay was rolled back"
+        ]
+    else:
+        assert result.stdout.splitlines() == [
+            "CONFLICT CHERRY_PICK_CONFLICT: "
+            "fatal: row546 injected cherry-pick failure",
+            "ROLLBACK_NOTE: source changed while failed replay was rolled back",
+        ]
+
+
+def test_git_worktree_add_checkout_failure_is_not_a_foreign_occupant(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """556. Git's checkout failure is its own step, not an ownership verdict."""
+
+    bin_dir = tmp_path / "row556-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "row556-calls.jsonl"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "if 'worktree' in args and 'add' in args:\n"
+        "    result = subprocess.run([real, *args], capture_output=True, check=False)\n"
+        "    output = pathlib.Path(os.environ['BD_ROW556_OUTPUT'])\n"
+        "    receipt = {\n"
+        "        'step': 'worktree-add',\n"
+        "        'real_returncode': result.returncode,\n"
+        "        'output_was_dir': output.is_dir(),\n"
+        "        'gitfile_was_file': (output / '.git').is_file(),\n"
+        "    }\n"
+        "    marker = pathlib.Path(os.environ['BD_ROW556_MARKER'])\n"
+        "    with marker.open('a', encoding='utf-8') as handle:\n"
+        "        handle.write(json.dumps(receipt, sort_keys=True) + '\\n')\n"
+        "    if result.returncode == 0:\n"
+        "        os.write(2, b\"fatal: cannot create directory at 'checkout': No space left on device\\n\")\n"
+        "        raise SystemExit(73)\n"
+        "    os.write(2, result.stderr)\n"
+        "    raise SystemExit(result.returncode)\n"
+        "os.execv(real, [real, *args])\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_ROW556_MARKER=str(marker),
+        BD_ROW556_OUTPUT=str(repo_case.output),
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    source_before = _source_snapshot(repo_case.source)
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+
+    try:
+        result = repo_case.run_replay(env=env)
+
+        receipts = [json.loads(line) for line in marker.read_text().splitlines()]
+        assert receipts == [{
+            "gitfile_was_file": True,
+            "output_was_dir": True,
+            "real_returncode": 0,
+            "step": "worktree-add",
+        }], "precondition: the simulated Git checkout step must fire exactly once"
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        body = json.loads(result.stdout)
+        assert body["reason_code"] == "GIT_WORKTREE_ADD_FAILED", body
+        assert body["message"] == (
+            "fatal: cannot create directory at 'checkout': No space left on device"
+        )
+        assert not repo_case.output.exists(), (
+            "the transaction's identity-owned partial worktree was retained")
+        assert not repo_case.manifest.exists(), "the failed transaction kept its claim"
+        assert _source_snapshot(repo_case.source) == source_before
+    finally:
+        _git(
+            repo_case.repo,
+            "worktree",
+            "remove",
+            "--force",
+            str(repo_case.output),
+            check=False,
+        )
+        repo_case.manifest.unlink(missing_ok=True)
+
+
+def test_foreign_occupant_discriminator_runs_git_in_c_locale(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """578. Git's own stable C-locale refusal protects the foreign tree."""
+
+    bin_dir = tmp_path / "row578-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "row578-calls.jsonl"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "real_env = dict(os.environ)\n"
+        "real_env['LC_ALL'] = 'C'\n"
+        "if 'worktree' in args and 'add' in args:\n"
+        "    incoming_locale = os.environ.get('LC_ALL')\n"
+        "    result = subprocess.run(\n"
+        "        [real, *args], capture_output=True, check=False, env=real_env)\n"
+        "    output = pathlib.Path(os.environ['BD_ROW578_OUTPUT'])\n"
+        "    foreign = output / 'foreign-untracked.txt'\n"
+        "    if result.returncode == 0:\n"
+        "        foreign.write_text('foreign worker bytes\\n', encoding='utf-8')\n"
+        "    receipt = {\n"
+        "        'step': 'worktree-add',\n"
+        "        'lc_all': incoming_locale,\n"
+        "        'real_returncode': result.returncode,\n"
+        "        'foreign_file_was_written': foreign.is_file(),\n"
+        "    }\n"
+        "    marker = pathlib.Path(os.environ['BD_ROW578_MARKER'])\n"
+        "    with marker.open('a', encoding='utf-8') as handle:\n"
+        "        handle.write(json.dumps(receipt, sort_keys=True) + '\\n')\n"
+        "    if incoming_locale == 'C':\n"
+        "        os.write(2, b'fatal: output is already registered\\n')\n"
+        "    else:\n"
+        "        os.write(2, 'fatal : sortie d\\u00e9j\\u00e0 enregistr\\u00e9e\\n'.encode())\n"
+        "    raise SystemExit(73)\n"
+        "os.execve(real, [real, *args], real_env)\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_ROW578_MARKER=str(marker),
+        BD_ROW578_OUTPUT=str(repo_case.output),
+        LC_ALL="row578-host-locale",
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+
+    try:
+        result = repo_case.run_replay(env=env)
+
+        receipts = [json.loads(line) for line in marker.read_text().splitlines()]
+        assert len(receipts) == 1, (
+            "precondition: the foreign worktree injection must fire exactly once")
+        assert receipts[0]["step"] == "worktree-add"
+        assert receipts[0]["real_returncode"] == 0
+        assert receipts[0]["foreign_file_was_written"] is True, (
+            "precondition: a real foreign worktree and file must exist before refusal")
+        assert receipts[0]["lc_all"] == "C"
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        body = json.loads(result.stdout)
+        assert body["reason_code"] == "OUTPUT_FOREIGN_AT_PATH", body
+        assert (repo_case.output / "foreign-untracked.txt").read_text() == (
+            "foreign worker bytes\n"
+        )
+        assert not repo_case.manifest.exists()
+    finally:
+        _git(
+            repo_case.repo,
+            "worktree",
+            "remove",
+            "--force",
+            str(repo_case.output),
+            check=False,
+        )
+        repo_case.manifest.unlink(missing_ok=True)
+
+
+def test_uppercase_full_object_name_certifies_the_same_source_head(
+    repo_case: RepoCase,
+) -> None:
+    """579. Object names are hexadecimal values, not lowercase-only strings."""
+
+    uppercase_head = repo_case.source_head.upper()
+    assert len(uppercase_head) == 40
+    assert uppercase_head != repo_case.source_head
+    assert uppercase_head.lower() == repo_case.source_head
+    assert _git(repo_case.source, "rev-parse", "HEAD").stdout.strip() == (
+        repo_case.source_head
+    ), "precondition: the fixture's source HEAD is the object being certified"
+
+    result = repo_case.run_replay(expect_head=uppercase_head)
+
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    body = json.loads(result.stdout)
+    assert body["status"] == "REPLAYED"
+    assert body["source_head"] == repo_case.source_head
+
+
+def test_clean_conflict_does_not_invent_a_source_mutation_note(
+    tmp_path: Path,
+) -> None:
+    """546 NEGATIVE: carrying notes must not label every rollback a mutation."""
+
+    case = RepoCase(
+        tmp_path,
+        main_shared="main side\n",
+        candidate_shared="candidate side\n",
+    )
+    source_before = _source_snapshot(case.source)
+    assert (case.repo / "shared.txt").read_text() == "main side\n"
+    assert (case.source / "shared.txt").read_text() == "candidate side\n"
+    assert not case.output.exists()
+    assert not case.manifest.exists()
+
+    result = case.run_replay()
+
+    assert result.returncode == 3, (result.stdout, result.stderr)
+    body = json.loads(result.stdout)
+    assert body["reason_code"] == "CHERRY_PICK_CONFLICT"
+    assert body["rollback_notes"] == []
+    assert _source_snapshot(case.source) == source_before
+    assert not case.output.exists()
+    assert not case.manifest.exists()
+
+
+def test_c_locale_unrelated_git_failure_is_not_treated_as_foreign(
+    repo_case: RepoCase,
+    tmp_path: Path,
+) -> None:
+    """556/578 NEGATIVE: the discriminator must not accept every Git error."""
+
+    bin_dir = tmp_path / "row556-negative-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "row556-negative-calls.jsonl"
+    wrapper = bin_dir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "real = os.environ['BD_REAL_GIT']\n"
+        "if 'worktree' in args and 'add' in args:\n"
+        "    result = subprocess.run([real, *args], capture_output=True, check=False)\n"
+        "    marker = pathlib.Path(os.environ['BD_NEGATIVE_MARKER'])\n"
+        "    with marker.open('a', encoding='utf-8') as handle:\n"
+        "        handle.write(json.dumps({\n"
+        "            'step': 'worktree-add',\n"
+        "            'lc_all': os.environ.get('LC_ALL'),\n"
+        "            'real_returncode': result.returncode,\n"
+        "        }, sort_keys=True) + '\\n')\n"
+        "    if result.returncode == 0:\n"
+        "        os.write(2, b'fatal: injected checkout I/O failure\\n')\n"
+        "        raise SystemExit(74)\n"
+        "    os.write(2, result.stderr)\n"
+        "    raise SystemExit(result.returncode)\n"
+        "os.execv(real, [real, *args])\n"
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        BD_REAL_GIT=REAL_GIT,
+        BD_NEGATIVE_MARKER=str(marker),
+        LC_ALL="row556-negative-host-locale",
+        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
+    )
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+
+    try:
+        result = repo_case.run_replay(env=env)
+
+        calls = [json.loads(line) for line in marker.read_text().splitlines()]
+        assert calls == [{
+            "lc_all": "C",
+            "real_returncode": 0,
+            "step": "worktree-add",
+        }], "precondition: the unrelated failing Git step must fire exactly once"
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        body = json.loads(result.stdout)
+        assert body["reason_code"] == "GIT_WORKTREE_ADD_FAILED", body
+        assert body["message"] == "fatal: injected checkout I/O failure"
+        assert not repo_case.output.exists()
+        assert not repo_case.manifest.exists()
+    finally:
+        _git(
+            repo_case.repo,
+            "worktree",
+            "remove",
+            "--force",
+            str(repo_case.output),
+            check=False,
+        )
+        repo_case.manifest.unlink(missing_ok=True)
+
+
+def test_uppercase_wrong_object_name_is_still_a_head_mismatch(
+    repo_case: RepoCase,
+) -> None:
+    """579 NEGATIVE: casefolding the literal must not remove the comparison."""
+
+    wrong = "F" * 40
+    assert len(wrong) == 40
+    assert wrong.lower() != repo_case.source_head
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()
+
+    result = repo_case.run_replay(expect_head=wrong)
+
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    body = json.loads(result.stdout)
+    assert body["reason_code"] == "SOURCE_HEAD_MISMATCH"
+    assert not repo_case.output.exists()
+    assert not repo_case.manifest.exists()

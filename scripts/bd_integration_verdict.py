@@ -37,6 +37,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_TERMINAL_PROMPT="0",
+        LC_ALL="C",
     )
     return subprocess.run(
         ["git", "-C", str(repo), *args],
