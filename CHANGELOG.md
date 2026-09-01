@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1401 - a claim settles under a lock before it destroys anything
+
+A REGRESSION IN v3.66.1395, SHIPPED AND DEPLOYED EARLIER THE SAME NIGHT, found
+by an adversarial review of that night's own work (finding F3).
+
+- v3.66.1395 turned the same-identity reclaim branch from a read-only
+  `return staging` into `_set_aside_unowned_bytes(staging); _prove_owner(...)`,
+  which RENAMES whatever is at the staging path -- and took that decision from a
+  record read earlier in the same call, with nothing re-validating it before the
+  rename. `job_identity()` is sha256(page_url) and stable across processes, so
+  two workers on one page_url share an identity. Trace: A publishes unproven, B
+  reads it, A proves and streams 5,000,000 bytes, B wakes with its stale
+  `proven=False` and renames A's live `.part` to `.orphaned-*`. A then keeps
+  writing to an inode no longer at that path.
+- THE MIRROR ON THE MINT ARM was not in the review and is the reason this cut is
+  not a one-line re-read: A publishes unproven and is descheduled, B heals and
+  proves and streams, A wakes and runs its own unconditional set-aside over B's
+  live bytes. A guard in the reclaim branch alone leaves that half open.
+- Both arms now converge on one `_settle_claim` that takes an exclusive `flock`,
+  re-reads the record UNDER it, and acts on that read. A kernel lock is the right
+  primitive because it is RELEASED ON PROCESS DEATH, and the question the branch
+  asks is exactly "is a live writer inside the publish-to-prove window, or did a
+  crash abandon it". An `O_CREAT|O_EXCL` token answers "live" forever and would
+  make crash residue -- the only state the heal exists for -- permanently
+  unhealable. The lock is taken on the claim file itself and verified by
+  fstat-vs-stat after acquisition, because `_prove_owner` REPLACES the inode and
+  a lock over a detached inode guards nothing.
+- Fail direction is asymmetric on purpose: fail-CLOSED on the destructive branch
+  only. Without `fcntl` a heal refuses while a mint proceeds, because no
+  stale-read PAIR can form there -- the heal is the other half of every pair.
+- Mutation result worth recording: four mutants, all caught, but "no inode
+  verification" ESCAPED 23 OUTCOME-SHAPED TESTS and was caught only by a test
+  asserting the DESCRIPTOR rather than the outcome. A battery of outcome
+  assertions cannot see whether a lock is on the right inode.
+
 ## v3.66.1400 - a gate floor is a partition, not a pinned number
 
 Rows 566, 569, 570 and 571 of the 2026-09-01 audit. All four reproduced at
