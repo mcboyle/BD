@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1421 - a skip proves it is the same work
+
+Rows 429, 503 and 519. The skip arm decided a file was already downloaded from
+a record it had not checked against the file on disk.
+
+- 429. A history row marked `done` whose file no longer exists deduplicated
+  EVERY future download of that url. The absent file was read as proof of prior
+  success, so the work could never be redone.
+- 503. The skip arm never checked the size it had recorded, and then overwrote
+  it -- so a truncated or replaced file was accepted as identical and its
+  recorded size was updated to match the wrong bytes, destroying the evidence
+  that would have exposed it. Size evidence is now independent of the observed
+  file, and an invalid or missing measurement fails closed.
+- 519. A file that vanished between the skip proof and the write was reported as
+  an unclassified worker error. The race handler now performs no skip logging or
+  cancellation before a successful re-stat, and the original recorded size and
+  mtime survive it.
+
+Negative controls retain valid skips, so a genuine duplicate is still skipped.
+
 ## v3.66.1420 - a write over an unreadable store refuses instead of erasing it
 
 Rows 435 and 436. Two writers reported a durable record they had not persisted.
