@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1406 - no scanner silently drops members of the population it claims to cover
+
+Rows 565, 567, 568 and 572 of the 2026-09-01 audit, over the gate that judges
+whether a mutant anchor resolves into code.
+
+- 567 and its declared duplicate 568. The comment-anchor gate skipped every
+  EXTENSIONLESS script, and the ratchet skipped a large fraction of the tracked
+  Python population -- a gate whose denominator quietly excluded the files it
+  claimed to cover, which is A7's shape stated exactly.
+- 572. `comment_spans` built its offset table with `str.splitlines`, which splits
+  on more boundaries than the file's own line structure, so spans could be
+  computed against a different line numbering than the one being judged.
+- 565. Re-derived against the CURRENT register rather than the one it was filed
+  against, and resolved by a single guarded `bd-register-amend` on row 518 that
+  restores the claim wording. NO ROW'S STATUS WAS CHANGED -- amend refuses status
+  changes by design and that refusal is the anti-laundering property.
+- The gate now parses rather than greps, so its own comments and examples stay
+  outside the denominator it judges, and it asserts that denominator is nonzero:
+  an empty population must refuse rather than pass quietly.
+
 ## v3.66.1405 - the register records the second half
 
 Register-only, the companion to v3.66.1402. Nine more rows shipped tonight were
