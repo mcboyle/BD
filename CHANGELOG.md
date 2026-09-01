@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1412 - the run-context pruner survives a concurrent run
+
+A harness that manufactured failures. `tests/_run_context.py` prunes
+`/tmp/bd-runctx/`, which EVERY pytest process on a host shares, from its own
+`pytest_unconfigure`. A run directory listed by the scan could be removed by a
+concurrent run before `_newest_touch` stat'd it; the resulting FileNotFoundError
+escaped `prune()` and crashed unconfigure, so pytest exited NONZERO after every
+one of its tests had passed. Measured 2026-09-01: it reported a candidate NOT
+SHIPPABLE for a defect that candidate did not contain, while the same test
+passed serially.
+
+- A vanished run directory now ranks as the oldest possible run instead of
+  raising -- there is nothing left under that identity to keep or to remove.
+- The removal loop tolerates a directory that vanished after being ranked, on
+  the same terms.
+- Both sites narrow a bare `except OSError` to the proven disappearance pair,
+  so a PermissionError now SURFACES where it was previously swallowed. That is
+  a stronger gate, not a more tolerant one, and it is pinned by two negative
+  controls that were themselves RED before the change.
+- Also removes a SyntaxWarning emitted on every run of the run-context suite.
+
 ## v3.66.1410 - the vault reports the state it measured
 
 Rows 437, 438, 475, 488, 514, 520 and 553 -- seven rows, one contract: the vault
