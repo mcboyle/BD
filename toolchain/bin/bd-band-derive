@@ -21,6 +21,10 @@ Signals (unioned, per changed file):
      the 712 STASH RED and forced a by-hand `grep -rl <module> tests/` on every cut
      since. Now mechanized. (Witness: ffmpeg_bin.py is consumed by
      test_v3_66_720_oidc_and_ffmpeg.py, which signal 1 cannot see.)
+  4c. IMPORT-CONTRACT -- a changed writer importing a declared shared provider
+     selects that provider's module-scoped contract gate. Both the writer edge
+     and gate edge must exist in the generated import graph; unresolved graph
+     state is reported UNKNOWN and exits nonzero.
 
 Only suites that EXIST on disk are ever emitted (never invent a band).
 
@@ -38,6 +42,7 @@ bd-blast and (b) distinct files -> distinct bands.
   bd-band-derive --json / --selftest
 """
 import argparse
+import ast
 import fnmatch
 import glob
 import hashlib
@@ -521,6 +526,118 @@ def tests_for_file(work, rel, rows, zsha_src=None):
     return sorted(h for h in hits if os.path.isfile(os.path.join(work, h)))
 
 
+def _declares_module_gate(path):
+    """Return whether ``path`` structurally declares module gate scope.
+
+    Text search is deliberately only a cheap prefilter. The verdict comes from
+    a top-level AST assignment, so a comment naming ``BD_GATE_SCOPE`` cannot
+    manufacture a contract gate any more than a comment naming a module should
+    manufacture an import edge.
+    """
+    try:
+        body = open(path, encoding="utf-8", errors="replace").read()
+    except OSError as exc:
+        return None, "%s cannot be read (%s: %s)" % (
+            path, type(exc).__name__, exc)
+    if "BD_GATE_SCOPE" not in body:
+        return False, ""
+    try:
+        tree = ast.parse(body, filename=path)
+    except SyntaxError as exc:
+        return None, "%s cannot be parsed (%s)" % (path, exc)
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        if (any(isinstance(t, ast.Name) and t.id == "BD_GATE_SCOPE"
+                for t in targets)
+                and isinstance(value, ast.Constant)
+                and value.value == "module"):
+            return True, ""
+    return False, ""
+
+
+# A shared provider can have many module-scoped consumers, but only its
+# contract gate is owed by EVERY module that writes against the provider. That
+# semantic fact cannot be inferred from "imports provider" alone (doing so
+# turns ubiquitous db.py into a near-constant band), so the provider-to-gate
+# statement is declared once and every declared edge is verified below against
+# the generated graph and the gate's structural scope declaration.
+IMPORT_CONTRACT_GATES = {
+    "bulk_downloader/staging_claim.py": (
+        "tests/test_part_staging_collision.py",
+    ),
+}
+
+
+def import_contract_gates(work, changed):
+    """Return ``(gates, named_signals, unknowns)`` for provider edges.
+
+    If a changed consumer imports a declared shared provider, that provider's
+    contract gate belongs in the consumer's band. The generated graph proves
+    BOTH edges (consumer -> provider and gate -> provider); an absent or
+    malformed graph is UNKNOWN and is reported by ``report`` rather than
+    silently narrowing the band.
+    """
+    graph_path = os.path.join(
+        work, "tools", "decomp", "import_graph_baseline.json")
+    try:
+        payload = json.load(open(graph_path, encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return set(), [], [
+            "import graph %s cannot be read (%s: %s)" % (
+                graph_path, type(exc).__name__, exc)]
+    edges = payload.get("edges") if isinstance(payload, dict) else None
+    if not isinstance(edges, dict):
+        return set(), [], [
+            "import graph %s has no object-valued edges map" % graph_path]
+
+    gates = set()
+    signals = []
+    unknowns = []
+    for consumer in sorted(set(changed)):
+        providers = edges.get(consumer, [])
+        if not (isinstance(providers, list)
+                and all(isinstance(p, str) for p in providers)):
+            unknowns.append(
+                "import graph edge list for %s is malformed" % consumer)
+            continue
+        for provider in sorted(set(providers)):
+            for gate in IMPORT_CONTRACT_GATES.get(provider, ()):
+                gate_providers = edges.get(gate)
+                if not (isinstance(gate_providers, list)
+                        and all(isinstance(p, str) for p in gate_providers)):
+                    unknowns.append(
+                        "import graph edge list for contract gate %s is "
+                        "missing or malformed" % gate)
+                    continue
+                if provider not in gate_providers:
+                    unknowns.append(
+                        "contract gate %s has no generated edge to %s"
+                        % (gate, provider))
+                    continue
+                gate_path = os.path.join(work, gate)
+                is_gate, error = _declares_module_gate(gate_path)
+                if is_gate is None:
+                    unknowns.append(error)
+                    continue
+                if not is_gate:
+                    unknowns.append(
+                        "%s does not structurally declare "
+                        "BD_GATE_SCOPE='module'" % gate)
+                    continue
+                gates.add(gate)
+                signals.append(
+                    "IMPORT-CONTRACT: %s -> %s -> %s"
+                    % (consumer, provider, gate))
+    return gates, sorted(set(signals)), sorted(set(unknowns))
+
+
 def deleted_config_literals(work, zsha_src=None):
     """v3.66.718: when a cut DELETES a config KEY from global_config.py, the consumers
     are the tests that NAME that literal -- which are invisible to a file-name band. A
@@ -554,6 +671,12 @@ def derive(work, changed, rows, zsha_src=None):
     band = set()
     for c in changed:
         band.update(tests_for_file(work, c, rows, zsha_src))
+    # SIGNAL 4c: a consumer of a shared provider owes that provider's
+    # module-scoped contract gates. Set union keeps a gate selected by a legacy
+    # text signal at exactly one emitted path while the named graph signal says
+    # why it is present.
+    contract_gates, _signals, _unknowns = import_contract_gates(work, changed)
+    band |= contract_gates
     # v3.66.718: deleted-config-key literals -> the tests that NAME them.
     band |= deleted_config_literals(work, zsha_src)
     # v3.66.789: an FE mutating call-site delta -> the FE-derived gates whose
@@ -788,17 +911,25 @@ def emit_band(band):
 
 def report(work, changed, rows, label, deps=None, as_json=False, emit_only=False, zsha_src=None):
     band = derive(work, changed, rows, zsha_src)
+    _contract_gates, selecting_signals, import_contract_unknown = (
+        import_contract_gates(work, changed))
     flags = regen_flags(changed, fe_mut=fe_gate_hits(work, changed, zsha_src),
                         work=work)
+    for unknown in import_contract_unknown:
+        print("bd-band-derive: IMPORT-CONTRACT UNKNOWN: %s" % unknown,
+              file=sys.stderr)
+    status = 2 if import_contract_unknown else 0
     if emit_only:
         print(emit_band(band))
-        return 0
+        return status
     if as_json:
         print(json.dumps({"mode": label, "changed": changed, "band": band,
                           "band_cmd": emit_band(band),
+                          "selecting_signals": selecting_signals,
+                          "import_contract_unknown": import_contract_unknown,
                           "regen_flags": [f[0] for f in flags],
                           "dependents": deps or []}, indent=1))
-        return 0
+        return status
     print("== bd-band-derive :: %s" % label)
     # WHAT COUNTS AS SOURCE HERE IS THE SUBJECT OF CLAUDE.md SECTION 0'S OPENING
     # EXAMPLE, and this line has now been wrong twice. It first counted only
@@ -827,12 +958,16 @@ def report(work, changed, rows, label, deps=None, as_json=False, emit_only=False
     print("  %s" % emit_band(band)[:160])
     if deps:
         print("  dependents: %s" % ", ".join(deps))
+    if selecting_signals:
+        print("  selecting signals:")
+        for signal in selecting_signals:
+            print("    %s" % signal)
     if flags:
         print("  regen / gates:")
         for n, act in flags:
             print("    %-36s %s" % (n, act))
     print("  floor, not ceiling -- on-stash full suite + verify_release are binding.")
-    return 0
+    return status
 
 
 def runtime_artifact_filter(work, added):

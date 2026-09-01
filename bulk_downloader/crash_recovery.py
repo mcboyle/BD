@@ -8,22 +8,24 @@ The runner's resume logic handles the "operator manually restarts the
 download" case, but there's no UI surfacing of orphaned files. They
 just take up disk silently.
 
-This module scans each site's download_dir for `.part` files, joins
-against the history table to find which ones have no active job, and
-returns them with metadata for the Review-tab card.
+This module scans each site's download_dir for `.part` files and consults the
+same durable staging claim plus live runner population the transport writes.
+Only measured absence of both is returned to the Review-tab card.
 
 Two thresholds:
   • <24h old: probably still active, hide from the orphan view
   • ≥24h old: candidate for review (resume / delete / ignore)
 
 Resumption uses the existing runner path — just re-enqueueing the URL
-re-engages resume logic. Delete is a plain unlink with the sidecar.
+re-engages resume logic. Delete first wins an atomic staging reservation, then
+unlinks the part and sidecars and releases that exact reservation.
 Ignore just marks the file in the orphans table as "operator chose to
 keep" so future scans skip it.
 """
 from __future__ import annotations
 
 import os
+import stat as _stat
 import time
 from pathlib import Path
 from typing import Optional
@@ -34,6 +36,8 @@ from . import staging_claim as _staging_claim
 
 _ORPHAN_AGE_THRESHOLD_S = 24 * 3600  # 24h
 _TABLE_READY = False
+_DELETE_CLAIM_URL = "urn:bulk-downloader:crash-recovery:operator-delete"
+_DELETE_CLAIM_IDENTITY = _staging_claim.job_identity(_DELETE_CLAIM_URL)
 
 
 def _ensure_table():
@@ -138,13 +142,14 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
           progress_pct (0-100, computed)}]
 
     Excludes:
-      • Files where the URL is still in an active job map
+      • Files with a surviving staging claim
+      • Unclaimed files while any live job cannot be ruled out
       • Files younger than age_threshold_s
       • Files the operator has marked 'ignore'
 
     Sorted oldest-first (most likely to be truly stuck)."""
     ignored = _ignored_paths()
-    active_urls, active_identities, active_jobs_measured = (
+    active_urls, _active_identities, active_jobs_measured = (
         _active_job_state(runners))
     now = time.time()
     orphans = []
@@ -178,21 +183,30 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
                         continue
                     owner_path = _staging_claim.owner_path_for(part_path)
                     try:
-                        claim_exists = owner_path.exists()
+                        owner_stat = owner_path.lstat()
+                    except FileNotFoundError:
+                        claim_exists = False
                     except OSError:
                         # Claim presence itself is UNKNOWN.
                         continue
+                    else:
+                        claim_exists = True
                     if claim_exists:
+                        if not _stat.S_ISREG(owner_stat.st_mode):
+                            # A dangling symlink, directory, device, or other
+                            # non-record at the owner name is PRESENT but cannot
+                            # establish ownership. It is UNKNOWN, not absence.
+                            continue
                         try:
-                            holder = _staging_claim._read_owner_identity(
-                                owner_path)
+                            _staging_claim._read_owner_identity(owner_path)
                         except _staging_claim.StagingUnavailable:
                             # A claim that cannot be measured is not absence.
                             continue
-                        if holder in active_identities:
-                            # The durable claim joins this exact .part to an
-                            # exact live page-URL job.
-                            continue
+                        # A readable claim is still a claim even when its
+                        # holder is absent from this process's runner snapshot.
+                        # Only measured absence of BOTH a job and a claim is an
+                        # abandoned part that may be offered for deletion.
+                        continue
                     elif active_urls:
                         # A pre-claim partial cannot be joined to one of the
                         # live jobs. Its state is UNKNOWN, not abandoned.
@@ -244,28 +258,112 @@ def mark_decision(path: str, decision: str, *,
         return False
 
 
+def _acquire_delete_claim(part_path: Path) -> tuple[bool, str]:
+    """Atomically reserve ``part_path`` against a worker claim.
+
+    The claim publisher is the same ``O_EXCL``-equivalent operation used by
+    downloads. Therefore exactly one side wins: a worker claim makes deletion
+    refuse, while an operator claim makes a later worker choose another path.
+    The stable operator identity also makes an interrupted delete retryable.
+    """
+    owner_path = _staging_claim.owner_path_for(part_path)
+    try:
+        minted = _staging_claim._create_owner(
+            owner_path, _DELETE_CLAIM_IDENTITY)
+        if minted:
+            return True, ""
+        holder = _staging_claim._read_owner_identity(owner_path)
+    except _staging_claim.StagingUnavailable as exc:
+        return False, (
+            "staging claim is UNKNOWN; refusing delete: "
+            f"{str(exc)[:160]}")
+    if holder != _DELETE_CLAIM_IDENTITY:
+        return False, "staging claim belongs to a download; refusing delete"
+    return True, ""
+
+
+def _finish_interrupted_delete(part_path: Path) -> Optional[dict]:
+    """Finish a prior operator delete whose part is already absent.
+
+    ``None`` means there is no operator claim, so ordinary idempotent-absence
+    handling applies. A surviving operator identity is durable evidence that a
+    previous call removed the part but did not finish its sidecar/claim cleanup.
+    Foreign claims are observed but untouched.
+    """
+    owner_path = _staging_claim.owner_path_for(part_path)
+    try:
+        owner_stat = owner_path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return {"ok": False, "error": (
+            "staging claim is UNKNOWN for absent part: "
+            f"{str(exc)[:160]}")}
+    if not _stat.S_ISREG(owner_stat.st_mode):
+        return {"ok": False, "error": (
+            "staging claim is UNKNOWN for absent part: owner entry is not "
+            "a regular claim record")}
+    try:
+        holder = _staging_claim._read_owner_identity(owner_path)
+    except _staging_claim.StagingUnavailable as exc:
+        return {"ok": False, "error": (
+            "staging claim is UNKNOWN for absent part: "
+            f"{str(exc)[:160]}")}
+    if holder != _DELETE_CLAIM_IDENTITY:
+        return None
+    meta_path = part_path.with_suffix(part_path.suffix + ".meta")
+    try:
+        meta_path.unlink(missing_ok=True)
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+    if not _staging_claim.release(part_path, _DELETE_CLAIM_IDENTITY):
+        return {
+            "ok": False,
+            "deleted_bytes": 0,
+            "error": "absent part's operator staging claim was retained",
+        }
+    mark_decision(str(part_path), "deleted")
+    return {
+        "ok": True,
+        "deleted_bytes": 0,
+        "note": "completed interrupted delete of already absent part",
+    }
+
+
 def delete_orphan(path: str) -> dict:
-    """Delete a .part file + its .meta and .owner sidecars. Idempotent —
-    missing files don't raise. Returns {ok, deleted_bytes}."""
+    """Delete an unclaimed ``.part`` and its sidecars.
+
+    Deletion first publishes its own staging claim, using the same atomic
+    reservation operation as a worker. A worker that claimed after an earlier
+    scan therefore wins and is left intact; if deletion wins, no worker can
+    begin streaming into this path until the bytes are gone and the operator
+    claim is released. Missing files remain idempotent.
+    """
     p = Path(path)
     if not p.exists():
+        interrupted = _finish_interrupted_delete(p)
+        if interrupted is not None:
+            return interrupted
         return {"ok": True, "deleted_bytes": 0,
                 "note": "already absent"}
+    claimed, error = _acquire_delete_claim(p)
+    if not claimed:
+        return {"ok": False, "error": error}
     try:
         deleted_bytes = p.stat().st_size if p.is_file() else 0
         p.unlink(missing_ok=True)
         # Sidecar
         meta_path = p.with_suffix(p.suffix + ".meta")
         meta_path.unlink(missing_ok=True)
-        # part-staging-collision: the staging claim's lifetime is the .part's
-        # lifetime, so purging the orphan purges its claim. Leaving it behind
-        # would push a later download of the same name onto `_1` for no reason.
-        # Row 492: release() now proves ownership. This is the ONE caller that
-        # legitimately frees a claim it does not own -- delete_orphan runs on
-        # explicit operator command against a .part the operator has chosen to
-        # purge -- so it says force=True rather than inheriting the old
-        # unconditional behaviour by omission.
-        _staging_claim.release(p, force=True)
+        # The operator reservation is now ours and the part is gone, satisfying
+        # release()'s two proofs (identity and absent bytes). A false return is
+        # a partial failure, not permission to report/audit a completed delete.
+        if not _staging_claim.release(p, _DELETE_CLAIM_IDENTITY):
+            return {
+                "ok": False,
+                "deleted_bytes": deleted_bytes,
+                "error": "part deleted but operator staging claim was retained",
+            }
         mark_decision(path, "deleted")
         return {"ok": True, "deleted_bytes": deleted_bytes}
     except OSError as e:
