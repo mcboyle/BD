@@ -252,6 +252,64 @@ def test_transfer_accepts_identical_candidate_blobs_and_disjoint_main_paths(tmp_
     assert evidence["overlap_paths"] == []
 
 
+def test_three_candidate_stack_measures_reverification_before_and_after(tmp_path):
+    repo = tmp_path / "stack"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Cut Test")
+    _git(repo, "config", "user.email", "cut@example.invalid")
+    for number in range(1, 4):
+        (repo / f"candidate-{number}.txt").write_text("base\n")
+    base = _commit(repo, "stack base")
+
+    candidate_bases = {}
+    candidate_heads = {}
+    for number in range(1, 4):
+        _git(repo, "checkout", "-B", f"candidate-{number}", base)
+        (repo / f"candidate-{number}.txt").write_text(f"candidate {number}\n")
+        candidate_bases[number] = base
+        candidate_heads[number] = _commit(repo, f"candidate {number}")
+
+    current_main = base
+    transfer_checks = 0
+    for landing in range(1, 4):
+        _git(repo, "checkout", "-B", "main", current_main)
+        (repo / f"candidate-{landing}.txt").write_text(f"candidate {landing}\n")
+        current_main = _commit(repo, f"land candidate {landing}")
+        for waiting in range(landing + 1, 4):
+            _git(repo, "checkout", "-B", f"candidate-{waiting}-after-{landing}", current_main)
+            path = repo / f"candidate-{waiting}.txt"
+            path.write_text(f"candidate {waiting}\n")
+            rebased = _commit(repo, f"rebase candidate {waiting} after {landing}")
+            fixture = (
+                repo,
+                candidate_bases[waiting],
+                candidate_heads[waiting],
+                current_main,
+                rebased,
+            )
+            result = _run_transfer(fixture)
+            assert result.returncode == 0, result.stderr
+            evidence = json.loads(result.stdout)
+            assert evidence["candidate_paths"] == 1
+            assert evidence["overlap_paths"] == []
+            candidate_bases[waiting] = current_main
+            candidate_heads[waiting] = rebased
+            transfer_checks += 1
+
+    measurement = {
+        "candidates": 3,
+        "initial_full_band_verifications_both_designs": 3,
+        "legacy_full_band_reverifications": 3,
+        "land_time_full_band_reverifications": 0,
+        "land_time_transfer_checks": transfer_checks,
+    }
+    print("STACK_REPLAY " + json.dumps(measurement, sort_keys=True))
+    assert transfer_checks == 3
+    assert measurement["legacy_full_band_reverifications"] == 3
+    assert measurement["land_time_full_band_reverifications"] == 0
+
+
 def test_stamp_writes_all_three_tree_facts_above_exact_previous_header(tmp_path):
     root = _release_tree(
         tmp_path,
