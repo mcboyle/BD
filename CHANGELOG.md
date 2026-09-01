@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1425 - a version-free cut can transfer its band
+
+`bd-band-transfer-key` refused any candidate that did not carry a complete
+release trio, so a REGISTER-ONLY cut -- which carries no version bump at all --
+could never reuse its affected band. Measured on its first canary, a closure
+sweep changing only the backlog:
+
+    TRANSFER REFUSED: release trio is not wholly present in the candidate delta
+
+The refusal was safe, and register cuts are exactly the ones run most often, so
+every closure sweep paid a full band it did not need.
+
+An ABSENT trio is now a valid disposition rather than a refusal, but only when
+the candidate genuinely changes no trio file. A PARTIAL trio -- some of
+`__init__.py`, the pin and the CHANGELOG entry but not all -- still REFUSES, and
+must, because a partial trio is precisely the state A6 exists to forbid and it
+must not become transferable. A candidate carrying the complete trio behaves
+byte-identically to before.
+
 ## v3.66.1424 - a skip proves it is the same work
 
 Rows 429, 503 and 519. The skip arm decided a file was already downloaded from

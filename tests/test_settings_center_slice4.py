@@ -197,7 +197,7 @@ def test_containment_routes_and_version():
     assert len(nonget) == 1, [str(r.rule) for r in nonget]
     assert str(nonget[0].rule).endswith("/validate")
     from bulk_downloader import __version__
-    assert __version__ == "3.66.1424", __version__
+    assert __version__ == "3.66.1425", __version__
 
 
 def test_editor_page_renders_grouped():
