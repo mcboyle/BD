@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1409 - an adoption verdict is derived from evidence independent of what it judges
+
+Rows 493 and 497. One contract: a verdict about an artifact is not computed from
+that artifact's own account of itself.
+
+- 497. `bd_candidate_adopt.evaluate()` re-derived merge_base and
+  candidate_commits from Git, but the two facts describing the replay OUTPUT
+  were compared against values the replay tool had itself written into the same
+  manifest. So the only question ever asked of the output was whether it had
+  changed since the manifest was written -- which CLAUDE.md A7 names exactly:
+  deriving the expected set solely from the artifact under test. A schema-valid
+  in-place manifest rewrite preserves device, inode and mode, so every identity
+  check stayed true while the output no longer carried the candidate work.
+- 493. The integration verdict reported true over two measurements it never took.
+- The output is now reconciled against the SOURCE and against main_sha in both
+  commits and content, INCLUDING untracked entries -- the row demonstrates two
+  tampers that both printed ADOPTABLE with all ten evidence keys true, and
+  ancestry alone cannot decide the second because an output detached at main_sha
+  is its own descendant.
+- Negative controls keep the tool from refusing everything: an untampered replay
+  still reports ADOPTABLE with its full key set, and the two pre-existing
+  merge_base and candidate_commits tamper cases still refuse, each for its own
+  named key.
+
 ## v3.66.1408 - a test file does not poison its neighbour, and an unusable tray stays silent
 
 Rows 610 and 611. Row 611's filed hypothesis was WRONG and the correction is the

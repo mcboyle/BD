@@ -198,7 +198,7 @@ def test_output_bytes_drift_is_not_adoptable(replayed_case: ReplayedCase) -> Non
 
     assert result.returncode == 1
     assert body["verdict"] == "NOT_ADOPTABLE"
-    assert body["evidence"]["output_unchanged"] is False
+    assert body["evidence"]["output_reconciles_with_source"] is False
 
 
 @pytest.mark.parametrize("worktree", ("source", "output"))
@@ -216,7 +216,12 @@ def test_worktree_head_drift_is_not_adoptable(
 
     assert result.returncode == 1
     assert body["verdict"] == "NOT_ADOPTABLE"
-    assert body["evidence"][f"{worktree}_unchanged"] is False
+    evidence_key = (
+        "source_unchanged"
+        if worktree == "source"
+        else "output_reconciles_with_source"
+    )
+    assert body["evidence"][evidence_key] is False
 
 
 @pytest.mark.parametrize("missing", ("source", "output"))
