@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1414 - a prune repairs only the links it broke
+
+Two findings on `db_prune`, the second of which returned a 500 and the first of
+which is the mechanism behind the 2026-08-29 incident where a 5,102,802,950-byte
+download was recorded under the wrong scene.
+
+- The library repair after a prune was unscoped. It repointed a library row at
+  `MAX(h.id)` among survivors with no constraint on url, on whether this prune
+  had actually broken that link, or on whether the new owner was a completion.
+  So a prune that deleted NOTHING could still hand a library row to a different
+  url's history row, and an out-of-band delete could be silently "repaired"
+  across scenes. The repair now snapshots, BEFORE the delete and from the
+  identical WHERE clause the delete itself uses, the library rows whose current
+  owner this prune is about to remove, and repoints each only among surviving
+  `status='done'` rows OF ITS OWN URL. Where no such survivor exists the
+  dangling id is kept verbatim: `db_skip_identity` already answers `unknown`
+  there, and unknown is never permission. Re-downloading under a safe name is a
+  bounded, self-healing cost; repointing to SOMETHING is precisely what the
+  defect cost.
+- The transfer-proof predicate named `h.bytes_fetched` unconditionally, so on a
+  database predating migration 8 the generated SQL referenced a column that does
+  not exist and `db_prune` raised OperationalError -- a 500. The column is now
+  checked first and an unmeasurable proof returns an always-false predicate,
+  which can withhold proof but never manufacture it.
+
+Both failure directions fail safe: a snapshot that cannot be taken leaves links
+dangling rather than mis-pointed, and the unmeasurable predicate can only
+withhold. Three behaviour deltas from the previous code are each pinned by a
+test that is RED without the fix -- cross-url repoint, out-of-band repair, and a
+non-done owner -- and a negative control proves the legitimate steady-state
+repair still fires.
+
 ## v3.66.1413 - crash recovery decides from state the product actually writes
 
 Rows 494 and 498.
