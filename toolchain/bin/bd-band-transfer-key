@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Band-verdict transfer content key (RED scaffold)."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+
+
+class TransferRefused(RuntimeError):
+    """A transfer premise is false or cannot be measured."""
+
+
+def compare_authored(old_blobs, new_blobs, main_gained_authored):
+    """RED scaffold: deliberately accepts every authored-path comparison."""
+
+
+def compare_changelog_entries(old_entry, new_entry):
+    """RED scaffold: deliberately accepts non-identical release entries."""
+
+
+def validate_declared_union(base_edges, head_edges, live_edges, gate_rc):
+    """RED scaffold: deliberately accepts invented declaration edges."""
+
+
+def derive_tracked_outputs(required_labels, chain_outputs):
+    """RED scaffold: deliberately returns a partial derived-output set."""
+    return tuple(path for paths in chain_outputs.values() for path in paths)
+
+
+def require_known(**identities):
+    """RED scaffold: deliberately treats UNKNOWN as transferable."""
+    return identities
+
+
+def main(argv=None):
+    payload = json.dumps({"schema": 1, "unsafe_red_scaffold": True}, sort_keys=True)
+    print(hashlib.sha256(payload.encode("ascii")).hexdigest())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
