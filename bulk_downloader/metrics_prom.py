@@ -9,6 +9,7 @@ Metrics exposed:
 
   • bd_jobs_total{site,status}            counter
   • bd_jobs_active{site,status}           gauge (running/queued/needs_review)
+  • bd_jobs_active_unknown{site}          gauge (1 = job map unreadable)
   • bd_downloads_bytes_total{site}        counter
   • bd_history_total                      gauge (rows in history table)
   • bd_disk_free_bytes{path}              gauge
@@ -82,6 +83,23 @@ def _help(name: str, help_text: str, metric_type: str = "gauge") -> list:
     """Render HELP + TYPE preamble lines for one metric."""
     return [f"# HELP {name} {help_text}",
             f"# TYPE {name} {metric_type}"]
+
+
+def _runners_generation(runners: dict) -> list:
+    """One stable (sid, runner) generation to scrape.
+
+    When the caller handed us THE live registry, take the copy under the same
+    lock site create/delete use, so a create landing mid-scrape cannot raise
+    RuntimeError out of the walk.  Any other mapping (a test's, or a caller
+    that already scoped one site) is copied directly -- it is private to that
+    caller and no lock applies.
+    """
+    try:
+        import importlib
+        _st = importlib.import_module("bulk_downloader.app_state")
+        return _st.runners_generation(runners)
+    except Exception:
+        return list((runners or {}).items())
 
 
 def render(s_cfg: Optional[dict] = None,
@@ -177,11 +195,35 @@ def render(s_cfg: Optional[dict] = None,
         pass
 
     # ── Active jobs by status (from runner state) ────────────────────
+    # The registry and each runner's jobs map are both live and mutated by
+    # other threads.  Walking either bare raised RuntimeError inside a
+    # try/except: pass, which did not 500 -- it silently DROPPED bd_jobs_active
+    # and reported a quieter fleet than exists.  A site whose population cannot
+    # be counted is therefore named by bd_jobs_active_unknown rather than left
+    # to look like a site with zero active jobs (CLAUDE.md A7: an unavailable
+    # measurement is UNKNOWN, never OK), mirroring bd_budget_usage_unknown.
     try:
         active_counts: dict = {}
-        for sid, runner in runners.items():
-            jobs = getattr(runner, "jobs", {}) or {}
-            for j in jobs.values() if isinstance(jobs, dict) else []:
+        unmeasurable: list = []
+        for sid, runner in _runners_generation(runners):
+            try:
+                jobs = getattr(runner, "jobs", {}) or {}
+                if not isinstance(jobs, dict):
+                    snapshot = []
+                else:
+                    # Copy under the runner's own lock when it has one; a
+                    # runner too old to expose one still gets an atomic copy.
+                    rlock = getattr(runner, "_lock", None)
+                    if rlock is not None:
+                        with rlock:
+                            snapshot = list(jobs.values())
+                    else:
+                        snapshot = list(jobs.values())
+            except Exception:
+                # Could not enumerate this site's jobs at all.  Say so.
+                unmeasurable.append(sid)
+                continue
+            for j in snapshot:
                 s = (j or {}).get("status", "")
                 if s in ("running", "pending", "needs_review"):
                     active_counts[(sid, s)] = active_counts.get((sid, s), 0) + 1
@@ -190,6 +232,14 @@ def render(s_cfg: Optional[dict] = None,
         for (sid, status), n in active_counts.items():
             lines.append(_line("bd_jobs_active", n,
                               labels={"site": sid, "status": status}))
+        if unmeasurable:
+            lines.extend(_help("bd_jobs_active_unknown",
+                              "1 when a site's live job map could not be "
+                              "enumerated (no bd_jobs_active sample exists "
+                              "for it; absent is NOT zero)"))
+            for sid in unmeasurable:
+                lines.append(_line("bd_jobs_active_unknown", 1,
+                                  labels={"site": sid}))
     except Exception:
         pass
 

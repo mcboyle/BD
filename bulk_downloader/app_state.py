@@ -40,6 +40,47 @@ _site_lifecycle_locks = tuple(threading.RLock() for _ in range(64))
 def site_lifecycle_lock(site_id: str):
     return _site_lifecycle_locks[
         hash(str(site_id)) % len(_site_lifecycle_locks)]
+
+
+def runners_snapshot():
+    """Return ``list(runners.items())`` captured under ``_watch_registry_lock``.
+
+    ``runners`` is inserted on site-create request threads and popped on delete;
+    a reader that walks it bare gets ``RuntimeError: dictionary changed size
+    during iteration`` the moment either lands.  In an endpoint that is an
+    operator-visible 500 raised at the ``for`` statement itself -- AFTER the loop
+    body has already acted on a prefix of the fleet -- so the operator is left
+    with a half-applied change and no report of which sites it reached.
+
+    COPY, DO NOT HOLD.  Callers must iterate the returned list rather than doing
+    their work inside the lock: ``runner.stop()`` / ``start()`` join worker
+    threads, and a watch worker's own finalizer acquires this same lock on its
+    way out, so holding it across a loop converts an iteration bug into a stall
+    or a deadlock.  The copy is O(n) over pointers and gives the caller one
+    stable, complete generation to walk while create/delete proceed normally.
+
+    Not relying on ``list(d.items())`` being implicitly atomic is deliberate:
+    that property is a GIL implementation detail, and the point of this helper is
+    that create, delete, and enumeration agree on ONE lock rather than on an
+    interpreter's threading model.
+    """
+    with _watch_registry_lock:
+        return list(runners.items())
+
+
+def runners_generation(mapping):
+    """``runners_snapshot()`` when ``mapping`` IS the live registry, else a
+    plain copy.
+
+    Several helpers accept a runners mapping that is EITHER the live registry
+    or a caller-scoped ``{sid: runner}`` copy.  The scoped copy is private and
+    needs no lock; the live one does.  Deciding by identity keeps that
+    distinction in one place instead of at every call site, where getting it
+    wrong is invisible until a create lands mid-walk.
+    """
+    if mapping is runners:
+        return runners_snapshot()
+    return list((mapping or {}).items())
 _dedup_scan_state = {
     "running": False,
     "started_at": 0.0,
@@ -53,6 +94,8 @@ _dedup_scan_state = {
 _dedup_scan_lock = threading.Lock()
 __all__ = [
     "runners",
+    "runners_snapshot",
+    "runners_generation",
     "s_cfg",
     "s_meta",
     "_watch_threads",
