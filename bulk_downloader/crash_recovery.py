@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import db as _db
+from . import staging_claim as _staging_claim
 
 
 _ORPHAN_AGE_THRESHOLD_S = 24 * 3600  # 24h
@@ -77,18 +78,39 @@ def _ignored_paths() -> set:
         return set()
 
 
-def _active_urls(runners: dict) -> set:
-    """URLs currently in any runner's job map. Files for these URLs
-    might be legitimately in progress; we exclude them from orphans
-    regardless of file age."""
-    active = set()
-    for sid, runner in (runners or {}).items():
+def _active_job_state(runners: dict) -> tuple[set, set, bool]:
+    """Return ``(page_urls, job_identities, measured)`` for live runners.
+
+    The owner sidecar records ``job_identity(page_url)``, not the URL itself.
+    Any runner/job-map/identity that cannot be read makes the population
+    incomplete, so ``measured`` is false and the scanner must withhold a
+    destructive verdict rather than mistake missing evidence for no live job.
+    """
+    active_urls = set()
+    active_identities = set()
+    if not isinstance(runners, dict):
+        return active_urls, active_identities, False
+    for sid, runner in runners.items():
         try:
-            for url in (getattr(runner, "jobs", {}) or {}).keys():
-                active.add(url)
+            jobs = getattr(runner, "jobs")
+            if jobs is None:
+                return active_urls, active_identities, False
+            urls = list(jobs.keys())
         except Exception:
-            continue
-    return active
+            return active_urls, active_identities, False
+        for url in urls:
+            try:
+                identity = _staging_claim.job_identity(url)
+            except _staging_claim.StagingUnavailable:
+                return active_urls, active_identities, False
+            active_urls.add(url)
+            active_identities.add(identity)
+    return active_urls, active_identities, True
+
+
+def _active_urls(runners: dict) -> set:
+    """Page URLs currently present in runner job maps."""
+    return _active_job_state(runners)[0]
 
 
 def _read_meta_sidecar(part_path: Path) -> dict:
@@ -122,7 +144,8 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
 
     Sorted oldest-first (most likely to be truly stuck)."""
     ignored = _ignored_paths()
-    active_urls = _active_urls(runners)
+    active_urls, active_identities, active_jobs_measured = (
+        _active_job_state(runners))
     now = time.time()
     orphans = []
 
@@ -149,11 +172,33 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
                     age_s = now - stat.st_mtime
                     if age_s < age_threshold_s:
                         continue
+                    if not active_jobs_measured:
+                        # An incomplete runner population cannot establish
+                        # that this partial has no live owner.
+                        continue
+                    owner_path = _staging_claim.owner_path_for(part_path)
+                    try:
+                        claim_exists = owner_path.exists()
+                    except OSError:
+                        # Claim presence itself is UNKNOWN.
+                        continue
+                    if claim_exists:
+                        try:
+                            holder = _staging_claim._read_owner_identity(
+                                owner_path)
+                        except _staging_claim.StagingUnavailable:
+                            # A claim that cannot be measured is not absence.
+                            continue
+                        if holder in active_identities:
+                            # The durable claim joins this exact .part to an
+                            # exact live page-URL job.
+                            continue
+                    elif active_urls:
+                        # A pre-claim partial cannot be joined to one of the
+                        # live jobs. Its state is UNKNOWN, not abandoned.
+                        continue
                     meta = _read_meta_sidecar(part_path)
                     url = (meta or {}).get("url") or ""
-                    if url and url in active_urls:
-                        # Still being worked on — skip
-                        continue
                     total = (meta or {}).get("total_bytes") or 0
                     downloaded = stat.st_size
                     pct = 0
@@ -215,13 +260,12 @@ def delete_orphan(path: str) -> dict:
         # part-staging-collision: the staging claim's lifetime is the .part's
         # lifetime, so purging the orphan purges its claim. Leaving it behind
         # would push a later download of the same name onto `_1` for no reason.
-        from . import staging_claim as _sc
         # Row 492: release() now proves ownership. This is the ONE caller that
         # legitimately frees a claim it does not own -- delete_orphan runs on
         # explicit operator command against a .part the operator has chosen to
         # purge -- so it says force=True rather than inheriting the old
         # unconditional behaviour by omission.
-        _sc.release(p, force=True)
+        _staging_claim.release(p, force=True)
         mark_decision(path, "deleted")
         return {"ok": True, "deleted_bytes": deleted_bytes}
     except OSError as e:
