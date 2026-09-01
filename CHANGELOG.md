@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1426 - a CI gate claim is derived, not asserted
+
+Rows 509 and 518. The CI shard-coverage gate carried claims about which shards
+provide which gates as prose bound to nothing measurable, so a claim could drift
+from the workflow it described without any gate noticing. Claims are now
+path-bound and reconciled against the workflow itself: required and provisioned
+shards must match exactly, the denominator is asserted nonzero and unique, and
+an unbound claim is a failure rather than a comment.
+
 ## v3.66.1425 - a version-free cut can transfer its band
 
 `bd-band-transfer-key` refused any candidate that did not carry a complete
