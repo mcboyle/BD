@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1415 - a gate that runs, a census that knows itself, a path that is kept
+
+Three independent seams, one shape: something reported a state it had not
+established. Rows 427, 447, 490, 505 and 517, plus a gate CI could not see.
+
+- The integrity suite failed four of six on main and appeared in ZERO CI jobs,
+  so a green CI said nothing about it. The four promote/abort cases called
+  `SiteRunner._promote_or_abort` without the job identity that every production
+  call site passes, so `staging_claim.release()` refused them -- correctly. That
+  question was settled before anything was changed: the sole production caller
+  passes `job_identity(page_url)`, and so does every release path, with
+  `crash_recovery.delete_orphan` the only distinct caller using the operator-only
+  `force=True`. The tests were stale; production was never broken. The suite is
+  now declared module-scoped and reachable from the application-safety shard,
+  measured against a CI denominator that had 237 of 238 declared paths present
+  and exactly this one missing.
+- 490/505/517. The watchdog identity census identified "self" by walking process
+  ancestry, and on this fleet the tmux server is every pane's ancestor -- so the
+  walk protected every session at once. It now compares `getpid()` and the direct
+  parent against the census root, and a missing direct parent stays UNKNOWN
+  rather than collapsing into a protected verdict.
+- 427/447. The browser fallback called `safe_dest` a second time instead of
+  writing the `final_path` it had already reserved, so under contention the path
+  written and the path recorded could diverge -- the same family as the file
+  saved under the wrong scene's title. It now writes the reserved path, proven by
+  a regression test that injects one competing final and asserts the actual write
+  path equals the recorded path, with an uncontended negative control.
+
 ## v3.66.1414 - a prune repairs only the links it broke
 
 Two findings on `db_prune`, the second of which returned a 500 and the first of
