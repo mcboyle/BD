@@ -280,7 +280,12 @@ def _declared_evidence(repo, base, head):
 
 
 def _last_touch(repo, base, path):
-    value = _git(repo, "log", "-1", "--format=%H", base, "--", path, text=True).strip()
+    # --full-history sees a touch-and-revert hidden behind a merge even when
+    # the merge's net blob equals its first parent. Overlap is about paths main
+    # gained, not only main's final bytes.
+    value = _git(
+        repo, "rev-list", "--full-history", "-1", base, "--", path, text=True
+    ).strip()
     return value or "NEVER"
 
 
@@ -342,14 +347,17 @@ def evidence_at_commit(repo, base, head):
         checkout = Path(directory, "exact-head")
         _git(repo, "worktree", "add", "--quiet", "--detach", str(checkout), resolved_head)
         try:
-            return build_evidence(checkout, base, resolved_head)
+            evidence = build_evidence(checkout, base, resolved_head)
         finally:
-            subprocess.run(
+            removed = subprocess.run(
                 ["git", "-C", str(repo), "worktree", "remove", "--force", "--", str(checkout)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
+            if removed.returncode != 0:
+                raise TransferRefused("temporary exact-head worktree cleanup is UNKNOWN")
+        return evidence
 
 
 def compare_evidence(old, new):
