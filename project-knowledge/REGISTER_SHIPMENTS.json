@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "shipments": [
+    {
+      "row": 426,
+      "candidate": "recover/row-skipidentity-fix",
+      "substantive_paths": [
+        "bulk_downloader/db.py",
+        "bulk_downloader/runner_transport.py",
+        "tests/test_a_skip_must_prove_it_is_the_same_work.py",
+        "tests/test_history_records_the_website_title.py"
+      ]
+    },
+    {
+      "row": 427,
+      "candidate": "recover/part-staging-collision",
+      "substantive_paths": [
+        "bulk_downloader/constants.py",
+        "bulk_downloader/crash_recovery.py",
+        "bulk_downloader/runner_transport.py",
+        "bulk_downloader/staging_claim.py",
+        "tests/test_part_staging_collision.py",
+        "tests/test_v3_43_27_resume.py"
+      ]
+    },
+    {
+      "row": 432,
+      "candidate": "recover/row432-vault-unreadable",
+      "substantive_paths": [
+        "bulk_downloader/app_secrets.py",
+        "bulk_downloader/secrets_store.py",
+        "tests/test_row432_unreadable_vault_is_not_uninitialized.py"
+      ]
+    },
+    {
+      "row": 447,
+      "candidate": "3c2feb7441ce252e9d1a1c1a3f1dc08a5f454e5b",
+      "substantive_paths": [
+        "bulk_downloader/runner_browser.py",
+        "tests/test_part_staging_collision.py"
+      ]
+    }
+  ]
+}

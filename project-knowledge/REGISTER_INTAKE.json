@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "decisions": [
+    {
+      "id": "row-496-register-intake",
+      "disposition": "defer",
+      "row": 496
+    },
+    {
+      "id": "audit-completion-ledger",
+      "disposition": "non-deferral",
+      "evidence": "row 140 CLOSED @1171 records that this historical census requires no further register row"
+    }
+  ]
+}
