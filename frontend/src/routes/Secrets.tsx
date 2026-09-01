@@ -31,7 +31,7 @@ import { Callout } from "@/components/ui/Callout";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { WorkflowPage } from "@/components/ui/WorkflowPage";
 import { Card } from "@/components/ui/card";
-import { apiGet, apiPost } from "@/lib/api-client";
+import { ApiError, apiGet, apiPost } from "@/lib/api-client";
 import { formatTimestamp } from "@/lib/format";
 
 interface SecretsStatus {
@@ -60,6 +60,30 @@ const BACKENDS: { name: BackendName; label: string; needs: keyof SecretsStatus |
 function backendTone(name: string): PillTone {
   if (name === "plaintext") return "amber";
   return "green";
+}
+
+/**
+ * Row 515. Name the step that failed, in the server's own words.
+ *
+ * `_vault_store_unreadable` answers 503 with `{state: "unreadable", error}`
+ * precisely so no route reports an empty inventory over an unread token
+ * store. A refusal the operator cannot act on is barely better than a silent
+ * one (CLAUDE.md A7), so an unreadable store is distinguished here from any
+ * other transport failure, and the backend's own `error` text is carried
+ * rather than paraphrased.
+ */
+function pairedExtensionsFailure(error: unknown): string {
+  if (error instanceof ApiError) {
+    const body = error.body as { state?: unknown; error?: unknown } | undefined;
+    const detail = typeof body?.error === "string" ? body.error : null;
+    if (body?.state === "unreadable") {
+      return `The extension token store is unreadable (HTTP ${error.status})${
+        detail ? `: ${detail}` : ""
+      }.`;
+    }
+    return `Request failed with HTTP ${error.status}${detail ? `: ${detail}` : ""}.`;
+  }
+  return (error as Error)?.message ?? "Unknown error.";
 }
 
 export function Secrets() {
@@ -652,13 +676,39 @@ export function Secrets() {
           </div>
         )}
 
+        {/* Row 515: the empty-inventory sentence is reachable ONLY from a 2xx
+            carrying an extensions array of length 0. A bare truthiness test on
+            pairedQ.data rendered "No extensions paired" identically for a
+            successful empty inventory, the initial pending request, AND a
+            query failure -- and since v3.66.1373 the backing route answers 503
+            {state: unreadable} rather than report an empty inventory over an
+            unread token store, so the UI converted that refusal straight back
+            into the sentence it was written to prevent. The only control on
+            each row is Revoke, so this text decides whether anything needs
+            revoking. The sibling statusQ above already has both halves. */}
         <div className="mt-3">
-          <div className="text-[11px] text-ink-3">
-            {pairedQ.data?.extensions?.length
-              ? `${pairedQ.data.extensions.length} paired`
-              : "No extensions paired"}
-          </div>
-          {pairedQ.data?.extensions?.map((ext) => (
+          {pairedQ.isError ? (
+            <div className="text-[11px] text-red-300">
+              Paired extensions could not be read, so whether any are paired is
+              unknown. {pairedExtensionsFailure(pairedQ.error)}
+            </div>
+          ) : pairedQ.data ? (
+            <div className="text-[11px] text-ink-3">
+              {pairedQ.data.extensions?.length
+                ? `${pairedQ.data.extensions.length} paired`
+                : "No extensions paired"}
+            </div>
+          ) : (
+            <div className="text-[11px] text-ink-3">
+              Loading paired extensions…
+            </div>
+          )}
+          {/* The ROWS obey the same rule as the sentence above them. react-query
+              keeps `data` from an earlier success when a later refetch fails,
+              so listing them here would offer a Revoke over an inventory that
+              can no longer be read -- and api_secrets_extension_revoke answers
+              the same 503, so the control could not succeed anyway. */}
+          {(pairedQ.isError ? undefined : pairedQ.data?.extensions)?.map((ext) => (
             <div
               key={ext.id}
               className="mt-1 flex items-center justify-between rounded border border-input p-2"
