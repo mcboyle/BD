@@ -2366,7 +2366,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1701,
+    "edge_count": 1702,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4568,6 +4568,9 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_stream.py"
       ],
+      "bulk_downloader/subprocess_helpers.py": [
+        "bulk_downloader/dev_tools.py"
+      ],
       "bulk_downloader/subtitles.py": [
         "bulk_downloader/app_subtitles.py",
         "bulk_downloader/runner.py"
@@ -6431,7 +6434,8 @@
         "bulk_downloader/vpn_config.py"
       ],
       "bulk_downloader/dev_tools.py": [
-        "bulk_downloader/global_config.py"
+        "bulk_downloader/global_config.py",
+        "bulk_downloader/subprocess_helpers.py"
       ],
       "bulk_downloader/diagnostics_bundle.py": [
         "bulk_downloader/account_health.py",
