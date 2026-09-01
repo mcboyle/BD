@@ -104,6 +104,19 @@ _PIN = re.compile(rb'assert __version__ == "([^"]+)"')
 _HEADER = re.compile(rb'(?m)^## v([0-9]+[.][0-9]+[.][0-9]+)([^\r\n]*)(?:\r?\n|$)')
 
 
+def _trio_disposition(changed):
+    present = set(TRIO) & set(changed)
+    if not present:
+        return "ABSENT"
+    missing = set(TRIO) - present
+    if missing:
+        raise TransferRefused(
+            "partial release trio in candidate delta: present=%s missing=%s"
+            % (", ".join(sorted(present)), ", ".join(sorted(missing)))
+        )
+    return "COMPLETE"
+
+
 def _git(repo, *args, text=False):
     result = subprocess.run(
         ["git", "-C", str(repo), *args], capture_output=True, text=text, check=False
@@ -304,9 +317,8 @@ def build_evidence(repo, base, head):
     changed = _paths_between(repo, base, head)
     if not changed:
         raise TransferRefused("candidate changed-path denominator is ZERO")
-    if not set(TRIO) <= changed:
-        raise TransferRefused("release trio is not wholly present in the candidate delta")
-    trio = _trio_evidence(repo, base, head)
+    trio_disposition = _trio_disposition(changed)
+    trio = _trio_evidence(repo, base, head) if trio_disposition == "COMPLETE" else None
     derived_paths = set(_derived_outputs(repo, head))
     declared = _declared_evidence(repo, base, head)
     authored_paths = changed - set(TRIO) - derived_paths - {DECLARED}
@@ -314,18 +326,21 @@ def build_evidence(repo, base, head):
     base_touches = {path: _last_touch(repo, base, path) for path in sorted(authored_paths)}
     digest_payload = {
         "schema": 1,
-        "trio": {key: value for key, value in trio.items() if key != "entry_bytes"},
         "authored_blobs": authored_blobs,
         "authored_base_last_touch": base_touches,
     }
+    if trio is not None:
+        digest_payload["trio"] = {
+            key: value for key, value in trio.items() if key != "entry_bytes"
+        }
     encoded = json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("ascii")
     return {
         "schema": 1,
         "base": base,
         "head": head,
         "digest": hashlib.sha256(encoded).hexdigest(),
-        "trio": digest_payload["trio"],
-        "trio_entry_bytes": trio["entry_bytes"],
+        "trio": digest_payload.get("trio", {}),
+        "trio_entry_bytes": None if trio is None else trio["entry_bytes"],
         "derived_paths": sorted(changed & derived_paths),
         "derived_denominator": len(derived_paths),
         "declared": declared,
@@ -361,7 +376,28 @@ def evidence_at_commit(repo, base, head):
 
 
 def compare_evidence(old, new):
-    compare_changelog_entries(old["trio_entry_bytes"], new["trio_entry_bytes"])
+    def trio_disposition(evidence, label):
+        trio = evidence.get("trio")
+        entry = evidence.get("trio_entry_bytes")
+        if trio == {} and entry is None:
+            return "ABSENT"
+        if (
+            isinstance(trio, dict)
+            and set(trio) == {"init", "pin", "preamble", "entry"}
+            and isinstance(entry, bytes)
+        ):
+            return "COMPLETE"
+        raise TransferRefused("UNKNOWN: %s release trio evidence is malformed" % label)
+
+    old_disposition = trio_disposition(old, "old")
+    new_disposition = trio_disposition(new, "new")
+    if old_disposition != new_disposition:
+        raise TransferRefused(
+            "release trio disposition differs: old=%s new=%s"
+            % (old_disposition, new_disposition)
+        )
+    if old_disposition == "COMPLETE":
+        compare_changelog_entries(old["trio_entry_bytes"], new["trio_entry_bytes"])
     if old["trio"] != new["trio"]:
         raise TransferRefused("release trio differs beyond permitted version substitution")
     old_blobs = old["authored_blobs"]
