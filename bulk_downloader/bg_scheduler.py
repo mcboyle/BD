@@ -398,11 +398,27 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
     # evaluate all rules against current metrics. Cheap (no DB
     # writes unless a rule trips). Fires plugin/webhook side effects
     # via the rule's actions list.
+    # ROW 421: this wrapper DISCARDED evaluate()'s dict, so a broken
+    # alert_events table produced fired=0 that was observed by no one -- the
+    # last link in a silence that started at the DB boundary. The result is
+    # now read, and an UNKNOWN pass is raised into _run_one's existing
+    # per-task error channel, which /api/bg/status already surfaces as
+    # last_status/last_error. A raise is right here: the alerting layer could
+    # not do its job, and that is exactly what "error" means for a task.
     def _run_alerts():
         if not s_cfg_getter:
-            return
+            return None
         from . import alerts_engine as _ae
-        _ae.evaluate(s_cfg=s_cfg_getter())
+        report = _ae.evaluate(s_cfg=s_cfg_getter())
+        unknown = report.get("unknown", 0)
+        if unknown:
+            detail = "; ".join(
+                f"{r.get('rule_id')}: {r.get('error', '')}"
+                for r in report.get("results", [])
+                if r.get("store_unavailable"))
+            raise RuntimeError(
+                f"UNKNOWN for {unknown} rule(s): {detail}")
+        return report
 
     register("alerts_engine.evaluate", _run_alerts,
              interval_seconds=60)

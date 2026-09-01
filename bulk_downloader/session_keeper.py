@@ -17,7 +17,8 @@ State per (site_id, account_idx):
 
     {
       "state": "connected" | "refreshing" | "reauthenticating"
-              | "needs_takeover" | "disconnected" | "disabled",
+              | "inconclusive" | "needs_takeover" | "disconnected"
+              | "disabled",
       "last_login_ts": float,
       "last_heartbeat_ts": float,
       "next_check_ts": float,
@@ -196,6 +197,72 @@ JITTER_FRACTION = 0.2
 
 # Fallback session lifetime when we have no observations yet.
 DEFAULT_SESSION_LIFETIME_SEC = 4 * 3600  # assume 4h sessions
+
+# ── Heartbeat verdicts (row 424) ──────────────────────────────────────────
+#
+# All three probes used to enumerate their failure signatures and return True
+# for EVERYTHING else, so a 500, 502 or 404 read as "session alive" and
+# _run_one_check made four auth claims -- state connected, heartbeat_ok,
+# consecutive_failures zeroed, predicted_expiry_ts advanced -- over a response
+# that measured nothing about auth. That is the fail-open shape CLAUDE.md A7
+# forbids, and the operator surface showed a healthy session while the site
+# was down.
+#
+# THE FIX IS A THIRD STATE, NOT FAIL-CLOSED. Classifying 5xx as heartbeat-fail
+# would fire _auto_relogin storms against a site that is merely down.
+#
+# WHY A VERDICT OBJECT RATHER THAN A THIRD STRING. Every existing caller does
+# `ok, detail = ...` and tests truthiness. `__bool__` keeps that contract
+# exactly -- ALIVE is truthy, and both DEAD and INCONCLUSIVE are falsy because
+# neither is evidence that the session is usable -- while identity comparison
+# lets _run_one_check tell "refused" from "did not measure", which lead to
+# opposite actions.
+class HeartbeatVerdict:
+    """One of ALIVE / DEAD / INCONCLUSIVE. Compare by identity."""
+
+    __slots__ = ("name", "_alive")
+
+    def __init__(self, name: str, alive: bool):
+        self.name = name
+        self._alive = alive
+
+    def __bool__(self) -> bool:
+        return self._alive
+
+    def __repr__(self) -> str:
+        return f"<heartbeat {self.name}>"
+
+
+ALIVE = HeartbeatVerdict("alive", True)
+DEAD = HeartbeatVerdict("dead", False)
+INCONCLUSIVE = HeartbeatVerdict("inconclusive", False)
+
+
+def _as_verdict(value):
+    """Normalise a probe's answer.
+
+    A plain bool predates the three-state contract: True is a positive claim
+    and False is a refusal. It is never promoted to INCONCLUSIVE -- inventing
+    an unknown out of a boolean would hide a real dead session, which is this
+    defect wearing the other face.
+    """
+    if isinstance(value, HeartbeatVerdict):
+        return value
+    return ALIVE if value else DEAD
+
+
+def _classify_status(status) -> HeartbeatVerdict:
+    """ALIVE only for a 2xx that already passed the logout signatures.
+
+    Anything else is an unclassified status: the site answered, but not with
+    evidence about this session's authentication.
+    """
+    try:
+        code = int(status)
+    except (TypeError, ValueError):
+        return INCONCLUSIVE
+    return ALIVE if 200 <= code < 300 else INCONCLUSIVE
+
 
 # Cap on consecutive failures before backing off to hourly.
 BACKOFF_AFTER_N_FAILURES = 3
@@ -445,8 +512,27 @@ class SessionKeeper:
             return
 
         self._set_state("refreshing", "running heartbeat")
-        ok, detail = self._heartbeat()
-        if ok:
+        verdict, detail = self._heartbeat()
+        verdict = _as_verdict(verdict)
+
+        if verdict is INCONCLUSIVE:
+            # Row 424. The site answered, but with nothing about this
+            # session's authentication -- a 5xx, a 404, or a redirect that
+            # does not point at a sign-in page. Make NO auth claim: no
+            # heartbeat_ok, no expiry advance, and no relogin (a relogin
+            # storm against a site that is merely down is the failure the
+            # third state exists to avoid).
+            #
+            # consecutive_failures is left UNTOUCHED in both directions.
+            # Resetting it would launder an outage into evidence of health;
+            # incrementing it would walk the keeper into
+            # BACKOFF_AFTER_N_FAILURES and report `disconnected` -- an auth
+            # claim built from evidence about the site being unreachable.
+            self._set_state("inconclusive", detail)
+            self._record_event("heartbeat_inconclusive", detail)
+            return
+
+        if verdict is ALIVE:
             now = _now()
             with _state_lock:
                 self.state["last_heartbeat_ts"] = now
@@ -498,7 +584,10 @@ class SessionKeeper:
         If the browser can't be launched (Playwright unavailable,
         crashed, etc.), degrades to a plain httpx GET — same as v3.43.15.
 
-        Returns (ok, detail)."""
+        Returns (verdict, detail) where verdict is ALIVE, DEAD or
+        INCONCLUSIVE (row 424). ALIVE is truthy and the other two are falsy,
+        so a caller that only asks "is the session usable?" reads it exactly
+        as it read the old bool."""
         # Make sure we have a live browser. Restart if it's been alive
         # too long, or if it crashed, or if we haven't launched yet.
         if not self._browser_alive() or self._browser_age() > 86400:
@@ -782,34 +871,42 @@ class SessionKeeper:
         """
         url = self._derive_check_url()
         if not url:
-            return False, "no check URL configurable for this site"
+            return DEAD, "no check URL configurable for this site"
         try:
             resp = self._page.goto(url, wait_until="domcontentloaded",
                                    timeout=CHECK_TIMEOUT_SEC * 1000)
             self._last_navigate_at = _now()
             if resp is None:
-                return False, "navigation returned no response"
+                return DEAD, "navigation returned no response"
             status = resp.status
             final_url = self._page.url
             # Redirect to login → session is dead
             if _LOGIN_URL_RE.search(final_url):
-                return False, f"redirected to {final_url[:80]}"
+                return DEAD, f"redirected to {final_url[:80]}"
             if status in (401, 403):
-                return False, f"server returned {status}"
+                return DEAD, f"server returned {status}"
             # Check for login form in the rendered DOM
             try:
                 has_login_form = self._page.evaluate(_LOGIN_FORM_JS)
                 if has_login_form:
-                    return False, "rendered page contains login form"
+                    return DEAD, "rendered page contains login form"
             except Exception:
                 pass
-            # Persist refreshed cookies
+            # Row 424: only a 2xx that survived the checks above is evidence
+            # of an authenticated session. A 500/502/404 answered "navigate ok
+            # (HTTP 500)" and was recorded as heartbeat_ok.
+            verdict = _classify_status(status)
+            if verdict is not ALIVE:
+                return verdict, (f"navigate inconclusive (HTTP {status}): the "
+                                 f"site answered but measured no auth")
+            # Persist refreshed cookies -- only for an authenticated response;
+            # a jar captured from an outage page is not a session refresh.
             self._persist_cookies()
-            return True, f"navigate ok (HTTP {status})"
+            return ALIVE, f"navigate ok (HTTP {status})"
         except Exception as e:
             # Distinguish playwright timeout from network from other
             err_type = type(e).__name__
-            return False, f"navigate failed: {err_type}: {str(e)[:120]}"
+            return DEAD, f"navigate failed: {err_type}: {str(e)[:120]}"
 
     def _heartbeat_in_page_fetch(self) -> tuple[bool, str]:
         """Lightweight: ask the existing page context to fire a fetch()
@@ -824,7 +921,7 @@ class SessionKeeper:
         401."""
         url = self._derive_check_url()
         if not url:
-            return False, "no check URL configurable for this site"
+            return DEAD, "no check URL configurable for this site"
         try:
             js = (
                 f"async () => {{"
@@ -842,19 +939,24 @@ class SessionKeeper:
             # to redirect us (since we set redirect:'manual'). Usually
             # a redirect to login.
             if result.get("type") == "opaqueredirect" or status == 0:
-                return False, "fetch returned opaque redirect (likely to login)"
+                return DEAD, "fetch returned opaque redirect (likely to login)"
             if status in (401, 403):
-                return False, f"fetch got {status}"
+                return DEAD, f"fetch got {status}"
             if 300 <= status < 400:
-                return False, f"fetch got redirect {status}"
+                return DEAD, f"fetch got redirect {status}"
             body = (result.get("body") or "").lower()
             if "type=\"password\"" in body and "login" in body:
-                return False, "fetch body contains login form"
+                return DEAD, "fetch body contains login form"
+            # Row 424: an unclassified status is not an authenticated answer.
+            verdict = _classify_status(status)
+            if verdict is not ALIVE:
+                return verdict, (f"in-page fetch inconclusive (HTTP {status}): "
+                                 f"the site answered but measured no auth")
             # Persist any updated cookies (sliding window refresh)
             self._persist_cookies()
-            return True, f"in-page fetch ok (HTTP {status})"
+            return ALIVE, f"in-page fetch ok (HTTP {status})"
         except Exception as e:
-            return False, f"in-page fetch failed: {type(e).__name__}: {str(e)[:120]}"
+            return DEAD, f"in-page fetch failed: {type(e).__name__}: {str(e)[:120]}"
 
     def _heartbeat_httpx_fallback(self) -> tuple[bool, str]:
         """Fallback path when Playwright/Chromium is unavailable. Same
@@ -862,12 +964,12 @@ class SessionKeeper:
         reliable but always available."""
         check_url = self._derive_check_url()
         if not check_url:
-            return False, "no check URL configurable for this site"
+            return DEAD, "no check URL configurable for this site"
         try:
             import httpx
             cookies = self._load_cookies()
             if not cookies:
-                return False, "no cookies stored yet (never logged in)"
+                return DEAD, "no cookies stored yet (never logged in)"
             # F-RUN02-03: route the heartbeat through the same fail-closed VPN
             # proxy as the payload path. A vpn_required site whose tunnel is
             # down raises VPNRequiredError -> fail closed (no client built)
@@ -880,24 +982,32 @@ class SessionKeeper:
                 proxy_url = _eff_proxy(self.config.get("proxy"), self.site_id,
                                        _resolver)
             except _vpnrt.VPNRequiredError as _pe:
-                return False, (f"VPN required, tunnel unavailable -- "
-                               f"failing closed: {_pe}")
+                return DEAD, (f"VPN required, tunnel unavailable -- "
+                              f"failing closed: {_pe}")
             with httpx.Client(timeout=20.0, follow_redirects=False,
                               cookies=cookies, proxy=proxy_url) as cli:
                 resp = cli.get(check_url)
             if 300 <= resp.status_code < 400:
                 loc = resp.headers.get("location", "")
                 if "login" in loc.lower() or "signin" in loc.lower():
-                    return False, f"redirected to login: {loc[:80]}"
+                    return DEAD, f"redirected to login: {loc[:80]}"
             if resp.status_code in (401, 403):
-                return False, f"server returned {resp.status_code}"
+                return DEAD, f"server returned {resp.status_code}"
             if resp.status_code == 200:
                 text = resp.text[:50000].lower()
                 if 'type="password"' in text and "login" in text:
-                    return False, "response contains login form"
-            return True, f"httpx fallback HTTP {resp.status_code}"
+                    return DEAD, "response contains login form"
+            # Row 424: this is where ANY 3xx whose Location merely lacked the
+            # substrings login/signin used to fall through to True, alongside
+            # every 5xx and 404.
+            verdict = _classify_status(resp.status_code)
+            if verdict is not ALIVE:
+                return verdict, (f"httpx fallback inconclusive "
+                                 f"(HTTP {resp.status_code}): the site "
+                                 f"answered but measured no auth")
+            return ALIVE, f"httpx fallback HTTP {resp.status_code}"
         except Exception as e:
-            return False, f"httpx fallback failed: {type(e).__name__}: {e}"
+            return DEAD, f"httpx fallback failed: {type(e).__name__}: {e}"
 
     def _derive_check_url(self) -> str:
         """Where to GET to verify we're logged in. Order of preference:
