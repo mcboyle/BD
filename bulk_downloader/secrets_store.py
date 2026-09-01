@@ -523,6 +523,15 @@ class MasterPasswordBackend(_BackendBase):
         # Row 432: set before _load_or_init so the loader can record why the
         # durable store could not be read. None means "the store was read".
         self._load_error: str | None = None
+        # Row 555: WHICH unavailable measurement this is, latched with the
+        # error itself and never re-derived from its text. "unreadable" means
+        # a directory entry WAS observed and only its contents could not be
+        # read; "unmeasured" means existence itself could not be measured, so
+        # no refusal may assert that a vault file is there or prescribe
+        # repairing one. Collapsing the two costs the investigation: they have
+        # opposite remedies -- restore the file, or fix the parent directory
+        # -- and the operator is told to do the wrong one (CLAUDE.md A7).
+        self._load_error_kind: str | None = None
         # Row 482: True only when _load_or_init saw NO file. The first-use
         # branch re-probes before it writes, because this snapshot can go stale
         # while the process lives.
@@ -548,6 +557,10 @@ class MasterPasswordBackend(_BackendBase):
             present = _path_entry_exists(SECRETS_FILE)
         except OSError as e:
             self._load_error = f"{type(e).__name__}: {e}"
+            # Row 555: the probe itself failed, so nothing here observed a
+            # file. The stderr line below already says "cannot even be
+            # probed"; the refusal every caller receives must agree with it.
+            self._load_error_kind = "unmeasured"
             sys.stderr.write(
                 f"  secrets.json at {SECRETS_FILE} cannot even be probed: "
                 f"{e}. The vault is UNREADABLE, not uninitialized: every "
@@ -584,6 +597,10 @@ class MasterPasswordBackend(_BackendBase):
                 # fail closed instead (CLAUDE.md A7: an unavailable
                 # measurement is UNKNOWN, never OK).
                 self._load_error = f"{type(e).__name__}: {e}"
+                # Row 555: _path_entry_exists answered True above, so the
+                # directory entry is measured and row 432's existence-asserting
+                # vocabulary is correct here.
+                self._load_error_kind = "unreadable"
                 sys.stderr.write(
                     f"  secrets.json at {SECRETS_FILE} could not be read: "
                     f"{e}; left untouched. The vault is UNREADABLE, not "
@@ -639,11 +656,21 @@ class MasterPasswordBackend(_BackendBase):
         self,
         operation: str,
         detail: str,
+        *,
+        kind: str = "unreadable",
     ) -> None:
-        """Latch a vault probe refusal before publishing it to any reader."""
+        """Latch a vault probe refusal before publishing it to any reader.
+
+        Row 555: ``kind`` records whether the vault's EXISTENCE was observed.
+        It is latched with the detail so the first cause wins consistently,
+        and it always ends in a raise -- the three branches in
+        :meth:`_refuse_if_vault_changed_locked` have no ``elif`` and depend on
+        that.
+        """
         self._key = None
         if self._load_error is None:
             self._load_error = detail
+            self._load_error_kind = kind
         self._refuse_if_unreadable_locked(operation)
 
     def _refuse_if_vault_changed_locked(self, operation: str) -> None:
@@ -673,11 +700,14 @@ class MasterPasswordBackend(_BackendBase):
             # returning False on a failed write.
             return
         if now == (-1, -1, -1):
+            # Row 555: the stat failed, so this branch knows only that it
+            # could not look -- not that a file is there.
             self._record_probe_failure_locked(
                 operation,
                 f"the vault at {SECRETS_FILE} cannot be measured, so this "
                 f"{operation} cannot prove it would write over the vault this "
                 "process read. Fix the permissions and RESTART the service.",
+                kind="unmeasured",
             )
         if self._loaded_identity is None:
             self._record_probe_failure_locked(
@@ -890,15 +920,32 @@ class MasterPasswordBackend(_BackendBase):
         This is the guarantee AF2's move-aside used to provide by renaming.
         The file is now preserved in place, so nothing may write over it and
         no password may be committed against it."""
-        if self._load_error is not None:
+        if self._load_error is None:
+            return
+        if self._load_error_kind == "unmeasured":
+            # Row 555. Existence is what could not be measured, so this
+            # refusal may not assert a file is there, and "repair or restore
+            # the file" is the remedy for the opposite condition -- on a fresh
+            # or mis-owned host there may be no vault behind the failed probe
+            # at all. Name the boundary that actually failed instead.
             raise SecretsUnreadableError(
-                f"{operation} refused: the credential vault file exists but "
-                f"is unreadable ({self._load_error}). It was left untouched "
-                f"and NOT reinitialized. Repair or restore the file, then "
+                f"{operation} refused: the credential vault path "
+                f"{SECRETS_FILE} could not be measured, so this process "
+                f"cannot say whether a vault is there ({self._load_error}). "
+                f"Nothing was written and no vault was reinitialized. Fix the "
+                f"permissions and ownership on the containing directory, then "
                 f"RESTART the service -- the store is read once at backend "
                 f"construction and get_backend() caches that instance, so "
                 f"retrying against this process cannot pick up the repair."
             )
+        raise SecretsUnreadableError(
+            f"{operation} refused: the credential vault file exists but "
+            f"is unreadable ({self._load_error}). It was left untouched "
+            f"and NOT reinitialized. Repair or restore the file, then "
+            f"RESTART the service -- the store is read once at backend "
+            f"construction and get_backend() caches that instance, so "
+            f"retrying against this process cannot pick up the repair."
+        )
 
     def store_state(self) -> str:
         """Classify the durable store: the four states are mutually exclusive.
