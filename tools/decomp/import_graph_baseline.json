@@ -3802,6 +3802,14 @@
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/thumbnail_sheets.py"
     ],
+    "tests/test_row449_live_runners_dict_is_iterated_under_its_lock.py": [
+      "bulk_downloader/app_runners.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/metrics_prom.py"
+    ],
+    "tests/test_row450_watch_folder_defers_a_file_still_being_written.py": [
+      "bulk_downloader/watch_folder.py"
+    ],
     "tests/test_row475_offline_vault_password_check.py": [
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"

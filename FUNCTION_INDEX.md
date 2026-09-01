@@ -89,100 +89,100 @@ Schema version: 2
 - L1513 `_save_sites_config` `[private]` — Write current sites to disk. Called on every add/update/delete.
 - L1600 `_build_meta` `[private]` — Return a copy of cfg with secrets stripped — top-level password
 - L1639 `_load_sites_config` `[private]` — Read sites from disk on startup and instantiate SiteRunners.
-- L1753 `_init_vpn_runtime` `[private]` — Initialize VPN mappings after configured sites have been restored.
-- L1794 `_start_session_keepers` `[private]`
-- L1872 `_heartbeat_to_disk_loop` `[private]`
-- L1912 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
-- L1997 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
-- L2006 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
-- L2019 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
-- L2045 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
-- L2109 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
-- L2140 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
-- L2154 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
-- L2171 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
-- L2253 `_start_window_scheduler` `[private]`
-- L2322 `_start_storage_tier_scheduler` `[private]`
-- L2341 `_load_app_config` `[private]`
-- L2434 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
-- L2496 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
-- L2582 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
-- L2593 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
-- L2656 `_saved_search_enqueue_handler` `[private]`
-- L2671 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
-- L2763 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
-- L2834 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
-- L2876 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
-- L2948 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
-- L2966 `_405_with_allow` `[private]`
-- L2974 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
-- L3007 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
-- L3090 `pwa_manifest` `GET /manifest.json`
-- L3106 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
-- L3219 `pwa_sw` `GET /sw.js`
-- L3239 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
-- L3251 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
-- L3277 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
-- L3286 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
-- L3311 `_chk` `[private]`
-- L3432 `_request_is_same_origin` `[private]` — True when the request's Referer host:port matches its Host -- i.e. it
-- L3455 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
-- L3486 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
-- L3967 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
-- L4002 `_bd_cookie_dir` `[private]`
-- L4009 `_site_primary_url` `[private]` — Resolve a site's primary URL from the usual config fields (mirrors
-- L4065 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
-- L4151 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
-- L4268 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
-- L4281 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
-- L4299 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L4347 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L4397 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L4416 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L4443 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L4534 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L4550 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L4592 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L4651 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L4683 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L4813 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L4858 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L4893 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L4918 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L4952 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L4972 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L5054 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L5083 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L5111 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L5161 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L5358 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L5394 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L5555 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L5619 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L5759 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L5784 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L5988 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6001 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6028 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6048 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6088 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L6156 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L6298 `serve_ss` `GET /screenshots/<path:filename>`
-- L7587 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7594 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7605 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7620 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7684 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7713 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7721 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7738 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7750 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7773 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7789 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7805 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7822 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7875 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7996 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L1758 `_init_vpn_runtime` `[private]` — Initialize VPN mappings after configured sites have been restored.
+- L1799 `_start_session_keepers` `[private]`
+- L1877 `_heartbeat_to_disk_loop` `[private]`
+- L1917 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
+- L2002 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
+- L2011 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
+- L2024 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
+- L2050 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
+- L2114 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
+- L2145 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
+- L2159 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
+- L2176 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
+- L2258 `_start_window_scheduler` `[private]`
+- L2327 `_start_storage_tier_scheduler` `[private]`
+- L2346 `_load_app_config` `[private]`
+- L2439 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
+- L2501 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
+- L2587 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
+- L2598 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
+- L2661 `_saved_search_enqueue_handler` `[private]`
+- L2676 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
+- L2768 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
+- L2839 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
+- L2881 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
+- L2953 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
+- L2971 `_405_with_allow` `[private]`
+- L2979 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
+- L3012 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
+- L3095 `pwa_manifest` `GET /manifest.json`
+- L3111 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
+- L3224 `pwa_sw` `GET /sw.js`
+- L3244 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
+- L3256 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
+- L3282 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
+- L3291 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
+- L3316 `_chk` `[private]`
+- L3437 `_request_is_same_origin` `[private]` — True when the request's Referer host:port matches its Host -- i.e. it
+- L3460 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
+- L3491 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
+- L3972 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
+- L4007 `_bd_cookie_dir` `[private]`
+- L4014 `_site_primary_url` `[private]` — Resolve a site's primary URL from the usual config fields (mirrors
+- L4070 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
+- L4156 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
+- L4273 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
+- L4286 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
+- L4304 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
+- L4352 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L4402 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L4421 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L4448 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L4539 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L4555 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L4597 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L4656 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L4688 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L4818 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L4863 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L4898 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L4923 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L4957 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L4977 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5064 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5093 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5121 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5171 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L5368 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L5404 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L5565 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L5629 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L5769 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L5794 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L5998 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6011 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6038 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6058 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6098 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6166 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6308 `serve_ss` `GET /screenshots/<path:filename>`
+- L7597 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7604 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7615 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7630 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7694 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7723 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7731 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7748 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7760 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7783 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7799 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7815 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7832 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7885 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L8006 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
