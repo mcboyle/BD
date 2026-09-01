@@ -98,6 +98,7 @@ def _git_environment(*, committer: bool = False) -> dict[str, str]:
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_TERMINAL_PROMPT="0",
+        LC_ALL="C",
     )
     if committer:
         run_env.update(
@@ -130,15 +131,14 @@ def _git_bytes(cwd: Path, *args: str) -> bytes:
     return result.stdout
 
 
-_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+_FULL_SHA = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 
 # Git's refusals when the output path or its registration ALREADY EXISTS -- the
 # cases where `git worktree add` creates nothing at all, so nothing there is
 # ours. Row 480.
 _FOREIGN_ADD_REFUSAL = re.compile(
     r"already exists|already registered|already used by worktree|"
-    r"is already checked out|missing but already registered|"
-    r"cannot create directory",
+    r"is already checked out|missing but already registered",
     re.IGNORECASE,
 )
 
@@ -822,6 +822,7 @@ def replay(
                 f"revision this tool would resolve inside the very worktree it "
                 f"is certifying; got {expect_head!r}",
             )
+        expected = expected.lower()
         if source_head != expected:
             raise ReplayFailure(
                 "SOURCE_HEAD_MISMATCH",
@@ -955,7 +956,7 @@ def replay(
                 ownership = _registered_output_ownership(repo_common_git, output)
                 registration_absence_proven = ownership is None
             raise ReplayFailure(
-                "OUTPUT_CREATE_FAILED",
+                "GIT_WORKTREE_ADD_FAILED",
                 detail or f"could not create output worktree {output}",
             )
         # ROW 542. THE SUCCESS BRANCH IGNORED THE SAME MEASUREMENT THE FAILURE
@@ -1103,19 +1104,33 @@ def _emit(payload: dict[str, object], *, as_json: bool) -> None:
             f"output={payload['output']}"
         )
     else:
-        print(
+        line = (
             f"{payload['status']} {payload.get('reason_code', 'UNKNOWN')}: "
             f"{payload.get('message', '')}"
         )
+        notes = payload.get("rollback_notes", [])
+        if notes:
+            line += "\n" + "\n".join(
+                f"ROLLBACK_NOTE: {note}" for note in notes
+            )
+        print(line)
 
 
-def _fail(error: ReplayFailure, *, as_json: bool) -> NoReturn:
+def _fail(
+    error: ReplayFailure,
+    *,
+    as_json: bool,
+    rollback_notes: list[str] | None = None,
+) -> NoReturn:
     status = "CONFLICT" if error.exit_code == 3 else "REFUSED"
+    if rollback_notes is None:
+        rollback_notes = list(getattr(error, "__notes__", ()))
     _emit(
         {
             "status": status,
             "reason_code": error.reason_code,
             "message": error.message,
+            "rollback_notes": rollback_notes,
         },
         as_json=as_json,
     )
@@ -1140,7 +1155,11 @@ def main() -> int:
             output=args.output,
         )
     except (OSError, UnicodeError) as error:
-        _fail(ReplayFailure("LOCAL_IO_FAILED", str(error)), as_json=args.json)
+        _fail(
+            ReplayFailure("LOCAL_IO_FAILED", str(error)),
+            as_json=args.json,
+            rollback_notes=list(getattr(error, "__notes__", ())),
+        )
     except ReplayFailure as error:
         _fail(error, as_json=args.json)
     _emit(payload, as_json=args.json)

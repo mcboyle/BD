@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1396 - a replay refusal names the step that failed
+
+Rows 546, 556, 578 and 579 of the 2026-09-01 audit. One contract: a replay
+refusal names the step and cause that actually failed rather than collapsing
+distinct git failures into a single verdict.
+
+- 546. `fail` dropped every attached rollback note, so source mutation and any
+  other cause arrived at the operator as the same sentence. The notes are now
+  emitted with the refusal.
+- 556. A git-side `worktree add` failure with no created path and no
+  registration was misdiagnosed as a foreign occupant. Those are opposite
+  remedies -- repair the tool, or go find who owns the directory -- and the
+  wrong one is pursued first, which is exactly what CLAUDE.md A7 records
+  costing an investigation when `bd-vault-unlock` collapsed a 401 into
+  "pairing fallback failed".
+- 578. The foreign-occupant discriminator matched ENGLISH-ONLY git stderr, so
+  the diagnosis silently changed with the ambient locale. Git subprocesses in
+  both tools now run under a forced `LC_ALL=C` while unrelated environment
+  values are preserved. This is the same defect class CLAUDE.md names in the
+  v3.66.1223-1238 window, where a subprocess inherited the ambient locale.
+- 579. A valid UPPERCASE 40-hex object name was refused. A validated expected
+  SHA is now normalised before comparison.
+- Negative controls: genuine foreign occupancy is still refused and still says
+  so; a wrong uppercase SHA is still rejected on its value rather than its case;
+  a clean failure still fails; non-git environment variables survive the
+  LC_ALL=C forcing.
+
 ## v3.66.1395 - a staging claim proves its bytes before a reclaim adopts them
 
 Row 535, rank 3 of the 2026-09-01 refutation. Rows 534, 541 and 575 were
