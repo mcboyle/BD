@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1408 - a test file does not poison its neighbour, and an unusable tray stays silent
+
+Rows 610 and 611. Row 611's filed hypothesis was WRONG and the correction is the
+substance of this entry.
+
+- 610 IS REAL AND IS FIXED AT THE LEAK. `app.SITES_FILE` is a process-global and
+  the first boot REPLACES it, because `_publish_sites_file_for_runtime` resolves
+  the relative `Path("sites_config.json")` against the current cwd.
+  tests/test_v3_66_272_gcw3_setup_site.py boots inside a TemporaryDirectory and
+  pins the module inside a directory it then deletes; conftest's autouse
+  `isolated_bd_home` resets `_SITE_RUNTIME_PATH` and `_BOOTED_PATHS` but NOT
+  `SITES_FILE`, so the pin outlives the test and
+  tests/test_v3_66_326_password_vault_routing.py fails six times with
+  FileNotFoundError. 272 now restores both `SITES_FILE` and its identity latch in
+  the `finally` that already owns the cwd restore, and 326 asserts the
+  precondition before its first write so a future leak fails loudly at the
+  precondition rather than six assertions deep.
+- 611 WAS FILED AS SCHEDULE SENSITIVITY AND IT IS NOT. `pystray` is in
+  requirements-optional.txt, is installed on 6 of the 12 fleet hosts, and
+  initialises a platform backend AT IMPORT TIME; with no DISPLAY it raises
+  `Xlib.error.DisplayNameError`, which is an Exception and NOT an ImportError, so
+  it escaped `tray_app.py`'s guard and broke that module's own documented promise
+  that an unusable tray is silently skipped.
+- THE ORIGINAL COMPARISON WAS NEVER MATCHED, which is why the row was wrong: the
+  band ran on a host with pystray 0.19.5 and DISPLAY unset, while the "passes
+  serially in isolation on the same tree" sample ran on test5, WHICH HAS NO
+  PYSTRAY AT ALL. Same tree, different environment. The band's own recorded
+  worker assignment also refutes residue directly -- the file was position 1 of
+  12 on its worker, so nothing was co-scheduled before it.
+- The ImportError arm is kept separate from the new arm so "absent" stays
+  distinguishable from "present but unusable", and `unavailable_reason()` carries
+  the dependency's own words. tools/verify_release.py has classified the SYMPTOM
+  string "Bad display name" all along; this is the cause.
+- Both files now leave zero dead `SITES_FILE` pins: repairing only the file that
+  bit us would have left it biting the next one.
+
 ## v3.66.1407 - the mutator reads the same first line Python does
 
 Row 572's shape, one level down, in the tool that APPLIES every mutant rather
