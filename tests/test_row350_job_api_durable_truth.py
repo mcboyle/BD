@@ -777,6 +777,97 @@ def test_dev_run_genuine_reader_failure_reaps_before_terminal_verdict(
             subject._runs.clear()
 
 
+def test_dev_run_worker_error_reaps_descendant_after_leader_exits(
+    monkeypatch, tmp_path
+):
+    """A vanished group leader must not make a live descendant look reaped."""
+    from bulk_downloader import dev_tools as subject
+
+    marker = tmp_path / "reader-descendant-live"
+    descendant = (
+        "import os, pathlib, signal, sys, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "pathlib.Path(sys.argv[1]).write_text(\n"
+        "    f'{os.getpid()}\\n', encoding='ascii')\n"
+        "time.sleep(300)\n"
+    )
+    leader = (
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
+        "time.sleep(300)\n"
+    )
+    monkeypatch.setattr(
+        subject,
+        "_build_cmd",
+        lambda *_args: [sys.executable, "-c", leader, descendant, str(marker)],
+    )
+    real_popen = subject.subprocess.Popen
+    injected = {"reader": 0, "process": None, "child": -1, "start": None}
+    handles = []
+
+    class FailingReader:
+        def __init__(self, stream, process):
+            self._stream = stream
+            self._process = process
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            deadline = time.monotonic() + 5
+            while not marker.is_file() and time.monotonic() < deadline:
+                threading.Event().wait(0.01)
+            child_pid = int(marker.read_text(encoding="ascii").strip())
+            child_start = _linux_process_start(child_pid)
+            assert _same_linux_process_is_alive(child_pid, child_start)
+            injected.update(child=child_pid, start=child_start)
+            injected["reader"] += 1
+            raise RuntimeError("injected reader death with descendant")
+
+        def close(self):
+            self._stream.close()
+
+    def popen_with_failing_reader(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        handles.append(process.stdout)
+        process.stdout = FailingReader(process.stdout, process)
+        injected["process"] = process
+        return process
+
+    monkeypatch.setattr(subject.subprocess, "Popen", popen_with_failing_reader)
+    with subject._runs_lock:
+        subject._runs.clear()
+    try:
+        run_id = subject.start_run("tests/row445-descendant.py")["run_id"]
+        status = _await_dev_run(
+            subject, run_id, lambda current: current["state"] != "running"
+        )
+        assert injected["reader"] == 1, "the descendant injection did not fire once"
+        child_pid = injected["child"]
+        child_start = injected["start"]
+        survivors = int(_same_linux_process_is_alive(child_pid, child_start))
+        assert survivors == 0 and status["cleanup_state"] == "reaped", (
+            "DEV-RUN DESCENDANT SURVIVED LEADER REAP: "
+            f"leader={injected['process'].pid} child={child_pid} "
+            f"survivors={survivors} cleanup={status['cleanup_state']}"
+        )
+    finally:
+        for handle in handles:
+            handle.close()
+        process = injected["process"]
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subject.subprocess.TimeoutExpired:
+                pass
+        with subject._runs_lock:
+            subject._runs.clear()
+
+
 def test_dev_run_unmeasurable_cleanup_stays_unknown_and_retains_identity(
     monkeypatch, tmp_path
 ):

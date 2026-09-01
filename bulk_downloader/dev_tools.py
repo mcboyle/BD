@@ -71,15 +71,55 @@ def _settle_completed_run(run: dict, proc: subprocess.Popen) -> bool:
 def _reap_worker_error(proc: subprocess.Popen) -> str:
     """Reap the owned process tree before a worker error becomes terminal."""
     try:
-        kill_process_tree(proc)
+        attempted = kill_process_tree(proc)
     except Exception:
-        pass
+        attempted = None
     try:
         if proc.stdout is not None:
             proc.stdout.close()
     except Exception:
         pass
-    return "reaped" if proc.poll() is not None else "unknown"
+    if attempted is None:
+        return "unknown"
+    if os.name == "nt":
+        return "reaped" if proc.poll() is not None else "unknown"
+
+    # Every dev run starts a new session, so its pid is also the immutable
+    # process-group receipt captured at launch.  kill_process_tree historically
+    # returned when the leader exited, even if a TERM-resistant descendant was
+    # still in that owned group.  Verify the group, and force only that exact
+    # group before publishing a terminal cleanup verdict.
+    pgid = proc.pid
+
+    def group_is_gone() -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
+
+    if not group_is_gone():
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return "unknown"
+        # The shared helper already budgets one second for its forced-reap
+        # phase.  Apply that same bounded ceiling to verification rather than
+        # turning a single probe into a false UNKNOWN while init reaps an
+        # orphaned descendant.
+        deadline = time.monotonic() + 1.0
+        while not group_is_gone() and time.monotonic() < deadline:
+            threading.Event().wait(0.01)
+
+    return (
+        "reaped"
+        if group_is_gone() and proc.poll() is not None
+        else "unknown"
+    )
 
 
 def is_dev_mode() -> bool:

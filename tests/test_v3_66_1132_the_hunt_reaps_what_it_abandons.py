@@ -204,6 +204,7 @@ _MEASURED_S = {
     "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait":                (0.0035, 5),
     "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait-2":              (0.0035, 5),
     "hunt_fixture_does_not_report_a_self_exited_child_as_leaked/wait":            (0.1000, 5),
+    "hunt_fixture_reaps_descendant_after_group_leader_exits/wait":               (0.1000, 5),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink":  (0.0054, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink-2":(0.0003, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait":      (0.0033, 5),
@@ -516,11 +517,23 @@ def _w1_budget_boundary(monkeypatch):
     finally:
         cleanup["tracked"] = len(spawned)
         for process, receipt in spawned:
-            if process.poll() is not None:
+            owns_group = receipt is not None and receipt[1] == process.pid
+
+            def group_is_gone():
+                if not owns_group:
+                    return True
+                try:
+                    os.killpg(receipt[1], 0)
+                except ProcessLookupError:
+                    return True
+                except OSError as exc:
+                    return exc.errno == errno.ESRCH
+                return False
+
+            if process.poll() is not None and group_is_gone():
                 cleanup["settled"] += 1
                 continue
 
-            owns_group = receipt is not None and receipt[1] == process.pid
             try:
                 if owns_group:
                     os.killpg(receipt[1], signal.SIGKILL)
@@ -535,17 +548,12 @@ def _w1_budget_boundary(monkeypatch):
                 cleanup["unknown"] += 1
                 continue
 
-            group_gone = True
             if owns_group:
-                try:
-                    os.killpg(receipt[1], 0)
-                except ProcessLookupError:
-                    group_gone = True
-                except OSError as exc:
-                    group_gone = exc.errno == errno.ESRCH
-                else:
-                    group_gone = False
-            if process.poll() is not None and group_gone:
+                deadline = time.monotonic() + _w1_budget_s(
+                    "_w1_budget_boundary/reap-wait")
+                while not group_is_gone() and time.monotonic() < deadline:
+                    threading.Event().wait(0.01)
+            if process.poll() is not None and group_is_gone():
                 cleanup["reaped"] += 1
             else:
                 cleanup["unknown"] += 1
@@ -637,6 +645,59 @@ def test_hunt_fixture_does_not_report_a_self_exited_child_as_leaked():
         assert cleanup["settled"] == 1
         assert cleanup["unknown"] == 0
     finally:
+        inner_patch.undo()
+
+
+def test_hunt_fixture_reaps_descendant_after_group_leader_exits(tmp_path):
+    """An exited leader is settled only when its owned group is also gone."""
+    marker = tmp_path / "descendant.pid"
+    descendant = (
+        "import os, pathlib, sys, time; "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()), encoding='ascii'); "
+        "time.sleep(300)"
+    )
+    leader = (
+        "import pathlib, subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
+        "p = pathlib.Path(sys.argv[2])\n"
+        "deadline = time.monotonic() + 5\n"
+        "while not p.exists() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.01)\n"
+        "assert p.exists()\n"
+    )
+    inner_patch = pytest.MonkeyPatch()
+    boundary = _w1_budget_boundary.__wrapped__(inner_patch)
+    cleanup = next(boundary)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", leader, descendant, str(marker)],
+        start_new_session=True,
+    )
+    child_receipt = None
+    try:
+        assert proc.wait(timeout=_w1_budget_s(
+            "hunt_fixture_reaps_descendant_after_group_leader_exits/wait"
+        )) == 0
+        child_pid = int(marker.read_text(encoding="ascii"))
+        child_receipt = _w1_proc_receipt(child_pid)
+        assert child_receipt[1] == proc.pid, (
+            "the descendant did not inherit the fixture-owned process group"
+        )
+        assert _w1_exact_receipt_is_present(child_receipt), (
+            "the descendant was not live after its leader exited"
+        )
+
+        next(boundary, None)
+        survivors = int(_w1_exact_receipt_is_present(child_receipt))
+        assert survivors == 0, (
+            "HUNT FIXTURE SETTLED A LEAKED DESCENDANT: "
+            f"leader={proc.pid} child={child_pid} survivors={survivors} "
+            f"cleanup={cleanup!r}"
+        )
+        assert cleanup == {"tracked": 1, "reaped": 1,
+                           "settled": 0, "unknown": 0}
+    finally:
+        if child_receipt is not None and _w1_exact_receipt_is_present(child_receipt):
+            os.killpg(proc.pid, signal.SIGKILL)
         inner_patch.undo()
 
 

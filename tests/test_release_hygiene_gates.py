@@ -212,6 +212,55 @@ def test_passes():
     assert totals == (1, 1, 0, 0)
 
 
+def test_custom_runner_pairs_module_teardown_for_each_parameter_case(tmp_path):
+    teardown_log = tmp_path / "parametrized-teardown.log"
+    source = f"""
+from pathlib import Path
+import pytest
+
+state = []
+teardown_log = Path({str(teardown_log)!r})
+
+def setup_function(function):
+    assert function.__name__ == "test_each"
+    state.append("s")
+
+def teardown_function(function):
+    assert function.__name__ == "test_each"
+    state.append("t")
+    with teardown_log.open("a", encoding="ascii") as stream:
+        stream.write(function.__name__ + "\\n")
+
+@pytest.mark.parametrize("value", [1, 2])
+def test_each(value):
+    assert state == (["s"] if value == 1 else ["s", "t", "s"])
+"""
+    result = _run_synthetic_with_custom_runner(tmp_path, source)
+    totals = _custom_runner_totals(result)
+    assert totals == (2, 2, 0, 0), result.stdout + result.stderr
+    assert teardown_log.read_text(encoding="ascii").splitlines() == [
+        "test_each", "test_each"
+    ]
+
+    teardown_log.unlink()
+    env = os.environ.copy()
+    env.pop("BD_INSTALL_DIR", None)
+    real_pytest = subprocess.run(
+        [sys.executable, "-m", "pytest",
+         str(tmp_path / "test_synthetic_runner_case.py"), "-q"],
+        cwd=_REPO,
+        env=env,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert real_pytest.returncode == 0, real_pytest.stdout + real_pytest.stderr
+    assert "2 passed" in real_pytest.stdout
+    assert teardown_log.read_text(encoding="ascii").splitlines() == [
+        "test_each", "test_each"
+    ]
+
+
 # ── scan_version_pins ──────────────────────────────────────────────
 def test_version_pin_matches_expected():
     root = _mktree({"tests/test_x.py": 'assert __version__ == "3.66.169"\n'})
