@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4199,
+  "edge_count": 4204,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3755,6 +3755,13 @@
       "bulk_downloader/db.py",
       "bulk_downloader/download_hold.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_row440_443_ffmpeg_probe_boundary.py": [
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/enrichment.py",
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/thumbnail_gen.py",
+      "bulk_downloader/thumbnail_sheets.py"
     ],
     "tests/test_row482_the_vault_state_is_always_measured.py": [
       "bulk_downloader/app_secrets.py",
