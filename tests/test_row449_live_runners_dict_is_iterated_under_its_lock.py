@@ -391,3 +391,66 @@ def test_a_healthy_scrape_emits_no_unknown_marker():
     assert 'bd_jobs_active{site="s1",status="running"} 1' in body
     assert "bd_jobs_active_unknown" not in body, (
         "the UNKNOWN marker fired on a scrape that measured fine")
+
+
+# ── A7 self-audit: prove the LOCKED path is the one the live dict takes ──
+
+
+def test_the_live_registry_generation_is_taken_under_the_registry_lock(
+        registry):
+    """Self-audit control.  Every other test here would still pass if
+    runners_generation quietly returned an UNLOCKED list(...) copy -- a copy
+    alone stops the RuntimeError, so the lock could rot away undetected.
+
+    This asserts the lock is genuinely HELD while the copy is taken, which is
+    the half that makes create/delete/enumeration agree on one lock rather
+    than on CPython's GIL."""
+    from bulk_downloader import app_state
+
+    held_during_copy = []
+    real_items = dict.items
+
+    class _Watched(dict):
+        def items(self):
+            # RLock exposes the owning thread only while held.
+            held_during_copy.append(
+                app_state._watch_registry_lock._is_owned())
+            return real_items(self)
+
+    made = _Watched({"s1": _FakeRunner("s1")})
+    original = dict(registry)
+    saved = app_state.runners
+    try:
+        app_state.runners = made
+        out = app_state.runners_generation(made)
+    finally:
+        app_state.runners = saved
+        registry.clear()
+        registry.update(original)
+
+    assert held_during_copy == [True], (
+        "the live-registry copy was taken WITHOUT holding "
+        "_watch_registry_lock (observed %r)" % (held_during_copy,))
+    assert [sid for sid, _r in out] == ["s1"]
+
+
+def test_a_caller_scoped_copy_is_not_locked(registry):
+    """The negative control for the above: a private {sid: runner} copy must
+    NOT pay for the lock, or every single-site widget would serialise against
+    site creation for no reason."""
+    from bulk_downloader import app_state
+
+    observed = []
+    real_items = dict.items
+
+    class _Watched(dict):
+        def items(self):
+            observed.append(app_state._watch_registry_lock._is_owned())
+            return real_items(self)
+
+    scoped = _Watched({"s1": _FakeRunner("s1")})
+    out = app_state.runners_generation(scoped)
+
+    assert observed == [False], (
+        "a caller-scoped copy took the registry lock unnecessarily")
+    assert [sid for sid, _r in out] == ["s1"]
