@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1400 - a gate floor is a partition, not a pinned number
+
+Rows 566, 569, 570 and 571 of the 2026-09-01 audit. All four reproduced at
+base. The gates that judge other gates were themselves pinned to a pre-cut
+population, and row 566 says the anti-re-pin guard was blind to its own shape.
+
+- 569 and its duplicate 570. `_DECLARED_GATE_FLOOR = 235` sat under
+  `len(_DECLARED) = 236`, so the floor carried exactly one slack and could not
+  refuse a silent shrink. The floor and its `floor=` parameter are GONE. The
+  census is now a PARTITION: `_DECLARED` minus the tracked files declaring
+  `BD_GATE_SCOPE="repo-wide"` must equal a closed 82-member set pinned by
+  IDENTITY. Removing a gate now names the victim; adding a stray names the
+  intruder; growth passes with no literal edited anywhere.
+- 566. `_equality_pins` matched a `_COUNT` name suffix, so it missed
+  `len(x) == _SMALL_FLOOR` and `len(x) == _BIG_FLOOR - 1` entirely. It now
+  RESOLVES a name against the module's actual int bindings and reads names
+  inside arithmetic. It also SCANS ITSELF -- and because it parses rather than
+  greps, its own docstring naming `len(x) == 139` stays outside the denominator.
+  All three real one-character re-pins in the live modules are caught; zero
+  offenders on the unmodified tree.
+- 571. tests/test_row531 declared `BD_GATE_SCOPE = "module"`, so it was in no
+  shard and CI never ran the guard at all. It is now repo-wide, declared, and in
+  the mutation-verifiers shard -- the three-part change the gate module's own
+  comment documents.
+- WHAT STAYS A LITERAL, AND WHY. The 82-member set is MEMBERSHIP of a closed,
+  shrink-only legacy class -- the gate_scope_baseline idiom -- not a count of a
+  growing population, and identity also catches a same-size swap that a count
+  cannot. Adding a gate never edits it.
+- THREE BLIND SPOTS ARE NAMED IN THE CODE RATHER THAN HIDDEN: a repo-wide marker
+  flipped to module in the SAME commit that de-declares and de-shards it is
+  invisible to any within-tree derivation, because the derived half moves with
+  it; so is a whole-file deletion plus its two wiring lines. Closing either needs
+  a merge-base comparison, which is a different instrument.
+
 ## v3.66.1399 - the webhook test route unpacks what the hook actually returns
 
 Found by an AST sweep during row 536's cut, not by a report. Same shape as 536:

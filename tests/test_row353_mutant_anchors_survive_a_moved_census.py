@@ -293,8 +293,8 @@ def test_row348_m4_was_retired_with_the_literal_it_severed() -> None:
     the assertions below are the ones that would catch it being done for the
     wrong reason: the literal really is absent from the gate, the six mutants
     that sever the TREE are still there, and the property M4 stood in front of
-    is still enforced -- by a live floor that refuses a population below it, and
-    by a derivation that needs no literal at all.
+    is still enforced -- by an identity partition that names a dropped or
+    swapped legacy gate, and by a derivation that needs no literal at all.
     """
     assert _ROW348_SPEC.is_file()
     assert _CENSUS_GATE.is_file()
@@ -326,9 +326,20 @@ def test_row348_m4_was_retired_with_the_literal_it_severed() -> None:
         "premise that it cannot be stale because it no longer exists"
     )
     assert "_EXPECTED_CONFIRMED_SAFETY_GATE_COUNT" not in bindings
-    assert "_DECLARED_GATE_FLOOR" in bindings, (
-        "the population floor that replaced the literal is not bound at module "
-        "scope, so nothing carries the removal tripwire"
+    # Rows 569/570 moved the tripwire AGAIN, from a count to an identity. The
+    # floor that replaced the literal still had slack -- 236 declared against a
+    # floor of 235 -- and a floor is never raised on growth, so the window
+    # widened by one with every gate added. The census is now partitioned into a
+    # half that derives itself from the tracked tree and a closed legacy set
+    # pinned by identity, so a same-size swap is named too.
+    assert "_DECLARED_GATE_FLOOR" not in bindings, (
+        "the slack-bearing population floor came back as a real binding; rows "
+        "569/570 replaced it with an identity partition precisely because a "
+        "count ratchet cannot see a swap and grows its own blind window"
+    )
+    assert "_NON_DERIVABLE_DECLARED" in bindings, (
+        "the closed legacy declaration set is not bound at module scope, so "
+        "nothing carries the removal tripwire"
     )
 
     gate = _load_census_gate()
@@ -336,25 +347,34 @@ def test_row348_m4_was_retired_with_the_literal_it_severed() -> None:
     assert declared_count > 1
     shards = gate._shard_lists()
     assert len(shards) > 0
+    assert gate._NON_DERIVABLE_DECLARED, "the legacy half of the census is empty"
 
-    # NEGATIVE CONTROL: a floor above the real population is refused, and the
-    # refusal names both numbers rather than saying only that something is wrong.
-    with pytest.raises(
-        AssertionError,
-        match=r"the declared gate population fell from at least 999999 to [0-9]+",
-    ):
-        gate._assert_exact_gate_coverage(gate._DECLARED, shards, floor=999999)
+    # POSITIVE CONTROL: the live population partitions cleanly, with no total
+    # anywhere -- which is the whole reason M4 has nothing left to sever.
+    assert gate._declared_partition(gate._DECLARED) == ([], []), (
+        "the live declared population does not partition, so the negative "
+        "control below would refuse for the wrong reason"
+    )
 
-    # POSITIVE CONTROL: the same call at the true population passes, with no
-    # literal anywhere -- which is the whole reason M4 has nothing left to sever.
-    gate._assert_exact_gate_coverage(gate._DECLARED, shards, floor=declared_count)
+    # NEGATIVE CONTROL: drop one member of the legacy half from BOTH the
+    # declaration and the shards -- the silent shrink -- and the refusal names
+    # the victim rather than only saying something is wrong.
+    victim = sorted(gate._NON_DERIVABLE_DECLARED)[0]
+    assert victim in gate._DECLARED
+    gone, strayed = gate._declared_partition(gate._DECLARED - {victim})
+    assert gone == [victim] and strayed == [], (gone, strayed)
+
+    # ... and a suite that joins the census without declaring the marker is
+    # named in the other direction.
+    gone, strayed = gate._declared_partition(
+        gate._DECLARED | {"tests/test_row353_synthetic_stray.py"})
+    assert gone == [] and strayed == ["tests/test_row353_synthetic_stray.py"], (gone, strayed)
 
     # And the derivation still refuses the failure the spec exists for: a gate
     # that is declared and that no shard runs.
     with pytest.raises(AssertionError, match="missing from CI"):
         gate._assert_exact_gate_coverage(
-            gate._DECLARED, {"one": sorted(gate._DECLARED)[:-1]},
-            floor=declared_count)
+            gate._DECLARED, {"one": sorted(gate._DECLARED)[:-1]})
 
 
 def test_transform_control_only_confirms_the_mutation_tool_exists() -> None:

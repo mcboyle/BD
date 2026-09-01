@@ -52,6 +52,7 @@ from __future__ import annotations
 import ast
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -89,6 +90,12 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Rows 566/571. The meta-gate over this file and over the tracked Markdown
+    # corpus. It holds the EXACT bidirectional Markdown denominator -- the
+    # modules themselves keep only shrink-only floors -- and the only refusal of
+    # a `>=` -> `==` re-pin of a derived population. Marked `module` it ran in
+    # no shard, so neither refusal reached a PR.
+    "tests/test_row531_denominators_are_derived_not_pinned.py",
     # Row 532. bd-mutate finds its anchor by TEXT and never asks whether the
     # text is executable, so an anchor can resolve exactly once onto a comment:
     # the mutation edits prose, behaviour is unchanged, the catcher passes, and
@@ -788,31 +795,137 @@ _DECLARED = {
     "tests/test_desandbox_tool_verifiers.py",
 }
 
-# TWO FLOORS, NOT TWO EXACT COUNTS (row 531, v3.66.1381).
+# A PARTITION, NOT A COUNT (rows 569/570, superseding the row-531 floor).
 #
-# This block held two exact-count literals -- one for the declared gate census
-# and one for the seven-member H15 safety family -- behind eighty lines of bump
-# comments -- "208 -> 209", "233 -> 234", "the integrator re-pins this if a
-# concurrent cut also lands a gate". Every cut that declared a gate had to edit
-# the number, and on 2026-08-31 forgetting to do so cost a full CI round-trip
-# and a re-freeze.
+# This block first held two exact-count literals -- one for the declared gate
+# census and one for the seven-member H15 safety family -- behind eighty lines
+# of bump comments ("208 -> 209", "233 -> 234"). Row 531 replaced the census
+# literal with a monotonic floor, which stopped the chore but bought a blind
+# window instead: at v3.66.1388 len(_DECLARED) was 236 against a floor of 235,
+# and because a floor is never RAISED on growth that window widened by one with
+# every gate added. Every other assertion in this file is a relative comparison
+# between _DECLARED and ci.yml, so both sides of one deletion move together and
+# only the ratchet can see it -- and the ratchet had a spare notch.
 #
-# The exact total never answered the question it was written for. Its stated
-# purpose was to make a SAME-SIZE SUBSTITUTION visible, and a substitution
-# leaves the total unchanged, so the literal was blind to exactly the case it
-# named. What it actually caught was a REMOVAL -- and a floor catches a removal
-# too, while ordinary growth never touches it.
+# The exact total never answered the question it was written for either: its
+# stated purpose was to make a SAME-SIZE SUBSTITUTION visible, and a
+# substitution leaves the total unchanged.
 #
-# What still holds, unchanged, in _assert_exact_gate_coverage below: the
-# declared set is NONZERO; every declared gate is executed by some shard
-# (MEMBERSHIP); no shard names an undeclared suite (MEMBERSHIP, the other
-# direction); and no suite is executed twice (UNIQUENESS), so the execution
-# count cannot match the declaration count while a gate silently never runs.
+# So the census is now a PARTITION of the declared set into a half that derives
+# itself from the tracked tree and a half that cannot:
 #
-# Raise either floor ONLY when a gate is deliberately retired, and argue that
-# retirement in the cut. Adding a gate must never require an edit here.
-_DECLARED_GATE_FLOOR = 235
+#   derived   {tracked tests/test*.py declaring BD_GATE_SCOPE = "repo-wide"}
+#             -- grows on its own, no literal, and is already forced into
+#             _DECLARED by test_every_repo_wide_file_is_in_the_declared_set
+#   remainder _NON_DERIVABLE_DECLARED below -- a CLOSED set, pinned by IDENTITY
+#             rather than by count, exactly as gate_scope_baseline.txt is
+#
+# The identities and not the count is the whole point: a same-size swap inside
+# the remainder is named, and a member deleted from _DECLARED and ci.yml in one
+# commit is named. Adding a gate never edits this block, because a new gate
+# declares `repo-wide` and lands in the derived half. This set may only SHRINK,
+# and only when a legacy gate is deliberately retired or promoted to a marker.
+#
+# WHAT IT STILL CANNOT SEE, stated because an instrument that hides its blind
+# spots is worse than none. Any within-tree derivation moves with a coordinated
+# edit, so a repo-wide gate whose marker is flipped to `module` in the SAME
+# commit that removes it from _DECLARED and from ci.yml leaves the derived half
+# smaller with nothing to compare against -- as does deleting the file outright.
+# Both are three-part deliberate edits sitting in the diff; the failure this
+# gate addresses is forgetting, not evasion. Closing either one needs a
+# comparison against a merge base, which is a different instrument than this
+# file and is not attempted here.
+# The H15 floor is KEPT, deliberately, and it is not the chore row 531 retired:
+# that family is a closed seven-member population no ordinary cut grows, so the
+# floor has zero slack today and growth never edits it. Its members are pinned
+# by identity in _CONFIRMED_SAFETY_GATES below; the number only refuses a silent
+# emptying of the set.
 _CONFIRMED_SAFETY_GATE_FLOOR = 7
+
+_NON_DERIVABLE_DECLARED = {
+    "tests/test_all_sources_parse.py",  # legacy-baseline
+    "tests/test_app_measurements_fail_closed.py",  # module
+    "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module
+    "tests/test_cloud_setup_truthfulness.py",  # module
+    "tests/test_deploy_script.py",  # module
+    "tests/test_failed_measurements_have_distinct_states.py",  # module
+    "tests/test_ffmpeg_capability_health.py",  # module
+    "tests/test_generated_artifacts_are_not_tracked.py",  # legacy-baseline
+    "tests/test_gui_parity.py",  # legacy-baseline
+    "tests/test_import_graph_no_new_edges.py",  # legacy-baseline
+    "tests/test_no_test_writes_the_repo_plugins_dir.py",  # legacy-baseline
+    "tests/test_pin_index_in_sync.py",  # legacy-baseline
+    "tests/test_pk_mirrors_stay_retired.py",  # legacy-baseline
+    "tests/test_provider_resolve_surface_lock.py",  # legacy-baseline
+    "tests/test_register_content_amend.py",  # module
+    "tests/test_release_hygiene_gates.py",  # legacy-baseline
+    "tests/test_route_index_in_sync.py",  # legacy-baseline
+    "tests/test_row311_app_config_writers_are_serialized.py",  # module
+    "tests/test_row312_bd_jobs_reap_holds_identity.py",  # module
+    "tests/test_row313_bd_job_identity.py",  # module
+    "tests/test_row335_release_gate_populations.py",  # module
+    "tests/test_row339_measurement_noise_bounds.py",  # module
+    "tests/test_row344_capture_prune_is_target_bound.py",  # module
+    "tests/test_row345_opv_a11y_requires_served_cockpit.py",  # module
+    "tests/test_row349_shared_caches_are_identity_bound.py",  # module
+    "tests/test_row350_job_api_durable_truth.py",  # module
+    "tests/test_row356_cookie_quality_reports_unknown.py",  # module
+    "tests/test_row360_turnstile_bypass_is_installed.py",  # module
+    "tests/test_row363_affordance_learning.py",  # module
+    "tests/test_row_282_bd_opv_isolates_every_store.py",  # module
+    "tests/test_scan_version_pins_fixture.py",  # legacy-baseline
+    "tests/test_settings_center_slice4.py",  # legacy-baseline
+    "tests/test_source_windows_do_not_shift.py",  # legacy-baseline
+    "tests/test_toolchain_534.py",  # legacy-baseline
+    "tests/test_u45_capture_sh_shipped.py",  # legacy-baseline
+    "tests/test_v3_57_phase9.py",  # module
+    "tests/test_v3_66_1031_socket_recorder_stages.py",  # legacy-baseline
+    "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",  # legacy-baseline
+    "tests/test_v3_66_1040_remote_job_registry.py",  # legacy-baseline
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py",  # legacy-baseline
+    "tests/test_v3_66_1044_run_context_and_chains.py",  # legacy-baseline
+    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",  # legacy-baseline
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",  # legacy-baseline
+    "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py",  # module
+    "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py",  # module
+    "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py",  # module
+    "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",  # module
+    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",  # module
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",  # module
+    "tests/test_v3_66_1142_fleet_run_is_hermetic.py",  # module
+    "tests/test_v3_66_1145_step0_fails_closed.py",  # module
+    "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",  # module
+    "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",  # module
+    "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",  # module
+    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",  # module
+    "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",  # module
+    "tests/test_v3_66_1154_the_object_not_the_name.py",  # module
+    "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",  # module
+    "tests/test_v3_66_1158_fleet_provenance_fails_closed.py",  # module
+    "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",  # module
+    "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",  # module
+    "tests/test_v3_66_1180_band_derivation_paths.py",  # module
+    "tests/test_v3_66_1183_safe_temp_janitors.py",  # module
+    "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",  # module
+    "tests/test_v3_66_1186_bd_mutate_named_controls.py",  # module
+    "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",  # module
+    "tests/test_v3_66_1188_bd_mutate_review_controls.py",  # module
+    "tests/test_v3_66_1189_bd_mutate_durable_contract.py",  # module
+    "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py",  # module
+    "tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py",  # module
+    "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py",  # module
+    "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py",  # module
+    "tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py",  # module
+    "tests/test_v3_66_1217_a_fixture_is_not_wiring.py",  # module
+    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py",  # module
+    "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py",  # module
+    "tests/test_v3_66_261_contended_lifecycle_lock.py",  # module
+    "tests/test_v3_66_283_bd_claim_transactions.py",  # module
+    "tests/test_v3_66_295_bd_claim_atomic_union.py",  # module
+    "tests/test_v3_66_653_dep_freshness.py",  # legacy-baseline
+    "tests/test_v3_66_799_audit_tool_selftests.py",  # legacy-baseline
+    "tests/test_versync_gate.py",  # legacy-baseline
+}
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
     "tests/test_capture_csrf_diag_redacts_cookies.py",
@@ -1017,14 +1130,35 @@ def _coverage_delta(declared: set[str], got: set[str]) -> tuple[list[str], list[
     return sorted(declared - got), sorted(got - declared)
 
 
+def _declared_partition(declared: set[str]) -> tuple[list[str], list[str]]:
+    """(no_longer_declared, unexpected_in_remainder) for the census partition.
+
+    EXTRACTED so it can be driven with synthetic inputs, for the reason
+    `_coverage_delta` was: a comparison whose only assertions live inside the
+    test being mutated is a detector with no detector.
+
+    `declared` minus the DERIVED half -- every tracked test file that declares
+    `BD_GATE_SCOPE = "repo-wide"` -- must be exactly the closed legacy set
+    `_NON_DERIVABLE_DECLARED`. Growth lands in the derived half and touches no
+    literal; a legacy member deleted from _DECLARED and ci.yml together is named
+    by the first list; a repo-wide marker downgraded to `module` while its file
+    stays declared is named by the second.
+    """
+    scopes = _scope_map(_tracked_test_files())
+    derived = {rel for rel, scope in scopes.items() if scope == "repo-wide"}
+    remainder = set(declared) - derived
+    return (sorted(_NON_DERIVABLE_DECLARED - remainder),
+            sorted(remainder - _NON_DERIVABLE_DECLARED))
+
+
 def _assert_exact_gate_coverage(
-        declared: set[str], shards: dict[str, list[str]], floor: int = 0
+        declared: set[str], shards: dict[str, list[str]]
 ) -> None:
     """Assert a nonzero, one-to-one declaration/execution population.
 
     The expected size is the DECLARED set itself, not a literal a human keeps in
-    step by hand (row 531). `floor` is an optional monotonic ratchet: ordinary
-    growth never trips it, and a silent removal still does.
+    step by hand (row 531). The anti-shrink ratchet is no longer a count with
+    slack; it is the identity partition asserted by the live gate below.
     """
     executed = [suite for suites in shards.values() for suite in suites]
     missing, extra = _coverage_delta(declared, set(executed))
@@ -1033,10 +1167,6 @@ def _assert_exact_gate_coverage(
     assert declared, "the declared gate denominator is empty, so this proves nothing"
     expected_count = len(declared)
     assert expected_count > 0, "the expected gate denominator must be nonzero"
-    assert expected_count >= floor, (
-        f"the declared gate population fell from at least {floor} to "
-        f"{expected_count}; a gate was removed. If that is intended, lower the "
-        f"floor in the same cut and say why.")
     assert len(executed) == expected_count, (
         f"CI would execute {len(executed)} gate paths, expected exactly "
         f"{expected_count}; missing from CI: {missing}; extra in CI: {extra}; "
@@ -1077,8 +1207,133 @@ def test_declared_and_ci_executed_gate_denominators_are_exact():
     assert not missing_required, (
         "confirmed safety gate(s) remain undeclared and therefore unreachable "
         f"from every CI shard: {missing_required}")
-    _assert_exact_gate_coverage(
-        _DECLARED, _shard_lists(), floor=_DECLARED_GATE_FLOOR)
+
+    # Rows 569/570. The census ratchet, by identity rather than by count.
+    assert _NON_DERIVABLE_DECLARED, (
+        "the closed legacy declaration set is empty, so the partition below "
+        "would accept any population at all")
+    scopes = _scope_map(_tracked_test_files())
+    derived = {rel for rel, scope in scopes.items() if scope == "repo-wide"}
+    assert derived, (
+        "no tracked test file declares repo-wide scope, so the derived half of "
+        "the census collapsed and this ratchet proves nothing")
+    gone, strayed = _declared_partition(_DECLARED)
+    assert not gone, (
+        f"gate(s) no longer declared: {gone}. They were the legacy half of the "
+        f"census -- the half nothing in the tree can re-derive -- so removing "
+        f"them from _DECLARED and from ci.yml together leaves every relative "
+        f"comparison in this file satisfied and CI green. Retiring one is a "
+        f"deliberate act: delete its line from _NON_DERIVABLE_DECLARED in the "
+        f"same cut and say why.")
+    assert not strayed, (
+        f"declared gate(s) that neither declare {_SCOPE_MARKER} = 'repo-wide' "
+        f"nor sit in the closed legacy set: {strayed}. A new gate declares the "
+        f"marker; it does not join the legacy set, which may only shrink.")
+
+    _assert_exact_gate_coverage(_DECLARED, _shard_lists())
+
+
+def test_the_live_gate_refuses_a_silent_shrink_of_both_lists(monkeypatch):
+    """Rows 569/570. THE control this cut exists for: plant the exact shrink.
+
+    A gate that is deleted from _DECLARED and from ci.yml in ONE commit moves
+    both sides of every relative comparison in this file together, so coverage,
+    uniqueness and membership all stay satisfied. Only a ratchet can see it, and
+    an integer ratchet with slack sees nothing until the slack is spent -- at
+    v3.66.1388 len(_DECLARED) was 236 against a floor of 235, and the slack grew
+    by one with every gate added.
+
+    The victim is chosen from the part of the population that is NOT derivable
+    from the tracked tree (a member declaring `module` or sitting in the frozen
+    legacy baseline), because that is the half no other assertion reaches: a
+    repo-wide member dropped from _DECLARED alone is already named by
+    test_every_repo_wide_file_is_in_the_declared_set.
+    """
+    scopes = _scope_map(_tracked_test_files())
+    derived = {rel for rel, scope in scopes.items() if scope == "repo-wide"}
+    assert derived, (
+        "precondition: no tracked test file declares repo-wide scope, so the "
+        "derived half of the partition is empty and this control proves nothing")
+    victims = sorted(_DECLARED - derived)
+    assert victims, (
+        "precondition: every declared gate is derivable from its own marker, so "
+        "there is no non-derivable member to plant a shrink with")
+    victim = victims[0]
+
+    # The victim must not be able to launder the verdict through an EARLIER
+    # refusal in the live assertion (CLAUDE.md A5).
+    assert victim not in _CONFIRMED_SAFETY_GATES, (
+        f"precondition: {victim} is an H15 safety gate, so dropping it would "
+        f"fail on the missing_required assertion instead of on the ratchet")
+
+    shards = _shard_lists()
+    assert any(victim in suites for suites in shards.values()), (
+        f"precondition: {victim} is declared but in no shard, so the tree is "
+        f"already broken and this control would pass for the wrong reason")
+
+    shrunk_declared = _DECLARED - {victim}
+    shrunk_shards = {name: [s for s in suites if s != victim]
+                     for name, suites in shards.items()}
+    assert len(_DECLARED) - len(shrunk_declared) == 1, "the plant removed no declaration"
+    before = sum(len(s) for s in shards.values())
+    after = sum(len(s) for s in shrunk_shards.values())
+    assert before - after == 1, "the plant removed no shard entry"
+
+    monkeypatch.setattr(sys.modules[__name__], "_DECLARED", shrunk_declared)
+    monkeypatch.setattr(sys.modules[__name__], "_shard_lists", lambda: shrunk_shards)
+    with pytest.raises(AssertionError, match="no longer declared"):
+        test_declared_and_ci_executed_gate_denominators_are_exact()
+
+
+def test_the_shrink_control_passes_an_unshrunk_population(monkeypatch):
+    """Negative control for the control: the same harness, nothing removed.
+
+    Without this, a ratchet widened into refusing EVERYTHING would still make
+    the test above green.
+    """
+    shards = _shard_lists()
+    monkeypatch.setattr(sys.modules[__name__], "_DECLARED", set(_DECLARED))
+    monkeypatch.setattr(sys.modules[__name__], "_shard_lists", lambda: dict(shards))
+    test_declared_and_ci_executed_gate_denominators_are_exact()
+
+
+def test_the_census_partition_actually_compares(monkeypatch):
+    """Positive control for the ratchet above: every outcome is reachable.
+
+    Synthetic populations whose answer is not in doubt, so a partition severed
+    from its inputs cannot pass. Without this the live call is nearly vacuous --
+    it returns two empty lists on a healthy tree, which is also what a broken
+    comparison returns.
+    """
+    fake = {"tests/test_new_gate.py": "repo-wide",
+            "tests/test_old_module.py": "module"}
+    monkeypatch.setattr(sys.modules[__name__], "_tracked_test_files",
+                        lambda: sorted(fake))
+    monkeypatch.setattr(sys.modules[__name__], "_scope_map", lambda paths: fake)
+    monkeypatch.setattr(sys.modules[__name__], "_NON_DERIVABLE_DECLARED",
+                        {"tests/test_old_module.py"})
+
+    healthy = {"tests/test_new_gate.py", "tests/test_old_module.py"}
+    assert _declared_partition(healthy) == ([], []), (
+        "the partition refuses a healthy population, so the live gate is "
+        "failing for the wrong reason")
+
+    # GROWTH. A second brand-new repo-wide gate joins the derived half and
+    # edits no literal -- this is the 2026-08-31 chore staying dead.
+    fake["tests/test_another_gate.py"] = "repo-wide"
+    assert _declared_partition(healthy | {"tests/test_another_gate.py"}) == ([], []), (
+        "declaring a new repo-wide gate demanded a literal edit; the ratchet "
+        "has become the chore it replaced")
+
+    # SHRINK. The legacy member leaves _DECLARED and ci.yml in one commit.
+    assert _declared_partition({"tests/test_new_gate.py"}) == (
+        ["tests/test_old_module.py"], []), (
+        "a silently dropped legacy gate was not named")
+
+    # STRAY. A module-scope suite wired into CI without joining the closed set.
+    assert _declared_partition(healthy | {"tests/test_stray.py"}) == (
+        [], ["tests/test_stray.py"]), (
+        "an undeclared-by-marker suite entered the census unnamed")
 
 
 def test_transform_control_imports_ci_gate_without_judging_row348_reachability():

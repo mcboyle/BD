@@ -563,6 +563,7 @@ jobs:
               tests/test_v3_66_1187_bd_mutate_band_is_bounded.py
               tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
+              tests/test_row531_denominators_are_derived_not_pinned.py
               tests/test_v3_66_1189_bd_mutate_durable_contract.py
           - name: isolation
             suites: >-
