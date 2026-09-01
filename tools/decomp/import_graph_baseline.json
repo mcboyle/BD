@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4172,
+  "edge_count": 4177,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3763,6 +3763,13 @@
     "tests/test_row492_a_release_proves_what_it_frees.py": [
       "bulk_downloader/cleanup_helpers.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row536_a_fallback_returns_its_whole_result.py": [
+      "bulk_downloader/captcha_resolver.py",
+      "bulk_downloader/constants.py",
+      "bulk_downloader/runner_challenge.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "tests/test_row537_a_vault_write_targets_the_vault_it_read.py": [
       "bulk_downloader/secrets_store.py"

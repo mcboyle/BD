@@ -292,23 +292,33 @@ class ExtractorsMixin:
         per site). Cookies from the site's cookie file are passed to
         yt-dlp via --cookies so authenticated content works.
 
-        Returns (ok: bool, message: str, filename: str|None, size: int).
+        Returns (ok: bool, message: str, filename: str|None, size: int,
+        bytes_fetched: int) -- FIVE values on EVERY return path.
         - ok=True: yt-dlp downloaded successfully. Caller should mark done.
         - ok=False: yt-dlp couldn't handle it either. Caller proceeds with
-          its original failure path."""
+          its original failure path.
+        - bytes_fetched is what BD actually MOVED, which is not `size`: an
+          "already downloaded" hit reports a real size and zero fetched. A
+          non-ok return moved nothing, so it reports 0.
+
+        Row 536: this contract is unpacked unconditionally by
+        runner_challenge._handle_captcha_check, so a short return there is not
+        a wrong number -- it is a ValueError that fails the job as a worker
+        error and skips the whole needs_review/screenshot/takeover flow. Do not
+        add a return here without the fifth element."""
         if not self.config.get("use_ytdlp_fallback", False):
-            return (False, "ytdlp_fallback disabled", None, 0)
+            return (False, "ytdlp_fallback disabled", None, 0, 0)
         from . import ytdlp_updater
         ytdlp = ytdlp_updater.resolve_ytdlp_argv()
         if not ytdlp:
-            return (False, "yt-dlp not installed", None, 0)
+            return (False, "yt-dlp not installed", None, 0, 0)
         dl_dir = (self.config.get("download_dir") or "").strip()
         if not dl_dir:
-            return (False, "no download_dir configured", None, 0)
+            return (False, "no download_dir configured", None, 0, 0)
         try:
             os.makedirs(dl_dir, exist_ok=True)
         except Exception:
-            return (False, "couldn't create download_dir", None, 0)
+            return (False, "couldn't create download_dir", None, 0, 0)
         # Track-K (A1): resolve the fail-closed download proxy up front, BEFORE
         # spawning yt-dlp. A vpn_required site whose tunnel is down/killed raises
         # VPNRequiredError -> fail closed here (return, no subprocess) rather than
@@ -321,7 +331,7 @@ class ExtractorsMixin:
             if _VPN_RUNTIME_AVAILABLE and isinstance(e, vpn_runtime.VPNRequiredError):
                 return (False,
                         f"vpn required for {self.site_id}, tunnel unavailable "
-                        f"-- failing closed (yt-dlp not run): {e}", None, 0)
+                        f"-- failing closed (yt-dlp not run): {e}", None, 0, 0)
             raise
         cookie_file = (self.config.get("cookie_file") or "").strip()
         # Quality preference (Phase 67 — uses min_resolution as a hint)
@@ -352,12 +362,12 @@ class ExtractorsMixin:
                 try:
                     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, encoding="utf-8")
                 except subprocess.TimeoutExpired:
-                    return (False, "yt-dlp timed out after 10 minutes", None, 0)
+                    return (False, "yt-dlp timed out after 10 minutes", None, 0, 0)
                 except Exception as e:
-                    return (False, f"yt-dlp exec failed: {e}", None, 0)
+                    return (False, f"yt-dlp exec failed: {e}", None, 0, 0)
                 if r.returncode != 0:
                     err = (r.stderr or r.stdout or "")[-200:]
-                    return (False, f"yt-dlp exit {r.returncode}: {err}", None, 0)
+                    return (False, f"yt-dlp exit {r.returncode}: {err}", None, 0, 0)
                 # Parse the output for the resulting filename. yt-dlp prints
                 # "[download] Destination: PATH" or "[download] FILENAME has already been downloaded"
                 stdout = r.stdout or ""
@@ -399,22 +409,25 @@ class ExtractorsMixin:
         vpn_required site whose tunnel is down returns WITHOUT spawning the
         subprocess. Cookies from the site's ``.txt`` cookie file are passed.
 
-        Returns ``(ok, message, filename|None, size)`` -- same contract as
-        ``_try_ytdlp_fallback`` so ``runner_challenge`` can chain them.
+        Returns ``(ok, message, filename|None, size, bytes_fetched)`` on EVERY
+        return path -- same contract as ``_try_ytdlp_fallback`` so
+        ``runner_challenge`` can chain them. Row 536: the chain means a short
+        return here is reached by every captcha the ytdlp fallback declined, so
+        it fails the job at the unpack exactly as a short ytdlp return does.
         """
         if not self.config.get("use_gallerydl_fallback", False):
-            return (False, "gallerydl_fallback disabled", None, 0)
+            return (False, "gallerydl_fallback disabled", None, 0, 0)
         import shutil as _sh
         gallerydl = _sh.which("gallery-dl")
         if not gallerydl:
-            return (False, "gallery-dl not installed on PATH", None, 0)
+            return (False, "gallery-dl not installed on PATH", None, 0, 0)
         dl_dir = (self.config.get("download_dir") or "").strip()
         if not dl_dir:
-            return (False, "no download_dir configured", None, 0)
+            return (False, "no download_dir configured", None, 0, 0)
         try:
             os.makedirs(dl_dir, exist_ok=True)
         except Exception:
-            return (False, "couldn't create download_dir", None, 0)
+            return (False, "couldn't create download_dir", None, 0, 0)
         # Fail-closed proxy resolution up front (see _try_ytdlp_fallback).
         try:
             proxy_url = self._download_proxy_url()
@@ -422,7 +435,7 @@ class ExtractorsMixin:
             if _VPN_RUNTIME_AVAILABLE and isinstance(e, vpn_runtime.VPNRequiredError):
                 return (False,
                         f"vpn required for {self.site_id}, tunnel unavailable "
-                        f"-- failing closed (gallery-dl not run): {e}", None, 0)
+                        f"-- failing closed (gallery-dl not run): {e}", None, 0, 0)
             raise
         cookie_file = (self.config.get("cookie_file") or "").strip()
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
@@ -488,7 +501,7 @@ class ExtractorsMixin:
         except netns_isolation.NetnsRequiredError as e:
             return (False,
                     f"netns isolation required for {self.site_id}, unavailable "
-                    f"-- failing closed (gallery-dl not run): {e}", None, 0)
+                    f"-- failing closed (gallery-dl not run): {e}", None, 0, 0)
 
     def _try_deep_detect_fallback(self, page, url, learned_dl):
         """v3.66.6 — Backlog #7 wiring. When the primary scrape path

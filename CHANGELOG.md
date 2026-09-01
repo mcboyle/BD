@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1394 - a captcha fallback returns its whole result on every path
+
+Row 536, rank 4 of the 2026-09-01 refutation, and the only confirmed defect that
+fired in the SHIPPED LIVE CONFIGURATION with no preconditions.
+
+- 536. `runner_challenge` unpacks FIVE values from both captcha fallbacks, but
+  `_try_ytdlp_fallback` returned a 5-tuple on only one of its ten paths and
+  `_try_gallerydl_fallback` on only five of its eleven. The sole configured site
+  has `use_ytdlp_fallback=False` and an empty `captcha_api_key`, so every captcha
+  the auto-solver could not clear hit the very first early return, died at the
+  unpack with `not enough values to unpack (expected 5, got 4)`, and was recorded
+  as `failed: worker error`. The entire needs_review + screenshot + captcha_type
+  + "Take over to solve it manually" operator flow never ran.
+- The gallery-dl half is load-bearing, not tidying. Repairing only the eight
+  ytdlp returns left the identical ValueError one line further on at
+  `runner_challenge.py:77`, because `use_gallerydl_fallback` is unset in the
+  shipped config for exactly the same reason. The consequence is a property of
+  the chain, so the contract covers both: 14 short returns, 21 returns total,
+  every one of them now carrying its whole result.
+- The fifth element is bytes actually fetched, and the negative controls are
+  bidirectional so that no constant can satisfy the arity: a real transfer
+  asserts `file_size == bytes_fetched == 4242`, while an already-present file
+  asserts `file_size == 777` with `bytes_fetched == 0`. Padding the tuple with
+  `size` passes the first and is just as wrong. A four-mutant battery covers it,
+  4 caught and 0 escaped.
+- Ten of the twenty-one paths need a missing binary, an unwritable download
+  directory or a downed tunnel to reach at runtime, so an AST arity gate with
+  denominator floors of 10 and 11 surveys both methods statically; the caller's
+  unpack is unconditional, which is what makes arity a sound static property.
+
 ## v3.66.1393 - the replay tool claims its output instead of probing for it
 
 Rows 542 and 557, ranks 10 and 25 of the 2026-09-01 refutation.
