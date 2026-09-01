@@ -269,6 +269,52 @@ def _delete_marker_for(part_path: Path) -> Path:
     return Path(str(part_path) + _DELETE_MARKER_SUFFIX)
 
 
+def _publish_delete_marker(marker_path: Path, flags: int) -> tuple:
+    """Atomically publish one complete identity-bearing delete marker.
+
+    Writing through the final pathname would expose an empty or partial marker
+    if the process died between ``O_EXCL`` creation and ``fsync``.  Build the
+    payload under an unguessable sibling name, then hard-link that complete
+    inode into the final pathname without replacing anything already there.
+    """
+    identity = secrets.token_hex(32)
+    temporary = marker_path.with_name(f".bd-delete-{identity}.tmp")
+    fd = None
+    try:
+        fd = os.open(
+            str(temporary), flags | os.O_CREAT | os.O_EXCL, 0o600)
+        payload = (identity + "\n").encode("ascii")
+        written = 0
+        while written < len(payload):
+            n = os.write(fd, payload[written:])
+            if n <= 0:
+                raise OSError("short write publishing operator delete token")
+            written += n
+        os.fsync(fd)
+        try:
+            os.link(str(temporary), str(marker_path), follow_symlinks=False)
+        except FileExistsError:
+            os.close(fd)
+            fd = None
+            return None, "", ""
+        return fd, identity, ""
+    except OSError as exc:
+        if fd is not None:
+            os.close(fd)
+        return None, "", (
+            "operator delete marker is UNKNOWN; refusing: "
+            f"{str(exc)[:160]}")
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # A valid linked marker remains measurable through ``fd``.  A
+            # stranded private-name sibling does not grant delete authority.
+            pass
+
+
 def _acquire_delete_lease(part_path: Path) -> tuple:
     """Lock one durable operator-delete transaction for ``part_path``.
 
@@ -286,18 +332,23 @@ def _acquire_delete_lease(part_path: Path) -> tuple:
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    identity = ""
     try:
-        fd = os.open(
-            str(marker_path), flags | os.O_CREAT | os.O_EXCL, 0o600)
-        created = True
-    except FileExistsError:
-        try:
-            fd = os.open(str(marker_path), flags)
-        except OSError as exc:
-            return None, marker_path, "", (
-                "operator delete marker is UNKNOWN; refusing: "
-                f"{str(exc)[:160]}")
-        created = False
+        fd = os.open(str(marker_path), flags)
+    except FileNotFoundError:
+        fd, identity, error = _publish_delete_marker(
+            marker_path, flags)
+        if error:
+            return None, marker_path, "", error
+        if fd is None:
+            # Another request won the no-replace publication race.  Its marker
+            # is authority only if it can now be opened, locked, and parsed.
+            try:
+                fd = os.open(str(marker_path), flags)
+            except OSError as exc:
+                return None, marker_path, "", (
+                    "operator delete marker is UNKNOWN; refusing: "
+                    f"{str(exc)[:160]}")
     except OSError as exc:
         return None, marker_path, "", (
             "operator delete marker is UNKNOWN; refusing: "
@@ -328,23 +379,12 @@ def _acquire_delete_lease(part_path: Path) -> tuple:
                 "refusing")
         os.lseek(fd, 0, os.SEEK_SET)
         raw = os.read(fd, 256).decode("ascii", errors="replace").strip()
-        identity = raw if _CLAIM_IDENTITY_RE.fullmatch(raw) else ""
-        if not identity:
-            if not created:
-                return None, marker_path, "", (
-                    "existing operator delete marker is UNKNOWN; refusing "
-                    "rather than rewrite it into authority")
-            identity = secrets.token_hex(32)
-            payload = (identity + "\n").encode("ascii")
-            os.ftruncate(fd, 0)
-            os.lseek(fd, 0, os.SEEK_SET)
-            written = 0
-            while written < len(payload):
-                n = os.write(fd, payload[written:])
-                if n <= 0:
-                    raise OSError("short write publishing operator delete token")
-                written += n
-            os.fsync(fd)
+        measured_identity = raw if _CLAIM_IDENTITY_RE.fullmatch(raw) else ""
+        if not measured_identity or (identity and measured_identity != identity):
+            return None, marker_path, "", (
+                "existing operator delete marker is UNKNOWN; refusing "
+                "rather than rewrite it into authority")
+        identity = measured_identity
         keep = True
         return fd, marker_path, identity, ""
     except OSError as exc:
