@@ -803,6 +803,7 @@ def test_dev_run_worker_error_reaps_descendant_after_leader_exits(
     )
     real_popen = subject.subprocess.Popen
     injected = {"reader": 0, "process": None, "child": -1, "start": None}
+    release_reader = threading.Event()
     handles = []
 
     class FailingReader:
@@ -814,13 +815,10 @@ def test_dev_run_worker_error_reaps_descendant_after_leader_exits(
             return self
 
         def __next__(self):
-            deadline = time.monotonic() + 5
-            while not marker.is_file() and time.monotonic() < deadline:
-                threading.Event().wait(0.01)
-            child_pid = int(marker.read_text(encoding="ascii").strip())
-            child_start = _linux_process_start(child_pid)
-            assert _same_linux_process_is_alive(child_pid, child_start)
-            injected.update(child=child_pid, start=child_start)
+            release_reader.wait()
+            assert _same_linux_process_is_alive(
+                injected["child"], injected["start"]
+            )
             injected["reader"] += 1
             raise RuntimeError("injected reader death with descendant")
 
@@ -839,12 +837,22 @@ def test_dev_run_worker_error_reaps_descendant_after_leader_exits(
         subject._runs.clear()
     try:
         run_id = subject.start_run("tests/row445-descendant.py")["run_id"]
+        _await_dev_run(
+            subject,
+            run_id,
+            lambda current: current["pid"] is not None and marker.is_file(),
+        )
+        child_pid = int(marker.read_text(encoding="ascii").strip())
+        child_start = _linux_process_start(child_pid)
+        assert _same_linux_process_is_alive(child_pid, child_start), (
+            "the descendant was not live before the reader failure was released"
+        )
+        injected.update(child=child_pid, start=child_start)
+        release_reader.set()
         status = _await_dev_run(
             subject, run_id, lambda current: current["state"] != "running"
         )
         assert injected["reader"] == 1, "the descendant injection did not fire once"
-        child_pid = injected["child"]
-        child_start = injected["start"]
         survivors = int(_same_linux_process_is_alive(child_pid, child_start))
         assert survivors == 0 and status["cleanup_state"] == "reaped", (
             "DEV-RUN DESCENDANT SURVIVED LEADER REAP: "
@@ -852,6 +860,7 @@ def test_dev_run_worker_error_reaps_descendant_after_leader_exits(
             f"survivors={survivors} cleanup={status['cleanup_state']}"
         )
     finally:
+        release_reader.set()
         for handle in handles:
             handle.close()
         process = injected["process"]
