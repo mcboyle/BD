@@ -82,6 +82,31 @@ def _main_touched_paths(repo, commits):
     return touched
 
 
+def freeze_check(args):
+    repo = pathlib.Path(args.repo)
+    base = _commit(repo, args.base, "freeze base")
+    head = _commit(repo, args.head, "freeze candidate")
+    if _git(repo, "merge-base", base, head, text=True).strip() != base:
+        raise Refused("freeze candidate is not based on the recorded base")
+    for path in TRIO:
+        before = _entry(repo, base, path)
+        after = _entry(repo, head, path)
+        if before == "ABSENT" or after == "ABSENT":
+            raise Refused("freeze release trio path is absent: " + path)
+        if before != after:
+            raise Refused("freeze candidate changes release trio path: " + path)
+    evidence = {
+        "schema": 1,
+        "base": base,
+        "head": head,
+        "identical_trio_blobs": len(TRIO),
+        "trio_paths": list(TRIO),
+    }
+    print(json.dumps(evidence, sort_keys=True) if args.json else
+          "FREEZE SAFE: %d release trio blob(s) unchanged" % len(TRIO))
+    return 0
+
+
 def transfer_check(args):
     repo = pathlib.Path(args.repo)
     old_base = _commit(repo, args.old_base, "old base")
@@ -230,6 +255,12 @@ def stamp(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="bd-land-release")
     sub = parser.add_subparsers(dest="command", required=True)
+    freeze = sub.add_parser("freeze-check")
+    freeze.add_argument("--repo", required=True)
+    freeze.add_argument("--base", required=True)
+    freeze.add_argument("--head", required=True)
+    freeze.add_argument("--json", action="store_true")
+    freeze.set_defaults(func=freeze_check)
     transfer = sub.add_parser("transfer-check")
     transfer.add_argument("--repo", required=True)
     transfer.add_argument("--old-base", required=True)

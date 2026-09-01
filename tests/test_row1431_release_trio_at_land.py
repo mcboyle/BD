@@ -173,6 +173,44 @@ def _run_transfer(fixture):
     )
 
 
+def test_freeze_requires_all_three_release_paths_to_match_the_base(tmp_path):
+    repo = tmp_path / "freeze"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Cut Test")
+    _git(repo, "config", "user.email", "cut@example.invalid")
+    (repo / "bulk_downloader").mkdir()
+    (repo / "tests").mkdir()
+    (repo / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.700"\n')
+    (repo / "tests" / "test_settings_center_slice4.py").write_text(
+        'assert __version__ == "3.66.700"\n'
+    )
+    (repo / "CHANGELOG.md").write_text("## v3.66.700 - prior\n")
+    _git(repo, "add", "--", "bulk_downloader/__init__.py",
+         "tests/test_settings_center_slice4.py", "CHANGELOG.md")
+    base = _commit(repo, "base trio")
+    (repo / "feature.txt").write_text("feature\n")
+    feature_head = _commit(repo, "feature only")
+
+    clean = subprocess.run(
+        [str(LAND_RELEASE), "freeze-check", "--repo", str(repo),
+         "--base", base, "--head", feature_head, "--json"],
+        capture_output=True, text=True,
+    )
+    assert clean.returncode == 0, clean.stderr
+    assert json.loads(clean.stdout)["identical_trio_blobs"] == 3
+
+    (repo / "CHANGELOG.md").write_text("## v3.66.701 - early\n## v3.66.700 - prior\n")
+    early_head = _commit(repo, "early release edit")
+    dirty = subprocess.run(
+        [str(LAND_RELEASE), "freeze-check", "--repo", str(repo),
+         "--base", base, "--head", early_head],
+        capture_output=True, text=True,
+    )
+    assert dirty.returncode == 2
+    assert "freeze candidate changes release trio path: CHANGELOG.md" in dirty.stderr
+
+
 def test_transfer_refuses_when_a_candidate_path_blob_changes(tmp_path):
     fixture = _transfer_fixture(tmp_path, drift=True)
     repo, old_base, old_head, new_base, new_head = fixture
