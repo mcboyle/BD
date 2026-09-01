@@ -5615,9 +5615,9 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         + "    stream.readline()\n"
         + "os.close(1)\n"
         + "os.close(2)\n"
+        + "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
         + "with open(%r, 'w', encoding='ascii') as stream:\n" % str(acquired)
         + "    stream.write(str(os.getpid()) + '\\n')\n"
-        + "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
         + "while True:\n"
         + "    signal.pause()\n"
     )
