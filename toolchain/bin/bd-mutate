@@ -1049,16 +1049,38 @@ def _child_env() -> dict:
     return env
 
 
+def _first_line(text: str) -> str:
+    """The first line as a LOADER reads it: everything up to the first "\\n".
+
+    Deliberately NOT str.splitlines()[0]. str.splitlines breaks on nine
+    separators beyond "\\n" -- a lone "\\r", plus \\x0b \\x0c \\x1c \\x1d \\x1e
+    \\x85 \\u2028 \\u2029 -- while the kernel's "#!" handling, CPython's own
+    source reader and bash all end the first line only at "\\n". splitlines()[0]
+    is therefore a PREFIX of this, so a `python` or `sh` marker sitting after an
+    exotic separator but before the first newline was INVISIBLE to _validate's
+    shebang predicates. Such a subject matched neither branch, fell through the
+    closing `return True, ""` at the bottom of _validate, and an unparseable
+    mutant was recorded VALID -- backlog row 239's fail-open reached by a
+    different door, in the tool that applies every mutant in tests/mutants.
+
+    Row 572 fixed exactly this shape one level up in
+    tests/test_row532_a_mutant_anchor_must_resolve_into_code.py::_comment_spans
+    and its own helper names this predicate as the uncorrected copy.
+    tests/test_bd_mutate_reads_the_loader_first_line.py is the gate.
+    """
+    return text.split("\n", 1)[0]
+
+
 def _validate(path: Path, text: str) -> tuple[bool | None, str]:
     """Can this mutant even run? Invalid is its own outcome, never 'caught'."""
     suffix = path.suffix
-    if suffix == ".py" or (not suffix and text.startswith("#!") and "python" in text.splitlines()[0]):
+    if suffix == ".py" or (not suffix and text.startswith("#!") and "python" in _first_line(text)):
         try:
             ast.parse(text)
         except SyntaxError as e:
             return False, f"ast.parse: {e}"
         return True, ""
-    if suffix == ".sh" or (not suffix and text.startswith("#!") and "sh" in text.splitlines()[0]):
+    if suffix == ".sh" or (not suffix and text.startswith("#!") and "sh" in _first_line(text)):
         with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
             fh.write(text)
             tmp = fh.name
