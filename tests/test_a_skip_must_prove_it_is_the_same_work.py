@@ -187,7 +187,7 @@ def _rows():
             "bytes_fetched, library_id FROM history ORDER BY id"
         ).fetchall()]
         library = [dict(r) for r in cx.execute(
-            "SELECT id, file_path, title, title_source, history_id "
+            "SELECT id, file_path, file_size, file_mtime, title, title_source, history_id "
             "FROM library ORDER BY id"
         ).fetchall()]
     return history, library
@@ -629,3 +629,110 @@ def test_the_healthy_steady_state_still_skips(scene_runner):
     assert len(library) == 1, library
     assert [r for r in history if r["status"] == "needs_review"] == [], (
         "a healthy history produced a needs_review diagnostic")
+
+
+# ── Rows 503 and 519: a skip must re-prove the identity it acts on ─────────
+
+def test_replaced_owned_file_is_unknown_and_never_rewrites_its_measurement(
+    scene_runner,
+):
+    """A recorded size is evidence only while it still describes the file.
+
+    RED on the defective parent: its identity query observes only ``isfile``;
+    the skip then restats the replacement and records that new measurement over
+    the prior one, deleting the only evidence that the file changed.
+    """
+    from bulk_downloader.db import db_skip_identity
+
+    runner, transport, download_dir, payloads = scene_runner
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+
+    history, library = _rows()
+    owned = download_dir / _COLLIDING_NAME
+    assert len(transport.calls) == 1, transport.calls
+    assert owned.is_file() and owned.read_bytes() == payloads[_URL_A]
+    assert len(history) == 1 and history[0]["bytes_fetched"] > 0, history
+    assert len(library) == 1, library
+    before = library[0]
+    assert before["file_path"] == str(owned)
+    assert before["file_size"] == owned.stat().st_size
+    assert before["file_mtime"] > 0
+    assert db_skip_identity(_URL_A, str(owned)) == ("same", str(owned))
+
+    replacement = b"replacement bytes with a deliberately different exact size"
+    owned.write_bytes(replacement)
+    replacement_size = owned.stat().st_size
+    assert replacement_size != before["file_size"], (
+        "the replacement must create a named nonzero size delta")
+    assert owned.read_bytes() == replacement
+
+    # The defect's verdict: the old size no longer describes this path, so it
+    # cannot be permission to skip.  This assertion is RED on the unfixed base.
+    assert db_skip_identity(_URL_A, str(owned)) == ("unknown", None)
+
+    transfers_before = len(transport.calls)
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+
+    history, library = _rows()
+    assert len(transport.calls) == transfers_before + 1, transport.calls
+    assert not [r for r in history if r["message"] == "already on disk"], history
+    original_rows = [r for r in library if r["file_path"] == str(owned)]
+    assert len(original_rows) == 1, library
+    assert original_rows[0]["file_size"] == before["file_size"]
+    assert original_rows[0]["file_mtime"] == before["file_mtime"]
+
+
+def test_vanished_safe_destination_after_same_proof_falls_through_to_transfer(
+    scene_runner,
+):
+    """A later rendered collision must not hide a vanished owned path.
+
+    The original, unattributed filename remains present while the first real
+    transfer owns ``_1``.  This is the necessary negative shape: a check of
+    only the freshly rendered path still passes after the owned file vanishes.
+    """
+    from bulk_downloader import runner_transport as rt
+
+    runner, transport, download_dir, payloads = scene_runner
+    rendered = download_dir / _COLLIDING_NAME
+    rendered.write_bytes(b"unattributed collision that forces safe_dest")
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+
+    history_before, library_before = _rows()
+    owned = Path(transport.calls[0][1])
+    assert len(transport.calls) == 1, transport.calls
+    assert rendered.is_file() and rendered != owned
+    assert owned.name == "Example Site - 1080p_1.mp4" and owned.is_file()
+    assert owned.read_bytes() == payloads[_URL_A]
+    assert len(history_before) == 1 and len(library_before) == 1
+    assert library_before[0]["file_path"] == str(owned)
+
+    seen: list[str] = []
+    real = rt.db_skip_identity
+
+    def _unlink_after_same(page_url, final_path):
+        verdict, path = real(page_url, final_path)
+        seen.append(verdict)
+        if verdict == "same":
+            assert path == str(owned)
+            assert owned.is_file(), "the injection must remove the proven owned path"
+            owned.unlink()
+            assert not owned.exists(), "the injected disappearance did not fire"
+            assert rendered.is_file(), "the rendered-path control must stay present"
+        return verdict, path
+
+    rt.db_skip_identity = _unlink_after_same
+    try:
+        _run(runner, download_dir, _URL_A, _TITLE_A)
+    finally:
+        rt.db_skip_identity = real
+
+    # GREEN: no FileNotFoundError escapes from the skip arm; the job reaches
+    # the instrumented transport and records the bytes actually written.
+    assert seen == ["same"], seen
+    assert len(transport.calls) == 2, transport.calls
+    history, _library = _rows()
+    a_rows = [r for r in history if r["url"] == _URL_A]
+    assert len(a_rows) == 2, a_rows
+    assert a_rows[-1]["status"] == "done"
+    assert a_rows[-1]["bytes_fetched"] == len(payloads[_URL_A])
