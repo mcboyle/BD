@@ -1910,7 +1910,7 @@ def db_skip_identity(page_url, final_path):
             # "unknown" and the job downloads. db_prune repairs the link it
             # breaks itself; nothing else may assume it was repaired.
             current = cx.execute(
-                "SELECT l.id AS lid, l.file_path AS fp FROM library l "
+                "SELECT l.id AS lid, l.file_path AS fp, l.file_size AS file_size FROM library l "
                 "JOIN history h ON h.id = l.history_id "
                 "WHERE h.url = ? AND h.status = 'done' "
                 "AND COALESCE(l.file_path,'') <> '' "
@@ -1923,6 +1923,20 @@ def db_skip_identity(page_url, final_path):
                 # than skipping on the strength of a row alone.
                 if not _os.path.isfile(row["fp"]):
                     continue
+                # Row 503. A path that merely still exists is not the recorded
+                # work if its independently stored size no longer describes the
+                # bytes at that path.  Do not let a later skip restat the
+                # replacement and overwrite the only contrary measurement.
+                try:
+                    observed_size = _os.path.getsize(row["fp"])
+                except OSError:
+                    continue
+                recorded_size = row["file_size"]
+                if (not isinstance(recorded_size, int)
+                        or isinstance(recorded_size, bool)
+                        or recorded_size < 0
+                        or observed_size != recorded_size):
+                    return ("unknown", None)
                 # PRONG 2 -- EVIDENCE: does ANY 'done' row of this url at this
                 # library row prove a transfer?
                 #
