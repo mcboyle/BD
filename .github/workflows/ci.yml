@@ -262,7 +262,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -763,7 +763,7 @@ jobs:
       # comment said "five" while six gates delegated (v3.66.1236 converted T7
       # and left it stale), and v3.66.1242 makes it seven. The population is
       # re-derived by that test; a number here only goes quietly wrong.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b'
         with:
           node-version: '20'
