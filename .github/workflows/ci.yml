@@ -32,7 +32,7 @@ jobs:
         ports:
           - 5432:5432
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -67,7 +67,7 @@ jobs:
   gates:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks scans the PR diff via `git log <base>^..<head>`; the default
           # shallow checkout (depth 1) lacks the base commit, so the range is an
@@ -261,7 +261,7 @@ jobs:
     # nobody wired it.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -695,7 +695,7 @@ jobs:
               tests/test_scan_version_pins_fixture.py
     name: gate-suites (${{ matrix.name }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # LOAD-BEARING for the toolchain shard, and the reason changed at
           # v3.66.884. test_toolchain_534 runs bd-freshcheck, which asserts the
