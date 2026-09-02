@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4255,
+  "edge_count": 4258,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3597,6 +3597,10 @@
       "bulk_downloader/template_selector_verifier.py",
       "tools/build_recorded_dom_fixture.py"
     ],
+    "tests/test_row1459_the_verified_binary_is_the_executed_binary.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/live_recorder.py"
+    ],
     "tests/test_row339_measurement_noise_bounds.py": [
       "tools/verify_release.py"
     ],
@@ -4588,6 +4592,7 @@
     ],
     "tests/test_v3_43_62_live_recorder.py": [
       "bulk_downloader/app_live_recorder.py",
+      "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/live_recorder.py",
       "bulk_downloader/templates.py"
