@@ -44,8 +44,8 @@
     {
       "label": "F03 issue the emergency start even when the unit is still active",
       "file": "scripts/deploy.sh",
-      "old": "    if systemctl is-active --quiet bulkdownloader; then\n      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\\n' >&2",
-      "new": "    if false; then\n      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\\n' >&2",
+      "old_regex": "(?m)^    if systemctl is-active --quiet bulkdownloader; then$",
+      "new": "    if false; then",
       "direction": "regression",
       "catcher": "tests/test_row_285_deploy_fail_open.py::test_f03_still_active_unit_is_not_restarted_by_the_recovery"
     },

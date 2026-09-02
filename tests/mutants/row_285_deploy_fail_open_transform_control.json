@@ -26,8 +26,8 @@
     {
       "label": "TC4 skip the emergency start unconditionally while deploy.sh still parses",
       "file": "scripts/deploy.sh",
-      "old": "    if systemctl is-active --quiet bulkdownloader; then\n      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\\n' >&2",
-      "new": "    if false; then\n      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\\n' >&2",
+      "old_regex": "(?m)^    if systemctl is-active --quiet bulkdownloader; then$",
+      "new": "    if false; then",
       "direction": "regression",
       "catcher": "tests/test_deploy_script.py::test_script_parses_clean"
     },
