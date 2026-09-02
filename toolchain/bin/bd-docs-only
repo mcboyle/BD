@@ -1,0 +1,1121 @@
+#!/usr/bin/env python3
+"""bd-docs-only -- decide, fail-closed, whether one candidate can take the
+docs-only lane.
+
+OPERATOR RULING 2026-08-31, register row 530. v3.66.1380 changed 65 register
+rows and three documents and not one byte under bulk_downloader/, templates or
+frontend -- and still consumed a version number, a duplicated version literal,
+a CHANGELOG entry, a regeneration, a 14-minute bd-verify-cut, a 6-minute
+exact-head CI and a fleet deploy that stops and restarts BD on every serving
+host.  It happened again on 2026-09-02: cuts 1447 and 1449 were each two
+files, project-knowledge/IMPROVEMENT_BACKLOG.md and the manifest that hashes
+it, and each paid the same lane and the same five-host deploy.
+
+THE RISK IS THE DEFINITION, NOT THE SAVING. The row says it in its own words:
+"a lane that decides for itself what counts as runtime is a lane a product
+change can be smuggled through, and getting that denominator wrong is far
+worse than the tax it avoids."  So this tool is written as a SAFETY BOUNDARY.
+
+HOW IT IS SAFE, stated as the one property that matters
+-------------------------------------------------------
+The ALLOW set is small, positively derived, and gated. The DENY set is
+everything else.  A path is permitted only when it is proven to be a member of
+one of exactly three derived populations:
+
+  1. the tracked Markdown documentation corpus -- the SAME corpus the doc-truth
+     and freshness gates judge, obtained from the one rule in
+     bdtools_sec.markdown_corpus_from_listing, never a second copy of it;
+  2. the release trio, and only when a byte-exact proof shows the head blobs
+     differ from base by the version literal alone (that proof is
+     bd-band-transfer-key's, reused, not reimplemented);
+  3. a tracked output of the regeneration chain, and only when re-running THAT
+     generator in a disposable exact-head worktree reproduces the candidate's
+     bytes exactly.
+
+Everything else is RUNTIME-AFFECTING.  A path this tool has never heard of is
+runtime-affecting.  A new top-level directory is runtime-affecting.  A
+measurement that cannot be taken is UNKNOWN (exit 2), which A2 says is a
+failing third state and never permission.
+
+The named refusal REASONS are diagnostics on top of that boundary, not the
+boundary itself.  A7 forbids collapsing distinct failures into one message --
+"repair the service, or find the right password" lead to opposite actions --
+so each category answers with its own reason code and its own derived
+population.  If a diagnostic population cannot be derived the path still
+refuses; it refuses as OUTSIDE-DOC-CORPUS instead of by name.  Losing a
+diagnostic can never turn a refusal into permission.
+
+WHERE EVERY POPULATION COMES FROM (nothing here is a typed path list)
+--------------------------------------------------------------------
+  product source     the directory holding the `__version__` authority --
+                     the same file A6 names as edit 1 of the release trio,
+                     located by content, not by name.
+  templates          the folder token in the application's own
+                     Flask(..., template_folder=...) call, resolved both under
+                     the package root and as a top-level directory, because the
+                     app reads reviewed site templates from the second one.
+  frontend           the directory holding the tracked `package.json` that is
+                     not under the test root -- the SPA whose build deploy.sh
+                     rebuilds.
+  tests              the directory holding `conftest.py`; that is what defines
+                     a pytest population when no ini file does.
+  gate or CI         `.github`, plus the top-level component of every argv path
+                     in bd-regen-order's CHAIN.  That derivation is why this
+                     file cannot be edited through its own lane: bd-docs-only
+                     lives in toolchain/, which the chain names.
+  deploy or install  the top-level component of the tracked `deploy.sh` A6
+                     calls the sanctioned deploy path.
+  generated          bd-regen-order's REQUIRED_CHAIN_LABELS x
+                     TRACKED_OUTPUTS_BY_LABEL, read by AST at the BASE commit,
+                     exactly as bd-band-transfer-key reads them.
+  declared           tools/decomp/import_graph_baseline.json, the reviewed
+                     import-edge declaration -- a statement about the runtime
+                     import surface, so never docs-only.
+
+Populations are derived at BASE, deliberately.  A7's rule about not deriving an
+expected set from the artifact under test applies to a classifier too: a
+candidate that edits an authority must not get to redefine the population that
+judges it.  It cannot, twice over -- the authorities all live inside the
+gate-or-CI population, so touching one is itself a refusal.
+
+WHAT A DOCS-ONLY VERDICT STILL OWES
+-----------------------------------
+The lane skips the RELEASE tax.  It never skips the correctness gates.  A
+DOCS-ONLY verdict carries a required-gate block with four families -- freshness,
+register, doc-truth and gate-shard -- each derived by grepping the tracked test
+population for that family's authority, each asserted NONZERO, plus the
+bd-band-derive band for the changed paths.  An empty family is UNKNOWN, not a
+pass; a gate battery over an empty denominator is the defect this repository
+exists to refuse.
+
+Usage:
+  bd-docs-only classify --repo DIR --base REF --head REF [--json]
+  bd-docs-only census   --repo DIR [--commit REF] [--json]
+  bd-docs-only selftest
+
+EXIT IS THE VERDICT:
+  0  DOCS-ONLY      -- every changed path is proven inert, gates are nonzero
+  1  RUNTIME        -- at least one changed path is runtime-affecting
+  2  UNKNOWN        -- a required measurement could not be taken
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import importlib.util
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+try:
+    import bdtools_sec as sec  # noqa: E402
+except ImportError as _exc:  # pragma: no cover -- proven by the row 530 gate
+    # A CALLER MAY RUN A COPY OF THIS FILE FROM SOMEWHERE ELSE. bd-verify-cut
+    # extracts the BASE commit's classifier so a candidate cannot approve
+    # itself, and the first draft of that extraction wrote one file into a temp
+    # directory where bdtools_sec is not. The traceback exited 1, which is this
+    # tool's REFUSED code, so an import crash read as a clean product-source
+    # refusal. Name it, and exit 2.
+    print("UNKNOWN, not permission: the shared authority bdtools_sec is not "
+          "importable beside this copy of bd-docs-only (%s). Extract it "
+          "alongside, or run the tool from toolchain/bin." % _exc, file=sys.stderr)
+    raise SystemExit(2)
+
+DOCS_ONLY, RUNTIME, UNKNOWN = 0, 1, 2
+
+# Every refusal a changed path can earn. Distinct codes on purpose: A7's
+# collapsed-diagnostic rule. Held as a frozen tuple so the gate can pin the set
+# and a silent rename shows up as a missing member rather than as nothing.
+REASONS = (
+    "RUNTIME-PRODUCT-SOURCE",
+    "RUNTIME-TEMPLATE",
+    "RUNTIME-FRONTEND",
+    "RUNTIME-DEPLOY-OR-INSTALL",
+    "EVIDENCE-GATE-OR-CI",
+    "EVIDENCE-TEST",
+    "EVIDENCE-GENERATED-NOT-AT-FIXPOINT",
+    "DECLARED-IMPORT-BASELINE",
+    "RELEASE-TRIO-PARTIAL",
+    "RELEASE-TRIO-BEYOND-VERSION-SUBSTITUTION",
+    "OUTSIDE-DOC-CORPUS",
+    "UNSUPPORTED-ENTRY-MODE",
+    "ENTRY-MODE-CHANGED",
+)
+
+# The four correctness families a docs-only cut still owes, each keyed to the
+# AUTHORITY its gates cite. The value is a literal search token, not a test
+# path: the member set is derived by searching the tracked test population, so
+# a family gains and loses gates as the tree does.
+GATE_FAMILY_ANCHORS = {
+    "freshness": "bd-freshcheck",
+    "doc-truth": "bd-doc-truth",
+    "register": "IMPROVEMENT_BACKLOG",
+    "gate-shard": "ci_gate_shards_cover_every_gate",
+}
+
+# The two REGULAR blob modes. Git's others are a symlink (120000) and a
+# submodule gitlink (160000): a symlink's bytes are a path, and a gitlink's are
+# another repository, so neither can be proven inert by reading Markdown.
+#
+# 100755 belongs here and its absence was a MEASURED collapsed diagnostic. With
+# only 100644 regular, an edit to scripts/deploy.sh and an edit to this very
+# file both refused as UNSUPPORTED-ENTRY-MODE -- the right verdict wearing the
+# wrong reason, sending a reader to look at file permissions instead of at the
+# deploy path or the classifier. A7: name the step that failed.
+_REGULAR = {"100644", "100755"}
+
+_VERSION_AUTHORITY = re.compile(rb'(?m)^__version__ = "[^"]+"$')
+_TEMPLATE_FOLDER = re.compile(r'template_folder\s*=\s*"([A-Za-z0-9_.-]+)"')
+
+
+class Unmeasurable(RuntimeError):
+    """A required measurement could not be taken. UNKNOWN, never permission."""
+
+
+class Refused(RuntimeError):
+    """The candidate is runtime-affecting for a named reason."""
+
+    def __init__(self, reason, detail, paths=()):
+        super().__init__("%s: %s" % (reason, detail))
+        self.reason = reason
+        self.detail = detail
+        self.paths = tuple(paths)
+
+
+# --------------------------------------------------------------------- git ---
+
+def _git(repo, *args, binary=False):
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True, text=not binary, check=False, timeout=180,
+    )
+    if result.returncode != 0:
+        err = result.stderr if not binary else result.stderr.decode("utf-8", "replace")
+        raise Unmeasurable("git %s failed: %s" % (" ".join(args), err.strip()))
+    return result.stdout
+
+
+def _commit(repo, ref, label):
+    if not ref or ref == "UNKNOWN":
+        raise Unmeasurable("UNKNOWN identity: %s" % label)
+    resolved = _git(repo, "rev-parse", "--verify", ref + "^{commit}").strip()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", resolved):
+        raise Unmeasurable("%s does not resolve to exactly one commit" % label)
+    return resolved
+
+
+def _listing(repo, commit):
+    raw = _git(repo, "ls-tree", "-r", "--name-only", "-z", commit, binary=True)
+    paths = [os.fsdecode(item) for item in raw.split(b"\0") if item]
+    if not paths:
+        raise Unmeasurable("tracked listing at %s collapsed to zero" % commit[:12])
+    return paths
+
+
+def _blob(repo, commit, path):
+    return _git(repo, "show", "%s:%s" % (commit, path), binary=True)
+
+
+def _grep_paths(repo, commit, pattern, pathspec, fixed=True):
+    """Tracked paths at `commit` whose content matches, WITHOUT reading 1554 blobs.
+
+    The first draft asked git for every candidate blob and matched in Python:
+    correct, and 95 seconds on the real tree, which is a gate nobody runs before
+    a lane. git grep does the same search in the object store in one process.
+    A grep that finds nothing is not an error here -- the CALLER decides whether
+    an empty result is a zero denominator, because only the caller knows.
+    """
+    argv = ["grep", "-l", "-z", "-I"]
+    if fixed:
+        argv.append("-F")
+    argv += ["-e", pattern, commit, "--", *pathspec]
+    result = subprocess.run(["git", "-C", str(repo), *argv],
+                            capture_output=True, check=False, timeout=300)
+    if result.returncode not in (0, 1):
+        raise Unmeasurable("git grep failed: %s"
+                           % result.stderr.decode("utf-8", "replace").strip())
+    prefix = (commit + ":").encode("ascii")
+    paths = []
+    for item in result.stdout.split(b"\0"):
+        if not item:
+            continue
+        if not item.startswith(prefix):
+            raise Unmeasurable("git grep returned an unqualified path: %r" % item[:80])
+        paths.append(os.fsdecode(item[len(prefix):]))
+    return paths
+
+
+def _raw_delta(repo, base, head):
+    """Changed paths with their head file mode, from the NET cut.
+
+    The denominator is merge-base..head the way bd-verify-cut defines it, so a
+    product change parked in an earlier branch commit cannot hide behind a tidy
+    tip.  --no-renames keeps a rename as delete + add: both halves then face
+    their own population instead of one similarity score deciding for them.
+    """
+    raw = _git(repo, "diff", "--no-ext-diff", "--no-renames", "--raw", "-z",
+               base, head, binary=True)
+    fields = [os.fsdecode(item) for item in raw.split(b"\0") if item]
+    entries = []
+    index = 0
+    while index < len(fields):
+        meta = fields[index]
+        if not meta.startswith(":"):
+            raise Unmeasurable("unparsable diff --raw record: %r" % meta)
+        parts = meta[1:].split()
+        if len(parts) < 5:
+            raise Unmeasurable("unparsable diff --raw record: %r" % meta)
+        old_mode, new_mode, _old_oid, _new_oid, status = parts[:5]
+        index += 1
+        if index >= len(fields):
+            raise Unmeasurable("diff --raw record is missing its path")
+        path = fields[index]
+        index += 1
+        entries.append({"path": path, "old_mode": old_mode,
+                        "new_mode": new_mode, "status": status})
+    return entries
+
+
+# ------------------------------------------------------------- populations ---
+
+def _one_top_level(paths, label):
+    """The single top-level component shared by an authority's own paths."""
+    tops = {pathlib.PurePosixPath(p).parts[0] for p in paths
+            if pathlib.PurePosixPath(p).parts}
+    if len(tops) != 1:
+        raise Unmeasurable("%s resolves to %d top-level roots: %s"
+                           % (label, len(tops), sorted(tops)))
+    return tops.pop()
+
+
+def _sole(matches, label):
+    if len(matches) != 1:
+        raise Unmeasurable("%s authority resolves %d times, expected one: %s"
+                           % (label, len(matches), sorted(matches)[:6]))
+    return matches[0]
+
+
+def _literal_assignment(source, name, where):
+    tree = ast.parse(source, filename=where)
+    found = []
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            found.append(ast.literal_eval(node.value))
+    if len(found) != 1:
+        raise Unmeasurable("%s has %d %s assignments, expected one"
+                           % (where, len(found), name))
+    return found[0]
+
+
+def _chain_authority(repo, commit):
+    """bd-regen-order's chain, read by AST at the given commit.
+
+    Same technique as bd-band-transfer-key._derived_outputs, and for the same
+    reason: the ordering and the product set are the chain's to state, and a
+    consumer that retypes either becomes the second hand-maintained list A8
+    warns drifts.
+    """
+    where = "toolchain/bin/bd-regen-order"
+    source = _blob(repo, commit, where).decode("utf-8")
+    required = tuple(_literal_assignment(source, "REQUIRED_CHAIN_LABELS", where))
+    products = _literal_assignment(source, "TRACKED_OUTPUTS_BY_LABEL", where)
+    chain = _literal_assignment(source, "CHAIN", where)
+    if not required or len(required) != len(set(required)):
+        raise Unmeasurable("regeneration chain labels are empty or duplicated")
+    if set(products) != set(required):
+        raise Unmeasurable(
+            "chain labels disagree with tracked outputs: missing=%r unexpected=%r"
+            % (sorted(set(required) - set(products)),
+               sorted(set(products) - set(required))))
+    argv_by_label = {}
+    for entry in chain:
+        label, argv = entry[0], tuple(entry[1])
+        argv_by_label[label] = argv
+    if set(argv_by_label) != set(required):
+        raise Unmeasurable("chain argv labels disagree with the required labels")
+    outputs = {}
+    for label in required:
+        for path in products[label]:
+            pure = pathlib.PurePosixPath(path)
+            if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+                raise Unmeasurable("unsafe tracked chain output: %r" % (path,))
+            if path in outputs:
+                raise Unmeasurable("duplicated tracked chain output: %s" % path)
+            outputs[path] = label
+    if not outputs:
+        raise Unmeasurable("the regeneration chain declares no tracked output")
+    return {"labels": required, "outputs": outputs, "argv": argv_by_label}
+
+
+def derive_populations(repo, commit, listing, chain):
+    """Every named population, measured from the tree at `commit`.
+
+    Each entry is (root prefixes, member count). A population that resolves to
+    zero members is a derivation that has silently stopped seeing its subject,
+    so the census gate asserts every count is nonzero rather than trusting that
+    an empty set means "nothing to refuse".
+    """
+    tracked = set(listing)
+
+    version_authority = _sole(
+        [p for p in _grep_paths(repo, commit, '__version__ = "', ("*__init__.py",))
+         if p in tracked and _VERSION_AUTHORITY.search(_blob(repo, commit, p))],
+        "__version__")
+    package_root = _one_top_level([version_authority], "the package root")
+
+    app_source = _sole([p for p in listing
+                        if p == "%s/app.py" % package_root], "the Flask app module")
+    folders = set(_TEMPLATE_FOLDER.findall(
+        _blob(repo, commit, app_source).decode("utf-8", "replace")))
+    if len(folders) != 1:
+        raise Unmeasurable("the app declares %d template_folder tokens" % len(folders))
+    template_token = folders.pop()
+
+    conftest = _sole([p for p in listing
+                      if pathlib.PurePosixPath(p).name == "conftest.py"], "conftest.py")
+    test_root = _one_top_level([conftest], "the test root")
+
+    manifests = [p for p in listing
+                 if pathlib.PurePosixPath(p).name == "package.json"
+                 and not p.startswith(test_root + "/")]
+    spa_root = _one_top_level([_sole(manifests, "package.json")], "the SPA root")
+
+    deploy = _sole([p for p in listing
+                    if pathlib.PurePosixPath(p).name == "deploy.sh"], "deploy.sh")
+    deploy_root = _one_top_level([deploy], "the deploy root")
+
+    gate_roots = {".github"}
+    for argv in chain["argv"].values():
+        for token in argv:
+            if "/" in token and not token.startswith("-"):
+                gate_roots.add(pathlib.PurePosixPath(token).parts[0])
+
+    template_roots = ("%s/%s/" % (package_root, template_token),
+                      "%s/static/" % package_root,
+                      "%s/" % template_token)
+
+    populations = [
+        ("RUNTIME-TEMPLATE", template_roots),
+        ("RUNTIME-FRONTEND", ("%s/" % spa_root,)),
+        ("RUNTIME-PRODUCT-SOURCE", ("%s/" % package_root,)),
+        ("RUNTIME-DEPLOY-OR-INSTALL", ("%s/" % deploy_root,)),
+        ("EVIDENCE-GATE-OR-CI", tuple(sorted("%s/" % r for r in gate_roots))),
+        ("EVIDENCE-TEST", ("%s/" % test_root,)),
+    ]
+    counts = {}
+    claimed = set()
+    for name, roots in populations:
+        members = {p for p in tracked
+                   if any(p.startswith(root) for root in roots)} - claimed
+        counts[name] = len(members)
+        claimed |= members
+
+    current, historical = sec.markdown_corpus_from_listing(listing)
+    return {
+        "order": populations,
+        "counts": counts,
+        "doc_corpus": set(current) | set(historical),
+        "doc_current": len(current),
+        "doc_historical": len(historical),
+        "package_root": package_root,
+        "template_token": template_token,
+        "test_root": test_root,
+        "spa_root": spa_root,
+        "deploy_root": deploy_root,
+        "gate_roots": sorted(gate_roots),
+        "tracked": len(tracked),
+    }
+
+
+# ------------------------------------------------------ borrowed authorities --
+
+def _load_transfer_key(repo, commit):
+    """Import bd-band-transfer-key from the BASE commit, by file.
+
+    The release-trio proof -- head blobs equal base blobs after substituting the
+    version literal back, CHANGELOG prepended and anchored on main's head -- is
+    already written, already tested and already the merge lane's authority. A8
+    says reuse it; rewriting it here would be a second copy of a proof whose
+    whole value is that there is one.
+    """
+    where = "toolchain/bin/bd-band-transfer-key"
+    source = _blob(repo, commit, where)
+    with tempfile.TemporaryDirectory(prefix="bd-docs-only-authority-") as directory:
+        module_path = os.path.join(directory, "bd_band_transfer_key.py")
+        with open(module_path, "wb") as handle:
+            handle.write(source)
+        spec = importlib.util.spec_from_file_location("_bd_docs_only_transfer", module_path)
+        if spec is None or spec.loader is None:
+            raise Unmeasurable("the release-trio authority cannot be loaded")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:  # noqa: BLE001 -- any import failure is UNKNOWN
+            raise Unmeasurable("the release-trio authority failed to import: %s" % exc)
+    for name in ("TRIO", "_trio_disposition", "_trio_evidence", "TransferRefused"):
+        if not hasattr(module, name):
+            raise Unmeasurable("the release-trio authority is missing %s" % name)
+    return module
+
+
+def _prove_trio(repo, base, head, authority, changed):
+    """ABSENT, or COMPLETE and version-substitution-only. Nothing else."""
+    try:
+        disposition = authority._trio_disposition(changed)
+    except authority.TransferRefused as exc:
+        raise Refused("RELEASE-TRIO-PARTIAL", str(exc))
+    if disposition == "ABSENT":
+        return "ABSENT"
+    try:
+        authority._trio_evidence(repo, base, head)
+    except authority.TransferRefused as exc:
+        raise Refused("RELEASE-TRIO-BEYOND-VERSION-SUBSTITUTION", str(exc))
+    return "COMPLETE"
+
+
+def _prove_generated_fixpoint(repo, head, chain, generated):
+    """Re-run only the generators whose products changed, and demand the bytes.
+
+    A generated artifact in the delta is not authored, so it cannot be judged by
+    reading it -- it is judged by whether the tree still produces it. The run
+    happens in a disposable exact-head worktree because a classifier that writes
+    into the candidate is a classifier that has changed its own subject.
+    """
+    if not generated:
+        return {}
+    labels = []
+    for label in chain["labels"]:
+        if any(chain["outputs"][path] == label for path in generated):
+            labels.append(label)
+    proved = {}
+    with tempfile.TemporaryDirectory(prefix="bd-docs-only-fixpoint-") as directory:
+        checkout = os.path.join(directory, "exact-head")
+        _git(repo, "worktree", "add", "--quiet", "--detach", checkout, head)
+        try:
+            python = _python_for(repo, checkout)
+            declared = [path for path in chain["outputs"]
+                        if chain["outputs"][path] in labels]
+            before = {}
+            for path in declared:
+                full = os.path.join(checkout, path)
+                if not os.path.isfile(full):
+                    raise Unmeasurable("declared chain output %s is absent from the "
+                                       "candidate; the fixpoint is UNKNOWN" % path)
+                before[path] = os.stat(full).st_mtime_ns
+            for label in labels:
+                argv = list(chain["argv"][label])
+                run = subprocess.run(
+                    [python, *argv] if argv[0].endswith(".py") or _is_python(checkout, argv[0])
+                    else argv,
+                    cwd=checkout, capture_output=True, text=True, check=False, timeout=900,
+                )
+                if run.returncode != 0:
+                    raise Unmeasurable(
+                        "generator %s exited %d: %s"
+                        % (label, run.returncode, (run.stderr or run.stdout)[-400:].strip()))
+            # A GENERATOR THAT EXITS 0 WITHOUT WRITING would leave a hand-edited
+            # artifact looking exactly like a fixpoint: the tree is clean because
+            # nothing touched it. So the write itself is proven, not assumed.
+            unwritten = []
+            for path in declared:
+                full = os.path.join(checkout, path)
+                if not os.path.isfile(full) or os.stat(full).st_mtime_ns <= before[path]:
+                    unwritten.append(path)
+            if unwritten:
+                raise Unmeasurable(
+                    "generator(s) %s exited 0 without rewriting %s, so the fixpoint is "
+                    "UNKNOWN rather than proven (a filesystem with coarse timestamps "
+                    "reads the same way, and reads as UNKNOWN, never as permission)"
+                    % (", ".join(labels), ", ".join(unwritten)))
+            dirty = _git(checkout, "status", "--porcelain=v1", "--untracked-files=no")
+            drifted = sorted(line[3:] for line in dirty.splitlines() if line.strip())
+            if drifted:
+                # Name the artifact that FAILED, never every artifact examined.
+                # Measured on the real tree: a hand-edited PIN_INDEX.json was
+                # reported alongside an innocent STATIC_KB_MANIFEST.json purely
+                # because both were in the run, which is the same collapsed
+                # diagnostic in a different coat.
+                raise Refused(
+                    "EVIDENCE-GENERATED-NOT-AT-FIXPOINT",
+                    "re-running %s did not reproduce the candidate's bytes"
+                    % ", ".join(labels),
+                    paths=drifted)
+            for path in sorted(generated):
+                proved[path] = chain["outputs"][path]
+        finally:
+            removed = subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", "--force", "--", checkout],
+                capture_output=True, text=True, check=False, timeout=120)
+            if removed.returncode != 0:
+                raise Unmeasurable("temporary fixpoint worktree cleanup is UNKNOWN")
+    return proved
+
+
+def _python_for(repo, checkout):
+    for candidate in (os.path.join(checkout, "venv", "bin", "python"),
+                      os.path.join(str(repo), "venv", "bin", "python")):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return sys.executable
+
+
+def _is_python(checkout, relative):
+    path = os.path.join(checkout, relative)
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(2) == b"#!" and b"python" in handle.readline()
+    except OSError:
+        return False
+
+
+# ------------------------------------------------------------ required gates --
+
+def required_gates(repo, commit, listing, test_root):
+    """The four families a docs-only cut still owes, derived and nonzero."""
+    tests = [p for p in listing
+             if p.startswith(test_root + "/")
+             and pathlib.PurePosixPath(p).name.startswith("test")
+             and p.endswith(".py")]
+    if not tests:
+        raise Unmeasurable("the tracked test population collapsed to zero")
+    known = set(tests)
+    families = {}
+    for family, anchor in GATE_FAMILY_ANCHORS.items():
+        members = sorted(set(_grep_paths(repo, commit, anchor,
+                                         ("%s/test*.py" % test_root,))) & known)
+        if not members:
+            raise Unmeasurable(
+                "gate family %r has a ZERO denominator: nothing in the %d tracked "
+                "test files cites %s" % (family, len(tests), anchor))
+        families[family] = members
+    return {"tests_examined": len(tests), "families": families}
+
+
+# ---------------------------------------------------------------- classify ---
+
+def classify(repo, base_ref, head_ref, prove_fixpoint=True):
+    repo = pathlib.Path(repo).resolve()
+    head = _commit(repo, head_ref, "head")
+    base_named = _commit(repo, base_ref, "base")
+    merge_base = _git(repo, "merge-base", base_named, head).strip()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", merge_base):
+        raise Unmeasurable("merge-base(base, head) is UNKNOWN")
+    base = merge_base
+
+    entries = _raw_delta(repo, base, head)
+    if not entries:
+        raise Unmeasurable("the candidate changed-path denominator is ZERO")
+    changed = {entry["path"] for entry in entries}
+
+    base_listing = _listing(repo, base)
+    head_listing = _listing(repo, head)
+    chain = _chain_authority(repo, base)
+    populations = derive_populations(repo, base, base_listing, chain)
+    corpus = set(sec.markdown_corpus_from_listing(base_listing)[0]) \
+        | set(sec.markdown_corpus_from_listing(base_listing)[1]) \
+        | set(sec.markdown_corpus_from_listing(head_listing)[0]) \
+        | set(sec.markdown_corpus_from_listing(head_listing)[1])
+
+    authority = _load_transfer_key(repo, base)
+    trio_paths = set(authority.TRIO)
+    declared = authority.DECLARED
+
+    refusals = []
+    allowed = {}
+
+    # A non-regular entry is refused before anything reads it: a symlink's bytes
+    # are a path, and a mode flip is a permission change, not a document edit.
+    for entry in entries:
+        modes = {entry["old_mode"], entry["new_mode"]} - {"000000"}
+        if not modes <= _REGULAR:
+            refusals.append({"path": entry["path"],
+                             "reason": "UNSUPPORTED-ENTRY-MODE",
+                             "detail": "modes %s -> %s (status %s) are not a regular "
+                                       "tracked blob" % (entry["old_mode"],
+                                                         entry["new_mode"],
+                                                         entry["status"])})
+        elif len(modes) > 1:
+            # Both regular, but the executable bit moved. That is a permission
+            # change, not a document edit, and it gets its own name rather than
+            # borrowing the non-regular one.
+            refusals.append({"path": entry["path"],
+                             "reason": "ENTRY-MODE-CHANGED",
+                             "detail": "the tracked mode changed %s -> %s; a permission "
+                                       "change is not a document edit"
+                                       % (entry["old_mode"], entry["new_mode"])})
+
+    refused_paths = {r["path"] for r in refusals}
+
+    # The release trio first: its pin lives inside the test population, so a
+    # membership test would refuse the trio for the wrong reason and the real
+    # proof -- version substitution and nothing else -- would never run.
+    trio_state = "ABSENT"
+    if trio_paths & changed:
+        try:
+            trio_state = _prove_trio(repo, base, head, authority, changed)
+        except Refused as exc:
+            refusals.append({"path": ", ".join(sorted(trio_paths & changed)),
+                             "reason": exc.reason, "detail": exc.detail})
+            refused_paths |= (trio_paths & changed)
+        else:
+            for path in sorted(trio_paths & changed):
+                allowed[path] = "RELEASE-TRIO-VERSION-SUBSTITUTION-ONLY"
+
+    generated = set()
+    for path in sorted(changed - refused_paths - set(allowed)):
+        if path == declared:
+            refusals.append({"path": path, "reason": "DECLARED-IMPORT-BASELINE",
+                             "detail": "the reviewed import-edge declaration states the "
+                                       "runtime import surface"})
+            continue
+        if path in chain["outputs"]:
+            # BEFORE the population prefixes, deliberately. Two chain outputs
+            # live inside a deny root -- tests/source_window_hashes.json under
+            # the test root and the generated frontend secret keys under the SPA
+            # root -- and a prefix rule would refuse them as a hand-written test
+            # or a hand-written component, sending the reader to look for an edit
+            # that is not there. A chain output is not authored, so it is judged
+            # by whether this tree still PRODUCES it, which is the stronger test:
+            # it cannot change at all unless one of its generator's inputs
+            # changed, and every such input is itself either refused here or a
+            # document.
+            generated.add(path)
+            continue
+        named = None
+        for name, roots in populations["order"]:
+            if any(path.startswith(root) for root in roots):
+                named = name
+                break
+        if named is not None:
+            refusals.append({"path": path, "reason": named,
+                             "detail": "member of the derived %s population" % named})
+            continue
+        if path in corpus:
+            allowed[path] = "DOC-CORPUS"
+            continue
+        refusals.append({
+            "path": path, "reason": "OUTSIDE-DOC-CORPUS",
+            "detail": "tracked but outside the derived Markdown documentation corpus, "
+                      "so nothing proves it inert"})
+
+    fixpoint = {}
+    if generated and not refusals:
+        if prove_fixpoint:
+            try:
+                fixpoint = _prove_generated_fixpoint(repo, head, chain, generated)
+            except Refused as exc:
+                refusals.append({"path": ", ".join(exc.paths or sorted(generated)),
+                                 "reason": exc.reason, "detail": exc.detail})
+            else:
+                for path in sorted(generated):
+                    allowed[path] = "REGENERATION-CHAIN-FIXPOINT"
+        else:
+            raise Unmeasurable(
+                "the regeneration fixpoint proof was skipped, so %d generated path(s) "
+                "are UNKNOWN" % len(generated))
+    deferred = []
+    if generated and refusals:
+        # The candidate is ALREADY refused, so the fixpoint run buys nothing --
+        # but naming these paths with a refusal code they have not earned would
+        # be the collapsed diagnostic A7 forbids, and would send a reader to
+        # repair a generator that is fine. They are reported as UNPROVEN.
+        deferred = sorted(generated)
+
+    verdict = {
+        "schema": 1,
+        "repo": str(repo),
+        "base": base,
+        "head": head,
+        "changed": sorted(changed),
+        "changed_count": len(changed),
+        "trio": trio_state,
+        "allowed": {path: allowed[path] for path in sorted(allowed)},
+        "refusals": sorted(refusals, key=lambda r: (r["reason"], r["path"])),
+        "fixpoint_proved": {path: fixpoint[path] for path in sorted(fixpoint)},
+        "fixpoint_unproven": deferred,
+        "populations": populations["counts"],
+        "doc_corpus": len(corpus),
+        "roots": {"package": populations["package_root"],
+                  "template_token": populations["template_token"],
+                  "tests": populations["test_root"],
+                  "spa": populations["spa_root"],
+                  "deploy": populations["deploy_root"],
+                  "gate": populations["gate_roots"]},
+    }
+    if refusals:
+        verdict["verdict"] = "RUNTIME-AFFECTING"
+        return RUNTIME, verdict
+
+    if set(allowed) != changed:
+        raise Unmeasurable(
+            "classification is incomplete: %d changed path(s) reached no disposition"
+            % len(changed - set(allowed)))
+
+    gates = required_gates(repo, head, head_listing, populations["test_root"])
+    verdict["required_gates"] = {
+        "tests_examined": gates["tests_examined"],
+        "families": {family: {"count": len(members), "members": members}
+                     for family, members in gates["families"].items()},
+    }
+    verdict["verdict"] = "DOCS-ONLY"
+    return DOCS_ONLY, verdict
+
+
+def census(repo, ref):
+    repo = pathlib.Path(repo).resolve()
+    commit = _commit(repo, ref, "commit")
+    listing = _listing(repo, commit)
+    chain = _chain_authority(repo, commit)
+    populations = derive_populations(repo, commit, listing, chain)
+    authority = _load_transfer_key(repo, commit)
+    return {
+        "schema": 1,
+        "commit": commit,
+        "tracked": populations["tracked"],
+        "populations": populations["counts"],
+        "doc_current": populations["doc_current"],
+        "doc_historical": populations["doc_historical"],
+        "chain_outputs": sorted(chain["outputs"]),
+        "trio": sorted(authority.TRIO),
+        "declared": authority.DECLARED,
+        "reasons": list(REASONS),
+        "roots": {"package": populations["package_root"],
+                  "template_token": populations["template_token"],
+                  "tests": populations["test_root"],
+                  "spa": populations["spa_root"],
+                  "deploy": populations["deploy_root"],
+                  "gate": populations["gate_roots"]},
+    }
+
+
+# ---------------------------------------------------------------- selftest ---
+
+def _fixture_repo(directory):
+    """A miniature tree carrying every authority this tool derives from."""
+    root = pathlib.Path(directory)
+
+    def write(rel, text, mode=None):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        if mode is not None:
+            os.chmod(path, mode)
+
+    write("bulk_downloader/__init__.py", '__version__ = "9.9.1"\n')
+    write("bulk_downloader/app.py",
+          'def make():\n    return Flask(__name__, template_folder="templates",'
+          ' static_folder="static")\n')
+    write("bulk_downloader/templates/page.html", "<p>one</p>\n")
+    write("bulk_downloader/static/app.css", "body{}\n")
+    write("templates/reviewed/site.template.json", '{"a": 1}\n')
+    write("frontend/package.json", '{"name": "spa"}\n')
+    write("frontend/src/main.ts", "export const x = 1;\n")
+    write("tests/conftest.py", "\n")
+    write("tests/test_settings_center_slice4.py",
+          'from bulk_downloader import __version__\n\n\n'
+          'def test_pin():\n    assert __version__ == "9.9.1"\n')
+    write("tests/test_other.py", "def test_other():\n    assert True\n")
+    # One gate per required family. Their presence is what the POS case proves;
+    # a fixture without them is the NEG case below, and it must be UNKNOWN.
+    write("tests/test_fresh.py", "# runs bd-freshcheck\ndef test_f():\n    assert True\n")
+    write("tests/test_doctruth.py", "# runs bd-doc-truth\ndef test_d():\n    assert True\n")
+    write("tests/test_register.py",
+          "# reads IMPROVEMENT_BACKLOG\ndef test_r():\n    assert True\n")
+    write("tests/test_shards.py",
+          "# mirrors ci_gate_shards_cover_every_gate\ndef test_s():\n    assert True\n")
+    write("scripts/deploy.sh", "#!/bin/sh\necho deploy\n")
+    write(".github/workflows/ci.yml", "name: ci\n")
+    write("tools/decomp/import_graph_baseline.json", '{"edges": {}, "edge_count": 0}\n')
+    write("tools/gen_manifest.py",
+          "import hashlib, pathlib, json\n"
+          "root = pathlib.Path('.')\n"
+          "docs = sorted(p.as_posix() for p in root.glob('project-knowledge/*.md'))\n"
+          "payload = {d: hashlib.sha256((root / d).read_bytes()).hexdigest() for d in docs}\n"
+          "(root / 'project-knowledge' / 'MANIFEST.json').write_text("
+          "json.dumps(payload, indent=1, sort_keys=True) + '\\n')\n")
+    write("toolchain/bin/bd-regen-order",
+          "REQUIRED_CHAIN_LABELS = (\n    \"MANIFEST\",\n)\n"
+          "TRACKED_OUTPUTS_BY_LABEL = {\n"
+          "    \"MANIFEST\": (\"project-knowledge/MANIFEST.json\",),\n}\n"
+          "CHAIN = [\n    (\"MANIFEST\", [\"tools/gen_manifest.py\"], \"why\"),\n]\n")
+    # The REAL release-trio authority, not a stand-in: the fixture must prove
+    # this tool's reuse of bd-band-transfer-key, and a stub would prove a stub.
+    authority = pathlib.Path(__file__).resolve().parent / "bd-band-transfer-key"
+    write("toolchain/bin/bd-band-transfer-key",
+          authority.read_text(encoding="utf-8"), mode=0o755)
+    write("CHANGELOG.md", "# Changelog\n\n## v9.9.1 - first\n\n- one\n")
+    write("CLAUDE.md", "# contract\n")
+    write("docs/repo/TOPOLOGY.md", "# topology\n")
+    write("project-knowledge/IMPROVEMENT_BACKLOG.md", "| 1 | OPEN | a |\n")
+    write("project-knowledge/spa_shot.py", "print('shot')\n")
+    write("kb/notes.txt", "loose\n")
+    return root
+
+
+def _fixture_git(root, *args, check=True):
+    result = subprocess.run(["git", "-C", str(root), *args],
+                            capture_output=True, text=True, check=False, timeout=120)
+    if check and result.returncode != 0:
+        raise RuntimeError("fixture git %s failed: %s" % (" ".join(args), result.stderr))
+    return result
+
+
+def _fixture_commit(root, message):
+    _fixture_git(root, "add", "-A")
+    _fixture_git(root, "-c", "user.email=selftest@example.invalid",
+                 "-c", "user.name=selftest", "commit", "-q", "-m", message)
+    return _fixture_git(root, "rev-parse", "HEAD").stdout.strip()
+
+
+def _fixture_regen(root):
+    subprocess.run([sys.executable, "tools/gen_manifest.py"], cwd=str(root),
+                   capture_output=True, text=True, check=True, timeout=120)
+
+
+def selftest():
+    ok = True
+
+    def report(good, line):
+        nonlocal ok
+        ok = ok and good
+        print(("PASS  " if good else "FAIL  ") + line)
+
+    with tempfile.TemporaryDirectory(prefix="bd-docs-only-selftest-") as directory:
+        root = _fixture_repo(directory)
+        _fixture_git(root, "init", "-q", "-b", "main")
+        _fixture_regen(root)
+        base = _fixture_commit(root, "base")
+
+        # The census must see every population it claims to judge.
+        head_census = census(root, base)
+        counts = head_census["populations"]
+        report(all(counts[name] > 0 for name in counts),
+               "CENSUS: every derived population is NONZERO on the fixture %s" % counts)
+        report(head_census["roots"]["package"] == "bulk_downloader"
+               and head_census["roots"]["tests"] == "tests"
+               and head_census["roots"]["spa"] == "frontend"
+               and head_census["roots"]["deploy"] == "scripts"
+               and head_census["roots"]["template_token"] == "templates",
+               "CENSUS: roots are derived by content, not typed (%s)"
+               % head_census["roots"])
+
+        def cut(name, mutate):
+            _fixture_git(root, "checkout", "-q", "-b", name, base)
+            mutate()
+            _fixture_regen(root)
+            head = _fixture_commit(root, name)
+            _fixture_git(root, "checkout", "-q", "main")
+            return head
+
+        def edit_doc():
+            (root / "project-knowledge" / "IMPROVEMENT_BACKLOG.md").write_text(
+                "| 1 | DONE | a |\n", encoding="utf-8")
+
+        # POSITIVE CONTROL. It must pass, and every adversarial case below is
+        # this delta plus exactly one path -- so a refusal names the added path
+        # and cannot be laundered by some unrelated earlier condition (A5).
+        head = cut("docs", edit_doc)
+        rc, verdict = classify(root, base, head)
+        report(rc == DOCS_ONLY and verdict["verdict"] == "DOCS-ONLY",
+               "POS: a register + manifest delta is DOCS-ONLY (rc=%d, %s)"
+               % (rc, verdict.get("refusals")))
+        report(verdict["allowed"].get("project-knowledge/MANIFEST.json")
+               == "REGENERATION-CHAIN-FIXPOINT",
+               "POS: the regenerated manifest is allowed by FIXPOINT PROOF, not by name")
+
+        adversarial = [
+            ("RUNTIME-PRODUCT-SOURCE", "bulk_downloader/db.py", "X = 1\n"),
+            ("RUNTIME-TEMPLATE", "bulk_downloader/templates/new.html", "<p>two</p>\n"),
+            ("RUNTIME-FRONTEND", "frontend/src/added.ts", "export const y = 2;\n"),
+            ("EVIDENCE-GATE-OR-CI", ".github/workflows/extra.yml", "name: extra\n"),
+            ("EVIDENCE-TEST", "tests/test_added.py", "def test_added():\n    assert True\n"),
+            ("RUNTIME-DEPLOY-OR-INSTALL", "scripts/extra.sh", "#!/bin/sh\n"),
+            ("DECLARED-IMPORT-BASELINE", "tools/decomp/import_graph_baseline.json",
+             '{"edges": {"a": ["b"]}, "edge_count": 1}\n'),
+            ("OUTSIDE-DOC-CORPUS", "project-knowledge/spa_shot.py", "print('changed')\n"),
+        ]
+        for expected, path, text in adversarial:
+            def mutate(path=path, text=text):
+                edit_doc()
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8")
+            head = cut("adv-" + expected.lower(), mutate)
+            rc, verdict = classify(root, base, head)
+            reasons = {r["reason"] for r in verdict.get("refusals", [])}
+            good = rc == RUNTIME and reasons == {expected}
+            report(good, "ADV %-42s -> %s (rc=%d)" % (path, sorted(reasons) or "NONE", rc))
+
+        # The generated artifact that was HAND-EDITED, which is the shape a
+        # product change would take if it hid behind "it is only generated".
+        def tamper():
+            edit_doc()
+            _fixture_regen(root)
+            manifest = root / "project-knowledge" / "MANIFEST.json"
+            manifest.write_text(manifest.read_text().replace("{", "{\n \"smuggled\": 1,", 1),
+                                encoding="utf-8")
+        _fixture_git(root, "checkout", "-q", "-b", "adv-fixpoint", base)
+        tamper()
+        head = _fixture_commit(root, "adv-fixpoint")
+        _fixture_git(root, "checkout", "-q", "main")
+        rc, verdict = classify(root, base, head)
+        reasons = {r["reason"] for r in verdict.get("refusals", [])}
+        report(rc == RUNTIME and reasons == {"EVIDENCE-GENERATED-NOT-AT-FIXPOINT"},
+               "ADV hand-edited generated artifact -> %s (rc=%d)" % (sorted(reasons), rc))
+
+        # A partial trio and a trio that carries more than its version literal.
+        def partial_trio():
+            edit_doc()
+            (root / "bulk_downloader" / "__init__.py").write_text(
+                '__version__ = "9.9.2"\n', encoding="utf-8")
+        head = cut("adv-trio-partial", partial_trio)
+        rc, verdict = classify(root, base, head)
+        reasons = {r["reason"] for r in verdict.get("refusals", [])}
+        report(rc == RUNTIME and "RELEASE-TRIO-PARTIAL" in reasons,
+               "ADV a partial release trio -> %s (rc=%d)" % (sorted(reasons), rc))
+
+        def full_trio(extra=""):
+            def mutate():
+                edit_doc()
+                (root / "bulk_downloader" / "__init__.py").write_text(
+                    '__version__ = "9.9.2"\n' + extra, encoding="utf-8")
+                (root / "tests" / "test_settings_center_slice4.py").write_text(
+                    'from bulk_downloader import __version__\n\n\n'
+                    'def test_pin():\n    assert __version__ == "9.9.2"\n', encoding="utf-8")
+                (root / "CHANGELOG.md").write_text(
+                    "# Changelog\n\n## v9.9.2 - second\n\n- two\n\n## v9.9.1 - first\n\n- one\n",
+                    encoding="utf-8")
+            return mutate
+
+        head = cut("trio-clean", full_trio())
+        rc, verdict = classify(root, base, head)
+        report(rc == DOCS_ONLY and verdict["trio"] == "COMPLETE",
+               "POS: a version-substitution-only trio stays DOCS-ONLY (rc=%d, %s)"
+               % (rc, verdict.get("refusals")))
+
+        head = cut("trio-smuggled", full_trio("SMUGGLED = True\n"))
+        rc, verdict = classify(root, base, head)
+        reasons = {r["reason"] for r in verdict.get("refusals", [])}
+        report(rc == RUNTIME and reasons == {"RELEASE-TRIO-BEYOND-VERSION-SUBSTITUTION"},
+               "ADV a trio carrying product source -> %s (rc=%d)" % (sorted(reasons), rc))
+
+        # A symlink is a path, not a document.
+        def symlink():
+            edit_doc()
+            os.symlink("../bulk_downloader/app.py", str(root / "docs" / "LINK.md"))
+        head = cut("adv-symlink", symlink)
+        rc, verdict = classify(root, base, head)
+        reasons = {r["reason"] for r in verdict.get("refusals", [])}
+        report(rc == RUNTIME and reasons == {"UNSUPPORTED-ENTRY-MODE"},
+               "ADV a symlink named *.md -> %s (rc=%d)" % (sorted(reasons), rc))
+
+        def chmod_doc():
+            edit_doc()
+            os.chmod(str(root / "CLAUDE.md"), 0o755)
+        head = cut("adv-mode", chmod_doc)
+        rc, verdict = classify(root, base, head)
+        reasons = {r["reason"] for r in verdict.get("refusals", [])}
+        report(rc == RUNTIME and reasons == {"ENTRY-MODE-CHANGED"},
+               "ADV a document that became executable -> %s (rc=%d)" % (sorted(reasons), rc))
+
+        # An empty delta is UNKNOWN, never docs-only.
+        try:
+            classify(root, base, base)
+        except Unmeasurable as exc:
+            report("ZERO" in str(exc), "NEG: an empty delta is UNKNOWN (%s)" % exc)
+        else:
+            report(False, "NEG: an empty delta returned a verdict")
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+# -------------------------------------------------------------------- main ---
+
+def _emit(payload, as_json):
+    if as_json:
+        print(json.dumps(payload, sort_keys=True, indent=1))
+        return
+    if "verdict" in payload:
+        print("%s  base=%s head=%s over %d changed path(s)"
+              % (payload["verdict"], payload["base"][:12], payload["head"][:12],
+                 payload["changed_count"]))
+        for path, why in payload["allowed"].items():
+            print("  allow   %-58s %s" % (path, why))
+        for row in payload["refusals"]:
+            print("  REFUSE  %-58s %s" % (row["path"], row["reason"]))
+            print("          %s" % row["detail"])
+        gates = payload.get("required_gates")
+        if gates:
+            print("  required gates over %d tracked test file(s):"
+                  % gates["tests_examined"])
+            for family, detail in sorted(gates["families"].items()):
+                print("    %-12s %d gate(s)" % (family, detail["count"]))
+        return
+    print("census of %s over %d tracked path(s)" % (payload["commit"][:12], payload["tracked"]))
+    for name, count in payload["populations"].items():
+        print("  %-34s %d" % (name, count))
+    print("  %-34s %d current, %d historical"
+          % ("DOC-CORPUS", payload["doc_current"], payload["doc_historical"]))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="bd-docs-only")
+    # The house convention is a --selftest FLAG, and bd-tool-lint enforces it.
+    # It is kept alongside the `selftest` subcommand rather than replacing it so
+    # neither spelling becomes the one a future caller guesses wrong.
+    parser.add_argument("--selftest", action="store_true",
+                        help="run the built-in battery and exit")
+    sub = parser.add_subparsers(dest="command")
+    c = sub.add_parser("classify")
+    c.add_argument("--repo", required=True)
+    c.add_argument("--base", required=True)
+    c.add_argument("--head", required=True)
+    c.add_argument("--json", action="store_true")
+    n = sub.add_parser("census")
+    n.add_argument("--repo", required=True)
+    n.add_argument("--commit", default="HEAD")
+    n.add_argument("--json", action="store_true")
+    sub.add_parser("selftest")
+    args = parser.parse_args(argv)
+
+    if args.selftest or args.command == "selftest":
+        return selftest()
+    if not args.command:
+        parser.error("a subcommand is required: classify, census or selftest")
+    try:
+        if args.command == "classify":
+            rc, payload = classify(args.repo, args.base, args.head)
+        else:
+            rc, payload = DOCS_ONLY, census(args.repo, args.commit)
+    except Unmeasurable as exc:
+        print("UNKNOWN, not permission: %s" % exc, file=sys.stderr)
+        return UNKNOWN
+    except (OSError, SyntaxError, subprocess.SubprocessError) as exc:
+        print("UNKNOWN, not permission: %s" % exc, file=sys.stderr)
+        return UNKNOWN
+    except Exception as exc:  # noqa: BLE001 -- deliberate, and it is the point
+        # EXIT 1 MEANS REFUSED AND NOTHING ELSE. Python's own uncaught-exception
+        # status is also 1, so without this every crash in this file would reach
+        # a caller as a well-formed "runtime-affecting" verdict. A caller must be
+        # able to tell "I proved this candidate is not inert" from "I fell over".
+        import traceback
+        print("UNKNOWN, not permission: bd-docs-only raised %s: %s\n%s"
+              % (type(exc).__name__, exc, traceback.format_exc()), file=sys.stderr)
+        return UNKNOWN
+    _emit(payload, args.json)
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

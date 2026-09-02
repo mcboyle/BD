@@ -181,6 +181,12 @@ _DECLARED = {
     # ever reached them. This gate has the same property and is declared for
     # the same reason.
     "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
+    # Row 530, the docs-only lane's classifier. Its subject is which tracked
+    # paths of this tree can be proven inert, so it is derived from
+    # `git ls-files` and no changed path can select it. A classifier whose
+    # allow set has quietly grown a new top-level directory is precisely the
+    # failure it exists to prevent, and it would look like nothing at all.
+    "tests/test_row530_docs_only_lane_fails_closed.py",
     # @1378, the same tool, the other half of the same question. 1239 pins that
     # bd-precut RUNS the gates a diff cannot select; this one pins that its
     # version/pin/surface check can be MEASURED AT ALL. It judges the tool and

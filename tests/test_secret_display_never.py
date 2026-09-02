@@ -26,12 +26,15 @@ POSTURE: read-only / recognition-only. The gate seeds its own sentinel and
 scans for it; it never prints a real secret and never touches the
 fixtures/recon_corpus set (no endpoint serves those).
 """
+import faulthandler
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -74,6 +77,69 @@ _SKIP_RULE_SUBSTR = (
     "/api/stream", "/stream", "/export.csv", "/export", "/download",
     "/api/captcha/pending/", "/logs/tail", "/api/activity/v2/export",
 )
+
+
+# ── ROWS 640/641: the shard boundary names what actually failed ────────────
+#
+# `_scan_all` broke out of its collection loop on the first queue timeout and
+# reported only a COUNT, so a DEADLOCKED child, a child SLOWER than the budget,
+# and a child that DIED before its put were indistinguishable. That is exactly
+# CLAUDE.md A7's named shape, and it is the direct reason the original
+# `expected_shards=32 collected_shards=31` could not be diagnosed from the lane
+# log: two opposite remedies -- fix a lock, or raise a budget -- looked the
+# same, and the wrong one was considered first.
+#
+# Bounded far below the 60s shard read at `out_q.get` and the 240s pytest bound
+# governing this file: asking a child for its stack must never become the reason
+# a diagnosis times out. NOT a callee timeout -- it is the deadline of a poll for
+# an asynchronous artifact, so it is not a row-338 call site.
+_SHARD_STACK_BUDGET_S = 5
+
+#: Set in the CHILD only, so the dump file object outlives `_arm_shard_dumper`.
+_ARMED_DUMPER = []
+
+
+def _arm_shard_dumper(dump_path):
+    """Let the parent ask this child for its own Python stack, later.
+
+    MUST be the worker's first statement. SIGUSR1's default disposition is
+    Term, so a parent that signals a child which has not yet armed would KILL
+    the process it was trying to interview -- the diagnosis destroying its own
+    evidence. The parent therefore refuses to signal until this file EXISTS,
+    which is why the file is created here rather than at first dump.
+    """
+    if not dump_path:
+        return None
+    handle = open(dump_path, "w")
+    _ARMED_DUMPER.append(handle)
+    faulthandler.register(signal.SIGUSR1, file=handle, all_threads=True,
+                          chain=False)
+    return handle
+
+
+def _drop_inherited_db_handle():
+    """Forget -- never close -- the sqlite handle this child inherited.
+
+    ROW 641. MEASURED 2026-09-02 on test5: every one of 32 forked children
+    inherits the parent's cached `_DB_CONN_LOCAL.idle` handle, and because the
+    pool keys its cache on `os.getpid()` the child's first history query calls
+    `_close_history_conn` on THAT object -- proven by instrumenting the child
+    (`close_calls=[True]`, the True meaning `cx is the parent's handle`). Thirty
+    two processes closing one WAL connection the parent still owns is the
+    hazard SQLite documents as "do not carry an open connection across fork",
+    and it is the credible mechanism for the three `sqlite3.DatabaseError`
+    refusals row 641 recorded on /api/history, /api/queue_templates/1 and
+    /api/sites/<sid>/queue/search -- the three DB-reading routes in the set.
+    Dropping the reference leaves the parent's handle untouched and makes the
+    child open its own.
+    """
+    try:
+        from bulk_downloader import db as _db
+    except Exception as exc:
+        return "unavailable: %s: %s" % (type(exc).__name__, exc)
+    inherited = getattr(_db._DB_CONN_LOCAL, "idle", None)
+    _db._DB_CONN_LOCAL.idle = None
+    return "dropped" if inherited is not None else "none inherited"
 
 
 @contextmanager
@@ -231,12 +297,18 @@ def _scan_targets(app, sid):
     return sorted(targets)
 
 
-def _scan_worker(paths, headers, out_q):
+def _scan_worker(paths, headers, out_q, shard_id=0, dump_path=None):
     """Scan one shard of endpoint paths in a forked child. The child inherits
     the ALREADY-BOOTED app + seeded DB + cwd from the parent (fork), so there
     is no per-worker boot cost; it opens its own test client and GETs its
-    shard. Pushes (scanned_count, leaks) to the queue. Module-level so it is
-    picklable for multiprocessing."""
+    shard. Pushes (shard_id, (scanned_count, leaks, unavailable)) to the queue.
+    Module-level so it is picklable for multiprocessing.
+
+    The shard id rides the PAYLOAD because process state cannot name a missing
+    shard: a child that died before its put can still exit 0, which is
+    indistinguishable from a child that finished (row 640)."""
+    _arm_shard_dumper(dump_path)          # FIRST: see _arm_shard_dumper's why
+    _drop_inherited_db_handle()           # row 641: never close the parent's
     from bulk_downloader import app as A
     scanned, leaks, unavailable = 0, [], []
     c = A.app.test_client()
@@ -245,17 +317,120 @@ def _scan_worker(paths, headers, out_q):
             resp = c.get(path, headers=headers)
             body = (resp.get_data(as_text=False) or b"").decode("utf-8", "ignore")
         except Exception as exc:
-            unavailable.append((path, type(exc).__name__))
+            # ROW 641: the CLASS NAME ALONE collapsed three different sqlite
+            # faults -- a malformed image, a locked database and an unopenable
+            # file all read `DatabaseError`, and those need opposite remedies.
+            # Carry the library's own words.
+            unavailable.append(
+                (path, "%s: %s" % (type(exc).__name__, exc)))
             continue
         scanned += 1
         for sent in _SENTINELS:
             if sent in body:
                 leaks.append((path, sent[:18]))
-    out_q.put((scanned, leaks, unavailable))
+    out_q.put((shard_id, (scanned, leaks, unavailable)))
+
+
+def _shard_receipt(item):
+    """(shard_id, payload) from one queue item, refusing in the item's own
+    shape rather than letting a malformed receipt read as a valid one."""
+    assert (isinstance(item, tuple) and len(item) == 2
+            and isinstance(item[0], int)), (
+        "runtime route scan UNKNOWN: shard receipt is not (shard_id, result): "
+        "%s %.200r" % (type(item).__name__, item)
+    )
+    return item[0], item[1]
+
+
+def _split_shard_receipts(items):
+    """({shard_id: payload}, [payload, ...]) from the collected queue items."""
+    seen = {}
+    payloads = []
+    for item in items:
+        shard_id, payload = _shard_receipt(item)
+        seen[shard_id] = payload
+        payloads.append(payload)
+    return seen, payloads
+
+
+def _child_stack(pid, alive, dump_path):
+    """This child's own Python stack, or the NAMED reason there is not one.
+
+    The three shortfall causes are told apart HERE. A deadlocked child and a
+    slow child both read alive=True with no exit code; only the stack says
+    whether it is parked on a lock or still doing work, so a diagnosis that
+    omitted it would have collapsed two of the three causes it exists to
+    separate.
+    """
+    if pid is None:
+        return "stack unavailable: the shard has no pid, so no child was forked"
+    if alive is False:
+        return ("stack unavailable: the child is GONE -- there is nothing left "
+                "to interview, and its exit code above is the evidence")
+    if alive is not True:
+        return "stack unavailable: this shard's liveness could not be read"
+    if not dump_path:
+        return "stack unavailable: no dump destination was assigned to this shard"
+    if not os.path.exists(dump_path):
+        return ("stack unavailable: the child never armed its dumper, so it "
+                "stopped BEFORE the first line of the worker; signalling it "
+                "now would kill it rather than interview it")
+    before = os.path.getsize(dump_path)
+    try:
+        os.kill(pid, signal.SIGUSR1)
+    except Exception as exc:
+        return ("stack unavailable: could not ask the child (%s: %s)"
+                % (type(exc).__name__, exc))
+    # A bounded poll for an ASYNCHRONOUS artifact, not a fixed wait: the loop
+    # exits the moment the dump lands, and the deadline is itself a finding.
+    deadline = time.monotonic() + _SHARD_STACK_BUDGET_S
+    while time.monotonic() < deadline:
+        if os.path.getsize(dump_path) > before:
+            time.sleep(0.05)                       # let the dump finish writing
+            with open(dump_path, "r", errors="replace") as handle:
+                handle.seek(before)
+                text = handle.read()
+            frames = [line.strip() for line in text.splitlines() if line.strip()]
+            return "stack: " + " <- ".join(frames[:12])
+        time.sleep(0.02)
+    return ("stack unavailable: no dump arrived within %ss of asking, which "
+            "itself says the child is not running interruptible Python"
+            % _SHARD_STACK_BUDGET_S)
+
+
+def _diagnose_missing_shards(procs, shards, seen, dumps):
+    """Name every shard that never reported, one shard at a time."""
+    lines = []
+    for index, proc in enumerate(procs):
+        if index in seen:
+            continue
+        # FACTS FIRST, THEN THE STACK. Asking for a stack signals the child, so
+        # reading liveness afterwards would report the state the QUESTION
+        # produced instead of the state that caused the shortfall.
+        pid = getattr(proc, "pid", None)
+        try:
+            alive = bool(proc.is_alive())
+        except Exception as exc:
+            alive = "unreadable (%s)" % type(exc).__name__
+        exitcode = getattr(proc, "exitcode", "unreadable")
+        routes = shards[index] if index < len(shards) else ()
+        lines.append(
+            "shard %d never reported: %d route(s) starting %s; pid=%s "
+            "alive=%s exitcode=%s; %s"
+            % (index, len(routes), routes[0] if routes else "(none)", pid,
+               alive, exitcode, _child_stack(pid, alive, dumps.get(index))))
+    return " || ".join(lines)
 
 
 def _reconcile_scan_results(targets, results, expected_shards):
-    """Require exact, nonzero shard collection and route execution counts."""
+    """Require exact, nonzero shard collection and route execution counts.
+
+    The four-line count assertion below is byte-identical to its parent on
+    purpose: it is row310's M3 mutation anchor, and the statement that reads
+    the queue above it is row338's M04 anchor bridged to a measured 60s. The
+    shard identity and the shortfall diagnosis are therefore split off in
+    `_split_shard_receipts` and raised in `_scan_all`, not folded in here.
+    """
     assert targets, "runtime route scan has a zero denominator: UNKNOWN"
     assert expected_shards > 0, "runtime route scan expected zero shards: UNKNOWN"
     assert len(results) == expected_shards, (
@@ -296,10 +471,13 @@ def _reconcile_scan_results(targets, results, expected_shards):
 def _scan_sequential(targets, headers):
     q = _SeqQueue()
     try:
-        _scan_worker(targets, headers, q)
+        _scan_worker(targets, headers, q, shard_id=0, dump_path=None)
     except Exception as exc:
-        raise AssertionError("runtime route scan UNKNOWN: worker failed") from exc
-    return _reconcile_scan_results(targets, q.items, expected_shards=1)
+        raise AssertionError(
+            "runtime route scan UNKNOWN: the in-process worker failed: %s: %s"
+            % (type(exc).__name__, exc)) from exc
+    payloads = [_shard_receipt(item)[1] for item in q.items]
+    return _reconcile_scan_results(targets, payloads, expected_shards=1)
 
 
 def _scan_all(targets, headers):
@@ -317,13 +495,24 @@ def _scan_all(targets, headers):
     nworkers = min(32, (os.cpu_count() or 2), max(1, len(targets) // 8))
     if nworkers <= 1:
         return _scan_sequential(targets, headers)
+    # Created BEFORE the first fork: an action whose evidence record must exist
+    # cannot prove it afterwards (CLAUDE.md A7).
+    dumpdir = tempfile.mkdtemp(prefix="bd-secretscan-shard-")
     try:
         ctx = mp.get_context("fork")
         out_q = ctx.Queue()
         shards = [targets[i::nworkers] for i in range(nworkers)]
-        procs = [ctx.Process(target=_scan_worker, args=(sh, headers, out_q), daemon=True)
-                 for sh in shards if sh]
+        live = [(index, sh) for index, sh in enumerate(shards) if sh]
+        dumps = {position: os.path.join(dumpdir, "shard-%d.stack" % position)
+                 for position, _ in enumerate(live)}
+        procs = [ctx.Process(
+                    target=_scan_worker,
+                    args=(sh, headers, out_q, position, dumps[position]),
+                    daemon=True)
+                 for position, (_index, sh) in enumerate(live)]
+        shards = [sh for _index, sh in live]
     except Exception:
+        shutil.rmtree(dumpdir, ignore_errors=True)
         return _scan_sequential(targets, headers)
 
     started = []
@@ -335,10 +524,14 @@ def _scan_all(targets, headers):
         for p in started:
             p.terminate()
             p.join(timeout=5)
+        shutil.rmtree(dumpdir, ignore_errors=True)
         return _scan_sequential(targets, headers)
 
     import queue as _qmod
     results = []
+    seen = {}
+    payloads = []
+    missing_detail = ""
     try:
         for _ in procs:
             try:
@@ -347,13 +540,32 @@ def _scan_all(targets, headers):
                 results.append(out_q.get(timeout=60))
             except _qmod.Empty:
                 break
+        seen, payloads = _split_shard_receipts(results)
+        if len(seen) < len(procs):
+            # DIAGNOSE BEFORE TERMINATING. p.terminate() destroys the very
+            # state -- liveness, stack, exit code -- that tells a deadlock from
+            # a slow shard from a child that died before its put (row 640).
+            missing_detail = _diagnose_missing_shards(procs, shards, seen, dumps)
+    except AssertionError:
+        raise            # a refusal that already names itself is not "read failed"
     except Exception as exc:
-        raise AssertionError("runtime route scan UNKNOWN: shard read failed") from exc
+        raise AssertionError(
+            "runtime route scan UNKNOWN: shard read failed: %s: %s"
+            % (type(exc).__name__, exc)) from exc
     finally:
         for p in procs:
             p.terminate()
             p.join(timeout=5)
-    return _reconcile_scan_results(targets, results, expected_shards=len(procs))
+        shutil.rmtree(dumpdir, ignore_errors=True)
+    # ROW 640, raised HERE rather than inside the reconciler: that keeps the
+    # reconciler's count assertion byte-identical (it is a tracked mutation
+    # anchor), and its catcher drives it directly so this earlier refusal
+    # cannot launder a mutant that weakened it (CLAUDE.md A5).
+    assert not missing_detail, (
+        "runtime route scan UNKNOWN: "
+        f"expected_shards={len(procs)} collected_shards={len(seen)}"
+        f" -- {missing_detail}")
+    return _reconcile_scan_results(targets, payloads, expected_shards=len(procs))
 
 
 class _SeqQueue:
@@ -746,6 +958,10 @@ def _fake_fork_scan(monkeypatch, results):
     out_q = FakeQueue()
 
     class FakeProcess:
+        """Deliberately carries NO pid/is_alive/exitcode: the diagnosis has to
+        degrade by NAME against a process handle that cannot answer, not
+        crash and not invent."""
+
         def start(self):
             fired["start"] += 1
 
@@ -764,10 +980,12 @@ def _fake_fork_scan(monkeypatch, results):
         def Process(self, *, target, args, daemon):
             fired["process"] += 1
             assert target is _scan_worker
-            paths, got_headers, got_q = args
+            paths, got_headers, got_q, shard_id, dump_path = args
             assert got_headers == headers
             assert got_q is out_q
             assert daemon is True
+            assert shard_id == len(shards), (shard_id, len(shards))
+            assert dump_path and dump_path.endswith("shard-%d.stack" % shard_id)
             shards.append(tuple(paths))
             return FakeProcess()
 
@@ -786,7 +1004,7 @@ def _fake_fork_scan(monkeypatch, results):
 def test_runtime_route_scan_reconciles_two_complete_shards(monkeypatch):
     """Positive control: two complete eight-route receipts reconcile to 16."""
     targets, headers, shards, fired = _fake_fork_scan(
-        monkeypatch, [(8, []), (8, [])]
+        monkeypatch, [(0, (8, [])), (1, (8, []))]
     )
     assert len(targets) == 16
 
@@ -806,14 +1024,34 @@ def test_runtime_route_scan_reconciles_two_complete_shards(monkeypatch):
 
 def test_runtime_route_scan_rejects_one_missing_shard_as_unknown(monkeypatch):
     """Negative control: 1/2 receipts is UNKNOWN, never partial success."""
-    targets, headers, shards, fired = _fake_fork_scan(monkeypatch, [(8, [])])
+    targets, headers, shards, fired = _fake_fork_scan(
+        monkeypatch, [(0, (8, []))])
     assert len(targets) == 16
 
     with pytest.raises(
         AssertionError,
         match=r"runtime route scan UNKNOWN: expected_shards=2 collected_shards=1",
-    ):
+    ) as caught:
         _scan_all(targets, headers)
+
+    # ROW 640: the count is no longer the whole answer. The refusal names WHICH
+    # shard, how many routes it owned, and -- against a handle that cannot
+    # answer -- says so by name instead of inventing a pid.
+    message = str(caught.value)
+    assert "shard 1 never reported: 8 route(s) starting /probe/1" in message, message
+    assert "pid=None" in message and "exitcode=unreadable" in message, message
+    assert "alive=unreadable (AttributeError)" in message, message
+    assert "no child was forked" in message, message
+    assert "shard 0 never reported" not in message, message
+
+    # The coordinator refuses BEFORE the reconciler now, so the reconciler's
+    # own count assertion is driven directly here; otherwise the shortfall
+    # refusal would launder a mutant that weakened it (CLAUDE.md A5).
+    with pytest.raises(
+        AssertionError,
+        match=r"runtime route scan UNKNOWN: expected_shards=2 collected_shards=1",
+    ):
+        _reconcile_scan_results(targets, [(8, [])], expected_shards=2)
 
     assert shards == [targets[0::2], targets[1::2]]
     assert fired == {
@@ -830,7 +1068,7 @@ def test_runtime_route_scan_rejects_one_missing_shard_as_unknown(monkeypatch):
 def test_runtime_route_scan_rejects_one_unexecuted_route_as_unknown(monkeypatch):
     """Negative control: complete shard receipts cannot hide a skipped route."""
     targets, headers, shards, fired = _fake_fork_scan(
-        monkeypatch, [(8, []), (7, [])]
+        monkeypatch, [(0, (8, [])), (1, (7, []))]
     )
     assert len(targets) == 16
 
@@ -880,3 +1118,367 @@ def test_runtime_route_census_blocks_nonlocal_network():
         socket.socket.connect,
         socket.socket.connect_ex,
     ) == original
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ROW 640 -- one message per cause, proven by driving all three causes.
+#
+# RED, replayed explicitly against the defective parent (HEAD 9e7031fb) on
+# test5: the identical 1-of-2 shortfall produced exactly
+#   "runtime route scan UNKNOWN: expected_shards=2 collected_shards=1"
+# and NONE of the five facts below -- no shard identity, no pid, no liveness,
+# no exit code, no stack. A deadlocked child, a child slower than the budget
+# and a child that died before its put were therefore the same message.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Set in the PARENT before the fork; the child inherits it.
+_ROW640_CAUSE = []
+
+
+def _row640_deadlocked_child():
+    """Parked on a lock nobody will ever release."""
+    import threading
+    threading.Event().wait()
+
+
+def _row640_slow_child():
+    """Still working, just past the wait."""
+    time.sleep(1800)
+
+
+def _row640_child_that_died_before_its_put():
+    """Gone, with an exit code, having produced nothing."""
+    os._exit(3)
+
+
+def _row640_control_worker(paths, headers, out_q, shard_id=0, dump_path=None):
+    """Shard 0 reports normally; shard 1 fails the way the test selected.
+
+    Arms through the PRODUCTION helper, so the control exercises the real
+    dumper rather than a look-alike.
+    """
+    _arm_shard_dumper(dump_path)
+    if shard_id == 0:
+        out_q.put((0, (len(paths), [], [])))
+        return
+    _ROW640_CAUSE[0]()
+    out_q.put((shard_id, (len(paths), [], [])))     # never reached
+
+
+#: Seconds a control waits for a shard receipt. The PRODUCTION 60s literal is
+#: untouched -- row 338 bridges its measured table to that exact call site, so
+#: the control shortens its own WAIT instead of moving the tool's bound. Well
+#: under the 240s pytest bound governing this file.
+_ROW640_CONTROL_WAIT_S = 4
+
+
+def _row640_shortfall(monkeypatch, cause):
+    """Drive the REAL fork boundary with one misbehaving shard; return the
+    refusal's message.
+
+    The children, their pids, their stacks and their exit codes are real. Only
+    the parent's WAIT is shortened, by a queue wrapper -- so the production
+    budget stays a literal where its census can see it.
+    """
+    import multiprocessing as mp
+    import queue as _qmod
+    module = sys.modules[__name__]
+    _ROW640_CAUSE[:] = [cause]
+    monkeypatch.setattr(os, "cpu_count", lambda: 2)
+    monkeypatch.setattr(module, "_scan_worker", _row640_control_worker)
+
+    real_ctx = mp.get_context("fork")
+    assert real_ctx, "precondition: this platform must fork"
+    waits = []
+
+    class _ImpatientQueue:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def get(self, timeout):
+            waits.append(timeout)
+            return self._inner.get(timeout=min(timeout, _ROW640_CONTROL_WAIT_S))
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    class _Ctx:
+        def Queue(self):
+            return _ImpatientQueue(real_ctx.Queue())
+
+        def Process(self, **kwargs):
+            return real_ctx.Process(**kwargs)
+
+    monkeypatch.setattr(mp, "get_context", lambda method: _Ctx())
+    targets = tuple(f"/probe/{index}" for index in range(16))
+    with pytest.raises(AssertionError) as caught:
+        _scan_all(targets, {"X-Route-Census": "row640"})
+    message = str(caught.value)
+    assert waits == [60, 60], (
+        "precondition: the production 60s shard read must be what the "
+        f"coordinator asked for; it asked for {waits}")
+    assert "expected_shards=2 collected_shards=1" in message, message
+    assert "shard 0 never reported" not in message, message
+    return message
+
+
+def test_row640_the_worker_arms_its_dumper_before_anything_else():
+    """PRECONDITION for every stack below, asserted structurally.
+
+    If arming were not the FIRST statement, a parent asking a not-yet-armed
+    child for its stack would kill it with SIGUSR1's default disposition --
+    the diagnosis destroying the evidence it came for.
+    """
+    import ast
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    worker = next(node for node in tree.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "_scan_worker")
+    body = [node for node in worker.body
+            if not (isinstance(node, ast.Expr)
+                    and isinstance(node.value, ast.Constant))]     # drop docstring
+    first = body[0]
+    assert (isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
+            and getattr(first.value.func, "id", None) == "_arm_shard_dumper"), (
+        "the worker's first statement is %r, not the dumper arming"
+        % ast.dump(first)[:200])
+
+
+def test_row640_a_deadlocked_shard_is_named_as_parked_on_a_lock(monkeypatch):
+    message = _row640_shortfall(monkeypatch, _row640_deadlocked_child)
+    assert "shard 1 never reported: 8 route(s) starting /probe/1" in message, message
+    assert "alive=True" in message and "exitcode=None" in message, message
+    assert "stack: " in message, message
+    assert "_row640_deadlocked_child" in message, message
+    assert "_row640_slow_child" not in message, message
+
+
+def test_row640_a_shard_slower_than_the_budget_is_named_as_still_working(
+        monkeypatch):
+    message = _row640_shortfall(monkeypatch, _row640_slow_child)
+    assert "shard 1 never reported: 8 route(s) starting /probe/1" in message, message
+    assert "alive=True" in message and "exitcode=None" in message, message
+    assert "stack: " in message, message
+    assert "_row640_slow_child" in message, message
+    assert "_row640_deadlocked_child" not in message, message
+
+
+def test_row640_a_shard_that_died_before_its_put_is_named_as_gone(monkeypatch):
+    message = _row640_shortfall(
+        monkeypatch, _row640_child_that_died_before_its_put)
+    assert "shard 1 never reported: 8 route(s) starting /probe/1" in message, message
+    assert "alive=False" in message and "exitcode=3" in message, message
+    assert "the child is GONE" in message, message
+    assert "stack: " not in message, message
+    assert "_row640" not in message.split("stack unavailable")[-1], message
+
+
+def test_row640_the_three_causes_do_not_share_one_message(monkeypatch):
+    """THE A7 SELF-AUDIT. The defect is one message serving several causes, so
+    the fix is only real if the three new messages cannot do the same. Driven
+    through the same real fork boundary, back to back, in one process."""
+    seen = {}
+    for label, cause in (
+            ("deadlocked", _row640_deadlocked_child),
+            ("slower than the budget", _row640_slow_child),
+            ("died before its put", _row640_child_that_died_before_its_put)):
+        with monkeypatch.context() as patched:
+            seen[label] = _row640_shortfall(patched, cause)
+    assert len(set(seen.values())) == 3, (
+        "two of the three shard failures share one message, which is the "
+        "exact defect row 640 exists to end:\n"
+        + "\n".join(f"  {k}: {v}" for k, v in seen.items()))
+    # And "different" is not merely different noise: the discriminating fact
+    # for each cause is present in that one and absent from the others.
+    assert "_row640_deadlocked_child" in seen["deadlocked"]
+    assert "_row640_deadlocked_child" not in seen["slower than the budget"]
+    assert "_row640_slow_child" in seen["slower than the budget"]
+    assert "_row640_slow_child" not in seen["deadlocked"]
+    assert "exitcode=3" in seen["died before its put"]
+    assert "exitcode=3" not in seen["deadlocked"]
+    assert "exitcode=3" not in seen["slower than the budget"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ROW 641 -- the third abstention mode: three endpoints that could not be
+# requested at all.
+#
+#   runtime route scan UNKNOWN: endpoint request(s) unavailable:
+#     /api/history (DatabaseError); /api/queue_templates/1 (DatabaseError);
+#     /api/sites/fb3b0acf/queue/search (DatabaseError)
+#
+# Two findings, MEASURED on test5 2026-09-02 at HEAD 9e7031fb:
+#
+#   1. The refusal named the exception CLASS and nothing else, so a malformed
+#      image, a locked database and an unopenable file were the same word --
+#      three faults needing three different remedies.
+#   2. Every one of 32 forked children inherits the parent's cached
+#      `_DB_CONN_LOCAL.idle` handle, and because the pool keys its cache on
+#      `os.getpid()` the child's first history query CLOSES that object --
+#      instrumented in the child, `cx is <the parent's handle>` was True.
+#      Thirty two processes closing one WAL connection the parent still owns
+#      is the hazard SQLite documents for fork, and the three routes it
+#      reached for are the three DB-reading routes in the eligible set.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ROW641_DB_ROUTES = ("/api/history", "/api/queue_templates/1")
+
+
+class _FailingClient:
+    """A test client whose GETs raise the sqlite faults row 641 collapsed."""
+
+    def __init__(self, faults):
+        self._faults = dict(faults)
+
+    def get(self, path, headers=None):
+        import sqlite3
+        if path in self._faults:
+            raise sqlite3.DatabaseError(self._faults[path])
+        return _EmptyResponse()
+
+
+class _EmptyResponse:
+    def get_data(self, as_text=False):
+        return "" if as_text else b""
+
+
+def test_row641_an_unavailable_endpoint_carries_the_librarys_own_words(
+        monkeypatch):
+    """RED at HEAD 9e7031fb: `_scan_worker` recorded `type(exc).__name__`, so
+    both faults below were the single word `DatabaseError` and the refusal
+    could not tell a corrupt image from a locked file."""
+    import sqlite3
+    from bulk_downloader import app as A
+    faults = {
+        "/api/history": "database disk image is malformed",
+        "/api/queue_templates/1": "database is locked",
+    }
+    client = _FailingClient(faults)
+    monkeypatch.setattr(A.app, "test_client", lambda: client)
+    monkeypatch.setattr(sys.modules[__name__], "_drop_inherited_db_handle",
+                        lambda: "not exercised in this control")
+    q = _SeqQueue()
+    _scan_worker(tuple(faults) + ("/api/quiet",), {}, q, shard_id=0)
+
+    assert len(q.items) == 1, q.items
+    shard_id, (scanned, leaks, unavailable) = q.items[0]
+    assert shard_id == 0 and scanned == 1 and leaks == [], q.items
+    assert len(unavailable) == 2, unavailable
+    recorded = dict(unavailable)
+    assert recorded["/api/history"] == (
+        "DatabaseError: database disk image is malformed"), recorded
+    assert recorded["/api/queue_templates/1"] == (
+        "DatabaseError: database is locked"), recorded
+    assert len(set(recorded.values())) == 2, (
+        "two different sqlite faults still share one word, which is the "
+        f"collapse row 641 exists to end: {recorded}")
+
+    # And the reconciler carries those words all the way into the refusal.
+    with pytest.raises(AssertionError) as caught:
+        _reconcile_scan_results(("/api/history",), [(scanned, leaks, unavailable)],
+                                expected_shards=1)
+    message = str(caught.value)
+    assert "database disk image is malformed" in message, message
+    assert "database is locked" in message, message
+    assert isinstance(sqlite3.DatabaseError("x"), Exception)      # class anchor
+
+
+def _row641_fork_probe(paths, headers, out_q, shard_id=0, dump_path=None):
+    """Report what THIS child did with the connection handle it inherited."""
+    from bulk_downloader import db as _db
+    inherited = getattr(_db._DB_CONN_LOCAL, "idle", None)
+    handle = inherited[1] if inherited else None
+    closed_parents = []
+    real_close = _db._close_history_conn
+    _db._close_history_conn = lambda cx: (
+        closed_parents.append(cx is handle), real_close(cx))[1]
+    dropped = _drop_inherited_db_handle()
+    from bulk_downloader import app as A
+    client = A.app.test_client()
+    errors = []
+    for path in paths:
+        try:
+            client.get(path, headers=headers).get_data()
+        except Exception as exc:
+            errors.append((path, "%s: %s" % (type(exc).__name__, exc)))
+    out_q.put((shard_id, (handle is not None, dropped,
+                          any(closed_parents), errors)))
+
+
+def test_row641_a_forked_child_never_closes_the_parents_db_handle():
+    """THE MECHANISM, measured at the real fork boundary.
+
+    Precondition asserted, not assumed: the child must actually INHERIT a
+    cached handle, or this test would pass over an empty seam.
+    """
+    import multiprocessing as mp
+    from bulk_downloader import app as A
+    from bulk_downloader import db as _db
+    with _client_seeded() as (client, headers, sid):
+        routes = _ROW641_DB_ROUTES + (f"/api/sites/{sid}/queue/search",)
+        for path in routes:
+            client.get(path, headers=headers).get_data()   # cache a live handle
+        assert getattr(_db._DB_CONN_LOCAL, "idle", None) is not None, (
+            "precondition: the parent must hold a cached handle for the child "
+            "to inherit, or this test proves nothing")
+        assert set(routes).issubset(set(_scan_targets(A.app, sid))), (
+            "precondition: the three routes row 641 named must be inside the "
+            "scan's own denominator")
+
+        ctx = mp.get_context("fork")
+        out_q = ctx.Queue()
+        proc = ctx.Process(target=_row641_fork_probe,
+                           args=(routes, headers, out_q, 0, None), daemon=True)
+        proc.start()
+        try:
+            shard_id, (inherited, dropped, closed_parent, errors) = out_q.get(
+                timeout=60)
+        finally:
+            proc.terminate()
+            proc.join(timeout=5)
+
+    assert shard_id == 0
+    assert inherited is True, (
+        "precondition: the forked child did not inherit a handle at all")
+    assert dropped == "dropped", dropped
+    assert closed_parent is False, (
+        "the child still closed the connection object its parent holds -- the "
+        "SQLite-across-fork hazard row 641's DatabaseErrors came from")
+    assert errors == [], (
+        "the three routes row 641 named are still unreachable in a forked "
+        f"child, and now they say why: {errors}")
+
+
+def test_row641_the_named_routes_are_reachable_and_the_gate_still_bites():
+    """NEGATIVE CONTROL for the reachability fix: once the three routes are
+    reachable, an echoed secret on THOSE routes is still caught.
+
+    Without this, "reachable" could have been bought by skipping them.
+    """
+    from bulk_downloader import app as A
+    with _client_seeded() as (client, headers, sid):
+        routes = _ROW641_DB_ROUTES + (f"/api/sites/{sid}/queue/search",)
+        targets = _scan_targets(A.app, sid)
+        assert set(routes).issubset(set(targets)), routes
+
+        adapter = A.app.url_map.bind("localhost")
+        endpoints = {}
+        for path in routes:
+            endpoint, _args = adapter.match(path)
+            endpoints[path] = endpoint
+        assert len(set(endpoints.values())) == 3, endpoints
+
+        original = dict(A.app.view_functions)
+        try:
+            for endpoint in endpoints.values():
+                A.app.view_functions[endpoint] = (
+                    lambda *a, **k: (_SENT_PW, 200))
+            scanned, leaks = _scan_all(targets, headers)
+        finally:
+            A.app.view_functions.clear()
+            A.app.view_functions.update(original)
+
+    assert scanned == len(targets) > 0, (scanned, len(targets))
+    leaked = sorted({path for path, _sentinel in leaks})
+    assert leaked == sorted(routes), (
+        "the gate did not catch the seeded echo on exactly the three routes "
+        f"row 641 named: caught {leaked}, expected {sorted(routes)}")

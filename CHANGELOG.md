@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1432 - a refusal names what failed, and a docs-only change pays a docs-only tax
+
+Rows 530, 615, 640 and 641. Two halves, one contract: a gate must say WHICH
+thing failed, and a lane must prove what it is allowed to skip.
+
+- 615. bd-precut ran the six underived gates in one subprocess and kept only the
+  return code, so a nonzero rc appended the reason string for ALL SIX
+  regardless of which failed, carrying neither the failing node id nor pytest's
+  assertion text. It now also writes a JUnit record, resolves node ids against
+  the tool's own gate list, and names only the failing files. Five causes now
+  produce five messages, asserted pairwise distinct. A subprocess timeout used
+  to escape as an uncaught traceback; it is a named refusal.
+- 640. The runtime route scan's reconciler reported only a COUNT, so a
+  deadlocked child, a child slower than its budget, and a child that died
+  before its put were indistinguishable -- which is why an earlier 32-vs-31
+  refusal could not be diagnosed at all. The shard id now rides the payload,
+  because process state cannot name a missing shard: a child that dies before
+  its put can still exit 0. A shortfall is diagnosed BEFORE terminate(), and
+  pid, liveness and exit code are read BEFORE the stack is requested, because
+  asking signals the child. The child arms its fault handler as its first
+  statement and the parent refuses to signal until that is proven, since the
+  signal's default disposition would otherwise kill the child being questioned.
+- 641. An unreachable endpoint recorded only its exception class, so three
+  different faults read identically. The refusal now carries the exception's own
+  words, and the forked child forgets -- never closes -- the database handle it
+  inherited from its parent.
+- 530. A change with no runtime path paid the full release tax: a version
+  number, a duplicated literal, a CHANGELOG entry, two regenerations, a verify
+  lane, an exact-head CI run, and a fleet deploy that restarts BD on every
+  serving host. The new classifier is a SAFETY BOUNDARY rather than a
+  convenience, so it does not enumerate what is runtime -- it derives a small
+  positive ALLOW set and denies everything else. Measured on the real tree: 3820
+  tracked paths, 161 allowed (4.2 percent), every deny population named and
+  asserted nonzero. A path it cannot decide is runtime-affecting, and an empty
+  delta is UNKNOWN rather than permission. The four correctness gate families
+  still run on a docs-only verdict and each is asserted nonzero. It is opt-in,
+  and a candidate cannot approve itself: the classifier that judges a cut is
+  always the one from the base.
+
 ## v3.66.1431 - the selftest reaps the band session it orphans
 
 Row 638. A CI failure observed twice on candidates that touched neither the tool

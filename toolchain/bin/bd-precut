@@ -160,6 +160,165 @@ def selftest():
     return 0 if found else 1
 
 
+# --- ROW 615 -------------------------------------------------------------
+# WHY THIS IS THREE FUNCTIONS AND NOT ONE STRING. The underived-gate block ran
+# the six gate files in ONE pytest subprocess and kept only the return code, so
+# ANY non-zero rc appended the `why` string for ALL SIX gates. MEASURED
+# 2026-09-02: a real failure in exactly one of them printed the whole six-gate
+# class description, named neither the node id nor the assertion, and cost a
+# rerun by hand to learn which one. CLAUDE.md A7 names that shape for
+# bd-vault-unlock's four-request "pairing fallback failed": two diagnoses
+# needing opposite actions -- fix gate X or fix gate Y -- were indistinguishable
+# from the refusal alone.
+#
+# The subprocess is still ONE run (six interpreter boots would be the slow fix
+# and would change the tool's shape); it now also writes a JUnit record, which
+# carries the node id and pytest's own message. rc remains the VERDICT
+# authority -- the record only names what failed, it never decides whether
+# anything did (CLAUDE.md A5: a partial JUnit file must not define its own
+# expected denominator).
+#
+# FIVE causes reach this refusal and each gets its OWN words. Sharing one
+# message between two of them would be the very defect being fixed, so the
+# self-audit is written into the tests: row 615's controls assert the messages
+# DIFFER, not merely that each is non-empty.
+_UNDERIVED_BUDGET_S = 1800
+
+
+def _one_line(text, limit=240):
+    """Collapse a message to one bounded line, SAYING when it truncated."""
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[:limit] + " ...[truncated]"
+
+
+def _dotted_module(rel):
+    """tests/test_foo.py -> tests.test_foo, the form JUnit's classname uses."""
+    stem = rel[:-3] if rel.endswith(".py") else rel
+    return stem.replace(os.sep, ".").replace("/", ".")
+
+
+def _junit_nodeid(case, known_files=()):
+    """Rebuild the pytest node id from a JUnit <testcase>.
+
+    MEASURED 2026-09-02: pytest's DEFAULT junit family (xunit2) writes NO
+    `file` attribute -- only classname="tests.test_foo" for a module-level
+    function and "tests.test_foo.TestX" for a method. A node id built from
+    classname alone reads `tests.test_foo::test_bar`, which cannot be pasted
+    back into a rerun and does not match the gate list either, so the `why`
+    lookup silently missed. The independent denominator is the gate list this
+    tool already holds, so the file is RESOLVED against it rather than guessed
+    from a dotted string; `file` is used when a family provides it.
+
+    An unmatched classname is not laundered into a plausible-looking path: it
+    is returned as-is and labelled, because a wrong path in a refusal is worse
+    than an honest dotted one.
+    """
+    name = case.get("name") or "?"
+    rel = case.get("file") or ""
+    classname = case.get("classname") or ""
+    if not rel:
+        for candidate in known_files:
+            module = _dotted_module(candidate)
+            if classname == module or classname.startswith(module + "."):
+                rel = candidate
+                break
+    if not rel:
+        return "%s::%s" % (classname or "<unknown file>", name)
+    module = _dotted_module(rel)
+    if not classname or classname == module:
+        return "%s::%s" % (rel, name)
+    if classname.startswith(module + "."):
+        inner = classname[len(module) + 1:].replace(".", "::")
+        return "%s::%s::%s" % (rel, inner, name)
+    return "%s::%s" % (classname, name)
+
+
+def _junit_failures(path, known_files=()):
+    """(cases, None) for a readable JUnit record, (None, reason) otherwise.
+
+    An EMPTY cases list and an UNREADABLE record are different answers and the
+    caller must not merge them: a run that failed while naming no test is not a
+    run whose record could not be read.
+    """
+    import xml.etree.ElementTree as ET
+    if not os.path.isfile(path):
+        return None, "no JUnit record was written"
+    try:
+        tree = ET.parse(path)
+    except Exception as exc:
+        return None, ("its JUnit record is unparseable (%s: %s)"
+                      % (type(exc).__name__, _one_line(exc, 120)))
+    cases = []
+    for case in tree.iter("testcase"):
+        for child in case:
+            if child.tag not in ("failure", "error"):
+                continue
+            cases.append((child.tag.upper(), _junit_nodeid(case, known_files),
+                          _one_line(child.get("message") or child.text or
+                                    "(no message recorded)")))
+    return cases, None
+
+
+def _underived_detail(rc, junit, present, argv, timed_out_after=None):
+    """Name WHICH underived gate failed, in WHOSE words, per cause."""
+    whys = dict(present)
+    rerun = " ".join(str(a) for a in argv)
+    if timed_out_after is not None:
+        return ("pytest did NOT finish within %ss over %d gate file(s), so no "
+                "verdict was reached at all -- this is a HANG, not a failing "
+                "assertion, and it names no gate because none reported. "
+                "Re-run by hand: %s" % (timed_out_after, len(present), rerun))
+    cases, reason = _junit_failures(junit, [rel for rel, _ in present])
+    if cases is None:
+        return ("pytest exited rc=%d and %s, so the failing test could NOT be "
+                "named from this run. Re-run by hand: %s" % (rc, reason, rerun))
+    if not cases:
+        return ("pytest exited rc=%d but its JUnit record names ZERO failing "
+                "tests -- a collection abort, an internal error or an "
+                "interruption, NOT a per-gate assertion. Re-run by hand: %s"
+                % (rc, rerun))
+    shown = cases[:6]
+    parts = []
+    for kind, nodeid, message in shown:
+        rel = nodeid.split("::", 1)[0]
+        why = whys.get(rel)
+        parts.append("%s %s: %s%s" % (nodeid, kind, message,
+                                      (" [gate: %s]" % why) if why else ""))
+    files = sorted({node.split("::", 1)[0] for _, node, _ in cases})
+    tail = ("" if len(shown) == len(cases)
+            else "; +%d further failing test(s) not listed here, see the "
+                 "pytest output above" % (len(cases) - len(shown)))
+    return ("%d failing test(s) in %d of %d gate file(s) -- %s%s"
+            % (len(cases), len(files), len(present), "; ".join(parts), tail))
+
+
+def _run_underived_gates(root, present, env):
+    """Run the underived gates once; return (rc, detail). detail is "" on rc 0.
+
+    The JUnit record goes in a directory this process created, so removing it
+    removes only a target whose identity and ownership are proven (CLAUDE.md
+    A7). mkdtemp also proves the evidence destination is writable BEFORE the
+    subprocess runs.
+    """
+    scratch = tempfile.mkdtemp(prefix="bd-precut-underived-")
+    junit = os.path.join(scratch, "underived.xml")
+    argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:randomly",
+            "--timeout=240", "--timeout-method=signal",
+            "--junitxml=" + junit] + [rel for rel, _ in present]
+    try:
+        try:
+            rc = subprocess.run(argv, cwd=root, env=env,
+                                timeout=_UNDERIVED_BUDGET_S).returncode
+        except subprocess.TimeoutExpired:
+            return 124, _underived_detail(124, junit, present, argv,
+                                          timed_out_after=_UNDERIVED_BUDGET_S)
+        if rc == 0:
+            return 0, ""
+        return rc, _underived_detail(rc, junit, present, argv)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-precut")
     ap.add_argument("--baseline")
@@ -437,15 +596,12 @@ def main(argv=None):
         env = dict(os.environ)
         env.pop("BD_INSTALL_DIR", None)          # A5: pop, do not merely omit
         env["BD_DISABLE_KEEPALIVE"] = "1"
-        rc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "-p", "no:randomly",
-             "--timeout=240", "--timeout-method=signal"] + [r for r, _ in present],
-            cwd=root, env=env, timeout=1800).returncode
+        rc, detail = _run_underived_gates(root, present, env)
         if rc != 0:
             blocking.append(
                 "underived gate(s) FAILED -- these judge the whole tree, so "
                 "bd-band-derive never selects them and a green band says "
-                "nothing about them: " + "; ".join(w for _, w in present))
+                "nothing about them: " + detail)
 
     if blocking:
         print("RESULT: NOT CUT-READY -- " + "; ".join(blocking))
