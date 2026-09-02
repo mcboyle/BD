@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4282,
+  "edge_count": 4286,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -977,6 +977,9 @@
       "bulk_downloader/backup_verify.py",
       "bulk_downloader/db.py",
       "bulk_downloader/disco_runner.py"
+    ],
+    "bulk_downloader/backup.py": [
+      "bulk_downloader/dom_analyzer.py"
     ],
     "bulk_downloader/backup_verify.py": [
       "bulk_downloader/db.py",
@@ -3586,6 +3589,10 @@
       "bulk_downloader/cookie_health.py",
       "bulk_downloader/db.py"
     ],
+    "tests/test_row089_capture_corpus_backup_restore.py": [
+      "bulk_downloader/backup.py",
+      "bulk_downloader/dom_analyzer.py"
+    ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/session_capture.py",
@@ -3725,6 +3732,9 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_row395_captcha_egress_disclosure.py": [
+      "bulk_downloader/runner.py"
     ],
     "tests/test_row399_a_photo_gallery_is_not_a_failed_video_page.py": [
       "bulk_downloader/candidate_filter.py",

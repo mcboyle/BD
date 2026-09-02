@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for h1132. This applies the same ambient-census fallback as M1, but its only catcher imports the module without exercising or asserting group-census behavior. It must ESCAPE, proving the primary CAUGHT verdict is behavioral rather than a parse, collection, or import failure.",
+  "subject": "transform control -- import alone does not constrain the fixture census denominator",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_census_transform_control_imports_without_asserting_no_fork"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 ambient census fallback escapes an import-only assertion",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "    return scoped",
+      "new": "    return program",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_group_census_transform_control_imports_without_asserting_no_fork"
+    }
+  ]
+}

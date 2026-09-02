@@ -60,6 +60,67 @@ _DOWNLOAD_HOLD_STATE_TOKENS = (
     _download_hold.STATE_HELD,
     _download_hold.STATE_UNKNOWN,
 )
+# A captcha API key is the existing enable switch for paid third-party solves.
+# This acknowledgement is deliberately request-only: writers consume it before
+# persistence, so a later provider change must be acknowledged again.
+CAPTCHA_EGRESS_ACK_FIELD = "captcha_egress_disclosure_ack"
+CAPTCHA_PROVIDER_DISCLOSURES = {
+    "2captcha": (
+        "2Captcha published price reference (checked 2026-08-30): "
+        "$0.001-$0.00299 per solve for reCAPTCHA and $0.00145 per solve "
+        "for Turnstile; terms https://2captcha.com/terms-of-service and "
+        "current pricing https://2captcha.com/pricing"
+    ),
+    "capsolver": (
+        "CapSolver published price reference (checked 2026-08-30): "
+        "$0.0008-$0.0012 per solve for reCAPTCHA and Turnstile; terms "
+        "https://www.capsolver.com/legal/terms and current pricing "
+        "https://docs.capsolver.com/en/pricing/"
+    ),
+}
+
+
+def captcha_egress_disclosure_error(updates: dict, current: dict | None = None) -> str:
+    """Return a refusal when a paid solver transition lacks acknowledgement.
+
+    ``updates`` is a partial create/update payload.  A non-empty API key turns
+    solving on from the shipped default-off posture.  Moving an already-active
+    key to a different provider changes its egress destination and is gated too.
+    The caller must remove :data:`CAPTCHA_EGRESS_ACK_FIELD` before persistence.
+    """
+    updates = updates if isinstance(updates, dict) else {}
+    current = current if isinstance(current, dict) else {}
+    key_update = updates.get("captcha_api_key")
+    key_is_active = bool(str(current.get("captcha_api_key") or "").strip())
+    key_will_enable = (
+        not key_is_active
+        and isinstance(key_update, str)
+        and bool(key_update.strip())
+    )
+    old_provider = str(current.get("captcha_provider") or "2captcha").strip().lower()
+    new_provider = str(
+        updates.get("captcha_provider") or old_provider
+    ).strip().lower()
+    provider_moves_active_key = (
+        "captcha_provider" in updates
+        and new_provider != old_provider
+        and (key_is_active or key_will_enable)
+    )
+    if not (key_will_enable or provider_moves_active_key):
+        return ""
+    if updates.get(CAPTCHA_EGRESS_ACK_FIELD) is True:
+        return ""
+    provider_terms = CAPTCHA_PROVIDER_DISCLOSURES.get(
+        new_provider,
+        "the selected provider's terms and current pricing",
+    )
+    return (
+        "Paid captcha solver enablement requires "
+        f"{CAPTCHA_EGRESS_ACK_FIELD}=true after reviewing that the provider "
+        "receives the target page URL, captcha sitekey, challenge type/action, "
+        "and API credential; charges accrue per solve. Review "
+        f"{provider_terms}."
+    )
 
 # A0 / BEH-1 + BEH-2 (v3.66.322): canonical creation-time defaults. These are the
 # values the legacy Add-Site form stored at create time; the SPA wizard stores no

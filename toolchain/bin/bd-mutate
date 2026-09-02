@@ -115,6 +115,23 @@ DEFAULT_BAND_TIMEOUT_SECONDS = 900.0
 PROCESS_GROUP_TERM_GRACE_SECONDS = 1.0
 PROCESS_GROUP_KILL_GRACE_SECONDS = 1.0
 _EMIT_NAME = re.compile(r"v3_66_[0-9]+_[a-z0-9_]+\.json\Z")
+_QUANTIFIED_MUTATION_HEADING = re.compile(
+    r"\bMUTATION(?:\s+BATTERY)?:", re.IGNORECASE
+)
+_QUANTIFIED_MUTATION_OUTCOME = re.compile(
+    r"(?:"
+    r"\b[0-9]+(?:\s+of\s+[0-9]+|/[0-9]+)?\s+"
+    r"(?:CAUGHT|ESCAPED|FAILED|PASSED)\b"
+    r"|"
+    r"\b(?:CAUGHT|ESCAPED|FAILED|PASSED)\s+"
+    r"[0-9]+(?:/[0-9]+)?\b"
+    r")",
+    re.IGNORECASE,
+)
+_EXPLICIT_OVERCORRECTION_MUTANT = re.compile(
+    r"\b(?:OVER-CORRECTION|OVERCORRECTION|OVER-SENSITIVITY)\s+MUTANT\b",
+    re.IGNORECASE,
+)
 _INVOKED_REPOSITORY = Path(__file__).resolve().parents[2]
 _STARTUP_RUNNER_IDENTITY: tuple | None = None
 
@@ -1193,6 +1210,192 @@ def _apply_mutant(src: str, mutant: dict) -> str:
     if has_old_regex:
         return _apply_regex(src, mutant["old_regex"], mutant["new"])
     return _apply(src, mutant["old"], mutant["new"])
+
+
+def _git_audit_output(work: Path, *args: str) -> str:
+    """Run one read-only Git query or refuse the release-evidence audit."""
+    result = subprocess.run(
+        ["git", *args],
+        cwd=work,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise ValueError(
+            "release mutation-evidence query failed: git %s: %s"
+            % (" ".join(args), result.stderr.strip() or "no diagnostic")
+        )
+    return result.stdout
+
+
+def _added_diff_text(diff: str) -> str:
+    """Return added payload lines, excluding the unified-diff file header."""
+    return "\n".join(
+        line[1:]
+        for line in diff.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+
+
+def _has_quantified_mutation_receipt(added_changelog: str) -> bool:
+    """Recognise only an explicit quantitative MUTATION receipt paragraph.
+
+    This is deliberately not a guess that a code cut *should* have run a
+    battery.  The author has to publish ``MUTATION:`` or ``MUTATION BATTERY:``
+    and a numeric caught/escaped/failed/passed outcome in the same paragraph.
+    Cuts with no such claim remain outside this slice.
+    """
+    paragraphs = re.split(r"\n[ \t]*\n", added_changelog)
+    return any(
+        _QUANTIFIED_MUTATION_HEADING.search(paragraph)
+        and _QUANTIFIED_MUTATION_OUTCOME.search(paragraph)
+        for paragraph in paragraphs
+    )
+
+
+def _release_evidence_inputs(
+    work: Path, revision: str | None
+) -> tuple[str, str, str, list[str], dict[str, str]]:
+    """Return identity, parent, added CHANGELOG, specs, and their JSON bytes."""
+    if revision is None:
+        parent = _git_audit_output(work, "rev-parse", "--verify", "HEAD^{commit}").strip()
+        identity = "WORKTREE"
+        changelog_diff = _git_audit_output(
+            work, "diff", "--unified=0", "HEAD", "--", "CHANGELOG.md"
+        )
+        changed = _git_audit_output(
+            work,
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            "HEAD",
+            "--",
+            "tests/mutants/*.json",
+        ).splitlines()
+        untracked = _git_audit_output(
+            work,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "tests/mutants/*.json",
+        ).splitlines()
+        specs = sorted(set(changed + untracked))
+        payloads = {
+            rel: (work / rel).read_text(encoding="utf-8")
+            for rel in specs
+        }
+    else:
+        identity = _git_audit_output(
+            work, "rev-parse", "--verify", f"{revision}^{{commit}}"
+        ).strip()
+        parent = _git_audit_output(
+            work, "rev-parse", "--verify", f"{identity}^1"
+        ).strip()
+        changelog_diff = _git_audit_output(
+            work,
+            "diff",
+            "--unified=0",
+            parent,
+            identity,
+            "--",
+            "CHANGELOG.md",
+        )
+        specs = sorted(
+            _git_audit_output(
+                work,
+                "diff",
+                "--name-only",
+                "--diff-filter=ACMR",
+                parent,
+                identity,
+                "--",
+                "tests/mutants/*.json",
+            ).splitlines()
+        )
+        payloads = {
+            rel: _git_audit_output(work, "show", f"{identity}:{rel}")
+            for rel in specs
+        }
+    return identity, parent, _added_diff_text(changelog_diff), specs, payloads
+
+
+def _audit_release_mutation_evidence(
+    work: Path, revision: str | None = "HEAD"
+) -> dict:
+    """Audit the decidable release-receipt slice from backlog row 27.
+
+    A source diff cannot reliably say whether a battery or an over-sensitivity
+    control was semantically required.  A quantitative CHANGELOG receipt can:
+    it is a claim that executable evidence exists.  This audit therefore makes
+    no battery mandatory for an otherwise silent cut.  It only refuses a
+    receipt with no same-cut durable spec, or an explicit claim of an
+    ``OVERCORRECTION mutant`` with no executable named control.
+
+    ``revision=None`` audits the uncommitted worktree against HEAD, which lets
+    the existing pre-cut tracked-spec gate see the same contract before a cut
+    is frozen.  A commit-ish audits that commit against its first parent.
+    """
+    root = Path(work).resolve()
+    identity, parent, added, specs, payloads = _release_evidence_inputs(
+        root, revision
+    )
+    quantitative = _has_quantified_mutation_receipt(added)
+    explicit_overcorrection = bool(
+        quantitative and _EXPLICIT_OVERCORRECTION_MUTANT.search(added)
+    )
+    controls: list[dict] = []
+    invalid_specs: list[str] = []
+    for rel in specs:
+        try:
+            document = json.loads(payloads[rel])
+        except json.JSONDecodeError as exc:
+            invalid_specs.append(f"{rel}: invalid JSON: {exc}")
+            continue
+        if (not isinstance(document, dict)
+                or document.get("schema") != SPEC_SCHEMA
+                or not isinstance(document.get("mutants"), list)
+                or not document["mutants"]):
+            invalid_specs.append(f"{rel}: not a nonempty {SPEC_SCHEMA} object")
+            continue
+        for mutant in document["mutants"]:
+            if not isinstance(mutant, dict) or mutant.get("direction") != "overcorrection":
+                continue
+            control = mutant.get("control")
+            preserves = mutant.get("preserves")
+            if (isinstance(control, str) and control
+                    and isinstance(preserves, list) and preserves
+                    and all(isinstance(nodeid, str) and nodeid for nodeid in preserves)):
+                controls.append({
+                    "spec": rel,
+                    "label": mutant.get("label"),
+                    "control": control,
+                    "preserves": preserves,
+                })
+
+    problems: list[str] = []
+    if quantitative and not specs:
+        problems.append(
+            "quantitative mutation receipt has no same-cut durable mutation spec"
+        )
+    elif quantitative and invalid_specs:
+        problems.append(
+            "quantitative mutation receipt has invalid same-cut spec evidence: "
+            + "; ".join(invalid_specs)
+        )
+    if explicit_overcorrection and not controls:
+        problems.append(
+            "explicit overcorrection mutant claim has no executable named control"
+        )
+    return {
+        "revision": identity,
+        "parent": parent,
+        "quantitative_receipt": quantitative,
+        "explicit_overcorrection_mutant": explicit_overcorrection,
+        "specs": specs,
+        "overcorrection_controls": controls,
+        "problems": problems,
+    }
 
 
 def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], list[str]]:

@@ -74,15 +74,15 @@ _SHELL_LAUNCH_PATHS = {
         2,
     ),
     "run_test.sh": (
-        'env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py',
+        'env -u BD_INSTALL_DIR \\\n    BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py',
         1,
     ),
     "run_all_tests.sh": (
-        'env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py',
+        'env -u BD_INSTALL_DIR \\\n    BD_DISABLE_KEEPALIVE=1 "$PYEXE" run_tests.py',
         1,
     ),
     "slowest_tests.sh": (
-        'env -u BD_INSTALL_DIR "$PY" run_tests.py',
+        'env -u BD_INSTALL_DIR \\\n    "$PY" run_tests.py',
         1,
     ),
     "project-knowledge/round.sh": (

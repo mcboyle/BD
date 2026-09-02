@@ -1,0 +1,94 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Expected ESCAPES required by row 612. Each structural main()-wiring mutant is repeated with each of the five pre-existing row-463 component tests as its named catcher. Ten escapes prove every old test remains green under both mutations; the primary w2 battery adds the current main-entry-point catcher and catches both.",
+  "subject": "row 612 control -- legacy component tests do not pin main wiring",
+  "band": [
+    "tests/test_row463_precut_derives_its_baseline.py::test_a_baseline_is_derived_from_origin_main",
+    "tests/test_row463_precut_derives_its_baseline.py::test_no_origin_main_stays_unknown_and_never_passes",
+    "tests/test_row463_precut_derives_its_baseline.py::test_a_non_git_directory_stays_unknown",
+    "tests/test_row463_precut_derives_its_baseline.py::test_the_two_sides_share_one_denominator",
+    "tests/test_row463_precut_derives_its_baseline.py::test_tracked_only_refuses_when_git_cannot_answer"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL derive-call mutant vs old test 1",
+      "file": "toolchain/bin/bd-precut",
+      "old": "if not baseline:\n        baseline, derived_reason",
+      "new": "if baseline:\n        baseline, derived_reason",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_a_baseline_is_derived_from_origin_main"
+    },
+    {
+      "label": "CONTROL derive-call mutant vs old test 2",
+      "file": "toolchain/bin/bd-precut",
+      "old": "if not baseline:\n        baseline, derived_reason",
+      "new": "if baseline:\n        baseline, derived_reason",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_no_origin_main_stays_unknown_and_never_passes"
+    },
+    {
+      "label": "CONTROL derive-call mutant vs old test 3",
+      "file": "toolchain/bin/bd-precut",
+      "old": "if not baseline:\n        baseline, derived_reason",
+      "new": "if baseline:\n        baseline, derived_reason",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_a_non_git_directory_stays_unknown"
+    },
+    {
+      "label": "CONTROL derive-call mutant vs old test 4",
+      "file": "toolchain/bin/bd-precut",
+      "old": "if not baseline:\n        baseline, derived_reason",
+      "new": "if baseline:\n        baseline, derived_reason",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_the_two_sides_share_one_denominator"
+    },
+    {
+      "label": "CONTROL derive-call mutant vs old test 5",
+      "file": "toolchain/bin/bd-precut",
+      "old": "if not baseline:\n        baseline, derived_reason",
+      "new": "if baseline:\n        baseline, derived_reason",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_tracked_only_refuses_when_git_cannot_answer"
+    },
+    {
+      "label": "CONTROL tracked-only mutant vs old test 1",
+      "file": "toolchain/bin/bd-precut",
+      "old": "cmd.append",
+      "new": "cmd.extend",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_a_baseline_is_derived_from_origin_main"
+    },
+    {
+      "label": "CONTROL tracked-only mutant vs old test 2",
+      "file": "toolchain/bin/bd-precut",
+      "old": "cmd.append",
+      "new": "cmd.extend",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_no_origin_main_stays_unknown_and_never_passes"
+    },
+    {
+      "label": "CONTROL tracked-only mutant vs old test 3",
+      "file": "toolchain/bin/bd-precut",
+      "old": "cmd.append",
+      "new": "cmd.extend",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_a_non_git_directory_stays_unknown"
+    },
+    {
+      "label": "CONTROL tracked-only mutant vs old test 4",
+      "file": "toolchain/bin/bd-precut",
+      "old": "cmd.append",
+      "new": "cmd.extend",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_the_two_sides_share_one_denominator"
+    },
+    {
+      "label": "CONTROL tracked-only mutant vs old test 5",
+      "file": "toolchain/bin/bd-precut",
+      "old": "cmd.append",
+      "new": "cmd.extend",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_tracked_only_refuses_when_git_cannot_answer"
+    }
+  ]
+}

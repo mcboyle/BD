@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: this must ESCAPE because its band imports the test module but never exercises session-output classification.",
+  "subject": "row 513 transform control distinguishes behavioral catches from invalid source",
+  "band": [
+    "tests/test_row212_live_openssh_transport.py::test_ordinary_remote_calls_keep_the_existing_operator_argv"
+  ],
+  "mutants": [
+    {
+      "label": "transform control accepts account session contribution",
+      "file": "tests/test_row212_live_openssh_transport.py",
+      "old_regex": "(?<=    if )session_output(?=:\\n        account = pwd\\.getpwuid)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row212_live_openssh_transport.py::test_ordinary_remote_calls_keep_the_existing_operator_argv"
+    }
+  ]
+}

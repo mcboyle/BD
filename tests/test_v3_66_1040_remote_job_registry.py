@@ -281,6 +281,81 @@ def test_orphans_reports_but_never_kills(jobs, capsys):
     assert "-m pytest" in body
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["/repo/venv/bin/python", "-m", "pytest", "tests/"], True),
+        (["/repo/venv/bin/python", "-mpytest", "tests/"], True),
+        (["/repo/venv/bin/pytest", "tests/"], True),
+        (["/repo/venv/bin/py.test", "tests/"], True),
+        (["/repo/venv/bin/python", "/repo/venv/bin/pytest", "tests/"], True),
+        (["/repo/venv/bin/python", "runner.py", "-m", "pytest"], False),
+        (["bash", "-c", "python -m pytest tests/"], False),
+        (["/repo/venv/bin/python", "-c", "import pytest"], False),
+    ],
+)
+def test_orphan_classifier_recognises_process_argv_not_ambient_text(
+        jobs, argv, expected):
+    """The classifier owns executable argv, not a substring in ``ps args``."""
+    classifier = getattr(jobs, "_is_pytest_argv", None)
+    assert callable(classifier), (
+        "bd-jobs has no exact-argv pytest classifier"
+    )
+    assert classifier(argv) is expected
+
+
+def test_orphans_treats_a_live_registered_ancestor_as_the_child_owner(
+        jobs, sleeper, monkeypatch, capsys):
+    """A registered runner owns its live descendants, but a stale PID does not."""
+    owner = sleeper()
+    intermediary = sleeper()
+    child = sleeper()
+    entry = jobs.register(owner.pid, "owned runner", "runner.sh")
+    final = jobs.JOBS_DIR / ("%s.json" % entry["id"])
+    argv_reads = []
+
+    def proc_argv(pid):
+        argv_reads.append(pid)
+        if pid == child.pid:
+            return ["/repo/venv/bin/python", "-m", "pytest", "tests/"]
+        return ["/bin/sleep", "60"]
+
+    monkeypatch.setattr(jobs, "proc_argv", proc_argv, raising=False)
+    monkeypatch.setattr(
+        jobs.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            a[0],
+            0,
+            "%d 1 bash bash runner.sh\n"
+            "%d %d timeout timeout 240 bd-run\n"
+            "%d %d python3 python3 -m pytest tests/\n"
+            % (owner.pid, intermediary.pid, owner.pid,
+               child.pid, intermediary.pid),
+            "",
+        ),
+    )
+
+    rc = jobs.cmd_orphans(type("A", (), {})())
+    out, err = capsys.readouterr()
+
+    assert argv_reads == [child.pid], "the planted pytest candidate was not classified"
+    assert rc == 0 and err == ""
+    assert "0 unregistered pytest process(es)" in out
+
+    stale = dict(entry, starttime=entry["starttime"] + 1)
+    stale.pop("_path", None)
+    final.write_text(json.dumps(stale), encoding="utf-8")
+    argv_reads.clear()
+
+    rc = jobs.cmd_orphans(type("A", (), {})())
+    out, err = capsys.readouterr()
+
+    assert argv_reads == [child.pid]
+    assert rc == 1 and err == ""
+    assert "ORPHAN pid=%-7s" % child.pid in out
+
+
 def test_the_starttime_parser_survives_a_comm_containing_spaces(jobs, tmp_path):
     """`/proc/<pid>/stat` field 2 is the executable name IN PARENTHESES and may
     contain spaces or brackets. Splitting the line on whitespace shifts every
@@ -6144,10 +6219,14 @@ def test_orphans_binds_a_registry_pid_to_its_recorded_starttime(
     stale = dict(entry, starttime=entry["starttime"] + 1)
     stale.pop("_path", None)
     final.write_text(json.dumps(stale), encoding="utf-8")
+    monkeypatch.setattr(
+        jobs, "proc_argv",
+        lambda pid: ["python3", "-m", "pytest", "tests/test_x.py"],
+    )
     monkeypatch.setattr(jobs.subprocess, "run", lambda *a, **k:
                         subprocess.CompletedProcess(
                             a[0], 0,
-                            "%d python3 python3 -m pytest tests/test_x.py\n" % p.pid,
+                            "%d 1 python3 python3 -m pytest tests/test_x.py\n" % p.pid,
                             ""))
 
     rc = jobs.cmd_orphans(type("A", (), {})())
@@ -6176,10 +6255,14 @@ def test_orphans_does_not_report_a_process_gone_after_the_ps_snapshot(
     """A process absent at the identity probe is gone, not an orphan."""
     p = sleeper()
     jobs.register(p.pid, "snapshot owner", "sleep 60")
+    monkeypatch.setattr(
+        jobs, "proc_argv",
+        lambda pid: ["python3", "-m", "pytest", "tests/test_x.py"],
+    )
     monkeypatch.setattr(jobs.subprocess, "run", lambda *a, **k:
                         subprocess.CompletedProcess(
                             a[0], 0,
-                            "%d python3 python3 -m pytest tests/test_x.py\n" % p.pid,
+                            "%d 1 python3 python3 -m pytest tests/test_x.py\n" % p.pid,
                             ""))
     monkeypatch.setattr(jobs, "proc_starttime", lambda pid: None)
 
@@ -6218,7 +6301,7 @@ def test_orphans_process_table_failure_is_unknown_not_a_fabricated_zero(
     out, err = capsys.readouterr()
 
     assert len(observed) == 1
-    assert observed[0][0] == ["ps", "-eo", "pid=,comm=,args="]
+    assert observed[0][0] == ["ps", "-eo", "pid=,ppid=,comm=,args="]
     assert 0 < observed[0][1]["timeout"] <= 30
     assert rc == jobs._EXIT_REGISTRY_UNKNOWN, (out, err)
     assert "UNKNOWN" in err and "process table" in err and failure in err, err

@@ -1,0 +1,45 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 513: the live OpenSSH gate classifies ambient session output before judging transport payload. Run with toolchain/bin/bd-mutate against a detached scratch copy.",
+  "subject": "live OpenSSH acceptance isolates HOME and separates account-session output from transport output",
+  "band": [
+    "tests/test_row212_live_openssh_transport.py::test_real_openssh_accepts_the_bd_jobs_transport",
+    "tests/test_row212_live_openssh_transport.py::test_account_output_is_unknown_not_a_transport_failure",
+    "tests/test_row212_live_openssh_transport.py::test_one_byte_probe_change_remains_a_transport_failure",
+    "tests/test_row212_live_openssh_transport.py::test_an_unmeasurable_session_baseline_is_unknown"
+  ],
+  "mutants": [
+    {
+      "label": "M1 account session contribution is silently accepted",
+      "file": "tests/test_row212_live_openssh_transport.py",
+      "old_regex": "(?<=    if )session_output(?=:\\n        account = pwd\\.getpwuid)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row212_live_openssh_transport.py::test_account_output_is_unknown_not_a_transport_failure"
+    },
+    {
+      "label": "M2 unavailable framing returns instead of UNKNOWN",
+      "file": "tests/test_row212_live_openssh_transport.py",
+      "old_regex": "(?<=        )raise(?= AssertionError\\(\\n            \"live OpenSSH session baseline is UNKNOWN: framing tokens)",
+      "new": "return",
+      "direction": "regression",
+      "catcher": "tests/test_row212_live_openssh_transport.py::test_an_unmeasurable_session_baseline_is_unknown"
+    },
+    {
+      "label": "M3 altered transport payload is silently accepted",
+      "file": "tests/test_row212_live_openssh_transport.py",
+      "old_regex": "(?<=    if )payload(?= != expected:)",
+      "new": "expected",
+      "direction": "regression",
+      "catcher": "tests/test_row212_live_openssh_transport.py::test_one_byte_probe_change_remains_a_transport_failure"
+    },
+    {
+      "label": "M4 forced command inherits the operator HOME",
+      "file": "tests/test_row212_live_openssh_transport.py",
+      "old_regex": "(?<=\"export )HOME(?==%s\\\\n\" % shlex\\.quote\\(str\\(remote_home\\)\\))",
+      "new": "PATH",
+      "direction": "regression",
+      "catcher": "tests/test_row212_live_openssh_transport.py::test_real_openssh_accepts_the_bd_jobs_transport"
+    }
+  ]
+}

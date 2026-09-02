@@ -28,7 +28,9 @@ the three things that make deriving it honest rather than convenient:
 from __future__ import annotations
 
 import importlib.machinery
+import json
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -41,6 +43,9 @@ BD_GATE_SCOPE = "repo-wide"
 REPO = Path(__file__).resolve().parent.parent
 TOOL = REPO / "toolchain" / "bin" / "bd-precut"
 CHECK = REPO / "tools" / "precut_check.py"
+IMPORTS = REPO / "toolchain" / "bin" / "bd-imports"
+IMPORT_GATE = REPO / "tools" / "decomp" / "import_graph_gate.py"
+DEPENDENCY_GRAPH = REPO / "tools" / "dependency_graph.py"
 
 
 def _load():
@@ -165,3 +170,75 @@ def test_tracked_only_refuses_when_git_cannot_answer(tmp_path):
          "--tracked-only"], capture_output=True, text=True)
     assert r.returncode != 0, r.stdout
     assert "UNKNOWN" in (r.stdout + r.stderr), r.stdout + r.stderr
+
+
+def test_bd_imports_executes_the_shrink_remedy_its_refusal_names(tmp_path):
+    """Row 632: the wrapper must execute the underlying gate's remedy.
+
+    Build one removed edge AND one new edge.  The new edge makes bd-imports'
+    initial --check nonzero, while the removed edge makes its --update reach
+    BaselineShrinkError.  Without both preconditions the wrapper can return
+    early and manufacture green without ever testing the refusal.
+    """
+    root = tmp_path / "imports-root"
+    (root / "bulk_downloader").mkdir(parents=True)
+    (root / "tools" / "decomp").mkdir(parents=True)
+    (root / "bulk_downloader" / "alpha.py").write_text(
+        "from . import beta\n", encoding="utf-8")
+    (root / "bulk_downloader" / "beta.py").write_text(
+        "VALUE = 1\n", encoding="utf-8")
+    shutil.copy2(DEPENDENCY_GRAPH, root / "tools" / "dependency_graph.py")
+    shutil.copy2(IMPORT_GATE, root / "tools" / "decomp" / "import_graph_gate.py")
+    gate = root / "tools" / "decomp" / "import_graph_gate.py"
+    baseline = root / "tools" / "decomp" / "import_graph_baseline.json"
+
+    seeded = subprocess.run(
+        [sys.executable, str(gate), "--update"], capture_output=True, text=True)
+    assert seeded.returncode == 0, seeded.stdout + seeded.stderr
+    before = baseline.read_bytes()
+    seeded_map = json.loads(before)["edges"]
+    assert seeded_map == {
+        "bulk_downloader/alpha.py": ["bulk_downloader/beta.py"]
+    }, f"precondition: expected exactly one frozen edge, got {seeded_map!r}"
+
+    (root / "bulk_downloader" / "alpha.py").write_text(
+        "VALUE = 2\n", encoding="utf-8")
+    (root / "bulk_downloader" / "gamma.py").write_text(
+        "from . import beta\n", encoding="utf-8")
+    checked = subprocess.run(
+        [sys.executable, str(gate), "--check"], capture_output=True, text=True)
+    check_output = checked.stdout + checked.stderr
+    assert checked.returncode == 1, check_output
+    assert "note: 1 baseline edge(s) no longer present" in check_output, check_output
+    assert "FAIL: 1 NEW import edge(s)" in check_output, check_output
+    assert "bulk_downloader/alpha.py -> bulk_downloader/beta.py" in check_output
+    assert "bulk_downloader/gamma.py -> bulk_downloader/beta.py" in check_output
+
+    refused = subprocess.run(
+        [sys.executable, str(IMPORTS), "--work", str(root), "--update"],
+        capture_output=True, text=True)
+    refusal_output = refused.stdout + refused.stderr
+    assert refused.returncode == 1, refusal_output
+    assert "refusing to shrink the baseline: 1 frozen edge(s)" in refusal_output
+    assert "Re-run with --shrink" in refusal_output, refusal_output
+    assert baseline.read_bytes() == before, "the refused update rewrote the baseline"
+
+    remedy = subprocess.run(
+        [sys.executable, str(IMPORTS), "--work", str(root), "--update", "--shrink"],
+        capture_output=True, text=True)
+    remedy_output = remedy.stdout + remedy.stderr
+    assert remedy.returncode == 0, (
+        "bd-imports named --shrink as the remedy but rejected or failed that "
+        f"same wrapper invocation:\n{remedy_output}")
+    assert baseline.read_bytes() != before, "the successful remedy rewrote nothing"
+    updated_map = json.loads(baseline.read_bytes())["edges"]
+    assert updated_map == {
+        "bulk_downloader/gamma.py": ["bulk_downloader/beta.py"]
+    }, f"the remedy froze the wrong edge population: {updated_map!r}"
+
+    negative = subprocess.run(
+        [sys.executable, str(IMPORTS), "--work", str(root), "--shrink"],
+        capture_output=True, text=True)
+    negative_output = negative.stdout + negative.stderr
+    assert negative.returncode == 2, negative_output
+    assert "--shrink is only meaningful with --update" in negative_output

@@ -40,7 +40,26 @@ else
     echo "         set BD_PYTHON to the service venv python, or use --from <json>."
   fi
   echo "Running the full suite with per-test timing under: $PY"
-  env -u BD_INSTALL_DIR "$PY" run_tests.py tests/ --json="$OUT" "$@"
+  # Match the existing extracted-release-suite ceiling; individual tests retain
+  # their own timeouts, while this bounds a wedged runner outside the process.
+  CAP_SECONDS="${TEST_RUN_CAP_SECONDS:-3600}"
+  case "$CAP_SECONDS" in
+    ''|*[!0-9]*|0)
+      echo "ERROR: TEST_RUN_CAP_SECONDS must be a positive whole number." >&2
+      exit 2
+      ;;
+  esac
+  if ! command -v timeout >/dev/null 2>&1; then
+    echo "ERROR: coreutils timeout is required to bound this test run." >&2
+    exit 2
+  fi
+  timeout --kill-after=10 "$CAP_SECONDS" env -u BD_INSTALL_DIR \
+    "$PY" run_tests.py tests/ --json="$OUT" "$@"
+  RC=$?
+  if [ "$RC" -eq 124 ]; then
+    echo "TEST-RUN-CAPPED: run_tests.py exceeded ${CAP_SECONDS}s." >&2
+  fi
+  [ "$RC" -eq 0 ] || exit "$RC"
   echo
 fi
 

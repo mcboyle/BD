@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -36,6 +37,36 @@ from .subprocess_helpers import kill_process_tree
 _runs_lock = threading.RLock()
 _runs: list = []  # [{run_id, target, state, output, started, finished, returncode}]
 _MAX_HISTORY = 50
+_TEST_RUN_CAP_ENV = "TEST_RUN_CAP_SECONDS"
+# Match the existing extracted-release-suite ceiling; this is a whole-run bound,
+# not a claim about any individual test's expected duration.
+_DEFAULT_TEST_RUN_CAP_SECONDS = 60 * 60
+
+
+def _outer_capped_command(command: list[str]) -> list[str]:
+    """Put the test runner behind the same outer cap as shell launchers.
+
+    The cap belongs outside ``run_tests.py``: an inner test timeout cannot fire
+    once its owning runner is wedged.  Refuse on platforms without the coreutils
+    primitive rather than silently launching the unbounded fallback.
+    """
+    raw = os.environ.get(_TEST_RUN_CAP_ENV, str(_DEFAULT_TEST_RUN_CAP_SECONDS))
+    try:
+        seconds = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"{_TEST_RUN_CAP_ENV} must be a positive whole number, got {raw!r}"
+        ) from exc
+    if seconds <= 0:
+        raise RuntimeError(
+            f"{_TEST_RUN_CAP_ENV} must be a positive whole number, got {raw!r}"
+        )
+    timeout = shutil.which("timeout")
+    if timeout is None:
+        raise RuntimeError(
+            "refusing an unbounded test run: coreutils timeout is unavailable"
+        )
+    return [timeout, "--kill-after=10", str(seconds), *command]
 
 
 def _public_run(run: dict) -> dict:
@@ -318,7 +349,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                      if os.name != "nt" else
                      {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP})
             proc = subprocess.Popen(
-                cmd,
+                _outer_capped_command(cmd),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(_repo_root()),

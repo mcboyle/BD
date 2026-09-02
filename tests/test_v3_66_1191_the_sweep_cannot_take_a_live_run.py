@@ -210,3 +210,90 @@ def test_bd_gc_selftest_still_passes():
         cwd=REPO, text=True, capture_output=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "SELFTEST PASS" in result.stdout
+
+
+def test_bd_gc_worktree_cleanup_requires_a_released_inode_bound_owner_record(
+        tmp_path, capsys):
+    """A rebuild is not ownership: a sweep may take only its released child.
+
+    These are intentionally real *synthetic* linked worktrees in the pytest
+    sandbox.  The foreign sibling has the same Git origin and age, so a prefix,
+    repository, or mtime rule would delete it too.  Only the owner record may
+    distinguish the disposable worktree.
+    """
+    gc = _load("bd_gc_row086_worktrees", GC_PATH)
+    seed = tmp_path / "seed"
+    cleanup_root = tmp_path / "cleanup-root"
+    cleanup_root.mkdir()
+    subprocess.run(["git", "init", str(seed)], check=True, capture_output=True,
+                   text=True)
+    subprocess.run(["git", "-C", str(seed), "config", "user.email",
+                    "test@example.invalid"], check=True, capture_output=True,
+                   text=True)
+    subprocess.run(["git", "-C", str(seed), "config", "user.name", "test"],
+                   check=True, capture_output=True, text=True)
+    (seed / "tracked").write_text("fixture")
+    subprocess.run(["git", "-C", str(seed), "add", "tracked"], check=True,
+                   capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(seed), "commit", "-m", "fixture"],
+                   check=True, capture_output=True, text=True)
+
+    owned = cleanup_root / "owned"
+    foreign = cleanup_root / "foreign"
+    mismatched = cleanup_root / "mismatched-identity"
+    for path, branch in ((owned, "owned"), (foreign, "foreign"),
+                         (mismatched, "mismatched-identity")):
+        subprocess.run(["git", "-C", str(seed), "worktree", "add", "-b",
+                        branch, str(path)], check=True, capture_output=True,
+                       text=True)
+
+    owner = "row086-synthetic-owner"
+    root_stat, owned_stat = cleanup_root.stat(), owned.stat()
+    assert hasattr(gc, "WORKTREE_ROOT_MARKER") and hasattr(gc, "WORKTREE_OWNER_DIR"), (
+        "bd-gc has no ownership-record worktree cleanup contract"
+    )
+    (cleanup_root / gc.WORKTREE_ROOT_MARKER).write_text(json.dumps({
+        "schema": 1, "owner": owner,
+        "root_dev": root_stat.st_dev, "root_ino": root_stat.st_ino,
+    }))
+    records = cleanup_root / gc.WORKTREE_OWNER_DIR
+    records.mkdir()
+    (records / "owned.json").write_text(json.dumps({
+        "schema": 1, "owner": owner,
+        "worktree_dev": owned_stat.st_dev, "worktree_ino": owned_stat.st_ino,
+        "released_at": time.time() - 25 * 60 * 60,
+    }))
+    foreign_stat, mismatched_stat = foreign.stat(), mismatched.stat()
+    (records / "foreign.json").write_text(json.dumps({
+        "schema": 1, "owner": "another-synthetic-owner",
+        "worktree_dev": foreign_stat.st_dev, "worktree_ino": foreign_stat.st_ino,
+        "released_at": time.time() - 25 * 60 * 60,
+    }))
+    (records / "mismatched-identity.json").write_text(json.dumps({
+        "schema": 1, "owner": owner,
+        "worktree_dev": mismatched_stat.st_dev,
+        "worktree_ino": mismatched_stat.st_ino + 1,
+        "released_at": time.time() - 25 * 60 * 60,
+    }))
+
+    eligible, skipped = gc.scan_worktrees(cleanup_root, owner, time.time(), 60)
+    assert eligible == [(str(owned), "[OWNED] eligible")]
+    skipped_by_path = dict(skipped)
+    assert "owner does not match" in skipped_by_path[str(foreign)]
+    assert "identity does not match" in skipped_by_path[str(mismatched)]
+
+    args = argparse.Namespace(older_than=60, apply=False, show=10,
+                              verbose=True, measure=False, only=None,
+                              worktree_root=str(cleanup_root),
+                              worktree_owner=owner)
+    assert gc.run(args) == 0
+    out = capsys.readouterr().out
+    assert "worktree cleanup" in out and "OWNED=1" in out and "UNKNOWN=2" in out
+    assert "DRY RUN" in out and "NOTHING REMOVED" in out
+    assert owned.is_dir() and foreign.is_dir() and mismatched.is_dir()
+
+    args.apply = True
+    assert gc.run(args) == 0
+    assert not owned.exists(), "released, owned synthetic worktree was not removed"
+    assert foreign.is_dir(), "unowned sibling was removed"
+    assert mismatched.is_dir(), "identity-mismatched sibling was removed"

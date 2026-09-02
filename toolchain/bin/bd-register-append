@@ -365,13 +365,20 @@ def append(repo: Path, request_path: Path, allow_gap: str | None = None) -> int:
             if existing_ids and proposed_ids[0] <= max(existing_ids):
                 raise ValueError("proposed rows must use numeric insertion order after existing IDs")
 
-            appended = text + "".join(f"{row}\n" for _, row in proposed)
+            proposed_suffix = "".join(f"{row}\n" for _, row in proposed)
+            appended = text + proposed_suffix
             derived_rows, opened, new_digest, _ = _derive_backlog(repo, appended)
             amended = _HEADER.sub(_marker(derived_rows, opened, new_digest), appended, count=1)
             _assert_canonical_header(repo, amended)
-            normalized_expected = _HEADER.sub("<canonical-header>", appended, count=1)
-            normalized_amended = _HEADER.sub("<canonical-header>", amended, count=1)
-            if normalized_expected != normalized_amended:
+            has_exact_suffix = amended.endswith(proposed_suffix)
+            candidate_prefix = amended[: -len(proposed_suffix)] if has_exact_suffix else ""
+            normalized_original = _HEADER.sub(
+                "<canonical-header>", original.decode("ascii"), count=1
+            )
+            normalized_candidate_prefix = _HEADER.sub(
+                "<canonical-header>", candidate_prefix, count=1
+            )
+            if not has_exact_suffix or normalized_original != normalized_candidate_prefix:
                 raise ValueError("append would change a physical row outside the proposed suffix")
             if derived_rows != rows + len(proposed):
                 raise ValueError("append did not produce exactly the proposed number of rows")

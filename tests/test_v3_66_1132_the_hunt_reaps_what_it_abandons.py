@@ -57,6 +57,7 @@ import builtins
 import errno
 import importlib.machinery
 import importlib.util
+import inspect
 import json
 import math
 import os
@@ -2373,6 +2374,66 @@ def _w1_pid_is_live(pid: int) -> bool:
     return state not in {"Z", "X"}
 
 
+def _w1_fixture_scoped_group_probe(mod, call_log):
+    """Keep non-census fixtures independent of unrelated /proc churn.
+
+    The production probe must fail closed when *any* row in its whole-host
+    census is unreadable: that row might belong to the target group.  These
+    fixtures create leader-only groups, so their narrower precondition can be
+    measured without making every other process on the host part of the test.
+    Dedicated census tests continue to use the unmodified production probe.
+    """
+    program = mod.REGISTRATION_PROBE_PROGRAM
+    start = program.index("def group_observation(pgrp_text, proc_root):\n")
+    end = program.index("\ndef fd_observation", start)
+    replacement = f'''def group_observation(pgrp_text, proc_root):
+    try:
+        pgrp = int(pgrp_text)
+        if pgrp <= 0:
+            raise ValueError
+    except ValueError:
+        result = "UNKNOWN"
+    else:
+        try:
+            raw = (pathlib.Path(proc_root) / str(pgrp) / "stat").read_text(
+                encoding="utf-8")
+            pid, ppid, observed_pgrp, starttime, state = parse_stat(raw)
+        except FileNotFoundError:
+            result = "ABSENT"
+        except (ProcessLookupError, PermissionError, OSError, ValueError,
+                IndexError):
+            result = "UNKNOWN"
+        else:
+            if pid == pgrp and observed_pgrp == pgrp and state not in ("Z", "X"):
+                result = "PRESENT|%d:%d:%d:%d:%s" % (
+                    pid, ppid, observed_pgrp, starttime, state)
+            elif pid == pgrp and state in ("Z", "X"):
+                result = "ABSENT"
+            else:
+                result = "UNKNOWN"
+    with open({str(call_log)!r}, "a", encoding="ascii") as stream:
+        stream.write("%s:%s\\n" % (pgrp_text, result))
+    print(result)
+    return 0
+
+'''
+    scoped = program[:start] + replacement + program[end + 1:]
+    compile(scoped, "<fixture-scoped-registration-probe>", "exec")
+    return scoped
+
+
+def _w1_assert_fixture_group_probe(call_log, *, expected, present):
+    rows = call_log.read_text(encoding="ascii").splitlines()
+    assert len(rows) == expected > 0, (
+        "fixture group probe did not fire its exact nonzero population",
+        expected, rows)
+    outcomes = [row.split(":", 1)[1].split("|", 1)[0] for row in rows]
+    assert outcomes.count("PRESENT") == present, outcomes
+    assert outcomes.count("ABSENT") == expected - present, outcomes
+    assert set(outcomes) <= {"PRESENT", "ABSENT"}, (
+        "the fixture-scoped probe hid uncertainty about its target", outcomes)
+
+
 def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      forward_expiry_is_subject=False, ready_seconds=None,
                      proc_stat_path=None, gate_prelude=None,
@@ -2398,6 +2459,7 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      after_release_pipe_probe=None,
                      owned_group_census_override=None,
                      owned_group_census_probe=None,
+                     fixture_group_probe_log=None,
                      before_group_receipt_recheck_fifo=None,
                      after_group_receipt_recheck_fifo=None,
                      authority_fd_report=None):
@@ -2406,6 +2468,10 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
     workload = tmp_path / "workload.sh"
     workload.write_text(workload_body, encoding="utf-8")
     cmd = "bash " + shlex.quote(str(workload))
+    registration_probe = getattr(mod, "REGISTRATION_PROBE_PROGRAM", "")
+    if fixture_group_probe_log is not None:
+        registration_probe = _w1_fixture_scoped_group_probe(
+            mod, fixture_group_probe_log)
     body = mod.RUNNER.format(
         rundir=shlex.quote(str(rundir)),
         run_id=shlex.quote(os.urandom(16).hex()),
@@ -2413,8 +2479,7 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
         purpose=shlex.quote("row212-w1"),
         origin=shlex.quote("pytest-w1"),
         cmdq=shlex.quote(cmd),
-        registration_probe=shlex.quote(
-            getattr(mod, "REGISTRATION_PROBE_PROGRAM", "")),
+        registration_probe=shlex.quote(registration_probe),
         registration_gate=shlex.quote(
             (getattr(mod, "REGISTRATION_GATE_PROGRAM", "")
              if gate_program is None else gate_program)),
@@ -3976,10 +4041,12 @@ def test_completed_owner_ready_receipt_remains_census_authority(tmp_path):
         tmp_path, "terminal-owner-ready")
     owner_pid_path = tmp_path / "terminal-owner.pid"
     marker = tmp_path / "workload-started"
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
         reap_seconds=3,
+        fixture_group_probe_log=group_probe_log,
         after_terminal_owner_ready_barrier=(
             entered, release, owner_pid_path),
     )
@@ -4008,6 +4075,8 @@ def test_completed_owner_ready_receipt_remains_census_authority(tmp_path):
         with release.open("w", encoding="ascii") as stream:
             stream.write("release\n")
         rc = proc.wait(timeout=_w1_budget_s("completed_owner_ready_receipt_remains_census_authority/wait"))
+        _w1_assert_fixture_group_probe(
+            group_probe_log, expected=13, present=1)
 
         records = [record for record in _w1_owner_records(rundir)
                    if record["role"] == "terminal-reader"]
@@ -4214,10 +4283,12 @@ def test_every_authority_helper_is_named_and_checked_waited(tmp_path):
     """The ordinary path leaves no ambient reader/observer/publisher owner."""
     mod = _load()
     owner_program = mod.REGISTRATION_TIMEOUT_OWNER_PROGRAM
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     assert "live_fds = []" in owner_program
     assert "OWNER-READY v2 receipt=%s fds=%s" in owner_program
     script, rundir = _w1_build_runner(
-        mod, tmp_path, "#!/bin/bash\nexit %d\n" % W1_WORKLOAD_CODE)
+        mod, tmp_path, "#!/bin/bash\nexit %d\n" % W1_WORKLOAD_CODE,
+        fixture_group_probe_log=group_probe_log)
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
         tmp_path, code=0, stdout="stubhost-4242\n"))
@@ -4225,6 +4296,8 @@ def test_every_authority_helper_is_named_and_checked_waited(tmp_path):
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("every_authority_helper_is_named_and_checked_waited/run"))
+    _w1_assert_fixture_group_probe(
+        group_probe_log, expected=12, present=1)
 
     assert result.returncode == 0, (
         "OWNER-BOOTSTRAP-RETAINED-UNDECLARED-FD: "
@@ -5808,6 +5881,7 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
     """An unexpected shell exit drains the exact active owner before return."""
     mod = _load()
     acquired = tmp_path / "abnormal-owner-acquired"
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     owner_receipt_path = tmp_path / "abnormal-owner.receipt"
     owner_entered, owner_release, owner_entered_fd = _w1_fifo_barrier(
         tmp_path, "abnormal-owner")
@@ -5844,6 +5918,7 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         reap_seconds=6,
         timeout_owner_program=timeout_owner,
         abnormal_owner_fifo=acquired,
+        fixture_group_probe_log=group_probe_log,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -5876,6 +5951,8 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         except subprocess.TimeoutExpired as exc:
             raise AssertionError(
                 "EXIT-GUARD-DID-NOT-SETTLE-ACTIVE-OWNER") from exc
+        _w1_assert_fixture_group_probe(
+            group_probe_log, expected=5, present=0)
 
         evidence = ((rundir / "jobid.err").read_text(encoding="utf-8")
                     if (rundir / "jobid.err").is_file() else "")
@@ -6303,6 +6380,69 @@ def test_the_group_census_never_forks_and_so_cannot_count_itself(tmp_path):
 def test_group_census_transform_control_imports_without_asserting_no_fork():
     """Mutation control: collection/import alone is not a census verdict."""
     importlib.import_module(__name__)
+
+
+def test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty(
+        tmp_path, capsys):
+    """The harness narrows its denominator; the production probe stays exact.
+
+    An unreadable unrelated row is sufficient to make the whole-host probe
+    UNKNOWN, correctly: it cannot prove that row is outside the target group.
+    A fixture that created a leader-only group has stronger knowledge and may
+    inspect that exact leader.  It must still return UNKNOWN when the leader's
+    own row is malformed, never laundering unavailable evidence into ABSENT.
+    """
+    mod = _load()
+    proc_root = tmp_path / "proc"
+    target = proc_root / "123"
+    unrelated = proc_root / "456"
+    target.mkdir(parents=True)
+    unrelated.mkdir()
+    fields = ["S", "1", "123"] + ["1"] * 16 + ["999"]
+    valid = "123 (fixture leader) " + " ".join(fields) + "\n"
+    (target / "stat").write_text(valid, encoding="ascii")
+    (unrelated / "stat").write_text("malformed\n", encoding="ascii")
+    assert sorted(path.name for path in proc_root.iterdir()) == ["123", "456"]
+    assert len(fields) == 20 and fields[2] == "123" and fields[19] == "999"
+
+    marker = "\nif len(sys.argv) == 4 and sys.argv[1] == \"process\":"
+
+    def load_functions(program):
+        assert program.count(marker) == 1
+        namespace = {}
+        exec(compile(program.split(marker, 1)[0], "<probe-functions>", "exec"),
+             namespace)
+        return namespace
+
+    production = load_functions(mod.REGISTRATION_PROBE_PROGRAM)
+    assert production["group_observation"]("123", str(proc_root)) == 0
+    assert capsys.readouterr().out == "UNKNOWN\n", (
+        "the planted unrelated malformed row did not reproduce the ambient "
+        "whole-host UNKNOWN")
+
+    call_log = tmp_path / "fixture-group-probe.calls"
+    scoped = load_functions(_w1_fixture_scoped_group_probe(mod, call_log))
+    assert scoped["group_observation"]("123", str(proc_root)) == 0
+    present = capsys.readouterr().out.strip()
+    assert present == "PRESENT|123:1:123:999:S", present
+
+    mismatched = list(fields)
+    mismatched[2] = "999"
+    (target / "stat").write_text(
+        "123 (fixture leader) " + " ".join(mismatched) + "\n",
+        encoding="ascii")
+    assert scoped["group_observation"]("123", str(proc_root)) == 0
+    assert capsys.readouterr().out == "UNKNOWN\n"
+    (target / "stat").write_text("malformed\n", encoding="ascii")
+    assert scoped["group_observation"]("123", str(proc_root)) == 0
+    assert capsys.readouterr().out == "UNKNOWN\n"
+    (target / "stat").unlink()
+    assert scoped["group_observation"]("123", str(proc_root)) == 0
+    assert capsys.readouterr().out == "ABSENT\n"
+    assert call_log.read_text(encoding="ascii").splitlines() == [
+        "123:PRESENT|123:1:123:999:S", "123:UNKNOWN", "123:UNKNOWN",
+        "123:ABSENT",
+    ]
 
 
 #: A group leader that grows a CHILD and a GRANDCHILD on demand. Descent has
@@ -6954,6 +7094,102 @@ def _w1_family_sources():
         % (_W1_FAMILY_GLOB, len(paths)))
     return [(path, ast.parse(path.read_text(encoding="utf-8"),
                              filename=str(path))) for path in paths]
+
+
+_W1_LOAD_SENSITIVE_SCOPED_CENSUS = {
+    "test_cancellation_during_terminal_reader_reconciles_exact_id_once",
+    "test_partial_handoff_frame_does_not_restart_the_protocol_budget",
+    "test_every_authority_helper_is_named_and_checked_waited",
+    "test_exit_guard_settles_a_post_setsid_owner_after_nounset",
+    "test_completed_owner_ready_receipt_remains_census_authority",
+    "test_cooperative_registered_cancellation_returns_primary_status",
+    "test_registration_receipt_drift_before_go_refuses_release",
+}
+_W1_LOAD_SENSITIVE_COUNTED_CENSUS = {
+    "test_cancellation_during_pre_register_observation_never_registers",
+}
+_W1_LOAD_SENSITIVE_DIRECT_CLEANUP = {
+    "test_hunt_fixture_does_not_report_a_self_exited_child_as_leaked",
+    "test_hunt_fixture_reaps_descendant_after_group_leader_exits",
+    "test_hunt_fixture_reaps_the_exact_process_group_it_spawned",
+}
+def test_all_eleven_load_sensitive_fixtures_have_a_nonambient_precondition():
+    """The field population is exact and no verdict depends on ambient /proc."""
+    population = (_W1_LOAD_SENSITIVE_SCOPED_CENSUS
+                  | _W1_LOAD_SENSITIVE_COUNTED_CENSUS
+                  | _W1_LOAD_SENSITIVE_DIRECT_CLEANUP)
+    assert len(population) == 11, (
+        "the filed eleven-test denominator changed", sorted(population))
+    definitions = {}
+    for path, tree in _w1_family_sources():
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                    and node.name in population:
+                definitions.setdefault(node.name, []).append((path, node))
+    assert set(definitions) == population
+    assert all(len(rows) == 1 for rows in definitions.values()), definitions
+
+    signature = inspect.signature(_w1_build_runner)
+    assert "ambient_group_probe" not in signature.parameters, (
+        "the builder default still changes unrelated fixtures")
+    assert signature.parameters["fixture_group_probe_log"].default is None, (
+        "ordinary fixtures no longer receive the production process census")
+    builder_source = inspect.getsource(_w1_build_runner)
+    assert builder_source.count(
+        "if fixture_group_probe_log is not None:"
+    ) == 1, "the scoped probe is not guarded by an explicit opt-in"
+    builder_count = 0
+    scoped_owners = []
+    for _path, tree in _w1_family_sources():
+        for owner in [node for node in ast.walk(tree)
+                      if isinstance(node, (ast.FunctionDef,
+                                           ast.AsyncFunctionDef))]:
+            for call in [item for item in ast.walk(owner)
+                         if isinstance(item, ast.Call)
+                         and ast.unparse(item.func) == "_w1_build_runner"]:
+                builder_count += 1
+                scoped = [kw for kw in call.keywords
+                          if kw.arg == "fixture_group_probe_log"]
+                if scoped:
+                    assert len(scoped) == 1
+                    scoped_owners.append(owner.name)
+    assert builder_count > 0, "the builder-call denominator is empty"
+    assert set(scoped_owners) == _W1_LOAD_SENSITIVE_SCOPED_CENSUS, (
+        "only the filed leader-only fixtures may narrow the production census",
+        sorted(scoped_owners))
+    assert len(scoped_owners) == len(_W1_LOAD_SENSITIVE_SCOPED_CENSUS), (
+        "a scoped-census subject has multiple unreviewed builder calls",
+        scoped_owners)
+
+    for name in sorted(_W1_LOAD_SENSITIVE_SCOPED_CENSUS):
+        _path, node = definitions[name][0]
+        builders = [call for call in ast.walk(node)
+                    if isinstance(call, ast.Call)
+                    and ast.unparse(call.func) == "_w1_build_runner"]
+        assert len(builders) == 1, (name, builders)
+        keywords = {kw.arg for kw in builders[0].keywords}
+        assert "fixture_group_probe_log" in keywords, (
+            name, "still consumes the ambient whole-host process census")
+
+    name = next(iter(_W1_LOAD_SENSITIVE_COUNTED_CENSUS))
+    _path, node = definitions[name][0]
+    builders = [call for call in ast.walk(node)
+                if isinstance(call, ast.Call)
+                and ast.unparse(call.func) == "_w1_build_runner"]
+    assert len(builders) == 1
+    keywords = {kw.arg for kw in builders[0].keywords}
+    assert {"owned_group_census_override", "owned_group_census_probe"} \
+        <= keywords, (name, keywords)
+
+    for name in sorted(_W1_LOAD_SENSITIVE_DIRECT_CLEANUP):
+        _path, node = definitions[name][0]
+        calls = [ast.unparse(call.func) for call in ast.walk(node)
+                 if isinstance(call, ast.Call)]
+        assert calls.count("_w1_budget_boundary.__wrapped__") == 1, (
+            name, "does not drive the cleanup fixture it claims to judge")
+        source = ast.unparse(node)
+        assert "'tracked'" in source and "'unknown'" in source, (
+            name, "does not reconcile the tracked and unknown populations")
 
 
 def test_every_name_this_family_uses_is_bound_in_the_file_that_uses_it():

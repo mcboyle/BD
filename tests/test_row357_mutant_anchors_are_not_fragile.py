@@ -213,8 +213,29 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
             r"(?m)^def test_db_prune_safety_family_is_reachable_from_ci\(\):$",
         ),
+    # Row 491 (h326b): fixed restoration assignments audited by the leak catcher.
+    "19e072ee0a0b48073526089e6535d52e27ee669fe3cdf894d29469e79a17ac80":
+        StableValueException(
+            "the assignment restores the exact app.SITES_FILE object saved on entry",
+            "tests/test_v3_66_41_pwmgr_audit_followups.py",
+            r"(?m)^                A\.SITES_FILE = original_sites_file$",
+        ),
+    # Row 491 (h326b): fixed restoration assignments audited by the leak catcher.
+    "9785ff9f7ba1e8cb8c27033695bec4f5b80dd89406e4f0ecbf1f8c96a49cab87":
+        StableValueException(
+            "the assignment restores the exact sites-file identity latch saved on entry",
+            "tests/test_v3_66_41_pwmgr_audit_followups.py",
+            r"(?m)^                A\._SITES_FILE_LAST_AUTO_OBJECT = original_sites_file_latch$",
+        ),
+    # Row 491 (h326b): fixed restoration assignments audited by the leak catcher.
+    "be3a6f55c4949f1bb2ad1c21cdaaf6cbe92d48133f077c798cb7c6176fc750cc":
+        StableValueException(
+            "the transform control targets the fixed app.SITES_FILE restoration assignment",
+            "tests/test_v3_66_41_pwmgr_audit_followups.py",
+            r"(?m)^                A\.SITES_FILE = original_sites_file$",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 9
+_STABLE_VALUE_EXCEPTION_MAX = 12
 
 
 def _family(

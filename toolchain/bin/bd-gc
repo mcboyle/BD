@@ -25,6 +25,7 @@ THIS TOOL IS THE DANGEROUS ONE IN THE SET, so read the refusals.
 """
 import argparse
 import fcntl
+import hmac
 import json
 import math
 import os
@@ -53,6 +54,10 @@ PROTECTED_STATES = {"KEPT_FOR_FORENSICS", "ABANDONED"}
 DURABLE_STATES = (
     "LIVE", "KEPT_FOR_FORENSICS", "RECLAIMABLE", "ABANDONED", "UNKNOWN")
 CAPTURE_VAULT_LOCK = ".bd-capture-vault.lock"
+WORKTREE_ROOT_MARKER = ".bd-worktree-cleanup.json"
+WORKTREE_OWNER_DIR = ".bd-worktree-owners"
+WORKTREE_SCHEMA = 1
+_MARKER_MAX_BYTES = 65536
 
 
 def _open_regular_lock(path, not_regular):
@@ -122,6 +127,207 @@ def finish_capture_vault(path, owned_fd, allowed_parent=pathlib.Path("/tmp")):
     if (named.st_dev, named.st_ino) != expected:
         return False, "creation identity mismatch at capture-vault pathname"
     return rename_verify_destroy(target, expected_identity=expected)
+
+
+def _read_regular_json(path, label):
+    """Read one small, non-symlinked JSON ownership record or explain refusal."""
+    fd = None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        observed = os.fstat(fd)
+        if not stat.S_ISREG(observed.st_mode):
+            return None, None, "%s is not a regular file" % label
+        chunks, total = [], 0
+        while total <= _MARKER_MAX_BYTES:
+            chunk = os.read(fd, min(8192, _MARKER_MAX_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        if total > _MARKER_MAX_BYTES:
+            return None, None, "%s exceeds %d bytes" % (label,
+                                                           _MARKER_MAX_BYTES)
+        record = json.loads(b"".join(chunks).decode("ascii"))
+        if not isinstance(record, dict):
+            return None, None, "%s is not a JSON object" % label
+        return record, (observed.st_dev, observed.st_ino), None
+    except FileNotFoundError:
+        return None, None, "%s is absent" % label
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        return None, None, "%s is unreadable (%s)" % (label, exc)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _same_owner(record, owner):
+    """Owner IDs are opaque capabilities, never a prefix or display match."""
+    claimed = record.get("owner") if isinstance(record, dict) else None
+    return (isinstance(owner, str) and bool(owner) and
+            isinstance(claimed, str) and
+            hmac.compare_digest(claimed, owner))
+
+
+def _worktree_root_record(root, owner):
+    """Validate the bounded parent before looking at any child within it."""
+    root = pathlib.Path(root).absolute()
+    try:
+        root_st = os.lstat(root)
+    except OSError as exc:
+        return root, None, "cleanup root cannot be evaluated (%s)" % exc
+    if not stat.S_ISDIR(root_st.st_mode) or stat.S_ISLNK(root_st.st_mode):
+        return root, None, "cleanup root is not a real directory"
+    record, _identity, why = _read_regular_json(
+        root / WORKTREE_ROOT_MARKER, "cleanup-root ownership record")
+    if why:
+        return root, None, why
+    if record.get("schema") != WORKTREE_SCHEMA:
+        return root, None, "cleanup-root ownership schema is not understood"
+    if not _same_owner(record, owner):
+        return root, None, "cleanup-root owner does not match the requested owner"
+    if (record.get("root_dev"), record.get("root_ino")) != (
+            root_st.st_dev, root_st.st_ino):
+        return root, None, "cleanup-root ownership identity does not match"
+    records = root / WORKTREE_OWNER_DIR
+    try:
+        records_st = os.lstat(records)
+    except OSError as exc:
+        return root, None, "worktree ownership directory cannot be evaluated (%s)" % exc
+    if not stat.S_ISDIR(records_st.st_mode) or stat.S_ISLNK(records_st.st_mode):
+        return root, None, "worktree ownership directory is not a real directory"
+    return root, records, None
+
+
+def _linked_worktree_state(path):
+    """Prove that a candidate is a registered linked worktree, never a primary."""
+    gitfile = pathlib.Path(path) / ".git"
+    try:
+        git_st = os.lstat(gitfile)
+    except OSError as exc:
+        return "not a linked worktree (%s)" % exc
+    if not stat.S_ISREG(git_st.st_mode) or stat.S_ISLNK(git_st.st_mode):
+        return "not a linked worktree (.git is not a regular link file)"
+    try:
+        content = gitfile.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as exc:
+        return "linked-worktree gitfile is unreadable (%s)" % exc
+    if not content.startswith("gitdir: "):
+        return "linked-worktree gitfile has no gitdir declaration"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "worktree", "list", "--porcelain"],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "linked-worktree registration cannot be evaluated (%s)" % exc
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip().replace("\n", " ")
+        return "linked-worktree registration refused (%s)" % (detail or result.returncode)
+    target = os.path.realpath(path)
+    current, locked = None, False
+    for line in result.stdout.splitlines() + [""]:
+        if line.startswith("worktree "):
+            current, locked = line[9:], False
+        elif line.startswith("locked") and current is not None:
+            locked = True
+        elif not line and current is not None:
+            if os.path.realpath(current) == target:
+                return "linked worktree is locked" if locked else None
+            current, locked = None, False
+    return "linked-worktree registration does not name this path"
+
+
+def _owned_worktree_state(root, records, path, owner, now, older_than_s):
+    """Return one direct child's removable state; anything uncertain is UNKNOWN."""
+    if path.parent != root:
+        return False, "[UNKNOWN] candidate is outside the cleanup root", None
+    try:
+        observed = os.lstat(path)
+    except OSError as exc:
+        return False, "[UNKNOWN] candidate cannot be evaluated (%s)" % exc, None
+    if not stat.S_ISDIR(observed.st_mode) or stat.S_ISLNK(observed.st_mode):
+        return False, "[UNKNOWN] candidate is not a real directory", None
+    linked_why = _linked_worktree_state(path)
+    if linked_why:
+        return False, "[UNKNOWN] %s" % linked_why, None
+    record_path = records / (path.name + ".json")
+    record, record_identity, why = _read_regular_json(
+        record_path, "worktree ownership record")
+    if why:
+        return False, "[UNKNOWN] %s" % why, None
+    if record.get("schema") != WORKTREE_SCHEMA:
+        return False, "[UNKNOWN] worktree ownership schema is not understood", None
+    if not _same_owner(record, owner):
+        return False, "[UNKNOWN] worktree owner does not match the requested owner", None
+    if (record.get("worktree_dev"), record.get("worktree_ino")) != (
+            observed.st_dev, observed.st_ino):
+        return False, "[UNKNOWN] worktree ownership identity does not match", None
+    try:
+        released = float(record["released_at"])
+    except (KeyError, TypeError, ValueError):
+        return False, "[UNKNOWN] worktree release timestamp is unreadable", None
+    if not math.isfinite(released) or released > now + 300:
+        return False, "[UNKNOWN] worktree release timestamp is impossible", None
+    age = now - released
+    if age < older_than_s:
+        return False, "[OWNED] released %d minute(s) ago" % (age / 60), None
+    return True, "[OWNED] eligible", (record_path, record_identity)
+
+
+def scan_worktrees(root, owner, now, older_than_s):
+    """Classify the bounded worktree population; unknown ownership is retained."""
+    root, records, root_why = _worktree_root_record(root, owner)
+    if root_why:
+        return [], [(str(root), "[UNKNOWN] %s" % root_why)]
+    eligible, skipped = [], []
+    try:
+        children = sorted(root.iterdir(), key=lambda child: child.name)
+    except OSError as exc:
+        return [], [(str(root), "[UNKNOWN] cleanup root cannot be listed (%s)" % exc)]
+    for path in children:
+        if path.name in (WORKTREE_ROOT_MARKER, WORKTREE_OWNER_DIR):
+            continue
+        try:
+            if not stat.S_ISDIR(os.lstat(path).st_mode):
+                continue
+        except OSError as exc:
+            skipped.append((str(path), "[UNKNOWN] candidate cannot be listed (%s)" % exc))
+            continue
+        ok, why, _record = _owned_worktree_state(
+            root, records, path, owner, now, older_than_s)
+        (eligible if ok else skipped).append((str(path), why))
+    return eligible, skipped
+
+
+def _remove_owned_worktree(root, owner, path, older_than_s):
+    """Revalidate immediately before Git removes the exact released worktree."""
+    root, records, root_why = _worktree_root_record(root, owner)
+    if root_why:
+        return "cleanup root became UNKNOWN (%s)" % root_why
+    target = pathlib.Path(path)
+    ok, why, record = _owned_worktree_state(
+        root, records, target, owner, time.time(), older_than_s)
+    if not ok:
+        return "candidate became ineligible (%s)" % why
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(target), "worktree", "remove", "--", str(target)],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "git worktree removal failed (%s)" % exc
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip().replace("\n", " ")
+        return "git worktree removal refused (%s)" % (detail or result.returncode)
+    if os.path.lexists(target):
+        return "git worktree removal reported success but the path remains"
+    record_path, expected_identity = record
+    try:
+        current = os.lstat(record_path)
+        if (current.st_dev, current.st_ino) != expected_identity:
+            return "worktree ownership record changed before retirement"
+        os.unlink(record_path)
+    except OSError as exc:
+        return "worktree removed but ownership-record retirement failed (%s)" % exc
+    return None
 
 
 def _test_root_state(path, now):
@@ -332,12 +538,67 @@ def remove(path):
     return None if removed else reason
 
 
+def run_worktree_cleanup(args):
+    """Report, and only on demand retire, one explicitly owned worktree root."""
+    root = pathlib.Path(args.worktree_root).absolute()
+    now = time.time()
+    eligible, skipped = scan_worktrees(
+        root, args.worktree_owner, now, args.older_than * 60)
+    total = len(eligible) + len(skipped)
+    print("bd-gc: worktree cleanup: %d direct child directory(s) under %s; "
+          "%d eligible, %d skipped (older-than=%dm)" % (
+              total, root, len(eligible), len(skipped), args.older_than))
+    state_counts = {
+        state: sum(why.startswith("[%s]" % state)
+                   for _path, why in eligible + skipped)
+        for state in ("OWNED", "UNKNOWN")
+    }
+    print("bd-gc: worktree states " + " ".join(
+        "%s=%d" % item for item in state_counts.items()))
+    if args.verbose:
+        for path, why in skipped[:args.show]:
+            print("  skip  %-50s %s" % (path, why))
+        if len(skipped) > args.show:
+            print("  ... showing %d of %d skipped" % (args.show, len(skipped)))
+    if not eligible:
+        print("bd-gc: no owned worktrees are eligible. NOTHING REMOVED.")
+        return 0
+    if not args.apply:
+        for path, _ in eligible[:args.show]:
+            print("  would remove  %s" % path)
+        if len(eligible) > args.show:
+            print("  ... showing %d of %d eligible" % (args.show, len(eligible)))
+        print("bd-gc: DRY RUN -- %d owned worktree(s) eligible. NOTHING REMOVED. "
+              "Re-run with --apply." % len(eligible))
+        return 0
+    errors = []
+    for path, _ in eligible:
+        err = _remove_owned_worktree(
+            root, args.worktree_owner, path, args.older_than * 60)
+        if err:
+            errors.append((path, err))
+    print("bd-gc: retired %d of %d eligible owned worktree(s)" % (
+        len(eligible) - len(errors), len(eligible)))
+    for path, err in errors[:args.show]:
+        print("  FAILED %s: %s" % (path, err), file=sys.stderr)
+    return 1 if errors else 0
+
+
 def run(args):
     if args.older_than < MIN_AGE_MIN:
         print("bd-gc: REFUSED: --older-than %d is below the %d-minute floor. A "
               "path younger than that may belong to a run in progress."
               % (args.older_than, MIN_AGE_MIN), file=sys.stderr)
         return 2
+
+    worktree_root = getattr(args, "worktree_root", None)
+    worktree_owner = getattr(args, "worktree_owner", None)
+    if worktree_root is not None or worktree_owner is not None:
+        if not worktree_root or not worktree_owner:
+            print("bd-gc: REFUSED: worktree cleanup requires both "
+                  "--worktree-root and --worktree-owner.", file=sys.stderr)
+            return 2
+        return run_worktree_cleanup(args)
 
     now = time.time()
     only_family = getattr(args, "only", None)
@@ -493,10 +754,18 @@ def main(argv=None):
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--only", choices=("bd-testrun", "classified"),
                    help="scope automatic cleanup to a classified family")
+    p.add_argument("--worktree-root",
+                   help="explicit parent carrying the bounded worktree ownership record")
+    p.add_argument("--worktree-owner",
+                   help="exact owner capability required by worktree ownership records")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("--finish-capture-vault")
     p.add_argument("--owned-fd", type=int)
     args = p.parse_args(argv)
+    if (args.worktree_root is None) != (args.worktree_owner is None):
+        p.error("--worktree-root and --worktree-owner must be given together")
+    if args.worktree_root is not None and args.only is not None:
+        p.error("--only does not apply to ownership-record worktree cleanup")
     if args.finish_capture_vault is not None:
         if args.owned_fd is None:
             p.error("--finish-capture-vault requires --owned-fd")

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Expected ESCAPES. CONTROL 1 makes an unrelated bd-precut preamble edit and must leave the row-612 main wiring assertion green. CONTROL 2 imports the mutated import-graph module through the real loader but asserts only baseline structure, not update-branch behavior; its escape proves the primary catches are assertion failures rather than malformed transforms or import failures.",
+  "subject": "transform controls for w2-toolchain rows 612 and 632",
+  "band": [
+    "tests/test_verify_lane_state_naming.py::test_row464_the_predictor_is_reported_beside_not_inside_the_gate_verdict",
+    "tests/test_import_graph_no_new_edges.py::test_baseline_present_and_well_formed"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL unrelated bd-precut auto-baseline version helper rename",
+      "file": "toolchain/bin/bd-precut",
+      "old": "def _version(name):",
+      "new": "def _versions(name):",
+      "direction": "regression",
+      "catcher": "tests/test_verify_lane_state_naming.py::test_row464_the_predictor_is_reported_beside_not_inside_the_gate_verdict"
+    },
+    {
+      "label": "CONTROL imported gate changes the unexecuted update branch",
+      "file": "tools/decomp/import_graph_gate.py",
+      "old": "if args.update:\n        try:",
+      "new": "if args.list:\n        try:",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_baseline_present_and_well_formed"
+    }
+  ]
+}

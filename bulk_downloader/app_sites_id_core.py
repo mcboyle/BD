@@ -15,7 +15,11 @@ import uuid
 from flask import Blueprint, Response, jsonify, request
 from pathlib import Path
 from .constants import SCREENSHOTS_DIR
-from .runner import SiteRunner
+from .runner import (
+    CAPTCHA_EGRESS_ACK_FIELD,
+    SiteRunner,
+    captcha_egress_disclosure_error,
+)
 from .runner import _ts
 from datetime import datetime
 from .db import db_search
@@ -823,6 +827,13 @@ def api_update(sid):
     s_meta = _app_s_meta()
     if sid not in runners: return jsonify({"error":"Not found"}),404
     data=request.json or {}
+    # Row 395: the key is the existing point-of-enable for paid third-party
+    # solving.  The acknowledgement is one-shot and must never persist.
+    _captcha_egress_error = captcha_egress_disclosure_error(
+        data, s_cfg.get(sid) or {})
+    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
+    if _captcha_egress_error:
+        return jsonify({"error": _captcha_egress_error}), 400
     # v3.48 (#25): snapshot the BEFORE state for audit logging. Copy
     # because s_cfg[sid] is going to mutate below.
     _audit_old = dict(s_cfg.get(sid) or {})

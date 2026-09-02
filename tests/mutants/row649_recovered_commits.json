@@ -1,0 +1,81 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 649 recovery battery. Seven behavioral mutants must be CAUGHT. The final duplicate captcha transform points only at an import/callability control and must ESCAPE, proving the behavioral catches come from assertions rather than a broken transform or import.",
+  "subject": "row 649 -- recovered operational, application, navigation, backup, and evidence contracts remain observable",
+  "band": [
+    "tests/test_row395_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted",
+    "tests/test_row395_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate",
+    "tests/test_row350_job_api_durable_truth.py::test_dev_test_launcher_places_its_cap_outside_the_subject",
+    "tests/test_nav_reachability.py::test_outbound_links_accept_explicit_server_and_spa_routes",
+    "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py::test_bd_gc_worktree_cleanup_requires_a_released_inode_bound_owner_record",
+    "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_treats_a_live_registered_ancestor_as_the_child_owner",
+    "tests/test_row089_capture_corpus_backup_restore.py::test_restore_rejects_checksum_corruption_before_creating_target_paths",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_the_live_quantitative_receipt_without_a_spec_is_detected"
+  ],
+  "mutants": [
+    {
+      "label": "M1 unacknowledged paid captcha enablement is accepted",
+      "file": "bulk_downloader/runner.py",
+      "old": "    if not (key_will_enable or provider_moves_active_key):",
+      "new": "    if True:",
+      "direction": "regression",
+      "catcher": "tests/test_row395_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
+    },
+    {
+      "label": "M2 the dev test launcher drops its outer timeout wrapper",
+      "file": "bulk_downloader/dev_tools.py",
+      "old": "def _outer_capped_command(command: list[str]) -> list[str]:",
+      "new": "def _outer_capped_command(command: list[str]) -> list[str]:\n    return command",
+      "direction": "regression",
+      "catcher": "tests/test_row350_job_api_durable_truth.py::test_dev_test_launcher_places_its_cap_outside_the_subject"
+    },
+    {
+      "label": "M3 valid SPA targets are rejected as unresolved outbound links",
+      "file": "tools/nav_reachability.py",
+      "old": "                if (_matches_explicit_get(path, explicit_get)\n                        or _matches_spa_route(spa_path, spa_routes)):\n                    continue",
+      "new": "                if _matches_explicit_get(path, explicit_get):\n                    continue",
+      "direction": "regression",
+      "catcher": "tests/test_nav_reachability.py::test_outbound_links_accept_explicit_server_and_spa_routes"
+    },
+    {
+      "label": "M4 a foreign worktree owner record is treated as owned",
+      "file": "toolchain/bin/bd-gc",
+      "old": "def _same_owner(record, owner):",
+      "new": "def _same_owner(record, owner):\n    return True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py::test_bd_gc_worktree_cleanup_requires_a_released_inode_bound_owner_record"
+    },
+    {
+      "label": "M5 a registered pytest ancestor no longer owns its descendant",
+      "file": "toolchain/bin/bd-jobs",
+      "old": "        if has_registered_ancestor(pid):\n            continue",
+      "new": "        if (pid, current_starttime) in known:\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1040_remote_job_registry.py::test_orphans_treats_a_live_registered_ancestor_as_the_child_owner"
+    },
+    {
+      "label": "M6 capture-corpus restore skips manifest checksum verification",
+      "file": "bulk_downloader/backup.py",
+      "old": "def _corpus_member_matches_manifest(zf: zipfile.ZipFile, record: dict) -> bool:",
+      "new": "def _corpus_member_matches_manifest(zf: zipfile.ZipFile, record: dict) -> bool:\n    return True",
+      "direction": "regression",
+      "catcher": "tests/test_row089_capture_corpus_backup_restore.py::test_restore_rejects_checksum_corruption_before_creating_target_paths"
+    },
+    {
+      "label": "M7 a quantitative mutation receipt without durable evidence is accepted",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "def _has_quantified_mutation_receipt(added_changelog: str) -> bool:",
+      "new": "def _has_quantified_mutation_receipt(added_changelog: str) -> bool:\n    return False",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_the_live_quantitative_receipt_without_a_spec_is_detected"
+    },
+    {
+      "label": "TRANSFORM CONTROL: paid captcha gate removal escapes an import-only test",
+      "file": "bulk_downloader/runner.py",
+      "old": "    if not (key_will_enable or provider_moves_active_key):",
+      "new": "    if True:",
+      "direction": "regression",
+      "catcher": "tests/test_row395_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
+    }
+  ]
+}

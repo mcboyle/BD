@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 511 transform control. The byte-identical candidate rewrite is aimed at a test that imports the append module without exercising append behavior. It must ESCAPE, proving the primary CAUGHT verdict is an assertion failure rather than a syntax or import failure.",
+  "subject": "importing register append does not constrain suffix preservation",
+  "band": [
+    "tests/test_register_append.py::test_row511_transform_control_only_imports_the_append_module"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL candidate rewrites one pre-existing row before suffix validation",
+      "file": "toolchain/bin/bd-register-append",
+      "old_regex": "(?m)(?<=^            derived_rows, opened, new_digest, _ = _derive_backlog\\(repo, )appended(?=\\)$)",
+      "new": "(appended := appended.replace(\"| 401 | OPEN | preserved before |\", \"| 401 | OPEN | rewritten before |\", 1))",
+      "direction": "regression",
+      "catcher": "tests/test_register_append.py::test_row511_transform_control_only_imports_the_append_module"
+    }
+  ]
+}

@@ -16,7 +16,13 @@ from .db import (
     db_stats, db_prune, db_vacuum,
     queue_upsert, db_integrity_check,
 )
-from .runner import SiteRunner, StartOutcome, _ts
+from .runner import (
+    CAPTCHA_EGRESS_ACK_FIELD,
+    SiteRunner,
+    StartOutcome,
+    _ts,
+    captcha_egress_disclosure_error,
+)
 
 # v3.43.24: self-test at startup. Catches environment problems
 # (corrupt DB, missing dirs, Playwright not installed, firewall
@@ -4988,6 +4994,13 @@ def _create_site(data, actor="api"):
     sites_config.json. The 2-tuple return signature is preserved so
     existing callers continue to work."""
     data = dict(data or {})
+    # Row 395: all callers of this shared creation path inherit the same paid
+    # captcha egress gate.  Consume the acknowledgement before CFG_FIELDS is
+    # built so it can never become durable configuration.
+    captcha_egress_error = captcha_egress_disclosure_error(data)
+    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
+    if captcha_egress_error:
+        return None, captcha_egress_error
     # v3.47.8 (#81): normalize the display name before any other handling.
     if "name" in data:
         data["name"] = _sanitize_display_name(data["name"])
