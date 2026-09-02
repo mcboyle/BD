@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1431 - the selftest reaps the band session it orphans
+
+Row 638. A CI failure observed twice on candidates that touched neither the tool
+nor its test.
+
+- 638. bd-mutate's selftest starts every band with start_new_session=True, so
+  section 7's SIGTERM reached the child bd-mutate and NOT the band pytest
+  beneath it. The band was orphaned inside the directory the selftest was about
+  to remove, still writing its cache and junitxml, and the last removal raised
+  OSError: [Errno 39] Directory not empty on the orphan's own cwd. Probed
+  through /proc rather than a process pattern: the orphan was reparented to
+  init, in its own session, and still adding entries 6.3 seconds AFTER
+  proc.wait() had returned. The band now records its own process-group id into
+  the heartbeat and waits on a SENTINEL FILE rather than a width, and section 7
+  reaps that session SIGTERM then SIGKILL. All three failure modes refuse
+  separately by name -- no id, nothing alive, and a group that survived -- so
+  none can launder another, and the residue check still runs after the reap.
+  The distinguishing assertion is the point: an intermediate measured run had
+  the orphan ALIVE at retry and still passed every previous assertion. The reap
+  record must now show it was alive and is gone, the root at retry must contain
+  the late writer, and foreign writers are named by pid, cwd and argv. An
+  unreadable /proc reports UNKNOWN rather than "no writers".
+
+Row 611 needed no code: it was already fixed on main by 3acef433, proven by
+ancestry and by executing the defect against that commit's parent. Its
+discriminator was never co-scheduling -- it is whether the optional pystray
+import is present, which differs across the fleet.
+
 ## v3.66.1430 - live state is read under its lock
 
 Rows 449 and 450.
