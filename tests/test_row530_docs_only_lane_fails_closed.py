@@ -357,6 +357,43 @@ def test_every_reason_code_is_reachable_and_none_is_shared():
             "reason %s is declared but no case in this tree produces it" % code)
 
 
+def test_a_crash_exits_UNKNOWN_and_never_the_refused_code(tmp_path):
+    """EXIT 1 MEANS REFUSED AND NOTHING ELSE.
+
+    Python's own uncaught-exception status is 1, which is also this tool's
+    "runtime-affecting" verdict. bd-verify-cut extracts the BASE commit's
+    classifier so a candidate cannot approve itself, and the first draft of that
+    extraction copied ONE file into a temp directory where the shared
+    bdtools_sec authority is not. The ImportError exited 1 and the harness
+    reported a clean RUNTIME-AFFECTING verdict for a candidate the classifier
+    had never looked at -- a refusal for the wrong reason, which A7 counts as a
+    cost to the investigation and not merely to the message.
+
+    So the misplaced copy is reproduced here, exactly, and it must say UNKNOWN.
+    """
+    orphan = tmp_path / "bd-docs-only"
+    orphan.write_bytes(TOOL.read_bytes())
+    assert not (tmp_path / "bdtools_sec.py").exists(), "the fixture must be an ORPHAN copy"
+    result = subprocess.run(
+        [_python(), str(orphan), "census", "--repo", str(REPO)],
+        capture_output=True, text=True, check=False, timeout=300,
+        cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": ""})
+    assert result.returncode == UNKNOWN, (
+        "an orphaned copy exited %d; 1 would be indistinguishable from a clean "
+        "refusal:\n%s" % (result.returncode, (result.stderr or result.stdout)[-1500:]))
+    assert "UNKNOWN, not permission" in result.stderr, result.stderr[-1000:]
+    assert "bdtools_sec" in result.stderr, (
+        "the refusal must name the missing authority, not collapse into a generic "
+        "message: %s" % result.stderr[-500:])
+
+    # POSITIVE CONTROL: the same argv from the tool's real home exits 0, so the
+    # case above failed for the missing module and not for the arguments.
+    control = subprocess.run(
+        [_python(), str(TOOL), "census", "--repo", str(REPO)],
+        capture_output=True, text=True, check=False, timeout=300)
+    assert control.returncode == DOCS_ONLY, control.stderr[-1000:]
+
+
 def test_this_gate_is_declared_and_scheduled_in_ci():
     """A gate CI does not run does not exist (A5)."""
     assert BD_GATE_SCOPE == "repo-wide"

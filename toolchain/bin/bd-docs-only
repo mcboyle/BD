@@ -113,7 +113,19 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import bdtools_sec as sec  # noqa: E402
+try:
+    import bdtools_sec as sec  # noqa: E402
+except ImportError as _exc:  # pragma: no cover -- proven by the row 530 gate
+    # A CALLER MAY RUN A COPY OF THIS FILE FROM SOMEWHERE ELSE. bd-verify-cut
+    # extracts the BASE commit's classifier so a candidate cannot approve
+    # itself, and the first draft of that extraction wrote one file into a temp
+    # directory where bdtools_sec is not. The traceback exited 1, which is this
+    # tool's REFUSED code, so an import crash read as a clean product-source
+    # refusal. Name it, and exit 2.
+    print("UNKNOWN, not permission: the shared authority bdtools_sec is not "
+          "importable beside this copy of bd-docs-only (%s). Extract it "
+          "alongside, or run the tool from toolchain/bin." % _exc, file=sys.stderr)
+    raise SystemExit(2)
 
 DOCS_ONLY, RUNTIME, UNKNOWN = 0, 1, 2
 
@@ -1091,6 +1103,15 @@ def main(argv=None):
         return UNKNOWN
     except (OSError, SyntaxError, subprocess.SubprocessError) as exc:
         print("UNKNOWN, not permission: %s" % exc, file=sys.stderr)
+        return UNKNOWN
+    except Exception as exc:  # noqa: BLE001 -- deliberate, and it is the point
+        # EXIT 1 MEANS REFUSED AND NOTHING ELSE. Python's own uncaught-exception
+        # status is also 1, so without this every crash in this file would reach
+        # a caller as a well-formed "runtime-affecting" verdict. A caller must be
+        # able to tell "I proved this candidate is not inert" from "I fell over".
+        import traceback
+        print("UNKNOWN, not permission: bd-docs-only raised %s: %s\n%s"
+              % (type(exc).__name__, exc, traceback.format_exc()), file=sys.stderr)
         return UNKNOWN
     _emit(payload, args.json)
     return rc
