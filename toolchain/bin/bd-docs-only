@@ -491,6 +491,15 @@ def _prove_generated_fixpoint(repo, head, chain, generated):
         _git(repo, "worktree", "add", "--quiet", "--detach", checkout, head)
         try:
             python = _python_for(repo, checkout)
+            declared = [path for path in chain["outputs"]
+                        if chain["outputs"][path] in labels]
+            before = {}
+            for path in declared:
+                full = os.path.join(checkout, path)
+                if not os.path.isfile(full):
+                    raise Unmeasurable("declared chain output %s is absent from the "
+                                       "candidate; the fixpoint is UNKNOWN" % path)
+                before[path] = os.stat(full).st_mtime_ns
             for label in labels:
                 argv = list(chain["argv"][label])
                 run = subprocess.run(
@@ -502,6 +511,20 @@ def _prove_generated_fixpoint(repo, head, chain, generated):
                     raise Unmeasurable(
                         "generator %s exited %d: %s"
                         % (label, run.returncode, (run.stderr or run.stdout)[-400:].strip()))
+            # A GENERATOR THAT EXITS 0 WITHOUT WRITING would leave a hand-edited
+            # artifact looking exactly like a fixpoint: the tree is clean because
+            # nothing touched it. So the write itself is proven, not assumed.
+            unwritten = []
+            for path in declared:
+                full = os.path.join(checkout, path)
+                if not os.path.isfile(full) or os.stat(full).st_mtime_ns <= before[path]:
+                    unwritten.append(path)
+            if unwritten:
+                raise Unmeasurable(
+                    "generator(s) %s exited 0 without rewriting %s, so the fixpoint is "
+                    "UNKNOWN rather than proven (a filesystem with coarse timestamps "
+                    "reads the same way, and reads as UNKNOWN, never as permission)"
+                    % (", ".join(labels), ", ".join(unwritten)))
             dirty = _git(checkout, "status", "--porcelain=v1", "--untracked-files=no")
             drifted = sorted(line[3:] for line in dirty.splitlines() if line.strip())
             if drifted:
@@ -643,6 +666,19 @@ def classify(repo, base_ref, head_ref, prove_fixpoint=True):
                              "detail": "the reviewed import-edge declaration states the "
                                        "runtime import surface"})
             continue
+        if path in chain["outputs"]:
+            # BEFORE the population prefixes, deliberately. Two chain outputs
+            # live inside a deny root -- tests/source_window_hashes.json under
+            # the test root and the generated frontend secret keys under the SPA
+            # root -- and a prefix rule would refuse them as a hand-written test
+            # or a hand-written component, sending the reader to look for an edit
+            # that is not there. A chain output is not authored, so it is judged
+            # by whether this tree still PRODUCES it, which is the stronger test:
+            # it cannot change at all unless one of its generator's inputs
+            # changed, and every such input is itself either refused here or a
+            # document.
+            generated.add(path)
+            continue
         named = None
         for name, roots in populations["order"]:
             if any(path.startswith(root) for root in roots):
@@ -651,9 +687,6 @@ def classify(repo, base_ref, head_ref, prove_fixpoint=True):
         if named is not None:
             refusals.append({"path": path, "reason": named,
                              "detail": "member of the derived %s population" % named})
-            continue
-        if path in chain["outputs"]:
-            generated.add(path)
             continue
         if path in corpus:
             allowed[path] = "DOC-CORPUS"
@@ -973,6 +1006,15 @@ def selftest():
         reasons = {r["reason"] for r in verdict.get("refusals", [])}
         report(rc == RUNTIME and reasons == {"UNSUPPORTED-ENTRY-MODE"},
                "ADV a symlink named *.md -> %s (rc=%d)" % (sorted(reasons), rc))
+
+        def chmod_doc():
+            edit_doc()
+            os.chmod(str(root / "CLAUDE.md"), 0o755)
+        head = cut("adv-mode", chmod_doc)
+        rc, verdict = classify(root, base, head)
+        reasons = {r["reason"] for r in verdict.get("refusals", [])}
+        report(rc == RUNTIME and reasons == {"ENTRY-MODE-CHANGED"},
+               "ADV a document that became executable -> %s (rc=%d)" % (sorted(reasons), rc))
 
         # An empty delta is UNKNOWN, never docs-only.
         try:
