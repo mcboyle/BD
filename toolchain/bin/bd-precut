@@ -502,9 +502,20 @@ def main(argv=None):
         wf = pathlib.Path(root, ".github", "workflows", "ci.yml").read_text(encoding="utf-8")
         cap = re.search(r"^\s*timeout-minutes:\s*(\d+)", wf, re.M)
         cap_s = int(cap.group(1)) * 60 if cap else None
+        # ASK FOR A RUN THAT FINISHED, NOT MERELY THE NEWEST ONE.
+        # This used to take `--limit 1`, the newest run of ANY status. When
+        # GitHub's runners are backed up the newest run is QUEUED, it has no job
+        # durations to read, and the check returned UNKNOWN -- which
+        # bd-verify-cut escalates into NOT SHIPPABLE. Measured 2026-09-02: four
+        # runs queued and the lane refused a candidate whose band was clean over
+        # 70 files, while THREE completed successful runs sat seconds older in
+        # the same listing. Queue depth is not evidence about a candidate.
+        # `--status success` selects the newest run that actually produced
+        # durations, so the check is measurable whenever any run has ever
+        # succeeded, and still returns UNKNOWN honestly when none has.
         jobs = subprocess.run(
-            ["gh", "run", "list", "--limit", "1", "--json", "databaseId",
-             "--jq", ".[0].databaseId"],
+            ["gh", "run", "list", "--status", "success", "--limit", "1",
+             "--json", "databaseId", "--jq", ".[0].databaseId"],
             cwd=root, capture_output=True, text=True, timeout=120)
         run_id = jobs.stdout.strip()
         if cap_s and run_id:
