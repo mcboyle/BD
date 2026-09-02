@@ -361,6 +361,13 @@ class TransportMixin:
                     error_detail=(
                         f"VPN required for {self.site_id}, tunnel unavailable "
                         f"-- failing closed, no ffmpeg spawned: {e}"))
+            # Refuse rather than raise, for BOTH postures. Four of the six arms
+            # do not wrap this call, and hls_downloader.download's documented
+            # contract is "never raises" -- propagating here would turn an
+            # unresolved proxy into a worker error that skips the arm's own
+            # needs_review handling. A refusal keeps the transfer unattempted
+            # AND keeps the arm's reporting path intact. The vpn_required case
+            # is named separately because the two are not the same finding.
             if required:
                 return _hls.DownloadResult(
                     ok=False, error="vpn_proxy_unresolved",
@@ -368,7 +375,12 @@ class TransportMixin:
                         f"{self.site_id!r} is vpn_required and its egress proxy "
                         f"could not be resolved, so the segmented transfer is "
                         f"refused: {type(e).__name__}: {e}"))
-            raise
+            return _hls.DownloadResult(
+                ok=False, error="proxy_unresolved",
+                error_detail=(
+                    f"egress proxy resolution failed for {self.site_id!r}, so "
+                    f"the segmented transfer is refused rather than run outside "
+                    f"the control: {type(e).__name__}: {e}"))
         if required and not (proxy_url or "").strip():
             return _hls.DownloadResult(
                 ok=False, error="vpn_proxy_missing",

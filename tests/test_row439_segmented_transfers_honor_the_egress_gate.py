@@ -257,6 +257,50 @@ def test_row439_a_socks_tunnel_is_refused_not_silently_ignored(
     assert spawns.count == 0
 
 
+def test_row439_an_unresolvable_proxy_refuses_without_raising(
+        hls_boundary, tmp_path, monkeypatch):
+    """UNKNOWN IS NOT PERMISSION -- and it is not an exception either.
+
+    Four of the six arms do not wrap the call, and hls_downloader.download is
+    documented as never raising. So a resolution failure must come back as a
+    refusal the arm can report, not as a traceback that skips its
+    needs_review handling.
+    """
+    hls, spawns, _ = hls_boundary
+    _arm_tunnel(monkeypatch, required=False, socks_url=None)
+    r = _runner(site_id="demo")
+    monkeypatch.setattr(
+        type(r), "_download_proxy_url",
+        lambda self: (_ for _ in ()).throw(RuntimeError("resolver exploded")))
+
+    res = r._hls_download_guarded(hls, MANIFEST, str(tmp_path / "o.mp4"))
+
+    assert res.ok is False
+    assert res.error == "proxy_unresolved", res.error
+    assert "resolver exploded" in res.error_detail   # names the failed step
+    assert spawns.count == 0
+
+
+def test_row439_unknown_vpn_state_refuses_rather_than_assuming_no(
+        hls_boundary, tmp_path, monkeypatch):
+    """If BD cannot even determine whether the site requires a VPN, treating
+    that as 'not required' would be the fail-open shape this row is about."""
+    from bulk_downloader import vpn_runtime
+
+    hls, spawns, _ = hls_boundary
+    monkeypatch.setattr(
+        vpn_runtime, "is_vpn_required_for_site",
+        lambda s: (_ for _ in ()).throw(RuntimeError("policy store unreadable")))
+    r = _runner(site_id="demo")
+
+    res = r._hls_download_guarded(hls, MANIFEST, str(tmp_path / "o.mp4"))
+
+    assert res.ok is False
+    assert res.error == "vpn_state_unknown", res.error
+    assert "policy store unreadable" in res.error_detail
+    assert spawns.count == 0
+
+
 # ── negative controls: legitimate traffic MUST still flow ────────────
 
 def test_row439_negative_control_ordinary_site_still_downloads(
