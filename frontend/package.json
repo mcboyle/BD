@@ -33,7 +33,7 @@
     "react-router-dom": "^6.30.5",
     "recharts": "^2.13.0",
     "rsuite": "^5.71.0",
-    "sonner": "^1.5.0",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
