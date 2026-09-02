@@ -30,7 +30,11 @@ precedent already in that module -- and a scrape that CAN measure must not emit 
 """
 from __future__ import annotations
 
+import os
+import signal
+import sys
 import threading
+import time
 
 import pytest
 
@@ -454,3 +458,282 @@ def test_a_caller_scoped_copy_is_not_locked(registry):
     assert observed == [False], (
         "a caller-scoped copy took the registry lock unnecessarily")
     assert [sid for sid, _r in out] == ["s1"]
+
+
+# ── fork safety of the lock this row introduced ───────────────────────
+#
+# THE LOCK IS NEW ON READ PATHS, AND THAT IS WHAT MAKES FORK A NEW HAZARD.
+# Measured on this tree against the merge base with the secret gate's own
+# scanned GET denominator (588 concretized routes, tests/test_secret_display
+# _never.py::_scan_targets): routes acquiring _watch_registry_lock went from
+# 0 on the base to 3 here -- /metrics, /api/dashboard/v2, /api/widgets/data.
+#
+# os.fork() carries ONLY the calling thread.  A lock another thread held at
+# the instant of the fork is inherited LOCKED by a child that contains no
+# thread able to release it, so the first child request to reach
+# runners_snapshot() blocks forever.  tests/test_secret_display_never.py
+# forks 32 shard children out of an already-booted, multi-threaded app
+# (CPython 3.12 warns "use of fork() may lead to deadlocks in the child" on
+# every one of them), and one child that never answers is exactly the
+# "expected_shards=32 collected_shards=31" refusal that blocked this cut.
+#
+# The remedy is the pattern the os.register_at_fork documentation names: the
+# forking thread takes the registry lock BEFORE the fork and releases it in
+# both processes after, so no fork can be taken while another thread holds
+# it and every child starts with a lock it can acquire.  Re-initialising the
+# lock in the child instead would have had to REBIND it, and this module's
+# whole contract is that its objects are created once and never reassigned,
+# so app.py's `from .app_state import _watch_registry_lock` alias would then
+# name a different lock from runners_snapshot() -- create/delete and
+# enumeration would stop agreeing on ONE lock, which is the defect this row
+# exists to remove.
+#
+# NOT CLOSED HERE: runner._lock is a separate, PRE-EXISTING hazard of the
+# same family -- the same census measured 10 scanned GET routes taking it on
+# the merge base and 11 here.  It is a different lock with a different owner
+# and belongs to its own row; this row fixes only the exposure it created.
+
+_FORK_HOLD_S = 3.0
+_FORK_CHILD_DEADLINE_S = 20.0
+
+
+def _fork_while_held(lock, child_body, deadline=_FORK_CHILD_DEADLINE_S,
+                     hold_s=_FORK_HOLD_S):
+    """Fork a child while ANOTHER thread holds ``lock``; return its verdict.
+
+    The holder proves it is holding before the fork is taken and releases on
+    its own timer, never on a signal from the forking thread -- a protection
+    that makes the forking thread WAIT for the holder would otherwise deadlock
+    against a holder waiting for the fork.  Returns
+    ``(verdict, exitcode, fork_elapsed)`` with verdict in
+    {"COMPLETED", "CHILD-ERROR", "HUNG"}; a hung child is killed, never left.
+    """
+    holding = threading.Event()
+    holds = []
+
+    def holder():
+        with lock:
+            holds.append(1)
+            holding.set()
+            time.sleep(hold_s)
+
+    thread = threading.Thread(target=holder, daemon=True,
+                              name="row449-fork-lock-holder")
+    thread.start()
+    assert holding.wait(10), (
+        "precondition failed: the holder thread never acquired the lock, so "
+        "the fork below would not have been taken while it was held")
+    assert holds == [1], (
+        "precondition failed: expected exactly one hold, observed %r" % (holds,))
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    started = time.monotonic()
+    pid = os.fork()
+    if pid == 0:                                    # pragma: no cover - child
+        code = 4
+        try:
+            code = child_body()
+        except BaseException:
+            code = 4
+        finally:
+            os._exit(code)
+    fork_elapsed = time.monotonic() - started
+
+    waited = time.monotonic()
+    status = None
+    while time.monotonic() - waited < deadline:
+        done, raw = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = raw
+            break
+        time.sleep(0.02)
+    if status is None:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        thread.join(timeout=hold_s + 10)
+        return "HUNG", None, fork_elapsed
+    thread.join(timeout=hold_s + 10)
+    exitcode = os.waitstatus_to_exitcode(status)
+    return ("COMPLETED" if exitcode == 0 else "CHILD-ERROR"), exitcode, fork_elapsed
+
+
+def test_a_forked_child_can_read_live_state_while_another_thread_holds_the_lock():
+    """The subject: a child forked while a NON-surviving thread holds
+    _watch_registry_lock must still be able to take a runners snapshot."""
+    from bulk_downloader import app_state
+
+    def child():
+        lock = app_state._watch_registry_lock
+        if not lock.acquire(blocking=False):
+            return 5                    # inherited LOCKED by a dead thread
+        lock.release()
+        app_state.runners_snapshot()
+        return 0
+
+    verdict, exitcode, _elapsed = _fork_while_held(
+        app_state._watch_registry_lock, child)
+    assert verdict == "COMPLETED", (
+        "a child forked while another thread held _watch_registry_lock could "
+        "not read live state: verdict=%s exitcode=%r. exitcode 5 means the "
+        "child inherited the lock LOCKED with no thread alive to release it; "
+        "HUNG means runners_snapshot() blocked forever, which is the "
+        "'collected_shards=31' refusal in tests/test_secret_display_never.py"
+        % (verdict, exitcode))
+
+
+def test_an_unprotected_lock_of_the_same_construction_still_hangs_a_child():
+    """Teeth for the test above.  An identically-constructed RLock that is NOT
+    covered by the at-fork protection must still hang its child -- otherwise
+    the check above could pass because fork is harmless here, or because the
+    detector cannot see a hang at all."""
+    unprotected = threading.RLock()
+
+    def child():
+        unprotected.acquire()           # inherited LOCKED: blocks forever
+        unprotected.release()
+        return 0
+
+    verdict, exitcode, _elapsed = _fork_while_held(
+        unprotected, child, deadline=6.0)
+    assert verdict == "HUNG", (
+        "an unprotected inherited lock did NOT hang its child "
+        "(verdict=%s exitcode=%r); the fork-hazard detector has no teeth, so "
+        "the subject test above proves nothing" % (verdict, exitcode))
+
+
+def _load_secret_gate_module():
+    """The real secret-display gate module, whose forked route scan is the
+    consumer this row broke."""
+    import importlib.util
+    import pathlib
+
+    existing = sys.modules.get("test_secret_display_never")
+    if existing is not None:
+        return existing
+    path = pathlib.Path(__file__).resolve().parent / "test_secret_display_never.py"
+    assert path.is_file(), "secret-display gate module missing at %s" % (path,)
+    spec = importlib.util.spec_from_file_location(
+        "test_secret_display_never", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["test_secret_display_never"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns():
+    """The consumer's verdict, by EXACT SHARD COUNT.
+
+    Drives tests/test_secret_display_never.py's own _scan_all() -- the code
+    that forks one child per shard -- while a background thread cycles
+    _watch_registry_lock at roughly a 50% duty cycle.  With 32 forks that is a
+    ~1 - 0.5**32 chance that at least one fork is taken while the lock is
+    held, so an unprotected tree loses at least one shard essentially always.
+
+    The assertion is expected_shards == collected_shards over a nonzero
+    denominator, NOT 'the scan returned'.
+    """
+    gate = _load_secret_gate_module()
+    from bulk_downloader import app_state
+
+    with gate._client_seeded() as (client, headers, sid):
+        from bulk_downloader import app as app_module
+
+        real_targets = gate._scan_targets(app_module.app, sid)
+        assert len(real_targets) > 0, "the gate's route denominator is zero"
+        assert "/metrics" in real_targets, (
+            "/metrics is not in the gate's scanned denominator, so this test "
+            "would not exercise a route that takes the registry lock")
+
+        # Prove the route actually reaches the lock on this tree before using
+        # it as the payload: a route that never calls runners_snapshot() could
+        # not exhibit the defect and would manufacture a green result.
+        calls = []
+        real_snapshot = app_state.runners_snapshot
+        app_state.runners_snapshot = lambda: (calls.append(1)
+                                              or real_snapshot())
+        try:
+            client.get("/metrics", headers=headers)
+        finally:
+            app_state.runners_snapshot = real_snapshot
+        assert len(calls) > 0, (
+            "GET /metrics did not reach runners_snapshot() on this tree; the "
+            "shard payload below cannot exhibit the inherited-lock hang")
+
+        # Every shard carries the lock-taking route, so ANY fork taken while
+        # the lock is held costs a shard.
+        shards_wanted = 32
+        per_shard = 8
+        targets = ["/metrics"] * (shards_wanted * per_shard)
+
+        observed = {}
+        real_reconcile = gate._reconcile_scan_results
+
+        def recording(targets_, results, expected_shards):
+            observed["expected_shards"] = expected_shards
+            observed["collected_shards"] = len(results)
+            observed["targets"] = len(targets_)
+            return real_reconcile(targets_, results, expected_shards)
+
+        stop = threading.Event()
+        cycles = []
+
+        def churn():
+            while not stop.is_set():
+                with app_state._watch_registry_lock:
+                    cycles.append(1)
+                    time.sleep(0.005)
+                time.sleep(0.005)
+
+        churner = threading.Thread(target=churn, daemon=True,
+                                   name="row449-registry-lock-churn")
+        gate._reconcile_scan_results = recording
+        churner.start()
+        try:
+            scanned, leaks = gate._scan_all(targets, headers)
+        finally:
+            stop.set()
+            churner.join(timeout=30)
+            gate._reconcile_scan_results = real_reconcile
+
+    assert len(cycles) > 0, (
+        "precondition failed: the churn thread never held the registry lock, "
+        "so no fork could have been taken while it was held")
+    print("SHARD-COUNT targets=%r expected_shards=%r collected_shards=%r "
+          "executed=%r lock_holds=%d"
+          % (observed.get("targets"), observed.get("expected_shards"),
+             observed.get("collected_shards"), scanned, len(cycles)))
+    assert observed.get("targets") == len(targets) == shards_wanted * per_shard
+    assert observed.get("expected_shards") == shards_wanted, (
+        "the scan did not shard into %d workers (observed %r); the shard-count "
+        "denominator this test asserts would be a different experiment"
+        % (shards_wanted, observed.get("expected_shards")))
+    assert observed.get("collected_shards") == observed.get("expected_shards"), (
+        "the forked route scan LOST a shard while the registry lock churned: "
+        "expected_shards=%r collected_shards=%r"
+        % (observed.get("expected_shards"), observed.get("collected_shards")))
+    assert scanned == len(targets), (
+        "route execution denominator mismatch: collected=%d executed=%d"
+        % (len(targets), scanned))
+    assert leaks == []
+
+
+def test_a_lost_shard_still_fails_the_route_scan():
+    """Negative control for the shard-count assertion above: the gate's own
+    reconciler must still REFUSE when a shard is genuinely missing, so a green
+    scan cannot be manufactured by loosening the count."""
+    gate = _load_secret_gate_module()
+
+    targets = ["/a", "/b", "/c", "/d"]
+    complete = [(2, [], []), (2, [], [])]
+    scanned, leaks = gate._reconcile_scan_results(
+        targets, complete, expected_shards=2)
+    assert (scanned, leaks) == (4, []), (
+        "the reconciler rejected a COMPLETE result set, so its refusal below "
+        "would not be attributable to the missing shard")
+
+    with pytest.raises(AssertionError) as excinfo:
+        gate._reconcile_scan_results(targets, complete[:1], expected_shards=2)
+    assert "expected_shards=2 collected_shards=1" in str(excinfo.value), (
+        "a lost shard did not produce the exact-count refusal: %s"
+        % (excinfo.value,))
