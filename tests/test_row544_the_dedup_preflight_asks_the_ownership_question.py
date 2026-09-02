@@ -45,10 +45,13 @@ none. Relaxing that guard is a db.py change outside this cut's declared files.
 from __future__ import annotations
 
 import logging
+import pathlib
 
 import pytest
 
 from bulk_downloader import db
+from bulk_downloader import library as _library
+from bulk_downloader import migrations as _migrations
 from bulk_downloader.runner import SiteRunner
 
 BD_GATE_SCOPE = "module"
@@ -72,9 +75,22 @@ class _Stub:
 
 @pytest.fixture
 def fresh_history(clean_workdir):
+    """ROW 429: MIGRATED, so ``history.library_id`` exists.
+
+    ``db_init`` alone builds the pre-migration shape. The exact-URL arm now
+    also reads the file a row produced, through that column, so on the
+    unmigrated shape every lookup would answer "not proven" and the row 544
+    verdicts below would be indistinguishable from a schema accident.
+    """
     db.db_init()
+    result = _migrations.apply_pending(backup_first=False)
+    assert result.get("errors", 1) == 0, result
+    _library._ensure_schema()
     with db.db_conn() as cx:
         cx.execute("DELETE FROM history")
+        cx.execute("DELETE FROM library")
+        cols = {r[1] for r in cx.execute("PRAGMA table_info(history)")}
+    assert "library_id" in cols, sorted(cols)
     rows = _history()
     assert rows == [], f"the fixture did not start empty: {rows}"
     return clean_workdir
@@ -94,8 +110,31 @@ def _history(url=None):
 
 def _seed(url, *, bytes_fetched, filename="row544.mp4", size=4096,
           message="", site="row544site"):
-    db.db_log(site, "Row 544 Site", url, "done", filename, size, message,
-              bytes_fetched=bytes_fetched)
+    """ROW 429: the seeded row now also PRODUCES ITS FILE.
+
+    Every row this file seeds means "a completion happened at this url", and a
+    completion writes bytes and hands db_log an absolute path -- which is what
+    makes ``library_record`` run and backfill ``history.library_id``. The old
+    fixture recorded a bare basename, so no attribution existed and the file
+    evidence row 429 added would have refused these rows for a reason this
+    file is not about.
+
+    It also makes every verdict below SHARPER. Row 544's rule is that a
+    zero-transfer 'done' row is not ownership; with the file present and
+    attributed, the file evidence PASSES and ``bytes_fetched`` is the only
+    thing left that can refuse. A later refusal can no longer launder the
+    result (CLAUDE.md A5).
+
+    Rows sharing a filename share one library row on purpose -- ``file_path``
+    is UNIQUE, and one transfer followed by skip rows at the same path is
+    exactly the healthy steady state ``db_skip_identity`` describes.
+    """
+    target = (pathlib.Path.cwd() / filename).resolve()
+    if not target.exists():
+        target.write_bytes(b"\0" * size)
+    db.db_log(site, "Row 544 Site", url, "done", target.name, size, message,
+              bytes_fetched=bytes_fetched, file_path=str(target))
+    return target
 
 
 # ── The defect ──────────────────────────────────────────────────────────────

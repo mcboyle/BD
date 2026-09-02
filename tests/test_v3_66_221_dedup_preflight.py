@@ -20,8 +20,11 @@ tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py.
 """
 
 import logging
+import pathlib
 
 from bulk_downloader import db
+from bulk_downloader import library as _library
+from bulk_downloader import migrations as _migrations
 from bulk_downloader.runner import SiteRunner
 
 _preflight = SiteRunner._dedup_preflight  # unbound; call with a stub self
@@ -34,16 +37,47 @@ class _Stub:
 
 
 def _fresh_db():
+    """ROW 429: a MIGRATED, empty database.
+
+    ``db_init`` alone builds the pre-migration history shape, which has no
+    ``library_id`` column -- and the exact-URL arm now reads the file a row
+    produced through that column. A fixture stopping at ``db_init`` would make
+    every lookup below answer "not proven" for a reason that has nothing to do
+    with what these tests measure.
+    """
     db.db_init()
+    result = _migrations.apply_pending(backup_first=False)
+    assert result.get("errors", 1) == 0, result
+    _library._ensure_schema()
     with db.db_conn() as cx:
         cx.execute("DELETE FROM history")
+        cx.execute("DELETE FROM library")
+        cols = {r[1] for r in cx.execute("PRAGMA table_info(history)")}
+    assert "library_id" in cols, sorted(cols)
+
+
+def _seed_done(url, filename, size, *, site="s", bytes_fetched=None):
+    """ROW 429: seed the row these tests always SAID they were seeding.
+
+    "This URL was already successfully downloaded" means BD produced a file.
+    A bare basename produces no library row -- db_log records a library
+    attribution only for an ABSOLUTE path -- so the old fixtures asserted
+    about a completion that had left nothing on disk. Writing the bytes and
+    handing db_log the absolute path is what the transport's success call site
+    does; it strengthens the precondition rather than relaxing the assertion.
+    """
+    target = (pathlib.Path.cwd() / filename).resolve()
+    target.write_bytes(b"\0" * size)
+    db.db_log(site, "S", url, "done", target.name, size, "",
+              bytes_fetched=bytes_fetched, file_path=str(target))
+    return target
 
 
 # ── db.db_find_url_in_history (F1.5 exact-URL) ───────────────────────
 
 def test_exact_url_match_returns_prior_row():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/a", "done", "a.mp4", 1000, "")
+    _seed_done("https://ex.com/a", "a.mp4", 1000, bytes_fetched=1000)
     hit = db.db_find_url_in_history("https://ex.com/a")
     assert hit and hit["filename"] == "a.mp4"
     assert hit["id"] >= 1
@@ -51,7 +85,7 @@ def test_exact_url_match_returns_prior_row():
 
 def test_exact_url_miss_returns_none():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/a", "done", "a.mp4", 1000, "")
+    _seed_done("https://ex.com/a", "a.mp4", 1000, bytes_fetched=1000)
     assert db.db_find_url_in_history("https://ex.com/other") is None
 
 
@@ -70,7 +104,8 @@ def test_exact_url_empty_and_failsoft():
 
 def test_exact_url_exclude_site():
     _fresh_db()
-    db.db_log("siteA", "A", "https://ex.com/x", "done", "x.mp4", 1000, "")
+    _seed_done("https://ex.com/x", "x.mp4", 1000, site="siteA",
+               bytes_fetched=1000)
     assert db.db_find_url_in_history("https://ex.com/x", exclude_site="siteA") is None
     assert db.db_find_url_in_history("https://ex.com/x") is not None
 
@@ -79,8 +114,8 @@ def test_exact_url_exclude_site():
 
 def test_preflight_exact_default_on():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "",
-              bytes_fetched=1000)  # row 544: a REAL prior transfer
+    _seed_done("https://ex.com/dup", "dup.mp4", 1000,
+               bytes_fetched=1000)  # rows 544/429: a REAL transfer, a REAL file
     stub = _Stub({})  # no flags -> exact dedup defaults ON
     msg = _preflight(stub, "https://ex.com/dup", {})
     assert msg and "history #" in msg
@@ -94,8 +129,8 @@ def test_preflight_no_match_proceeds():
 
 def test_preflight_force_download_bypasses():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "",
-              bytes_fetched=1000)  # row 544: a REAL prior transfer
+    _seed_done("https://ex.com/dup", "dup.mp4", 1000,
+               bytes_fetched=1000)  # rows 544/429: a REAL transfer, a REAL file
     stub = _Stub({})
     # Precondition: without the flag this URL IS deduplicated, so the assertion
     # below measures force_download and not an absent transfer record.
@@ -106,8 +141,8 @@ def test_preflight_force_download_bypasses():
 
 def test_preflight_exact_can_be_disabled():
     _fresh_db()
-    db.db_log("s", "S", "https://ex.com/dup", "done", "dup.mp4", 1000, "",
-              bytes_fetched=1000)  # row 544: a REAL prior transfer
+    _seed_done("https://ex.com/dup", "dup.mp4", 1000,
+               bytes_fetched=1000)  # rows 544/429: a REAL transfer, a REAL file
     # Precondition: the same row IS a duplicate with the arm left at its
     # default, so this measures the config gate and not an absent transfer.
     assert _preflight(_Stub({}), "https://ex.com/dup", {}) is not None
