@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 613 transform control. The identical valid M2 CI-removal transform is pointed at an import-only node. It must ESCAPE, proving the main battery's CAUGHT verdicts come from reachability assertions rather than parsing or collection failure.",
+  "subject": "a valid db-prune CI-membership removal does not fail merely because the gate module imports",
+  "band": [
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_gate_without_judging_db_prune_reachability"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 CI removal escapes an import-only control",
+      "file": ".github/workflows/ci.yml",
+      "old": "              tests/test_a_prune_repairs_only_the_links_it_broke.py\n",
+      "new": "              # mutant: omit the prune-link owner\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_gate_without_judging_db_prune_reachability"
+    }
+  ]
+}

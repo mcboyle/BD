@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4276,
+  "edge_count": 4282,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3949,6 +3949,14 @@
     ],
     "tests/test_row_selectors_screen_inline_hidden_decoys.py": [
       "bulk_downloader/template_extractor.py"
+    ],
+    "tests/test_rows617_623_624_625_628_629_631_secrets_family.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_rrweb_meta_retention.py": [
       "bulk_downloader/dom_capture.py",

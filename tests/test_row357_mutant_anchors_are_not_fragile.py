@@ -204,8 +204,17 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row446_download_trigger_settle.py",
             r"(?m)^def test_row446_negative_control_an_unreadable_page_is_UNOBSERVED\(\):$",
         ),
+    # Row 613: the shard list names the family's test FILES; a filename is a
+    # fixed identity, not a measured value.  The catcher below asserts the
+    # family is reachable from CI, which is exactly what the anchor freezes.
+    "148b61bdcd483e53224dc52eaea15d70ffabd0dec2e36fe2a3ffde6c23e30074":
+        StableValueException(
+            "tests/test_a_prune_repairs_only_the_links_it_broke.py is a fixed member of the db-prune safety family's CI shard",
+            "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+            r"(?m)^def test_db_prune_safety_family_is_reachable_from_ci\(\):$",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 8
+_STABLE_VALUE_EXCEPTION_MAX = 9
 
 
 def _family(
