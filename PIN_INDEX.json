@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 119,
+    "total": 120,
     "version": 1,
-    "count_dict": 118,
-    "test_files_scanned": 1569,
+    "count_dict": 119,
+    "test_files_scanned": 1570,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -51,6 +51,7 @@
       "tests/test_v3_66_1040_remote_job_registry.py": 1,
       "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py": 1,
       "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py": 1,
+      "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py": 1,
       "tests/test_v3_66_1154_the_object_not_the_name.py": 13,
       "tests/test_v3_66_1157_build_output_is_from_this_attempt.py": 14,
       "tests/test_v3_66_1159_fleet_prune_is_object_bound.py": 1,
@@ -480,7 +481,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1428",
+      "value": "3.66.1429",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -670,6 +671,18 @@
         "noreturn_calls_excluded_rebound": 0
       },
       "gates_what": "test_conditional_calls_callbacks_and_catchable_calls_keep_their_boundaries"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "line": 696,
+      "value": {
+        "tracked": 1,
+        "reaped": 1,
+        "settled": 0,
+        "unknown": 0
+      },
+      "gates_what": "test_hunt_fixture_reaps_descendant_after_group_leader_exits — An exited leader is settled only when its owned group is also gone."
     },
     {
       "form": "count_dict",
