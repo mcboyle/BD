@@ -5,6 +5,28 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1448 - the db-prune safety family reaches CI, and the secrets delete family is fixed
+
+Train 2, stacked on train 1 (its lane ran while train 1's CI ran).
+
+- ROW 613: the five db-prune safety test files ran in NO CI job. They now
+  belong to a shard, the shard gate names them, and a mutant spec proves the
+  membership is checked ("reachable from CI: 0 of 5" was the RED). Reviewed
+  refute-first: BOARD.
+- ROWS 617, 623, 624, 625, 628, 629, 631: the secrets delete/probe family in
+  app_secrets.py and secrets_store.py. Transient vault probe failures are
+  re-probed while persistent ones still latch (617); delete validates string
+  keys so an unhashable key is a 4xx, not a 500 (623); a readable-but-damaged
+  vault is reported as damaged, not unreadable (624); a save that RAISES now
+  rolls back like a save that returns False (625); the config unwind runs
+  inside the save lock (628); the Windows persist-error message no longer
+  asserts a rollback that did not happen (629); a per-entry undecryptable
+  envelope on an unlocked vault is no longer laundered as healthy (631). Each
+  row has a distinctive RED on the base and a negative control. Reviewed
+  refute-first: every check held; the only objection was the un-refrozen
+  import-graph baseline, which is this train's integrator step.
+- The import-graph baseline is re-frozen for the new test files' edges.
+
 ## v3.66.1447 - resume cannot leave the hold state it set, and seventeen rows close
 
 Train 1 of the stacked-train workflow (bd-persist/WORKFLOW_STRUCTURE_PLAN.md):

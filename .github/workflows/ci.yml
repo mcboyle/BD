@@ -537,12 +537,30 @@ jobs:
           - name: deploy-readiness
             suites: >-
               tests/test_deploy_script.py
+          # Rows 617/623/624/625/628/629/631. Secrets delete/probe state is a
+          # cross-backend safety contract, including a deterministic two-writer
+          # transaction and the extension rate-accounting boundary.
+          - name: secrets-state
+            suites: >-
+              tests/test_rows617_623_624_625_628_629_631_secrets_family.py
           # Row 344. This gate executes the destructive library function only
           # against fixture-owned trees and proves its caller-selected glob
           # cannot redirect pruning into a same-named decoy root.
           - name: capture-prune-contract
             suites: >-
               tests/test_row344_capture_prune_is_target_bound.py
+          # Row 613. These five module-scoped behavioural owners jointly guard
+          # db_prune and the skip-identity/dedup seam. A changed-path band can
+          # select them locally, but no PR shard did, so a revert of the
+          # ownership narrowing could leave CI green. Their independent family
+          # denominator lives in test_v3_66_939_ci_gate_shards_cover_every_gate.
+          - name: db-prune-safety
+            suites: >-
+              tests/test_a_prune_repairs_only_the_links_it_broke.py
+              tests/test_a_skip_must_prove_it_is_the_same_work.py
+              tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py
+              tests/test_row545_the_skip_arm_carries_its_whole_result.py
+              tests/test_row607_a_history_row_proves_a_real_transfer.py
           - name: jobs-determinism
             suites: >-
               tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py

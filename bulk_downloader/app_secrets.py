@@ -29,6 +29,15 @@ def _save_sites_config(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_save_sites_config")(*_a, **_k)
 
+
+def _app_sites_config_save_lock():
+    """The lock used by app._save_sites_config, fetched without an import cycle."""
+    import importlib
+    return getattr(
+        importlib.import_module("bulk_downloader.app_state"),
+        "_sites_config_save_lock",
+    )
+
 def _vault_store_unreadable(error):
     """503 for an unmeasurable extension vault token store.
 
@@ -771,8 +780,11 @@ def api_secrets_delete():
         key = ss.site_password_key(data["site_id"])
     else:
         key = data.get("key", "")
-    if not key:
-        return jsonify({"ok": False, "error": "key or site_id required"}), 400
+    if not isinstance(key, str) or not key:
+        return jsonify({
+            "ok": False,
+            "error": "key or site_id must be a non-empty string",
+        }), 400
     backend = ss.get_backend()
     # Row 551: before the mutation and before any config write, not after,
     # and over the very object the delete below will call.
@@ -781,7 +793,8 @@ def api_secrets_delete():
         return plaintext_refusal
     try:
         removed = backend.delete(key)
-    except ss.SecretsIntegrityError as e:
+    # Exception order preserves readable structural damage.
+    except ss.SecretsUnreadableError as e:
         # Row 502. SecretsUnreadableError subclasses SecretsIntegrityError, not
         # SecretsUnlockRequiredError, so this route caught nothing and the
         # guard's entire operator remedy -- the vault exists but is unreadable,
@@ -792,6 +805,14 @@ def api_secrets_delete():
             "ok": False,
             "state": "unreadable",
             "requires_restart": True,
+            "error": str(e),
+        }), 409
+    except ss.SecretsIntegrityError as e:
+        # Row 624: readable structural damage has a repair path distinct from
+        # a store that could not be read and whose cached backend needs restart.
+        return jsonify({
+            "ok": False,
+            "state": "integrity_error",
             "error": str(e),
         }), 409
     except ss.SecretsUnlockRequiredError as e:
@@ -806,6 +827,7 @@ def api_secrets_delete():
             "error": str(e),
         }), 409
     except ss.SecretsPersistError as e:
+        # Persistence diagnostics depend on the backend that attempted deletion.
         # Row 554. delete() raises THREE exceptions and this route armed two.
         # The third escaped to app.errorhandler(500), which renders every
         # unhandled route exception as the same {"ok": false, "error":
@@ -813,19 +835,28 @@ def api_secrets_delete():
         # indistinguishable from a crash, over a delete that had already
         # rolled the ciphertext back and left the vault byte-identical. Both
         # sibling secrets routes already name this condition and its remedy.
+        if getattr(backend, "name", None) == "windows_credential":
+            error = (
+                f"delete of {key!r} left Windows Credential Manager and "
+                f"secrets_meta.json in a potentially divergent state ({e}). "
+                "Inspect both stores and reconcile the named key manually, "
+                "then retry."
+            )
+        else:
+            error = (
+                f"delete of {key!r} could not be persisted ({e}). The vault "
+                "was rolled back and still holds the credential, and the "
+                "site's @cred: reference was left in place. Check disk space "
+                "and permissions on secrets.json and its .tmp sibling, then "
+                "retry."
+            )
         return jsonify({
             "ok": False,
             "state": "persist_failed",
             "removed": False,
             "key": key,
             "config_cleaned": False,
-            "error": (
-                f"delete of {key!r} could not be persisted ({e}). The vault "
-                "was rolled back and still holds the credential, and the "
-                "site's @cred: reference was left in place. Check disk space "
-                "and permissions on secrets.json and its .tmp sibling, then "
-                "retry."
-            ),
+            "error": error,
         }), 500
     # B16 (v3.66.43): when deleting by site_id, also clear the matching
     # @cred: reference so the next login sees "no credentials" instead of
@@ -835,43 +866,47 @@ def api_secrets_delete():
     # never clobbered.
     config_cleaned = False
     if data.get("site_id"):
-        sid = data["site_id"]
-        site = s_cfg.get(sid) if isinstance(s_cfg, dict) else None
-        reference = ss.make_password_reference(sid)
-        if isinstance(site, dict):
-            if site.get("password", "") == reference:
-                site["password"] = ""
-                config_cleaned = True
-        if config_cleaned:
-            # Row 552. _save_sites_config() returns a bool and swallows its
-            # own exceptions, so discarding it reported a DURABLE cleanup over
-            # a write that never landed -- a stale unwritable .tmp, ENOSPC on
-            # the larger second write, split paths. The vault write already
-            # succeeded and cannot be undone, so the two stores have diverged
-            # permanently: say so rather than claim the cleanup is on disk.
-            # config_cleaned answers for the DISK, which is where the dangling
-            # @cred: reference now lives. The in-memory clear is unwound with
-            # it: keeping a cleared value no writer confirmed would leave this
-            # process asserting a state neither store holds, and would make a
-            # RETRY of the same delete find nothing left to clean and answer
-            # ok:true over the same undone write.
-            if _save_sites_config() is not True:
-                site["password"] = reference
-                return jsonify({
-                    "ok": False,
-                    "state": "config_write_failed",
-                    "removed": removed,
-                    "key": key,
-                    "config_cleaned": False,
-                    "error": (
-                        f"the credential {key!r} was removed from the vault, "
-                        "but sites_config.json could not be written, so the "
-                        "site's @cred: reference is still on disk and will "
-                        "resolve to None after a restart. Check disk space "
-                        "and permissions on sites_config.json and its .tmp "
-                        "sibling, then clear the site's password again."
-                    ),
-                }), 500
+        # Row 628: mutation, snapshot/save and failure unwind are one transaction
+        # under the same RLock the writer uses internally. No other writer can
+        # persist the temporary clear before this route either commits or restores.
+        with _app_sites_config_save_lock():
+            sid = data["site_id"]
+            site = s_cfg.get(sid) if isinstance(s_cfg, dict) else None
+            reference = ss.make_password_reference(sid)
+            if isinstance(site, dict):
+                if site.get("password", "") == reference:
+                    site["password"] = ""
+                    config_cleaned = True
+            if config_cleaned:
+                # Row 552. _save_sites_config() returns a bool and swallows its
+                # own exceptions, so discarding it reported a DURABLE cleanup over
+                # a write that never landed -- a stale unwritable .tmp, ENOSPC on
+                # the larger second write, split paths. The vault write already
+                # succeeded and cannot be undone, so the two stores have diverged
+                # permanently: say so rather than claim the cleanup is on disk.
+                # config_cleaned answers for the DISK, which is where the dangling
+                # @cred: reference now lives. The in-memory clear is unwound with
+                # it: keeping a cleared value no writer confirmed would leave this
+                # process asserting a state neither store holds, and would make a
+                # RETRY of the same delete find nothing left to clean and answer
+                # ok:true over the same undone write.
+                if _save_sites_config() is not True:
+                    site["password"] = reference
+                    return jsonify({
+                        "ok": False,
+                        "state": "config_write_failed",
+                        "removed": removed,
+                        "key": key,
+                        "config_cleaned": False,
+                        "error": (
+                            f"the credential {key!r} was removed from the vault, "
+                            "but sites_config.json could not be written, so the "
+                            "site's @cred: reference is still on disk and will "
+                            "resolve to None after a restart. Check disk space "
+                            "and permissions on sites_config.json and its .tmp "
+                            "sibling, then clear the site's password again."
+                        ),
+                    }), 500
     return jsonify({"ok": True, "removed": removed, "key": key,
                     "config_cleaned": config_cleaned})
 @secrets_bp.route("/api/secrets/extension/pair_issue", methods=["POST"])
@@ -1091,6 +1126,57 @@ def api_secrets_extension_fetch_one():
             ),
         }), 503
 
+    # Row 631: classify the ENTRY before charging its cooldown/window slot.
+    # A readable, unlocked store can still hold one independently corrupted
+    # AES-GCM envelope; list membership makes that unavailable, not absent.
+    resolution_input = (
+        raw_pw if raw_pw else f"{ss.CRED_PREFIX}{entry_key}"
+    )
+    _pre_password, pre_resolution_state = ss.resolve_password_state(
+        resolution_input
+    )
+    if pre_resolution_state == "unavailable":
+        # The entry probe itself can race lock()/an unreadable transition.
+        # Re-measure the global state before attributing the None to this entry.
+        refreshed_vault_state = _vault_dependency_state(ss, raw_pw)
+        if refreshed_vault_state == "locked":
+            pre_resolution_state = "locked"
+        elif refreshed_vault_state == "unknown":
+            pre_resolution_state = "unknown"
+    # Entry classification is authoritative before rate accounting.
+    if pre_resolution_state == "locked":
+        _ev.audit_fetch(meta, entry_id, origin, False, "vault_locked")
+        return jsonify({
+            "ok": False,
+            "state": "locked",
+            "error": (
+                "the credential vault locked during this request -- unlock "
+                "it and retry. This is not a missing entry."
+            ),
+        }), 409
+    if pre_resolution_state == "unknown":
+        _ev.audit_fetch(meta, entry_id, origin, False, "vault_state_unknown")
+        return jsonify({
+            "ok": False,
+            "state": "unknown",
+            "error": (
+                "the credential vault's state could not be measured, so this "
+                "entry is neither confirmed stored nor confirmed missing."
+            ),
+        }), 503
+    if pre_resolution_state == "unavailable":
+        _ev.audit_fetch(meta, entry_id, origin, False, "entry_unreadable")
+        return jsonify({
+            "ok": False,
+            "state": "entry_unreadable",
+            "requires_vault_repair": True,
+            "error": (
+                "the credential entry is present but cannot be decrypted. "
+                "Restore or replace that entry in the credential vault, then "
+                "retry."
+            ),
+        }), 409
+
     try:
         allowed, reason = _ev.check_and_record_fetch(vt, entry_key)
     except _ev.VaultTokensUnreadableError as e:
@@ -1104,9 +1190,16 @@ def api_secrets_extension_fetch_one():
         return jsonify({"ok": False, "error": "denied",
                         "retry_after": "rate limit"}), 429
 
-    # Resolve the password
-    password = ss.resolve_password(raw_pw) if raw_pw else ss.get_backend().get(entry_key)
+    # Re-resolve after rate accounting so a concurrent lock or store failure is
+    # diagnosed rather than serving a value from a stale pre-gate observation.
+    password, resolution_state = ss.resolve_password_state(resolution_input)
     if not password:
+        if resolution_state == "unavailable":
+            refreshed_vault_state = _vault_dependency_state(ss, raw_pw)
+            if refreshed_vault_state == "locked":
+                resolution_state = "locked"
+            elif refreshed_vault_state == "unknown":
+                resolution_state = "unknown"
         # A7 self-audit: the probe above is a reading, and this arm must not act
         # on state it read earlier and never re-validated. If the vault locked
         # or became unreadable between the probe and here, this None is not
@@ -1114,8 +1207,7 @@ def api_secrets_extension_fetch_one():
         # added to stop. Re-measure before naming a reason. The cooldown IS
         # already spent in that race; it was spent on a fetch the probe had no
         # reason to refuse, and the truthful diagnosis still matters more.
-        late_state = _vault_dependency_state(ss, raw_pw)
-        if late_state == "locked":
+        if resolution_state == "locked":
             _ev.audit_fetch(meta, entry_id, origin, False, "vault_locked")
             return jsonify({
                 "ok": False,
@@ -1125,7 +1217,7 @@ def api_secrets_extension_fetch_one():
                     "it and retry. This is not a missing entry."
                 ),
             }), 409
-        if late_state == "unknown":
+        if resolution_state == "unknown":
             _ev.audit_fetch(meta, entry_id, origin, False, "vault_state_unknown")
             return jsonify({
                 "ok": False,
@@ -1136,6 +1228,18 @@ def api_secrets_extension_fetch_one():
                     "missing."
                 ),
             }), 503
+        if resolution_state == "unavailable":
+            _ev.audit_fetch(meta, entry_id, origin, False, "entry_unreadable")
+            return jsonify({
+                "ok": False,
+                "state": "entry_unreadable",
+                "requires_vault_repair": True,
+                "error": (
+                    "the credential entry became unreadable during this "
+                    "request. Restore or replace that entry in the credential "
+                    "vault, then retry."
+                ),
+            }), 409
         _ev.audit_fetch(meta, entry_id, origin, False, "no_password_stored")
         return jsonify({"ok": False, "error": "denied"}), 403
 

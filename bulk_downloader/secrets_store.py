@@ -644,13 +644,21 @@ class MasterPasswordBackend(_BackendBase):
         absence, because "I could not look" is not "there is nothing there" --
         conflating those is the whole family of defects this guards.
         """
-        try:
-            st = SECRETS_FILE.stat()
-        except FileNotFoundError:
-            return None
-        except OSError:
-            return (-1, -1, -1)
-        return (st.st_dev, st.st_ino, st.st_size)
+        # Row 617: one failed metadata read is not a durable verdict. A second
+        # immediate probe distinguishes a momentary filesystem interruption
+        # from a path that remains unmeasurable without weakening the latter's
+        # fail-closed sentinel.
+        for attempt in range(2):
+            try:
+                st = SECRETS_FILE.stat()
+            except FileNotFoundError:
+                return None
+            except OSError:
+                if attempt == 0:
+                    continue
+                return (-1, -1, -1)
+            return (st.st_dev, st.st_ino, st.st_size)
+        raise AssertionError("vault identity probe exhausted without a verdict")
 
     def _record_probe_failure_locked(
         self,
@@ -1769,10 +1777,17 @@ class MasterPasswordBackend(_BackendBase):
                     "credential"
                 )
             removed = cts.pop(key)
-            if not self._save():
-                cts[key] = removed  # B4: roll back, never report a phantom delete
-                raise SecretsPersistError(
-                    f"failed to persist deletion of {key!r}")
+            try:
+                if not self._save():
+                    raise SecretsPersistError(
+                        f"failed to persist deletion of {key!r}")
+            except Exception:
+                # A raised save and a false save share one rollback boundary.
+                # _save can refuse by raising before it returns its
+                # bool. Both exits happen after the pop and therefore share the
+                # same rollback boundary.
+                cts[key] = removed
+                raise
         _unstamp_rotation(key)  # best-effort: drop the rotation timestamp
         return True
 

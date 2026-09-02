@@ -644,6 +644,10 @@ _DECLARED = {
     # concurrency/ownership gate must execute even when no provider file is in
     # the diff that triggered CI.
     "tests/test_provider_resolve_surface_lock.py",
+    # Rows 617/623/624/625/628/629/631. This module owns secrets state across
+    # filesystem probes, two backend types, a config-writer interleaving and
+    # extension rate accounting, so its contract is scheduled on every PR.
+    "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",
     # Row 347. The provider-band gate's own early return escaped its only
     # catcher. Its independent exact-call receipt now runs on every PR beside
     # the provider facade whose affected band it constrains.
@@ -936,6 +940,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row350_job_api_durable_truth.py",  # module
     "tests/test_row356_cookie_quality_reports_unknown.py",  # module
     "tests/test_row360_turnstile_bypass_is_installed.py",  # module
+    "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",  # module
     "tests/test_row363_affordance_learning.py",  # module
     "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py",  # module
     "tests/test_row_282_bd_opv_isolates_every_store.py",  # module
@@ -1001,6 +1006,20 @@ _CONFIRMED_SAFETY_GATES = {
     "tests/test_v3_66_285_cloak_parity.py",
     "tests/test_v3_66_795_mod3_seam.py",
     "tests/test_v3_66_1009_live_results_are_bundled.py",
+}
+
+# Row 613. These are module-scoped behavioural tests, not repo-wide census
+# gates. Their safety value is in the family: together they guard db_prune and
+# the skip-identity/dedup ownership seam, so a module-derived local band is not
+# sufficient CI reachability. Keep this denominator independent of ci.yml; the
+# workflow is the artifact it judges. This deliberately does not join
+# _DECLARED or the shrink-only _NON_DERIVABLE_DECLARED partition.
+_DB_PRUNE_SAFETY_FAMILY = {
+    "tests/test_a_prune_repairs_only_the_links_it_broke.py",
+    "tests/test_a_skip_must_prove_it_is_the_same_work.py",
+    "tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py",
+    "tests/test_row545_the_skip_arm_carries_its_whole_result.py",
+    "tests/test_row607_a_history_row_proves_a_real_transfer.py",
 }
 
 # ── the declaration policy, @1072 ────────────────────────────────────────────
@@ -1402,6 +1421,67 @@ def _assert_exact_gate_coverage(
     assert not extra, f"undeclared gate(s) present in CI: {extra}"
 
 
+def _assert_family_reachable_from_shards(
+        family: set[str], shards: dict[str, list[str]]
+) -> None:
+    """Require every member of one closed behavioural family in named shards."""
+    assert family, "the db-prune safety family denominator is empty"
+    assert shards, "there are no named CI shards, so reachability is UNKNOWN"
+    assert all(shards), "a CI shard has no name, so reachability is UNKNOWN"
+    scheduled = {suite for suites in shards.values() for suite in suites}
+    missing = sorted(family - scheduled)
+    reachable = len(family) - len(missing)
+    assert reachable == len(family), (
+        f"db-prune safety family reachable from CI: {reachable} of "
+        f"{len(family)}; missing: {missing}")
+
+
+def test_db_prune_safety_family_is_reachable_from_ci():
+    """Row 613: all five module-scope owners must run in an explicit shard."""
+    assert len(_DB_PRUNE_SAFETY_FAMILY) == 5, (
+        "the independently named db-prune safety denominator is not exactly "
+        f"five files: {sorted(_DB_PRUNE_SAFETY_FAMILY)}")
+    for rel in sorted(_DB_PRUNE_SAFETY_FAMILY):
+        assert (_REPO / rel).is_file(), f"family member is absent: {rel}"
+        assert _tracked(rel), f"family member is untracked: {rel}"
+        assert _declared_scope(_REPO / rel) == "module", (
+            f"{rel} is not a module-scope behavioural test")
+    _assert_family_reachable_from_shards(
+        _DB_PRUNE_SAFETY_FAMILY, _shard_lists())
+
+
+def test_db_prune_safety_family_missing_member_control():
+    """The intended 0/5 refusal fires on a nonempty, named synthetic shard."""
+    assert len(_DB_PRUNE_SAFETY_FAMILY) == 5
+    with pytest.raises(AssertionError, match=(
+            r"db-prune safety family reachable from CI: 0 of 5; missing:")):
+        _assert_family_reachable_from_shards(
+            _DB_PRUNE_SAFETY_FAMILY,
+            {"unrelated-only": ["tests/test_unrelated.py"]})
+
+
+def test_unrelated_absent_file_does_not_expand_db_prune_safety_family():
+    """Negative control: this is family-specific, not a full CI census."""
+    outsider = "tests/test_negative.py"
+    shards = _shard_lists()
+    assert (_REPO / outsider).is_file(), "negative-control file is absent"
+    assert _tracked(outsider), "negative-control file is untracked"
+    assert outsider not in _DB_PRUNE_SAFETY_FAMILY
+    assert all(outsider not in suites for suites in shards.values()), (
+        "negative-control file unexpectedly runs in CI")
+    scheduled_family = {
+        suite for suites in shards.values() for suite in suites
+        if suite in _DB_PRUNE_SAFETY_FAMILY
+    }
+    assert scheduled_family == _DB_PRUNE_SAFETY_FAMILY
+    _assert_family_reachable_from_shards(_DB_PRUNE_SAFETY_FAMILY, shards)
+
+
+def test_transform_control_imports_gate_without_judging_db_prune_reachability():
+    """Mutation control: collection/import alone does not judge row 613."""
+    assert _CI.is_file()
+
+
 def test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check():
     """Negative control: the live assertion's intended failure is reachable."""
     declared = {"tests/test_existing_gate.py", "tests/test_newly_added_gate.py"}
@@ -1414,7 +1494,7 @@ def test_a_new_declared_gate_missing_from_a_shard_fails_the_exact_check():
 
 
 def test_declared_and_ci_executed_gate_denominators_are_exact():
-    """All seven H15 CI-coverage gates belong to the exact live population."""
+    """All declared gates and the row-613 family form the CI population."""
     assert _CONFIRMED_SAFETY_GATES, "the confirmed H15 safety-gate set is empty"
     assert len(_CONFIRMED_SAFETY_GATES) >= _CONFIRMED_SAFETY_GATE_FLOOR, (
         "the confirmed H15 safety-gate denominator shrank below "
@@ -1454,7 +1534,8 @@ def test_declared_and_ci_executed_gate_denominators_are_exact():
         f"nor sit in the closed legacy set: {strayed}. A new gate declares the "
         f"marker; it does not join the legacy set, which may only shrink.")
 
-    _assert_exact_gate_coverage(_DECLARED, _shard_lists())
+    _assert_exact_gate_coverage(
+        _DECLARED | _DB_PRUNE_SAFETY_FAMILY, _shard_lists())
 
 
 def test_the_live_gate_refuses_a_silent_shrink_of_both_lists(monkeypatch):
@@ -1599,7 +1680,8 @@ def test_the_shard_union_is_exactly_the_declared_gate_set():
         union.extend(names)
     got = set(union)
 
-    missing, extra = _coverage_delta(_DECLARED, got)
+    expected = _DECLARED | _DB_PRUNE_SAFETY_FAMILY
+    missing, extra = _coverage_delta(expected, got)
     assert not missing, (
         f"repo-wide gate(s) declared but in NO shard, so they no longer run on "
         f"any PR while the check stays green: {missing}")
