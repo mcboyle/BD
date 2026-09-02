@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1433 - a shuffle lane finds order dependencies
+
+A new advisory lane, and the measurement that justifies it.
+
+Of twelve pytest plugins considered, this repository has exactly two installed,
+and both are already load-bearing in the sanctioned full-suite command. Across
+1556 tracked test files there are zero uses of the other ten's surfaces. And the
+canonical command's `-p no:randomly` was guarding a plugin that is NOT
+INSTALLED, so shuffle-based order checking had never actually run here.
+
+It is worth running because the defect class is real and measured: six suite
+failures in one night came from cross-file pollution, where an earlier file in
+the same worker pinned a module global into a directory that was then deleted,
+and nineteen more came from a global rate limiter left low by a neighbour. The
+file-to-worker assignment picks the neighbour set, so these surface only by luck.
+
+- toolchain/bin/bd-shuffle-lane runs the canonical shape differing in exactly
+  one token, records the seed it chose, and REPLAYS from that seed. It parses
+  pytest's own echo of the seed back and returns UNKNOWN if it is absent or
+  differs, which distinguishes "shuffled" from "the plugin is silently missing".
+  A zero collected denominator is UNKNOWN, never OK.
+- THE CANONICAL COMMAND IS BYTE-IDENTICAL, proven by digest before and after,
+  and `-p no:randomly` REMAINS so that lane stays deterministic now the plugin
+  can exist. The new lane is a second, separate invocation and is advisory: it
+  cannot block a merge until its findings are triaged.
+- The plugin is declared in its own requirements file that no installer
+  converges, and is installed lane-private rather than into the shared
+  environment -- because pytest auto-loads plugins, so a shared install would
+  have silently changed every band, precut and CI shard that does not pass
+  `-p no:randomly`.
+- A positive control lives outside the collected population: an order-dependent
+  pair that the lane must FAIL on. Searched across 24 seeds it fails on eight
+  and passes on sixteen, and a failing seed replays to the identical verdict.
+  Both classes are required, because a lane that cannot fail is not a lane.
+
 ## v3.66.1432 - a refusal names what failed, and a docs-only change pays a docs-only tax
 
 Rows 530, 615, 640 and 641. Two halves, one contract: a gate must say WHICH

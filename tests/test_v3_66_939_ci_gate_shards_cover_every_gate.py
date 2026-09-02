@@ -651,6 +651,17 @@ _DECLARED = {
     # the session-root lifecycle owners in the shard claimed below.
     # CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
     "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py",
+    # @1452. The shuffle lane's containment gate. Its subject is the TREE: the
+    # exact bytes of the A5 canonical full-suite command, which requirements
+    # manifests may declare pytest-randomly, and whether anything on the merge
+    # path invokes the lane. No changed path derives that population, and
+    # pytest AUTO-LOADS an installed plugin -- so the failure it guards against
+    # is a one-line manifest edit that silently turns every OTHER shard into a
+    # different experiment. It belongs beside the session-isolation owners in
+    # the shard claimed below because cross-file order dependency is the class
+    # they all police.
+    # CI-SHARD-CLAIM row-1452 isolation tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
+    "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py",
     # @1085. Its subject is the test SESSION's module table, not the tree -- the
     # same reason 1034 and 1031 sit in the shard claimed below. A
     # patch.dict(sys.modules) that evicts a lazily-imported module poisons an
