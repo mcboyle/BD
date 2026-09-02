@@ -71,6 +71,34 @@ REASON_UNREADABLE = "UNREADABLE"
 REASON_NO_INTERPRETER = "NO_INTERPRETER"
 
 
+def markdown_corpus_from_listing(listing):
+    """Split ONE tracked-path listing into (current, historical) Markdown corpora.
+
+    THE RULE LIVES HERE AND ONLY HERE. tracked_markdown_corpus below reads the
+    live index; bd-docs-only must ask the same question of a git TREE at an
+    arbitrary commit, because a candidate that DELETES a document has that path
+    in its base tree and in no index. Two callers reimplementing one membership
+    rule is the drift CLAUDE.md A8 warns about, so the second caller gets the
+    same function rather than a second copy of the predicate.
+
+    The `.md` suffix test is explicit rather than inherited from a caller's
+    pathspec: given a whole-tree listing there is no pathspec to inherit, and a
+    rule that silently depends on how it was called is not one rule.
+    """
+    current, historical = [], []
+    for rel in listing:
+        if not rel.endswith(".md"):
+            continue
+        parts = pathlib.PurePosixPath(rel).parts
+        if not (len(parts) == 1 or parts[:1] in (("project-knowledge",), ("docs",))):
+            continue
+        if rel == "CHANGELOG.md" or parts[:2] == ("docs", "archive"):
+            historical.append(rel)
+        else:
+            current.append(rel)
+    return sorted(current), sorted(historical)
+
+
 def tracked_markdown_corpus(root):
     """Return (current, historical) tracked Markdown paths, repo-relative."""
     root = pathlib.Path(root)
@@ -83,18 +111,10 @@ def tracked_markdown_corpus(root):
     tracked = [p for p in cp.stdout.split("\0") if p]
     if not tracked:
         raise RuntimeError("tracked Markdown denominator collapsed to zero")
-    current, historical = [], []
-    for rel in tracked:
-        parts = pathlib.PurePosixPath(rel).parts
-        if not (len(parts) == 1 or parts[:1] in (("project-knowledge",), ("docs",))):
-            continue
-        if rel == "CHANGELOG.md" or parts[:2] == ("docs", "archive"):
-            historical.append(rel)
-        else:
-            current.append(rel)
+    current, historical = markdown_corpus_from_listing(tracked)
     if not current:
         raise RuntimeError("current Markdown denominator collapsed to zero")
-    return sorted(current), sorted(historical)
+    return current, historical
 
 
 def _imports_pytest(exe, timeout=30):
