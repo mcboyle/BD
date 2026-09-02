@@ -1685,6 +1685,50 @@ def _wait_process_group_gone(pgid: int, timeout: float) -> bool:
     return True
 
 
+def _band_session_alive(pgid: int) -> bool:
+    """The band's session leader is alive AND still leads its own group.
+
+    A bare ``killpg(pgid, 0)`` is satisfied by any member of a RECYCLED group
+    id; requiring ``getpgid(pgid) == pgid`` proves the recorded pid is still
+    the leader the band recorded, not a stranger that inherited the number.
+    """
+    try:
+        return os.getpgid(pgid) == pgid
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def _orphaned_band_pgid(heartbeat: Path) -> int:
+    """The band's own session id, read from the heartbeat the band wrote.
+
+    ``_run_owned`` gives every band ``start_new_session=True``, so the band
+    pytest is a session leader and its pid IS its process-group id. Taking it
+    from the band's own ``os.getpid()`` is exact. An argv probe would not be:
+    a pattern matches the shell that WROTE the script it looks for, and the
+    ``[b]racket`` trick does not hide that, because there the pattern is data
+    rather than argv.
+
+    Returns -1 when no id was recorded, so the caller REFUSES rather than
+    quietly skipping the reap.
+
+    Uses this file's own ``_first_line`` rather than ``splitlines()[0]``: the
+    band writes the id with "\n" and ``str.splitlines`` also breaks on nine
+    separators no writer here emits, so the naive subscript would silently
+    truncate an id that contained one. Reaching for the tool's existing helper
+    instead of rebuilding its semantics is the same rule that owns it.
+    """
+    try:
+        first = _first_line(heartbeat.read_text(encoding="utf-8"))
+    except OSError:
+        return -1
+    if not first.startswith("PID="):
+        return -1
+    try:
+        return int(first[4:])
+    except ValueError:
+        return -1
+
+
 def _run_owned(cmd: list[str], *, work: Path, timeout: float
                ) -> subprocess.CompletedProcess[str]:
     """Run pytest in a private session and bound cleanup of its whole tree."""
@@ -2804,11 +2848,23 @@ def _selftest(work: Path) -> int:
         k.mkdir()
         (k / "tests").mkdir()
         (k / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        # The band records its own pid and then waits on a SENTINEL FILE, not
+        # on a width. Its pid is its process-group id (start_new_session), so
+        # this is how the selftest learns which session it is about to orphan;
+        # and the sentinel makes the orphan's lifetime a fact the selftest
+        # decides rather than a race it hopes to win. Only the MUTATED run
+        # blocks -- the pristine baseline must not, or every battery stalls.
         (k / "tests" / "test_m.py").write_text(
-            "import pathlib, time\n"
+            "import os, pathlib, time\n"
             "def test_f():\n"
-            "    pathlib.Path('hb.txt').write_text(pathlib.Path('m.py').read_text())\n"
-            "    time.sleep(6)\n", encoding="utf-8")
+            "    src = pathlib.Path('m.py').read_text()\n"
+            "    pathlib.Path('hb.txt').write_text('PID=%d\\n' % os.getpid() + src)\n"
+            "    if 'return 2' not in src:\n"
+            "        return\n"
+            "    stop = pathlib.Path('reap-me')\n"
+            "    deadline = time.time() + 120\n"
+            "    while not stop.exists() and time.time() < deadline:\n"
+            "        time.sleep(0.05)\n", encoding="utf-8")
         specf = k / "spec.json"
         specf.write_text(json.dumps([{"label": "kill me", "file": "m.py",
                                       "old": "return 1", "new": "return 2"}]),
@@ -2825,6 +2881,51 @@ def _selftest(work: Path) -> int:
             _time.sleep(0.2)
         proc.send_signal(_signal.SIGTERM)
         proc.wait(timeout=60)
+
+        # 7b. THE ORPHANED BAND, and why reaping it does not weaken 7.
+        # `_run_owned` starts every band with start_new_session=True, so the
+        # SIGTERM above -- the whole point of this section -- reaches the child
+        # bd-mutate and NOT the band pytest underneath it. The band survives
+        # with ppid=1, keeps `k` as its cwd, and goes on creating .pytest_cache
+        # and its --junitxml directory INSIDE this selftest root. Measured on
+        # test5 2026-09-02: pid 3817652, ppid=1, pgid=sid=3817652, still adding
+        # entries 6.3s after proc.wait() returned.
+        #
+        # Leave it there and the root's own cleanup at the end of this `with`
+        # races a writer nothing owns. That is the row-638 failure: the retry's
+        # SECOND removal is the last one, so a real ENOTEMPTY escapes as the
+        # OS's own strerror -- reproduced at os.rmdir('kill'), `kill` being the
+        # orphan's cwd, by widening only this window the way CI load widens it.
+        #
+        # Reaping it cannot launder section 7's verdict: 7 asserts that the
+        # MUTANT IS STILL ON DISK because the child's `finally` never ran, and
+        # killing the band does not restore m.py. The residue check below is
+        # therefore read AFTER the reap, on purpose -- it must survive it.
+        band_pgid = _orphaned_band_pgid(hb)
+        band_alive = band_pgid > 0 and _band_session_alive(band_pgid)
+        # Release the band whether or not it is reapable, so no later battery
+        # in `k` can block on a sentinel that never arrives.
+        (k / "reap-me").write_text("stop\n", encoding="utf-8")
+        band_gone = False
+        if band_alive:
+            _signal_process_group(band_pgid, _signal.SIGTERM)
+            if not _wait_process_group_gone(
+                    band_pgid, PROCESS_GROUP_TERM_GRACE_SECONDS):
+                _signal_process_group(band_pgid, _signal.SIGKILL)
+            band_gone = _wait_process_group_gone(
+                band_pgid, PROCESS_GROUP_KILL_GRACE_SECONDS)
+        # A reaper satisfied by an absent or already-dead group is the
+        # fail-open shape it exists to prevent, and it would report success on
+        # exactly the schedules that make row 638 fire. Each of the three ways
+        # this can go wrong is named separately, because they lead to different
+        # repairs: no id recorded, nothing alive to reap, or a group that
+        # outlived SIGKILL.
+        reaped = band_alive and band_gone
+        ok &= reaped
+        print(("PASS" if reaped else "FAIL")
+              + "  the orphaned band session is reaped "
+                f"(pgid={band_pgid} alive={band_alive} gone={band_gone})")
+
         residue = "return 2" in (k / "m.py").read_text(encoding="utf-8")
         print(("PASS" if residue else "FAIL")
               + "  SIGTERM leaves the mutant on disk (the trigger; finally does not run)")
