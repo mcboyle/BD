@@ -394,3 +394,290 @@ a well-formedness test for the baseline.
   directory. This is also why the `-p no:randomly` token in the A5 command must
   stay: it guarded a plugin that did not exist until now, and it is what keeps
   the canonical lane the same experiment it has always been.
+
+# C. Verify, ship, land
+
+**SAFETY, FOR THIS WHOLE SECTION -- `bd-verify-cut.sh` AND `bd-land` ARE
+LOAD-BEARING AND OFTEN RUNNING.** Never edit either in place. `write_text()` and
+an in-place shell redirect both TRUNCATE AND REWRITE THE SAME INODE, and a bash
+script that is currently executing keeps reading that inode at its saved byte
+offset -- so the running lane resumes in the middle of different text. That is
+how one of these reported `line 138: THIS: command not found` while `bash -n` on
+the same file passed cleanly. Develop against a copy and apply with
+`/home/mboyle/bd-edit.py`, which renames over the target atomically so the
+running process keeps the old inode and the change takes effect on the next
+invocation. `scripts/deploy.sh` has the same boundary and A6 documents it there.
+
+## bd-verify-when-ready -- do not launch an expensive lane against a tree the cheap checks refuse
+
+* **Location** `/home/mboyle/bd-verify-when-ready` (96 lines). Status: live.
+* **Answers** "is this candidate actually ready for a ten-minute verify?"
+* **Invoke** `bash /home/mboyle/bd-verify-when-ready /home/mboyle/bd-cuts/cut/1479-the-toolchain-has-an-index v1479`.
+* **Exit codes** 0 launched -- it prints `LAUNCHED <tag> -> <log path>` and the
+  verify runs detached under `setsid nohup`; 2 usage; 3 NOT READY.
+* **The five refusals, in order** the worktree is MID-REBASE, where a commit
+  lands on a detached HEAD and the branch ref still points at pre-rebase work;
+  the worktree is on a detached HEAD, so `bd-land` would have no branch to
+  publish; there is unstaged tracked drift (the `venv` and `frontend/node_modules`
+  symlinks are excluded); `bd-denom-preflight` refuses; or the tracked generated
+  artifacts are out of sync.
+* **On that last one** it RUNS `bd-regen-order` and then diffs the chain's own
+  tracked outputs, because the regen is idempotent -- measured, a full run on an
+  in-sync worktree left all ten tracked outputs clean. If it is not a no-op the
+  tree needed it anyway. A zero-length tracked-output list is UNKNOWN and
+  refuses, not agreement.
+* **Why it exists** twice in one day an expensive verify was launched against a
+  tree the cheap checks had already refused, because the chain
+  `rebase; trio; commit; preflight; launch` was run and the LAUNCH line was read
+  rather than the preflight line. **`bd-freshcheck --repo-only` does not answer
+  the regen question** -- a register-only edit still moves
+  `project-knowledge/STATIC_KB_MANIFEST.json`, and reading freshcheck's OK as if
+  it had answered cost a full lane.
+
+## bd-verify-cut.sh -- is this immutable candidate shippable?
+
+* **Location** `/home/mboyle/bd-verify-cut.sh` (1286 lines). Status: live.
+  **Load-bearing and frequently running -- see the section warning above.**
+* **Answers** "over the complete net cut, does everything pass?" The denominator
+  is `merge-base(fresh origin/main, candidate)..candidate`, not the final commit.
+* **Invoke** `bash /home/mboyle/bd-verify-cut.sh /home/mboyle/bd-cuts/cut/1479-the-toolchain-has-an-index v1479`.
+  Two arguments, both required; the tag must match `[A-Za-z0-9._-]+`.
+* **Outputs** a `VERDICT <tag>: precut= prepush= derive= audit= band= over N file(s)`
+  line, a `DOCS-ONLY <tag>:` line, and then one of
+  `ALL GREEN -- shippable`, `SHIPPABLE WITH INHERITED FAILURES -- not green`
+  (an attributed band, never reported as green, with the inherited failures and
+  the base SHA printed), or `NOT SHIPPABLE` with every RED or UNKNOWN reason
+  named.
+* **Exit codes** 0 shippable (either of the two green-ish verdicts); 1 RED; 2
+  UNKNOWN, usage error, a bad tag, or an incomplete terminal state; 130 on INT;
+  143 on TERM or HUP. **A band size of zero is not green** -- `ALL GREEN`
+  requires `BAND_N > 0`.
+* **Order** all potentially mutating regeneration runs first and alone in a
+  disposable exact-SHA worktree; every later reader runs only after that tree is
+  re-proved.
+* **Knobs, all environment** `BD_VERIFY_CUT_ARTIFACT_DIR`, `BD_VERIFY_CUT_PREPUSH`,
+  `BD_VERIFY_CUT_BAND_REMOTE`, `BD_VERIFY_CUT_PREFLIGHT`, `BD_VERIFY_CUT_VCACHE`,
+  `BD_VERIFY_CUT_BASELINE`, `BD_VERIFY_CUT_BAND_TRANSFER`, the five timeouts, and
+  `BAND_WORKERS` (default 24). A non-positive integer in any of them is UNKNOWN,
+  not a default.
+* **Composes** `bd-denom-preflight`, `bd-prepush.sh`, `bd-precut`,
+  `bd-band-derive`, `bd-band-remote.sh`, `bd-docs-only` and `bd-verdict-cache`.
+
+## bd-verdict-cache -- a PASS-only cache for the verify gates
+
+* **Location** `/home/mboyle/bd-verdict-cache` (75 lines). Status: live.
+* **Answers** "has this exact gate already passed on this exact tree?"
+* **Invoke** `bash /home/mboyle/bd-verdict-cache key <gate> <tree-sha> <base-sha> [material...]`,
+  then `get <key> --expect-tree <tree-sha>`, `put <key> PASS <tag> <log-path>
+  <tree-sha> <base-sha> <gate>`, or `purge [--all]`.
+* **Exit codes** `get` exits 0 on a hit; 1 on a miss, a non-PASS record, or a
+  tree mismatch; 2 on a usage error. Material given as a file path is digested by
+  CONTENT; anything else by its literal text.
+* **The safety argument, entire** FAIL and UNKNOWN are never written, so no
+  lookup can manufacture a green -- the worst a corrupt or stale entry can do is
+  skip a gate that already passed on this exact tree. The key covers the
+  candidate tree SHA, the merge-base SHA, the gate name, and a digest of the
+  gate's own scripts and anything that changes the EXPERIMENT, so a rerun after a
+  rebase, a tool edit or a worker-count change MUST miss.
+* **What the key does NOT cover** an ad-hoc change to the venv or an installed
+  system tool. Edits to requirements files are tree-covered; a hand-run
+  `pip install` is not. **Purge the cache after one.**
+
+## bd-band-remote.sh -- run the band on a capacity box, not on the tree being edited
+
+* **Location** `/home/mboyle/bd-band-remote.sh` (350 lines). Status: live.
+* **Answers** "how do I run a 600-file band without the tree changing underneath
+  it?" A6 forbids running capture on a host whose tree is being edited; this
+  makes it impossible rather than merely forbidden by running at a FROZEN SHA on
+  another machine.
+* **Invoke** `bash /home/mboyle/bd-band-remote.sh <40-hex-sha> tests/test_a.py tests/test_b.py`.
+  `BD_REMOTE_MODE=precut` or `prepush` judges the whole tree and takes no
+  selectors.
+* **Exit codes** pytest's own rc when it ran; 2 for band mode with no tests
+  given; **64 = REMOTE-UNAVAILABLE** -- an invalid SHA, a SHA that is not a local
+  commit, no capacity host in the roles file, or no free slot. It is opt-in and
+  fail-soft by design: the caller then runs locally exactly as before, because a
+  verification lane that can refuse a good cut is worse than a slow one.
+* **The mechanism** capacity boxes clone from a LOCAL bare repo on that host, not
+  from GitHub, so `git fetch origin` there can exit 0 and still leave the box
+  many commits behind -- the same shape A6 records as "A FETCH EXITING 0 IS NOT
+  DELIVERY". This pushes the exact object over SSH first. The band runs in its
+  own per-SHA worktree and never touches the host's own checkout, so a host that
+  serves BD can lend cores without lending its tree.
+* **Population** hosts with role `capacity` or `runner` in
+  `/home/mboyle/.config/bd/roles`. `deploy` hosts are excluded: they are
+  user-facing.
+
+## bd-ship.sh -- push a frozen candidate and merge only the reviewed head
+
+* **Location** `/home/mboyle/bd-ship.sh` (425 lines). Status: live.
+* **Invoke** `bash /home/mboyle/bd-ship.sh <branch> <title> <pr-body-file>`.
+* **Exit codes** 1 no PR body, or the integrator repo is not reachable; 2 no such
+  branch; 3 a phase failure -- no open PR, the detached push copy could not be
+  built or could not reach the candidate SHA, or its origin is not the expected
+  upstream; 0 on a completed ship. The gh required-check filter it writes exits
+  125 when it cannot capture evidence.
+* **The two defects it used to have** an unbounded `until <checks done>` wait
+  that never ends when a check is never created (now bounded at 40 polls of 45s);
+  and a ZERO DENOMINATOR read as green, where the first poll after a push returns
+  an empty rollup -- as do `gh` errors -- so the script could merge unattended
+  having observed NO CHECKS AT ALL. Green now requires every check NAME derived
+  from the frozen candidate's own `.github/workflows/ci.yml` to be present and
+  passing. An empty or incomplete board is UNKNOWN, never permission.
+* **It resolves the candidate from the BRANCH argument, not from HEAD**, so
+  shipping cut N while cut N+1 is checked out needs no `git checkout`.
+* **Test seam** `BD_SHIP_SOURCE_ONLY=1` lets a focused test source the real gate
+  functions without ever entering push or merge.
+
+## bd-land -- land one cut, then report every sibling without mutating it
+
+* **Location** `/home/mboyle/bd-land` (436 lines). Status: live.
+  **Load-bearing and frequently running -- see the section warning above.**
+* **Answers** "how do I merge this cut without silently invalidating or
+  rewriting the other cuts in flight?"
+* **Invoke** `bash /home/mboyle/bd-land /home/mboyle/bd-cuts/cut/1479-the-toolchain-has-an-index --pr 737`;
+  add `--dry-run` to analyse and merge nothing.
+* **Exit codes** 0 landed, or a completed `--dry-run` which prints
+  `DRY RUN -- nothing merged`; 2 REFUSED, for every precondition -- no such
+  worktree, a detached HEAD with no branch to land, an unknown argument, or
+  another `bd-land` already holding `/tmp/bd-land.lock` under `flock -n`.
+* **What it requires before merging** a local `ALL GREEN -- shippable` or
+  `SHIPPABLE WITH INHERITED FAILURES` verdict for **this exact SHA** -- not for
+  the branch -- exact-head CI success read from NAMED fields, and a clean tree.
+* **Containment is proven by BLOB EQUALITY per changed path, deletions
+  included**, and it prints the count it checked. It once printed
+  `containment LANDED` over ZERO files because the missing-file counter stayed at
+  zero over an empty denominator, and a deletion-only cut checked zero paths and
+  still printed LANDED. Both were found by audit.
+* **Siblings are observed, pinned and reported -- never rewritten.** Automatic
+  sibling rebases produced conflicted worktrees left mid-rebase, detached
+  unreferenced commits, silently replaced release-trio blobs and colliding
+  version assignments. It pins each sibling head before analysis, performs a
+  read-only virtual merge, proves the sibling's branch, ref and authored blobs
+  are unchanged afterward, and names the paths needing the integrator's manual
+  merge. A landed cut may invalidate a sibling's evidence; it must not rewrite
+  that sibling.
+* **Why the problem exists at all** a cut's version and base are chosen when the
+  cut is created and only validated when it merges, so every merge is a silent
+  invalidation of every sibling. Three cuts in flight, all green, and merging the
+  middle one refused the other two with "origin/main moved during verification"
+  -- twenty-five minutes of verified evidence discarded by a four-second merge,
+  twice.
+
+## bd-rebase -- resolve the conflicts that are not judgement calls
+
+* **Location** `/home/mboyle/bd-rebase` (133 lines). Status: live.
+* **Invoke** `bash /home/mboyle/bd-rebase <row> [row...]` or `bash /home/mboyle/bd-rebase --all`.
+* **Exit codes** 2 with no arguments; otherwise the rebase result.
+* **What it resolves automatically** three GENERATED files -- `PIN_INDEX.json`,
+  `project-knowledge/STATIC_KB_MANIFEST.json` and
+  `tools/decomp/import_graph_baseline.json` -- because `bd-regen-order` rewrites
+  them from source during integrate, so keeping a side is not a merge decision at
+  all. Two more, the CI workflow and a gate declaration block, are append-only
+  registries union-resolved elsewhere.
+* **What it will NOT do** resolve a conflict in source, tests or the register by
+  picking a side. A row's own content is the thing under review and a tool that
+  guessed there would silently drop work; five rows lost their register row to a
+  rebuild once already.
+* **Overrides, and why they exist** `BD_REBASE_REPO`, `BD_REBASE_ARTIFACTS`,
+  `BD_REBASE_WT_ROOT` and `BD_REBASE_ALL` exist ONLY so the harness tests can run
+  against a scratch repo. `bd-rebase-all.sh` REWRITES worktrees, and a test
+  falling through to the real one would rebase every live tree.
+
+# D. Containment and evidence
+
+## bd-shipped -- has THIS candidate's work actually reached main?
+
+* **Location** `/home/mboyle/bd-shipped` (167 lines). Status: **new**, added
+  2026-09-02.
+* **Answers** the question A7 calls a denominator choice. The three available
+  containment tests are not equivalent, and the weak ones fail in one direction
+  only: **SHA ancestry decided ZERO of 24 tagged candidates**, because every cut
+  is rebased before it lands, so the candidate SHA is never an ancestor;
+  **patch-id reported three fully-landed tags as unmerged**, because resolving a
+  release-trio collision changes the patch; and **comparing THIS BLOB for every
+  file the candidate touched** is the only test that answered correctly.
+* **Why it exists** the absence of exactly this instrument let four register rows
+  be reported merged when they were only tagged, and a fifth release be reported
+  shipped when its version number never reached main. `bd-land` already carried
+  this logic for the cut it is landing; nothing carried it for an ARBITRARY ref,
+  which is what closing a register row needs.
+* **Invoke** `bash /home/mboyle/bd-shipped v3.66.1478 --authored`. The candidate
+  ref may be a tag, a branch, a SHA or a worktree path. Also `--base <ref>` to
+  set the merge base explicitly, `--against <ref>` to change what "shipped" means
+  (default `origin/main`), `-q`, and `-h`.
+* **`--authored`, and why you usually want it** a landed cut's release trio and
+  generated artifacts are legitimately superseded by the NEXT release, so a
+  whole-diff comparison reports a fully-shipped fix as NOT SHIPPED once one more
+  version lands. `--authored` applies the four-disposition split -- TRIO, DERIVED,
+  DECLARED, AUTHORED -- and answers about the authored files alone. **Every
+  excluded path is PRINTED**; a silent exclusion would be the fail-open the tool
+  exists to refuse.
+* **Exit codes** 0 SHIPPED; 3 NOT SHIPPED; 4 UNKNOWN (unmeasurable); 2 usage.
+  UNKNOWN is a failing third state and is never printed as OK.
+* **When you report a containment answer, say which test you used.**
+
+## bd-band-transfer-key -- may a band verdict transfer across a rebase?
+
+* **Location** `toolchain/bin/bd-band-transfer-key` (451 lines). Status: live.
+* **Answers** "this candidate was rebased; is its local band still evidence about
+  the same experiment?"
+* **Invoke** `venv/bin/python toolchain/bin/bd-band-transfer-key key --repo "$PWD" --base BASE --head HEAD [--json]`
+  or `... compare --repo "$PWD" --old-base A --old-head B --new-base C --new-head D [--json]`.
+* **Outputs** a fail-closed CONTENT identity for the candidate's local test band.
+  It is deliberately NOT a tree identity: callers pass the digest to
+  `bd-verdict-cache` as the tree argument, which preserves that cache's PASS-only
+  `get --expect-tree` re-proof while letting an equivalent local band hit.
+* **The premise it enforces** the identity survives an ordinary release rebase
+  only when all four path dispositions remain provable -- release trio,
+  generated, reviewed declaration, and authored. A differing authored path set,
+  or a differing authored blob, raises `TransferRefused` naming the exact paths.
+* **Reused by** `bd-docs-only`, for the byte-exact trio proof, rather than
+  reimplemented there.
+
+## bd-worker-terminal -- is that worker actually finished?
+
+* **Location** `/home/mboyle/bd-worker-terminal` (112 lines). Status: live.
+* **Answers** "may I harvest this worktree?" **A worker that commits looks
+  EXACTLY like a worker that finished.** One cut was imported into a release
+  batch while its agent was still running; it later AMENDED, adding a twelve-line
+  branch its own self-audit had found. The batch was frozen, verified for nine
+  minutes and killed. Shipping it would have released an incomplete fix under a
+  changelog line claiming the row was closed.
+* **Invoke** `bash /home/mboyle/bd-worker-terminal /home/mboyle/bd-codex-wt/row-1479 /path/to/dispatch.log`.
+  The dispatch log is optional but is the second half of the evidence.
+* **Exit codes** 0 terminal, and it prints the HEAD and tree to pin; 3 NOT
+  TERMINAL -- a live process holds the worktree, the tree is dirty, or it is
+  mid-rebase; 4 UNKNOWN -- not a git worktree, ancestry unwalkable, zero
+  processes inspected, an unreadable dispatch log, or a dispatch log recording no
+  `rc=` lines at all.
+* **It answers from process state and the dispatch record, never from the
+  presence of a commit.**
+* **Two parsing traps it encodes** `ppid` is field 4 of `/proc/<pid>/stat`, but
+  field 2 is `comm` IN PARENTHESES and `comm` may itself contain spaces and
+  parens, so a naive `awk '{print $4}'` returns the STATE letter for any process
+  whose name has a space -- which is how the first version walked zero ancestors
+  and reported TERMINAL over a live worker. Parse after the LAST `)`. And it
+  excludes the whole PROCESS GROUP rather than only the ancestor chain, because a
+  pipeline's members are SIBLINGS of the calling shell and each carries the
+  worktree path in its own argv: `bd-worker-terminal $W | grep ...` once reported
+  its own `grep` and `cat` as processes still holding the tree.
+
+## bd-row-audit.py -- does this worktree contain the work its row claims?
+
+* **Location** `/home/mboyle/bd-row-audit.py` (332 lines). Status: live.
+* **Answers** "did the worker implement its own row, or somebody else's?" An
+  audit of nine live worktrees found FOUR that did not implement their own row --
+  one carried 45 KB of login code under a row about a download menu, two carried
+  ten insertions of backlog and gate-count edits and no implementation at all,
+  and one was missing its core deliverable entirely.
+* **Invoke** `venv/bin/python /home/mboyle/bd-row-audit.py <worktree> [...]`.
+* **Exit code** the worst per-check result across every audited row.
+* **Why it is mechanical** two of those empty rows were worse than empty: each
+  RAISED the expected declared-gate count by one for a gate file that does not
+  exist, and each added six duplicate module-level assignments of that constant,
+  so Python took the last one and the tree claimed 177 of 178 declared gates
+  against main's 228. A gate that does not exist would be counted -- the exact
+  inverse of "a gate CI does not run does not exist". All of that falls to
+  mechanical checks. "Does this diff implement this subject?" is the one
+  genuinely model-shaped question and is deliberately NOT attempted here.
