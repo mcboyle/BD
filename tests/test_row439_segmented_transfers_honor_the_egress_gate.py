@@ -31,7 +31,12 @@ from pathlib import Path
 
 import pytest
 
-BD_GATE_SCOPE = "module"
+# Repo-wide, not module: test_row439_every_segmented_arm_goes_through_the_gate
+# scans the WHOLE bulk_downloader package for calls that bypass the egress gate,
+# so its subject is the tree. Marked `module` it would run in no CI shard at
+# all, and a gate CI does not run does not exist (CLAUDE.md A5) -- a seventh
+# bypassing arm would then land green.
+BD_GATE_SCOPE = "repo-wide"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
