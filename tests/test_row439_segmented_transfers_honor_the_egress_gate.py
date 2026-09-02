@@ -358,11 +358,40 @@ def test_row439_the_builder_refuses_an_uncarriable_scheme_too(hls_boundary):
 
 # ── the tree gate: no seventh arm can reopen the hole ────────────────
 
+def _hls_aliases(tree):
+    """Every local name bound to the hls_downloader MODULE in this file, and
+    every local name bound directly to its ``download`` function.
+
+    DERIVED, never hardcoded. An earlier draft of this gate matched a fixed
+    list of alias spellings, which meant `from . import hls_downloader as _h`
+    -- or `from .hls_downloader import download` -- walked straight past it.
+    That is the row's own fail-open shape reappearing inside the gate meant to
+    prevent it (CLAUDE.md A7: every fix tends to reproduce the defect's shape),
+    so the aliases are read out of the import statements themselves.
+    """
+    mod_aliases, fn_aliases = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.split(".")[-1] == "hls_downloader":
+                    mod_aliases.add(a.asname or a.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            for a in node.names:
+                if a.name == "hls_downloader":
+                    mod_aliases.add(a.asname or a.name)
+                elif mod.split(".")[-1] == "hls_downloader" and a.name == "download":
+                    fn_aliases.add(a.asname or a.name)
+    return mod_aliases, fn_aliases
+
+
 def _download_callsites_outside_the_gate():
-    """AST, not text: count Call nodes invoking `<hls-alias>.download(...)`
-    across the application package. A text scan would also count the phrase
-    inside a docstring (runner_extractors L2194 contains exactly that), which
-    is the A7 inverse -- prose must not decide a gate.
+    """AST, not text: every Call that invokes hls_downloader's ``download``
+    across the application package, under any alias the file actually binds.
+
+    A text scan would also count the phrase inside a docstring
+    (runner_extractors L2194 contains literally ``hls_downloader.download(...)``)
+    -- the A7 inverse, where prose decides a gate. Parsing avoids that.
 
     Returns (hits, files_scanned). A hit is (path, lineno, enclosing-def).
     """
@@ -373,6 +402,9 @@ def _download_callsites_outside_the_gate():
             continue                       # the module that DEFINES download
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         scanned += 1
+        mod_aliases, fn_aliases = _hls_aliases(tree)
+        if not mod_aliases and not fn_aliases:
+            continue                       # this file never imports it
         # map each node to its enclosing function for the allow-list check
         parent_def = {}
         for fn in ast.walk(tree):
@@ -383,14 +415,16 @@ def _download_callsites_outside_the_gate():
             if not isinstance(node, ast.Call):
                 continue
             f = node.func
-            if not isinstance(f, ast.Attribute) or f.attr != "download":
-                continue
-            if not isinstance(f.value, ast.Name):
-                continue
-            if f.value.id not in ("_hls", "hls_downloader", "hls"):
-                continue
-            hits.append((str(path.relative_to(REPO_ROOT)), node.lineno,
-                         parent_def.get(id(node), "<module>")))
+            hit = False
+            if (isinstance(f, ast.Attribute) and f.attr == "download"
+                    and isinstance(f.value, ast.Name)
+                    and f.value.id in mod_aliases):
+                hit = True                 # <alias>.download(...)
+            elif isinstance(f, ast.Name) and f.id in fn_aliases:
+                hit = True                 # bare download(...) imported directly
+            if hit:
+                hits.append((str(path.relative_to(REPO_ROOT)), node.lineno,
+                             parent_def.get(id(node), "<module>")))
     return hits, scanned
 
 
@@ -412,22 +446,78 @@ def test_row439_every_segmented_arm_goes_through_the_gate():
     assert len(inside) == 1, f"expected the gate's single call, got {inside}"
 
 
-def test_row439_the_gate_test_can_actually_see_a_bypass():
-    """MUTATION CATCHER for the test above. A gate that cannot fail is not a
-    gate: prove the detector fires on a synthetic bypassing arm."""
-    src = (
-        "def _try_new_site_extractor(self, url):\n"
-        "    from . import hls_downloader as _hls\n"
-        "    return _hls.download(url, '/tmp/x.mp4')\n"
+# Every spelling a future bypassing arm could plausibly use. The detector must
+# see ALL of them: a gate that only catches the spelling already in the tree
+# would pass this cut and miss the next one.
+_BYPASS_SPELLINGS = {
+    "conventional alias":
+        "from . import hls_downloader as _hls\n"
+        "def arm(self, url):\n"
+        "    return _hls.download(url, '/tmp/x.mp4')\n",
+    "unconventional alias":
+        "from . import hls_downloader as _h\n"
+        "def arm(self, url):\n"
+        "    return _h.download(url, '/tmp/x.mp4')\n",
+    "unaliased module":
+        "from . import hls_downloader\n"
+        "def arm(self, url):\n"
+        "    return hls_downloader.download(url, '/tmp/x.mp4')\n",
+    "function imported directly":
+        "from .hls_downloader import download\n"
+        "def arm(self, url):\n"
+        "    return download(url, '/tmp/x.mp4')\n",
+    "function imported and renamed":
+        "from .hls_downloader import download as grab\n"
+        "def arm(self, url):\n"
+        "    return grab(url, '/tmp/x.mp4')\n",
+}
+
+
+@pytest.mark.parametrize("label", sorted(_BYPASS_SPELLINGS))
+def test_row439_the_gate_sees_every_bypass_spelling(label, tmp_path,
+                                                    monkeypatch):
+    """MUTATION CATCHER. A gate that cannot fail is not a gate.
+
+    Each mutant is a real file in a real package directory, scanned by the
+    REAL detector -- not a hand-rolled reimplementation of its logic, which
+    would prove only that the test agrees with itself.
+    """
+    import tests.test_row439_segmented_transfers_honor_the_egress_gate as mod
+
+    pkg = tmp_path / "bulk_downloader"
+    pkg.mkdir()
+    (pkg / "arm_under_test.py").write_text(_BYPASS_SPELLINGS[label])
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+
+    hits, scanned = mod._download_callsites_outside_the_gate()
+
+    assert scanned == 1, f"precondition: one file scanned, got {scanned}"
+    assert len(hits) == 1, (
+        f"the detector is blind to a bypass written as {label!r}: {hits}")
+    assert hits[0][2] == "arm"
+
+
+def test_row439_the_gate_does_not_fire_on_unrelated_downloads(tmp_path,
+                                                              monkeypatch):
+    """NEGATIVE CONTROL for the detector. An unrelated `.download(...)` on
+    some other object must NOT count -- a gate that flags everything forces
+    the next author to weaken it."""
+    import tests.test_row439_segmented_transfers_honor_the_egress_gate as mod
+
+    pkg = tmp_path / "bulk_downloader"
+    pkg.mkdir()
+    (pkg / "unrelated.py").write_text(
+        "from . import hls_downloader as _hls\n"
+        "def arm(self, url, client):\n"
+        "    _hls.is_hls_url(url)\n"
+        "    return client.download(url)      # a different object entirely\n"
     )
-    tree = ast.parse(src)
-    found = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "download"
-        and isinstance(n.func.value, ast.Name) and n.func.value.id == "_hls"
-    ]
-    assert len(found) == 1, "the detector would not have seen a new bypass arm"
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+
+    hits, scanned = mod._download_callsites_outside_the_gate()
+
+    assert scanned == 1
+    assert hits == [], f"the detector fired on an unrelated call: {hits}"
 
 
 def test_row439_all_six_segmented_arms_reach_the_gate():
