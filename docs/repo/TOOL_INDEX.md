@@ -681,3 +681,384 @@ invocation. `scripts/deploy.sh` has the same boundary and A6 documents it there.
   inverse of "a gate CI does not run does not exist". All of that falls to
   mechanical checks. "Does this diff implement this subject?" is the one
   genuinely model-shaped question and is deliberately NOT attempted here.
+
+# E. Turning a worker's row into a cut
+
+## bd-qa-row.sh -- integrator QA before anything touches main
+
+* **Location** `/home/mboyle/bd-qa-row.sh` (152 lines). Status: live.
+* **Answers** "does this returned worker row hold up when I re-run it myself?"
+  This is A3 step 9 made mechanical: a worker's claim that its battery passed is
+  data, not evidence, until it is re-run here.
+* **Invoke** `bash /home/mboyle/bd-qa-row.sh 1479`. It operates on
+  `/home/mboyle/bd-codex-wt/row<N>` and writes
+  `.../codex-cuts/row<N>.qa.log`, whose `QA_RC=0` line is what the integrate step
+  reads.
+* **Exit codes** 1 no such worktree; 0 when there is nothing to judge (a doc or
+  backlog-only row) or when the row's own tests pass; otherwise pytest's result.
+* **Two harness traps it encodes.** New files must be INDEX-VISIBLE before the
+  gates run: agents never commit, so a brand-new test file is untracked in its
+  worktree and the tracked-shard gate correctly refuses a shard entry `git
+  ls-files` cannot see. That is a true statement about the worktree and a false
+  one about the cut, so it runs `git add -N` to make the file index-visible
+  without staging content -- the exact state the gate will judge. Without it the
+  QA lane fails every row that adds a test: the harness manufacturing its own
+  failure. And a row that adds a test file is also run through the declaration
+  gate here, because one row declared a repo-wide gate in neither the declared
+  set nor any CI shard, passed QA, and was caught eleven minutes later inside
+  verify by a check that costs about seven seconds here.
+
+## bd-integrate-row.sh -- turn a QA'd worktree into a proper cut
+
+* **Location** `/home/mboyle/bd-integrate-row.sh` (350 lines, the
+  most-referenced script in the harness). Status: live.
+* **Invoke** `bash /home/mboyle/bd-integrate-row.sh <row> <version> <slug> <changelog-title>`.
+  The row argument may name SEVERAL rows landing as one cut; the FIRST row names
+  the artifacts and the PR body.
+* **What it does** a fresh worktree off current main, the worker's diff applied,
+  **the release trio written by the integrator** (workers are forbidden to touch
+  it), the register row closed with the header recomputed by the gate's own
+  function, regeneration LAST, then verify. **It does not ship** -- shipping is a
+  separate, serialized step.
+* **Exit codes** 2 a named row's QA is not green; 3 an unresolvable merge base,
+  or a row that changed nothing against its base; 4 an empty patch; 5 a branch
+  that already exists on the remote, or a failed worktree creation; 6 a register
+  merge failure; **13 the version is ALREADY CLAIMED**, locally or on the remote,
+  or the remote branch list could not be read so the claim is UNMEASURED.
+* **The version is derived from CURRENT MAIN, not from the queue plan.** Cuts
+  fail and retry out of order, so a retried cut could be handed a version lower
+  than main already carries; prepending a lower version makes the changelog
+  descend and `bd-precut` refuses. Asking main is the only number true at the
+  moment the cut is built.
+
+**A NOTE ON ROW IDS UNDER CONCURRENCY.** Parallel workers file the same next-free
+id. `bd-next-row` answers correctly at the moment it is asked and gives no lock;
+renumber a colliding row rather than overwriting one.
+
+# F. The canonical register
+
+The register is `project-knowledge/IMPROVEMENT_BACKLOG.md`, and A1 makes it the
+only place current product work lives. Its header carries `rows=`, `open=` and an
+`ids-sha256=` over the id list, so an edit that does not recompute the header is
+detected. **Use these tools rather than editing the table by hand**; each takes
+the same file lock, recomputes the same header, and writes atomically.
+
+## bd-register-append -- add validated OPEN rows
+
+* **Location** `toolchain/bin/bd-register-append` (256 lines). Status: live.
+* **Invoke** `venv/bin/python toolchain/bin/bd-register-append --repo "$PWD" --request request.json`.
+* **Inputs** a JSON request with exactly the keys `schema`, `expected_ids_sha256`
+  and `rows`. The expected digest is the guard: if the register moved under you,
+  the append is refused rather than applied to a register you did not read.
+* **Exit codes** 0 appended; 2 and 3 for distinct refusal classes -- read the
+  message, do not retry blind.
+* **Mechanism** `fcntl` file locking, a temp file, and a rename; the finalization
+  errors are named individually rather than collapsed.
+
+## bd-register-close -- stamp a row with its release version
+
+* **Location** `toolchain/bin/bd-register-close` (217 lines). Status: live.
+* **Invoke** `venv/bin/python toolchain/bin/bd-register-close --repo "$PWD" --row 1479 --version 3.66.1479`.
+* **Exit codes** 0 closed; 3 refused.
+* **Position in the lane** it is the repository-owned close step for
+  `bd-integrate-row.sh`, and it runs AFTER the release trio is written and AFTER
+  worker rows are merged. Closing earlier stamps a version the cut may not get.
+
+## bd-register-amend -- change one row under a guard
+
+* **Location** `toolchain/bin/bd-register-amend` (299 lines). Status: live.
+* **Invoke** `venv/bin/python toolchain/bin/bd-register-amend --repo "$PWD" --request request.json`.
+* **Inputs** a JSON request with `schema`, `row`, `expected_status`,
+  `expected_row_sha256`, `find` and `replace`. Both expectations are checked
+  before the write, so an amendment cannot land on a row that changed since you
+  read it.
+* **Exit codes** 0 amended; 2 and 3 for distinct refusals.
+
+## build_current_overlay.py -- derive the register's true header
+
+* **Location** `project-knowledge/build_current_overlay.py` (162 lines). Status:
+  live.
+* **Answers** "what do `rows=`, `open=` and `ids-sha256=` actually evaluate to
+  for this file?" `derive_backlog(text)` is the one function that answers it and
+  it is what the gates use.
+* **Invoke** `venv/bin/python project-knowledge/build_current_overlay.py --repo "$PWD" --out OUT.json`;
+  `--check` compares rather than writes.
+* **What `derive_backlog` counts** every `| id | status |` row; OPEN is `OPEN` or
+  a status STARTING with `OPEN `; the digest is sha256 over the comma-joined id
+  list in file order; and completed rows are those whose status starts with
+  `CLOSED`, `MOOT` or `FIXED`. Duplicate ids raise -- the register is a
+  population or it is nothing.
+* **Refusals** a dirty repository is `UNKNOWN`, and every `git` observation it
+  takes runs with `GIT_OPTIONAL_LOCKS=0` under a 15s timeout so a concurrent
+  writer cannot make it hang or mutate an index.
+
+**A REGISTER CAVEAT WORTH KNOWING.** The dangling-reference gate resolves a row
+citation against **main's** row population, so prose in a cut cannot cite a row
+that has not merged yet. Cite it after it lands, or the gate calls a true
+reference dangling.
+
+# G. Fleet and deployment
+
+## scripts/deploy.sh -- the git deploy path for one host
+
+* **Location** `scripts/deploy.sh` (1035 lines). Status: live. **A6 forbids
+  hand-recreating this sequence.**
+* **Invoke** `bash scripts/deploy.sh --expect-commit <40-hex>`; `-h`/`--help`
+  prints usage and exits 0 without touching anything.
+* **Exit codes** 0 deployed-and-verified, or already-current-and-verified; 1 a
+  step or a verification FAILED and the state is NOT known good; 2 refusal or a
+  failed precondition, with NOTHING mutated. Everything checkable is checked
+  before the first side effect, so a typo costs exit 2 and no side effect.
+* **Why it is not three git commands.** A deploy moves files; it does not make
+  the running system match them. `requirements.txt` can gain an entry and nothing
+  on the deploy path runs pip. `frontend/dist/` holds zero tracked files and is
+  gitignored, so git never delivers it and a missing bundle is a silent 503.
+  `__pycache__` is not cleared by `git reset --hard`. A gitignored build-time
+  report cannot be evicted by `git clean -fd` -- that needs `-x`. The graph
+  content pin lives outside the repo under `/var/lib/`. And the service is not
+  restarted, so the process keeps running the old tree.
+* **`--expect-commit` is not optional in practice.** Several hosts clone from a
+  per-host bare MIRROR rather than the official origin, and this script refuses a
+  non-official origin outright unless told which object to land. Without it those
+  hosts fail rc=2 on every pass. A fetch exiting 0 is not delivery: hosts have sat
+  eighteen to twenty-nine releases behind while every fetch exited 0. **Prove the
+  intended commit is PRESENT on the host before deploying it**, and read
+  `docs/repo/FLEET_TOPOLOGY.md` for which hosts fetch from where.
+* **The inode boundary.** After the script's `git reset --hard`, the running
+  shell continues executing the PRE-RESET script inode while the path names the
+  new file. A change to a later deploy step therefore takes effect on the
+  FOLLOWING invocation unless an explicit handoff is designed.
+* **A failed deploy is not a no-op.** It can leave the service down after the
+  stop and cache steps. Preserve the failing step, inspect system state, and
+  remediate before claiming health. Verify with `/api/health`; there is no
+  general `/api/version`.
+
+## bd-fleet-deploy.sh -- deploy origin/main to every non-integrator host
+
+* **Location** `/home/mboyle/bd-fleet-deploy.sh` (331 lines). Status: live, but
+  see the HOLD below.
+* **Composition, not re-implementation** it only invokes `scripts/deploy.sh` on
+  each host and reads its result. Every deploy decision stays inside that script.
+* **Invoke** `bash /home/mboyle/bd-fleet-deploy.sh`. Overrides:
+  `BD_FLEET_HOSTS`, `BD_FLEET_ARTIFACTS` (so a test run cannot append into the
+  operator's real deploy log directory -- per-second stamps once let a test
+  interleave into the same file as a concurrent real pass),
+  `BD_DEPLOY_CONCURRENCY`, `BD_FLEET_HOLD`.
+* **Exit codes** 0 the pass completed (individual host failures are recorded, not
+  fatal); 3 a refusal for an UNMEASURABLE precondition -- origin/main
+  unresolvable, no version readable, no health URL derivable from `deploy.sh`,
+  zero targets parsed, an unreadable roles file, zero roles parsed, or a roles
+  file with more non-comment lines than parsed host rows (a malformed row would
+  shrink the population silently); **4 the operator HOLD file exists**, at
+  `/home/mboyle/.config/bd/DEPLOY_HOLD`.
+* **test5 is excluded STRUCTURALLY**, by a `local` marker in the hosts file
+  rather than a hardcoded IP: the integrator's tree must never be deployed onto
+  while it is the writer.
+* **Continue-on-failure by operator ruling** -- one bad host must not strand five.
+  A failed host gets a self-heal attempt (restart the unit, re-check health, one
+  deploy retry) and an incident record. Health is re-read after every path, and
+  an unreachable host is UNKNOWN, never OK.
+
+## scripts/provision_test_host.sh -- fresh Ubuntu to a green capture
+
+* **Location** `scripts/provision_test_host.sh` (777 lines). Status: live.
+* **Invoke** `./scripts/provision_test_host.sh` (the repo is found from the
+  script) or `./scripts/provision_test_host.sh /path/to/repo`.
+* **Why it exists** provisioning was split across two scripts that never met:
+  the repo-half installer deliberately never touches the root tier and merely
+  PRINTS advice when a system package is missing, and the root-tier script is the
+  cloud session-start script that the operator's boxes never run. So nobody ran
+  the root tier, nobody started a display, and nobody regenerated the gui-parity
+  inventory -- the last of which is why a capture failed on a parity item-set
+  mismatch.
+* **Design** `set -uo pipefail`, deliberately NOT `set -e`: a failed step must be
+  RECORDED and the run must continue, because aborting at the first failure
+  produces a host in an unknown state and a console that explains nothing. The
+  verdict comes at the end.
+* **For a genuinely new host** follow `docs/repo/FRESH_HOST_BRINGUP.md`; do not
+  hand-recreate the sequence.
+
+# H. Not killing yourself, your shell, or a live lane
+
+## pkill -- a SHIM that refuses the self-match
+
+* **Location** `/home/mboyle/.local/bin/pkill` (61 lines), shadowing
+  `/usr/bin/pkill` on PATH. Status: live.
+* **Answers** nothing new -- it exists purely to REFUSE. `pkill -f <pattern>`
+  matches every process whose full command line contains the pattern, **including
+  the shell running the pkill**, because the pattern sits in that shell's own
+  argv. Twice in one session it killed the calling shell (exit 144) and took a
+  live background task with it. It is the same family as the `[b]racket` trick
+  failing when the pattern is DATA rather than argv.
+* **Behaviour** anything that is not `-f` execs straight through to the real
+  binary. A `-f` whose pattern does not match this shim's own ancestry execs
+  through too. **Only the fatal case is refused, with exit 9.**
+* **Override** `BD_PKILL_ALLOW_SELF=1` for a genuinely intended self-match.
+* **The lesson it encodes** knowledge did not stop this: the hazard was already
+  written down, a memory existed, and a purpose-built tool existed. **Only a
+  nonzero exit has ever intercepted this class.**
+
+## bd-kill-mine.sh -- kill by argv pattern and PROVE what died
+
+* **Location** `/home/mboyle/bd-kill-mine.sh` (268 lines). Status: live.
+* **Invoke** `bash /home/mboyle/bd-kill-mine.sh 'bd-verify-cut.sh' TERM`.
+* **Exit codes** 0 every matched pid is confirmed gone, or nothing matched at
+  all; 1 usage error -- no pattern, or a signal name the shell rejects; 2 at
+  least one target is STILL ALIVE after the full escalation; 3 UNKNOWN, at least
+  one pid could not be resolved to died-or-alive (a zombie, an uninterruptible
+  D-state sleeper, or a match it was not permitted to signal). **Exit 2 and exit
+  3 are both refusals; neither means the competing writer has stopped.**
+* **Escalation** the given signal, then a bounded wait polled every 100ms with
+  early exit, then SIGKILL to whatever is left, then a second bounded wait.
+  `BD_KILL_WAIT` and `BD_KILL_WAIT_KILL` tune the budgets; `BD_KILL_NO_ESCALATE=1`
+  stops before SIGKILL and survivors then exit 2.
+* **Why it re-probes** it once printed `1 process(es) signalled` and exited 0
+  while the target was still there in state S. **The counter counted SIGNALS
+  SENT; nothing ever re-read `/proc`.** It now prints the matching lines, signals,
+  waits, escalates, waits again, and re-probes every named PID, reading the
+  verdict from `/proc/<pid>/stat` and never from `cmdline` -- a zombie's
+  `cmdline` is EMPTY, so "the pattern no longer matches" would score a zombie as
+  dead.
+
+**SAFETY -- A KILL PATTERN MATCHES BRIEF TEXT.** An agent's brief is one argv
+argument, so a bare tool name in a kill pattern matches every agent whose brief
+mentions that tool. Anchor on the invocation, and read the printed matching lines
+before signalling anything.
+
+## bd-running -- is X running?
+
+* **Location** `/home/mboyle/bd-running` (59 lines). Status: live.
+* **Invoke** `bash /home/mboyle/bd-running bd-verify-cut.sh` or with `--quiet`.
+* **Exit codes** 0 at least one live process; 1 none.
+* **Both failure modes it closes** an anchored pattern like
+  `^bash /home/mboyle/bd-verify-cut.sh` matched NOTHING while four runs were in
+  flight, because their real argv was the relative `bash bd-verify-cut.sh` -- so
+  a fifth was started and all five fought over one worktree. And a bare substring
+  matches the shell that WROTE the script and every ancestor of the search
+  itself, so a count comes back uniformly 1 on every host and means nothing.
+* **How** it reduces a path argument to its BASENAME always -- an earlier version
+  reduced it only when the path existed on disk, so a query about a moved or
+  renamed script answered a confident zero -- excludes self and the WHOLE ancestor
+  chain by PID, and **always prints the matching lines. A count you have not read
+  is a claim.**
+
+## bd-ps.sh -- find live processes by argv
+
+* **Location** `/home/mboyle/bd-ps.sh` (18 lines). Status: live; prefer
+  `bd-running` when the question is a verdict.
+* **Invoke** `bash /home/mboyle/bd-ps.sh <argv-substring>`; prints `pid  argv`.
+* **Limits, stated plainly** it excludes only SELF and PARENT, not the whole
+  ancestor chain, which is why `bd-running` exists. It reads `cmdline` through
+  `cat` inside the pipeline on purpose: `tr ... < /proc/$p/cmdline 2>/dev/null`
+  does NOT silence the race, because the failure comes from the SHELL opening the
+  redirect and `tr`'s own stderr redirection never applies.
+
+## bd-edit.py -- atomically replace a running script
+
+* **Location** `/home/mboyle/bd-edit.py` (41 lines). Status: live.
+* **Answers** "how do I change a script that something is executing right now?"
+* **Invoke** `printf '%s' "$NEW" | venv/bin/python /home/mboyle/bd-edit.py /home/mboyle/bd-land`
+  -- new content on stdin, target path as the only argument.
+* **Outputs** `<name>: replaced atomically (<n> bytes)`.
+* **Exit codes** 0 replaced; nonzero with a message on either refusal.
+* **The mechanism** `write_text()` truncates and rewrites THE SAME INODE, and a
+  running bash keeps reading that inode at its saved byte offset -- so an
+  in-place rewrite makes it resume in the middle of different text. `rename()`
+  swaps the directory entry and leaves the old inode intact for the running
+  process, so the edit takes effect on the NEXT invocation and never corrupts the
+  current one.
+* **Two refusals, both earned.** Empty or whitespace-only stdin is REFUSED: two
+  agents chained a patch builder into this tool, each builder aborted on a bad
+  anchor and printed nothing, and this tool faithfully replaced a live script
+  with 0 bytes -- twice in one day, both recovered only from backups the contract
+  demands. `BD_EDIT_ALLOW_EMPTY=1` exists for the one caller that means it. And a
+  target that does not exist is refused: this tool REPLACES a script, it does not
+  create one.
+* **Use `&&`, not `;`, between the producer and this tool.** The refusal message
+  says so because that is the actual defect.
+
+# I. Operator instruments
+
+These drive real hosts, real browsers or real credentials. A6 forbids a
+repository test from doing any of that, which is precisely why they live in the
+operator harness and are **never gates**.
+
+## bd-shoot.py -- what does the BROWSER actually see?
+
+* **Location** `/home/mboyle/bd-shoot.py` (85 lines). Status: live. Harness, never
+  a gate: it drives a real browser against an authenticated site.
+* **Answers** A7's rule -- **a rendered page is evidence; a candidate list is a
+  claim about it.** BD once chose a download link, saved 5,102,802,950 bytes and
+  filed it under the requested scene's title, and the file was a different scene.
+  The history row, the library title and the candidate ranking all looked right.
+  One screenshot answered it: below the scene's own six download tiers sat a
+  related-videos grid of about 25 scenes, each card exposing its own direct media
+  links -- 159 media links on one page, six of them the requested work. Within the
+  hour the same instrument CLEARED three rows a filename audit had called
+  mis-filed, because the page showed exactly the performer and studio the
+  filenames encode.
+* **Invoke** `venv/bin/python /home/mboyle/bd-shoot.py <site_id> <url> /tmp/shot.png`.
+  It reads `~/BulkDownloader/cookies/<site_id>.json`, loads the cookies into a
+  cloaked page, prints the page title and every media link it can see, and writes
+  a full-page screenshot.
+* **Read-only** it loads cookies; it never queues, downloads, or writes to the
+  app's state.
+* **FINDING -- it has the executable bit but NO shebang line.** Byte 0 of the file
+  is `"`, the start of its docstring. Running it as `./bd-shoot.py` gets ENOEXEC
+  and falls back to `/bin/sh`, which will fail on the docstring; its own usage
+  line reads `bd-shoot.py <site_id> <url> <out.png>` and implies otherwise. It
+  also imports `bulk_downloader.cloak` and Playwright, so it must run under the
+  repository venv interpreter regardless.
+* **Capture BEFORE theorising**, whenever a result looks wrong, or looks right for
+  a reason you cannot name.
+
+## bd-vault-unlock.sh -- re-arm a host's secrets vault after a restart
+
+* **Location** `/home/mboyle/bd-vault-unlock.sh` (177 lines). Status: live.
+* **Answers** "why does every configured login report a missing password after a
+  deploy?" The master-password backend keeps the derived key in process memory
+  only, so **every service restart, including every deploy, starts LOCKED** -- and
+  the locked-vault message even advises re-entering credentials, which would
+  overwrite intact ones.
+* **Invoke** `bash /home/mboyle/bd-vault-unlock.sh <host|local> [...]`; with no
+  arguments it targets the two site hosts.
+* **Exit codes** 0 every named host ended UNLOCKED; 1 at least one did not; the
+  remote payload itself returns 2 when the password directory is absent or does
+  not hold exactly one entry.
+* **The credential convention** the password is the **FILENAME**, not the file's
+  contents, in the directory `BD_VAULT_PWDIR` names (default
+  `$HOME/.bd-import/vault-master`). It is read on the REMOTE host, posted only to
+  that host's own loopback API, never echoed and never logged.
+* **It reports the STATE, not the call's exit code** -- a 200 that left the vault
+  locked is a failure, and that distinction is the whole point.
+* **The A7 diagnostic lesson, and its current status.** This tool is A7's example
+  of a diagnostic that collapses distinct failures: a four-request flow inside one
+  `except Exception` printing "pairing fallback failed" made a 401 incorrect
+  password indistinguishable from a broken pairing endpoint, and those two
+  diagnoses lead to opposite actions. **The current source has the remedy**: a
+  `STEP` variable is advanced across `GET /api/pair`, `POST /api/pair/redeem` and
+  the unlock, and the handler prints `<STEP> FAILED: HTTP <code> -- <server's own
+  error text>`.
+
+## bd-harness-test -- the harness's own test lane
+
+* **Location** `/home/mboyle/bd-harness-test` (46 lines). Status: live.
+* **Answers** "did I just break the harness?" The harness scripts are not covered
+  by the repository suite, so this is their only lane.
+* **Invoke** `bash /home/mboyle/bd-harness-test` for the fast lane, or
+  `bash /home/mboyle/bd-harness-test --full` before archiving, freezing or handing
+  off. `-h` prints the header and exits 0.
+* **Measured 2026-09-01** fast is 94 of 98 in about 54s; full is 98 of 98 in about
+  371s. Four tests carry 317s of that: they build a real git worktree at
+  origin/main and run `bd-denom-preflight` against it three times.
+* **Exit codes** 2 when the harness test directory or the interpreter is absent;
+  otherwise pytest's result.
+* **The split is a SAFETY boundary, not just a speed one.** Those four tests are
+  the only users of the scratch-worktree fixture, so the fast lane never runs
+  `git worktree add` against the live integrator repo at all.
+* **DO NOT PARALLELISE IT.** Measured: `-n 12 --dist loadfile` is 372.68s against
+  370.73s serial -- worse than nothing, because the four expensive tests share a
+  module-scoped fixture and serialise on it anyway. `--dist load` would fire
+  concurrent `git worktree add` against the live repo, which is worse than slow.
+* **Overrides** `BD_HARNESS_DIR` (default `/home/mboyle/bd-persist/harness`) and
+  `BD_HARNESS_PYTHON` (default the repository venv).
