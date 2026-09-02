@@ -208,6 +208,127 @@ _PAGE_MEDIA_SNAPSHOT_JS = r"""() => {
 }""".replace("__BD_PLAYER_MARKERS__", _PAGE_MEDIA_PLAYER_MARKERS_JSON)
 
 
+# ── ROW 446: the download trigger must not race the modal it opened ────
+#
+# A trigger click tells the site's handler to run; the handler appends its
+# tier list / modal at Chromium's next rendering or XHR opportunity, which is
+# NOT ordered against the CDP round-trip that reads the DOM back.  A fixed
+# time.sleep(1.5) followed by ONE scrape therefore observes the PRE-CLICK page
+# whenever the host is contended or the AJAX menu is slow, and
+# find_best_download then scores whatever anchors happen to exist -- on a page
+# carrying direct media links outside the modal that means a wrong or
+# lower-tier file recorded under the requested title, and every schedule-
+# induced miss additionally bumps download_misses and demotes healthy learned
+# selectors.  This is the same dispatch race rows 385/397 named, which
+# scene_crawler retired with a stability poll and this path never received.
+#
+# The settle condition is OBSERVED CHANGE THEN OBSERVED STABILITY, bounded by
+# a budget.  Expiry is reported as its own state, never as a settled page, and
+# a page that could not be read even once is UNOBSERVED -- a refusal, not a
+# scrape (CLAUDE.md A7: unavailable measurement returns UNKNOWN, not OK).
+TRIGGER_SETTLE_SETTLED = "SETTLED"
+TRIGGER_SETTLE_UNCHANGED = "UNCHANGED"
+TRIGGER_SETTLE_UNSTABLE = "UNSTABLE"
+TRIGGER_SETTLE_UNOBSERVED = "UNOBSERVED"
+
+TRIGGER_SETTLE_POLL_S = 0.15
+TRIGGER_SETTLE_QUIET_POLLS = 3
+TRIGGER_SETTLE_BUDGET_S = 6.0
+
+_TRIGGER_METRICS_JS = (
+    "() => [Math.max(document.body?.scrollHeight || 0, "
+    "document.documentElement?.scrollHeight || 0), "
+    "document.querySelectorAll("
+    "'a[href],video,source,[download],iframe').length]"
+)
+
+
+def _trigger_page_metrics(page):
+    """(height, candidate-element count) -- the shape a trigger changes."""
+    result = page.evaluate(_TRIGGER_METRICS_JS)
+    return int(result[0]), int(result[1])
+
+
+def _safe_trigger_metrics(page, metrics=None):
+    """Read the metrics, or None when the page cannot be read at all."""
+    try:
+        return (metrics or _trigger_page_metrics)(page)
+    except Exception:
+        return None
+
+
+def _settle_after_trigger(page, before, *, poll_s=TRIGGER_SETTLE_POLL_S,
+                          quiet_polls=TRIGGER_SETTLE_QUIET_POLLS,
+                          budget_s=TRIGGER_SETTLE_BUDGET_S,
+                          metrics=None, sleep=None, clock=None):
+    """Wait for a triggered page to change and then hold still.
+
+    ``before`` is the metric tuple read BEFORE the trigger, or None when the
+    pre-trigger page could not be read (then this degrades to a pure
+    stability wait, which is still strictly better than a fixed sleep).
+
+    Returns ``(state, metrics, observed_reads)``:
+
+    * SETTLED    -- the page changed from ``before`` and then held still
+                    across ``quiet_polls`` consecutive reads.  Scrape.
+    * UNCHANGED  -- the budget expired with the page never differing from
+                    ``before``.  The trigger may legitimately have opened
+                    nothing, so the caller scrapes as it always did, but the
+                    state says the wait did not prove a settled modal.
+    * UNSTABLE   -- the page changed but never held still inside the budget.
+                    Scrape (scene_crawler's precedent), reported as its own
+                    state rather than as SETTLED.
+    * UNOBSERVED -- every read raised: the page was never observed at all, so
+                    there is no evidence to scrape against.  Refusal.
+
+    A read that raises does not end the wait: a click that starts a navigation
+    destroys the execution context transiently, and refusing on the first such
+    raise would regress real captures.  Only a budget in which NOTHING was
+    ever read is UNOBSERVED.
+    """
+    metrics = metrics or _trigger_page_metrics
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    quiet_polls = max(1, int(quiet_polls))
+    deadline = clock() + max(0.0, float(budget_s))
+    observed = 0
+    current = None
+    last_seen = None
+    stable = 0
+    # An unreadable pre-trigger page cannot anchor a change comparison, so
+    # stability alone becomes the condition rather than nothing at all.
+    changed = before is None
+    while True:
+        try:
+            latest = metrics(page)
+            observed += 1
+            last_seen = latest
+        except Exception:
+            latest = None
+        if latest is not None:
+            if not changed:
+                if latest != before:
+                    changed = True
+                    current = latest
+                    stable = 1
+            else:
+                if current is None or latest != current:
+                    current = latest
+                    stable = 1
+                else:
+                    stable += 1
+            if changed and stable >= quiet_polls:
+                return TRIGGER_SETTLE_SETTLED, current, observed
+        if clock() >= deadline:
+            break
+        sleep(max(0.0, float(poll_s)))
+    if observed == 0:
+        return TRIGGER_SETTLE_UNOBSERVED, None, 0
+    if not changed:
+        return TRIGGER_SETTLE_UNCHANGED, last_seen, observed
+    return TRIGGER_SETTLE_UNSTABLE, current, observed
+
+
 def _page_media_state(page, page_url):
     """Return candidate_filter's conservative page-media state."""
     try:
@@ -1024,6 +1145,37 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self.cookie_saved_at=time.time()
         # Phase 18.fix: signal workers that cookies are fresh
         self._cookies_updated_at = time.time()
+
+    def _refresh_worker_cookies(self, persistent_ctx, my_cookie_ts):
+        """Inject freshly published cookies into a worker's persistent context.
+
+        Returns the timestamp the worker should compare against on its next
+        pass. Playwright's add_cookies overrides existing cookies by
+        name+domain+path, so no clear_cookies() is needed -- that would nuke
+        valuable non-login cookies (Cloudflare __cf_bm, GA, etc.) that build
+        trust over time."""
+        if persistent_ctx is None:
+            return my_cookie_ts
+        # ROW 448: snapshot the publish clock BEFORE reading the cookie list,
+        # and stamp the SNAPSHOT rather than re-reading the clock afterwards.
+        # add_cookies is a CDP round-trip of tens of milliseconds; a re-login
+        # thread or the session keeper calling set_cookies inside that window
+        # publishes v2 while this worker is still injecting v1.  Re-reading the
+        # clock after the round-trip stamped v2's timestamp onto a context that
+        # holds v1, so `_cookies_updated_at > my_cookie_ts` was false forever
+        # after and v2 was NEVER injected.  Snapshot-first is at-least-once:
+        # a publish that lands during injection stays newer than the stamp and
+        # wins the next comparison, costing at worst one redundant re-inject.
+        pending_ts = self._cookies_updated_at
+        cookies = self.cookies
+        if not (cookies and pending_ts > my_cookie_ts):
+            return my_cookie_ts
+        try:
+            persistent_ctx.add_cookies(cookies)
+            return pending_ts
+        except Exception as e:
+            sys.stderr.write(f"[{self.site_id}] cookie refresh failed: {e}\n")
+            return my_cookie_ts
 
     def cookie_info(self):
         """Return a snapshot dict describing cookie health for the UI:
@@ -3597,13 +3749,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # non-login cookies (Cloudflare __cf_bm, GA, etc.) that build
                 # trust over time. The previous "skip if name exists" filter
                 # was the actual bug: it left STALE login cookies in place.
-                if (persistent_ctx is not None and self.cookies
-                        and self._cookies_updated_at > my_cookie_ts):
-                    try:
-                        persistent_ctx.add_cookies(self.cookies)
-                        my_cookie_ts = self._cookies_updated_at
-                    except Exception as e:
-                        sys.stderr.write(f"[{self.site_id}] cookie refresh failed: {e}\n")
+                my_cookie_ts = self._refresh_worker_cookies(
+                    persistent_ctx, my_cookie_ts)
                 try: url=self._url_queue.get(timeout=1)
                 except queue.Empty: continue
                 if url is None:
@@ -4268,10 +4415,23 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     f"defaulting to click\n")
                 trigger_action = "click"
             trigger_clicked = False
+            # ROW 446: bound the post-trigger wait on an OBSERVED page rather
+            # than a fixed sleep. The budget is operator-tunable because a
+            # slow AJAX tier menu is a per-site property.
+            settle_budget = _finite_config_float(
+                self.config.get("trigger_settle_budget_s",
+                                TRIGGER_SETTLE_BUDGET_S),
+                TRIGGER_SETTLE_BUDGET_S)
+            trigger_settle_state = None
             for tsel in triggers_to_try:
                 try:
                     loc = page.locator(tsel).first
                     loc.wait_for(timeout=5000)
+                    # Read the pre-trigger shape BEFORE dispatching, so the
+                    # settle can tell "the modal arrived" from "the page has
+                    # not moved yet" -- a stability poll with no `before`
+                    # anchor calls the untouched pre-click page settled.
+                    before_metrics = _safe_trigger_metrics(page)
                     if trigger_action in ("hover", "click_after_hover"):
                         # Hover dispatches the real mouseenter/mouseover/
                         # mousemove events that hover-only menus listen
@@ -4281,10 +4441,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         time.sleep(0.3)
                     if trigger_action != "hover":
                         loc.click()
-                    time.sleep(1.5)
+                    trigger_settle_state, _tm, _treads = _settle_after_trigger(
+                        page, before_metrics, budget_s=settle_budget)
                     sys.stderr.write(
                         f"  download: triggered via [{tsel}] "
-                        f"action={trigger_action}\n")
+                        f"action={trigger_action} "
+                        f"settle={trigger_settle_state}\n")
                     trigger_clicked = True
                     break
                 except Exception: continue
@@ -4314,20 +4476,40 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             # was teaching us a hover-reveal trigger and
                             # the original selector drifted, the recovered
                             # one needs to be hovered, not clicked.
+                            before_metrics = _safe_trigger_metrics(page)
                             if trigger_action in ("hover", "click_after_hover"):
                                 rloc.hover(timeout=2000)
                                 time.sleep(0.3)
                             if trigger_action != "hover":
                                 rloc.click()
-                            time.sleep(1.5)
+                            # ROW 446: the recovered path gets the same
+                            # observed settle as the learned one; a drifted
+                            # selector is not a reason to race the modal.
+                            (trigger_settle_state, _tm,
+                             _treads) = _settle_after_trigger(
+                                page, before_metrics, budget_s=settle_budget)
                             sys.stderr.write(
                                 f"  download: recovered trigger via "
-                                f"[{new_sel}] action={trigger_action}\n")
+                                f"[{new_sel}] action={trigger_action} "
+                                f"settle={trigger_settle_state}\n")
                             trigger_clicked = True
                         except Exception as _re:
                             sys.stderr.write(
                                 f"  download: recovered selector "
                                 f"[{new_sel}] still failed: {_re}\n")
+            if trigger_settle_state == TRIGGER_SETTLE_UNOBSERVED:
+                # ROW 446: the trigger fired and the page could not be read
+                # even once inside the budget. Scraping now would score
+                # whatever the last readable DOM happened to contain and
+                # record the result as a normal outcome. There is no evidence
+                # to scrape against, so refuse with a distinctive message
+                # rather than laundering an unobserved page into a download.
+                msg = ("Download trigger settle UNOBSERVED: the page could "
+                       "not be read after the trigger; refusing to scrape "
+                       "an unobserved DOM")
+                sys.stderr.write(f"  download: {msg}\n")
+                self._update_job(url, "failed", msg)
+                return
             chk=self._check_redirect(page,url)
             if chk=="rl":
                 self.trigger_rate_limit(url,f"Rate limit at {page.url}"); return

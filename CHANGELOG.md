@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1438 - an unverifiable answer is not an answer
+
+Rows 444, 446, 448 and the interface half of row 553. All four are the same
+contract at four seams: a caller must be able to tell "this is the answer" from
+"I could not get one".
+
+- 553, THE HALF THAT SURVIVED. The backend was fixed earlier and now answers
+  with a named state when it cannot verify the secrets store. The consequence
+  the row described still reproduced ONE SEAM DOWNSTREAM: the route dropped the
+  error and the panel rendered "No stored secrets." over an intact vault. A
+  reader would conclude their secrets were gone. The refusal branch is now
+  evaluated before the empty branch and carries the server's own words, five
+  causes give five sentences, and a MEASURED empty store still says it is empty
+  -- that control is what keeps the fix from becoming the opposite defect.
+- 448. A cookie update arriving during injection was not deferred, it was
+  PERMANENTLY SKIPPED. The publish clock is now snapshotted before the list is
+  read, so an update that lands mid-injection is delivered at least once rather
+  than dropped; a control pins that it cannot degrade into re-injecting forever.
+- 446. The download trigger raced the page it had just opened, reading a stale
+  document with zero tiers present and 159 unrelated links to mis-select from.
+  It now waits for observed change and then for stability, with four distinct
+  states rather than one sleep.
+- 444. The hook injection defense applied POSIX quoting to a Windows shell,
+  where it protects nothing: an adversarial filename splits into three separate
+  commands. Rather than ship an unverifiable quoter for a shell this fleet
+  cannot execute, the hook now REFUSES on that platform before rendering. That
+  is stated as a limitation, not a fix: real cmd.exe behaviour is MODELLED here
+  and was never executed, so the model is proven against a known-answer battery
+  and the refusal is what ships.
+
 ## v3.66.1437 - segmented transfers honor the egress gate
 
 Row 439, and it was real. READ THE BEHAVIOUR CHANGE AT THE END OF THIS ENTRY.

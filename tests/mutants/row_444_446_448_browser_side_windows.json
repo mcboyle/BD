@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Cut 1468 tracked RED provenance for backlog row 448. Only the structural anchor lives here: tests/test_row357_mutant_anchors_are_not_fragile.py refuses a NEW mutation anchor carrying a value token, and the six other mutants of this cut necessarily anchor on assignments, an os.name string comparison and numeric guards. Their full battery ran once against a detached scratch copy (7 caught, 0 escaped, 0 invalid) and is preserved as evidence outside the tree rather than smuggled in past the gate. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/row_444_446_448_browser_side_windows.json --work DETACHED_SCRATCH",
+  "subject": "row 448: re-reading the publish clock after add_cookies is caught by the mid-injection publish test",
+  "band": [
+    "tests/test_row448_cookie_update_during_injection.py"
+  ],
+  "mutants": [
+    {
+      "label": "R448-M1 the worker re-reads the publish clock after add_cookies (the parent)",
+      "file": "bulk_downloader/runner.py",
+      "old": "            persistent_ctx.add_cookies(cookies)\n            return pending_ts",
+      "new": "            persistent_ctx.add_cookies(cookies)\n            return self._cookies_updated_at",
+      "direction": "regression",
+      "catcher": "tests/test_row448_cookie_update_during_injection.py::test_row448_update_published_during_injection_lands_on_next_pass"
+    }
+  ]
+}
