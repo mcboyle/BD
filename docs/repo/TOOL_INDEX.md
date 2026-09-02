@@ -1256,6 +1256,12 @@ Recorded here rather than acted on, because each is a separate cut.
    count is wrong; they answer different questions. Say which one you used.
 
 Nothing in the documented set was found deprecated with a missing replacement.
-The one file carrying an explicit retirement note, `bd-autorebase.sh`, is marked
-NEUTERED in its own header with the reason (it hard-reset queued worktrees and
-dropped their work) and its live successor is `bd-rebase` above.
+The one file in the harness carrying an explicit retirement note,
+`/home/mboyle/bd-autorebase.sh`, is marked NEUTERED in its own header (lines 2-10)
+with both the reason -- it hard-reset queued worktrees and dropped their
+implementation commits -- and the condition for re-enabling it, which is that
+`bd-rebase` be proven to REPLAY a row commit onto main rather than reset to it.
+It now does nothing but sleep, and deliberately does not `exec` that sleep,
+because replacing its own argv would erase the string its watchdog matches on.
+The capability has a live owner in `bd-rebase` above; the retirement is
+documented at the retired file, which is the correct place for it.
