@@ -299,7 +299,7 @@ def test_an_unresolvable_backend_refuses_with_its_own_diagnostic(
         rec = _recording(tmp_path)
         assert live_recorder._build_cmd("ffmpeg", rec) is None
 
-        unresolved = live_recorder._refusal_reason("ffmpeg", rec)
+        unresolved = live_recorder._refusal_reason("ffmpeg")
         assert unresolved == "backend_unresolved: ffmpeg", unresolved
 
         # The OTHER refusal keeps its own distinct wording, so the two cannot
@@ -311,7 +311,7 @@ def test_an_unresolvable_backend_refuses_with_its_own_diagnostic(
         bad = _recording(tmp_path)
         bad.room = "foo;rm"
         assert live_recorder._build_cmd("streamlink", bad) is None
-        assert live_recorder._refusal_reason("streamlink", bad) == (
+        assert live_recorder._refusal_reason("streamlink") == (
             "unable to build command")
     finally:
         ffmpeg_bin.reset()

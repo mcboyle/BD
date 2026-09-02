@@ -756,7 +756,7 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
     if cmd is None:
         with _lock:
             rec.state = "failed"
-            rec.last_error = _refusal_reason(backend, rec)
+            rec.last_error = _refusal_reason(backend)
         _save_state()
         return
     try:
@@ -793,7 +793,7 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
     _save_state()
 
 
-def _refusal_reason(backend: str, rec: Recording) -> str:
+def _refusal_reason(backend: str) -> str:
     """Name the step that made :func:`_build_cmd` refuse.
 
     Two unrelated conditions share that ``None``: a room/URL that failed the
@@ -837,14 +837,14 @@ def _build_cmd(backend: str, rec: Recording) -> Optional[list[str]]:
         # which works only if rec.url itself points to a .m3u8.
         #
         # Cut 1459 (MOD-4; the shape rows 440/441/442 fixed elsewhere): argv0 is
-        # the path _detect_backends RESOLVED, not the
-        # bare name. A bare "ffmpeg" is resolved again by execvp from the child's
-        # PATH, so an ffmpeg_path pin would gate on one build and record with
-        # another -- and what is recorded here is HLS over HTTPS, the exact case
-        # the pin exists for (the static build SEGFAULTs on it). On a host where
-        # ffmpeg lives ONLY under the pin the bare name did not resolve at all,
-        # so the availability gate answered True over an exec that could never
-        # run. Unresolvable now REFUSES rather than emitting an argv that cannot
+        # the path _detect_backends RESOLVED, not the bare name. A bare "ffmpeg"
+        # is resolved AGAIN by execvp from the child's PATH, so an ffmpeg_path
+        # pin gated on one build while the recording ran another -- and what is
+        # recorded here is HLS over HTTPS, the exact case the pin exists for
+        # (the static build SEGFAULTs on it). On a host where ffmpeg lives ONLY
+        # under the pin the bare name did not resolve at all, so the
+        # availability gate answered True over an exec that could never run.
+        # Unresolvable now REFUSES rather than emitting an argv that cannot
         # launch; the caller names the step (see _refusal_reason).
         ffmpeg_path = _detect_backends().get("ffmpeg")
         if not ffmpeg_path:
