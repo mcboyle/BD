@@ -5,6 +5,30 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1445 - a barrier child dies with its test
+
+A test-harness fix with no runtime path. Measured 2026-09-02 on test5: a
+`bd-register-append` child of tests/test_register_append.py was found with
+ppid 1, 3.3 hours after the pytest run that started it had been killed. The
+injected test barrier waits for a `release` file that only the test writes, so
+once the test died nothing could release the child, and nothing had bound the
+child's lifetime to the launcher's. It held the fixture register's directory
+open the whole time.
+
+- EVERY PROCESS THE REGISTER TESTS START IS BOUND TO ITS LAUNCHER. The new
+  tests/_child_guard.py wraps Popen with PR_SET_PDEATHSIG, so a killed test
+  takes its child with it. The guard lives at the launch site and not in a
+  fixture because a fixture's teardown never runs for a SIGKILLed worker,
+  which is exactly how the orphan was made. Six launch sites across three
+  files go through it, and a gate holds that count exact.
+- THE BARRIER WAIT CARRIES A BUDGET. A child whose release never arrives
+  exits 97 with "barrier release never arrived" instead of sleeping until
+  someone finds it; `BD_REGISTER_APPEND_TEST_BARRIER_BUDGET` sets the seconds
+  (default 60), and the proving test sets it to 1.
+- RED-FIRST: on the base, the launcher-kill test reported the child surviving
+  its launcher, the budget test timed out, and the guard census named the six
+  bare Popen sites by line.
+
 ## v3.66.1444 - SECURITY.md is removed, and the register records the audit
 
 Two documentation changes with no runtime path, batched because their authored
