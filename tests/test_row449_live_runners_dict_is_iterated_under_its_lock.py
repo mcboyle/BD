@@ -637,9 +637,10 @@ def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns():
     from bulk_downloader import app_state
 
     with gate._client_seeded() as (client, headers, sid):
-        from bulk_downloader import app as app_module
-
-        real_targets = gate._scan_targets(app_module.app, sid)
+        # The client's own application, not a fresh import of
+        # bulk_downloader.app: the gate booted it, and asking the client for it
+        # keeps this file from coupling to the app hub for one attribute.
+        real_targets = gate._scan_targets(client.application, sid)
         assert len(real_targets) > 0, "the gate's route denominator is zero"
         assert "/metrics" in real_targets, (
             "/metrics is not in the gate's scanned denominator, so this test "
