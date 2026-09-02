@@ -259,21 +259,50 @@ def test_heartbeat_closes_a_valid_decimal_descriptor_in_its_child(tmp_path):
 def test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it(tmp_path):
     victim = tmp_path / "eval-ran"
     log = tmp_path / "heartbeat.log"
+    signal_precondition = tmp_path / "signal-precondition"
+    ignored_log = tmp_path / "ignored-heartbeat.log"
     script = (
+        'for signal in INT TERM HUP; do\n'
+        '  if [ -n "$(trap -p "$signal")" ]; then\n'
+        '    printf "NONDEFAULT-%%s\\n" "$signal" > "$SIGNAL_PRECONDITION"\n'
+        '    exit 97\n'
+        '  fi\n'
+        'done\n'
+        'printf "DEFAULT\\n" > "$SIGNAL_PRECONDITION"\n'
         'source "$HEARTBEAT"\n'
         'run_with_heartbeat invalid-fd "$LOG" '
         "bash -c 'echo CHILD-RAN'\n"
     )
     result = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True,
+        ["env", "--default-signal=INT,TERM,HUP", "bash", "-c", script],
+        capture_output=True, text=True,
         env={**os.environ, "HEARTBEAT": str(HEARTBEAT), "LOG": str(log),
+             "SIGNAL_PRECONDITION": str(signal_precondition),
              "VICTIM": str(victim),
              "BD_HEARTBEAT_CLOSE_FD": '2>&-; touch "$VICTIM"; #'},
         timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "invalid BD_HEARTBEAT_CLOSE_FD" in result.stderr
+    assert signal_precondition.read_text() == "DEFAULT\n"
+    invalid_fd_diagnostic = (
+        "run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD "
+        "(decimal descriptor required); ignoring it safely")
+    assert result.stderr.splitlines() == [invalid_fd_diagnostic]
     assert log.read_text() == "CHILD-RAN\n"
     assert not victim.exists()
+
+    # Negative control: the diagnostic that contaminated the assertion is a
+    # real response to inherited SIG_IGN, not output from the invalid-FD path.
+    ignored = subprocess.run(
+        ["bash", "-c", "trap '' HUP; exec bash -c 'source \"$HEARTBEAT\"; "
+         "run_with_heartbeat ignored \"$IGNORED_LOG\" true'"],
+        capture_output=True, text=True,
+        env={**os.environ, "HEARTBEAT": str(HEARTBEAT),
+             "IGNORED_LOG": str(ignored_log)}, timeout=10)
+    assert ignored.returncode == 0, ignored.stdout + ignored.stderr
+    ignored_diagnostic = (
+        "CAPTURE-HEARTBEAT-UNARMED: ignored inherited HUP as SIG_IGN; those "
+        "signals cannot stop this lane and it may outlive its wrapper")
+    assert ignored_log.read_text().splitlines() == [ignored_diagnostic]
 
 
 def test_keyed_vault_ownership_refuses_without_clobbering(tmp_path):

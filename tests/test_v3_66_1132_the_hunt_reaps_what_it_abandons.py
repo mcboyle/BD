@@ -2188,9 +2188,11 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
                      after_terminal_owner_ready_barrier=None,
                      mutate_terminal_owner_ready=False,
                      handoff_deadline_probe=None,
+                     handoff_deadline_complete=None,
                      before_release_write_barrier=None,
                      after_release_pipe_probe=None,
                      owned_group_census_override=None,
+                     owned_group_census_probe=None,
                      before_group_receipt_recheck_fifo=None,
                      after_group_receipt_recheck_fifo=None,
                      authority_fd_report=None):
@@ -2381,7 +2383,15 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
         else:
             injected = "    W1_OWNED_GROUP_STATUS=%s\n    return 0\n" % (
                 owned_group_census_override)
+        if owned_group_census_probe is not None:
+            injected = (
+                "    builtin printf '%%s\\n' \"$1\" >> %s\n" %
+                shlex.quote(str(owned_group_census_probe)) + injected)
         body = body.replace(anchor, anchor + injected, 1)
+    else:
+        assert owned_group_census_probe is None, (
+            "a census probe without an override cannot identify which "
+            "implementation produced its records")
     if after_group_receipt_recheck_fifo is not None:
         # A barrier AFTER the deciding probe, not merely before it. Releasing
         # the pre-probe barrier only proves the runner was WOKEN; it does not
@@ -2495,12 +2505,17 @@ def _w1_build_runner(mod, tmp_path, workload_body: str, *, reap_seconds=None,
             shlex.quote(str(handoff_deadline_probe)),
             1,
         )
-        body = body.replace(
-            after,
+        post_probe = (
             "builtin printf 'post=%s\\n' \"$W1_ACTIVE_DEADLINE_US\" >> "
-            + shlex.quote(str(handoff_deadline_probe)) + "\n" + after,
-            1,
-        )
+            + shlex.quote(str(handoff_deadline_probe)))
+        if handoff_deadline_complete is not None:
+            post_probe += (
+                "\nbuiltin printf 'handoff-deadlines-complete\\n' > "
+                + shlex.quote(str(handoff_deadline_complete)))
+        body = body.replace(after, post_probe + "\n" + after, 1)
+    else:
+        assert handoff_deadline_complete is None, (
+            "a deadline completion marker requires deadline snapshots")
     if before_release_write_barrier is not None:
         entered, release = before_release_write_barrier
         anchor = 'registration_cancel_checkpoint "pre-release"'
@@ -5552,8 +5567,8 @@ def test_cancellation_after_relay_before_gate_settles_the_acquired_owner(
         relay_pid, relay_ppid, relay_pgid, relay_sid, relay_start = relay_receipt
         assert relay_ppid == proc.pid and relay_pid == relay_pgid
         assert _w1_pid_is_live(relay_pid)
-        os.kill(proc.pid, signal.SIGINT)
         with open(release, "w", encoding="ascii") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert proc.wait(timeout=_w1_budget_s("cancellation_after_relay_before_gate_settles_the_acquired_owner/wait")) == int(W1_RETAINED_FAILURE_CODE)
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")
@@ -5606,9 +5621,9 @@ def test_exit_guard_settles_a_post_setsid_owner_after_nounset(tmp_path):
         + "    stream.readline()\n"
         + "os.close(1)\n"
         + "os.close(2)\n"
+        + "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
         + "with open(%r, 'w', encoding='ascii') as stream:\n" % str(acquired)
         + "    stream.write(str(os.getpid()) + '\\n')\n"
-        + "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
         + "while True:\n"
         + "    signal.pause()\n"
     )
@@ -5715,8 +5730,11 @@ def test_cancellation_during_delayed_ready_preserves_primary(tmp_path):
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         _w1_wait_for_path(before_ready)
-        os.kill(proc.pid, signal.SIGINT)
         with release_ready.open("w", encoding="utf-8") as stream:
+            # Acquire the fixture's release peer before SIGINT.  Opening it
+            # afterwards races the runner's cancellation teardown, which may
+            # close the only reader and leave this test blocked in open(2).
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("release\n")
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_delayed_ready_preserves_primary/wait"))
         assert not registrar.exists() and not marker.exists(), (
@@ -5736,12 +5754,14 @@ def test_cancellation_during_pre_register_observation_never_registers(tmp_path):
     mod = _load()
     marker = tmp_path / "workload-started"
     registrar = tmp_path / "registrar-started"
+    census_probe = tmp_path / "owned-group-census.calls"
     bash_env, observer_entered, observer_release = _w1_block_process_probe(
         tmp_path, on_call=2)
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
-        reap_seconds=3,
+        reap_seconds=3, owned_group_census_override="ABSENT",
+        owned_group_census_probe=census_probe,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(tmp_path, code=0, stdout="stubhost-1\n"))
@@ -5754,14 +5774,22 @@ def test_cancellation_during_pre_register_observation_never_registers(tmp_path):
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         _w1_wait_for_path(observer_entered)
-        os.kill(proc.pid, signal.SIGINT)
         with observer_release.open("w", encoding="utf-8") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_pre_register_observation_never_registers/wait"))
         assert not registrar.exists() and not marker.exists(), (
             "N244-CANCELLED-OBSERVER-CROSSED-REGISTRAR")
         assert (rundir / "exitcode").read_text().strip() == "130"
         assert rc == 130
+        census_calls = census_probe.read_text(encoding="utf-8").splitlines()
+        assert census_calls == [
+            "ready-reader", "gate-fd-observer", "relay-fd-observer",
+            "process-observer", "group-observer", "process-observer",
+            "terminal-reader", "terminal-relay-deadline", "terminal-relay",
+            "gate-deadline", "gate",
+        ], ("the deterministic census fixture did not fire exactly once at "
+            "each expected owner boundary", census_calls)
     finally:
         _w1_kill_group(gate_pid)
         if proc.poll() is None:
@@ -5794,8 +5822,8 @@ def test_cancellation_during_group_observer_forbids_registration(tmp_path):
         assert _w1_await_fifo(entered_fd, site="cancellation_during_group_observer_forbids_registration/fifo") == "group-observer-entered\n"
         assert live == [str(gate_pid)]
         assert not registrar.exists() and not marker.exists()
-        os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert not registrar.exists() and not marker.exists()
         assert proc.wait(timeout=_w1_budget_s("cancellation_during_group_observer_forbids_registration/wait")) == 130
@@ -5867,8 +5895,8 @@ def test_cancellation_during_gate_settlement_wait_preserves_primary(tmp_path):
         gate_pid, _ = _w1_wait_for_gate(rundir)
         assert _w1_await_fifo(entered_fd, site="cancellation_during_gate_settlement_wait_preserves_primary/fifo") == "gate-wait-entered\n"
         assert registrar.exists() and not marker.exists()
-        os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert _w1_wait_for_exit(proc, rundir, site="cancellation_during_gate_settlement_wait_preserves_primary/exit") == 130
         assert not marker.exists() and not _w1_live_in_group(gate_pid)
