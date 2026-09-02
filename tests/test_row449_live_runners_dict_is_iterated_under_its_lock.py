@@ -621,13 +621,14 @@ def _load_secret_gate_module():
     return module
 
 
-def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns():
+def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns(
+        monkeypatch):
     """The consumer's verdict, by EXACT SHARD COUNT.
 
     Drives tests/test_secret_display_never.py's own _scan_all() -- the code
     that forks one child per shard -- while a background thread cycles
-    _watch_registry_lock at roughly a 50% duty cycle.  With 32 forks that is a
-    ~1 - 0.5**32 chance that at least one fork is taken while the lock is
+    _watch_registry_lock at roughly a 50% duty cycle.  With 16 forks that is
+    a ~1 - 0.5**16 chance that at least one fork is taken while the lock is
     held, so an unprotected tree loses at least one shard essentially always.
 
     The assertion is expected_shards == collected_shards over a nonzero
@@ -661,10 +662,21 @@ def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns():
             "GET /metrics did not reach runners_snapshot() on this tree; the "
             "shard payload below cannot exhibit the inherited-lock hang")
 
+        # PIN THE SHARD COUNT.  _scan_all derives its worker count from
+        # os.cpu_count(), so an exact-count assertion written against this
+        # 48-core host would fail on a 2-vCPU CI runner for a reason that
+        # has nothing to do with the defect.  The gate's own reconciler
+        # tests pin cpu_count the same way.
+        shards_wanted = 16
+        per_shard = 8
+        host_cpus = os.cpu_count()
+        monkeypatch.setattr(os, "cpu_count", lambda: shards_wanted)
+        assert os.cpu_count() == shards_wanted, (
+            "precondition failed: os.cpu_count() was not pinned, so the "
+            "shard denominator below would be the host's shape rather "
+            "than this experiment's")
         # Every shard carries the lock-taking route, so ANY fork taken while
         # the lock is held costs a shard.
-        shards_wanted = 32
-        per_shard = 8
         targets = ["/metrics"] * (shards_wanted * per_shard)
 
         observed = {}
@@ -701,9 +713,10 @@ def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns():
         "precondition failed: the churn thread never held the registry lock, "
         "so no fork could have been taken while it was held")
     print("SHARD-COUNT targets=%r expected_shards=%r collected_shards=%r "
-          "executed=%r lock_holds=%d"
+          "executed=%r lock_holds=%d host_cpus=%r pinned_cpus=%d"
           % (observed.get("targets"), observed.get("expected_shards"),
-             observed.get("collected_shards"), scanned, len(cycles)))
+             observed.get("collected_shards"), scanned, len(cycles),
+             host_cpus, shards_wanted))
     assert observed.get("targets") == len(targets) == shards_wanted * per_shard
     assert observed.get("expected_shards") == shards_wanted, (
         "the scan did not shard into %d workers (observed %r); the shard-count "
