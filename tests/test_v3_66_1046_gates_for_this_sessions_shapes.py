@@ -28,6 +28,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import time
 
 import pytest
@@ -693,6 +694,79 @@ def _run_tool_state_shard(shard_path):
     _run_tool_state_suite(_suite_for_tool_state_shard(shard_path))
 
 
+_TOOL_STATE_NO_WRITES = "REAL-TOOL-STATE: no entry attributable to this run"
+_TOOL_STATE_WROTE = "REAL-TOOL-STATE: this run added"
+
+
+def _persist_inner_log(suite, body):
+    """Write the WHOLE inner log somewhere durable and return its path.
+
+    A tail is a summary of evidence, not the evidence (CLAUDE.md A5). Created
+    lazily -- only a refusal ever writes one -- and a write that fails reads
+    UNKNOWN rather than being swallowed, because evidence that silently did not
+    persist is worse than evidence that is honestly absent.
+    """
+    try:
+        fd, path = tempfile.mkstemp(
+            prefix="bd1046-inner-%s-" % pathlib.Path(suite).stem, suffix=".log")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        return path
+    except OSError as exc:
+        return "UNKNOWN (the inner log could not be written: %s)" % exc
+
+
+def _inner_failure_refusal(suite, r, attributed, elapsed):
+    """Name the step that failed, and say whether THIS gate's subject is in it.
+
+    Three situations reached the same sentence and lead to three different
+    actions: fix the inner suite's state writes, fix an unrelated inner
+    assertion, or find out why the run never collected. Naming them apart costs
+    nothing here -- the delta and the log are both already in hand.
+
+    This does NOT decide that a starved run is acceptable. The caller still
+    refuses. The state evidence of an incomplete run is UNMEASURED, and saying
+    so is the point: an inner run that never finished cannot prove absence.
+    """
+    body = r.stdout + r.stderr
+    # pytest writes "FAILED <nodeid>" or "FAILED <nodeid> - <reason>", and a
+    # parametrised nodeid may itself contain spaces -- so the reason is split
+    # off on its exact " - " separator rather than at the first space, which
+    # would silently truncate the very id the reader needs to rerun.
+    failed = sorted({line[len("FAILED "):].split(" - ")[0].strip()
+                     for line in body.splitlines()
+                     if line.startswith("FAILED ")
+                     and line[len("FAILED "):].strip()})
+    if failed:
+        which = "INNER-FAILED-TESTS: %s" % ", ".join(failed)
+    elif "passed" in body or "failed" in body:
+        which = ("INNER-FAILED-TESTS: none named -- the run summarised but "
+                 "reported no FAILED nodeid, so the nonzero exit came from "
+                 "collection, a plugin, or the interpreter, not from a test")
+    else:
+        which = ("INNER-RUN-PRODUCED-NO-SUMMARY: pytest emitted no summary "
+                 "line at all, so it may never have collected. Treat the state "
+                 "evidence as ABSENT rather than clean")
+    if attributed:
+        verdict = ("%s %s -- THIS GATE'S SUBJECT IS IMPLICATED. Point the "
+                   "tool's directory at tmp_path in the inner test."
+                   % (_TOOL_STATE_WROTE, attributed))
+    else:
+        verdict = ("%s, so this gate's own subject is not implicated by the "
+                   "evidence that exists and the defect is in the inner suite. "
+                   "The state evidence is UNMEASURED, never clean."
+                   % _TOOL_STATE_NO_WRITES)
+    context = [line.strip() for line in body.splitlines()
+               if line.strip().startswith("run context:")]
+    where = ("INNER-RUN-CONTEXT: %s" % context[0] if context else
+             "INNER-RUN-CONTEXT: none recorded, so host load is UNKNOWN")
+    return ("inner pytest failed, so its state evidence is not a valid "
+            "completed denominator (rc=%d, %.1fs against a %ds budget).\n"
+            "%s\n%s\n%s\nINNER-LOG: %s\nTAIL:\n%s"
+            % (r.returncode, elapsed, _inner_budget_s(suite), which, verdict,
+               where, _persist_inner_log(suite, body), body[-1200:]))
+
+
 def _run_tool_state_suite(suite):
     """410 JUNK ENTRIES, one per run per worker, in the registry whose whole
     job is telling you what is actually running.
@@ -763,19 +837,24 @@ def _run_tool_state_suite(suite):
         "_SUITE_BASELINE_S; do not simply widen _CONTENTION_FACTOR."
         % (suite, elapsed, _SUITE_BASELINE_S[suite]))
 
-    assert r.returncode == 0, (
-        "inner pytest failed, so its state evidence is not a valid completed "
-        "denominator (rc=%d):\n%s" %
-        (r.returncode, (r.stdout + r.stderr)[-1200:]))
-    assert "passed" in (r.stdout + r.stderr), (
-        "the inner run produced no summary, so it may not have run at all:\n%s"
-        % (r.stdout + r.stderr)[-1200:])
-
+    # THE DELTA IS COMPUTED BEFORE THE REFUSAL, not after it. Both snapshots
+    # already exist at this point; computing them below the returncode
+    # assertion threw the answer away in exactly the case where the reader most
+    # needs it -- an inner run that failed, where "did it also dirty real tool
+    # state?" is the difference between fixing this gate's subject and fixing
+    # somebody else's assertion.
     added = {d: sorted(set(after[d]) - set(before[d]))
              for d in _REAL_STATE + (_PER_RUN_STATE,)}
     attributed = _bd_jobs_offenders(
         pathlib.Path(_REAL_STATE[0]), added[_REAL_STATE[0]], run_marker)
     offenders = {_REAL_STATE[0]: attributed} if attributed else {}
+
+    assert r.returncode == 0, (
+        _inner_failure_refusal(suite, r, attributed, elapsed))
+    assert "passed" in (r.stdout + r.stderr), (
+        "the inner run produced no summary, so it may not have run at all:\n%s"
+        % (r.stdout + r.stderr)[-1200:])
+
     assert not offenders, (
         "running the tool suites added entries to real tool state: %s. Point "
         "the tool's directory at tmp_path in the test." % offenders)
@@ -846,3 +925,186 @@ def test_bd_ladder_grades_a_coloured_broken_rung_as_broken():
         "a coloured broken rung graded %s -- the ladder degrades to UNKNOWN "
         "everywhere and can never bracket anything"
         % mod.grade(out, "tests/g.py"))
+
+
+# ── 5. the tool-state refusal names WHICH step failed ────────────────────────
+#
+# A DIAGNOSTIC THAT COLLAPSES DISTINCT FAILURES COSTS THE INVESTIGATION
+# (CLAUDE.md A7). `_run_tool_state_suite` refuses whenever the inner pytest
+# exits nonzero, which is right -- an incomplete run is not a valid state
+# denominator. But the refusal said only "inner pytest failed", over a tail
+# truncated to 1200 characters, for three situations that lead to three
+# different actions:
+#
+#   * the inner suite really did dirty real tool state -- THIS GATE'S SUBJECT,
+#     and the reason the gate exists;
+#   * the inner suite failed for something else entirely (a starved timing
+#     assertion, say) and wrote no attributable state at all -- this gate's
+#     subject is UNMEASURED, and the defect is in the other suite;
+#   * the inner run produced no summary at all -- it may never have collected.
+#
+# MEASURED on the shipped tree (HEAD 9e7031fb) on 10.0.70.52: the full suite
+# refused with "inner pytest failed, so its state evidence is not a valid
+# completed denominator (rc=1)" and a tail whose last 1200 characters held the
+# inner summary line but no assertion text, so which of the three had happened
+# was not answerable from the recorded evidence at all. The gate ALREADY holds
+# the state delta at that point -- `before` and `after` are both snapshotted
+# above the refusal -- and threw it away.
+#
+# The refusal stays fail-closed. Nothing here converts an incomplete run into a
+# PASS; the change is that the refusal now says which step failed and whether
+# this gate's own subject is implicated, and preserves the whole inner log.
+
+_INNER_FAILED_STDOUT = """\
+run context: fresh-1, 48 cores, 1 worker(s) via serial, dist=no, \
+load [27.01, 18.6, 8.54] -> [21.88, 18.64, 9.0]
+  NOTE: the box was ALREADY at load 27.0 on 48 cores when this started
+  1 worker chain(s), 1 file(s): /tmp/bd-runctx/2813709
+=========================== short test summary info ============================
+FAILED tests/test_v3_66_1040_remote_job_registry.py::\
+test_public_exec_timeout_names_unknown_state_durable_id_and_retention
+1 failed, 365 passed in 43.13s
+"""
+
+
+def _canned_inner(stdout, returncode=1):
+    return subprocess.CompletedProcess(
+        args=["pytest"], returncode=returncode, stdout=stdout, stderr="")
+
+
+def test_the_tool_state_refusal_names_the_failing_inner_test(monkeypatch):
+    """RED-first: the refusal must name WHICH inner test failed.
+
+    The old message carried a 1200-character tail and no classification, so an
+    inner failure outside this gate's subject was indistinguishable from a real
+    state violation. Both halves are asserted: the nodeid is named, AND the
+    verdict on this gate's own subject is stated.
+    """
+    suite = "tests/test_v3_66_1044_run_context_and_chains.py"
+    assert (_REPO / suite).is_file(), "precondition: the canned suite exists"
+    canned = _canned_inner(_INNER_FAILED_STDOUT)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: canned)
+
+    with pytest.raises(AssertionError) as caught:
+        _run_tool_state_suite(suite)
+    message = str(caught.value)
+
+    # It still refuses -- fail-closed is not what changed.
+    assert "rc=1" in message, message
+    # ...it names the inner nodeid as a FAILED-TEST field rather than leaving it
+    # to chance inside a truncated tail. The old tail happened to contain this
+    # nodeid, so the nodeid ALONE is not the discriminator and is not asserted
+    # as if it were; what follows is.
+    assert "INNER-FAILED-TESTS:" in message, (
+        "the refusal does not name the failing inner tests as evidence of its "
+        "own, so whether it names one at all depends on where a 1200-character "
+        "tail happened to be cut:\n%s" % message)
+    # THE DISCRIMINATOR. This gate exists to answer one question -- did the
+    # inner suite write real tool state? The delta is already in hand at the
+    # refusal, and saying so is what separates a starved sibling assertion from
+    # the violation this gate is for.
+    assert "REAL-TOOL-STATE: no entry attributable to this run" in message, (
+        "the refusal does not say whether the inner run wrote real tool state, "
+        "which is the only question this gate exists to answer, so an inner "
+        "failure outside its subject and a genuine violation read "
+        "identically:\n%s" % message)
+    assert "REAL-TOOL-STATE: this run added" not in message, (
+        "the refusal claimed real state writes when none were attributable")
+    # ...and the whole inner log survives, because the tail is a summary of
+    # evidence, not the evidence (CLAUDE.md A5).
+    assert "INNER-LOG:" in message, (
+        "the refusal preserves no complete inner log:\n%s" % message)
+
+
+def test_the_refusal_distinguishes_the_three_ways_an_inner_run_can_fail():
+    """The anti-collapse property itself, asserted as a property.
+
+    Three inner outcomes lead to three different actions -- fix this gate's
+    subject, fix an unrelated inner assertion, or find out why nothing was
+    collected -- so their refusals must not be interchangeable. Asserting only
+    that each message carries its own marker would pass on an implementation
+    that appended all three markers to every message, so each marker is also
+    required ABSENT from the other cases, and the three messages are required
+    pairwise distinct.
+    """
+    suite = "tests/test_v3_66_1044_run_context_and_chains.py"
+    starved = _inner_failure_refusal(
+        suite, _canned_inner(_INNER_FAILED_STDOUT), [], 43.1)
+    violated = _inner_failure_refusal(
+        suite, _canned_inner(_INNER_FAILED_STDOUT), ["bd-1046-probe.json"], 43.1)
+    silent = _inner_failure_refusal(
+        suite, _canned_inner("Traceback (most recent call last):\nImportError\n"),
+        [], 0.4)
+
+    assert _TOOL_STATE_NO_WRITES in starved, starved
+    assert _TOOL_STATE_WROTE not in starved, starved
+    assert _TOOL_STATE_WROTE in violated, violated
+    assert _TOOL_STATE_NO_WRITES not in violated, violated
+    assert "bd-1046-probe.json" in violated, (
+        "the refusal does not name the entry it attributed:\n%s" % violated)
+    assert "INNER-RUN-PRODUCED-NO-SUMMARY" in silent, silent
+    assert "INNER-RUN-PRODUCED-NO-SUMMARY" not in starved, starved
+    assert "INNER-FAILED-TESTS:" in starved, starved
+    # The load the inner run recorded travels with the refusal, because
+    # "starved" is a claim about the host and this is where it is evidenced.
+    assert "load [27.01, 18.6, 8.54]" in starved, starved
+    assert "host load is UNKNOWN" in silent, silent
+
+    assert len({starved, violated, silent}) == 3, (
+        "two of the three refusals are byte-identical, so the diagnostic still "
+        "collapses distinct failures into one message")
+
+
+def test_the_refusal_preserves_the_whole_inner_log_and_not_only_a_tail():
+    """A tail is a summary of evidence, not the evidence (CLAUDE.md A5).
+
+    The shipped-tree failure was unreadable precisely because the 1200-character
+    tail held the summary line and no assertion text.
+    """
+    suite = "tests/test_v3_66_1044_run_context_and_chains.py"
+    head = "banned-from-the-tail-%s\n" % ("y" * 40)
+    body = head + ("x" * 4000) + "\nFAILED tests/a.py::test_b\n1 failed in 1s\n"
+    assert len(body) > 1200, "precondition: a 1200-char tail must lose the head"
+    assert head not in body[-1200:], "precondition: the head is outside the tail"
+
+    message = _inner_failure_refusal(suite, _canned_inner(body), [], 1.0)
+    named = [line.split("INNER-LOG: ", 1)[1] for line in message.splitlines()
+             if line.startswith("INNER-LOG: ")]
+    assert len(named) == 1, "the refusal named %d inner logs" % len(named)
+    saved = pathlib.Path(named[0])
+    try:
+        assert saved.is_file(), (
+            "the refusal named %s and no such log exists" % saved)
+        assert saved.read_text(encoding="utf-8") == body, (
+            "the preserved log is not byte-identical to the inner output")
+        # The verdict itself still only carries the tail, which is the reason
+        # the whole log has to live somewhere.
+        assert head not in message, (
+            "this control is void: the head reached the message anyway")
+    finally:
+        saved.unlink()
+
+
+def test_the_refusal_reports_a_parametrised_nodeid_whole():
+    """The named nodeid must be rerunnable, so it must not be truncated.
+
+    pytest writes `FAILED <nodeid>` or `FAILED <nodeid> - <reason>`, and a
+    parametrised id can itself contain spaces. Splitting at the first space --
+    the obvious reading -- silently truncates exactly the id the reader needs.
+    """
+    suite = "tests/test_v3_66_1044_run_context_and_chains.py"
+    nodeid = "tests/test_x.py::test_p[a b-1]"
+    body = ("FAILED %s - AssertionError: nope\n"
+            "FAILED tests/test_x.py::test_plain\n"
+            "2 failed, 1 passed in 3s\n" % nodeid)
+    message = _inner_failure_refusal(suite, _canned_inner(body), [], 3.0)
+
+    named = [line for line in message.splitlines()
+             if line.startswith("INNER-FAILED-TESTS:")]
+    assert len(named) == 1, message
+    assert nodeid in named[0], (
+        "the parametrised nodeid was truncated to something unrerunnable:\n%s"
+        % named[0])
+    assert "tests/test_x.py::test_plain" in named[0], named[0]
+    assert "AssertionError" not in named[0], (
+        "the failure reason was carried into the nodeid field:\n%s" % named[0])

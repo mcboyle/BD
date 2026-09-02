@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1435 - a fixture does not write into the real tree
+
+Two failures the canonical full suite found on the shipped tree. Both were real,
+and neither was what its symptom suggested.
+
+- A FIXTURE PLANTED FILES IN THE REAL FRONTEND SOURCE. A test that checks a
+  fixture endpoint is not counted as wiring accepted a temporary directory and
+  then ignored it, writing two files that do not typecheck into the actual
+  frontend/src and holding them there across a whole-tree scan. A second test
+  copies that directory and runs the TypeScript build, so it failed with
+  "Cannot find name 'apiGet'" in a file no one had ever committed -- the file
+  existed only for the duration of another test. It now plants under the
+  temporary root it was already given, with a product control endpoint, because
+  the scanner returns an EMPTY set for a rootless tree and an empty denominator
+  would have made the test pass for the wrong reason.
+  THE RED TEST HAD TO OBSERVE THE SCAN AS IT RAN. A before-and-after snapshot is
+  blind here, because the old cleanup unlinked both files on the way out -- the
+  green was manufactured by teardown, which is exactly what A7 warns about.
+- A REFUSAL THAT WAS RIGHT, WITH A DIAGNOSTIC THAT WAS NOT. The tool-state gate
+  refuses when its inner pytest run produces incomplete evidence, and that is
+  correct: an incomplete denominator is UNKNOWN, never clean. But three
+  situations leading to three different actions collapsed into one message over
+  a truncated tail, while the gate already held the state delta below the point
+  where it refused. The delta now precedes the refusal, and the refusal names
+  the failing node ids, says whether real tool state was implicated, carries the
+  inner run's load average, and persists the whole log. It still fails closed.
+
+The second failure's exact cause on the measuring host remains UNKNOWN and is
+recorded as such rather than guessed. What WAS established is the class: the
+suite fails under multi-core contention at three of twenty-four runs at load 62
+to 75, against zero of three idle, every one of them the same read-before-write
+-- but at a DIFFERENT node id than the one being explained. Pinning to one core
+serialises the racing threads, which is why single-core starvation was ruled
+out rather than confirmed.
+
 ## v3.66.1434 - the verified binary is the executed binary
 
 Rows 440, 441 and 442 were ALREADY FIXED and are closed with proof rather than
