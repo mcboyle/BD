@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 434 transform control. This must report one valid ESCAPED mutant: the byte-identical M1 transform uses the same exact-once zero-width structural anchor and leaves bulk_downloader.runner importable, while the named node deliberately makes no resume or hold assertion. An escape proves the primary catches are behavioral assertion failures rather than parse, collection, or import failures.",
+  "subject": "the missing hold-token recovery branch remains importable when no lifecycle behavior is asserted",
+  "band": [
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_transform_control_imports_runner_without_asserting_hold_recovery"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 missing hold-token recovery branch escapes an import-only test",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?=^        resumable_states = \\()",
+      "new": "        if self._state in _DOWNLOAD_HOLD_STATE_TOKENS:\n            return\n",
+      "direction": "regression",
+      "catcher": "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_transform_control_imports_runner_without_asserting_hold_recovery"
+    }
+  ]
+}

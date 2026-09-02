@@ -152,8 +152,60 @@ class StableValueException:
 # literals that the immutable adoption census cannot know belong here with
 # reviewable evidence.  Exact equality makes changing the ratchet a separate,
 # visible act; an entry cannot grow the population by itself.
-_STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {}
-_STABLE_VALUE_EXCEPTION_MAX = 0
+_STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
+    # Row 466: these are fixed protocol/control-flow contracts, not values
+    # copied from a measurement producer.  Each entry names the independent
+    # behavioral test that audits the literal's stability and intent.
+    "df1e2d3629e0bfd2f0df032ff68fa2873e9399cbee8b897a01696579e3e58256":
+        StableValueException(
+            "HTTPError is a reached-application verdict, never a transport failure",
+            "tests/test_v3_53_phase6.py",
+            r"(?m)^def test_readiness_and_health_are_separate_verdicts\(\):$",
+        ),
+    "f5a405d08dead61b687ffdc9b01401b3fb80d6152701978bd4336af6360765d0":
+        StableValueException(
+            "NOT_LISTENING is the fixed diagnostic identity for a TCP refusal",
+            "tests/test_v3_53_phase6.py",
+            r"(?m)^def test_listener_wait_names_a_port_that_never_accepts\(\):$",
+        ),
+    "6a22224c34c0e1ccf1597dbc0d4f69b5fcdc042fcb7cf37c6ff4f7abe35ea62c":
+        StableValueException(
+            "HTTP 200 plus ok=true is the health endpoint's audited success contract",
+            "tests/test_v3_53_phase6.py",
+            r"(?m)^def test_health_precondition_accepts_a_genuinely_ok_server\(\):$",
+        ),
+    "54ce90f4a59bcb9e93a787558131102bcf8422ae518f7c345099c8534effcff4":
+        StableValueException(
+            "cwd equality is the fixed boundary preventing fixture-vault escape",
+            "tests/test_v3_53_phase6.py",
+            r"(?m)^def test_vault_isolation_refuses_a_path_outside_the_fixture_home\(\):$",
+        ),
+    "2761826e2b40cff26858cdeea4479fe12a37f11260276ed9e7f3d5343f7f8c3f":
+        StableValueException(
+            "the learned trigger must call the audited settle seam exactly here",
+            "tests/test_row446_download_trigger_settle.py",
+            r"(?m)^def test_row446_both_trigger_paths_settle_and_neither_sleeps_a_fixed_budget\(\):$",
+        ),
+    "20f5ef32f58ce5c2282eb30410b5f34494fbc70438350a9f05657deb61b58a68":
+        StableValueException(
+            "the recovered trigger must call the same audited settle seam",
+            "tests/test_row446_download_trigger_settle.py",
+            r"(?m)^def test_row446_both_trigger_paths_settle_and_neither_sleeps_a_fixed_budget\(\):$",
+        ),
+    "f037b262f6fd40fd4fde6ca4b2ffa877108cfd43ddad8475eab8c3b4fa615b54":
+        StableValueException(
+            "before-is-None is the fixed fallback from change-plus-stability to stability",
+            "tests/test_row446_download_trigger_settle.py",
+            r"(?m)^def test_row446_settle_observes_the_modal_that_lands_after_the_old_budget\(\):$",
+        ),
+    "d4cbd93ef60f044b8410d14c038ad14c8326c51cd00339e270296fae0466d38e":
+        StableValueException(
+            "zero observed reads is the audited boundary for an UNOBSERVED verdict",
+            "tests/test_row446_download_trigger_settle.py",
+            r"(?m)^def test_row446_negative_control_an_unreadable_page_is_UNOBSERVED\(\):$",
+        ),
+}
+_STABLE_VALUE_EXCEPTION_MAX = 8
 
 
 def _family(

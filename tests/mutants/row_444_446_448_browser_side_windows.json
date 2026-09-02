@@ -1,11 +1,66 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Cut 1468 tracked RED provenance for backlog row 448. Only the structural anchor lives here: tests/test_row357_mutant_anchors_are_not_fragile.py refuses a NEW mutation anchor carrying a value token, and the six other mutants of this cut necessarily anchor on assignments, an os.name string comparison and numeric guards. Their full battery ran once against a detached scratch copy (7 caught, 0 escaped, 0 invalid) and is preserved as evidence outside the tree rather than smuggled in past the gate. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/row_444_446_448_browser_side_windows.json --work DETACHED_SCRATCH",
-  "subject": "row 448: re-reading the publish clock after add_cookies is caught by the mid-injection publish test",
+  "_comment": "Rows 446 and 448. Row 466 admits the six previously deferred row 446 anchors through reasoned stable-value exceptions while retaining row 448's structural anchor. R446-M5 and R446-M6 execute the two over-corrections: treating a measurable unchanged or unstable page as wholly unobserved. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row_444_446_448_browser_side_windows.json --work DETACHED_SCRATCH.",
+  "subject": "download-trigger settling and cookie publication retain their measured distinctions",
   "band": [
+    "tests/test_row446_download_trigger_settle.py",
     "tests/test_row448_cookie_update_during_injection.py"
   ],
   "mutants": [
+    {
+      "label": "R446-M1 learned trigger path restores the fixed sleep instead of settling",
+      "file": "bulk_downloader/runner.py",
+      "old": "                    trigger_settle_state, _tm, _treads = _settle_after_trigger(\n                        page, before_metrics, budget_s=settle_budget)",
+      "new": "                    time.sleep(1.5)\n                    trigger_settle_state = TRIGGER_SETTLE_UNCHANGED",
+      "direction": "regression",
+      "catcher": "tests/test_row446_download_trigger_settle.py::test_row446_both_trigger_paths_settle_and_neither_sleeps_a_fixed_budget"
+    },
+    {
+      "label": "R446-M2 recovered trigger path restores the fixed sleep instead of settling",
+      "file": "bulk_downloader/runner.py",
+      "old": "                            (trigger_settle_state, _tm,\n                             _treads) = _settle_after_trigger(\n                                page, before_metrics, budget_s=settle_budget)",
+      "new": "                            time.sleep(1.5)\n                            trigger_settle_state = TRIGGER_SETTLE_UNCHANGED",
+      "direction": "regression",
+      "catcher": "tests/test_row446_download_trigger_settle.py::test_row446_both_trigger_paths_settle_and_neither_sleeps_a_fixed_budget"
+    },
+    {
+      "label": "R446-M3 unchanged pre-click DOM is immediately called changed",
+      "file": "bulk_downloader/runner.py",
+      "old": "    changed = before is None",
+      "new": "    changed = True",
+      "direction": "regression",
+      "catcher": "tests/test_row446_download_trigger_settle.py::test_row446_settle_observes_the_modal_that_lands_after_the_old_budget"
+    },
+    {
+      "label": "R446-M4 an entirely unreadable page is no longer UNOBSERVED",
+      "file": "bulk_downloader/runner.py",
+      "old": "    if observed == 0:",
+      "new": "    if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row446_download_trigger_settle.py::test_row446_negative_control_an_unreadable_page_is_UNOBSERVED"
+    },
+    {
+      "label": "R446-M5 OVER-CORRECTION an unchanged page is refused as unobserved",
+      "file": "bulk_downloader/runner.py",
+      "old": "        return TRIGGER_SETTLE_UNCHANGED, last_seen, observed",
+      "new": "        return TRIGGER_SETTLE_UNOBSERVED, None, 0",
+      "direction": "overcorrection",
+      "control": "tests/test_row446_download_trigger_settle.py::test_row446_negative_control_a_trigger_that_opens_nothing_is_UNCHANGED",
+      "preserves": [
+        "tests/test_row446_download_trigger_settle.py::test_row446_negative_control_an_unreadable_page_is_UNOBSERVED"
+      ]
+    },
+    {
+      "label": "R446-M6 OVER-CORRECTION an unstable page is refused as unobserved",
+      "file": "bulk_downloader/runner.py",
+      "old": "    return TRIGGER_SETTLE_UNSTABLE, current, observed",
+      "new": "    return TRIGGER_SETTLE_UNOBSERVED, None, 0",
+      "direction": "overcorrection",
+      "control": "tests/test_row446_download_trigger_settle.py::test_row446_negative_control_a_page_that_never_stops_moving_is_UNSTABLE",
+      "preserves": [
+        "tests/test_row446_download_trigger_settle.py::test_row446_negative_control_an_unreadable_page_is_UNOBSERVED"
+      ]
+    },
     {
       "label": "R448-M1 the worker re-reads the publish clock after add_cookies (the parent)",
       "file": "bulk_downloader/runner.py",

@@ -210,6 +210,87 @@ def test_a_real_transfer_still_dedups(fresh_history):
     assert "real.mp4" in msg, msg
 
 
+def test_a_zero_byte_416_transfer_has_one_ownership_answer(fresh_history):
+    """Row 614: the preflight and path-aware reader share the proof rule.
+
+    A completed HTTP 416 resume legitimately fetches zero new bytes.  On a
+    migrated database ``transfer_mode`` is the evidence that distinguishes it
+    from the self-manufactured zero-byte skip row above.
+    """
+    target = (pathlib.Path.cwd() / "resume-complete.mp4").resolve()
+    target.write_bytes(b"already-complete-response-body")
+    db.db_log(
+        "row614site", "Row 614 Site", _URL, "done", target.name,
+        target.stat().st_size, "HTTP 416 resume already complete",
+        bytes_fetched=0, transfer_mode="http", file_path=str(target),
+    )
+
+    with db.db_conn() as cx:
+        cols = {row[1] for row in cx.execute("PRAGMA table_info(history)")}
+        rows = [dict(row) for row in cx.execute(
+            "SELECT id, status, bytes_fetched, transfer_mode FROM history "
+            "WHERE url=? ORDER BY id", (_URL,)).fetchall()]
+    assert "transfer_mode" in cols, sorted(cols)
+    assert len(rows) == 1, rows
+    assert rows[0]["status"] == "done"
+    assert rows[0]["bytes_fetched"] == 0
+    assert rows[0]["transfer_mode"] == "http"
+    assert target.is_file() and target.stat().st_size > 0
+
+    identity = db.db_skip_identity(_URL, str(target))
+    assert identity == ("same", str(target)), (
+        f"the schema-aware reader did not prove the 416 completion: {identity!r}")
+
+    msg = _preflight(_Stub(), _URL, {})
+    assert msg is not None and "Duplicate of history #" in msg, (
+        "the two readers disagreed: db_skip_identity proved the zero-byte "
+        f"416 completion but _dedup_preflight returned {msg!r}")
+
+
+def test_both_readers_share_the_degraded_pre_v9_rule(fresh_history):
+    """Negative control: hosts without transfer_mode keep row 544 semantics."""
+    resumed = (pathlib.Path.cwd() / "pre-v9-resume.mp4").resolve()
+    resumed.write_bytes(b"pre-v9-resume-body")
+    db.db_log(
+        "row614site", "Row 614 Site", _URL, "done", resumed.name,
+        resumed.stat().st_size, "HTTP 416 resume already complete",
+        bytes_fetched=0, transfer_mode="http", file_path=str(resumed),
+    )
+    transferred = _seed(
+        _OTHER, bytes_fetched=4096, filename="pre-v9-real.mp4", size=4096,
+    )
+
+    with db.db_conn() as cx:
+        cx.execute(
+            "CREATE TABLE history_old AS SELECT id, site_id, site_name, url, "
+            "status, filename, file_size, message, screenshot, honeypot_score, "
+            "bytes_fetched, library_id, ts FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_old RENAME TO history")
+        cols = {row[1] for row in cx.execute("PRAGMA table_info(history)")}
+        proof = db._transfer_proof_sql(cx)
+        rows = [dict(row) for row in cx.execute(
+            "SELECT url, bytes_fetched FROM history ORDER BY id").fetchall()]
+
+    assert "transfer_mode" not in cols, sorted(cols)
+    assert "bytes_fetched" in cols and "library_id" in cols, sorted(cols)
+    assert proof is db._TRANSFER_PROOF_NO_MODE
+    assert len(rows) == 2, rows
+    assert {row["url"]: row["bytes_fetched"] for row in rows} == {
+        _URL: 0,
+        _OTHER: 4096,
+    }
+
+    assert db.db_skip_identity(_URL, str(resumed)) == (
+        "unproven", str(resumed))
+    assert _preflight(_Stub(), _URL, {}) is None
+
+    assert db.db_skip_identity(_OTHER, str(transferred)) == (
+        "same", str(transferred))
+    msg = _preflight(_Stub(), _OTHER, {})
+    assert msg is not None and "Duplicate of history #" in msg, msg
+
+
 def test_the_steady_state_of_one_transfer_then_skips_still_dedups(fresh_history):
     """NEGATIVE CONTROL for the ORDERING trap, and the reason the scan is
     over every row rather than the newest one.
