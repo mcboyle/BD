@@ -22,7 +22,7 @@
 // here is a credential and the endpoint never returns one.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 
 const { apiGetMock, apiPostMock, toastMock } = vi.hoisted(() => {
   const toast = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() });
@@ -169,6 +169,38 @@ describe("Integrations · secret usage panel · an unverifiable answer is not an
     expect(text).not.toContain("integrity_error");
     expect(text).not.toContain("unreadable");
     expect(text).toMatch(/did not complete|no response|request failed/i);
+  });
+
+  it("the two named vault refusals differ in GUIDANCE, not only in their token", async () => {
+    // A mutant that ORs the two states into one arm keeps both tokens and both
+    // detail strings correct while giving an operator the wrong remedy --
+    // "repair the file" and "the container is malformed" lead to different
+    // actions.  Comparing the prose with the token and the server's words
+    // stripped out is what makes that mutant CAUGHT rather than escaped.
+    const strip = (text: string, ...removals: string[]) =>
+      removals.reduce((acc, r) => acc.split(r).join(""), text);
+
+    installUsageOutcome({ reject: refusal("integrity_error", INTEGRITY_WORDS) });
+    renderWired(<Integrations />);
+    let panel = await usagePanel();
+    await waitFor(() => expect(panel.textContent || "").toContain(INTEGRITY_WORDS));
+    const integrityProse = strip(
+      panel.textContent || "", "integrity_error", INTEGRITY_WORDS,
+    );
+    cleanup();
+
+    installUsageOutcome({ reject: refusal("unreadable", UNREADABLE_WORDS) });
+    renderWired(<Integrations />);
+    panel = await usagePanel();
+    await waitFor(() => expect(panel.textContent || "").toContain(UNREADABLE_WORDS));
+    const unreadableProse = strip(
+      panel.textContent || "", "unreadable", UNREADABLE_WORDS,
+    );
+
+    // PRECONDITION: both renders actually produced refusal prose to compare.
+    expect(integrityProse.length).toBeGreaterThan(40);
+    expect(unreadableProse.length).toBeGreaterThan(40);
+    expect(integrityProse).not.toEqual(unreadableProse);
   });
 
   it("NEGATIVE CONTROL: a healthy vault still lists its keys", async () => {
