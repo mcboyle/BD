@@ -40,6 +40,8 @@ vi.mock("sonner", () => ({ toast: toastMock, Toaster: () => null }));
 import { ApiError } from "@/lib/api-client";
 import { Integrations } from "@/routes/Integrations";
 import { renderWired } from "@/test/wiredGateHarness";
+import { describeUnmeasuredUsage } from "@/components/ui/SecretsUsageList";
+import type { SecretsUsage } from "@/hooks/useIntegrations";
 
 const USAGE = "/api/secrets/usage";
 
@@ -241,5 +243,76 @@ describe("Integrations · secret usage panel · an unverifiable answer is not an
     const text = panel.textContent || "";
     expect(text).toContain(CONFIDENT_EMPTY);
     expect(text).not.toMatch(/could not be (read|measured)|unknown|unavailable/i);
+  });
+});
+
+// A7 SELF-AUDIT ON THE GUARD'S OWN REFUSAL PATHS. The fix adds five reasons an
+// inventory can be unmeasured; if two of them shared a sentence, the guard
+// would have reproduced the very defect it exists to prevent one branch over.
+// Each outcome is proved REACHABLE and proved DISTINCT here, because a branch
+// no test can reach is not a diagnostic.
+describe("describeUnmeasuredUsage · every outcome is reachable and distinct", () => {
+  const measured: SecretsUsage = {
+    ok: true,
+    stored_keys: [KEY_A],
+    usage: { [KEY_A]: [] },
+    unreferenced: [KEY_A],
+  };
+
+  const cases: Array<[string, unknown, SecretsUsage | undefined]> = [
+    ["409 unreadable", refusal("unreadable", UNREADABLE_WORDS), undefined],
+    ["409 integrity_error", refusal("integrity_error", INTEGRITY_WORDS), undefined],
+    [
+      "409 with a state this build does not know",
+      refusal("row553-synthetic-future-state", "row553-synthetic-future-words"),
+      undefined,
+    ],
+    [
+      "an HTTP refusal that named no state",
+      new ApiError("GET /api/secrets/usage → 502", 502, undefined),
+      undefined,
+    ],
+    ["a request that never completed", new TypeError(TRANSPORT_WORDS), undefined],
+    [
+      "a 200 that declares failure and returns no inventory",
+      null,
+      { ...measured, ok: false, stored_keys: null },
+    ],
+    [
+      "a 200 that declares failure while returning an inventory",
+      null,
+      { ...measured, ok: false },
+    ],
+    [
+      "a 200 that claims success with no inventory at all",
+      null,
+      { ...measured, stored_keys: null },
+    ],
+  ];
+
+  it.each(cases)("%s is reported as unmeasured", (_name, error, data) => {
+    const verdict = describeUnmeasuredUsage(error, data);
+    expect(verdict).not.toBeNull();
+    expect(verdict!.headline.length).toBeGreaterThan(40);
+    expect(verdict!.detail.length).toBeGreaterThan(0);
+  });
+
+  it("gives every outcome its OWN headline — none collapse", () => {
+    const headlines = cases.map(
+      ([, error, data]) => describeUnmeasuredUsage(error, data)!.headline,
+    );
+    // Precondition: the denominator is the full case list and is nonzero.
+    expect(headlines).toHaveLength(cases.length);
+    expect(headlines.length).toBeGreaterThan(1);
+    expect(new Set(headlines).size).toBe(headlines.length);
+  });
+
+  it("NEGATIVE CONTROL: a real measurement, and no data at all, are not refusals", () => {
+    expect(describeUnmeasuredUsage(null, measured)).toBeNull();
+    expect(
+      describeUnmeasuredUsage(undefined, { ...measured, stored_keys: [], usage: {}, unreferenced: [] }),
+    ).toBeNull();
+    // Nothing fetched yet is not a failure either.
+    expect(describeUnmeasuredUsage(undefined, undefined)).toBeNull();
   });
 });

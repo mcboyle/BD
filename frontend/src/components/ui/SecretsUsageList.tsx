@@ -71,17 +71,45 @@ export function describeUnmeasuredUsage(
 ): Unmeasured | null {
   if (error === null || error === undefined) {
     if (!data) return null;
-    if (data.ok !== false && data.stored_keys != null) return null;
+    const declaredFailure = data.ok === false;
+    const absentInventory = data.stored_keys == null;
+    if (!declaredFailure && !absentInventory) return null;
     const state = typeof data.state === "string" ? data.state : null;
+    const detail =
+      typeof data.error === "string" && data.error
+        ? data.error
+        : "the response carried no reason";
+    // A7 SELF-AUDIT ON THIS FILE'S OWN REFUSALS: these two conditions are not
+    // the same finding and must not share a sentence. A response that DECLARES
+    // failure is a server that knows it failed; a response that claims success
+    // while omitting the inventory is a server whose answer contradicts itself,
+    // and the second is the more alarming of the two.
+    if (declaredFailure && absentInventory) {
+      return {
+        headline:
+          "The secret inventory could not be measured: the server reported the " +
+          "usage read as failed and returned no inventory.",
+        state,
+        detail,
+      };
+    }
+    if (declaredFailure) {
+      return {
+        headline:
+          "The secret inventory could not be measured: the server reported the " +
+          "usage read as failed even though it returned an inventory, so that " +
+          "list is not a measurement.",
+        state,
+        detail,
+      };
+    }
     return {
       headline:
-        "The secret inventory could not be measured: the server returned a usage " +
-        "response that reports no completed reading of the vault.",
+        "The secret inventory could not be measured: the server reported the " +
+        "usage read as successful but returned no inventory at all, so its " +
+        "answer contradicts itself.",
       state,
-      detail:
-        typeof data.error === "string" && data.error
-          ? data.error
-          : "the response carried no reason",
+      detail,
     };
   }
 
