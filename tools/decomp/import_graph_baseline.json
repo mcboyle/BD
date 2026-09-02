@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4251,
+  "edge_count": 4255,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
