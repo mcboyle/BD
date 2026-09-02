@@ -2387,12 +2387,19 @@ def _live_writers_under(root: Path) -> list[str]:
     process holding the directory instead of collapsing to a bare ENOTEMPTY
     that leads the reader nowhere.
     """
+    # AN UNAVAILABLE MEASUREMENT IS UNKNOWN, NOT OK. Returning [] when the
+    # probe cannot see /proc would make "no writers" and "no eyes" the same
+    # answer, and the caller asserts on the empty list -- the fail-open shape
+    # this test exists to close. Report the reason as a writer row instead, so
+    # the assertion goes RED and says why.
     rows: list[str] = []
     try:
         root = root.resolve()
-    except OSError:
-        return rows
-    for entry in os.listdir("/proc"):
+        pids = os.listdir("/proc")
+    except OSError as exc:
+        return ["UNKNOWN: cannot enumerate live writers (%s: %s)"
+                % (type(exc).__name__, exc)]
+    for entry in pids:
         if not entry.isdigit():
             continue
         pid = int(entry)

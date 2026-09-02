@@ -1710,10 +1710,16 @@ def _orphaned_band_pgid(heartbeat: Path) -> int:
 
     Returns -1 when no id was recorded, so the caller REFUSES rather than
     quietly skipping the reap.
+
+    Uses this file's own ``_first_line`` rather than ``splitlines()[0]``: the
+    band writes the id with "\n" and ``str.splitlines`` also breaks on nine
+    separators no writer here emits, so the naive subscript would silently
+    truncate an id that contained one. Reaching for the tool's existing helper
+    instead of rebuilding its semantics is the same rule that owns it.
     """
     try:
-        first = heartbeat.read_text(encoding="utf-8").splitlines()[0]
-    except (OSError, IndexError):
+        first = _first_line(heartbeat.read_text(encoding="utf-8"))
+    except OSError:
         return -1
     if not first.startswith("PID="):
         return -1
