@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1439 - two transitive advisories closed, and the major one gets a row
+
+Dependency hygiene, and a decision recorded rather than deferred.
+
+- TWO ADVISORIES WITH A CLEAN FIX ARE TAKEN. browserslist was HIGH severity and
+  fixed at 4.28.7; postcss-selector-parser was low and fixed at 6.1.3. Both are
+  TRANSITIVE build-time packages, so they are pinned through an `overrides`
+  entry rather than added to `dependencies`. Declaring a build tool as a runtime
+  dependency to fix a lockfile problem would enlarge the product's dependency
+  surface to solve something that is not about the product.
+- THE MAJOR ONE IS NOT TAKEN, AND THAT IS THE POINT. react-router has two open
+  medium advisories whose first patched version is 7.18.0 with NO 6.x line, so
+  the vulnerable range covers every version this product can run. But version 7
+  merges react-router-dom into react-router, and 82 tracked frontend files
+  import it. That is a migration across every route, not a dependency bump.
+  Dependabot's lockfile PR for it was closed rather than merged, and the work is
+  now register row 648 with its acceptance written down.
+- A SCOPED dependabot configuration is added. There was none before, so the
+  tool ran on repository defaults and would have regenerated the same major PR
+  indefinitely until somebody merged it unexamined. It now ignores react-router
+  MAJOR updates ONLY -- patch and minor for react-router, and every update for
+  every other package, still flow. The ignore entry names the row it belongs to
+  and must be deleted with it, because an ignore that outlives its reason
+  silently suppresses the next genuine major.
+
 ## v3.66.1438 - an unverifiable answer is not an answer
 
 Rows 444, 446, 448 and the interface half of row 553. All four are the same
