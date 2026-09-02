@@ -279,7 +279,12 @@ done
 state="$SVC_STATE"
 case "$verb" in
   stop)
-    if [ "${STOP_STICKY:-0}" != "1" ]; then printf 'inactive\n' > "$state"; fi
+    if [ "${STOP_STICKY:-0}" != "1" ]; then
+      printf '%s\n' "${STOP_STATE:-inactive}" > "$state"
+    fi
+    if [ -n "${STOP_EFFECT_LOG:-}" ]; then
+      cat "$state" >> "$STOP_EFFECT_LOG"
+    fi
     exit "${STOP_EXIT:-0}";;
   start|restart)
     rc="${START_EXIT:-0}"
@@ -289,6 +294,7 @@ case "$verb" in
     s="$(cat "$state" 2>/dev/null || printf 'unknown')"
     printf '%s\n' "$s"
     if [ "$s" = "active" ]; then exit 0; fi
+    if [ -n "${IS_ACTIVE_EXIT:-}" ]; then exit "$IS_ACTIVE_EXIT"; fi
     exit 3;;
 esac
 exit 0
