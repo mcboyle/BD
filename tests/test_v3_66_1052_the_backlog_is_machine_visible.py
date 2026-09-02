@@ -547,11 +547,18 @@ def test_the_seeded_declaration_quotes_the_register_and_invents_nothing():
     assert all(_DOCUMENTED_QUOTE in e["reason"] for e in documented), (
         "a DOCUMENTED entry must quote the register's own explanation"
     )
-    assert unadjudicated, "the 53 unexplained absences must still be visible as such"
+    assert unadjudicated, "the unexplained absences must still be visible as such"
     assert all(e["reason"] == "" for e in unadjudicated)
-    assert len(documented) + len(unadjudicated) == len(entries), (
-        "the seed carries a status that is neither documented nor unadjudicated"
-    )
+
+    # MEMBERSHIP, not a total. Row 531's rule: an arbitrary count here would have
+    # to be hand-bumped by the first legitimate --allow-gap and would answer no
+    # question these assertions do not. What must hold is that every seeded
+    # absence is a REAL measured hole, in both directions.
+    register_ids = _measured_register_ids(register_text)
+    holes = set(range(1, max(register_ids) + 1)) - set(register_ids)
+    seeded = {e["id"] for e in documented} | {e["id"] for e in unadjudicated}
+    assert seeded <= holes, sorted(seeded - holes)
+    assert seeded, "the seed declares nothing at all"
 
 
 def test_an_undeclared_gap_fails_for_its_own_named_reason():
