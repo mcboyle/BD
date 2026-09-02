@@ -87,9 +87,9 @@ def _write_request(path: Path, payload: dict[str, object]) -> None:
     path.write_bytes(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
 
-def _run(repo: Path, request: Path) -> subprocess.CompletedProcess[str]:
+def _run(repo: Path, request: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(TOOL), "--repo", str(repo), "--request", str(request)],
+        [sys.executable, str(TOOL), "--repo", str(repo), "--request", str(request), *extra],
         cwd=ROOT,
         text=True,
         capture_output=True,
@@ -225,16 +225,25 @@ def test_appends_a_single_complete_open_row_and_restamps_header(tmp_path: Path) 
 
 
 def test_appends_a_numerically_ordered_batch_as_one_publication(tmp_path: Path) -> None:
+    """The batch was 403 and 405 until the gap contract landed.
+
+    Its subject is that an ordered batch publishes once with a restamped
+    header, and it kept that subject while ALSO demonstrating -- silently --
+    that a skipped ID cost nothing. 404 is not a detail here: the same shape,
+    repeated across concurrent cuts, is where 57 permanent holes came from. The
+    batch is contiguous now and the skipping form has its own refusal test
+    below, so both behaviours are asserted instead of one being a side effect.
+    """
     repo, register = _fixture_repo(tmp_path)
     request_path = tmp_path / "append.json"
-    rows = ["| 403 | OPEN | first new work |", "| 405 | OPEN | second new work |"]
+    rows = ["| 403 | OPEN | first new work |", "| 404 | OPEN | second new work |"]
     _write_request(request_path, _request(repo, register, rows))
 
     result = _run(repo, request_path)
 
     assert result.returncode == 0, result.stderr
     after = register.read_text(encoding="ascii")
-    assert after.endswith("| 403 | OPEN | first new work |\n| 405 | OPEN | second new work |\n")
+    assert after.endswith("| 403 | OPEN | first new work |\n| 404 | OPEN | second new work |\n")
     assert after.splitlines()[2] == _marker(repo, after)
 
 
@@ -423,3 +432,341 @@ def test_help_describes_the_guarded_append_interface() -> None:
     assert result.returncode == 0, result.stderr
     assert "--repo" in result.stdout
     assert "--request" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# A GAP IS PUBLISHED WITH ITS REASON, OR IT IS NOT PUBLISHED.
+#
+# This tool enforced monotonic increase and uniqueness and never contiguity, so
+# a request naming 405 after 402 exited 0 and left 403 and 404 permanently
+# absent with nothing recorded anywhere. 57 ids went that way. The measurement
+# on the defective parent, kept because it is the RED this section replaces:
+# ids [401, 402] -> request ["| 405 | OPEN | ... |"] -> rc 0, ids [401, 402,
+# 405], holes [403, 404], no diagnostic.
+#
+# The declaration is now part of the SAME publication as the row, which is the
+# only arrangement in which the reason cannot be forgotten. Ordering and its
+# crash residue are asserted below rather than assumed, because "atomic across
+# two files" is not something os.replace provides and claiming it would be false.
+# ---------------------------------------------------------------------------
+
+GAP_ALLOWLIST_NAME = "REGISTER_GAP_ALLOWLIST.json"
+
+
+def _write_allowlist(repo: Path, gaps: list[dict] | None = None) -> Path:
+    path = repo / "project-knowledge" / GAP_ALLOWLIST_NAME
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "bd-register-gap-allowlist/v1",
+                "register": "project-knowledge/IMPROVEMENT_BACKLOG.md",
+                "notes": ["fixture"],
+                "gaps": [] if gaps is None else gaps,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    path.chmod(0o640)
+    return path
+
+
+def _register_ids(register: Path) -> list[int]:
+    text = register.read_text(encoding="ascii")
+    return sorted(int(value) for value in re.findall(r"^\|\s*(\d+)\s*\|", text, re.MULTILINE))
+
+
+def _gaps(allowlist: Path) -> list[dict]:
+    return json.loads(allowlist.read_bytes().decode("ascii"))["gaps"]
+
+
+def test_an_append_that_would_skip_an_id_is_refused_and_writes_nothing(tmp_path: Path) -> None:
+    """RED CONTROL on the defective behaviour: this exact request used to pass."""
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo)
+    assert _register_ids(register) == [401, 402], "precondition: the frontier is 402"
+    before_register, before_allowlist = register.read_bytes(), allowlist.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | skips two ids |"]))
+
+    result = _run(repo, request_path)
+
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert "append would create undeclared register gap(s): [403, 404]" in result.stderr
+    assert "--allow-gap" in result.stderr, "the refusal must name the way through it"
+    assert register.read_bytes() == before_register
+    assert allowlist.read_bytes() == before_allowlist
+
+
+def test_allow_gap_publishes_the_reason_and_the_row_together(tmp_path: Path) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo)
+    assert _gaps(allowlist) == [], "precondition: nothing is declared yet"
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | skips two ids |"]))
+    reason = "cuts holding 403 and 404 were frozen and never landed"
+
+    result = _run(repo, request_path, "--allow-gap", reason)
+
+    assert result.returncode == 0, result.stderr
+    assert "2 register gap(s) declared" in result.stdout
+    assert _register_ids(register) == [401, 402, 405]
+    assert "| 405 | OPEN | skips two ids |" in register.read_text(encoding="ascii")
+    assert _gaps(allowlist) == [
+        {"id": 403, "status": "DECLARED", "reason": reason},
+        {"id": 404, "status": "DECLARED", "reason": reason},
+    ]
+    assert register.read_text(encoding="ascii").splitlines()[2] == _marker(
+        repo, register.read_text(encoding="ascii")
+    )
+
+
+def test_allow_gap_over_a_contiguous_append_banks_no_permission(tmp_path: Path) -> None:
+    """The inverse. A declaration for a gap that does not exist is permission."""
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo)
+    before_register, before_allowlist = register.read_bytes(), allowlist.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 403 | OPEN | contiguous |"]))
+
+    result = _run(repo, request_path, "--allow-gap", "no gap here")
+
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert "creates no register gap" in result.stderr
+    assert register.read_bytes() == before_register
+    assert allowlist.read_bytes() == before_allowlist
+
+
+def test_an_identical_standing_declaration_is_the_retry_path(tmp_path: Path) -> None:
+    """The residue of an interruption between the two replaces must be repairable.
+
+    The declaration is published first, so an interruption leaves DECLARED
+    entries and an untouched register. Rerunning the identical request must
+    therefore succeed rather than refuse -- otherwise the recovery from a crash
+    is a hand edit of the very file this tool exists to keep honest.
+    """
+    repo, register = _fixture_repo(tmp_path)
+    reason = "the cut was abandoned"
+    allowlist = _write_allowlist(
+        repo,
+        [
+            {"id": 403, "status": "DECLARED", "reason": reason},
+            {"id": 404, "status": "DECLARED", "reason": reason},
+        ],
+    )
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | retried |"]))
+
+    result = _run(repo, request_path, "--allow-gap", reason)
+
+    assert result.returncode == 0, result.stderr
+    assert [entry["id"] for entry in _gaps(allowlist)] == [403, 404], "no duplicate entry"
+    assert _register_ids(register) == [401, 402, 405]
+
+
+@pytest.mark.parametrize(
+    ("name", "gaps", "diagnostic"),
+    [
+        (
+            "a different standing status",
+            [{"id": 403, "status": "UNADJUDICATED", "reason": ""}],
+            "already declares id 403 as 'UNADJUDICATED'",
+        ),
+        (
+            "a different standing reason",
+            [{"id": 403, "status": "DECLARED", "reason": "some other reason"}],
+            "already declares id 403 as 'DECLARED'",
+        ),
+    ],
+)
+def test_a_standing_declaration_is_never_rewritten(
+    tmp_path: Path, name: str, gaps: list[dict], diagnostic: str
+) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo, gaps)
+    before_register, before_allowlist = register.read_bytes(), allowlist.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | work |"]))
+
+    result = _run(repo, request_path, "--allow-gap", "a newly invented reason")
+
+    assert result.returncode == 2, (name, result.stdout, result.stderr)
+    assert diagnostic in result.stderr, (name, result.stderr)
+    assert register.read_bytes() == before_register
+    assert allowlist.read_bytes() == before_allowlist
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "diagnostic"),
+    [
+        ("truncated json", b'{"schema": ', "is not valid JSON"),
+        ("non-ascii", '{"schema": "café"}'.encode("utf-8"), "not readable ASCII"),
+        ("wrong keys", b'{"schema": "bd-register-gap-allowlist/v1"}', "exactly"),
+        (
+            "wrong schema",
+            b'{"schema": "other/v1", "register": "project-knowledge/IMPROVEMENT_BACKLOG.md",'
+            b' "notes": [], "gaps": []}',
+            "must declare schema",
+        ),
+        (
+            "unreadable entry",
+            b'{"schema": "bd-register-gap-allowlist/v1", "register":'
+            b' "project-knowledge/IMPROVEMENT_BACKLOG.md", "notes": [], "gaps": [3]}',
+            "an entry this tool cannot read",
+        ),
+        (
+            "duplicate declared id",
+            b'{"schema": "bd-register-gap-allowlist/v1", "register":'
+            b' "project-knowledge/IMPROVEMENT_BACKLOG.md", "notes": [], "gaps":'
+            b' [{"id": 403, "status": "DECLARED", "reason": "a"},'
+            b' {"id": 403, "status": "DECLARED", "reason": "b"}]}',
+            "declares id 403 twice",
+        ),
+    ],
+)
+def test_a_declaration_this_tool_cannot_read_is_never_clobbered(
+    tmp_path: Path, name: str, body: bytes, diagnostic: str
+) -> None:
+    """Each refusal names its own step: four different repairs, four messages."""
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = repo / "project-knowledge" / GAP_ALLOWLIST_NAME
+    allowlist.write_bytes(body)
+    before_register = register.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | work |"]))
+
+    result = _run(repo, request_path, "--allow-gap", "a reason")
+
+    assert result.returncode == 2, (name, result.stdout, result.stderr)
+    assert diagnostic in result.stderr, (name, result.stderr)
+    assert register.read_bytes() == before_register
+    assert allowlist.read_bytes() == body, "the declaration was rewritten"
+
+
+def test_an_absent_declaration_is_refused_rather_than_created(tmp_path: Path) -> None:
+    """A tool may not bring its own permission surface into existence."""
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = repo / "project-knowledge" / GAP_ALLOWLIST_NAME
+    assert not allowlist.exists()
+    before_register = register.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | work |"]))
+
+    result = _run(repo, request_path, "--allow-gap", "a reason")
+
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert "is absent" in result.stderr
+    assert not allowlist.exists(), "the tool created the declaration it was told to amend"
+    assert register.read_bytes() == before_register
+
+
+@pytest.mark.parametrize(
+    ("name", "reason", "diagnostic"),
+    [
+        ("empty", "", "requires a non-empty reason"),
+        ("blank", "   ", "requires a non-empty reason"),
+        ("newline", "one\ntwo", "printable ASCII on a single line"),
+        ("tab", "one\ttwo", "printable ASCII on a single line"),
+    ],
+)
+def test_a_gap_reason_is_printable_ascii_on_one_line(
+    tmp_path: Path, name: str, reason: str, diagnostic: str
+) -> None:
+    """The DISTINCTIVE diagnostic, not merely exit 2.
+
+    Asserting only "--allow-gap appears in stderr" passed against the defective
+    parent, where argparse said "unrecognized arguments: --allow-gap" -- a green
+    laundered out of a tool that had no such flag at all.
+    """
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo)
+    before_register, before_allowlist = register.read_bytes(), allowlist.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | work |"]))
+
+    result = _run(repo, request_path, "--allow-gap", reason)
+
+    assert result.returncode == 2, (name, result.stdout, result.stderr)
+    assert diagnostic in result.stderr, (name, result.stderr)
+    assert "unrecognized arguments" not in result.stderr, (name, result.stderr)
+    assert register.read_bytes() == before_register
+    assert allowlist.read_bytes() == before_allowlist
+
+
+def test_a_contiguous_append_never_touches_the_declaration(tmp_path: Path) -> None:
+    """OVER-SENSITIVITY CONTROL: the ordinary path is byte-for-byte unchanged."""
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo, [{"id": 7, "status": "UNADJUDICATED", "reason": ""}])
+    before_allowlist = allowlist.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 403 | OPEN | contiguous |"]))
+
+    result = _run(repo, request_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "register gap(s) declared" not in result.stdout
+    assert allowlist.read_bytes() == before_allowlist
+    assert _register_ids(register) == [401, 402, 403]
+
+
+def test_the_declaration_is_published_before_the_register(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """THE ORDER IS THE CONTRACT, so it is measured rather than assumed.
+
+    Failing the SECOND os.replace proves both halves at once: the declaration
+    is already visible (so the reason is durable before the gap is), the
+    register is untouched (so its compare-and-swap digest still matches and the
+    identical request can simply be rerun), and the tool says COMMIT UNCERTAIN
+    rather than reporting a clean append.
+    """
+    repo, register = _fixture_repo(tmp_path)
+    allowlist = _write_allowlist(repo)
+    before_register = register.read_bytes()
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, ["| 405 | OPEN | work |"]))
+    module = _load_tool_module()
+
+    real_replace = os.replace
+    order: list[str] = []
+
+    def injected_replace(source: object, destination: object) -> None:
+        order.append(Path(destination).name)
+        if len(order) == 2:
+            raise OSError("injected second replace failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(module.os, "replace", injected_replace)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(TOOL),
+            "--repo",
+            str(repo),
+            "--request",
+            str(request_path),
+            "--allow-gap",
+            "the interrupted publication",
+        ],
+    )
+
+    assert module.main() == 3
+    captured = capsys.readouterr()
+    assert order == [GAP_ALLOWLIST_NAME, "IMPROVEMENT_BACKLOG.md"], order
+    assert "COMMIT UNCERTAIN" in captured.err, captured.err
+    assert [entry["id"] for entry in _gaps(allowlist)] == [403, 404], (
+        "the declaration must be durable before the gap it declares"
+    )
+    assert register.read_bytes() == before_register, (
+        "the register must be untouched, so the identical request can be rerun"
+    )
+
+
+def test_help_describes_the_gap_declaration_interface() -> None:
+    result = subprocess.run([sys.executable, str(TOOL), "--help"], cwd=ROOT, text=True, capture_output=True)
+
+    assert result.returncode == 0, result.stderr
+    assert "--allow-gap" in result.stdout
+    assert "REASON" in result.stdout

@@ -1,0 +1,298 @@
+{
+  "schema": "bd-register-gap-allowlist/v1",
+  "register": "project-knowledge/IMPROVEMENT_BACKLOG.md",
+  "notes": [
+    "Every id absent from 1..max(id) of the register above must appear here exactly once.",
+    "DOCUMENTED -- the register itself explains the absence; the reason quotes it.",
+    "UNADJUDICATED -- measured absent, never explained. Carries NO reason on purpose: no reason was ever recorded and inventing one would launder a hole into a decision. Only a human may change or remove an UNADJUDICATED entry.",
+    "DECLARED -- created deliberately by 'toolchain/bin/bd-register-append --allow-gap <reason>', which is the ONLY status any tool may write.",
+    "Seeded at cut/1478 by measuring the register, not by transcribing prose."
+  ],
+  "gaps": [
+    {
+      "id": 15,
+      "status": "DOCUMENTED",
+      "reason": "Documented in project-knowledge/IMPROVEMENT_BACKLOG.md under \"FOUR IDS HAVE NEVER EXISTED, and the table is not contiguous\": \"15, 40, 41 and 42 are absent and their content is unrecoverable. This is not a deletion: the birth commit 7a8a5a2 (v3.66.1052) already lacks them\"."
+    },
+    {
+      "id": 40,
+      "status": "DOCUMENTED",
+      "reason": "Documented in project-knowledge/IMPROVEMENT_BACKLOG.md under \"FOUR IDS HAVE NEVER EXISTED, and the table is not contiguous\": \"15, 40, 41 and 42 are absent and their content is unrecoverable. This is not a deletion: the birth commit 7a8a5a2 (v3.66.1052) already lacks them\"."
+    },
+    {
+      "id": 41,
+      "status": "DOCUMENTED",
+      "reason": "Documented in project-knowledge/IMPROVEMENT_BACKLOG.md under \"FOUR IDS HAVE NEVER EXISTED, and the table is not contiguous\": \"15, 40, 41 and 42 are absent and their content is unrecoverable. This is not a deletion: the birth commit 7a8a5a2 (v3.66.1052) already lacks them\"."
+    },
+    {
+      "id": 42,
+      "status": "DOCUMENTED",
+      "reason": "Documented in project-knowledge/IMPROVEMENT_BACKLOG.md under \"FOUR IDS HAVE NEVER EXISTED, and the table is not contiguous\": \"15, 40, 41 and 42 are absent and their content is unrecoverable. This is not a deletion: the birth commit 7a8a5a2 (v3.66.1052) already lacks them\"."
+    },
+    {
+      "id": 236,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 270,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 271,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 272,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 273,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 274,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 275,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 276,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 277,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 278,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 279,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 282,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 288,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 301,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 302,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 303,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 304,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 305,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 306,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 307,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 352,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 359,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 362,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 364,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 365,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 369,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 370,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 379,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 382,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 383,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 387,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 392,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 393,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 394,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 395,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 396,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 398,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 399,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 400,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 401,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 403,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 404,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 405,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 406,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 407,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 409,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 410,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 457,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 458,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 459,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 460,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 461,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    },
+    {
+      "id": 462,
+      "status": "UNADJUDICATED",
+      "reason": ""
+    }
+  ]
+}
