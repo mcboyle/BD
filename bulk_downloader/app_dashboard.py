@@ -11,6 +11,21 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
 dashboard_bp = Blueprint("dashboard", __name__)
 
 def _m2_attention_for_site(*_a, **_k):
@@ -53,7 +68,7 @@ def api_dashboard():
     # from the rolling totals attached to each runner). Sum across sites.
     bytes_per_sec_total = 0.0
 
-    for sid, runner in runners.items():
+    for sid, runner in _runners_generation(runners):
         if not runner: continue
         cfg = s_cfg.get(sid, {}) or {}
         st_state = runner.state()
@@ -119,7 +134,7 @@ def api_dashboard():
     pending_total = totals["pending"] + totals["running"]
     eta_seconds = None
     recent_completions_per_min = 0.0
-    for runner in runners.values():
+    for _sid, runner in _runners_generation(runners):
         try:
             recent_completions_per_min += float(getattr(runner, "_recent_per_min", 0) or 0)
         except Exception: pass
@@ -182,7 +197,7 @@ def api_dashboard_v2():
         today_done = today_failed = 0
         today_iso = _t.strftime("%Y-%m-%d")
         active_workers = 0
-        for sid, runner in runners.items():
+        for sid, runner in _runners_generation(runners):
             if not runner:
                 continue
             cfg = s_cfg.get(sid, {}) or {}

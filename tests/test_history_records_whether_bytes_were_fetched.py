@@ -281,66 +281,72 @@ def test_the_transferred_count_travels_by_return_not_by_self():
     src = (ROOT / "bulk_downloader" / "runner_transport.py").read_text(
         encoding="utf-8")
     tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "_http_download":
-            returns = [n for n in ast.walk(node) if isinstance(n, ast.Return)
-                       and n.value is not None]
-            assert returns, "_http_download has no return value"
-            # EVERY return, not any. The first version of this assertion used
-            # `any`, and mutation showed that passes while the main success
-            # path regresses to a bare stat: the 416 branch still returns a
-            # tuple and satisfies the quantifier on its own. A delegation to
-            # the parallel helper is allowed because that helper is checked
-            # by the same rule.
-            bad = []
-            for r in returns:
-                if isinstance(r.value, ast.Tuple):
+    functions = {node.name: node for node in ast.walk(tree)
+                 if isinstance(node, ast.FunctionDef)}
+    sequential_names = ("_http_download", "_http_download_claimed")
+    missing = [name for name in sequential_names if name not in functions]
+    assert not missing, f"sequential HTTP return helper(s) missing: {missing}"
+    audited_delegates = {"_http_download_claimed", "_http_download_parallel"}
+    sequential_returns = []
+    for name in sequential_names:
+        returns = [n for n in ast.walk(functions[name])
+                   if isinstance(n, ast.Return) and n.value is not None]
+        assert returns, f"{name} has no return value"
+        sequential_returns.extend(returns)
+        bad = []
+        for returned in returns:
+            if isinstance(returned.value, ast.Tuple):
+                if len(returned.value.elts) != 2:
+                    bad.append(
+                        f"line {returned.lineno}: return tuple has "
+                        f"{len(returned.value.elts)} values")
                     continue
-                if isinstance(r.value, ast.Call) and "_http_download_parallel" \
-                        in ast.unparse(r.value.func):
+                transferred = returned.value.elts[1]
+                self_reads = [node for node in ast.walk(transferred)
+                              if isinstance(node, ast.Attribute)
+                              and isinstance(node.value, ast.Name)
+                              and node.value.id == "self"]
+                if self_reads:
+                    bad.append(
+                        f"line {returned.lineno}: transferred count reads "
+                        f"{ast.unparse(transferred)} from shared self")
+                continue
+            if isinstance(returned.value, ast.Call):
+                delegate = ast.unparse(returned.value.func).rsplit(".", 1)[-1]
+                if delegate in audited_delegates:
                     continue
-                bad.append(f"line {r.lineno}: return {ast.unparse(r.value)[:60]}")
-            assert not bad, (
-                "these returns from _http_download do not carry the "
-                "transferred-byte count:\n  " + "\n  ".join(bad) +
-                "\nThe count must travel back through the return value -- a "
-                "shared instance attribute races across the per-slot worker "
-                "threads started at runner.py:1120."
-            )
-            # The 416 branch is a NO-FETCH that produces a full-size file: the
-            # server refused the range because the file was already complete,
-            # and the rename makes it look like a download. Its transferred
-            # count must be the literal 0. Pinning only the tuple SHAPE let a
-            # mutation report stat().st_size there and pass -- the original
-            # defect, restored in one line.
-            for r in returns:
-                if not isinstance(r.value, ast.Tuple) or len(r.value.elts) != 2:
-                    continue
-                second = r.value.elts[1]
-                if isinstance(second, ast.Constant) and second.value == 0:
-                    break
-            else:
-                pytest.fail(
-                    "no return in _http_download carries a literal 0 as its "
-                    "transferred count. The HTTP 416 branch renames an "
-                    "already-complete file into place without transferring a "
-                    "byte; if it reports the file size instead, history claims "
-                    "a download that did not happen."
-                )
-            # and the helper it delegates to must obey the same contract
-            par = next((f for f in ast.walk(tree)
-                        if isinstance(f, ast.FunctionDef)
-                        and f.name == "_http_download_parallel"), None)
-            assert par is not None, "_http_download_parallel not found"
-            par_returns = [n for n in ast.walk(par) if isinstance(n, ast.Return)
-                           and n.value is not None]
-            assert par_returns and all(isinstance(r.value, ast.Tuple)
-                                       for r in par_returns), (
-                "_http_download_parallel does not return the transferred count, "
-                "so delegating to it loses what the caller is about to record."
-            )
-            return
-    pytest.fail("_http_download not found in runner_transport.py")
+            bad.append(
+                f"line {returned.lineno}: return "
+                f"{ast.unparse(returned.value)[:60]}")
+        assert not bad, (
+            f"these returns from {name} do not carry the transferred-byte "
+            "count:\n  " + "\n  ".join(bad) +
+            "\nThe count must travel back through the return value -- a "
+            "shared instance attribute races across the per-slot worker "
+            "threads started at runner.py:1120."
+        )
+
+    # The 416 branch is a NO-FETCH that produces a full-size file: the server
+    # refused the range because the file was already complete. Its transferred
+    # count must remain the literal 0 somewhere in the sequential return chain.
+    literal_zero = [returned for returned in sequential_returns
+                    if isinstance(returned.value, ast.Tuple)
+                    and len(returned.value.elts) == 2
+                    and isinstance(returned.value.elts[1], ast.Constant)
+                    and returned.value.elts[1].value == 0]
+    assert literal_zero, (
+        "no sequential HTTP return carries a literal 0 as its transferred "
+        "count for the no-fetch HTTP 416 branch")
+
+    parallel = functions.get("_http_download_parallel")
+    assert parallel is not None, "_http_download_parallel not found"
+    parallel_returns = [node for node in ast.walk(parallel)
+                        if isinstance(node, ast.Return)
+                        and node.value is not None]
+    assert parallel_returns and all(isinstance(node.value, ast.Tuple)
+                                    for node in parallel_returns), (
+        "_http_download_parallel does not return the transferred count, so "
+        "delegating to it loses what the caller is about to record.")
 
 
 BD_GATE_SCOPE = "repo-wide"

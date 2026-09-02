@@ -12,6 +12,21 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 from .db import db_conn
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
 extension_bp = Blueprint("extension", __name__)
 
 def _app_runners():
@@ -74,7 +89,7 @@ def api_extension_lookup_url():
     except Exception:
         pass
     try:
-        for sid, runner in (runners or {}).items():
+        for sid, runner in _runners_generation(runners):
             jobs = getattr(runner, "jobs", {}) or {}
             if url in jobs:
                 j = jobs[url]

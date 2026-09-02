@@ -813,6 +813,36 @@ else
   mkdir -p "$OUT"
 fi
 
+PHASE_TIMING="$OUT/00_phase_timing.tsv"
+printf 'phase\tname\tstart_epoch_seconds\tend_epoch_seconds\texit_status\n' \
+  > "$PHASE_TIMING"
+
+phase_begin() {
+  _phase_id="$1"
+  _phase_name="$2"
+  _phase_start="$(date +%s)"
+  printf '%s\t%s\t%s\tUNKNOWN\tUNKNOWN\n' \
+    "$_phase_id" "$_phase_name" "$_phase_start" >> "$PHASE_TIMING"
+}
+
+phase_end() {
+  _phase_id="$1"
+  _phase_status="$2"
+  _phase_end="$(date +%s)"
+  _phase_tmp="${PHASE_TIMING}.tmp.$$"
+  if awk -F '\t' -v OFS='\t' -v phase="$_phase_id" \
+      -v ended="$_phase_end" -v status="$_phase_status" '
+        $1 == phase && $4 == "UNKNOWN" { $4 = ended; $5 = status; found++ }
+        { print }
+        END { if (found != 1) exit 2 }
+      ' "$PHASE_TIMING" > "$_phase_tmp"; then
+    mv "$_phase_tmp" "$PHASE_TIMING"
+  else
+    rm -f "$_phase_tmp"
+    return 2
+  fi
+}
+
 # Clear stale bytecode BEFORE any step runs. An overlaid .py with an mtime
 # older than an existing __pycache__/*.pyc makes CPython run the STALE
 # bytecode (observed at v3.66.161: on-disk __init__.py=161 but the process
@@ -836,6 +866,7 @@ echo "  output  : $OUT/  -> $ARCHIVE"
 echo "================================================================"
 
 # ── [1/9] System fingerprint ──────────────────────────────────────
+phase_begin "1/9" "System fingerprint"
 echo "=== [1/9] System fingerprint ==="
 {
  echo "--- date ---"; date -Iseconds
@@ -871,6 +902,7 @@ echo "=== [1/9] System fingerprint ==="
  head -10 CHANGELOG.md
 } > "$OUT/01_sysinfo.log" 2>&1
 echo "  done"
+phase_end "1/9" 0
 
 # ── [2/9] Full suite (service must NOT be running) ────────────────
 # ── optional capability env (@1064, backlog 96) ──────────────────
@@ -889,6 +921,7 @@ else
   echo "  optional capability env: none at $HOME/.config/bd/mod3.env -- mod3 suites will SKIP"
 fi
 
+phase_begin "2/9" "Full test suite (5-15 min)"
 echo "=== [2/9] Full test suite (5-15 min) ==="
 if [ "$CAPTURE_LEGACY_SINGLETON" = "1" ]; then
   sudo systemctl stop bulkdownloader 2>/dev/null
@@ -964,6 +997,7 @@ fi
 # read back for `"route_source": "live url_map"`; missing file or any other
 # source is UNKNOWN, and unknown is a third state that fails. Never fatal —
 # every remaining step still runs and PARITY_EXIT goes to the verdict.
+phase_begin "2a/9" "GUI-parity inventory regen"
 echo "=== [2a/9] GUI-parity inventory regen ==="
 PARITY_JSON="$BD_HOME/reports/gui_parity_inventory.json"
 PARITY_EXIT=0
@@ -1014,6 +1048,7 @@ raise SystemExit(0 if d.get("route_source") == "live url_map" else 1)' "$PARITY_
   fi
 fi
 echo "  exit=$PARITY_EXIT"
+phase_end "2a/9" "$PARITY_EXIT"
 
 # THE TWO OBSERVABILITY FLAGS ARE LOAD-BEARING AND NEITHER IS A STYLE CHOICE.
 # Backlog 147, applied to the GATE at @1130 after @1126 fixed the same pair in
@@ -1085,6 +1120,7 @@ fi
 echo "  --- tail of suite run ---"
 tail -25 "$OUT/02_suite_run.log"
 echo "  Summary written: $OUT/02_SUMMARY.txt"
+phase_end "2/9" "$SUITE_EXIT"
 
 # ── [2b/9] deployment-local source-graph gate ─────────────────────────
 # The trust anchor is a small content pin OUTSIDE the install tree.  Rebuild the
@@ -1174,12 +1210,14 @@ run_graph_hash_gate() (
 )
 # bd_graph_gate_function_end
 
+phase_begin "2b/9" "graph content-hash gate (P2)"
 echo "=== [2b/9] graph content-hash gate (P2) ==="
 GRAPH_EXIT=0
 run_graph_hash_gate > "$OUT/02b_graph_checkhash.log" 2>&1
 GRAPH_EXIT=$?
 echo "graph-gate exit: $GRAPH_EXIT" >> "$OUT/02b_graph_checkhash.log"
 tail -5 "$OUT/02b_graph_checkhash.log" | sed 's|^|  |'
+phase_end "2b/9" "$GRAPH_EXIT"
 
 # ── [3/9] CSRF diagnostic (no app running) ───────────────────────
 #
@@ -1210,6 +1248,7 @@ tail -5 "$OUT/02b_graph_checkhash.log" | sed 's|^|  |'
 # bundle that is tarred and shipped. The exit code and the redacted cookie
 # facts below are what step [3] genuinely carries.
 #
+phase_begin "3/9" "CSRF diagnostic"
 echo "=== [3/9] CSRF diagnostic ==="
 env ${CAPTURE_INSTALL_DIR:+BD_INSTALL_DIR=$CAPTURE_INSTALL_DIR} \
   BD_DISABLE_KEEPALIVE=1 venv/bin/python -c "
@@ -1245,8 +1284,10 @@ print('=' * 60)
 " > "$OUT/03_csrf_diag.log" 2>&1
 CSRF_EXIT=$?
 echo "  done"
+phase_end "3/9" "$CSRF_EXIT"
 
 # ── [4/9] Install + start systemd service ─────────────────────────
+phase_begin "4/9" "Install + start systemd service"
 echo "=== [4/9] Install + start systemd service ==="
 
 # The legacy drop-in must exist BEFORE install_service.sh, because that runs
@@ -1328,8 +1369,10 @@ if [ "$CAPTURE_VAULT" = "1" ] && [ "$ACTIVE" = "active" ] \
          "seeder will refuse the login half" >&2
   fi
 fi
+phase_end "4/9" "$INSTALL_EXIT"
 
 # ── [5/9] Ollama status ──────────────────────────────────────────
+phase_begin "5/9" "Ollama status"
 echo "=== [5/9] Ollama status ==="
 {
  echo "--- systemctl status ---"
@@ -1342,6 +1385,7 @@ echo "=== [5/9] Ollama status ==="
  curl -sS http://localhost:11434/api/tags 2>&1
 } > "$OUT/05_ollama.log" 2>&1
 echo "  done"
+phase_end "5/9" 0
 
 # ── [5a/9] Seed synthetic input for the live checks ──────────────
 #
@@ -1366,6 +1410,7 @@ echo "  done"
 # ENTIRELY NON-FATAL: any failure here degrades to the live checks' own
 # existing WARNs. Aborting the capture because an optional convenience
 # failed would be strictly worse than the warning it was meant to remove.
+phase_begin "5a/9" "Seed synthetic live-check input"
 echo "=== [5a/9] Seed synthetic live-check input ==="
 FIXTURE_PID=""
 SEEDED=0
@@ -1537,6 +1582,7 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
 else
   echo "  tools/live_seed.py or tools/fixture_site.py absent — skipping seed"
 fi
+phase_end "5a/9" 0
 
 # ── [5b/9] Display for the headed-browser check ──────────────────
 #
@@ -1565,6 +1611,7 @@ fi
 # idempotency and the "is this display actually served" probing all live in
 # one place. Re-implementing an Xvfb launch here would recreate the
 # three-copies-that-drift problem the fragment was built to end.
+phase_begin "5b/9" "Display for headed-browser check"
 echo "=== [5b/9] Display for headed-browser check ==="
 if [ -n "${DISPLAY:-}" ]; then
   echo "  DISPLAY already set to '$DISPLAY' — leaving it alone"
@@ -1586,6 +1633,7 @@ elif [ -r "$BD_HOME/scripts/lib/system_deps.sh" ]; then
 else
   echo "  scripts/lib/system_deps.sh not readable — L2 will WARN"
 fi
+phase_end "5b/9" 0
 
 # ── [6/9] Live-test suite (running app) ──────────────────────────
 #
@@ -1600,6 +1648,7 @@ fi
 # Per-check timeout stays at 90s (T55 contains the wedge; L34
 # also benefits from the larger budget).
 #
+phase_begin "6/9" "Live-test suite"
 echo "=== [6/9] Live-test suite ==="
 LIVE_IDS="L1,L2,L3,L4,L5,L6,L7,L8,L9,L10,L11,L12,L13,L14,L15,L16,L17,L18,L19,L20,L21,L22,L23,L24,L25,L26,L27,L28,L29,L30,L31,L32,L33,L34,L35,L36,L37"
 # EXPECTED_LIVE_TESTS comes from the REGISTRY, never from LIVE_IDS.
@@ -1639,6 +1688,7 @@ LIVE_EXIT=$?
 echo "  --- tail of live tests ---"
 tail -10 "$OUT/06_live_tests.log"
 echo "  exit=$LIVE_EXIT"
+phase_end "6/9" "$LIVE_EXIT"
 
 # ── [6b] collect the per-check logs the runner already wrote ──────
 #
@@ -1667,7 +1717,15 @@ echo "  exit=$LIVE_EXIT"
 # Runs BEFORE cleanup_live_seed and before the bundle. A copy after `tar czf`
 # leaves a directory on the box that no archive contains, which is
 # indistinguishable from success from inside this script.
+phase_begin "6b/9" "Live-check per-check logs"
 echo "=== [6b/9] Live-check per-check logs ==="
+# This block is also executed by the focused artifact-bundling probe, which
+# deliberately extracts it from the banner onward.  A fragment has no timing
+# record to close, so provide the same harmless absent-recorder behavior that
+# phase_end has before PHASE_TIMING is initialized.
+if ! declare -F phase_end >/dev/null 2>&1; then
+  phase_end() { return 0; }
+fi
 LIVE_RESULTS_SRC="$OUT/06_live_results_source"
 LIVE_RESULTS_DST="$OUT/06_live_results"
 mkdir -p "$LIVE_RESULTS_DST"
@@ -1692,6 +1750,7 @@ if [ "$LIVE_RESULTS_N" -eq 0 ]; then
 else
   echo "  collected $LIVE_RESULTS_N file(s), $(du -sh "$LIVE_RESULTS_DST" 2>/dev/null | cut -f1) total"
 fi
+phase_end "6b/9" 0
 
 # Remove the synthetic state now that the checks that needed it have run, so
 # the remaining steps and the operator see the box as they found it. The EXIT
@@ -1706,6 +1765,7 @@ cleanup_live_seed
 cleanup_capture_vault
 
 # ── [7/9] Dev-tool routes against the live app ───────────────────
+phase_begin "7/9" "Dev-tool routes"
 echo "=== [7/9] Dev-tool routes ==="
 DEV_EXIT=0
 {
@@ -1727,6 +1787,7 @@ DEV_EXIT=0
  done
 } > "$OUT/07_dev_tools.log" 2>&1
 echo "  done"
+phase_end "7/9" "$DEV_EXIT"
 
 # ── [7b/9] Live selftest battery ─────────────────────────────────
 # Until this stage existed, every selftest check on the box sat permanently
@@ -1740,6 +1801,7 @@ echo "  done"
 # defect this script's own header records against sse_smoke. The body is graded
 # by tools/selftest_verdict.py, which fails on an empty denominator and passes
 # on WARNs.
+phase_begin "7b/9" "Live selftest battery"
 echo "=== [7b/9] Live selftest battery ==="
 SELFTEST_EXIT=0
 : "${CAPTURE_APP_ORIGIN:=http://localhost:5555}"
@@ -1758,14 +1820,18 @@ else
   SELFTEST_EXIT=$?
 fi
 echo "  exit=$SELFTEST_EXIT"
+phase_end "7b/9" "$SELFTEST_EXIT"
 
 # ── [8/9] T51 regenerate_goldens dry-run ─────────────────────────
+phase_begin "8/9" "T51 regenerate_goldens dry-run"
 echo "=== [8/9] T51 regenerate_goldens dry-run ==="
 venv/bin/python tools/regenerate_goldens.py > "$OUT/08_t51_dryrun.log" 2>&1
 T51_EXIT=$?
 echo "  exit=$T51_EXIT"
+phase_end "8/9" "$T51_EXIT"
 
 # ── [9/9] Quick HTTP smoke ───────────────────────────────────────
+phase_begin "9/9" "HTTP smoke"
 echo "=== [9/9] HTTP smoke ==="
 SMOKE_EXIT=0
 {
@@ -1783,6 +1849,7 @@ SMOKE_EXIT=0
  fi
 } > "$OUT/09_http_smoke.log" 2>&1
 echo "  done"
+phase_end "9/9" "$SMOKE_EXIT"
 
 # The transient app is no longer needed after the final HTTP probe. Teardown is
 # part of the verdict rather than an EXIT-only best effort: an instance whose

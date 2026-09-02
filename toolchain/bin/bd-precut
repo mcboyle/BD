@@ -171,7 +171,7 @@ def selftest():
 # needing opposite actions -- fix gate X or fix gate Y -- were indistinguishable
 # from the refusal alone.
 #
-# The subprocess is still ONE run (six interpreter boots would be the slow fix
+# The subprocess is still ONE run (one interpreter boot per gate would be the slow fix
 # and would change the tool's shape); it now also writes a JUnit record, which
 # carries the node id and pytest's own message. rc remains the VERDICT
 # authority -- the record only names what failed, it never decides whether
@@ -570,6 +570,8 @@ def main(argv=None):
          "every tracked mutant anchor occurs exactly once"),
         ("tests/test_row357_mutant_anchors_are_not_fragile.py",
          "no literal mutation anchor freezes a re-derived value"),
+        ("tests/test_row473_register_tree_containment.py",
+         "no OPEN register row names a fully landed candidate"),
         ("tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
          "no inner budget is at or above the bound governing its item"),
         ("tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
@@ -594,7 +596,7 @@ def main(argv=None):
     present = [(rel, why) for rel, why in _UNDERIVED_GATES
                if os.path.isfile(os.path.join(root, rel))]
     if not present:
-        unknown.append("underived gates (none of the six are present in this tree)")
+        unknown.append("underived gates (none of the seven are present in this tree)")
     else:
         # ASSERT THE POPULATION BEFORE THE VERDICT. A list that silently shrank
         # to one would still print a green line, which is the shape these gates

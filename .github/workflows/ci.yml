@@ -329,6 +329,7 @@ jobs:
               tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py
               tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
               tests/test_v3_66_1164_one_task_authority.py
+              tests/test_row496_deferral_intake_reconciles_backlog.py
               tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py
               tests/test_v3_66_1052_the_backlog_is_machine_visible.py
               tests/test_frontend_secret_keys_in_sync.py
@@ -460,6 +461,8 @@ jobs:
               tests/test_v3_66_261_contended_lifecycle_lock.py
               tests/test_v3_57_phase9.py
               tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
+              tests/test_v3_62_2_guards.py
+              tests/test_row634_live_registry_iteration_is_snapshotted.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
@@ -543,6 +546,12 @@ jobs:
           - name: secrets-state
             suites: >-
               tests/test_rows617_623_624_625_628_629_631_secrets_family.py
+          # Row 529. Review completeness is a diff-wide denominator and cannot
+          # be selected from any one changed subject, so CI runs its real-git
+          # omission/search-only/complete reconciliation on every PR.
+          - name: review-denominator
+            suites: >-
+              tests/test_row529_review_coverage_reconciliation.py
           # Row 344. This gate executes the destructive library function only
           # against fixture-owned trees and proves its caller-selected glob
           # cannot redirect pruning into a same-named decoy root.
@@ -700,6 +709,7 @@ jobs:
               tests/test_row243_registration_resolves_without_ambient_luck.py
               tests/test_row336_audit_and_scan_evidence.py
               tests/test_row349_shared_caches_are_identity_bound.py
+              tests/test_row473_register_tree_containment.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py

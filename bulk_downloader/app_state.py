@@ -123,6 +123,79 @@ if hasattr(os, "register_at_fork"):     # POSIX only; a no-fork platform
         after_in_parent=_unlock_live_state_after_fork,
         after_in_child=_unlock_live_state_after_fork,
     )
+
+
+# The concrete type of ``threading.Lock()``.  ``threading.Lock`` is a factory
+# function, not a class, so ``isinstance`` needs the object it produces.
+_PLAIN_LOCK_TYPE = type(threading.Lock())
+
+
+def _reinit_runner_locks_in_child():
+    """Give the forked child a FREE ``threading.Lock`` for every per-runner lock
+    another thread held at the instant of the fork.
+
+    Row 639.  ``_watch_registry_lock`` is only half the fork hazard: eleven
+    operator routes (/api/capacity, /api/dashboard, /api/dashboard/v2,
+    /api/health, /api/health/v2, /api/queue/preflight, /api/queue/v2,
+    /api/sites/v2, /api/status, /api/widgets/data, /metrics) copy each runner's
+    jobs under that runner's OWN ``_lock``.  ``fork()`` carries only the calling
+    thread, so a runner lock held by the auto-retry scanner
+    (``runner_scheduler.SchedulerMixin._auto_retry_loop``, awake once per 60s) is
+    inherited LOCKED by a child containing no thread that can ever release it,
+    and the child's first such route blocks forever.  Identical mechanism to the
+    registry lock, whose child hung with a stack at app_state.py:67.
+
+    REINITIALISED IN THE CHILD RATHER THAN HELD ACROSS THE FORK, which is the
+    opposite of the choice above and deliberately so.  Taking these locks in the
+    forking thread -- the remedy the registry lock uses -- cannot work here:
+    ``Runner._lock`` is a NON-REENTRANT ``threading.Lock`` (runner.py:812), so a
+    thread that forks while already holding one would self-deadlock in its own
+    ``before`` hook, permanently and with no diagnostic; and ``before`` hooks run
+    in REVERSE registration order, so a second registration would take runner
+    locks BEFORE the registry lock and invert the order every route uses
+    (snapshot under the registry lock, then the runner's lock).  Rebinding in the
+    child has neither failure mode: the parent is untouched, no fork waits on
+    anything new, and it is the remedy CPython itself applies to its own logging
+    locks (``logging._after_at_fork_child_reinit_locks``).
+
+    Rebinding is safe HERE and was refused for ``_watch_registry_lock`` above for
+    a reason that does not apply: that lock is a module global re-exported BY
+    VALUE (``from .app_state import _watch_registry_lock``), so replacing it
+    would leave two aliases naming different locks.  A runner's lock is an
+    instance attribute looked up afresh at every ``with runner._lock:``, and no
+    module caches one.
+
+    ONLY LOCKS THAT ARE ACTUALLY HELD are replaced, so an uncontended fork
+    changes nothing.  Only non-reentrant locks are replaced: an ``RLock`` records
+    an owning thread and a recursion count, so blindly swapping one the forking
+    thread itself owns would corrupt its unwind.  Runner RLocks held across a
+    fork are therefore a smaller population this hook does not claim to cover.
+    Returns the number of locks rebound so a caller can assert a nonzero effect.
+    """
+    rebound = 0
+    for _sid, runner in runners_snapshot():
+        try:
+            attrs = list(vars(runner).items())
+        except TypeError:            # __slots__ or a C object: nothing to walk
+            continue
+        for name, value in attrs:
+            if not name.endswith("_lock"):
+                continue
+            if type(value) is not _PLAIN_LOCK_TYPE:
+                continue
+            if not value.locked():
+                continue
+            try:
+                setattr(runner, name, threading.Lock())
+            except Exception:        # read-only attribute: cannot be helped
+                continue
+            rebound += 1
+    return rebound
+
+if hasattr(os, "register_at_fork"):     # same POSIX guard as above; a second
+    os.register_at_fork(              # registration keeps the registry hold's
+        after_in_child=_reinit_runner_locks_in_child,   # own contract intact
+    )
 _dedup_scan_state = {
     "running": False,
     "started_at": 0.0,

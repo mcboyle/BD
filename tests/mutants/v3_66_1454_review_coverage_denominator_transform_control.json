@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 529. The M1 and M5 structural denominator anchors are byte-identical to the primary battery, while this node exercises only argparse help and therefore both must ESCAPE.",
+  "subject": "transform control for replacing the Git review denominator",
+  "band": [
+    "tests/test_row529_review_coverage_reconciliation.py::test_transform_control_only_runs_help"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL derive review scope from reviewer claims",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old_regex": "(?<=changed, error = )_changed_files(?=\\(work, base\\))",
+      "new": "(lambda _work, _base: ([item[\"path\"] for review in json.loads(coverage_path.read_text(encoding=\"utf-8\"))[\"reviews\"] for item in review[\"files\"]], None))",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_transform_control_only_runs_help"
+    },
+    {
+      "label": "CONTROL allow an empty changed-file denominator to proceed",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old_regex": "(?<=    if not )changed(?=:)",
+      "new": "(changed or [\"mutant\"])",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_transform_control_only_runs_help"
+    }
+  ]
+}

@@ -66,6 +66,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+
+@pytest.fixture(autouse=True)
+def _secrets_store_state_is_test_owned(monkeypatch):
+    """Restore the vault singleton and paths after every test in this module."""
+    from bulk_downloader import secrets_store as ss
+
+    saved_backend = ss._backend
+    saved_backend_pref = ss._backend_pref
+    saved_secrets_file = ss.SECRETS_FILE
+    saved_secrets_meta_file = ss.SECRETS_META_FILE
+    with monkeypatch.context() as owner:
+        owner.setattr(ss, "_backend", saved_backend)
+        owner.setattr(ss, "_backend_pref", saved_backend_pref)
+        owner.setattr(ss, "SECRETS_FILE", saved_secrets_file)
+        owner.setattr(ss, "SECRETS_META_FILE", saved_secrets_meta_file)
+        try:
+            yield
+        finally:
+            active_backend = ss._backend
+            if active_backend is not saved_backend:
+                lock = getattr(active_backend, "lock", None)
+                if callable(lock):
+                    lock()
+
 # The UNKNOWN ratchet. It may only ever go DOWN.
 #
 # 64 = 37 (the type checker cannot resolve the body -- structurally beyond fixtures)
@@ -813,6 +837,10 @@ def test_the_fixture_world_owns_an_open_vault_and_ensure_reopens_it():
     import bulk_downloader.app as A
     from bulk_downloader import secrets_store as ss
 
+    saved_backend = ss._backend
+    saved_backend_pref = ss._backend_pref
+    saved_secrets_file = ss.SECRETS_FILE
+    saved_secrets_meta_file = ss.SECRETS_META_FILE
     backend = ss.get_backend()
     if not callable(getattr(backend, "unlock", None)):
         pytest.skip("active secrets backend requires no unlocking: %s"
@@ -867,6 +895,14 @@ def test_the_fixture_world_owns_an_open_vault_and_ensure_reopens_it():
                 backend.lock()
         except Exception:
             pass
+        ss._backend = saved_backend
+        ss._backend_pref = saved_backend_pref
+        ss.SECRETS_FILE = saved_secrets_file
+        ss.SECRETS_META_FILE = saved_secrets_meta_file
+    assert ss._backend is saved_backend
+    assert ss._backend_pref == saved_backend_pref
+    assert ss.SECRETS_FILE == saved_secrets_file
+    assert ss.SECRETS_META_FILE == saved_secrets_meta_file
 
 
 def test_the_first_use_length_rule_is_real_and_the_fixture_satisfies_it():

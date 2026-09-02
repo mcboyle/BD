@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+"""Decide candidate containment by per-path blob equality.
+
+Exit 0 means SHIPPED (or a clean register reconciliation), 3 means NOT
+SHIPPED/register disagreement, 4 means UNKNOWN, and 2 is argparse usage.
+``--authored`` excludes only the release trio and the tracked outputs derived
+from the candidate's own ``bd-regen-order`` authority.  Every applied
+exclusion is printed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import importlib.util
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import subprocess
+import sys
+from typing import Any
+
+
+RELEASE_TRIO = frozenset(
+    {
+        "bulk_downloader/__init__.py",
+        "tests/test_settings_center_slice4.py",
+        "CHANGELOG.md",
+    }
+)
+_ROW = re.compile(
+    r"^\|\s*(?P<row>[1-9]\d*)\s*\|\s*(?P<status>[A-Z]+)(?:\s+[^|]*)?\|"
+    r"\s*(?P<item>.*)\|\s*$"
+)
+_NAMED_CANDIDATE = re.compile(r"\bcandidate ([0-9a-f]{40})\b")
+_OID = re.compile(r"[0-9a-f]{40,64}\Z")
+
+
+class Unknown(RuntimeError):
+    """The requested containment measurement is unavailable."""
+
+
+def _git(repo: Path, *args: str, allow_absent: bool = False) -> bytes | None:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, check=False
+    )
+    if result.returncode == 0:
+        return result.stdout
+    if allow_absent and result.returncode in {1, 128}:
+        return None
+    detail = result.stderr.decode("utf-8", "replace").strip()
+    raise Unknown(f"git {' '.join(args)} failed: {detail or 'no diagnostic'}")
+
+
+def _commit(repo: Path, value: str, label: str) -> str:
+    raw = _git(repo, "rev-parse", "--verify", f"{value}^{{commit}}")
+    assert raw is not None
+    resolved = raw.decode("ascii", "strict").strip()
+    if _OID.fullmatch(resolved) is None:
+        raise Unknown(f"{label} commit cannot be resolved: {value}")
+    return resolved
+
+
+def _literal_assignment(source: str, name: str) -> Any:
+    try:
+        tree = ast.parse(source, filename="toolchain/bin/bd-regen-order")
+    except SyntaxError as exc:
+        raise Unknown(f"regeneration authority cannot be parsed: {exc}") from exc
+    values: list[Any] = []
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+            try:
+                values.append(ast.literal_eval(node.value))
+            except (TypeError, ValueError) as exc:
+                raise Unknown(f"regeneration authority {name} is not literal") from exc
+    if len(values) != 1:
+        raise Unknown(
+            f"regeneration authority has {len(values)} {name} assignments, expected 1"
+        )
+    return values[0]
+
+
+def _generated_paths(repo: Path, ref: str) -> frozenset[str]:
+    raw = _git(repo, "show", f"{ref}:toolchain/bin/bd-regen-order")
+    assert raw is not None
+    try:
+        source = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise Unknown("regeneration authority is not UTF-8") from exc
+    required = _literal_assignment(source, "REQUIRED_CHAIN_LABELS")
+    mapping = _literal_assignment(source, "TRACKED_OUTPUTS_BY_LABEL")
+    if (
+        not isinstance(required, (tuple, list))
+        or not required
+        or len(required) != len(set(required))
+        or not isinstance(mapping, dict)
+        or set(mapping) != set(required)
+    ):
+        raise Unknown("regeneration authority label denominator is invalid")
+    paths: list[str] = []
+    for label in required:
+        values = mapping[label]
+        if not isinstance(values, (tuple, list)):
+            raise Unknown(f"regeneration outputs for {label!r} are not a sequence")
+        paths.extend(values)
+    if not paths or len(paths) != len(set(paths)):
+        raise Unknown("tracked generated-path denominator is zero or duplicated")
+    for value in paths:
+        pure = PurePosixPath(value) if isinstance(value, str) else None
+        if pure is None or pure.is_absolute() or ".." in pure.parts or not pure.parts:
+            raise Unknown(f"unsafe tracked generated path: {value!r}")
+    return frozenset(paths)
+
+
+def _changed_paths(repo: Path, base: str, candidate: str) -> list[str]:
+    raw = _git(
+        repo,
+        "diff",
+        "--no-ext-diff",
+        "--no-renames",
+        "--name-only",
+        "-z",
+        base,
+        candidate,
+    )
+    assert raw is not None
+    paths = [os.fsdecode(item) for item in raw.split(b"\0") if item]
+    if not paths or len(paths) != len(set(paths)):
+        raise Unknown(f"candidate changed-path denominator is {len(paths)}")
+    return sorted(paths)
+
+
+def _blob(repo: Path, ref: str, path: str) -> str:
+    raw = _git(repo, "rev-parse", "--verify", f"{ref}:{path}", allow_absent=True)
+    if raw is None:
+        return "ABSENT"
+    value = raw.decode("ascii", "strict").strip()
+    if _OID.fullmatch(value) is None:
+        raise Unknown(f"blob identity is invalid for {path} at {ref[:12]}")
+    return value
+
+
+def _candidate_mode(
+    repo: Path, candidate_arg: str, base_arg: str | None, against_arg: str, authored: bool
+) -> int:
+    try:
+        candidate = _commit(repo, candidate_arg, "candidate")
+    except Unknown as exc:
+        raise Unknown(f"candidate commit cannot be resolved: {candidate_arg} ({exc})") from exc
+    against = _commit(repo, against_arg, "against")
+    if base_arg is None:
+        raw = _git(repo, "merge-base", candidate, against)
+        assert raw is not None
+        base = raw.decode("ascii", "strict").strip()
+        if _OID.fullmatch(base) is None or base == candidate:
+            raise Unknown(
+                "candidate base is not measurable from merge-base; pass --base explicitly"
+            )
+    else:
+        base = _commit(repo, base_arg, "base")
+    paths = _changed_paths(repo, base, candidate)
+    generated = _generated_paths(repo, candidate) if authored else frozenset()
+    substantive: list[str] = []
+    for path in paths:
+        if authored and path in RELEASE_TRIO:
+            print(f"EXCLUDED release-trio {path}")
+        elif authored and path in generated:
+            print(f"EXCLUDED generated {path}")
+        else:
+            substantive.append(path)
+    if not substantive:
+        raise Unknown("substantive candidate-path denominator is zero")
+    equal = 0
+    for path in substantive:
+        same = _blob(repo, candidate, path) == _blob(repo, against, path)
+        equal += int(same)
+        print(("SAME " if same else "DIFF ") + path)
+    if equal == len(substantive):
+        print(
+            f"SHIPPED: {equal} of {len(substantive)} substantive candidate blobs equal"
+        )
+        return 0
+    print(f"NOT SHIPPED: {equal} of {len(substantive)} substantive candidate blobs equal")
+    return 3
+
+
+def _read_ascii(path: Path, label: str) -> str:
+    try:
+        return path.read_bytes().decode("ascii")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise Unknown(f"{label} is unavailable: {exc}") from exc
+
+
+def _canonical_register_count(text: str) -> int:
+    authority = (
+        Path(__file__).resolve().parents[2]
+        / "project-knowledge"
+        / "build_current_overlay.py"
+    )
+    try:
+        spec = importlib.util.spec_from_file_location("_bd_shipped_backlog", authority)
+        if spec is None or spec.loader is None:
+            raise OSError("module loader is unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        derive_backlog = module.derive_backlog
+        marker_pattern = module.BACKLOG_RE
+    except (AttributeError, OSError, ImportError, SyntaxError) as exc:
+        raise Unknown(f"canonical register parser is unavailable: {exc}") from exc
+    try:
+        derived = derive_backlog(text)
+    except (TypeError, ValueError) as exc:
+        raise Unknown(f"canonical register parser refused the register: {exc}") from exc
+    if derived is None:
+        raise Unknown("canonical register row denominator is zero")
+    markers = list(marker_pattern.finditer(text))
+    if len(markers) != 1:
+        raise Unknown(
+            f"register row denominator has {len(markers)} canonical markers, expected 1"
+        )
+    marker = markers[0]
+    declared = (int(marker.group(1)), int(marker.group(2)), marker.group(3))
+    measured = derived[:3]
+    if measured != declared:
+        raise Unknown(
+            "register row denominator disagrees with canonical marker: "
+            f"derived={measured} declared={declared}"
+        )
+    return int(derived[0])
+
+
+def _register_row_matches(text: str) -> list[re.Match[str]]:
+    return [
+        match
+        for line in text.splitlines()
+        if (match := _ROW.fullmatch(line)) is not None
+    ]
+
+
+def _reconciled_register_rows(text: str) -> list[re.Match[str]]:
+    canonical_rows = _canonical_register_count(text)
+    matches = _register_row_matches(text)
+    if len(matches) != canonical_rows:
+        raise Unknown(
+            "register row denominator disagrees with canonical parser: "
+            f"matched {len(matches)} of {canonical_rows} rows"
+        )
+    return matches
+
+
+def _register_candidates(path: Path) -> dict[str, tuple[int, str]]:
+    found: dict[str, tuple[int, str]] = {}
+    text = _read_ascii(path, "register")
+    for match in _reconciled_register_rows(text):
+        identities = _NAMED_CANDIDATE.findall(match.group("item"))
+        if len(identities) > 1:
+            raise Unknown(f"register row {match.group('row')} names multiple candidates")
+        if not identities:
+            continue
+        identity = identities[0]
+        if identity in found:
+            raise Unknown(f"candidate {identity} is named by multiple register rows")
+        found[identity] = (int(match.group("row")), match.group("status"))
+    if not found:
+        raise Unknown("register candidate denominator is zero")
+    return found
+
+
+def _load_evidence(path: Path) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(_read_ascii(path, "candidate evidence"))
+    except json.JSONDecodeError as exc:
+        raise Unknown(f"candidate evidence is not JSON: {exc}") from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema", "candidates"}
+        or payload.get("schema") != "bd-register-candidate-blobs/v1"
+        or not isinstance(payload.get("candidates"), list)
+    ):
+        raise Unknown("candidate evidence schema is invalid")
+    return payload["candidates"]
+
+
+def _register_mode(
+    repo: Path, against_arg: str, register_path: Path, evidence_path: Path
+) -> int:
+    against = _commit(repo, against_arg, "against")
+    named = _register_candidates(register_path)
+    documents = _load_evidence(evidence_path)
+    indexed: dict[str, list[dict[str, str]]] = {}
+    for entry in documents:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"candidate", "changed_paths"}
+            or not isinstance(entry.get("candidate"), str)
+            or _OID.fullmatch(entry["candidate"]) is None
+            or not isinstance(entry.get("changed_paths"), list)
+            or not entry["changed_paths"]
+            or entry["candidate"] in indexed
+        ):
+            raise Unknown("candidate evidence entry schema is invalid")
+        indexed[entry["candidate"]] = entry["changed_paths"]
+    if set(indexed) != set(named):
+        raise Unknown(
+            "candidate evidence denominator disagrees with register: "
+            f"missing={sorted(set(named) - set(indexed))} "
+            f"unexpected={sorted(set(indexed) - set(named))}"
+        )
+    generated = _generated_paths(repo, against)
+    total_substantive = 0
+    fully_landed = 0
+    disagreements: list[str] = []
+    for candidate, (row, status) in sorted(named.items(), key=lambda item: item[1][0]):
+        paths = indexed[candidate]
+        observed: set[str] = set()
+        substantive: list[tuple[str, str]] = []
+        for record in paths:
+            if (
+                not isinstance(record, dict)
+                or set(record) != {"path", "blob", "disposition"}
+                or not isinstance(record.get("path"), str)
+                or not isinstance(record.get("blob"), str)
+                or record["blob"] != "ABSENT" and _OID.fullmatch(record["blob"]) is None
+                or record.get("disposition") not in {"authored", "generated", "release-trio"}
+                or record["path"] in observed
+            ):
+                raise Unknown(f"candidate evidence paths are invalid for {candidate}")
+            path = record["path"]
+            observed.add(path)
+            expected_disposition = (
+                "release-trio"
+                if path in RELEASE_TRIO
+                else "generated"
+                if path in generated
+                else "authored"
+            )
+            if record["disposition"] != expected_disposition:
+                raise Unknown(
+                    f"candidate {candidate} disposition for {path} is "
+                    f"{record['disposition']}, expected {expected_disposition}"
+                )
+            if expected_disposition == "authored":
+                substantive.append((path, record["blob"]))
+        if not substantive:
+            raise Unknown(f"candidate {candidate} substantive blob denominator is zero")
+        equal = sum(_blob(repo, against, path) == blob for path, blob in substantive)
+        total_substantive += len(substantive)
+        if equal == len(substantive):
+            fully_landed += 1
+            if status == "OPEN":
+                disagreements.append(
+                    f"OPEN row {row} is fully landed from candidate {candidate}: "
+                    f"{equal} of {len(substantive)} substantive candidate blobs equal"
+                )
+    if disagreements:
+        print("REGISTER DISAGREEMENT: " + "; ".join(disagreements), file=sys.stderr)
+        return 3
+    print(
+        f"PASS: {len(named)} candidate row(s), {total_substantive} substantive "
+        f"blob(s), {fully_landed} fully landed"
+    )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("candidate", nargs="?")
+    parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument("--base")
+    parser.add_argument("--against", default="origin/main")
+    parser.add_argument("--authored", action="store_true")
+    parser.add_argument("--register", type=Path)
+    parser.add_argument("--candidate-blobs", type=Path)
+    args = parser.parse_args(argv)
+    register_mode = args.register is not None or args.candidate_blobs is not None
+    if register_mode and (
+        args.register is None
+        or args.candidate_blobs is None
+        or args.candidate is not None
+        or args.base is not None
+        or args.authored
+    ):
+        parser.error(
+            "--register and --candidate-blobs are paired and exclude candidate, --base, and --authored"
+        )
+    if not register_mode and args.candidate is None:
+        parser.error("candidate is required outside register mode")
+    try:
+        if register_mode:
+            return _register_mode(
+                args.repo.resolve(),
+                args.against,
+                args.register.resolve(),
+                args.candidate_blobs.resolve(),
+            )
+        return _candidate_mode(
+            args.repo.resolve(), args.candidate, args.base, args.against, args.authored
+        )
+    except (OSError, UnicodeError, Unknown) as exc:
+        print(f"UNKNOWN: {exc}", file=sys.stderr)
+        return 4
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

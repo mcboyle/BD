@@ -1,0 +1,45 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 645 operator-ruling re-dispatch. M1 removes the guard from CI. M2/M3 regress the locked-vault reason/status. M4 makes even healthy readiness return 503. All four must be CAUGHT. The companion transform control applies M1 to an import-only node and must ESCAPE. No mutant permits deploy.sh to accept 503.",
+  "subject": "guard health uses a real initialized and API-unlocked test vault, distinguishes locked 503, and runs in application-safety CI",
+  "band": [
+    "tests/test_v3_62_2_guards.py::test_status_endpoints_are_get_and_json",
+    "tests/test_v3_62_2_guards.py::test_locked_master_password_vault_is_a_named_structured_503",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_every_explicit_shard_claim_matches_the_matrix",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
+  ],
+  "mutants": [
+    {
+      "label": "M1 guard file falls out of application-safety CI",
+      "file": ".github/workflows/ci.yml",
+      "old": "              tests/test_v3_62_2_guards.py\n",
+      "new": "              # mutant: omit the row-645 guard file\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_every_explicit_shard_claim_matches_the_matrix"
+    },
+    {
+      "label": "M2 locked vault loses its distinct health reason",
+      "file": "bulk_downloader/app_health.py",
+      "old": "        \"locked\": \"credential_vault_locked\",\n",
+      "new": "        \"locked\": \"credential_vault_uninitialized\",\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_62_2_guards.py::test_locked_master_password_vault_is_a_named_structured_503"
+    },
+    {
+      "label": "M3 locked health incorrectly returns 200",
+      "file": "bulk_downloader/app_health.py",
+      "old": "    return jsonify(payload), (200 if payload[\"ok\"] else 503)\n@health_bp.route(\"/api/health/checklist\")",
+      "new": "    return jsonify(payload), 200\n@health_bp.route(\"/api/health/checklist\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_62_2_guards.py::test_locked_master_password_vault_is_a_named_structured_503"
+    },
+    {
+      "label": "M4 healthy health incorrectly returns 503",
+      "file": "bulk_downloader/app_health.py",
+      "old": "    return jsonify(payload), (200 if payload[\"ok\"] else 503)\n@health_bp.route(\"/api/health/checklist\")",
+      "new": "    return jsonify(payload), 503\n@health_bp.route(\"/api/health/checklist\")",
+      "direction": "regression",
+      "catcher": "tests/test_v3_62_2_guards.py::test_status_endpoints_are_get_and_json"
+    }
+  ]
+}

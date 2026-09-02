@@ -20,6 +20,21 @@ from flask import Blueprint, jsonify
 
 from .db import db_conn
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
 health_bp = Blueprint("health", __name__)
 
 def app_test_mode(*_a, **_k):
@@ -371,7 +386,7 @@ def api_health():
     try:
         total_queued = 0
         total_active = 0
-        for r in runners.values():
+        for _sid, r in _runners_generation(runners):
             try:
                 st = r.get_status(light=True)
                 pending, running = _runner_queue_counts(st)
@@ -440,7 +455,7 @@ def api_health_v2():
     # Queue + DB liveness — same logic as /api/health.
     try:
         total_queued = total_active = 0
-        for r in runners.values():
+        for _sid, r in _runners_generation(runners):
             try:
                 st = r.get_status(light=True)
                 pending, running = _runner_queue_counts(st)

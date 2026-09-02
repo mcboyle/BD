@@ -9,6 +9,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +20,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CAPTURE_SH = REPO_ROOT / "capture.sh"
 BD_GATE_SCOPE = "repo-wide"
+PHASE_TIMING = "00_phase_timing.tsv"
+PHASE_BANNER = re.compile(r'^echo "=== \[([^]]+/9)\] (.+) ==="$')
 
 
 def _write_executable(path: Path, source: str) -> None:
@@ -26,11 +29,46 @@ def _write_executable(path: Path, source: str) -> None:
     path.chmod(0o755)
 
 
-def _build_probe(path: Path) -> None:
+def _phase_banners(source: str) -> list[tuple[str, str]]:
+    return [
+        (match.group(1), match.group(2))
+        for line in source.splitlines()
+        if (match := PHASE_BANNER.fullmatch(line)) is not None
+    ]
+
+
+def _read_phase_timing(path: Path) -> list[dict[str, str]]:
+    assert path.is_file(), f"phase timing record absent: {path}"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert lines, f"phase timing record is empty: {path}"
+    header = lines[0].split("\t")
+    assert header == [
+        "phase",
+        "name",
+        "start_epoch_seconds",
+        "end_epoch_seconds",
+        "exit_status",
+    ]
+    return [dict(zip(header, line.split("\t"), strict=True)) for line in lines[1:]]
+
+
+def _assert_complete_phase_record(
+    rows: list[dict[str, str]], expected: list[tuple[str, str]]
+) -> None:
+    assert len(expected) > 0, "phase denominator must be nonzero"
+    assert len(rows) == len(expected)
+    assert [(row["phase"], row["name"]) for row in rows] == expected
+
+
+def _build_probe(path: Path, *, abort_phase_2: bool = False) -> None:
     source = CAPTURE_SH.read_text(encoding="utf-8")
     sentinel = "# ── [2b/9]"
     assert source.count(sentinel) == 1
     probe = source.split(sentinel, 1)[0]
+    if abort_phase_2:
+        banner = 'echo "=== [2/9] Full test suite (5-15 min) ==="'
+        assert probe.count(banner) == 1
+        probe = probe.replace(banner, banner + "\nexit 77")
     # Anchors updated at v3.66.1099: capture.sh's output directory is keyed by
     # run id (backlog 5), so the old fixed literals no longer exist.
     replacements = {
@@ -90,6 +128,7 @@ def _run_probe(
     frontend_ready: bool = True,
     lock_override: Path | None = None,
     require_python_log: bool = True,
+    abort_phase_2: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, int], list[list[str]]]:
     fake_home = tmp_path / "BulkDownloader"
     fake_bin = tmp_path / "bin"
@@ -188,7 +227,7 @@ exit 0
 
     probe = tmp_path / "capture-probe.sh"
     result_path = tmp_path / "probe-results.txt"
-    _build_probe(probe)
+    _build_probe(probe, abort_phase_2=abort_phase_2)
     env = dict(os.environ)
     env.update(
         {
@@ -279,6 +318,64 @@ def test_capture_runtime_parses_workers_and_routes_only_parallel(tmp_path) -> No
         "SKIP_BASELINE_EXIT": 0,
         "SUITE_EXIT": 0,
     }
+
+
+def test_capture_runtime_records_every_reached_phase_duration(tmp_path) -> None:
+    source = CAPTURE_SH.read_text(encoding="utf-8")
+    all_phases = _phase_banners(source)
+    reached_phases = _phase_banners(source.split("# ── [2b/9]", 1)[0])
+    assert len(all_phases) == 15, "precondition: capture.sh phase denominator"
+    assert len(reached_phases) == 3, "precondition: sandbox probe phase denominator"
+
+    completed, exits, _calls = _run_probe(tmp_path)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert exits["SUITE_EXIT"] == 0
+    rows = _read_phase_timing(tmp_path / "capture-out" / PHASE_TIMING)
+    _assert_complete_phase_record(rows, reached_phases)
+    for row in rows:
+        assert row["exit_status"].isdigit()
+        assert int(row["end_epoch_seconds"]) - int(row["start_epoch_seconds"]) >= 0
+
+
+def test_capture_source_arms_all_phase_banners_once() -> None:
+    source = CAPTURE_SH.read_text(encoding="utf-8")
+    banners = _phase_banners(source)
+    begins = re.findall(r'^phase_begin "([^"]+)" "([^"]+)"$', source, re.MULTILINE)
+    ends = re.findall(r'^phase_end "([^"]+)" ', source, re.MULTILINE)
+
+    assert len(banners) == 15, "precondition: capture.sh phase denominator"
+    assert begins == banners
+    assert sorted(ends) == sorted(phase for phase, _name in banners)
+
+
+def test_phase_record_checker_rejects_only_an_incomplete_population() -> None:
+    expected = [("1/9", "one"), ("2/9", "two"), ("3/9", "three")]
+    complete = [
+        {"phase": phase, "name": name}
+        for phase, name in expected
+    ]
+
+    _assert_complete_phase_record(complete, expected)
+    with pytest.raises(AssertionError):
+        _assert_complete_phase_record(complete[:-1], expected)
+
+
+def test_capture_abort_preserves_started_phase_without_inventing_an_end(tmp_path) -> None:
+    completed, _exits, _calls = _run_probe(
+        tmp_path,
+        abort_phase_2=True,
+        require_python_log=False,
+    )
+
+    assert completed.returncode == 77
+    rows = _read_phase_timing(tmp_path / "capture-out" / PHASE_TIMING)
+    by_phase = {row["phase"]: row for row in rows}
+    assert by_phase["1/9"]["exit_status"] == "0"
+    assert by_phase["1/9"]["end_epoch_seconds"].isdigit()
+    assert by_phase["2/9"]["start_epoch_seconds"].isdigit()
+    assert by_phase["2/9"]["end_epoch_seconds"] == "UNKNOWN"
+    assert by_phase["2/9"]["exit_status"] == "UNKNOWN"
 
 
 def test_runtime_probe_owns_its_singleton_inside_a_parent_capture(

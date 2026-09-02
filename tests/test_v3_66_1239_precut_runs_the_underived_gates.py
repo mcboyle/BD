@@ -37,6 +37,7 @@ PRECUT = REPO / "toolchain" / "bin" / "bd-precut"
 #: from the artifact under test is how a dropped entry passes (CLAUDE.md A7).
 EXPECTED_GATES = {
     "tests/test_row357_mutant_anchors_are_not_fragile.py",
+    "tests/test_row473_register_tree_containment.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
@@ -120,7 +121,7 @@ def test_none_of_them_is_derivable_from_a_changed_path():
             # bound -- the fifth instance of that defect in one session, and
             # the check this cut ADDS is what caught it, before the push.
             # MEASURED: one bd-band-derive call takes ~6s on an idle test5.
-            # max(30, 6 x 6) = 36; 60 leaves room for all six calls under load
+            # max(30, 6 x 7) = 42; 60 leaves room for all seven calls under load
             # and clears the 240 - 30 ceiling with margin.
             cwd=str(REPO), capture_output=True, text=True, timeout=60)
         if r.returncode != 0:

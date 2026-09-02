@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 634/639 transform control. This must report one valid ESCAPED mutant: M3's byte-identical mutation uses the same exact-once zero-width structural anchor and leaves bulk_downloader.app_state importable, while the named node deliberately asserts nothing about fork safety. An escape proves the primary catches are behavioural assertion failures rather than parse, collection or import failures.",
+  "subject": "the disabled child-side fork hook leaves app_state importable when no fork behaviour is asserted",
+  "band": [
+    "tests/test_row639_runner_lock_survives_a_fork.py::test_transform_control_imports_app_state_without_asserting_fork_safety"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the disabled fork hook escapes an import-only test",
+      "file": "bulk_downloader/app_state.py",
+      "old_regex": "(?m)(?=^            if not value\\.locked\\(\\):$)",
+      "new": "            continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_row639_runner_lock_survives_a_fork.py::test_transform_control_imports_app_state_without_asserting_fork_safety"
+    }
+  ]
+}

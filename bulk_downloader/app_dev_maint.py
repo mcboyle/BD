@@ -13,6 +13,21 @@ from .app_dev import (
 )
 
 
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
+
 @dev_bp.route("/api/dev/version_check")
 def api_dev_version_check():
     """Flag any banner/version string not matching __version__."""
@@ -38,7 +53,7 @@ def api_dev_import_preflight():
         if not path:
             return jsonify({"error": "?path= is required"}), 400
         existing = [(rn.config or {}).get("login_url")
-                    for rn in runners.values()]
+                    for _sid, rn in _runners_generation(runners)]
         known = None
         try:
             from . import login_templates_data as _lt

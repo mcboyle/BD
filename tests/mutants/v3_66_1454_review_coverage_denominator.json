@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 529. All anchors match only structural names or control flow; values and reviewer-supplied paths occur only in replacements. The separate transform control applies M1 and M5 to a help-only node and both must ESCAPE.",
+  "subject": "review coverage is reconciled against the nonzero Git-derived changed-file denominator",
+  "band": [
+    "tests/test_row529_review_coverage_reconciliation.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 derive the changed-file denominator from reviewer claims",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old_regex": "(?<=changed, error = )_changed_files(?=\\(work, base\\))",
+      "new": "(lambda _work, _base: ([item[\"path\"] for review in json.loads(coverage_path.read_text(encoding=\"utf-8\"))[\"reviews\"] for item in review[\"files\"]], None))",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_review_omission_names_the_changed_file_instead_of_reporting_clean"
+    },
+    {
+      "label": "M2 count every recorded method as a full examination",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old_regex": "(?<=if )_is_examined(?=\\(row\\)\\])",
+      "new": "bool",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_text_search_is_recorded_but_does_not_count_as_read"
+    },
+    {
+      "label": "M3 omit an uncovered changed file from the gap verdict",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old": "gaps.append",
+      "new": "files.append",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_review_omission_names_the_changed_file_instead_of_reporting_clean"
+    },
+    {
+      "label": "M4 let search-only evidence satisfy the review requirement",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old": "        if read_rows:",
+      "new": "        if rows:",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_text_search_is_recorded_but_does_not_count_as_read"
+    },
+    {
+      "label": "M5 allow an empty changed-file denominator to proceed",
+      "file": "toolchain/bin/bd-review-reconcile",
+      "old_regex": "(?<=    if not )changed(?=:)",
+      "new": "(changed or [\"mutant\"])",
+      "direction": "regression",
+      "catcher": "tests/test_row529_review_coverage_reconciliation.py::test_zero_changed_file_denominator_is_unknown_not_pass"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 634 and 639. Every anchor is an exact-once zero-width structural lookahead -- a for statement, an if statement -- so row 357 freezes no re-derived value. M1 restores the bare walk at the operator's boundary and must be caught BEHAVIOURALLY (a 500 instead of JSON); M2 restores one in a module no behavioural test in this band drives, so only the tree-wide census can catch it -- that pair is the argument for having both. M3 and M4 disable the fork hook at two different depths and are caught by two different seams. M5 is the overcorrection: protecting every lock unconditionally keeps the fork behaviour and destroys the exactness. The separate transform-control spec applies M3's byte-identical mutation to an import-only node and must ESCAPE.",
+  "subject": "no reader walks the live runners registry bare, and a forked child can take every runner lock a scanned route takes",
+  "band": [
+    "tests/test_row634_live_registry_iteration_is_snapshotted.py",
+    "tests/test_row639_runner_lock_survives_a_fork.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 walk the live registry bare on the /api/events_all route",
+      "file": "bulk_downloader/app_events_all.py",
+      "old_regex": "(?m)(?=^    for sid, runner in _runners_generation\\(runners\\):$)",
+      "new": "    for sid, runner in runners.items():\n        runner.get_events(after_seq=0, limit=1, kind_filter=None)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row634_live_registry_iteration_is_snapshotted.py::test_a_create_landing_mid_walk_does_not_500_the_events_route"
+    },
+    {
+      "label": "M2 reintroduce a bare registry walk in a module no route test drives",
+      "file": "bulk_downloader/app_jobs.py",
+      "old_regex": "(?m)(?=^    for sid, runner in _runners_generation\\(runners\\):$)",
+      "new": "    for _sid, _r in runners.items():\n        break\n",
+      "direction": "regression",
+      "catcher": "tests/test_row634_live_registry_iteration_is_snapshotted.py::test_no_reader_iterates_the_live_registry_bare"
+    },
+    {
+      "label": "M3 skip every candidate lock, so the child inherits them locked",
+      "file": "bulk_downloader/app_state.py",
+      "old_regex": "(?m)(?=^            if not value\\.locked\\(\\):$)",
+      "new": "            continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_row639_runner_lock_survives_a_fork.py::test_a_forked_child_can_take_a_runner_lock_another_thread_held"
+    },
+    {
+      "label": "M4 return before the registry is walked at all in the child",
+      "file": "bulk_downloader/app_state.py",
+      "old_regex": "(?m)(?=^    for _sid, runner in runners_snapshot\\(\\):$)",
+      "new": "    return 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_row639_runner_lock_survives_a_fork.py::test_the_hook_rebinds_exactly_the_held_plain_locks"
+    },
+    {
+      "label": "M5 rebind every runner lock unconditionally, held or not, RLock or not",
+      "file": "bulk_downloader/app_state.py",
+      "old_regex": "(?m)(?=^        for name, value in attrs:$)",
+      "new": "        for _n, _v in attrs:\n            if _n.endswith(\"_lock\"):\n                try:\n                    setattr(runner, _n, threading.Lock())\n                except Exception:\n                    pass\n",
+      "direction": "overcorrection",
+      "control": "tests/test_row639_runner_lock_survives_a_fork.py::test_the_hook_rebinds_exactly_the_held_plain_locks",
+      "preserves": [
+        "tests/test_row639_runner_lock_survives_a_fork.py::test_a_forked_child_can_take_a_runner_lock_another_thread_held",
+        "tests/test_row639_runner_lock_survives_a_fork.py::test_a_lock_of_the_same_construction_outside_the_registry_still_hangs"
+      ]
+    }
+  ]
+}

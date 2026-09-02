@@ -20,11 +20,82 @@ import sys
 import pytest
 
 
+# Zero-entropy fixture material. It is confined to a tmp_path vault and cannot
+# unlock any operator credential store.
+_TEST_MASTER_PASSWORD = "row645-zero-entropy-master-password"
+_TEST_CREDENTIAL_KEY = "bulkdl-site-row645-test"
+_TEST_CREDENTIAL_VALUE = "row645-zero-entropy-credential"
+
+
 # v3.66.13: this file used to define its own autouse isolated_bd_home
 # fixture; the canonical one lives in tests/conftest.py. The marker
 # opts this file back into the sys.modules wipe (needed so the package
 # re-reads env vars at import; see conftest.py for the full rationale).
 pytestmark = pytest.mark.bd_module_wipe
+
+
+@pytest.fixture
+def initialized_unlocked_vault(monkeypatch, tmp_path):
+    """Real first-use vault initialization through the operator's API seam."""
+    # Dynamic lookup avoids broadening this legacy guard's frozen application
+    # import graph merely to configure the dependency its existing app import
+    # already owns.
+    ss = __import__(
+        "bulk_downloader.secrets_store", fromlist=["secrets_store"])
+
+    monkeypatch.delenv("BD_SECRETS_AUDIT", raising=False)
+    monkeypatch.setattr(ss, "SECRETS_FILE", tmp_path / "secrets.json")
+    monkeypatch.setattr(ss, "SECRETS_META_FILE", tmp_path / "secrets_meta.json")
+    monkeypatch.setattr(ss, "_backend", None)
+    monkeypatch.setattr(ss, "_backend_pref", None)
+    monkeypatch.setattr(ss, "_audited_cache", None)
+
+    assert ss.configure_backend("master_password") is True
+    backend = ss.get_backend()
+    assert isinstance(backend, ss.MasterPasswordBackend)
+    assert backend.is_initialized() is False
+    assert backend.is_unlocked() is False
+    # Keep the real PBKDF2/AES-GCM path while making this synthetic fixture
+    # cheap. The iteration count is persisted by the same first-use API call.
+    backend._data["iterations"] = 1_000
+
+    from bulk_downloader import app as app_module
+
+    app = app_module.app
+    app.config["TESTING"] = True
+    client = app.test_client()
+    unlock = client.post(
+        "/api/secrets/unlock", json={"password": _TEST_MASTER_PASSWORD})
+    unlock_body = unlock.get_json()
+    assert unlock.status_code == 200, unlock_body
+    assert unlock_body == {
+        "initialized_now": True,
+        "is_initialized": True,
+        "is_unlocked": True,
+        "ok": True,
+        "state": "initialized",
+    }
+    assert ss.SECRETS_FILE.is_file(), "first-use unlock persisted no vault"
+    assert backend.is_initialized() is True
+    assert backend.is_unlocked() is True
+
+    backend.set(_TEST_CREDENTIAL_KEY, _TEST_CREDENTIAL_VALUE)
+    saved_sites = dict(app_module.s_cfg)
+    app_module.s_cfg.clear()
+    app_module.s_cfg["row645-test"] = {
+        "name": "Row 645 synthetic site",
+        "password": f"@cred:{_TEST_CREDENTIAL_KEY}",
+    }
+    refs = ss.password_reference_keys(app_module.s_cfg)
+    assert refs == [_TEST_CREDENTIAL_KEY], refs
+    assert backend.list_keys() == [_TEST_CREDENTIAL_KEY]
+    assert ss.resolve_password(f"@cred:{_TEST_CREDENTIAL_KEY}") == (
+        _TEST_CREDENTIAL_VALUE)
+    try:
+        yield client, backend
+    finally:
+        app_module.s_cfg.clear()
+        app_module.s_cfg.update(saved_sites)
 
 def _static_path(name):
     import bulk_downloader
@@ -114,17 +185,51 @@ def test_login_templates_lookup_functions_work():
 
 # ── live-status endpoints stay GET + JSON ───────────────────────────
 
-def test_status_endpoints_are_get_and_json():
+def test_status_endpoints_are_get_and_json(initialized_unlocked_vault):
     """The live-monitoring endpoints (/api/health and /api/ai/status)
     must stay GET and must return JSON. If one starts 404ing or
     returns HTML, live monitoring (live_tests/, dashboards, the dev
     surface) breaks silently."""
-    from bulk_downloader.app import app
-    app.config["TESTING"] = True
-    client = app.test_client()
-    for path in ("/api/health", "/api/ai/status"):
-        r = client.get(path)
-        assert r.status_code == 200, \
-            f"GET {path} returned {r.status_code}"
-        # must be parseable JSON
-        json.loads(r.data.decode("utf-8"))
+    client, backend = initialized_unlocked_vault
+    assert backend.is_initialized() is True
+    assert backend.is_unlocked() is True
+    assert backend.list_keys() == [_TEST_CREDENTIAL_KEY]
+    health = client.get("/api/health")
+    health_body = json.loads(health.data.decode("utf-8"))
+    assert health_body["credentials"]["is_initialized"] is True
+    assert health_body["credentials"]["is_unlocked"] is True
+    assert health.status_code == 200, health_body
+    assert health_body["ok"] is True
+
+    ai_status = client.get("/api/ai/status")
+    assert ai_status.status_code == 200, \
+        f"GET /api/ai/status returned {ai_status.status_code}"
+    json.loads(ai_status.data.decode("utf-8"))
+
+
+def test_locked_master_password_vault_is_a_named_structured_503(
+        initialized_unlocked_vault):
+    """A restart-locked vault is distinguishable from healthy readiness."""
+    client, backend = initialized_unlocked_vault
+    assert backend.is_initialized() is True
+    assert backend.is_unlocked() is True
+    assert backend.list_keys() == [_TEST_CREDENTIAL_KEY]
+
+    locked = client.post("/api/secrets/lock")
+    assert locked.status_code == 200, locked.get_json()
+    assert locked.get_json() == {"ok": True}
+    assert backend.is_initialized() is True
+    assert backend.is_unlocked() is False
+    assert backend.list_keys() == [_TEST_CREDENTIAL_KEY]
+
+    response = client.get("/api/health")
+    body = response.get_json()
+    assert body["credentials"]["is_initialized"] is True, body
+    assert body["credentials"]["is_unlocked"] is False, body
+    assert response.status_code == 503, body
+    assert body["ok"] is False, body
+    assert body["degraded"] == "credential_vault_locked", body
+    assert body["credentials"]["state"] == "locked", body
+    assert body["credentials"]["reference_count"] == 1, body
+    assert body["credentials"]["stored_count"] == 1, body
+    assert body["credentials"]["unavailable_count"] == 1, body

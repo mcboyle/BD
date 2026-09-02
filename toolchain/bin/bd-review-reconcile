@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Reconcile structured review coverage against a Git-derived changed set.
+
+Coverage JSON schema::
+
+    {"reviews": [{"reader": "name", "verdict": "PASS",
+                  "files": [{"path": "relative/path", "method": "read"}]}]}
+
+Only ``method: read`` establishes examination. Other methods remain visible in
+the output but cannot satisfy a changed file's review requirement.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+from pathlib import Path, PurePosixPath
+
+
+def _unknown(reason: str) -> dict:
+    return {
+        "verdict": "UNKNOWN",
+        "reason": reason,
+        "changed_count": None,
+        "examined_count": 0,
+        "gaps": [],
+        "files": [],
+    }
+
+
+def _changed_files(work: Path, base: str) -> tuple[list[str] | None, str | None]:
+    run = subprocess.run(
+        ["git", "-C", str(work), "diff", "--name-only", "--find-renames",
+         "--diff-filter=ACDMRTUXB", base, "--"],
+        capture_output=True, text=True,
+    )
+    if run.returncode:
+        detail = (run.stderr or run.stdout).strip()
+        return None, "git diff unavailable" + (f": {detail}" if detail else "")
+    changed = [line for line in run.stdout.splitlines() if line]
+    if not changed:
+        return None, "changed-file denominator is zero"
+    return changed, None
+
+
+def _relative_path(raw) -> str:
+    if not isinstance(raw, str) or not raw:
+        raise ValueError("coverage path must be a non-empty string")
+    path = PurePosixPath(raw)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise ValueError(f"coverage path is not repository-relative: {raw!r}")
+    return path.as_posix()
+
+
+def _coverage_rows(document) -> list[dict]:
+    if not isinstance(document, dict) or not isinstance(document.get("reviews"), list):
+        raise ValueError("coverage must contain a reviews list")
+    rows = []
+    for review in document["reviews"]:
+        if not isinstance(review, dict):
+            raise ValueError("each review must be an object")
+        reader = review.get("reader")
+        verdict = review.get("verdict")
+        files = review.get("files")
+        if not isinstance(reader, str) or not reader.strip():
+            raise ValueError("each review must name a reader")
+        if not isinstance(verdict, str) or not verdict.strip():
+            raise ValueError("each review must name a verdict")
+        if not isinstance(files, list):
+            raise ValueError("each review must contain a files list")
+        for item in files:
+            if not isinstance(item, dict):
+                raise ValueError("each file entry must be an object")
+            method = item.get("method")
+            if not isinstance(method, str) or not method.strip():
+                raise ValueError("each file entry must name a method")
+            rows.append({
+                "path": _relative_path(item.get("path")),
+                "reader": reader.strip(),
+                "verdict": verdict.strip(),
+                "method": method.strip().lower(),
+            })
+    return rows
+
+
+def _is_examined(row: dict) -> bool:
+    return row["method"] == "read"
+
+
+def reconcile(work: Path, base: str, coverage_path: Path) -> dict:
+    changed, error = _changed_files(work, base)
+    if error:
+        return _unknown(error)
+    try:
+        document = json.loads(coverage_path.read_text(encoding="utf-8"))
+        evidence = _coverage_rows(document)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return _unknown(f"coverage unavailable: {exc}")
+
+    by_path = {path: [] for path in changed}
+    for row in evidence:
+        if row["path"] in by_path:
+            by_path[row["path"]].append({
+                "reader": row["reader"],
+                "verdict": row["verdict"],
+                "method": row["method"],
+            })
+    files = []
+    gaps = []
+    examined = 0
+    for path in changed:
+        rows = by_path[path]
+        read_rows = [row for row in rows if _is_examined(row)]
+        if read_rows:
+            examined += 1
+        else:
+            gaps.append({
+                "path": path,
+                "reason": "search_only" if rows else "no_reader",
+            })
+        files.append({"path": path, "evidence": rows})
+    return {
+        "verdict": "FAIL" if gaps else "PASS",
+        "reason": None,
+        "changed_count": len(changed),
+        "examined_count": examined,
+        "gaps": gaps,
+        "files": files,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--work", required=True)
+    parser.add_argument("--base", required=True)
+    parser.add_argument("--coverage", required=True)
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    result = reconcile(
+        Path(args.work).resolve(), args.base, Path(args.coverage).resolve())
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(f"{result['verdict']}: changed={result['changed_count']} "
+              f"examined={result['examined_count']} gaps={len(result['gaps'])}")
+        for gap in result["gaps"]:
+            print(f"  {gap['path']}: {gap['reason']}")
+        if result["reason"]:
+            print(f"  {result['reason']}")
+    return {"PASS": 0, "FAIL": 1, "UNKNOWN": 2}[result["verdict"]]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
