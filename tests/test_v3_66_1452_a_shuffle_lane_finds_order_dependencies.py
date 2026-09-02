@@ -151,7 +151,20 @@ def _declaring_manifests(name: str) -> dict:
     return found
 
 
-def _run_tool(args, env_extra=None, timeout=600):
+# EVERY INNER SUBPROCESS BUDGET HERE IS BELOW 240s ON PURPOSE. The canonical
+# per-item bound is `--timeout=240`, so a budget at or above it can never fire:
+# its own TimeoutExpired handling is dead code and what runs instead is
+# pytest-timeout killing the item (or, under xdist, the worker). Measured on
+# test5 at v3.66.1452, every subprocess this file starts: --selftest 2.4s, the
+# absent-plugin refusal 1.9s, --control over 24 seeds 20.4s, the seeded lane
+# smoke 6.6s, the order-dependence pair 0.4s. 180s is ~9x the slowest of them
+# and still strictly subordinate to the bound. Do not raise one of these past
+# 240 without an explicit @pytest.mark.timeout on the item, which is the only
+# thing that moves the bound.
+_INNER_BUDGET = 180
+
+
+def _run_tool(args, env_extra=None, timeout=_INNER_BUDGET):
     env = dict(os.environ)
     env.pop("BD_INSTALL_DIR", None)
     env["BD_DISABLE_KEEPALIVE"] = "1"
@@ -434,7 +447,8 @@ def test_the_control_pair_is_genuinely_order_dependent(tmp_path):
         return subprocess.run(
             [sys.executable, "-m", "pytest", str(first), str(second), "-q",
              "-p", "no:randomly", "-p", "no:cacheprovider", "--timeout=60"],
-            cwd=str(tmp_path), capture_output=True, text=True, timeout=300,
+            cwd=str(tmp_path), capture_output=True, text=True,
+            timeout=_INNER_BUDGET,
             env=env)
 
     benign = run(alpha, beta)
@@ -468,7 +482,8 @@ def test_the_lane_fails_on_the_planted_order_dependency():
     failing seed and requires the identical verdict. Requiring both classes is
     what stops a lane broken so that everything fails from certifying itself.
     """
-    done = _run_tool(["--control", "--seed-range", "0:24"], timeout=900)
+    done = _run_tool(["--control", "--seed-range", "0:24"],
+                     timeout=_INNER_BUDGET)
     out = done.stdout + done.stderr
     assert done.returncode == 0, (
         "bd-shuffle-lane --control did not pass:\n%s" % out[-3000:])
@@ -489,7 +504,8 @@ def test_the_lane_records_and_honours_its_seed(tmp_path):
     seed = 20260902
     done = _run_tool(["tests/test_pytest_runtime_requirement.py", "-n", "2",
                       "--seed", str(seed),
-                      "--evidence-dir", str(tmp_path)], timeout=900)
+                      "--evidence-dir", str(tmp_path)],
+                     timeout=_INNER_BUDGET)
     out = done.stdout + done.stderr
     assert done.returncode == 0, out[-3000:]
     records = sorted(tmp_path.glob("shuffle-*-seed%d.json" % seed))
