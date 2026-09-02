@@ -16,7 +16,11 @@ import time
 import uuid
 from flask import Blueprint, Response, current_app, jsonify, request
 from pathlib import Path
-from .runner import SiteRunner
+from .runner import (
+    CAPTCHA_EGRESS_ACK_FIELD,
+    SiteRunner,
+    captcha_egress_disclosure_error,
+)
 
 config_bp = Blueprint("config", __name__)
 
@@ -323,6 +327,13 @@ def api_config_import():
         except Exception as e: return jsonify({"error":f"bad JSON: {e}"}),400
     else:
         data=request.json or {}
+    # Request-only acknowledgement for any paid captcha solver transition in
+    # this bulk import.  It is read from the envelope and never copied into a
+    # normalized site config (CAPTCHA_EGRESS_ACK_FIELD is not in CFG_FIELDS).
+    _captcha_import_ack = (
+        data.get(CAPTCHA_EGRESS_ACK_FIELD)
+        if isinstance(data, dict) else None
+    )
     mode=request.args.get("mode") or (data.get("mode") if isinstance(data,dict) else None) or "merge"
     sites=data.get("sites",[]) if isinstance(data,dict) else (data if isinstance(data,list) else [])
     if not sites: return jsonify({"error":"no sites in payload"}),400
@@ -379,6 +390,13 @@ def api_config_import():
                 for secret_key in SECRET_FIELDS:
                     if not cfg.get(secret_key) and old_cfg.get(secret_key):
                         cfg[secret_key] = old_cfg[secret_key]
+                _captcha_gate_input = dict(cfg)
+                _captcha_gate_input[CAPTCHA_EGRESS_ACK_FIELD] = (
+                    _captcha_import_ack)
+                _captcha_egress_error = captcha_egress_disclosure_error(
+                    _captcha_gate_input, old_cfg)
+                if _captcha_egress_error:
+                    return jsonify({"error": _captcha_egress_error}), 400
                 update_plan.append(
                     (existing_sid, cfg, dict(old_cfg), runners[existing_sid]))
                 continue
@@ -387,6 +405,13 @@ def api_config_import():
             while site_id in occupied_ids:
                 site_id = uuid.uuid4().hex[:8]
             occupied_ids.add(site_id)
+            _captcha_gate_input = dict(cfg)
+            _captcha_gate_input[CAPTCHA_EGRESS_ACK_FIELD] = (
+                _captcha_import_ack)
+            _captcha_egress_error = captcha_egress_disclosure_error(
+                _captcha_gate_input)
+            if _captcha_egress_error:
+                return jsonify({"error": _captcha_egress_error}), 400
             create_plan.append((site_id, cfg))
 
         # Constructors start scheduler and auto-retry owners.  Stage every

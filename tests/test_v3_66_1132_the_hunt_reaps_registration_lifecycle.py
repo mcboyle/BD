@@ -42,6 +42,7 @@ from test_v3_66_1132_the_hunt_reaps_what_it_abandons import (
     _W1_SLOW_SETTLEMENT_S,
     _load,
     _w1_adversarial_gate_program,
+    _w1_assert_fixture_group_probe,
     _w1_await_fifo,
     _w1_budget_boundary,
     _W1_POLICED,
@@ -279,10 +280,12 @@ def test_registration_receipt_drift_before_go_refuses_release(tmp_path, field):
     """Separate pgrp/starttime changes both block GO after registration."""
     mod = _load()
     marker = tmp_path / "workload-started"
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
         reap_seconds=3,
+        fixture_group_probe_log=group_probe_log,
     )
     bash_env, counter = _w1_process_probe_drift(
         tmp_path, field, after_calls=2, mutate_group=False)
@@ -298,6 +301,8 @@ def test_registration_receipt_drift_before_go_refuses_release(tmp_path, field):
     try:
         gate_pid, _ = _w1_wait_for_gate(rundir)
         rc = proc.wait(timeout=_w1_budget_s("registration_receipt_drift_before_go_refuses_release/wait"))
+        _w1_assert_fixture_group_probe(
+            group_probe_log, expected=15, present=1)
         assert rc == int(W1_RELEASE_FAILURE_CODE)
         assert counter.read_text().strip() == "3"
         assert not marker.exists()
@@ -660,11 +665,13 @@ def test_cooperative_registered_cancellation_returns_primary_status(tmp_path):
     mod = _load()
     marker = tmp_path / "workload-started"
     argv_log = tmp_path / "bd-jobs.argv"
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
         reap_seconds=3, reconcile_seconds=3,
         cancel_registered_failure=True,
+        fixture_group_probe_log=group_probe_log,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -675,6 +682,8 @@ def test_cooperative_registered_cancellation_returns_primary_status(tmp_path):
     result = subprocess.run(
         ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_w1_budget_s("cooperative_registered_cancellation_returns_primary_status/run"))
+    _w1_assert_fixture_group_probe(
+        group_probe_log, expected=15, present=1)
 
     assert not marker.exists()
     calls = argv_log.read_text(encoding="utf-8").splitlines()
@@ -716,6 +725,7 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
     checked_wait_log = tmp_path / "checked-wait-entered"
     deadline_probe = tmp_path / "handoff-deadlines"
     deadline_complete = tmp_path / "handoff-deadlines.complete"
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     gate_program = _w1_adversarial_gate_program(
         terminal_bytes=b"EX", terminal_suffix=b"EC\n",
         terminal_suffix_entered=entered, terminal_suffix_release=_release,
@@ -728,6 +738,7 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
         checked_wait_probe=checked_wait_log,
         handoff_deadline_probe=deadline_probe,
         handoff_deadline_complete=deadline_complete,
+        fixture_group_probe_log=group_probe_log,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -752,6 +763,8 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
             pre_deadline, post_deadline)
         rc = _w1_wait_for_exit_or_forbidden_checked_wait(
             proc, rundir, checked_wait_log, site="partial_handoff_frame_does_not_restart_the_protocol_budget/exit")
+        _w1_assert_fixture_group_probe(
+            group_probe_log, expected=11, present=1)
         assert not marker.exists()
         protocol = (rundir / "registration-gate.protocol").read_text()
         assert "writes=1" in protocol and "frame_hex=4558" in protocol
@@ -812,12 +825,14 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
     marker = tmp_path / "workload-started"
     registrar = tmp_path / "registrar-started"
     argv_log = tmp_path / "bd-jobs.argv"
+    group_probe_log = tmp_path / "fixture-group-probe.calls"
     reader, entered_fd, release = _w1_terminal_reader_barrier(mod, tmp_path)
     script, rundir = _w1_build_runner(
         mod, tmp_path,
         "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
         reap_seconds=3, reconcile_seconds=3,
         channel_reader_program=reader,
+        fixture_group_probe_log=group_probe_log,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -842,6 +857,8 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
             stream.write("continue\n")
         assert not marker.exists()
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait"))
+        _w1_assert_fixture_group_probe(
+            group_probe_log, expected=16, present=1)
         calls = argv_log.read_text(encoding="utf-8").splitlines()
         assert calls.count("reap --id stubhost-4242") == 1, calls
         evidence = (rundir / "jobid.err").read_text(encoding="utf-8")

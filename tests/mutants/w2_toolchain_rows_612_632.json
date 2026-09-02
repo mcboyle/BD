@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 612 and 632. The first two mutants remove bd-precut main()'s baseline derivation and tracked-denominator wiring; the band deliberately includes all five older row-463 unit tests so their continued PASS is visible beside the main-entry-point catcher. The remaining mutants remove each part of bd-imports' executable --shrink remedy.",
+  "subject": "w2-toolchain -- bd-precut main wiring and bd-imports shrink remedy",
+  "band": [
+    "tests/test_row463_precut_derives_its_baseline.py",
+    "tests/test_verify_lane_state_naming.py::test_row464_the_predictor_is_reported_beside_not_inside_the_gate_verdict"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bd-precut main no longer derives an absent baseline",
+      "file": "toolchain/bin/bd-precut",
+      "old": "if not baseline:\n        baseline, derived_reason",
+      "new": "if baseline:\n        baseline, derived_reason",
+      "direction": "regression",
+      "catcher": "tests/test_verify_lane_state_naming.py::test_row464_the_predictor_is_reported_beside_not_inside_the_gate_verdict"
+    },
+    {
+      "label": "M2 bd-precut omits the tracked-only denominator flag",
+      "file": "toolchain/bin/bd-precut",
+      "old": "cmd.append",
+      "new": "cmd.extend",
+      "direction": "regression",
+      "catcher": "tests/test_verify_lane_state_naming.py::test_row464_the_predictor_is_reported_beside_not_inside_the_gate_verdict"
+    },
+    {
+      "label": "M3 bd-imports no longer dispatches update mode",
+      "file": "toolchain/bin/bd-imports",
+      "old": "    if a.update:",
+      "new": "    if False:  # mutant ignores --update",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_bd_imports_executes_the_shrink_remedy_its_refusal_names"
+    },
+    {
+      "label": "M4 bd-imports forwards shrink without the operator declaration",
+      "file": "toolchain/bin/bd-imports",
+      "old": "a.shrink else",
+      "new": "a.update else",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_bd_imports_executes_the_shrink_remedy_its_refusal_names"
+    },
+    {
+      "label": "M5 bd-imports accepts shrink without update",
+      "file": "toolchain/bin/bd-imports",
+      "old": "    if a.shrink and not a.update:",
+      "new": "    if False:  # mutant accepts meaningless --shrink",
+      "direction": "regression",
+      "catcher": "tests/test_row463_precut_derives_its_baseline.py::test_bd_imports_executes_the_shrink_remedy_its_refusal_names"
+    }
+  ]
+}

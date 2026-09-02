@@ -18,6 +18,24 @@ from bulk_downloader import extension_vault as ev
 from bulk_downloader import secrets_store as ss
 
 
+def _assert_sites_file_state_returned(app_module, sites_file, sites_file_latch):
+    """Require both halves of app.py's patchable sites-file state by identity."""
+    assert app_module.SITES_FILE is sites_file, (
+        "test leaked app.SITES_FILE instead of returning the exact object "
+        f"received on entry: expected {sites_file!r}, got "
+        f"{app_module.SITES_FILE!r}")
+    assert app_module._SITES_FILE_LAST_AUTO_OBJECT is sites_file_latch, (
+        "test leaked app._SITES_FILE_LAST_AUTO_OBJECT instead of returning "
+        "the exact object received on entry")
+
+
+def test_transform_control_imports_app_without_asserting_test_cleanup():
+    """Mutation control: importing app alone does not constrain test hygiene."""
+    from bulk_downloader import app as app_module
+
+    assert app_module.__name__ == "bulk_downloader.app"
+
+
 # ── AF1: constant-time auth-token comparison ────────────────────────
 class TestAF1ConstantTime:
     def test_token_eq_matches_and_rejects(self):
@@ -43,6 +61,8 @@ class TestAF1ConstantTime:
     def test_gate_rejects_wrong_bearer_accepts_right(self, monkeypatch):
         from bulk_downloader import app as A
         monkeypatch.setenv("BD_AUTH_TOKEN", "right-secret")
+        original_sites_file = A.SITES_FILE
+        original_sites_file_latch = A._SITES_FILE_LAST_AUTO_OBJECT
         with tempfile.TemporaryDirectory() as td:
             cwd = os.getcwd(); os.chdir(td)
             try:
@@ -56,7 +76,88 @@ class TestAF1ConstantTime:
                 assert bad.status_code == 401
                 assert good.status_code != 401
             finally:
+                A.SITES_FILE = original_sites_file
+                A._SITES_FILE_LAST_AUTO_OBJECT = original_sites_file_latch
                 os.chdir(cwd)
+
+    def test_sites_file_state_check_rejects_each_changed_half(self, tmp_path):
+        """Negative control: the state check detects either half drifting."""
+        from bulk_downloader import app as A
+
+        saved_file = A.SITES_FILE
+        saved_latch = A._SITES_FILE_LAST_AUTO_OBJECT
+        expected = tmp_path / "expected-sites.json"
+        changed = Path(str(expected))
+        changed_latch = Path(str(expected))
+        assert expected == changed == changed_latch
+        assert expected is not changed and expected is not changed_latch
+        refusals = 0
+        try:
+            A.SITES_FILE = changed
+            A._SITES_FILE_LAST_AUTO_OBJECT = expected
+            with pytest.raises(AssertionError) as caught_file:
+                _assert_sites_file_state_returned(A, expected, expected)
+            assert "test leaked app.SITES_FILE" in str(caught_file.value)
+            refusals += 1
+
+            A.SITES_FILE = expected
+            A._SITES_FILE_LAST_AUTO_OBJECT = changed_latch
+            with pytest.raises(AssertionError) as caught_latch:
+                _assert_sites_file_state_returned(A, expected, expected)
+            assert "test leaked app._SITES_FILE_LAST_AUTO_OBJECT" in str(
+                caught_latch.value)
+            refusals += 1
+        finally:
+            A.SITES_FILE = saved_file
+            A._SITES_FILE_LAST_AUTO_OBJECT = saved_latch
+        assert refusals == 2, "both independent state leaks must be observable"
+
+    def test_auth_gate_returns_sites_file_process_globals(
+            self, monkeypatch, tmp_path):
+        """Booting in the auth test's temporary cwd must not poison a neighbour."""
+        from bulk_downloader import app as A
+
+        saved_file = A.SITES_FILE
+        saved_latch = A._SITES_FILE_LAST_AUTO_OBJECT
+        incoming_file = tmp_path / "incoming-sites.json"
+        incoming_latch = incoming_file
+        assert tmp_path.is_dir(), "the incoming sites-file parent must be live"
+        assert incoming_file is incoming_latch, (
+            "the fixture must begin with resolver-owned identity state")
+
+        real_publish = A._publish_sites_file_for_runtime
+        publications = []
+
+        def recording_publish(config_path):
+            real_publish(config_path)
+            publications.append(
+                (A.SITES_FILE, A._SITES_FILE_LAST_AUTO_OBJECT))
+
+        monkeypatch.setattr(A, "_publish_sites_file_for_runtime", recording_publish)
+        A.SITES_FILE = incoming_file
+        A._SITES_FILE_LAST_AUTO_OBJECT = incoming_latch
+        try:
+            self.test_gate_rejects_wrong_bearer_accepts_right(monkeypatch)
+
+            assert len(publications) == 3, (
+                "two real HTTP requests plus first-boot runtime activation must "
+                "publish exactly three times")
+            assert all(path is latch for path, latch in publications), (
+                "each real publication must update the path and identity latch together")
+            assert all(path is not incoming_file for path, _ in publications), (
+                "the control must prove boot actually replaced the incoming pin")
+            published_paths = {str(path) for path, _ in publications}
+            assert len(published_paths) == 1, publications
+            published_path = publications[-1][0]
+            assert not published_path.parent.exists(), (
+                "the auth test must have deleted the temporary directory whose "
+                "publication exercises the restoration seam")
+
+            _assert_sites_file_state_returned(
+                A, incoming_file, incoming_latch)
+        finally:
+            A.SITES_FILE = saved_file
+            A._SITES_FILE_LAST_AUTO_OBJECT = saved_latch
 
 
 # ── AF2: malformed secrets.json backed up, never wiped ──────────────

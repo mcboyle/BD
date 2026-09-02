@@ -4,7 +4,8 @@
 Wraps tools/decomp/import_graph_gate.py --check (the on-stash-only gate). If any
 NEW edge exists, lists them and reminds you to re-freeze IN THE SAME CUT with
 --update (separate from regenerating DEPENDENCY_GRAPH.json).
-Usage: bd-imports [--work DIR] [--update]   Exit 1 if undeclared edges exist.
+Usage: bd-imports [--work DIR] [--update [--shrink]]
+       Exit 1 if undeclared edges exist or a re-freeze is refused.
 """
 import argparse, os, subprocess, sys
 import os as _oscli, sys as _syscli
@@ -44,17 +45,24 @@ def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
     ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
-    ap.add_argument("--update",action="store_true"); a=ap.parse_args()
+    ap.add_argument("--update",action="store_true")
+    ap.add_argument("--shrink",action="store_true",
+                    help="with --update: deliberately drop frozen edges")
+    a=ap.parse_args()
+    if a.shrink and not a.update:
+        ap.error("--shrink is only meaningful with --update")
+    if a.update:
+        update_args=["--update"] + (["--shrink"] if a.shrink else [])
+        rc,out=gate(a.work,*update_args)
+        if rc is None: print(f"{R}import_graph_gate.py not found{RST}"); return 1
+        print(f"{G}re-froze baseline{RST}" if rc==0 else f"{R}--update failed{RST}\n{out[-300:]}")
+        return 0 if rc==0 else 1
     rc,out=gate(a.work,"--check")
     if rc is None: print(f"{R}import_graph_gate.py not found{RST}"); return 1
     if rc==0:
         print(f"{G}OK{RST} no new import edges (baseline current)"); return 0
     print(f"{Y}new import edge(s) detected:{RST}")
     _,lst=gate(a.work,"--list"); print((lst or out).strip()[:1500])
-    if a.update:
-        rc2,o2=gate(a.work,"--update")
-        print(f"{G}re-froze baseline{RST}" if rc2==0 else f"{R}--update failed{RST}\n{o2[-300:]}")
-        return 0 if rc2==0 else 1
     print(f"{DIM}intended? re-freeze in THIS cut: bd-imports --update  "
           f"(then also regen DEPENDENCY_GRAPH). band test_import_graph_no_new_edges.py{RST}")
     return 1

@@ -1,0 +1,67 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "h1132. The production group census deliberately fails closed over the complete /proc population. These mutants challenge the narrower test-only seam used by the eleven load-sensitive fixtures: unrelated rows are outside that fixture denominator, but missing, malformed, or identity-drifted target rows remain ABSENT/UNKNOWN as appropriate; every call is counted; and the filed population is structurally reconciled. The paired transform-control spec applies M1 to an import-only node and must ESCAPE.",
+  "subject": "h1132 -- non-census hunt fixtures do not derive their verdict from unrelated ambient /proc churn",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_all_eleven_load_sensitive_fixtures_have_a_nonambient_precondition"
+  ],
+  "mutants": [
+    {
+      "label": "M1 fixture silently falls back to the ambient whole-host production census",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "    return scoped",
+      "new": "    return program",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty"
+    },
+    {
+      "label": "M2 missing target leader becomes UNKNOWN instead of proved ABSENT",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old_regex": "(?m)^        except FileNotFoundError:(?=\\n            result = \\\"ABSENT\\\"\\n        except \\(ProcessLookupError)",
+      "new": "        except PermissionError:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty"
+    },
+    {
+      "label": "M3 malformed target leader is laundered into ABSENT",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old": "        except (ProcessLookupError, PermissionError, OSError, ValueError,\n                IndexError):",
+      "new": "        except (ProcessLookupError, PermissionError, OSError,\n                IndexError):",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty"
+    },
+    {
+      "label": "M4 target identity drift is laundered into ABSENT",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old_regex": "(?m)^            else:(?=\\n                result = \\\"UNKNOWN\\\"\\n    with open\\(\\{str\\(call_log\\)!r\\})",
+      "new": "            elif pid < 0:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty"
+    },
+    {
+      "label": "M5 fixture probe stops recording its measured call denominator",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old_regex": "(?m)^    with(?= open\\(\\{str\\(call_log\\)!r\\}, \\\"a\\\", encoding=\\\"ascii\\\"\\) as stream:$)",
+      "new": "    if False:\n        with",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_fixture_group_probe_excludes_unrelated_proc_rows_but_not_target_uncertainty"
+    },
+    {
+      "label": "M6 one filed load-sensitive fixture returns to ambient census",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
+      "old_regex": "(?m)(?<=^        handoff_deadline_complete=deadline_complete,\\n)        fixture_group_probe_log(?==group_probe_log,$)",
+      "new": "        mutant_fixture_group_probe_log",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_all_eleven_load_sensitive_fixtures_have_a_nonambient_precondition"
+    },
+    {
+      "label": "M7 ordinary runner fixtures are forced through the scoped census",
+      "file": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
+      "old_regex": "(?m)^    if(?= fixture_group_probe_log is not None:$)",
+      "new": "    if True or",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_all_eleven_load_sensitive_fixtures_have_a_nonambient_precondition"
+    }
+  ]
+}

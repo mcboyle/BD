@@ -14,7 +14,11 @@ import uuid
 from flask import Blueprint, Response, jsonify, request
 from pathlib import Path
 from .constants import SCREENSHOTS_DIR
-from .runner import SiteRunner
+from .runner import (
+    CAPTCHA_EGRESS_ACK_FIELD,
+    SiteRunner,
+    captcha_egress_disclosure_error,
+)
 from .runner import _ts
 from datetime import datetime
 from .db import db_search
@@ -183,6 +187,18 @@ def api_sites_import():
     # Create the site via the same path as api_add — but inline here so
     # we don't double-handle the request body.
     cfg_in = result["config"]
+    # Row 395: this route historically inlined creation and therefore does not
+    # pass through _create_site.  Apply the same one-shot paid-egress gate before
+    # allocating any site identity.
+    _captcha_gate_input = dict(cfg_in)
+    if isinstance(payload, dict):
+        _captcha_gate_input[CAPTCHA_EGRESS_ACK_FIELD] = payload.get(
+            CAPTCHA_EGRESS_ACK_FIELD)
+    _captcha_egress_error = captcha_egress_disclosure_error(_captcha_gate_input)
+    if _captcha_egress_error:
+        return jsonify({"ok": False,
+                        "errors": [_captcha_egress_error],
+                        "warnings": result["warnings"]}), 400
     # Normalize the display name (same as api_add does)
     if "name" in cfg_in:
         cfg_in["name"] = _sanitize_display_name(cfg_in["name"])

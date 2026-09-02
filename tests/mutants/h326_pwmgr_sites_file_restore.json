@@ -1,0 +1,28 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "h326. Both exact-once mutants remove one half of the auth test's process-global app sites-file restoration. The behavioral catcher drives two real guarded HTTP requests inside the real TemporaryDirectory, proves exactly three publications (the requests plus first-boot runtime activation), proves the published parent is deleted, and then requires both incoming objects back by identity. The negative control proves either half drifting is independently observable. The companion transform-control spec applies M1 under an import-only test and must ESCAPE.",
+  "subject": "the password-manager auth test returns app.SITES_FILE and its identity latch exactly as found",
+  "band": [
+    "tests/test_v3_66_41_pwmgr_audit_followups.py::TestAF1ConstantTime::test_gate_rejects_wrong_bearer_accepts_right",
+    "tests/test_v3_66_41_pwmgr_audit_followups.py::TestAF1ConstantTime::test_sites_file_state_check_rejects_each_changed_half",
+    "tests/test_v3_66_41_pwmgr_audit_followups.py::TestAF1ConstantTime::test_auth_gate_returns_sites_file_process_globals"
+  ],
+  "mutants": [
+    {
+      "label": "M1 auth test leaves app.SITES_FILE pinned inside its deleted temporary directory",
+      "file": "tests/test_v3_66_41_pwmgr_audit_followups.py",
+      "old": "                A.SITES_FILE = original_sites_file\n",
+      "new": "                A.SITES_FILE = A.SITES_FILE\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_41_pwmgr_audit_followups.py::TestAF1ConstantTime::test_auth_gate_returns_sites_file_process_globals"
+    },
+    {
+      "label": "M2 auth test leaves app._SITES_FILE_LAST_AUTO_OBJECT pinned inside its deleted temporary directory",
+      "file": "tests/test_v3_66_41_pwmgr_audit_followups.py",
+      "old": "                A._SITES_FILE_LAST_AUTO_OBJECT = original_sites_file_latch\n",
+      "new": "                A._SITES_FILE_LAST_AUTO_OBJECT = A._SITES_FILE_LAST_AUTO_OBJECT\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_41_pwmgr_audit_followups.py::TestAF1ConstantTime::test_auth_gate_returns_sites_file_process_globals"
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import concurrent.futures
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 from itertools import repeat
@@ -496,3 +497,245 @@ def test_a_genuine_escape_still_exits_one(tmp_path):
     assert run.returncode == 1, run.stdout + run.stderr
     payload = json.loads(run.stdout[run.stdout.index("{"):])
     assert payload["rows"][0]["verdict"] == "ESCAPED", payload
+
+
+# Backlog row 27, omission slice.  A behavior-changing cut does not expose a
+# reliable syntactic bit saying that it needed a mutation battery.  A cut that
+# publishes a quantitative mutation receipt does expose a narrower, objective
+# fact: durable evidence must accompany the receipt.  These immutable releases
+# are the RED case, a legitimate regression-only case, and the executable
+# over-correction case respectively.
+_MUTATION_SPEC_ADOPTION = "d2b0ad1e91e94ec840dfb821f12c99babd3b21e3"
+_LIVE_RECEIPT_WITHOUT_SPEC = "4d8c85570456a825a04ce26ecf46e4689082b41c"
+_LATER_LIVE_RECEIPT_WITHOUT_SPEC = "f993f654fab2977aed196645a609a7235d29de26"
+_KNOWN_RECEIPT_EVIDENCE_OMISSIONS = frozenset({
+    _LIVE_RECEIPT_WITHOUT_SPEC,
+    _LATER_LIVE_RECEIPT_WITHOUT_SPEC,
+})
+_LEGITIMATE_NO_RECEIPT = "f65712e4bd26387caa94b5dcde99064bf85e8751"
+_LEGITIMATE_REGRESSION_ONLY_RECEIPT = "c7b207f8de079f29ed47b2d09ab5ec19a88149f7"
+_EXECUTABLE_OVERCORRECTION_RECEIPT = "9514266bfc1c433e162045a0925e47ccfd0b5c8d"
+
+
+def _mutation_evidence_auditor():
+    namespace = runpy.run_path(
+        str(_TOOL), run_name="bd_mutate_release_evidence_contract"
+    )
+    auditor = namespace.get("_audit_release_mutation_evidence")
+    assert callable(auditor), (
+        "bd-mutate has no release mutation-evidence auditor; quantitative "
+        "receipts cannot be checked for omitted durable specs"
+    )
+    return auditor
+
+
+def _synthetic_worktree_receipt(
+    tmp_path: Path, *, explicit_control: bool, with_spec: bool = True
+) -> dict:
+    (tmp_path / "tests" / "mutants").mkdir(parents=True)
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## v1.0.0 - baseline\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "add", "--", "CHANGELOG.md"], cwd=tmp_path, check=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Row 27 Test",
+            "-c",
+            "user.email=row27@example.invalid",
+            "commit",
+            "-qm",
+            "baseline",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    control_claim = (
+        " M1 is an explicit OVERCORRECTION mutant."
+        if explicit_control else ""
+    )
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## v1.0.1 - candidate\n\n"
+        f"- MUTATION: 1 CAUGHT, 0 ESCAPED.{control_claim}\n\n"
+        "## v1.0.0 - baseline\n",
+        encoding="utf-8",
+    )
+    if with_spec:
+        (tmp_path / "tests" / "mutants" / "v3_66_1_synthetic.json").write_text(
+            json.dumps({
+                "schema": _SCHEMA,
+                "_comment": "synthetic regression-only receipt",
+                "subject": "a regression-only battery is legitimate unless OC is claimed",
+                "band": ["tests/test_m.py"],
+                "mutants": [{
+                    "label": "regression only",
+                    "file": "m.py",
+                    "old": "VALUE = 1",
+                    "new": "VALUE = 2",
+                    "direction": "regression",
+                    "catcher": "tests/test_m.py::test_value",
+                }],
+            }),
+            encoding="utf-8",
+        )
+    return _mutation_evidence_auditor()(tmp_path, None)
+
+
+def _changelog_revisions_since_adoption() -> list[str]:
+    run = subprocess.run(
+        [
+            "git",
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"{_MUTATION_SPEC_ADOPTION}^..HEAD",
+            "--",
+            "CHANGELOG.md",
+        ],
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    revisions = run.stdout.splitlines()
+    assert revisions and revisions[0] == _MUTATION_SPEC_ADOPTION, (
+        "mutation-spec adoption history is absent or truncated: "
+        f"{revisions[:3]}"
+    )
+    assert len(revisions) == len(set(revisions)), revisions
+    return revisions
+
+
+def test_the_live_quantitative_receipt_without_a_spec_is_detected():
+    """RED: v1218 said 3/3 caught but added no durable mutation spec."""
+    record = _mutation_evidence_auditor()(
+        _REPO, _LIVE_RECEIPT_WITHOUT_SPEC
+    )
+
+    assert record["quantitative_receipt"], record
+    assert record["specs"] == [], record
+    assert record["problems"] == [
+        "quantitative mutation receipt has no same-cut durable mutation spec"
+    ], record
+
+
+def test_the_later_live_quantitative_receipt_without_a_spec_is_detected():
+    """The stranded gate also exposes v1395's immutable missing evidence."""
+    record = _mutation_evidence_auditor()(
+        _REPO, _LATER_LIVE_RECEIPT_WITHOUT_SPEC
+    )
+
+    assert record["quantitative_receipt"], record
+    assert record["specs"] == [], record
+    assert record["problems"] == [
+        "quantitative mutation receipt has no same-cut durable mutation spec"
+    ], record
+
+
+def test_a_quantified_regression_only_battery_legitimately_needs_no_control():
+    """The slice must not turn every mutation receipt into an OC policy."""
+    record = _mutation_evidence_auditor()(
+        _REPO, _LEGITIMATE_REGRESSION_ONLY_RECEIPT
+    )
+
+    assert record["quantitative_receipt"], record
+    assert record["specs"] == [
+        "tests/mutants/v3_66_1225_spa_scanner_populations.json"
+    ], record
+    assert not record["explicit_overcorrection_mutant"], record
+    assert record["overcorrection_controls"] == [], record
+    assert record["problems"] == [], record
+
+
+def test_a_cut_with_no_quantitative_receipt_needs_neither_spec_nor_control():
+    """v1189 changed mutation machinery but claimed no executed battery."""
+    record = _mutation_evidence_auditor()(_REPO, _LEGITIMATE_NO_RECEIPT)
+
+    assert not record["quantitative_receipt"], record
+    assert record["specs"] == [], record
+    assert record["overcorrection_controls"] == [], record
+    assert record["problems"] == [], record
+
+
+def test_an_explicit_overcorrection_mutant_claim_has_an_executable_control():
+    record = _mutation_evidence_auditor()(
+        _REPO, _EXECUTABLE_OVERCORRECTION_RECEIPT
+    )
+
+    assert record["quantitative_receipt"], record
+    assert record["explicit_overcorrection_mutant"], record
+    assert record["overcorrection_controls"], record
+    assert all(item["control"] and item["preserves"]
+               for item in record["overcorrection_controls"]), record
+    assert record["problems"] == [], record
+
+
+def test_an_explicit_overcorrection_claim_without_a_control_is_detected(tmp_path):
+    record = _synthetic_worktree_receipt(tmp_path, explicit_control=True)
+
+    assert record["quantitative_receipt"], record
+    assert record["explicit_overcorrection_mutant"], record
+    assert record["overcorrection_controls"] == [], record
+    assert record["problems"] == [
+        "explicit overcorrection mutant claim has no executable named control"
+    ], record
+
+
+def test_an_uncommitted_quantitative_receipt_without_a_spec_is_detected(tmp_path):
+    record = _synthetic_worktree_receipt(
+        tmp_path, explicit_control=False, with_spec=False
+    )
+
+    assert record["quantitative_receipt"], record
+    assert record["specs"] == [], record
+    assert record["problems"] == [
+        "quantitative mutation receipt has no same-cut durable mutation spec"
+    ], record
+
+
+def test_a_synthetic_regression_only_receipt_does_not_demand_a_control(tmp_path):
+    record = _synthetic_worktree_receipt(tmp_path, explicit_control=False)
+
+    assert record["quantitative_receipt"], record
+    assert not record["explicit_overcorrection_mutant"], record
+    assert record["specs"] == [
+        "tests/mutants/v3_66_1_synthetic.json"
+    ], record
+    assert record["overcorrection_controls"] == [], record
+    assert record["problems"] == [], record
+
+
+def test_every_other_receipt_carries_its_durable_evidence():
+    """Close the denominator while naming immutable historical omissions."""
+    revisions = _changelog_revisions_since_adoption()
+    auditor = _mutation_evidence_auditor()
+    records = [auditor(_REPO, revision) for revision in revisions]
+    receipts = [record for record in records if record["quantitative_receipt"]]
+    overcorrections = [
+        record for record in receipts
+        if record["explicit_overcorrection_mutant"]
+    ]
+    failures = [record for record in records if record["problems"]]
+    failures_by_revision = {
+        record["revision"]: record["problems"] for record in failures
+    }
+    worktree = auditor(_REPO, None)
+
+    assert receipts, "quantitative mutation-receipt denominator is 0"
+    assert overcorrections, "explicit over-correction receipt denominator is 0"
+    assert len(records) == len(revisions), (
+        f"audited {len(records)} of {len(revisions)} CHANGELOG transitions"
+    )
+    assert failures_by_revision == {
+        revision: [
+            "quantitative mutation receipt has no same-cut durable mutation spec"
+        ]
+        for revision in _KNOWN_RECEIPT_EVIDENCE_OMISSIONS
+    }, failures
+    assert not worktree["problems"], worktree

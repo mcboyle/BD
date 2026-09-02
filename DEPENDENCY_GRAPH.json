@@ -2366,7 +2366,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1701,
+    "edge_count": 1702,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3588,6 +3588,7 @@
         "bulk_downloader/app_analyzer.py",
         "bulk_downloader/app_captures.py",
         "bulk_downloader/app_selftest.py",
+        "bulk_downloader/backup.py",
         "bulk_downloader/drift_repair.py",
         "bulk_downloader/retention.py",
         "bulk_downloader/selftest.py"
@@ -6156,6 +6157,9 @@
         "bulk_downloader/backup_verify.py",
         "bulk_downloader/db.py",
         "bulk_downloader/disco_runner.py"
+      ],
+      "bulk_downloader/backup.py": [
+        "bulk_downloader/dom_analyzer.py"
       ],
       "bulk_downloader/backup_verify.py": [
         "bulk_downloader/db.py",

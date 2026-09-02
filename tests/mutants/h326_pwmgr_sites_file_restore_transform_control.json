@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "h326 transform control. This deliberately must report one valid ESCAPED mutant: it applies the byte-identical M1 transform but runs only a test that imports bulk_downloader.app without invoking or asserting the auth test's cleanup. Escape proves the main M1 catch is behavioral rather than a parse, collection, or import failure.",
+  "subject": "transform-only control for the password-manager test's sites-file restoration",
+  "band": [
+    "tests/test_v3_66_41_pwmgr_audit_followups.py::test_transform_control_imports_app_without_asserting_test_cleanup"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 app.SITES_FILE restoration is absent while an import-only control stays green",
+      "file": "tests/test_v3_66_41_pwmgr_audit_followups.py",
+      "old": "                A.SITES_FILE = original_sites_file\n",
+      "new": "                A.SITES_FILE = A.SITES_FILE\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_41_pwmgr_audit_followups.py::test_transform_control_imports_app_without_asserting_test_cleanup"
+    }
+  ]
+}

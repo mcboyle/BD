@@ -503,6 +503,11 @@ _DECLARED = {
     # than rewriting generated artifacts beneath sibling workers.
     "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+    # Row 649. These recovered module contracts had never reached main; their
+    # explicit declarations are paired with the recovered-contracts CI shard.
+    "tests/test_row089_capture_corpus_backup_restore.py",
+    "tests/test_row090_global_run_cap.py",
+    "tests/test_row395_captcha_egress_disclosure.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     # Row 357. Anchor fragility is a whole-population property: no changed
     # subject path can make a diff router select the gate that audits every
@@ -939,6 +944,9 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row349_shared_caches_are_identity_bound.py",  # module
     "tests/test_row350_job_api_durable_truth.py",  # module
     "tests/test_row356_cookie_quality_reports_unknown.py",  # module
+    "tests/test_row089_capture_corpus_backup_restore.py",  # module
+    "tests/test_row090_global_run_cap.py",  # module
+    "tests/test_row395_captcha_egress_disclosure.py",  # module
     "tests/test_row360_turnstile_bypass_is_installed.py",  # module
     "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",  # module
     "tests/test_row363_affordance_learning.py",  # module

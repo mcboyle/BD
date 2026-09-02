@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 511. The mutation changes exactly one pre-existing physical row without changing the derived row count, between candidate construction and the suffix guard. It must ESCAPE on the defective parent and be CAUGHT by the repaired guard's distinctive refusal.",
+  "subject": "register append validates its candidate against the pre-append register",
+  "band": [
+    "tests/test_register_append.py::test_row511_count_preserving_rewrite_mutant_reaches_the_suffix_guard"
+  ],
+  "mutants": [
+    {
+      "label": "M1 candidate rewrites one pre-existing row before suffix validation",
+      "file": "toolchain/bin/bd-register-append",
+      "old_regex": "(?m)(?<=^            derived_rows, opened, new_digest, _ = _derive_backlog\\(repo, )appended(?=\\)$)",
+      "new": "(appended := appended.replace(\"| 401 | OPEN | preserved before |\", \"| 401 | OPEN | rewritten before |\", 1))",
+      "direction": "regression",
+      "catcher": "tests/test_register_append.py::test_row511_count_preserving_rewrite_mutant_reaches_the_suffix_guard"
+    }
+  ]
+}

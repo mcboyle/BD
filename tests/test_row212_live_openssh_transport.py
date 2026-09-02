@@ -27,10 +27,15 @@ import subprocess
 import threading
 from pathlib import Path
 
+import pytest
+
 BD_GATE_SCOPE = "module"
 
 REPO = Path(__file__).resolve().parents[1]
 TOOL = REPO / "toolchain" / "bin" / "bd-jobs"
+SESSION_BEGIN = "BD-OPENSSH-SESSION-PAYLOAD-BEGIN"
+SESSION_END = "BD-OPENSSH-SESSION-PAYLOAD-END"
+ACCEPTANCE_TOKEN = "BD-OPENSSH-ACCEPTED"
 jobs = importlib.machinery.SourceFileLoader(
     "bd_jobs_row212_openssh", str(TOOL)).load_module()
 
@@ -61,10 +66,11 @@ def _new_key(ssh_keygen, path):
 class _OneShotSshd:
     """Give one loopback socket to ``sshd -i``; no daemon needs killing."""
 
-    def __init__(self, sshd, host_key, authorized_keys):
+    def __init__(self, sshd, host_key, authorized_keys, *, force_command=None):
         self._sshd = sshd
         self._host_key = host_key
         self._authorized_keys = authorized_keys
+        self._force_command = force_command
         self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._listener.bind(("127.0.0.1", 0))
@@ -109,8 +115,12 @@ class _OneShotSshd:
                 "-o", "LoginGraceTime=10",
                 "-o", "ClientAliveInterval=5",
                 "-o", "ClientAliveCountMax=1",
+                "-o", "PermitUserRC=no",
                 "-o", "LogLevel=VERBOSE",
             ]
+            assert self._force_command is not None, (
+                "live OpenSSH account isolation is UNKNOWN: no forced session")
+            argv.extend(("-o", "ForceCommand=%s" % self._force_command))
             process = subprocess.Popen(
                 argv, stdin=connection, stdout=connection,
                 stderr=subprocess.PIPE, text=True, close_fds=True)
@@ -178,6 +188,63 @@ def _keys(tmp_path):
     return ssh, sshd, host_key, allowed_key, denied_key, authorized_keys
 
 
+def _forced_session(tmp_path, injected_line=None):
+    remote_home = tmp_path / "remote-home"
+    remote_home.mkdir()
+    wrapper = tmp_path / "force-command"
+    injection = ""
+    if injected_line is not None:
+        injection = "printf '%s\\n'\n" % injected_line
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "export HOME=%s\n" % shlex.quote(str(remote_home))
+        + injection
+        + 'exec /bin/sh -c "$SSH_ORIGINAL_COMMAND"\n',
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o700)
+    return wrapper, remote_home
+
+
+def _framed_probe(remote_home, token=ACCEPTANCE_TOKEN):
+    return (
+        "test \"$HOME\" = %s && printf '%%s\\n' %s %s %s"
+        % (shlex.quote(str(remote_home)), shlex.quote(SESSION_BEGIN),
+           shlex.quote(token), shlex.quote(SESSION_END))
+    )
+
+
+def _assert_clean_transport(result, expected=ACCEPTANCE_TOKEN + "\n"):
+    if result.returncode != 0:
+        raise AssertionError(
+            "live OpenSSH session baseline is UNKNOWN: control exited %d: %s"
+            % (result.returncode, result.stderr))
+    begin = SESSION_BEGIN + "\n"
+    end = SESSION_END + "\n"
+    begin_count = result.stdout.count(begin)
+    end_count = result.stdout.count(end)
+    if begin_count != 1 or end_count != 1 or (
+            result.stdout.find(begin) > result.stdout.find(end)):
+        raise AssertionError(
+            "live OpenSSH session baseline is UNKNOWN: framing tokens appeared "
+            "begin=%d end=%d times" % (begin_count, end_count))
+    before, framed = result.stdout.split(begin)
+    payload, after = framed.split(end)
+    session_output = before + after
+    if session_output:
+        account = pwd.getpwuid(os.getuid()).pw_name
+        byte_count = len(session_output.encode("utf-8"))
+        raise AssertionError(
+            "live OpenSSH account environment is not isolated: account=%s "
+            "contributed %d byte(s): %r"
+            % (account, byte_count, session_output))
+    if payload != expected:
+        raise AssertionError(
+            "live OpenSSH transport mismatch: expected %r, observed %r"
+            % (expected, payload))
+    return session_output, payload
+
+
 def test_ordinary_remote_calls_keep_the_existing_operator_argv():
     assert jobs._ssh_argv("target.example", "true") == [
         "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--",
@@ -190,13 +257,17 @@ def test_real_openssh_accepts_the_bd_jobs_transport(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "%s:/bin" % Path(ssh).parent)
     monkeypatch.setenv("LC_ALL", "C")
 
-    with _OneShotSshd(sshd, host_key, authorized) as server:
+    wrapper, remote_home = _forced_session(tmp_path)
+    assert wrapper.parent == tmp_path and remote_home.parent == tmp_path
+    assert wrapper.is_file() and remote_home.is_dir()
+    with _OneShotSshd(
+            sshd, host_key, authorized, force_command=wrapper) as server:
         assert server.address[0] == "127.0.0.1"
         config = _client_config(
             tmp_path, server.address[1], allowed_key,
             host_key.with_suffix(".pub"))
         argv = jobs._ssh_argv(
-            "row212-loopback", "printf 'BD-OPENSSH-ACCEPTED\\n'",
+            "row212-loopback", _framed_probe(remote_home),
             config=config)
         assert argv[0:3] == ["ssh", "-F", str(config)], argv
 
@@ -206,15 +277,97 @@ def test_real_openssh_accepts_the_bd_jobs_transport(tmp_path, monkeypatch):
             phase="the live OpenSSH acceptance probe")
         sshd_result = server.finish()
 
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "BD-OPENSSH-ACCEPTED\n", result.stdout
+    baseline, payload = _assert_clean_transport(result)
+    assert baseline == ""
+    assert payload.count(ACCEPTANCE_TOKEN + "\n") == 1, payload
     assert complete is True and note == ""
     # In inetd mode sshd reports 255 when the successful client disconnects;
     # the client status/output above is the command verdict.  The server log is
     # the independent authentication precondition, not a second exit verdict.
     assert sshd_result is not None, sshd_result
     assert "Accepted key" in sshd_result[2], sshd_result
-    assert "Failed publickey" not in sshd_result[2], sshd_result
+    assert sshd_result[2].count("Failed publickey") == 0, sshd_result
+
+
+def test_account_output_is_unknown_not_a_transport_failure(
+        tmp_path, monkeypatch):
+    ssh, sshd, host_key, allowed_key, _denied, authorized = _keys(tmp_path)
+    monkeypatch.setenv("PATH", "%s:/bin" % Path(ssh).parent)
+    monkeypatch.setenv("LC_ALL", "C")
+    injection = "BD-ACCOUNT-INJECTION"
+    wrapper, remote_home = _forced_session(tmp_path, injection)
+
+    with _OneShotSshd(
+            sshd, host_key, authorized, force_command=wrapper) as server:
+        config = _client_config(
+            tmp_path, server.address[1], allowed_key,
+            host_key.with_suffix(".pub"))
+        argv = jobs._ssh_argv(
+            "row212-loopback", _framed_probe(remote_home), config=config)
+        server.start()
+        result, complete, note = jobs._run_remote(
+            argv, jobs._RemoteDeadline(total=20, reserve=5),
+            phase="the injected live OpenSSH account control")
+        sshd_result = server.finish()
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.count(injection + "\n") == 1, result.stdout
+    assert result.stdout.count(SESSION_BEGIN + "\n") == 1, result.stdout
+    assert result.stdout.count(SESSION_END + "\n") == 1, result.stdout
+    assert result.stdout.count(ACCEPTANCE_TOKEN + "\n") == 1, result.stdout
+    with pytest.raises(AssertionError, match="account environment") as caught:
+        _assert_clean_transport(result)
+    assert str(caught.value).count("account environment") == 1
+    assert "transport mismatch" not in str(caught.value)
+    assert complete is True and note == ""
+    assert sshd_result is not None, sshd_result
+    assert "Accepted key" in sshd_result[2], sshd_result
+
+
+def test_one_byte_probe_change_remains_a_transport_failure(
+        tmp_path, monkeypatch):
+    ssh, sshd, host_key, allowed_key, _denied, authorized = _keys(tmp_path)
+    monkeypatch.setenv("PATH", "%s:/bin" % Path(ssh).parent)
+    monkeypatch.setenv("LC_ALL", "C")
+    wrapper, remote_home = _forced_session(tmp_path)
+    altered = ACCEPTANCE_TOKEN[:-1] + "E"
+    assert len(altered) == len(ACCEPTANCE_TOKEN)
+    assert sum(left != right for left, right in zip(
+        altered, ACCEPTANCE_TOKEN)) == 1
+
+    with _OneShotSshd(
+            sshd, host_key, authorized, force_command=wrapper) as server:
+        config = _client_config(
+            tmp_path, server.address[1], allowed_key,
+            host_key.with_suffix(".pub"))
+        argv = jobs._ssh_argv(
+            "row212-loopback", _framed_probe(remote_home, altered),
+            config=config)
+        server.start()
+        result, complete, note = jobs._run_remote(
+            argv, jobs._RemoteDeadline(total=20, reserve=5),
+            phase="the altered live OpenSSH transport control")
+        sshd_result = server.finish()
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith(SESSION_BEGIN + "\n"), result.stdout
+    with pytest.raises(AssertionError, match="transport mismatch") as caught:
+        _assert_clean_transport(result)
+    assert str(caught.value).count("transport mismatch") == 1
+    assert "UNKNOWN" not in str(caught.value)
+    assert complete is True and note == ""
+    assert sshd_result is not None, sshd_result
+    assert "Accepted key" in sshd_result[2], sshd_result
+
+
+def test_an_unmeasurable_session_baseline_is_unknown():
+    result = subprocess.CompletedProcess(
+        args=["ssh"], returncode=0, stdout=ACCEPTANCE_TOKEN + "\n",
+        stderr="")
+    with pytest.raises(AssertionError, match="baseline is UNKNOWN") as caught:
+        _assert_clean_transport(result)
+    assert str(caught.value).count("baseline is UNKNOWN") == 1
+    assert "transport mismatch" not in str(caught.value)
 
 
 def test_real_openssh_rejects_an_unauthorized_key(tmp_path, monkeypatch):
@@ -222,8 +375,10 @@ def test_real_openssh_rejects_an_unauthorized_key(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "%s:/bin" % Path(ssh).parent)
     monkeypatch.setenv("LC_ALL", "C")
     command_marker = tmp_path / "unauthorized-command-ran"
+    wrapper, _remote_home = _forced_session(tmp_path)
 
-    with _OneShotSshd(sshd, host_key, authorized) as server:
+    with _OneShotSshd(
+            sshd, host_key, authorized, force_command=wrapper) as server:
         config = _client_config(
             tmp_path, server.address[1], denied_key,
             host_key.with_suffix(".pub"))
@@ -244,5 +399,5 @@ def test_real_openssh_rejects_an_unauthorized_key(tmp_path, monkeypatch):
         "the unauthorized key reached the remote command")
     assert complete is True and note == ""
     assert sshd_result is not None, sshd_result
-    assert "Failed publickey" in sshd_result[2], sshd_result
-    assert "Accepted key" not in sshd_result[2], sshd_result
+    assert sshd_result[2].count("Failed publickey") == 1, sshd_result
+    assert sshd_result[2].count("Accepted key") == 0, sshd_result

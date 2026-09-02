@@ -35,6 +35,27 @@ HEADER = re.compile(
     r"<!-- canonical-task-register schema=1 rows=\d+ open=\d+ "
     r"ids-sha256=[0-9a-f]{64} -->"
 )
+SUFFIX_DIAGNOSTIC = "append would change a physical row outside the proposed suffix"
+
+
+_REFUSAL_CASES = (
+    ("stale digest", ["| 403 | OPEN | new work |"], {"expected_ids_sha256": "0" * 64}, "compare-and-swap canonical header digest mismatch"),
+    ("duplicate proposed id", ["| 403 | OPEN | one |", "| 403 | OPEN | two |"], {}, "unique numeric IDs"),
+    ("existing id", ["| 401 | OPEN | duplicate |"], {}, "already exists"),
+    ("out of order", ["| 405 | OPEN | later |", "| 403 | OPEN | earlier |"], {}, "numeric insertion order"),
+    ("not after existing IDs", ["| 400 | OPEN | late physical insertion |"], {}, "numeric insertion order"),
+    ("not open", ["| 403 | CLOSED @1 | false claim |"], {}, "exactly OPEN"),
+    ("open evidence", ["| 403 | OPEN @1 | false claim |"], {}, "exactly OPEN"),
+    ("empty item", ["| 403 | OPEN |  |"], {}, "non-empty item"),
+    ("embedded pipe", ["| 403 | OPEN | unsafe | extra |"], {}, "exactly four table pipes"),
+    ("embedded newline", ["| 403 | OPEN | unsafe\ntext |"], {}, "without newline or pipe"),
+    ("NUL item", ["| 403 | OPEN | unsafe\x00text |"], {}, "printable ASCII"),
+    ("TAB item", ["| 403 | OPEN | unsafe\ttext |"], {}, "printable ASCII"),
+    ("DEL item", ["| 403 | OPEN | unsafe\x7ftext |"], {}, "printable ASCII"),
+    ("non-ascii", ["| 403 | OPEN | caf\u00e9 |"], {}, "ASCII JSON object"),
+    ("wrong schema", ["| 403 | OPEN | new work |"], {"schema": "bd-register-append/v2"}, "schema must be bd-register-append/v1"),
+    ("extra request key", ["| 403 | OPEN | new work |"], {"unexpected": "value"}, "exactly the bd-register-append/v1 schema"),
+)
 
 
 def _derive(repo: Path, text: str) -> tuple[int, int, str, list[str]]:
@@ -259,30 +280,89 @@ def test_appends_a_numerically_ordered_batch_as_one_publication(tmp_path: Path) 
     assert after.splitlines()[2] == _marker(repo, after)
 
 
+def test_an_ordinary_append_preserves_every_old_row_and_adds_exactly_the_suffix(
+    tmp_path: Path,
+) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    before = register.read_text(encoding="ascii")
+    before_rows = re.findall(r"^\|.*\|$", before, re.MULTILINE)[2:]
+    proposed = [
+        "| 403 | OPEN | first proposed row |",
+        "| 404 | OPEN | second proposed row |",
+    ]
+    assert len(before_rows) == 2
+    assert _derive(repo, before)[0] == len(before_rows)
+    assert len(proposed) == 2
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, proposed))
+
+    result = _run(repo, request_path)
+
+    assert result.returncode == 0, result.stderr
+    after = register.read_text(encoding="ascii")
+    after_rows = re.findall(r"^\|.*\|$", after, re.MULTILINE)[2:]
+    assert after_rows[: len(before_rows)] == before_rows
+    assert after_rows[len(before_rows) :] == proposed
+    assert _derive(repo, after)[0] == len(before_rows) + len(proposed)
+    assert result.stderr.count(SUFFIX_DIAGNOSTIC) == 0
+
+
+def test_row511_count_preserving_rewrite_mutant_reaches_the_suffix_guard(
+    tmp_path: Path,
+) -> None:
+    """Mutation-only seam: the ordinary interface cannot rewrite an old row."""
+    rewritten = "| 401 | OPEN | rewritten before |"
+    if rewritten not in TOOL.read_text(encoding="utf-8"):
+        pytest.skip("row511 mutation is not installed")
+
+    repo, register = _fixture_repo(tmp_path)
+    before = register.read_bytes()
+    before_text = before.decode("ascii")
+    before_rows = re.findall(r"^\|.*\|$", before_text, re.MULTILINE)[2:]
+    proposed = ["| 403 | OPEN | proposed suffix |"]
+    assert len(before_rows) == 2
+    assert _derive(repo, before_text)[0] == len(before_rows)
+    assert len(proposed) == 1
+    request_path = tmp_path / "append.json"
+    _write_request(request_path, _request(repo, register, proposed))
+
+    result = _run(repo, request_path)
+
+    if result.returncode != 0:
+        assert result.returncode == 2, result.stderr
+        assert result.stderr.count(SUFFIX_DIAGNOSTIC) == 1
+        assert register.read_bytes() == before
+        pytest.fail(
+            "row511 mutant was refused once and the register remained byte-identical"
+        )
+    after = register.read_text(encoding="ascii")
+    after_rows = re.findall(r"^\|.*\|$", after, re.MULTILINE)[2:]
+    changed = [
+        index
+        for index, row in enumerate(before_rows)
+        if after_rows[index] != row
+    ]
+    assert changed == [0]
+    assert after_rows[0] == rewritten
+    assert after_rows[1 : len(before_rows)] == before_rows[1:]
+    assert after_rows[len(before_rows) :] == proposed
+    assert _derive(repo, after)[0] == len(before_rows) + len(proposed)
+    assert result.stderr.count(SUFFIX_DIAGNOSTIC) == 0
+
+
+def test_row511_transform_control_only_imports_the_append_module() -> None:
+    module = _load_tool_module()
+    assert callable(module.append)
+
+
 @pytest.mark.parametrize(
     ("name", "rows", "overrides", "diagnostic"),
-    [
-        ("stale digest", ["| 403 | OPEN | new work |"], {"expected_ids_sha256": "0" * 64}, "compare-and-swap canonical header digest mismatch"),
-        ("duplicate proposed id", ["| 403 | OPEN | one |", "| 403 | OPEN | two |"], {}, "unique numeric IDs"),
-        ("existing id", ["| 401 | OPEN | duplicate |"], {}, "already exists"),
-        ("out of order", ["| 405 | OPEN | later |", "| 403 | OPEN | earlier |"], {}, "numeric insertion order"),
-        ("not after existing IDs", ["| 400 | OPEN | late physical insertion |"], {}, "numeric insertion order"),
-        ("not open", ["| 403 | CLOSED @1 | false claim |"], {}, "exactly OPEN"),
-        ("open evidence", ["| 403 | OPEN @1 | false claim |"], {}, "exactly OPEN"),
-        ("empty item", ["| 403 | OPEN |  |"], {}, "non-empty item"),
-        ("embedded pipe", ["| 403 | OPEN | unsafe | extra |"], {}, "exactly four table pipes"),
-        ("embedded newline", ["| 403 | OPEN | unsafe\ntext |"], {}, "without newline or pipe"),
-        ("NUL item", ["| 403 | OPEN | unsafe\x00text |"], {}, "printable ASCII"),
-        ("TAB item", ["| 403 | OPEN | unsafe\ttext |"], {}, "printable ASCII"),
-        ("DEL item", ["| 403 | OPEN | unsafe\x7ftext |"], {}, "printable ASCII"),
-        ("non-ascii", ["| 403 | OPEN | caf\u00e9 |"], {}, "ASCII JSON object"),
-        ("wrong schema", ["| 403 | OPEN | new work |"], {"schema": "bd-register-append/v2"}, "schema must be bd-register-append/v1"),
-        ("extra request key", ["| 403 | OPEN | new work |"], {"unexpected": "value"}, "exactly the bd-register-append/v1 schema"),
-    ],
+    _REFUSAL_CASES,
 )
 def test_refusals_preserve_the_register_byte_for_byte(
     tmp_path: Path, name: str, rows: list[str], overrides: dict[str, object], diagnostic: str
 ) -> None:
+    assert len(_REFUSAL_CASES) == 16
     repo, register = _fixture_repo(tmp_path)
     before = register.read_bytes()
     request_path = tmp_path / "append.json"
@@ -292,6 +372,7 @@ def test_refusals_preserve_the_register_byte_for_byte(
 
     assert result.returncode == 2, (name, result.stderr)
     assert diagnostic in result.stderr, (name, result.stderr)
+    assert result.stderr.count(SUFFIX_DIAGNOSTIC) == 0, (name, result.stderr)
     assert register.read_bytes() == before, name
 
 

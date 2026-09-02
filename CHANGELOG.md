@@ -5,6 +5,46 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1449 - a neighbour stops poisoning the vault-routing tests, eight recovered commits land, the hunt family stops failing under load, and four more rows close
+
+Train 3: six refute-first-reviewed worker patches, stacked on v3.66.1448.
+
+- ROW 491 (and the six inherited test_v3_66_326 failures every lane carried):
+  tests/test_v3_66_41_pwmgr_audit_followups.py booted Flask inside a
+  TemporaryDirectory and restored only cwd, leaving app.SITES_FILE pinned to a
+  deleted directory for whichever file ran next in the same worker. The leak
+  is closed at its source and a catcher asserts the pin is returned exactly.
+  Base pair 6 failed / 13 passed; patched pair 22 passed.
+- ROW 649: the eight commits recovered from bd3/bd4 that never reached main
+  are carried onto current main -- captcha-egress acknowledgement and UI
+  disclosure, outer caps on the long test launchers, Flask/SPA outbound-link
+  validation, inode/owner-bound worktree GC, and their tests -- RED replayed on
+  the base for each (19 failed / 2 passed across the three new test files) and
+  a 7-mutant battery. The first version had weakened five assertions in
+  test_db_connection_open_contract.py; the landed version keeps them.
+- THE test_v3_66_1132 HUNT FAMILY: sustained process churn made the whole-host
+  /proc census see PIDs that vanished before stat, so the production probe
+  correctly answered UNKNOWN and eleven leader-only fixtures failed under a
+  loaded suite. Exactly those fixtures (7 of 65 call sites) opt into a
+  leader-scoped probe; every descendant-census test keeps the production
+  census. RED at load 15 with twelve parallel copies; GREEN 2340/2340.
+- ROW 632: bd-imports named a --shrink remedy its wrapper rejected; --shrink
+  is now accepted with --update and forwarded. Row 612 was already fixed on
+  the base and gains mutant specs only.
+- ROW 511: the register-append suffix guard compared two strings both derived
+  from the candidate and could never fire; it now compares the publication
+  candidate against the pre-append original read under the lock. RED: a
+  mutant silently rewrote row 401 with the tool exiting 0; now refused once
+  with the register byte-identical.
+- ROW 513: the live openssh transport gate ran in the operator's own account
+  with no ForceCommand/PermitUserRC=no; it now starts its own sshd with its
+  own host key on loopback and asserts the restriction, with the unrestricted
+  shape as the negative control (3 failed / 3 passed on the base harness).
+- Integrator steps: two additive merge conflicts with train 1 resolved by
+  keeping both sides (ci.yml shard lists, runner.py module constants); the
+  h326b anchor exceptions ported into the current registry (9 -> 12); the
+  import-graph baseline re-frozen.
+
 ## v3.66.1448 - the db-prune safety family reaches CI, and the secrets delete family is fixed
 
 Train 2, stacked on train 1 (its lane ran while train 1's CI ran).
