@@ -29,6 +29,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from .subprocess_helpers import kill_process_tree
+
 
 # Module-level state for run history. Bounded — never grows past 50.
 _runs_lock = threading.RLock()
@@ -64,6 +66,60 @@ def _settle_completed_run(run: dict, proc: subprocess.Popen) -> bool:
         run["finished"] = time.time()
     _close_run_identity(run)
     return True
+
+
+def _reap_worker_error(proc: subprocess.Popen) -> str:
+    """Reap the owned process tree before a worker error becomes terminal."""
+    try:
+        attempted = kill_process_tree(proc)
+    except Exception:
+        attempted = None
+    try:
+        if proc.stdout is not None:
+            proc.stdout.close()
+    except Exception:
+        pass
+    if attempted is None:
+        return "unknown"
+    if os.name == "nt":
+        return "reaped" if proc.poll() is not None else "unknown"
+
+    # Every dev run starts a new session, so its pid is also the immutable
+    # process-group receipt captured at launch.  kill_process_tree historically
+    # returned when the leader exited, even if a TERM-resistant descendant was
+    # still in that owned group.  Verify the group, and force only that exact
+    # group before publishing a terminal cleanup verdict.
+    pgid = proc.pid
+
+    def group_is_gone() -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
+
+    if not group_is_gone():
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return "unknown"
+        # The shared helper already budgets one second for its forced-reap
+        # phase.  Apply that same bounded ceiling to verification rather than
+        # turning a single probe into a false UNKNOWN while init reaps an
+        # orphaned descendant.
+        deadline = time.monotonic() + 1.0
+        while not group_is_gone() and time.monotonic() < deadline:
+            threading.Event().wait(0.01)
+
+    return (
+        "reaped"
+        if group_is_gone() and proc.poll() is not None
+        else "unknown"
+    )
 
 
 def is_dev_mode() -> bool:
@@ -226,6 +282,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
         "finished": None,
         "returncode": None,
         "pid": None,
+        "cleanup_state": "not-needed",
         "_process": None,
         "_pidfd": None,
     }
@@ -234,6 +291,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
         _trim_history()
 
     def _worker():
+        proc = None
         try:
             cmd = _build_cmd(target, kind)
             if cmd is None:
@@ -266,6 +324,8 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                 cwd=str(_repo_root()),
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 **_pgrp,
             )
@@ -301,6 +361,9 @@ def start_run(target: str, *, kind: str = "file") -> dict:
             with _runs_lock:
                 _settle_completed_run(run, proc)
         except Exception as e:
+            cleanup_state = (
+                _reap_worker_error(proc) if proc is not None else "not-acquired"
+            )
             with _runs_lock:
                 if run["state"] == "running":
                     run["state"] = "error"
@@ -309,7 +372,9 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                                  f"\n[worker error] {type(e).__name__}: {e}"
                 if run["returncode"] is None:
                     run["returncode"] = -1
-                _close_run_identity(run)
+                run["cleanup_state"] = cleanup_state
+                if cleanup_state != "unknown":
+                    _close_run_identity(run)
 
     t = threading.Thread(target=_worker, daemon=True,
                           name=f"dev-run-{run_id}")

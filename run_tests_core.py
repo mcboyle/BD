@@ -587,7 +587,8 @@ def make_aiassist_module():
 
 # ── Test runner ────────────────────────────────────────────────────────
 def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
-             named_fixtures=None, setup_function=None, xunit_target=None):
+             named_fixtures=None, setup_function=None,
+             teardown_function=None, xunit_target=None):
     """Invoke a test function with appropriate fixtures.
 
     module_wipe: when True (the file carries
@@ -892,6 +893,15 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
             if teardown_fn is not None and callable(teardown_fn):
                 try: teardown_fn()
                 except Exception: pass
+            if callable(teardown_function):
+                try:
+                    hook_params = inspect.signature(teardown_function).parameters
+                    if hook_params:
+                        teardown_function(xunit_target or test_fn)
+                    else:
+                        teardown_function()
+                except Exception:
+                    pass
             # bd_module_wipe restore: drop whatever the test imported and
             # put back the pre-test snapshot, so the next test starts clean.
             if module_wipe and _wipe_saved is not None:
@@ -993,6 +1003,7 @@ def discover_and_run(test_file):
             named_fixtures[name] = obj
 
     module_setup_function = getattr(mod, "setup_function", None)
+    module_teardown_function = getattr(mod, "teardown_function", None)
 
     results = []
     for name in dir(mod):
@@ -1087,6 +1098,7 @@ def discover_and_run(test_file):
                                            module_wipe=_module_wipe,
                                            named_fixtures=named_fixtures,
                                            setup_function=module_setup_function,
+                                           teardown_function=module_teardown_function,
                                            xunit_target=obj)
                     except _Skipped as e:
                         _dt = time.perf_counter() - _t0
@@ -1101,6 +1113,7 @@ def discover_and_run(test_file):
                                module_wipe=_module_wipe,
                                named_fixtures=named_fixtures,
                                setup_function=module_setup_function,
+                               teardown_function=module_teardown_function,
                                xunit_target=obj)
             except _Skipped as e:
                 # PT9 fix: mirror the class-method paths above. Without

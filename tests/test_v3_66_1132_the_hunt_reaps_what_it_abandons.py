@@ -200,6 +200,11 @@ _MEASURED_S = {
     "_w1_wait_for_path/default":                                                 (3.1513, 5.0),
     "fixture_marker_waits_for_content/fifo":                                     (0.1000, 0),
     "fixture_marker_waits_for_content/wait":                                     (0.1000, 0),
+    "_w1_budget_boundary/reap-wait":                                             (0.0035, 5),
+    "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait":                (0.0035, 5),
+    "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait-2":              (0.0035, 5),
+    "hunt_fixture_does_not_report_a_self_exited_child_as_leaked/wait":            (0.1000, 5),
+    "hunt_fixture_reaps_descendant_after_group_leader_exits/wait":               (0.1000, 5),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink":  (0.0054, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/readlink-2":(0.0003, 10.0),
     "a_descriptor_wait_is_required_because_a_live_pid_proves_nothing/wait":      (0.0033, 5),
@@ -468,8 +473,19 @@ def _w1_budget_boundary(monkeypatch):
     """
     depth = {"n": 0}
     real_run = subprocess.run
+    real_popen_init = subprocess.Popen.__init__
     real_wait = subprocess.Popen.wait
     real_communicate = subprocess.Popen.communicate
+    spawned = []
+    cleanup = {"tracked": 0, "reaped": 0, "settled": 0, "unknown": 0}
+
+    def tracked_init(process, *args, **kwargs):
+        real_popen_init(process, *args, **kwargs)
+        try:
+            receipt = _w1_proc_receipt(process.pid)
+        except (FileNotFoundError, ProcessLookupError, OSError):
+            receipt = None
+        spawned.append((process, receipt))
 
     def timed(orig, get_timeout):
         def wrapper(*args, **kwargs):
@@ -487,6 +503,7 @@ def _w1_budget_boundary(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run",
                         timed(real_run, lambda a, k: k.get("timeout")))
+    monkeypatch.setattr(subprocess.Popen, "__init__", tracked_init)
     monkeypatch.setattr(subprocess.Popen, "wait",
                         timed(real_wait,
                               lambda a, k: k.get("timeout",
@@ -495,7 +512,195 @@ def _w1_budget_boundary(monkeypatch):
                         timed(real_communicate,
                               lambda a, k: k.get("timeout",
                                                  a[2] if len(a) > 2 else None)))
-    yield
+    try:
+        yield cleanup
+    finally:
+        cleanup["tracked"] = len(spawned)
+        for process, receipt in spawned:
+            owns_group = receipt is not None and receipt[1] == process.pid
+
+            def group_is_gone():
+                if not owns_group:
+                    return True
+                try:
+                    os.killpg(receipt[1], 0)
+                except ProcessLookupError:
+                    return True
+                except OSError as exc:
+                    return exc.errno == errno.ESRCH
+                return False
+
+            if process.poll() is not None and group_is_gone():
+                cleanup["settled"] += 1
+                continue
+
+            try:
+                if owns_group:
+                    os.killpg(receipt[1], signal.SIGKILL)
+                else:
+                    process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                process.wait(timeout=_w1_budget_s(
+                    "_w1_budget_boundary/reap-wait"))
+            except (subprocess.TimeoutExpired, OSError):
+                cleanup["unknown"] += 1
+                continue
+
+            if owns_group:
+                deadline = time.monotonic() + _w1_budget_s(
+                    "_w1_budget_boundary/reap-wait")
+                while not group_is_gone() and time.monotonic() < deadline:
+                    threading.Event().wait(0.01)
+            if process.poll() is not None and group_is_gone():
+                cleanup["reaped"] += 1
+            else:
+                cleanup["unknown"] += 1
+
+        assert cleanup["unknown"] == 0, (
+            "HUNT FIXTURE CLEANUP UNKNOWN: "
+            f"tracked={cleanup['tracked']} reaped={cleanup['reaped']} "
+            f"settled={cleanup['settled']} unknown={cleanup['unknown']}"
+        )
+        assert cleanup["tracked"] == cleanup["reaped"] + cleanup["settled"], (
+            "hunt fixture cleanup denominator did not reconcile: "
+            f"{cleanup!r}"
+        )
+
+
+def _w1_exact_receipt_is_present(receipt):
+    try:
+        return _w1_proc_receipt(receipt[0]) == receipt
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+
+def test_hunt_fixture_reaps_the_exact_process_group_it_spawned():
+    """RED for row 468: fixture teardown used to abandon this live group."""
+    inner_patch = pytest.MonkeyPatch()
+    boundary = _w1_budget_boundary.__wrapped__(inner_patch)
+    cleanup = next(boundary)
+    proc = subprocess.Popen(
+        [sys.executable, "-c",
+         "import time; print('READY', flush=True); time.sleep(300)"],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    receipt = None
+    try:
+        assert proc.stdout.readline() == "READY\n", (
+            "the abandoned-child fixture never reached its live marker"
+        )
+        receipt = _w1_proc_receipt(proc.pid)
+        assert receipt[1] == proc.pid, (
+            "the fixture did not create the independent process group it claims"
+        )
+        assert _w1_exact_receipt_is_present(receipt), (
+            "the exact child did not exist before fixture teardown"
+        )
+
+        next(boundary, None)
+        survivors = int(_w1_exact_receipt_is_present(receipt))
+        assert survivors == 0, (
+            "HUNT FIXTURE ABANDONED ITS LIVE CHILD: "
+            f"pid={proc.pid} survivors={survivors} reaped=0"
+        )
+        assert cleanup["tracked"] == 1
+        assert cleanup["reaped"] == 1, (
+            "fixture teardown did not report the exact nonzero reap count"
+        )
+        assert cleanup["unknown"] == 0
+    finally:
+        if receipt is not None and _w1_exact_receipt_is_present(receipt):
+            os.killpg(proc.pid, signal.SIGKILL)
+        try:
+            proc.wait(timeout=_w1_budget_s(
+                "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait"))
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=_w1_budget_s(
+                "hunt_fixture_reaps_the_exact_process_group_it_spawned/wait-2"))
+        inner_patch.undo()
+
+
+def test_hunt_fixture_does_not_report_a_self_exited_child_as_leaked():
+    """Negative control: settled children stay out of the reaped denominator."""
+    inner_patch = pytest.MonkeyPatch()
+    boundary = _w1_budget_boundary.__wrapped__(inner_patch)
+    cleanup = next(boundary)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        start_new_session=True,
+    )
+    try:
+        assert proc.wait(timeout=_w1_budget_s(
+            "hunt_fixture_does_not_report_a_self_exited_child_as_leaked/wait")) == 0
+        assert proc.returncode == 0, "the negative-control child did not self-exit"
+        assert not pathlib.Path("/proc", str(proc.pid), "stat").exists()
+        next(boundary, None)
+        assert cleanup["tracked"] == 1
+        assert cleanup["reaped"] == 0
+        assert cleanup["settled"] == 1
+        assert cleanup["unknown"] == 0
+    finally:
+        inner_patch.undo()
+
+
+def test_hunt_fixture_reaps_descendant_after_group_leader_exits(tmp_path):
+    """An exited leader is settled only when its owned group is also gone."""
+    marker = tmp_path / "descendant.pid"
+    descendant = (
+        "import os, pathlib, sys, time; "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()), encoding='ascii'); "
+        "time.sleep(300)"
+    )
+    leader = (
+        "import pathlib, subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
+        "p = pathlib.Path(sys.argv[2])\n"
+        "deadline = time.monotonic() + 5\n"
+        "while not p.exists() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.01)\n"
+        "assert p.exists()\n"
+    )
+    inner_patch = pytest.MonkeyPatch()
+    boundary = _w1_budget_boundary.__wrapped__(inner_patch)
+    cleanup = next(boundary)
+    proc = subprocess.Popen(
+        [sys.executable, "-c", leader, descendant, str(marker)],
+        start_new_session=True,
+    )
+    child_receipt = None
+    try:
+        assert proc.wait(timeout=_w1_budget_s(
+            "hunt_fixture_reaps_descendant_after_group_leader_exits/wait"
+        )) == 0
+        child_pid = int(marker.read_text(encoding="ascii"))
+        child_receipt = _w1_proc_receipt(child_pid)
+        assert child_receipt[1] == proc.pid, (
+            "the descendant did not inherit the fixture-owned process group"
+        )
+        assert _w1_exact_receipt_is_present(child_receipt), (
+            "the descendant was not live after its leader exited"
+        )
+
+        next(boundary, None)
+        survivors = int(_w1_exact_receipt_is_present(child_receipt))
+        assert survivors == 0, (
+            "HUNT FIXTURE SETTLED A LEAKED DESCENDANT: "
+            f"leader={proc.pid} child={child_pid} survivors={survivors} "
+            f"cleanup={cleanup!r}"
+        )
+        assert cleanup == {"tracked": 1, "reaped": 1,
+                           "settled": 0, "unknown": 0}
+    finally:
+        if child_receipt is not None and _w1_exact_receipt_is_present(child_receipt):
+            os.killpg(proc.pid, signal.SIGKILL)
+        inner_patch.undo()
+
+
 HUNT = REPO / "toolchain" / "bin" / "bd-wedge-hunt"
 
 

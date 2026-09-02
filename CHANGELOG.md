@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1429 - the transport and the harness prove what they abandon
+
+Rows 428, 430, 431, 445, 468 and 525. Two surfaces, one contract: a number
+handed onward, or a process left behind, must be a MEASUREMENT of what is
+actually there.
+
+- 428. On resume a 416 proves only that the requested offset is not inside the
+  CURRENT resource. The branch promoted the .part unconditionally and returned
+  a zero byte count, so a partial of an OLD, larger resource became a done row
+  holding a truncated file. Promotion now requires proof: the 416's
+  complete-length parses and equals the .part's length, and any validators
+  present on both sides still match. Anything unprovable discards the .part and
+  refuses with its own diagnostic, so the retry restarts from byte 0 rather
+  than re-running the same 416 forever.
+- 430. bytes-fetched was final_size minus the old .part's size, an on-disk
+  delta. A 200 answer to a resume restarts the whole resource, so a smaller new
+  file went negative and was clamped to 0 -- history's documented value for
+  "nothing was transferred" -- for a real transfer. The count now comes from a
+  counter incremented once per received buffer and by nothing else. An
+  unmeasurable final size refuses instead of claiming zero, and the throughput
+  average is trained on the corrected number.
+- 431. Parallel-download workers write through buffered handles and advanced
+  the resume checkpoint on bytes still in the write buffer, so a crash resumed
+  past data that never reached the disk. The checkpoint now advances only
+  behind a flush.
+- 445. The dev-run worker decoded child output with the ambient locale and no
+  errors policy, so one undecodable byte raised inside the reader and orphaned
+  a wedged pytest child. The decode is now explicit and lossy, and a failed run
+  reaps its own descendants.
+- 468. A runner.sh started by the hunt's own fixture was still running 31 hours
+  later with its cwd and script text deleted underneath it. The fixture now
+  verifies its process group is empty before it returns, and unknown cleanup
+  state is preserved as unknown rather than reported clean.
+- 525. The fallback runner had a setup function and no teardown function. It
+  has both, and the pairing is asserted.
+
 ## v3.66.1428 - three gates measure what they claim
 
 Rows 504, 512, 630 and fourteen new filings.
