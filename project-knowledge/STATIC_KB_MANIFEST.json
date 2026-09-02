@@ -1,6 +1,6 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-02T00:09:15+00:00",
+ "generated": "2026-09-02T01:09:55+00:00",
  "version_context": "v3.66.1429",
  "file_count": 91,
  "files": {
@@ -153,8 +153,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "2f465045e330a00e0cc1e6d8a76076f47852e01eb4c59453028a01c2c35a6ac3",
-   "bytes": 933979
+   "sha256": "25b0a4cbbd4fe3006a07266fb32bb3b80d93b651163e0f0608229a221c795d2b",
+   "bytes": 941165
   },
   "IMPROVEMENT_BACKLOG.md.parked-control.parked-control": {
    "sha256": "fba3c3bc36bbe5ddbf65e48572d82fbf8900e39bf8db55eebb8f9a1b195f83b1",
