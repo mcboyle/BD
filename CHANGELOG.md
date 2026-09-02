@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1441 - a register hole is declared, or it is a failure
+
+Two additions that make the toolchain describable and the register countable.
+
+- A REGISTER HOLE IS NOW DECLARED OR IT FAILS. Fifty-seven row ids are absent
+  from the register in twenty blocks, and only four were ever documented.
+  Nothing deleted them: a walk of two hundred and sixty-six generations found
+  zero removals, and a sweep of 2,626 register blobs -- including 2,271 dangling
+  ones -- found that none of the missing ids ever existed. The cause is that
+  append enforced monotonic increase and uniqueness but never CONTIGUITY, so ids
+  handed to concurrent workers out of order left a permanent hole whenever a cut
+  did not merge. The check extends the gate that already owns the id population
+  rather than adding a new one, because uniqueness and contiguity are two halves
+  of one question. It refuses five distinguishable ways: an undeclared hole, an
+  allowlist entry whose id is actually PRESENT, an entry above the highest id, a
+  denominator of zero or two parsers disagreeing, and a malformed allowlist. The
+  stale-entry case matters as much as the missing-id case, because an allowlist
+  nobody prunes decays into permanent permission.
+  The declaration is written BEFORE the row it excuses. Two files cannot share
+  one atomic replace, so both are staged and flushed before either is moved, and
+  the allowlist moves first -- the reason is durable before the gap exists. A
+  test fails the second replace deliberately to prove that order holds.
+- THE TOOLCHAIN HAS AN INDEX. Forty-two tools documented by the question they
+  answer rather than by directory, each with its invocation, its exit codes read
+  from source, its dependencies, its safety notes and its tests. The remaining
+  six hundred are covered by two enumeration commands that were verified rather
+  than asserted. Sixty-one harness files that nothing references are listed as
+  UNCLASSIFIED, not dead: an unreferenced script may be the one someone runs by
+  hand at the moment it matters.
+
 ## v3.66.1439 - the recovery debt opens before the stop
 
 Row 285, recovered from a commit that existed only on one capacity host and was
