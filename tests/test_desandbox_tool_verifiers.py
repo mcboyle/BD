@@ -2374,7 +2374,51 @@ def test_the_mutation_engine_selftest_still_passes():
     assert "SELFTEST PASS" in r.stdout, r.stdout[-2000:]
 
 
-def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(tmp_path, monkeypatch):
+def _live_writers_under(root: Path) -> list[str]:
+    """Every live process whose CWD is inside ``root``, named exactly.
+
+    Reads /proc/<pid>/cwd rather than matching a pattern over argv: an argv
+    probe also matches the shell that WROTE the script it looks for, and the
+    ``[b]racket`` trick does not hide it because there the pattern is data
+    rather than argv (CLAUDE.md A7).  A readlink cannot match this process by
+    accident, and this process is excluded by pid regardless.
+
+    Returns one readable row per writer, so a contended cleanup can NAME the
+    process holding the directory instead of collapsing to a bare ENOTEMPTY
+    that leads the reader nowhere.
+    """
+    rows: list[str] = []
+    try:
+        root = root.resolve()
+    except OSError:
+        return rows
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == os.getpid():
+            continue
+        try:
+            cwd = Path(os.readlink("/proc/%d/cwd" % pid))
+            cwd.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        try:
+            with open("/proc/%d/cmdline" % pid, "rb") as fh:
+                argv = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            argv = "<exited>"
+        rows.append("pid=%d cwd=%s argv=%s" % (pid, cwd, argv.strip()[:160]))
+    return rows
+
+
+_REAP_RECORD = re.compile(
+    r"the orphaned band session is reaped "
+    r"\(pgid=(?P<pgid>-?\d+) alive=(?P<alive>\w+) gone=(?P<gone>\w+)\)")
+
+
+def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(
+        tmp_path, monkeypatch, capsys):
     """RED: removing the retry leaves a known selftest-owned tree behind.
 
     The real selftest exits its TemporaryDirectory context after its last
@@ -2382,6 +2426,31 @@ def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(tmp_path, monkeypat
     seam: a writer creates a file after the remover's traversal and the first
     removal reports ENOTEMPTY.  A second removal must reclaim that same owned
     directory.  It is deterministic rather than a timed competing thread.
+
+    ROW 638 -- and why "modelled" and "only" are both load-bearing.  This test
+    twice failed GitHub CI with ``OSError: [Errno 39] Directory not empty`` on
+    candidates touching neither the tool nor this file, and passed on test5.
+    That text is the OS's own strerror, not the injection's "injected late
+    writer", so the escape is the RETRY's real removal meeting a genuinely
+    non-empty tree -- there was a SECOND writer, one this test does not own.
+
+    Measured on test5 2026-09-02 (bd-persist/workers/1451/): selftest section 7
+    SIGTERMs a child bd-mutate mid-battery, but ``_run_owned`` starts every
+    band with ``start_new_session=True``, so the band pytest is its own session
+    leader and the signal never reaches it.  It survives with ppid=1, keeps the
+    selftest root as its cwd, and goes on creating ``.pytest_cache`` and its
+    ``--junitxml`` directory INSIDE the root -- pid 3817652, ppid=1,
+    pgid=sid=3817652, still adding entries 6.3s after ``proc.wait()`` returned.
+    Widen that window the way CI load widens it and the cleanup reproduces the
+    CI text exactly, at ``os.rmdir('kill')`` -- ``kill`` being the orphan's own
+    cwd, so the OS names the writer's directory in the error it raises.
+
+    So the three preconditions below are the point of this test, not decoration.
+    A run measured on test5 with the orphan ALIVE at retry time and merely idle
+    passed every assertion this test used to carry: "the retry worked" and "the
+    directory happened to be empty this time" were the same green.  They are
+    now separated -- the retry must be shown a non-empty root containing the
+    injected racer, and the root must be shown to contain no writer but ours.
     """
     mutate = _load_bd_mutate()
     real_mkdtemp = tempfile.mkdtemp
@@ -2390,6 +2459,7 @@ def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(tmp_path, monkeypat
     selftest_roots = []
     removals = []
     fired = []
+    observed: dict[str, object] = {}
 
     def track_selftest_mkdtemp(*args, **kwargs):
         directory = kwargs.get("dir", args[2] if len(args) > 2 else None)
@@ -2408,6 +2478,12 @@ def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(tmp_path, monkeypat
                 (candidate / "late-writer.txt").write_text(
                     "contended\n", encoding="utf-8")
                 raise OSError(errno.ENOTEMPTY, "injected late writer")
+            # THE RETRY.  Record what it actually has to reclaim, and who else
+            # is writing here, BEFORE the removal destroys the evidence for
+            # both.  Without this the verdict cannot tell a working retry from
+            # a lucky one.
+            observed["entries"] = sorted(p.name for p in candidate.iterdir())
+            observed["writers"] = _live_writers_under(candidate)
         return real_rmtree(path, *args, **kwargs)
 
     monkeypatch.setattr(mutate.tempfile, "mkdtemp", track_selftest_mkdtemp)
@@ -2416,7 +2492,60 @@ def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(tmp_path, monkeypat
     else:
         monkeypatch.setattr(tempfile._shutil, "rmtree", late_writer_rmtree)
 
-    assert mutate._selftest(tmp_path) == 0
+    try:
+        rc = mutate._selftest(tmp_path)
+    except OSError as exc:
+        # NAME THE STEP AND CARRY THE SYSTEM'S OWN WORDS.  A bare ENOTEMPTY
+        # here is indistinguishable from a broken injection, and the two lead
+        # to opposite actions.
+        pytest.fail(
+            "the selftest root could not be reclaimed -- %s: %s\n"
+            "  entries at retry: %r\n"
+            "  live writers at retry: %r\n"
+            "A non-empty writer list is row 638: something outside this test "
+            "was creating entries in the root while the retry removed it. An "
+            "empty one means the retry itself is broken."
+            % (type(exc).__name__, exc,
+               observed.get("entries"), observed.get("writers")))
+    printed = capsys.readouterr().out
+
+    # PRECONDITION 1 -- the selftest owns every writer in its own root, so the
+    # only race left at this seam is the one this test injects.  This is the
+    # assertion with RED provenance: the base selftest emits no reap record at
+    # all, on every host and every schedule.
+    record = _REAP_RECORD.search(printed)
+    assert record, (
+        "the selftest recorded no reap of the band session it orphans in "
+        "section 7, so a writer it does not own may still be inside the root "
+        "this cleanup removes -- row 638.\n" + printed[-3000:])
+    assert int(record.group("pgid")) > 0, (
+        "the selftest never learned the orphaned band's session id, so its "
+        "reap had no subject: " + record.group(0))
+    assert record.group("alive") == "True", (
+        "the selftest found no LIVE band session to reap. A reaper that is "
+        "satisfied by an already-dead group is the fail-open shape it exists "
+        "to prevent, and it would pass here on exactly the schedules that "
+        "make row 638 fire: " + record.group(0))
+    assert record.group("gone") == "True", (
+        "the orphaned band session outlived its reap: " + record.group(0))
+
+    # PRECONDITION 2 -- the retry had something real to reclaim.
+    assert observed.get("entries"), (
+        "the root was empty at retry time, so the removal below reclaimed "
+        "nothing and its success says nothing about the retry")
+    assert "late-writer.txt" in observed["entries"], (
+        "the injected racer was not present for the retry to reclaim, so a "
+        "green verdict here is about a directory that happened to be clean, "
+        "not about the retry: %r" % (observed["entries"],))
+
+    # PRECONDITION 3 -- and no writer but ours.
+    assert observed.get("writers") == [], (
+        "a process outside this test was writing inside the selftest root "
+        "while the retry removed it; that is row 638, and it must be NAMED "
+        "here rather than surfacing later as a bare ENOTEMPTY:\n  "
+        + "\n  ".join(observed.get("writers") or []))
+
+    assert rc == 0
     assert len(selftest_roots) == 1
     assert fired == selftest_roots, "the late-writer cleanup race never fired"
     assert removals == [selftest_roots[0], selftest_roots[0]], removals
