@@ -60,7 +60,7 @@ untracked. A glob is a denominator choice; say which one you used.
 | Question | Tool |
 | --- | --- |
 | Where do I do this work? | `/home/mboyle/bd-cut.sh` |
-| Will an expensive gate reject this tree anyway? (26s) | `toolchain/bin/bd-denom-preflight` via the harness copy |
+| Will an expensive gate reject this tree anyway? (26s) | `/home/mboyle/bd-denom-preflight` (harness only; no `toolchain/bin` copy exists) |
 | Will CI reject it? (~2 min, local) | `/home/mboyle/bd-prepush.sh` |
 | Which tree-wide gates can the band never derive? | `toolchain/bin/bd-precut --gate` |
 | Which tests does this diff require? | `toolchain/bin/bd-band-derive` |
@@ -262,6 +262,13 @@ from the scan without removing it from the history.
   goes green over a corpus that excludes its own subject. `git add` the file
   first, then run the gate from the work-tree root -- `--root` defaults to the
   current directory, so running it in the integrator's tree gates the wrong tree.
+* **IT DOES NOT ANSWER THE REGEN QUESTION.** Generated-artifact sync is a
+  separate gate, and reading freshcheck's OK as though it had answered cost a
+  full verify lane once already. Run `bd-regen-order` and diff its own tracked
+  outputs -- `bd-verify-when-ready` does exactly that, for exactly this reason.
+  Measured for this document: `docs/repo/` is outside the static-KB denominator
+  (zero `docs/repo` entries in `project-knowledge/STATIC_KB_MANIFEST.json`) and a
+  full regen after the last edit left all ten tracked outputs clean.
 * **Corpus** root-level `*.md` plus everything under `project-knowledge/` and
   `docs/`, with `CHANGELOG.md` and `docs/archive/` classified historical and
   excluded. The rule lives once, in `toolchain/bin/bdtools_sec.py`, because two
@@ -718,8 +725,9 @@ between a frozen candidate and `bd-land`.
 
 ## bd-integrate-row.sh -- turn a QA'd worktree into a proper cut
 
-* **Location** `/home/mboyle/bd-integrate-row.sh` (350 lines, the
-  most-referenced script in the harness). Status: live.
+* **Location** `/home/mboyle/bd-integrate-row.sh` (350 lines; tied with
+  `bd-verify-cut.sh` at 42 inbound references, the highest in the harness map).
+  Status: live.
 * **Invoke** `bash /home/mboyle/bd-integrate-row.sh <row> <version> <slug> <changelog-title>`.
   The row argument may name SEVERAL rows landing as one cut; the FIRST row names
   the artifacts and the PR body.
@@ -1211,8 +1219,13 @@ bd-width-restore.sh             bd-worker-dashboard.sh
 Three further files are recorded as RESIDUE -- backup or superseded copies that
 are deliberately kept: `bd-fleet-deploy.sh.bak`, `bd-row-chain.sh.preoverlap` and
 one more `.preoverlap` copy whose stem finding 5 forbids this document to spell.
-Two of those exist because `bd-edit.py`'s empty-stdin fail-open once emptied a
-live script, and the backups were the only recovery.
+The two `.preoverlap` files are ROLLBACK copies, and their provenance is in the
+source of the script that wrote them: `/home/mboyle/bd-install-overlap.sh` waits
+until no chain is mid-flight, copies each live script to `<name>.preoverlap`,
+then `mv`s the new versions into place -- its own last line reads
+`rollback: mv *.preoverlap back`. That script is itself on the unreferenced list
+above, which is the point of the list: it is unreferenced and it authored two of
+the three residue files.
 
 ## The bd-row212-* directories
 
