@@ -52,13 +52,22 @@ def _fake_runner(site_id, config, http_calls):
         except Exception:
             pass
         return True
-    return types.SimpleNamespace(
+    ns = types.SimpleNamespace(
         site_id=site_id, config=config,
         _do_direct_http_download=_ddhd,
         _update_job=lambda *a, **k: None,
         log_event=lambda *a, **k: None,
         _stop=threading.Event(),
     )
+    # Row 439: the HLS arm now reaches hls_downloader only through the
+    # fail-closed egress gate. Bind the REAL gate (and the REAL proxy
+    # resolution it depends on) onto the stand-in rather than stubbing them,
+    # so this test still exercises the production seam end to end -- a stub
+    # here would quietly re-open the very bypass row 439 closed.
+    from bulk_downloader.runner_transport import TransportMixin
+    ns._download_proxy_url = TransportMixin._download_proxy_url.__get__(ns)
+    ns._hls_download_guarded = TransportMixin._hls_download_guarded.__get__(ns)
+    return ns
 
 
 def _call(fs, url):
